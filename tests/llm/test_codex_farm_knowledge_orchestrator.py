@@ -24,7 +24,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
             "codex_farm_knowledge_context_blocks": 1,
             "codex_farm_failure_mode": "fail",
         }
@@ -150,7 +150,7 @@ def test_knowledge_orchestrator_noops_when_no_stage7_knowledge_spans(tmp_path: P
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
         }
     )
     result = ConversionResult(

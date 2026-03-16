@@ -25,7 +25,7 @@ from cookimport.core.models import (
     TopicCandidate,
 )
 from cookimport.parsing.label_source_of_truth import (
-    LabelFirstCompatibilityResult,
+    LabelFirstStageResult,
     build_authoritative_stage_block_predictions,
 )
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
@@ -1203,7 +1203,7 @@ def write_stage_block_predictions(
     archive_blocks: list[dict[str, Any]] | None = None,
     nonrecipe_stage_result: NonRecipeStageResult | None = None,
     output_stats: OutputStats | None = None,
-    label_first_result: LabelFirstCompatibilityResult | None = None,
+    label_first_result: LabelFirstStageResult | None = None,
 ) -> Path:
     """Write deterministic block-level stage predictions for benchmark scoring."""
     if label_first_result is not None:

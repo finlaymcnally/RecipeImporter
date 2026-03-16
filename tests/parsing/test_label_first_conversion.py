@@ -29,7 +29,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             text="Pancakes",
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -39,7 +38,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             text="1 cup flour",
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -49,7 +47,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             text="Whisk batter",
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -59,7 +56,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             text="Why batter rests matters",
             deterministic_label="KNOWLEDGE",
             final_label="KNOWLEDGE",
-            confidence=0.9,
             decided_by="rule",
         ),
     ]
@@ -70,7 +66,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             supporting_atomic_indices=[0],
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -79,7 +74,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             supporting_atomic_indices=[1],
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -88,7 +82,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             supporting_atomic_indices=[2],
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -97,7 +90,6 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             supporting_atomic_indices=[3],
             deterministic_label="KNOWLEDGE",
             final_label="KNOWLEDGE",
-            confidence=0.9,
             decided_by="rule",
         ),
     ]
@@ -138,7 +130,7 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
         recipe_spans=recipe_spans,
     )
 
-    result = compatibility.conversion_result
+    result = compatibility.updated_conversion_result
     assert len(result.recipes) == 1
     assert result.recipes[0].name == "Pancakes"
     assert result.recipes[0].ingredients == ["1 cup flour"]

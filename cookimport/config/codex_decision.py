@@ -25,8 +25,8 @@ SECTION_DETECTOR_SHARED_V1 = "shared_v1"
 INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
 INSTRUCTION_STEP_SEGMENTER_HEURISTIC_V1 = "heuristic_v1"
 BENCHMARK_SEQUENCE_MATCHER_DMP = "dmp"
-COMPACT_PASS4_KNOWLEDGE_PIPELINE = "recipe.knowledge.compact.v1"
-PASS5_TAGS_PIPELINE = "recipe.tags.v1"
+COMPACT_KNOWLEDGE_PIPELINE = "recipe.knowledge.compact.v1"
+TAGS_PIPELINE = "recipe.tags.v1"
 
 
 @dataclass(frozen=True)
@@ -38,24 +38,8 @@ class Bucket1FixedBehavior:
     benchmark_sequence_matcher: str = BENCHMARK_SEQUENCE_MATCHER_DMP
     multi_recipe_trace: bool = False
     p6_emit_metadata_debug: bool = False
-    codex_farm_pipeline_pass4_knowledge: str = COMPACT_PASS4_KNOWLEDGE_PIPELINE
-    codex_farm_pipeline_pass5_tags: str = PASS5_TAGS_PIPELINE
-
-    def legacy_key_patch(self) -> dict[str, Any]:
-        return {
-            "section_detector_backend": self.section_detector_backend,
-            "instruction_step_segmentation_policy": (
-                self.instruction_step_segmentation_policy
-            ),
-            "instruction_step_segmenter": self.instruction_step_segmenter,
-            "benchmark_sequence_matcher": self.benchmark_sequence_matcher,
-            "multi_recipe_trace": self.multi_recipe_trace,
-            "p6_emit_metadata_debug": self.p6_emit_metadata_debug,
-            "codex_farm_pipeline_pass4_knowledge": (
-                self.codex_farm_pipeline_pass4_knowledge
-            ),
-            "codex_farm_pipeline_pass5_tags": self.codex_farm_pipeline_pass5_tags,
-        }
+    codex_farm_pipeline_knowledge: str = COMPACT_KNOWLEDGE_PIPELINE
+    codex_farm_pipeline_tags: str = TAGS_PIPELINE
 
     def manifest_metadata(self) -> dict[str, Any]:
         return {

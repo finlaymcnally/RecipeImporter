@@ -75,8 +75,6 @@ GROUP_UPLOAD_BUNDLE_MAX_WRONG_LINE_SAMPLES_PER_RUN = 240
 GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_SHARE = 0.08
 GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_MIN_BYTES = 64 * 1024
 UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION = 2
-UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD = 0.90
-UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD = UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD
 UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING = {
     "input_per_1m": 3.0,
     "cached_input_per_1m": 0.0,
@@ -170,11 +168,8 @@ STARTER_PACK_COMPARISON_MIRROR_FILE_NAME = "11_comparison_summary.json"
 STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME = "12_per_recipe_or_per_span_breakdown.json"
 STARTER_PACK_NET_ERROR_BLAME_FILE_NAME = "13_net_error_blame_summary.json"
 STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME = "14_config_version_metadata.json"
-STARTER_PACK_LOW_TRUST_CHANGED_LINES_FILE_NAME = (
-    "15_low_trust_changed_lines.packet.jsonl"
-)
-STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME = (
-    STARTER_PACK_LOW_TRUST_CHANGED_LINES_FILE_NAME
+STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME = (
+    "15_explicit_escalation_changed_lines.packet.jsonl"
 )
 STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME = "16_baseline_trace_parity.json"
 STARTER_PACK_SELECTION_POLICY = {
@@ -197,11 +192,8 @@ UPLOAD_BUNDLE_NET_ERROR_BLAME_SCHEMA_VERSION = "upload_bundle_net_error_blame.v1
 UPLOAD_BUNDLE_CONFIG_VERSION_METADATA_SCHEMA_VERSION = (
     "upload_bundle_config_version_metadata.v1"
 )
-UPLOAD_BUNDLE_LOW_TRUST_CHANGED_LINES_SCHEMA_VERSION = (
-    "upload_bundle_low_trust_changed_lines.v1"
-)
-UPLOAD_BUNDLE_LOW_CONFIDENCE_CHANGED_LINES_SCHEMA_VERSION = (
-    UPLOAD_BUNDLE_LOW_TRUST_CHANGED_LINES_SCHEMA_VERSION
+UPLOAD_BUNDLE_EXPLICIT_ESCALATION_CHANGED_LINES_SCHEMA_VERSION = (
+    "upload_bundle_explicit_escalation_changed_lines.v1"
 )
 STARTER_PACK_TRIAGE_HEADER = (
     "recipe_id",
@@ -235,8 +227,8 @@ AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
 FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
 PROMPT_TYPE_SAMPLES_FILE_NAME = "prompt_type_samples_from_full_prompt_log.md"
-PASS4_PROMPT_TASK_FILE_NAME = "prompt_task4_knowledge.txt"
-PASS4_KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
+KNOWLEDGE_PROMPT_FILE_NAME = "prompt_extract_knowledge_optional.txt"
+KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 PROMPT_WARNING_AGGREGATE_FILE_NAME = "prompt_warning_aggregate.json"
 PROJECTION_TRACE_FILE_NAME = "projection_trace.codex_to_benchmark.json"
 CHANGED_LINES_FILE_NAME = "changed_lines.codex_vs_vanilla.jsonl"
@@ -294,13 +286,11 @@ PASS_DIR_MAP = {
     "pass1": "chunking",
     "pass2": "schemaorg",
     "pass3": "final",
-    "pass4": "knowledge",
 }
 PASS_PIPELINE_MAP = {
     "pass1": "recipe.chunking.v1",
     "pass2": "recipe.schemaorg.compact.v1",
     "pass3": "recipe.final.compact.v1",
-    "pass4": "recipe.knowledge.compact.v1",
 }
 _UPLOAD_BUNDLE_YIELD_LINE_RE = re.compile(
     r"\b(yield|serves?|servings?|makes?)\b",
@@ -804,10 +794,13 @@ def _parse_prompt_log_sections(source_path: Path) -> dict[str, dict[str, list[di
 
 def _prompt_category_sort_key(category: str) -> tuple[int, str, int, str]:
     lower = category.lower()
+    stage_sort = int(LLM_STAGE_MAP.get(lower, {}).get("sort_order") or -1)
+    if stage_sort >= 0:
+        return (0, "", stage_sort, lower)
     match = PROMPT_CATEGORY_SORT_RE.match(lower)
     if match:
-        return (0, match.group(1), int(match.group(2)), match.group(3))
-    return (1, lower, 0, "")
+        return (1, match.group(1), int(match.group(2)), match.group(3))
+    return (2, lower, 0, "")
 
 
 def _write_prompt_log_samples(
@@ -914,10 +907,8 @@ def _write_prompt_log_samples_from_full_prompt_log(
     rows = _iter_jsonl(source_path)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        pass_name = str(row.get("pass") or "").strip().lower()
-        if not pass_name:
-            pass_name = "unknown"
-        grouped[pass_name].append(row)
+        stage_key = _prompt_row_stage_key(row) or "unknown"
+        grouped[stage_key].append(row)
 
     if not grouped:
         output_path.write_text(
@@ -932,8 +923,8 @@ def _write_prompt_log_samples_from_full_prompt_log(
             "sampled_pairs": 0,
         }
 
-    for pass_name in grouped:
-        grouped[pass_name].sort(
+    for stage_key in grouped:
+        grouped[stage_key].sort(
             key=lambda row: (
                 str(row.get("call_id") or ""),
                 str(row.get("timestamp_utc") or ""),
@@ -977,10 +968,10 @@ def _write_prompt_log_samples_from_full_prompt_log(
         }
 
         lines.append(
-            f"--- {category.upper()} CALLS (showing {pair_count} of {len(category_rows)}) ---"
+            f"--- {category.upper()} STAGE CALLS (showing {pair_count} of {len(category_rows)}) ---"
         )
         if pair_count == 0:
-            lines.append("No calls available for this pass category.")
+            lines.append("No calls available for this stage category.")
             lines.append("")
             continue
 
@@ -1438,7 +1429,7 @@ def _build_preprocess_trace_failure_rows(
             prompt_rows_by_recipe=prompt_rows_by_recipe,
             fallback_prompt_row=fallback_prompt_row,
         )
-        pass_name = str(prompt_row.get("pass") or "").strip().lower() if prompt_row else None
+        prompt_stage_key = _prompt_row_stage_key(prompt_row) if isinstance(prompt_row, dict) else None
         call_id = str(prompt_row.get("call_id") or "").strip() if prompt_row else None
 
         parsed_response = (
@@ -1496,7 +1487,7 @@ def _build_preprocess_trace_failure_rows(
                 ),
                 "raw_block_stable_key": features.get("unstructured_stable_key"),
                 "prompt_candidate_block_excerpt": prompt_candidate_block_excerpt,
-                "pass": pass_name,
+                "stage_key": prompt_stage_key,
                 "call_id": call_id,
                 "warning_buckets": warning_buckets,
                 "trace_status": trace_status,
@@ -1643,8 +1634,6 @@ def _summarize_prompt_warning_aggregate(full_prompt_log_path: Path) -> dict[str,
         "warnings_total": warning_total,
         "calls_by_stage": dict(sorted(by_stage_calls.items())),
         "calls_with_warnings_by_stage": dict(sorted(by_stage_calls_with_warnings.items())),
-        "calls_by_pass": dict(sorted(by_stage_calls.items())),
-        "calls_with_warnings_by_pass": dict(sorted(by_stage_calls_with_warnings.items())),
         "warning_buckets": dict(
             sorted(warning_bucket_counts.items(), key=lambda item: (-item[1], item[0]))
         ),
@@ -2144,7 +2133,7 @@ def _build_project_context_digest(
         if prompt_pairs_per_category <= 0
         else (
             "convenience prompt log samples at most "
-            f"{prompt_pairs_per_category} calls per pass; `full_prompt_log.jsonl` remains complete."
+            f"{prompt_pairs_per_category} calls per stage; `full_prompt_log.jsonl` remains complete."
         )
     )
 
@@ -2340,10 +2329,10 @@ def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
     return rows
 
 
-def _resolve_pass4_prompt_task_path(run_dir: Path) -> Path | None:
+def _resolve_knowledge_prompt_path(run_dir: Path) -> Path | None:
     candidate_paths: list[Path] = [
-        run_dir / "prompts" / PASS4_PROMPT_TASK_FILE_NAME,
-        run_dir / "codexfarm" / "prompts" / PASS4_PROMPT_TASK_FILE_NAME,
+        run_dir / "prompts" / KNOWLEDGE_PROMPT_FILE_NAME,
+        run_dir / "codexfarm" / "prompts" / KNOWLEDGE_PROMPT_FILE_NAME,
     ]
     for prompts_dir in (
         run_dir / "prompts",
@@ -2353,9 +2342,9 @@ def _resolve_pass4_prompt_task_path(run_dir: Path) -> Path | None:
             continue
         for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
             name = candidate.name.lower()
-            if name.startswith("prompt_task4_") and name.endswith(".txt"):
+            if name.startswith("prompt_extract_knowledge_optional") and name.endswith(".txt"):
                 candidate_paths.append(candidate)
-        candidate_paths.extend(sorted(prompts_dir.glob("prompt_task4_*.txt")))
+        candidate_paths.extend(sorted(prompts_dir.glob("prompt_extract_knowledge_optional*.txt")))
     seen: set[Path] = set()
     for candidate in candidate_paths:
         resolved = candidate.resolve(strict=False)
@@ -2382,7 +2371,7 @@ def _resolve_prediction_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> 
     return None
 
 
-def _resolve_pass4_knowledge_manifest_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+def _resolve_knowledge_manifest_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
     pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
     if pred_run_dir is None:
         return None
@@ -2417,9 +2406,9 @@ def _resolve_pass4_knowledge_manifest_path(run_dir: Path, run_manifest: dict[str
     raw_llm_dir = pred_run_dir / "raw" / "llm"
     if raw_llm_dir.is_dir():
         candidate_paths.extend(
-            sorted(raw_llm_dir.glob(f"*/{PASS4_KNOWLEDGE_MANIFEST_FILE_NAME}"))
+            sorted(raw_llm_dir.glob(f"*/{KNOWLEDGE_MANIFEST_FILE_NAME}"))
         )
-        candidate_paths.append(raw_llm_dir / PASS4_KNOWLEDGE_MANIFEST_FILE_NAME)
+        candidate_paths.append(raw_llm_dir / KNOWLEDGE_MANIFEST_FILE_NAME)
 
     seen: set[Path] = set()
     for candidate in candidate_paths:
@@ -2908,7 +2897,6 @@ def _reconstruct_full_prompt_log(
                         "stage_key": stage_key,
                         "stage_label": stage_label(stage_key),
                         "stage_artifact_stem": stage_dir,
-                        "pass": _legacy_pass_for_stage_key(stage_key),
                         "call_id": call_id,
                         "timestamp_utc": timestamp_utc,
                         "recipe_id": recipe_id,
@@ -3062,10 +3050,6 @@ def _build_projection_trace(
             )
         ],
         "recipe_ids_seen_by_stage": {
-            stage_key: sorted(recipe_ids)
-            for stage_key, recipe_ids in sorted(stage_recipe_ids.items())
-        },
-        "recipe_ids_seen_by_pass": {
             stage_key: sorted(recipe_ids)
             for stage_key, recipe_ids in sorted(stage_recipe_ids.items())
         },
@@ -3658,28 +3642,7 @@ def _prompt_row_stage_key(row: dict[str, Any]) -> str:
         return "recipe_llm_correct_and_link"
     if legacy_pass == "pass3":
         return "build_final_recipe"
-    if legacy_pass == "pass4":
-        return "extract_knowledge_optional"
     return ""
-
-
-def _legacy_pass_for_stage_key(stage_key: str) -> str:
-    if stage_key == "build_intermediate_det":
-        return "pass1"
-    if stage_key == "recipe_llm_correct_and_link":
-        return "pass2"
-    if stage_key == "build_final_recipe":
-        return "pass3"
-    if stage_key == "extract_knowledge_optional":
-        return "pass4"
-    return stage_key
-
-
-def _prompt_row_pass_name(row: dict[str, Any]) -> str:
-    direct = str(row.get("pass") or "").strip().lower()
-    if direct:
-        return direct
-    return _legacy_pass_for_stage_key(_prompt_row_stage_key(row))
 
 
 def _prompt_row_recipe_id(row: dict[str, Any]) -> str:
@@ -4131,7 +4094,6 @@ def _build_pair_diagnostics(
                 "baseline_run_id": baseline_run.run_id,
                 "stage_key": stage_key,
                 "stage_label": stage_label(stage_key),
-                "pass": _legacy_pass_for_stage_key(stage_key),
                 "call_id": call_id,
                 "recipe_id": recipe_id or None,
                 "changed_lines_for_recipe": changed_lines_for_recipe,
@@ -4575,7 +4537,6 @@ def _build_pair_diagnostics(
                 "recipe_id": _prompt_row_recipe_id(row),
                 "stage_key": stage_key,
                 "stage_label": stage_label(stage_key),
-                "pass": _legacy_pass_for_stage_key(stage_key),
                 "call_id": str(row.get("call_id") or ""),
                 "timestamp_utc": str(row.get("timestamp_utc") or ""),
                 "model": str(row.get("model") or ""),
@@ -4950,15 +4911,11 @@ def _build_warning_and_trace_summary(
     outside_span_trace_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     warnings_by_stage: Counter[str] = Counter()
-    warnings_by_pass: Counter[str] = Counter()
     warning_buckets: Counter[str] = Counter()
     for row in call_inventory_rows:
         stage_key = str(row.get("stage_key") or "")
-        pass_name = str(row.get("pass") or _legacy_pass_for_stage_key(stage_key) or "")
         warning_count = int(_coerce_int(row.get("warning_count")) or 0)
         warnings_by_stage[stage_key] += warning_count
-        if pass_name:
-            warnings_by_pass[pass_name] += warning_count
         for bucket in _coerce_str_list(row.get("warning_buckets")):
             warning_buckets[bucket] += 1
 
@@ -5048,7 +5005,6 @@ def _build_warning_and_trace_summary(
 
     return {
         "warnings_by_stage": _counter_to_sorted_dict(warnings_by_stage),
-        "warnings_by_pass": _counter_to_sorted_dict(warnings_by_pass),
         "warning_buckets": _counter_to_sorted_dict(warning_buckets),
         "correction_empty_mapping_count": correction_empty_mapping_count,
         "pass3_empty_mapping_count": pass3_empty_mapping_count,
@@ -5710,7 +5666,7 @@ def _write_starter_pack_readme(
         f"- `{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}`",
         f"- `{STARTER_PACK_NET_ERROR_BLAME_FILE_NAME}`",
         f"- `{STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME}`",
-        f"- `{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}`",
+        f"- `{STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME}`",
         f"- `{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}`",
         "",
         "## Follow-up Packet Rules",
@@ -5768,7 +5724,7 @@ def _write_starter_pack_v1(
         key=lambda row: (
             str(row.get("run_id") or ""),
             str(row.get("recipe_id") or ""),
-            str(row.get("pass") or ""),
+            str(row.get("stage_key") or ""),
             str(row.get("call_id") or ""),
         ),
     )
@@ -6047,16 +6003,16 @@ def _write_starter_pack_v1(
         config_version_metadata,
     )
     (
-        low_confidence_changed_lines_summary,
-        low_confidence_changed_lines_rows,
-    ) = _upload_bundle_build_low_trust_changed_lines_packet(
+        explicit_escalation_changed_lines_summary,
+        explicit_escalation_changed_lines_rows,
+    ) = _upload_bundle_build_explicit_escalation_changed_lines_packet(
         source_root=output_dir,
         run_dir_by_id=starter_pack_run_dir_by_id,
         changed_line_rows=changed_line_rows,
     )
     _write_jsonl(
-        starter_pack_dir / STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
-        low_confidence_changed_lines_rows,
+        starter_pack_dir / STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
+        explicit_escalation_changed_lines_rows,
     )
     baseline_trace_parity = _starter_pack_build_baseline_trace_parity_cues(
         comparison_pairs=comparison_pairs,
@@ -6079,11 +6035,11 @@ def _write_starter_pack_v1(
             ),
             "- net_error_delta_lines: "
             + str(int(_coerce_int(net_error_blame_summary.get("net_error_delta_lines")) or 0)),
-            "- low_trust_changed_lines: "
+            "- explicit_escalation_changed_lines: "
             + str(
                 int(
                     _coerce_int(
-                        low_confidence_changed_lines_summary.get("row_count")
+                        explicit_escalation_changed_lines_summary.get("row_count")
                     )
                     or 0
                 )
@@ -6132,10 +6088,10 @@ def _write_starter_pack_v1(
         },
         "net_error_blame_summary_file": STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
         "config_version_metadata_file": STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
-        "low_trust_changed_lines": {
-            "summary": low_confidence_changed_lines_summary,
-            "file": STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
-            "row_count": len(low_confidence_changed_lines_rows),
+        "explicit_escalation_changed_lines": {
+            "summary": explicit_escalation_changed_lines_summary,
+            "file": STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
+            "row_count": len(explicit_escalation_changed_lines_rows),
         },
         "baseline_trace_parity_file": STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
         "generated_at": _timestamp_now(),
@@ -6180,7 +6136,7 @@ def _write_readme(
         )
     else:
         lines.append(
-            "CodexFarm sampled prompt log: convenience-only sampled calls per pass "
+            "CodexFarm sampled prompt log: convenience-only sampled calls per stage "
             f"(max {prompt_pairs_per_category}, sampled from full_prompt_log.jsonl when available)"
         )
     lines.append(
@@ -6504,7 +6460,7 @@ def _resolve_prompt_budget_summary_path(
             continue
         seen.add(resolved)
         payload = _upload_bundle_load_json_object(candidate)
-        if isinstance(payload.get("by_pass"), dict):
+        if isinstance(payload.get("by_stage"), dict):
             return candidate
     return None
 
@@ -6545,8 +6501,8 @@ def _upload_bundle_high_level_trim_priority(path: str) -> tuple[int, str] | None
         ),
         (
             (
-                STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
-                "low_trust_changed_lines.packet.jsonl",
+                STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
+                "explicit_escalation_changed_lines.packet.jsonl",
                 STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
                 "baseline_trace_parity.json",
                 STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
@@ -6554,7 +6510,7 @@ def _upload_bundle_high_level_trim_priority(path: str) -> tuple[int, str] | None
                 STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
                 "net_error_blame_summary.json",
                 PROMPT_TYPE_SAMPLES_FILE_NAME,
-                PASS4_KNOWLEDGE_MANIFEST_FILE_NAME,
+                KNOWLEDGE_MANIFEST_FILE_NAME,
                 CHANGED_LINES_FILE_NAME.rsplit("/", 1)[-1],
                 "prediction-run/extracted_archive.json",
                 "prediction-run/line-role-pipeline/extracted_archive.json",
@@ -6809,33 +6765,33 @@ def _upload_bundle_select_high_level_artifact_paths(
                         "source_bytes": _path_size(prompt_type_samples_path),
                     }
                 )
-        pass4_manifest_path = _resolve_pass4_knowledge_manifest_path(
+        knowledge_manifest_path = _resolve_knowledge_manifest_path(
             run_dir,
             run_manifest_payload,
         )
-        if pass4_manifest_path is not None:
+        if knowledge_manifest_path is not None:
             try:
-                pass4_manifest_path.relative_to(source_root)
+                knowledge_manifest_path.relative_to(source_root)
             except ValueError:
-                pass4_manifest_path = None
-        if pass4_manifest_path is not None:
-            if _append_if_allowed(pass4_manifest_path, required=False):
+                knowledge_manifest_path = None
+        if knowledge_manifest_path is not None:
+            if _append_if_allowed(knowledge_manifest_path, required=False):
                 try:
                     included_files.append(
-                        str(pass4_manifest_path.relative_to(run_dir).as_posix())
+                        str(knowledge_manifest_path.relative_to(run_dir).as_posix())
                     )
                 except ValueError:
-                    included_files.append(str(pass4_manifest_path))
+                    included_files.append(str(knowledge_manifest_path))
             else:
                 try:
-                    omitted_path = str(pass4_manifest_path.relative_to(run_dir).as_posix())
+                    omitted_path = str(knowledge_manifest_path.relative_to(run_dir).as_posix())
                 except ValueError:
-                    omitted_path = str(pass4_manifest_path)
+                    omitted_path = str(knowledge_manifest_path)
                 omitted_files.append(
                     {
                         "path": omitted_path,
                         "reason": "artifact_budget_exceeded",
-                        "source_bytes": _path_size(pass4_manifest_path),
+                        "source_bytes": _path_size(knowledge_manifest_path),
                     }
                 )
         for relative_path in GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES:
@@ -6873,21 +6829,21 @@ def _upload_bundle_select_high_level_artifact_paths(
                 full_prompt_log_path,
                 reason="followup_only_heavy_prompt_log",
             )
-        pass4_prompt_task_path = _resolve_pass4_prompt_task_path(run_dir)
-        if pass4_prompt_task_path is not None and pass4_prompt_task_path.is_file():
+        knowledge_prompt_path = _resolve_knowledge_prompt_path(run_dir)
+        if knowledge_prompt_path is not None and knowledge_prompt_path.is_file():
             try:
-                omitted_path = str(pass4_prompt_task_path.relative_to(run_dir).as_posix())
+                omitted_path = str(knowledge_prompt_path.relative_to(run_dir).as_posix())
             except ValueError:
-                omitted_path = str(pass4_prompt_task_path)
+                omitted_path = str(knowledge_prompt_path)
             omitted_files.append(
                 {
                     "path": omitted_path,
                     "reason": "followup_only_heavy_prompt_context",
-                    "source_bytes": _path_size(pass4_prompt_task_path),
+                    "source_bytes": _path_size(knowledge_prompt_path),
                 }
             )
             _record_policy_omission(
-                pass4_prompt_task_path,
+                knowledge_prompt_path,
                 reason="followup_only_heavy_prompt_context",
             )
         for heavy_name, omission_reason in (
@@ -7129,7 +7085,7 @@ def _upload_bundle_relative_path_within_root(
         return None
 
 
-def _upload_bundle_build_pass4_knowledge_summary(
+def _upload_bundle_build_knowledge_summary(
     *,
     source_root: Path,
     discovered_run_dirs: list[Path],
@@ -7138,8 +7094,8 @@ def _upload_bundle_build_pass4_knowledge_summary(
     locator_rows: list[dict[str, Any]] = []
     enabled_run_count = 0
     runs_with_prompt_samples = 0
-    runs_with_pass4_manifest = 0
-    total_pass4_call_count = 0
+    runs_with_knowledge_manifest = 0
+    total_knowledge_call_count = 0
     jobs_written_total = 0
     outputs_parsed_total = 0
     snippets_written_total = 0
@@ -7190,25 +7146,25 @@ def _upload_bundle_build_pass4_knowledge_summary(
             if pred_run_dir is not None
             else None
         )
-        prompt_budget_by_pass = (
-            prompt_budget_summary.get("by_pass")
+        prompt_budget_by_stage = (
+            prompt_budget_summary.get("by_stage")
             if isinstance(prompt_budget_summary, dict)
             else {}
         )
-        prompt_budget_by_pass = (
-            prompt_budget_by_pass if isinstance(prompt_budget_by_pass, dict) else {}
+        prompt_budget_by_stage = (
+            prompt_budget_by_stage if isinstance(prompt_budget_by_stage, dict) else {}
         )
-        pass4_budget = (
-            prompt_budget_by_pass.get("pass4")
-            if isinstance(prompt_budget_by_pass.get("pass4"), dict)
+        knowledge_budget = (
+            prompt_budget_by_stage.get("knowledge")
+            if isinstance(prompt_budget_by_stage.get("knowledge"), dict)
             else {}
         )
-        pass4_call_count = _coerce_int(pass4_budget.get("call_count"))
-        pass4_token_total = _coerce_int(pass4_budget.get("tokens_total"))
+        knowledge_call_count = _coerce_int(knowledge_budget.get("call_count"))
+        knowledge_token_total = _coerce_int(knowledge_budget.get("tokens_total"))
 
         prompt_samples_path = _resolve_prompt_type_samples_path(run_dir, run_manifest)
-        pass4_prompt_task_path = _resolve_pass4_prompt_task_path(run_dir)
-        pass4_manifest_path = _resolve_pass4_knowledge_manifest_path(run_dir, run_manifest)
+        knowledge_prompt_path = _resolve_knowledge_prompt_path(run_dir)
+        knowledge_manifest_path = _resolve_knowledge_manifest_path(run_dir, run_manifest)
         prompt_budget_path = (
             _resolve_prompt_budget_summary_path(
                 pred_run_dir=pred_run_dir,
@@ -7221,8 +7177,8 @@ def _upload_bundle_build_pass4_knowledge_summary(
         knowledge_enabled = bool(_coerce_bool(knowledge_payload.get("enabled")))
         enabled = bool(
             knowledge_enabled
-            or (pass4_call_count is not None and pass4_call_count > 0)
-            or isinstance(pass4_manifest_path, Path)
+            or (knowledge_call_count is not None and knowledge_call_count > 0)
+            or isinstance(knowledge_manifest_path, Path)
             or llm_knowledge_pipeline not in {"", "off", "none"}
         )
 
@@ -7230,9 +7186,9 @@ def _upload_bundle_build_pass4_knowledge_summary(
             enabled_run_count += 1
         if isinstance(prompt_samples_path, Path) and prompt_samples_path.is_file():
             runs_with_prompt_samples += 1
-        if isinstance(pass4_manifest_path, Path) and pass4_manifest_path.is_file():
-            runs_with_pass4_manifest += 1
-        total_pass4_call_count += int(pass4_call_count or 0)
+        if isinstance(knowledge_manifest_path, Path) and knowledge_manifest_path.is_file():
+            runs_with_knowledge_manifest += 1
+        total_knowledge_call_count += int(knowledge_call_count or 0)
         jobs_written_total += int(_coerce_int(knowledge_counts.get("jobs_written")) or 0)
         outputs_parsed_total += int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0)
         snippets_written_total += int(_coerce_int(knowledge_counts.get("snippets_written")) or 0)
@@ -7245,8 +7201,8 @@ def _upload_bundle_build_pass4_knowledge_summary(
                 "llm_knowledge_pipeline": llm_knowledge_pipeline or "off",
                 "pipeline": str(knowledge_payload.get("pipeline") or "").strip(),
                 "pipeline_id": str(knowledge_payload.get("pipeline_id") or "").strip(),
-                "pass4_call_count": int(pass4_call_count or 0),
-                "pass4_token_total": int(pass4_token_total or 0),
+                "knowledge_call_count": int(knowledge_call_count or 0),
+                "knowledge_token_total": int(knowledge_token_total or 0),
                 "jobs_written": int(_coerce_int(knowledge_counts.get("jobs_written")) or 0),
                 "outputs_parsed": int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0),
                 "snippets_written": int(_coerce_int(knowledge_counts.get("snippets_written")) or 0),
@@ -7254,12 +7210,12 @@ def _upload_bundle_build_pass4_knowledge_summary(
                     path=prompt_samples_path,
                     enabled=enabled,
                 ),
-                "prompt_task4_status": _upload_bundle_optional_artifact_status(
-                    path=pass4_prompt_task_path,
+                "prompt_knowledge_status": _upload_bundle_optional_artifact_status(
+                    path=knowledge_prompt_path,
                     enabled=enabled,
                 ),
-                "pass4_manifest_status": _upload_bundle_optional_artifact_status(
-                    path=pass4_manifest_path,
+                "knowledge_manifest_status": _upload_bundle_optional_artifact_status(
+                    path=knowledge_manifest_path,
                     enabled=enabled,
                 ),
                 "prompt_budget_summary_status": _upload_bundle_optional_artifact_status(
@@ -7276,13 +7232,13 @@ def _upload_bundle_build_pass4_knowledge_summary(
                     source_root=source_root,
                     candidate=prompt_samples_path,
                 ),
-                "prompt_task4_path": _upload_bundle_relative_path_within_root(
+                "prompt_knowledge_path": _upload_bundle_relative_path_within_root(
                     source_root=source_root,
-                    candidate=pass4_prompt_task_path,
+                    candidate=knowledge_prompt_path,
                 ),
-                "pass4_manifest_path": _upload_bundle_relative_path_within_root(
+                "knowledge_manifest_path": _upload_bundle_relative_path_within_root(
                     source_root=source_root,
-                    candidate=pass4_manifest_path,
+                    candidate=knowledge_manifest_path,
                 ),
                 "prompt_budget_summary_path": _upload_bundle_relative_path_within_root(
                     source_root=source_root,
@@ -7292,12 +7248,12 @@ def _upload_bundle_build_pass4_knowledge_summary(
         )
 
     summary = {
-        "schema_version": "upload_bundle_pass4_knowledge.v1",
+        "schema_version": "upload_bundle_knowledge.v1",
         "run_count": len(rows),
         "enabled_run_count": enabled_run_count,
         "runs_with_prompt_samples": runs_with_prompt_samples,
-        "runs_with_pass4_manifest": runs_with_pass4_manifest,
-        "total_pass4_call_count": total_pass4_call_count,
+        "runs_with_knowledge_manifest": runs_with_knowledge_manifest,
+        "total_knowledge_call_count": total_knowledge_call_count,
         "jobs_written_total": jobs_written_total,
         "outputs_parsed_total": outputs_parsed_total,
         "snippets_written_total": snippets_written_total,
@@ -8488,17 +8444,17 @@ def _upload_bundle_collect_call_runtime_map(
         if full_prompt_path is None or not full_prompt_path.is_file():
             continue
         for prompt_row in _iter_jsonl(full_prompt_path):
-            pass_name = _prompt_row_pass_name(prompt_row)
+            stage_key = _prompt_row_stage_key(prompt_row)
             call_id = str(prompt_row.get("call_id") or "").strip()
-            recipe_id = str(prompt_row.get("recipe_id") or "").strip()
-            if pass_name not in {"pass1", "pass2", "pass3"} or not call_id:
+            recipe_id = _prompt_row_recipe_id(prompt_row)
+            if stage_key not in LLM_STAGE_MAP or not call_id:
                 continue
             row_run_id = str(prompt_row.get("run_id") or manifest_run_id).strip() or manifest_run_id
             key = (
                 source_key,
                 row_run_id,
                 recipe_id,
-                pass_name,
+                stage_key,
                 call_id,
             )
             runtime_payload = _upload_bundle_extract_call_runtime(prompt_row)
@@ -8530,24 +8486,24 @@ def _upload_bundle_telemetry_call_count(summary: dict[str, Any]) -> int | None:
 
 def _upload_bundle_token_share_fields(
     *,
-    by_pass: dict[str, dict[str, Any]],
+    by_stage: dict[str, dict[str, Any]],
     total_tokens: int | None,
 ) -> dict[str, float | None]:
     fields: dict[str, float | None] = {}
-    for pass_name in sorted(by_pass):
-        share_key = f"{pass_name}_token_share"
-        pass_payload = by_pass.get(pass_name)
-        pass_payload = pass_payload if isinstance(pass_payload, dict) else {}
-        pass_tokens = _coerce_int(pass_payload.get("total_tokens"))
+    for stage_key in sorted(by_stage, key=_prompt_category_sort_key):
+        share_key = f"{stage_key}_token_share"
+        stage_payload = by_stage.get(stage_key)
+        stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
+        stage_tokens = _coerce_int(stage_payload.get("total_tokens"))
         if (
             total_tokens is None
             or total_tokens <= 0
-            or pass_tokens is None
-            or pass_tokens < 0
+            or stage_tokens is None
+            or stage_tokens < 0
         ):
             fields[share_key] = None
             continue
-        fields[share_key] = round(float(pass_tokens) / float(total_tokens), 4)
+        fields[share_key] = round(float(stage_tokens) / float(total_tokens), 4)
     return fields
 
 
@@ -8568,7 +8524,7 @@ def _upload_bundle_load_prompt_budget_summary(
         if not candidate.is_file():
             continue
         payload = _upload_bundle_load_json_object(candidate)
-        if isinstance(payload.get("by_pass"), dict):
+        if isinstance(payload.get("by_stage"), dict):
             return payload
     return None
 
@@ -8578,7 +8534,7 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
     run_dirs: list[Path] | None = None,
     run_dir_by_id: dict[str, Path] | None = None,
 ) -> dict[str, Any] | None:
-    aggregate_by_pass: dict[str, dict[str, Any]] = {}
+    aggregate_by_stage: dict[str, dict[str, Any]] = {}
     used_prompt_budget_summary = False
     for run_dir in _upload_bundle_iter_unique_run_dirs(
         run_dirs=run_dirs,
@@ -8600,13 +8556,13 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             pred_manifest=pred_manifest,
         )
         if isinstance(prompt_budget_summary, dict):
-            by_pass_payload = prompt_budget_summary.get("by_pass")
-            if isinstance(by_pass_payload, dict) and by_pass_payload:
+            by_stage_payload = prompt_budget_summary.get("by_stage")
+            if isinstance(by_stage_payload, dict) and by_stage_payload:
                 used_prompt_budget_summary = True
-                for pass_name, pass_payload in sorted(by_pass_payload.items()):
+                for pass_name, pass_payload in sorted(by_stage_payload.items()):
                     if not isinstance(pass_payload, dict):
                         continue
-                    bucket = aggregate_by_pass.setdefault(
+                    bucket = aggregate_by_stage.setdefault(
                         str(pass_name),
                         {
                             "call_count": 0,
@@ -8646,7 +8602,6 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             ),
             "extract_knowledge_optional": (
                 process_runs.get("extract_knowledge_optional")
-                or process_runs.get("pass4")
                 or (
                     knowledge_payload.get("process_run")
                     if isinstance(knowledge_payload.get("process_run"), dict)
@@ -8661,7 +8616,7 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             summary = telemetry_report.get("summary")
             if not isinstance(summary, dict):
                 continue
-            bucket = aggregate_by_pass.setdefault(
+            bucket = aggregate_by_stage.setdefault(
                 stage_key,
                 {
                     "call_count": 0,
@@ -8693,12 +8648,12 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
                 bucket["tokens_total"] += max(int(tokens_total), 0)
                 bucket["tokens_known"] = True
 
-    if not aggregate_by_pass:
+    if not aggregate_by_stage:
         return None
 
-    by_pass: dict[str, dict[str, Any]] = {}
-    for pass_name in sorted(aggregate_by_pass.keys()):
-        bucket = aggregate_by_pass.get(pass_name)
+    by_stage: dict[str, dict[str, Any]] = {}
+    for pass_name in sorted(aggregate_by_stage.keys()):
+        bucket = aggregate_by_stage.get(pass_name)
         if not isinstance(bucket, dict):
             continue
         call_count = int(bucket.get("call_count") or 0)
@@ -8708,7 +8663,7 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
         duration_total_ms = (
             int(bucket.get("duration_total_ms") or 0) if duration_known else None
         )
-        by_pass[pass_name] = {
+        by_stage[pass_name] = {
             "call_count": call_count if calls_known else 0,
             "calls_with_runtime": call_count if calls_known and duration_known else 0,
             "calls_with_cost": 0,
@@ -8725,19 +8680,19 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             "estimated_cost_coverage_ratio": 0.0,
         }
 
-    total_calls = int(sum(int(payload.get("call_count") or 0) for payload in by_pass.values()))
+    total_calls = int(sum(int(payload.get("call_count") or 0) for payload in by_stage.values()))
     total_calls_with_runtime = int(
-        sum(int(payload.get("calls_with_runtime") or 0) for payload in by_pass.values())
+        sum(int(payload.get("calls_with_runtime") or 0) for payload in by_stage.values())
     )
     duration_totals = [
         int(bucket.get("duration_total_ms") or 0)
-        for bucket in aggregate_by_pass.values()
+        for bucket in aggregate_by_stage.values()
         if bool(bucket.get("duration_known"))
     ]
     total_duration_ms = int(sum(duration_totals)) if duration_totals else None
     token_totals = [
         _coerce_int(payload.get("total_tokens"))
-        for payload in by_pass.values()
+        for payload in by_stage.values()
         if _coerce_int(payload.get("total_tokens")) is not None
     ]
     total_tokens = int(sum(token_totals)) if token_totals else None
@@ -8771,12 +8726,12 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             "coverage_ratio": 0.0,
             "method": "",
             "pricing_used": dict(UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING),
-            "note": (
-                "No per-call token telemetry available; aggregate pass totals cannot be "
+                "note": (
+                "No per-call token telemetry available; aggregate stage totals cannot be "
                 "reliably cost-estimated per call."
             ),
         },
-        "by_pass": by_pass,
+        "by_stage": by_stage,
         "runtime_source": (
             "prediction_run_prompt_budget_summary"
             if used_prompt_budget_summary
@@ -8784,7 +8739,7 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
         ),
     }
     summary.update(
-        _upload_bundle_token_share_fields(by_pass=by_pass, total_tokens=total_tokens)
+        _upload_bundle_token_share_fields(by_stage=by_stage, total_tokens=total_tokens)
     )
     return {
         "summary": summary,
@@ -8811,11 +8766,11 @@ def _upload_bundle_build_call_runtime_inventory(
         source_key = str(row.get("source_key") or "").strip()
         run_id = str(row.get("run_id") or "").strip()
         recipe_id = str(row.get("recipe_id") or "").strip()
-        pass_name = str(row.get("pass") or "").strip().lower()
+        stage_key = _prompt_row_stage_key(row)
         call_id = str(row.get("call_id") or "").strip()
-        runtime = runtime_by_key.get((source_key, run_id, recipe_id, pass_name, call_id))
+        runtime = runtime_by_key.get((source_key, run_id, recipe_id, stage_key, call_id))
         if not isinstance(runtime, dict):
-            runtime = runtime_by_key.get(("", run_id, recipe_id, pass_name, call_id))
+            runtime = runtime_by_key.get(("", run_id, recipe_id, stage_key, call_id))
         if not isinstance(runtime, dict):
             runtime = {}
             for runtime_key, runtime_payload in runtime_by_key.items():
@@ -8829,13 +8784,13 @@ def _upload_bundle_build_call_runtime_inventory(
                     _runtime_source_key,
                     runtime_run_id,
                     runtime_recipe_id,
-                    runtime_pass_name,
+                    runtime_stage_key,
                     runtime_call_id,
                 ) = runtime_key
                 if (
                     str(runtime_run_id) == run_id
                     and str(runtime_recipe_id) == recipe_id
-                    and str(runtime_pass_name) == pass_name
+                    and str(runtime_stage_key) == stage_key
                     and str(runtime_call_id) == call_id
                 ):
                     runtime = runtime_payload
@@ -8914,67 +8869,68 @@ def _upload_bundle_build_call_runtime_inventory(
         if enriched_rows
         else 0.0
     )
-    by_pass: dict[str, dict[str, Any]] = {}
-    pass_names = sorted(
+    by_stage: dict[str, dict[str, Any]] = {}
+    stage_keys = sorted(
         {
-            str(row.get("pass") or "").strip().lower()
+            _prompt_row_stage_key(row)
             for row in enriched_rows
-            if str(row.get("pass") or "").strip()
-        }
+            if _prompt_row_stage_key(row)
+        },
+        key=_prompt_category_sort_key,
     )
-    for pass_name in pass_names:
-        pass_rows = [
+    for stage_key in stage_keys:
+        stage_rows = [
             row
             for row in enriched_rows
-            if str(row.get("pass") or "").strip().lower() == pass_name
+            if _prompt_row_stage_key(row) == stage_key
         ]
-        pass_duration = [
+        stage_duration = [
             _coerce_int(row.get("duration_ms"))
-            for row in pass_rows
+            for row in stage_rows
             if _coerce_int(row.get("duration_ms")) is not None
         ]
-        pass_tokens = [
+        stage_tokens = [
             _coerce_int(row.get("tokens_total"))
-            for row in pass_rows
+            for row in stage_rows
             if _coerce_int(row.get("tokens_total")) is not None
         ]
-        pass_cost = [
+        stage_cost = [
             _coerce_float(row.get("cost_usd"))
-            for row in pass_rows
+            for row in stage_rows
             if _coerce_float(row.get("cost_usd")) is not None
         ]
-        pass_estimated_cost = [
+        stage_estimated_cost = [
             _coerce_float(row.get("estimated_cost_usd"))
-            for row in pass_rows
+            for row in stage_rows
             if _coerce_float(row.get("estimated_cost_usd")) is not None
         ]
-        pass_calls_with_cost = len(pass_cost)
-        pass_calls_with_estimated_cost = len(pass_estimated_cost)
-        by_pass[pass_name] = {
-            "call_count": len(pass_rows),
-            "calls_with_runtime": len(pass_duration),
-            "calls_with_cost": pass_calls_with_cost,
-            "calls_with_estimated_cost": pass_calls_with_estimated_cost,
+        stage_calls_with_cost = len(stage_cost)
+        stage_calls_with_estimated_cost = len(stage_estimated_cost)
+        by_stage[stage_key] = {
+            "call_count": len(stage_rows),
+            "calls_with_runtime": len(stage_duration),
+            "calls_with_cost": stage_calls_with_cost,
+            "calls_with_estimated_cost": stage_calls_with_estimated_cost,
             "avg_duration_ms": (
-                round(sum(pass_duration) / len(pass_duration), 3)
-                if pass_duration
+                round(sum(stage_duration) / len(stage_duration), 3)
+                if stage_duration
                 else None
             ),
-            "total_tokens": int(sum(pass_tokens)) if pass_tokens else None,
+            "total_tokens": int(sum(stage_tokens)) if stage_tokens else None,
             "total_cost_usd": (
-                round(float(sum(pass_cost)), 8) if pass_cost else None
+                round(float(sum(stage_cost)), 8) if stage_cost else None
             ),
             "total_estimated_cost_usd": (
-                round(float(sum(pass_estimated_cost)), 8)
-                if pass_estimated_cost
+                round(float(sum(stage_estimated_cost)), 8)
+                if stage_estimated_cost
                 else None
             ),
             "cost_coverage_ratio": (
-                round(pass_calls_with_cost / len(pass_rows), 6) if pass_rows else 0.0
+                round(stage_calls_with_cost / len(stage_rows), 6) if stage_rows else 0.0
             ),
             "estimated_cost_coverage_ratio": (
-                round(pass_calls_with_estimated_cost / len(pass_rows), 6)
-                if pass_rows
+                round(stage_calls_with_estimated_cost / len(stage_rows), 6)
+                if stage_rows
                 else 0.0
             ),
         }
@@ -9068,11 +9024,11 @@ def _upload_bundle_build_call_runtime_inventory(
                 else "No token-based estimate available because token telemetry is missing."
             ),
         },
-        "by_pass": by_pass,
+        "by_stage": by_stage,
         "runtime_source": "call_inventory_rows",
     }
     summary.update(
-        _upload_bundle_token_share_fields(by_pass=by_pass, total_tokens=total_tokens)
+        _upload_bundle_token_share_fields(by_stage=by_stage, total_tokens=total_tokens)
     )
 
     by_source_buckets: dict[str, dict[str, Any]] = {}
@@ -9098,7 +9054,7 @@ def _upload_bundle_build_call_runtime_inventory(
                 "cost_known": False,
                 "estimated_cost_total_usd": 0.0,
                 "estimated_cost_known": False,
-                "by_pass": defaultdict(
+                "by_stage": defaultdict(
                     lambda: {
                         "call_count": 0,
                         "calls_with_runtime": 0,
@@ -9117,43 +9073,43 @@ def _upload_bundle_build_call_runtime_inventory(
             },
         )
         bucket["call_count"] += 1
-        pass_name = str(row.get("pass") or "").strip().lower() or "unknown"
-        pass_bucket = bucket["by_pass"][pass_name]
-        pass_bucket["call_count"] += 1
+        stage_key = _prompt_row_stage_key(row) or "unknown"
+        stage_bucket = bucket["by_stage"][stage_key]
+        stage_bucket["call_count"] += 1
 
         duration_ms = _coerce_int(row.get("duration_ms"))
         if duration_ms is not None:
             bucket["calls_with_runtime"] += 1
             bucket["duration_total_ms"] += int(duration_ms)
             bucket["duration_known"] = True
-            pass_bucket["calls_with_runtime"] += 1
-            pass_bucket["duration_total_ms"] += int(duration_ms)
-            pass_bucket["duration_known"] = True
+            stage_bucket["calls_with_runtime"] += 1
+            stage_bucket["duration_total_ms"] += int(duration_ms)
+            stage_bucket["duration_known"] = True
 
         tokens_total_row = _coerce_int(row.get("tokens_total"))
         if tokens_total_row is not None:
             bucket["tokens_total"] += int(tokens_total_row)
             bucket["tokens_known"] = True
-            pass_bucket["tokens_total"] += int(tokens_total_row)
-            pass_bucket["tokens_known"] = True
+            stage_bucket["tokens_total"] += int(tokens_total_row)
+            stage_bucket["tokens_known"] = True
 
         cost_usd = _coerce_float(row.get("cost_usd"))
         if cost_usd is not None:
             bucket["calls_with_cost"] += 1
             bucket["cost_total_usd"] += float(cost_usd)
             bucket["cost_known"] = True
-            pass_bucket["calls_with_cost"] += 1
-            pass_bucket["cost_total_usd"] += float(cost_usd)
-            pass_bucket["cost_known"] = True
+            stage_bucket["calls_with_cost"] += 1
+            stage_bucket["cost_total_usd"] += float(cost_usd)
+            stage_bucket["cost_known"] = True
 
         estimated_cost_usd_row = _coerce_float(row.get("estimated_cost_usd"))
         if estimated_cost_usd_row is not None:
             bucket["calls_with_estimated_cost"] += 1
             bucket["estimated_cost_total_usd"] += float(estimated_cost_usd_row)
             bucket["estimated_cost_known"] = True
-            pass_bucket["calls_with_estimated_cost"] += 1
-            pass_bucket["estimated_cost_total_usd"] += float(estimated_cost_usd_row)
-            pass_bucket["estimated_cost_known"] = True
+            stage_bucket["calls_with_estimated_cost"] += 1
+            stage_bucket["estimated_cost_total_usd"] += float(estimated_cost_usd_row)
+            stage_bucket["estimated_cost_known"] = True
 
     by_source_rows: list[dict[str, Any]] = []
     for source_key, bucket in by_source_buckets.items():
@@ -9161,49 +9117,50 @@ def _upload_bundle_build_call_runtime_inventory(
         calls_with_runtime = int(bucket.get("calls_with_runtime") or 0)
         calls_with_cost = int(bucket.get("calls_with_cost") or 0)
         calls_with_estimated_cost = int(bucket.get("calls_with_estimated_cost") or 0)
-        pass_rows: dict[str, Any] = {}
-        by_pass_payload = bucket.get("by_pass")
-        if isinstance(by_pass_payload, dict):
-            for pass_name in sorted(by_pass_payload.keys()):
-                pass_bucket = by_pass_payload.get(pass_name)
-                if not isinstance(pass_bucket, dict):
+        stage_rows: dict[str, Any] = {}
+        by_stage_payload = bucket.get("by_stage")
+        if isinstance(by_stage_payload, dict):
+            for stage_key in sorted(by_stage_payload.keys(), key=_prompt_category_sort_key):
+                stage_bucket = by_stage_payload.get(stage_key)
+                if not isinstance(stage_bucket, dict):
                     continue
-                pass_call_count = int(pass_bucket.get("call_count") or 0)
-                pass_calls_with_runtime = int(pass_bucket.get("calls_with_runtime") or 0)
-                pass_rows[pass_name] = {
-                    "call_count": pass_call_count,
-                    "calls_with_runtime": pass_calls_with_runtime,
-                    "calls_with_cost": int(pass_bucket.get("calls_with_cost") or 0),
+                stage_call_count = int(stage_bucket.get("call_count") or 0)
+                stage_calls_with_runtime = int(stage_bucket.get("calls_with_runtime") or 0)
+                stage_rows[stage_key] = {
+                    "call_count": stage_call_count,
+                    "calls_with_runtime": stage_calls_with_runtime,
+                    "calls_with_cost": int(stage_bucket.get("calls_with_cost") or 0),
                     "calls_with_estimated_cost": int(
-                        pass_bucket.get("calls_with_estimated_cost") or 0
+                        stage_bucket.get("calls_with_estimated_cost") or 0
                     ),
                     "total_duration_ms": (
-                        int(pass_bucket.get("duration_total_ms") or 0)
-                        if bool(pass_bucket.get("duration_known"))
+                        int(stage_bucket.get("duration_total_ms") or 0)
+                        if bool(stage_bucket.get("duration_known"))
                         else None
                     ),
                     "avg_duration_ms": (
                         round(
-                            float(int(pass_bucket.get("duration_total_ms") or 0))
-                            / float(pass_calls_with_runtime),
+                            float(int(stage_bucket.get("duration_total_ms") or 0))
+                            / float(stage_calls_with_runtime),
                             3,
                         )
-                        if bool(pass_bucket.get("duration_known")) and pass_calls_with_runtime > 0
+                        if bool(stage_bucket.get("duration_known"))
+                        and stage_calls_with_runtime > 0
                         else None
                     ),
                     "total_tokens": (
-                        int(pass_bucket.get("tokens_total") or 0)
-                        if bool(pass_bucket.get("tokens_known"))
+                        int(stage_bucket.get("tokens_total") or 0)
+                        if bool(stage_bucket.get("tokens_known"))
                         else None
                     ),
                     "total_cost_usd": (
-                        round(float(pass_bucket.get("cost_total_usd") or 0.0), 8)
-                        if bool(pass_bucket.get("cost_known"))
+                        round(float(stage_bucket.get("cost_total_usd") or 0.0), 8)
+                        if bool(stage_bucket.get("cost_known"))
                         else None
                     ),
                     "total_estimated_cost_usd": (
-                        round(float(pass_bucket.get("estimated_cost_total_usd") or 0.0), 8)
-                        if bool(pass_bucket.get("estimated_cost_known"))
+                        round(float(stage_bucket.get("estimated_cost_total_usd") or 0.0), 8)
+                        if bool(stage_bucket.get("estimated_cost_known"))
                         else None
                     ),
                 }
@@ -9252,7 +9209,7 @@ def _upload_bundle_build_call_runtime_inventory(
                     if call_count > 0
                     else 0.0
                 ),
-                "by_pass": pass_rows,
+                "by_stage": stage_rows,
             }
         )
     by_source_rows.sort(
@@ -9288,7 +9245,7 @@ def _upload_bundle_quantile(values: list[float], q: float) -> float | None:
     return float(values[lower] * (1.0 - weight) + values[upper] * weight)
 
 
-def _upload_bundle_build_line_role_trust_summary(
+def _upload_bundle_build_line_role_escalation_summary(
     *,
     source_root: Path,
     run_dir_by_id: dict[str, Path],
@@ -9311,10 +9268,9 @@ def _upload_bundle_build_line_role_trust_summary(
 
     decided_by_counts: Counter[str] = Counter()
     label_counts: Counter[str] = Counter()
-    trust_values: list[float] = []
-    low_trust_examples: list[dict[str, Any]] = []
-    low_trust_by_label: Counter[str] = Counter()
-    low_trust_by_decided_by: Counter[str] = Counter()
+    explicit_escalation_examples: list[dict[str, Any]] = []
+    explicit_escalation_by_label: Counter[str] = Counter()
+    explicit_escalation_by_decided_by: Counter[str] = Counter()
     explicit_escalation_reason_counts: Counter[str] = Counter()
     total_rows = 0
 
@@ -9323,23 +9279,15 @@ def _upload_bundle_build_line_role_trust_summary(
             total_rows += 1
             label = str(row.get("label") or "").strip().upper() or "OTHER"
             decided_by = str(row.get("decided_by") or "").strip().lower() or "unknown"
-            trust_score = _coerce_float(row.get("trust_score"))
-            if trust_score is None:
-                trust_score = _coerce_float(row.get("confidence"))
             escalation_reasons = _coerce_str_list(row.get("escalation_reasons"))
             label_counts[label] += 1
             decided_by_counts[decided_by] += 1
-            if trust_score is not None:
-                trust_values.append(float(trust_score))
             for reason in escalation_reasons:
                 explicit_escalation_reason_counts[reason] += 1
-            if (
-                trust_score is not None
-                and trust_score < UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD
-            ):
-                low_trust_by_label[label] += 1
-                low_trust_by_decided_by[decided_by] += 1
-                low_trust_examples.append(
+            if escalation_reasons:
+                explicit_escalation_by_label[label] += 1
+                explicit_escalation_by_decided_by[decided_by] += 1
+                explicit_escalation_examples.append(
                     {
                         "run_id": str(row.get("run_id") or ""),
                         "recipe_id": str(row.get("recipe_id") or ""),
@@ -9347,7 +9295,6 @@ def _upload_bundle_build_line_role_trust_summary(
                         "atomic_index": _coerce_int(row.get("atomic_index")),
                         "label": label,
                         "decided_by": decided_by,
-                        "trust_score": float(trust_score),
                         "escalation_reasons": escalation_reasons,
                         "text_excerpt": _excerpt(
                             str(row.get("text") or ""),
@@ -9356,10 +9303,8 @@ def _upload_bundle_build_line_role_trust_summary(
                     }
                 )
 
-    trust_values.sort()
-    low_trust_examples.sort(
+    explicit_escalation_examples.sort(
         key=lambda row: (
-            _float_or_zero(row.get("trust_score")),
             str(row.get("recipe_id") or ""),
             int(_coerce_int(row.get("line_index")) or 0),
         )
@@ -9375,35 +9320,24 @@ def _upload_bundle_build_line_role_trust_summary(
         "row_count": total_rows,
         "decided_by_counts": _counter_to_sorted_dict(decided_by_counts),
         "label_counts": _counter_to_sorted_dict(label_counts),
-        "trust_stats": {
-            "min": trust_values[0] if trust_values else None,
-            "p25": _upload_bundle_quantile(trust_values, 0.25),
-            "p50": _upload_bundle_quantile(trust_values, 0.50),
-            "p75": _upload_bundle_quantile(trust_values, 0.75),
-            "max": trust_values[-1] if trust_values else None,
-            "avg": (
-                round(sum(trust_values) / len(trust_values), 6)
-                if trust_values
-                else None
-            ),
-        },
         "selective_escalation_signal": {
-            "low_trust_threshold": UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD,
-            "low_trust_row_count": int(sum(low_trust_by_label.values())),
-            "low_trust_ratio": (
-                round(sum(low_trust_by_label.values()) / total_rows, 6)
+            "explicit_escalation_row_count": int(sum(explicit_escalation_by_label.values())),
+            "explicit_escalation_ratio": (
+                round(sum(explicit_escalation_by_label.values()) / total_rows, 6)
                 if total_rows > 0
                 else 0.0
             ),
-            "low_trust_by_label": _counter_to_sorted_dict(low_trust_by_label),
-            "low_trust_by_decided_by": _counter_to_sorted_dict(
-                low_trust_by_decided_by
+            "explicit_escalation_by_label": _counter_to_sorted_dict(
+                explicit_escalation_by_label
+            ),
+            "explicit_escalation_by_decided_by": _counter_to_sorted_dict(
+                explicit_escalation_by_decided_by
             ),
             "explicit_escalation_reasons": _counter_to_sorted_dict(
                 explicit_escalation_reason_counts
             ),
         },
-        "low_trust_examples": low_trust_examples[:24],
+        "explicit_escalation_examples": explicit_escalation_examples[:24],
     }
 
 
@@ -10097,13 +10031,6 @@ def _upload_bundle_collect_line_role_prediction_rows(
             )
             row_payload["source_key"] = source_key
             row_payload["output_subdir"] = output_subdir
-            row_payload["confidence"] = _coerce_float(row_payload.get("confidence"))
-            row_payload["trust_score"] = _coerce_float(
-                row_payload.get("trust_score", row_payload.get("confidence"))
-            )
-            row_payload["escalation_score"] = _coerce_float(
-                row_payload.get("escalation_score")
-            )
             row_payload["escalation_reasons"] = _coerce_str_list(
                 row_payload.get("escalation_reasons")
             )
@@ -10111,7 +10038,7 @@ def _upload_bundle_collect_line_role_prediction_rows(
     return rows, sorted(set(relative_paths))
 
 
-def _upload_bundle_build_low_trust_changed_lines_packet(
+def _upload_bundle_build_explicit_escalation_changed_lines_packet(
     *,
     source_root: Path,
     run_dir_by_id: dict[str, Path],
@@ -10126,9 +10053,8 @@ def _upload_bundle_build_low_trust_changed_lines_packet(
     if not prediction_rows:
         return (
             {
-                "schema_version": UPLOAD_BUNDLE_LOW_TRUST_CHANGED_LINES_SCHEMA_VERSION,
+                "schema_version": UPLOAD_BUNDLE_EXPLICIT_ESCALATION_CHANGED_LINES_SCHEMA_VERSION,
                 "available": False,
-                "low_trust_threshold": UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD,
                 "prediction_files": prediction_files,
                 "changed_line_rows_considered": len(changed_line_rows),
                 "row_count": 0,
@@ -10194,10 +10120,8 @@ def _upload_bundle_build_low_trust_changed_lines_packet(
         )
         if not isinstance(selected, dict):
             continue
-        trust_score = _coerce_float(selected.get("trust_score", selected.get("confidence")))
-        escalation_score = _coerce_float(selected.get("escalation_score"))
         escalation_reasons = _coerce_str_list(selected.get("escalation_reasons"))
-        if trust_score is None or trust_score >= UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD:
+        if not escalation_reasons:
             continue
         packet_rows.append(
             {
@@ -10207,9 +10131,6 @@ def _upload_bundle_build_low_trust_changed_lines_packet(
                 "recipe_id": str(changed_row.get("recipe_id") or ""),
                 "line_index": int(line_index),
                 "atomic_index": _coerce_int(selected.get("atomic_index")),
-                "confidence": float(trust_score),
-                "trust_score": float(trust_score),
-                "escalation_score": escalation_score,
                 "escalation_reasons": escalation_reasons,
                 "label": str(selected.get("label") or "OTHER"),
                 "decided_by": str(selected.get("decided_by") or "unknown"),
@@ -10230,7 +10151,6 @@ def _upload_bundle_build_low_trust_changed_lines_packet(
         )
     packet_rows.sort(
         key=lambda row: (
-            _float_or_zero(row.get("trust_score")),
             str(row.get("recipe_id") or ""),
             int(_coerce_int(row.get("line_index")) or 0),
         )
@@ -10238,9 +10158,8 @@ def _upload_bundle_build_low_trust_changed_lines_packet(
 
     return (
         {
-            "schema_version": UPLOAD_BUNDLE_LOW_TRUST_CHANGED_LINES_SCHEMA_VERSION,
+            "schema_version": UPLOAD_BUNDLE_EXPLICIT_ESCALATION_CHANGED_LINES_SCHEMA_VERSION,
             "available": True,
-            "low_trust_threshold": UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD,
             "prediction_files": prediction_files,
             "changed_line_rows_considered": len(changed_line_rows),
             "matched_prediction_rows": len(packet_rows),
@@ -10249,19 +10168,13 @@ def _upload_bundle_build_low_trust_changed_lines_packet(
                 ""
                 if packet_rows
                 else (
-                    "No changed lines intersected low-trust line-role predictions below "
-                    f"{UPLOAD_BUNDLE_LOW_TRUST_THRESHOLD:.2f}."
+                    "No changed lines intersected explicit line-role escalation reasons."
                 )
             ),
             "sample_rows": packet_rows[:40],
         },
         packet_rows,
     )
-
-
-_upload_bundle_build_low_confidence_changed_lines_packet = (
-    _upload_bundle_build_low_trust_changed_lines_packet
-)
 
 
 def _upload_bundle_build_net_error_blame_summary(
@@ -11745,13 +11658,13 @@ def _write_upload_bundle_three_files(
         run_dirs=run_dirs_for_analysis,
     )
     (
-        pass4_knowledge_summary,
-        pass4_locator_hints,
-    ) = _upload_bundle_build_pass4_knowledge_summary(
+        knowledge_summary,
+        knowledge_locator_hints,
+    ) = _upload_bundle_build_knowledge_summary(
         source_root=source_root,
         discovered_run_dirs=run_dirs_for_analysis,
     )
-    line_role_signal_summary = _upload_bundle_build_line_role_trust_summary(
+    line_role_signal_summary = _upload_bundle_build_line_role_escalation_summary(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
         run_dirs=run_dirs_for_analysis,
@@ -11793,9 +11706,9 @@ def _write_upload_bundle_three_files(
         run_dir_by_id=run_dir_by_id,
     )
     (
-        low_confidence_changed_lines_summary,
-        low_confidence_changed_lines_rows,
-    ) = _upload_bundle_build_low_trust_changed_lines_packet(
+        explicit_escalation_changed_lines_summary,
+        explicit_escalation_changed_lines_rows,
+    ) = _upload_bundle_build_explicit_escalation_changed_lines_packet(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
         changed_line_rows=changed_line_rows,
@@ -11869,8 +11782,8 @@ def _write_upload_bundle_three_files(
         "baseline_trace_parity_json": (
             f"{derived_root_prefix}/{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}"
         ),
-        "low_trust_changed_lines_packet_jsonl": (
-            f"{derived_root_prefix}/low_trust_changed_lines.packet.jsonl"
+        "explicit_escalation_changed_lines_packet_jsonl": (
+            f"{derived_root_prefix}/explicit_escalation_changed_lines.packet.jsonl"
         ),
     }
     derived_starter_paths = {
@@ -11991,9 +11904,9 @@ def _write_upload_bundle_three_files(
         content_json=baseline_trace_parity,
     )
     _append_virtual_payload_row(
-        path=derived_root_paths["low_trust_changed_lines_packet_jsonl"],
+        path=derived_root_paths["explicit_escalation_changed_lines_packet_jsonl"],
         content_type="jsonl",
-        content_jsonl_rows=[dict(row) for row in low_confidence_changed_lines_rows],
+        content_jsonl_rows=[dict(row) for row in explicit_escalation_changed_lines_rows],
     )
     _append_virtual_payload_row(
         path=derived_starter_paths["triage_jsonl"],
@@ -12401,7 +12314,7 @@ def _write_upload_bundle_three_files(
         for item in run_diagnostics
         if isinstance(item, dict) and str(item.get("need_to_know_summary_path") or "")
     ]
-    pass4_row_locators = [
+    knowledge_row_locators = [
         {
             "run_id": str(item.get("run_id") or ""),
             "output_subdir": str(item.get("output_subdir") or ""),
@@ -12413,21 +12326,17 @@ def _write_upload_bundle_three_files(
                 ),
                 basenames=(PROMPT_TYPE_SAMPLES_FILE_NAME,),
             ),
-            "prompt_task4_txt": _payload_locator(
+            "prompt_knowledge_txt": _payload_locator(
                 paths=tuple(
-                    path
-                    for path in (str(item.get("prompt_task4_path") or ""),)
-                    if path
+                    path for path in (str(item.get("prompt_knowledge_path") or ""),) if path
                 ),
-                basenames=(PASS4_PROMPT_TASK_FILE_NAME,),
+                basenames=(KNOWLEDGE_PROMPT_FILE_NAME,),
             ),
             "knowledge_manifest_json": _payload_locator(
                 paths=tuple(
-                    path
-                    for path in (str(item.get("pass4_manifest_path") or ""),)
-                    if path
+                    path for path in (str(item.get("knowledge_manifest_path") or ""),) if path
                 ),
-                basenames=(PASS4_KNOWLEDGE_MANIFEST_FILE_NAME,),
+                basenames=(KNOWLEDGE_MANIFEST_FILE_NAME,),
             ),
             "prompt_budget_summary_json": _payload_locator(
                 paths=tuple(
@@ -12438,7 +12347,7 @@ def _write_upload_bundle_three_files(
                 basenames=("prompt_budget_summary.json",),
             ),
         }
-        for item in pass4_locator_hints
+        for item in knowledge_locator_hints
         if isinstance(item, dict) and str(item.get("run_id") or "")
     ]
 
@@ -12538,14 +12447,14 @@ def _write_upload_bundle_three_files(
                     "config_version_metadata.json",
                 ),
             ),
-            "low_trust_changed_lines_packet_jsonl": _payload_locator(
+            "explicit_escalation_changed_lines_packet_jsonl": _payload_locator(
                 paths=(
-                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}",
-                    derived_root_paths["low_trust_changed_lines_packet_jsonl"],
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME}",
+                    derived_root_paths["explicit_escalation_changed_lines_packet_jsonl"],
                 ),
                 basenames=(
-                    STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
-                    "low_trust_changed_lines.packet.jsonl",
+                    STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
+                    "explicit_escalation_changed_lines.packet.jsonl",
                 ),
             ),
         },
@@ -12622,10 +12531,10 @@ def _write_upload_bundle_three_files(
                     derived_root_paths["config_version_metadata_json"],
                 )
             ),
-            "low_trust_changed_lines_packet_jsonl": _payload_locator(
+            "explicit_escalation_changed_lines_packet_jsonl": _payload_locator(
                 paths=(
-                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}",
-                    derived_root_paths["low_trust_changed_lines_packet_jsonl"],
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME}",
+                    derived_root_paths["explicit_escalation_changed_lines_packet_jsonl"],
                 )
             ),
             "baseline_trace_parity_json": _payload_locator(
@@ -12636,27 +12545,27 @@ def _write_upload_bundle_three_files(
             ),
         },
         "per_run_summaries": per_run_summary_locators,
-        "pass4_by_run": pass4_row_locators,
+        "knowledge_by_run": knowledge_row_locators,
         "deprioritized_heavy_artifacts": heavy_artifact_locators[:80],
     }
 
-    pass4_rows = (
-        pass4_knowledge_summary.get("rows")
-        if isinstance(pass4_knowledge_summary.get("rows"), list)
+    knowledge_rows = (
+        knowledge_summary.get("rows")
+        if isinstance(knowledge_summary.get("rows"), list)
         else []
     )
-    pass4_locator_by_key = {
+    knowledge_locator_by_key = {
         (
             str(row.get("run_id") or ""),
             str(row.get("output_subdir") or ""),
         ): row
-        for row in pass4_row_locators
+        for row in knowledge_row_locators
         if isinstance(row, dict)
     }
-    for row in pass4_rows:
+    for row in knowledge_rows:
         if not isinstance(row, dict):
             continue
-        locator_row = pass4_locator_by_key.get(
+        locator_row = knowledge_locator_by_key.get(
             (
                 str(row.get("run_id") or ""),
                 str(row.get("output_subdir") or ""),
@@ -12664,8 +12573,11 @@ def _write_upload_bundle_three_files(
         )
         locator_row = locator_row if isinstance(locator_row, dict) else {}
         row["prompt_samples_in_bundle"] = isinstance(locator_row.get("prompt_samples_md"), dict)
-        row["prompt_task4_in_bundle"] = isinstance(locator_row.get("prompt_task4_txt"), dict)
-        row["pass4_manifest_in_bundle"] = isinstance(
+        row["prompt_knowledge_in_bundle"] = isinstance(
+            locator_row.get("prompt_knowledge_txt"),
+            dict,
+        )
+        row["knowledge_manifest_in_bundle"] = isinstance(
             locator_row.get("knowledge_manifest_json"),
             dict,
         )
@@ -12750,16 +12662,16 @@ def _write_upload_bundle_three_files(
         "analysis.net_error_blame_summary",
         "analysis.config_version_metadata",
         "analysis.recipe_pipeline_context",
-        "analysis.pass4_knowledge",
+        "analysis.knowledge",
         "analysis.per_label_metrics",
         "analysis.per_recipe_breakdown",
         "analysis.stage_separated_comparison",
         "analysis.failure_ledger",
         "analysis.regression_casebook",
         "analysis.changed_lines_stratified_sample",
-        "analysis.low_trust_changed_lines_packet",
+        "analysis.explicit_escalation_changed_lines_packet",
         "analysis.call_inventory_runtime",
-        "analysis.line_role_trust",
+        "analysis.line_role_escalation",
     ]
     if high_level_only:
         default_initial_views.insert(2, "analysis.group_high_level")
@@ -12830,7 +12742,7 @@ def _write_upload_bundle_three_files(
                 f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME}",
                 (
                     f"{STARTER_PACK_DIR_NAME}/"
-                    f"{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}"
+                    f"{STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME}"
                 ),
                 f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}",
             ],
@@ -12873,7 +12785,7 @@ def _write_upload_bundle_three_files(
             "net_error_blame_summary": net_error_blame_summary,
             "config_version_metadata": config_version_metadata,
             "recipe_pipeline_context": recipe_pipeline_context,
-            "pass4_knowledge": pass4_knowledge_summary,
+            "knowledge": knowledge_summary,
             "group_high_level": group_high_level_packet_summary,
             "per_label_metrics": per_label_metrics,
             "top_confusion_deltas": _aggregate_confusion_deltas(
@@ -12888,9 +12800,11 @@ def _write_upload_bundle_three_files(
             "failure_ledger": failure_ledger,
             "regression_casebook": regression_casebook,
             "changed_lines_stratified_sample": changed_line_stratified,
-            "low_trust_changed_lines_packet": low_confidence_changed_lines_summary,
+            "explicit_escalation_changed_lines_packet": (
+                explicit_escalation_changed_lines_summary
+            ),
             "call_inventory_runtime": call_runtime_inventory,
-            "line_role_trust": line_role_signal_summary,
+            "line_role_escalation": line_role_signal_summary,
             "selected_recipe_packets": {
                 "packet_count": len(selected_packets),
                 "packets": selected_packets,
@@ -13022,28 +12936,28 @@ def _write_upload_bundle_three_files(
     )
     overview_lines.extend(
         [
-            "## Pass4 Knowledge",
+            "## Knowledge",
             "",
             (
                 "- enabled_run_count: "
-                f"{int(_coerce_int(pass4_knowledge_summary.get('enabled_run_count')) or 0)}"
+                f"{int(_coerce_int(knowledge_summary.get('enabled_run_count')) or 0)}"
             ),
             (
                 "- runs_with_prompt_samples: "
-                f"{int(_coerce_int(pass4_knowledge_summary.get('runs_with_prompt_samples')) or 0)}"
+                f"{int(_coerce_int(knowledge_summary.get('runs_with_prompt_samples')) or 0)}"
             ),
             (
-                "- runs_with_pass4_manifest: "
-                f"{int(_coerce_int(pass4_knowledge_summary.get('runs_with_pass4_manifest')) or 0)}"
+                "- runs_with_knowledge_manifest: "
+                f"{int(_coerce_int(knowledge_summary.get('runs_with_knowledge_manifest')) or 0)}"
             ),
             (
-                "- total_pass4_call_count: "
-                f"{int(_coerce_int(pass4_knowledge_summary.get('total_pass4_call_count')) or 0)}"
+                "- total_knowledge_call_count: "
+                f"{int(_coerce_int(knowledge_summary.get('total_knowledge_call_count')) or 0)}"
             ),
             (
                 "- prompt navigation: "
-                "`upload_bundle_index.json -> analysis.pass4_knowledge` and "
-                "`navigation.row_locators.pass4_by_run`."
+                "`upload_bundle_index.json -> analysis.knowledge` and "
+                "`navigation.row_locators.knowledge_by_run`."
             ),
             "",
         ]
@@ -13122,9 +13036,9 @@ def _write_upload_bundle_three_files(
         "- failure ledger (recipe x pass rows)",
         "- compact regression casebook",
         "- changed-lines stratified sample",
-        "- low-confidence changed-lines packet",
+        "- explicit-escalation changed-lines packet",
         "- call inventory with latency/tokens/cost",
-        "- line-role confidence (and candidate-label signal when present)",
+        "- line-role escalation reasons",
     ]
     if multi_book_run_level:
         included_views.extend(
@@ -13242,8 +13156,8 @@ def _write_upload_bundle_three_files(
                 f"{int(triage_packet_summary.get('row_count') or 0)}"
             ),
             (
-                "- low_trust_changed_lines_rows: "
-                f"{int(low_confidence_changed_lines_summary.get('row_count') or 0)}"
+                "- explicit_escalation_changed_lines_rows: "
+                f"{int(explicit_escalation_changed_lines_summary.get('row_count') or 0)}"
             ),
             (
                 "- critical_row_locator_coverage_ratio: "

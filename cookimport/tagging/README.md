@@ -57,4 +57,4 @@ cookimport stage <path> \
   --tag-catalog-json data/tagging/tag_catalog.json
 ```
 
-Outputs are written under `data/output/<ts>/tags/<workbook_slug>/` with raw codex-farm IO under `raw/llm/<workbook_slug>/pass5_tags/`.
+Outputs are written under `data/output/<ts>/tags/<workbook_slug>/` with raw codex-farm IO under `raw/llm/<workbook_slug>/tags/`.

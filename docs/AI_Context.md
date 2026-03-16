@@ -142,8 +142,8 @@ Main artifacts:
 - `tables/<workbook>/...` (when table extraction is enabled)
 - `raw/<importer>/<source_hash>/...`
 - `.bench/<workbook>/stage_block_predictions.json`
-- `knowledge/<workbook>/...` (when pass4 is enabled)
-- `tags/<workbook>/...` (when pass5 is enabled)
+- `knowledge/<workbook>/...` (when knowledge extraction is enabled)
+- `tags/<workbook>/...` (when LLM tagging is enabled)
 - `<workbook>.excel_import_report.json`
 - `run_summary.json`
 - `run_summary.md`
@@ -225,8 +225,8 @@ Important clarification:
 
 - Stage LLM paths are optional run-settings choices:
   - recipe correction: `llm_recipe_pipeline=codex-farm-single-correction-v1`
-  - knowledge harvesting: `llm_knowledge_pipeline=codex-farm-knowledge-v1` (pass4)
-  - tag suggestion pass: `llm_tags_pipeline=codex-farm-tags-v1` (pass5)
+  - knowledge harvesting: `llm_knowledge_pipeline=codex-farm-knowledge-v1` (knowledge extraction)
+  - tag suggestion pass: `llm_tags_pipeline=codex-farm-tags-v1` (tags stage)
 - Shared defaults are deterministic: `llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`. Codex-enabled paths are explicit opt-ins.
 - Label Studio freeform prelabel uses local Codex CLI invocation (`codex exec -` fallback path included).
 - Deterministic stage behavior remains the baseline when LLM settings are `off`.

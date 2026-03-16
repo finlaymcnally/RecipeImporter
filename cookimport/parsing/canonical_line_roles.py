@@ -140,9 +140,6 @@ _EXPLICIT_KNOWLEDGE_CUE_RE = re.compile(
     r"temperature|emulsion)\b",
     re.IGNORECASE,
 )
-_CODEX_LOW_CONFIDENCE_THRESHOLD = 0.90
-_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT = _CODEX_LOW_CONFIDENCE_THRESHOLD
-_LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT = 0.75
 _RECIPEISH_OUTSIDE_SPAN_LABELS = {
     "RECIPE_TITLE",
     "RECIPE_VARIANT",
@@ -150,19 +147,6 @@ _RECIPEISH_OUTSIDE_SPAN_LABELS = {
     "INSTRUCTION_LINE",
     "INGREDIENT_LINE",
 }
-_STRUCTURED_LINE_ROLE_LABELS = {
-    "RECIPE_TITLE",
-    "RECIPE_VARIANT",
-    "HOWTO_SECTION",
-    "INGREDIENT_LINE",
-    "INSTRUCTION_LINE",
-    "YIELD_LINE",
-    "TIME_LINE",
-    "RECIPE_NOTES",
-}
-_LINE_ROLE_OUTSIDE_SPAN_LOW_CONF_ESCALATION_ENV = (
-    "COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION"
-)
 _DO_NO_HARM_SCHEMA_VERSION = "line_role_do_no_harm.v1"
 _LINE_ROLE_GUARDRAIL_SCHEMA_VERSION = "line_role_guardrail_report.v1"
 _DO_NO_HARM_TITLE_VARIANT_PARTIAL_THRESHOLD = 2
@@ -203,36 +187,15 @@ class CanonicalLineRolePrediction(BaseModel):
     text: str
     within_recipe_span: bool = False
     label: str
-    confidence: float
-    trust_score: float | None = None
-    escalation_score: float | None = None
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _sync_trust_compatibility_alias(self) -> "CanonicalLineRolePrediction":
-        trust = self.trust_score
-        if trust is None:
-            trust = self.confidence
-        trust = _rounded_score(trust)
-        escalation = self.escalation_score
-        if escalation is None:
-            escalation = max(0.0, 1.0 - trust)
-        self.trust_score = trust
-        self.escalation_score = _rounded_score(escalation)
-        self.confidence = trust
+    def _normalize_metadata(self) -> "CanonicalLineRolePrediction":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
         return self
-
-
-def _rounded_score(value: float | int | None) -> float:
-    try:
-        rendered = float(value)
-    except (TypeError, ValueError):
-        rendered = 0.0
-    return round(max(0.0, min(1.0, rendered)), 4)
 
 
 def _unique_string_list(values: Sequence[Any]) -> list[str]:
@@ -245,38 +208,6 @@ def _unique_string_list(values: Sequence[Any]) -> list[str]:
         seen.add(rendered)
         output.append(rendered)
     return output
-
-
-def _line_role_trust_low_threshold(settings: RunSettings | None = None) -> float:
-    if settings is None:
-        return float(_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT)
-    raw_value = getattr(
-        settings,
-        "line_role_trust_low_threshold",
-        _LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT,
-    )
-    try:
-        return float(raw_value)
-    except (TypeError, ValueError):
-        return float(_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT)
-
-
-def _line_role_escalation_threshold(settings: RunSettings | None = None) -> float:
-    if settings is None:
-        return float(_LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT)
-    raw_value = getattr(
-        settings,
-        "line_role_escalation_threshold",
-        _LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT,
-    )
-    try:
-        return float(raw_value)
-    except (TypeError, ValueError):
-        return float(_LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT)
-
-
-def _prediction_label_is_structured(label: str | None) -> bool:
-    return str(label or "OTHER") in _STRUCTURED_LINE_ROLE_LABELS
 
 
 def _prediction_has_reason_tag(
@@ -292,32 +223,8 @@ def _apply_prediction_decision_metadata(
     candidate: AtomicLineCandidate,
     by_atomic_index: dict[int, AtomicLineCandidate],
     baseline_prediction: CanonicalLineRolePrediction | None = None,
-    trust_low_threshold: float | None = None,
 ) -> CanonicalLineRolePrediction:
-    low_trust_threshold = (
-        float(trust_low_threshold)
-        if trust_low_threshold is not None
-        else float(_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT)
-    )
-    trust_score = _rounded_score(prediction.confidence)
     label = str(prediction.label or "OTHER")
-    structured_label = _prediction_label_is_structured(label)
-
-    if prediction.decided_by == "codex":
-        trust_score = min(trust_score, 0.78)
-    elif prediction.decided_by == "fallback":
-        trust_score = min(trust_score, 0.68)
-
-    if _prediction_has_reason_tag(prediction, "deterministic_unresolved"):
-        trust_score = min(trust_score, 0.35)
-    if _prediction_has_reason_tag(prediction, "deterministic_recovered"):
-        trust_score = min(trust_score, 0.55)
-    if _prediction_has_reason_tag(prediction, "sanitized_"):
-        trust_score = min(trust_score, 0.62)
-    if _prediction_has_reason_tag(prediction, "outside_span_") and structured_label:
-        trust_score = min(trust_score, 0.58)
-    if _prediction_has_reason_tag(prediction, "ownership_veto"):
-        trust_score = min(trust_score, 0.52)
 
     reasons: list[str] = []
     if _prediction_has_reason_tag(prediction, "deterministic_unresolved") or _prediction_has_reason_tag(
@@ -327,8 +234,6 @@ def _apply_prediction_decision_metadata(
         reasons.append("deterministic_unresolved")
     if prediction.decided_by == "fallback":
         reasons.append("fallback_decision")
-    if structured_label and trust_score < low_trust_threshold:
-        reasons.append("low_trust_structured_label")
     if (
         not candidate.within_recipe_span
         and label in _RECIPEISH_OUTSIDE_SPAN_LABELS
@@ -347,35 +252,8 @@ def _apply_prediction_decision_metadata(
     if _prediction_has_reason_tag(prediction, "sanitized_"):
         reasons.append("sanitized_label_adjustment")
 
-    escalation_score = max(0.0, 1.0 - trust_score)
-    if "deterministic_unresolved" in reasons:
-        escalation_score = max(escalation_score, 0.95)
-    if "codex_disagreed_with_rule" in reasons or "ownership_veto" in reasons:
-        escalation_score = max(escalation_score, 0.88)
-    if "fallback_decision" in reasons:
-        escalation_score = max(escalation_score, 0.82)
-    if "outside_span_structured_label" in reasons:
-        escalation_score = max(escalation_score, 0.85)
-    if "low_trust_structured_label" in reasons:
-        escalation_score = max(escalation_score, 0.75)
-    if "sanitized_label_adjustment" in reasons:
-        escalation_score = max(escalation_score, 0.68)
-    if (
-        prediction.decided_by == "rule"
-        and not reasons
-        and _has_strong_syntax_label_evidence(
-            label=label,
-            candidate=candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        escalation_score = min(escalation_score, 0.08)
-
     payload = prediction.model_dump(mode="python")
-    payload["trust_score"] = _rounded_score(trust_score)
-    payload["escalation_score"] = _rounded_score(escalation_score)
     payload["escalation_reasons"] = _unique_string_list(reasons)
-    payload["confidence"] = _rounded_score(trust_score)
     return CanonicalLineRolePrediction.model_validate(payload)
 
 
@@ -450,7 +328,7 @@ def _label_atomic_lines_internal(
     deterministic_baseline: dict[int, CanonicalLineRolePrediction] = {}
     unresolved: list[AtomicLineCandidate] = []
     for candidate_index, candidate in enumerate(ordered, start=1):
-        label, confidence, tags = _deterministic_label(
+        label, tags = _deterministic_label(
             candidate,
             by_atomic_index=by_atomic_index,
         )
@@ -469,7 +347,6 @@ def _label_atomic_lines_internal(
                 text=str(candidate.text),
                 within_recipe_span=bool(candidate.within_recipe_span),
                 label=label,
-                confidence=confidence,
                 decided_by="rule",
                 reason_tags=tags,
             )
@@ -477,7 +354,6 @@ def _label_atomic_lines_internal(
             prediction=baseline_prediction,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
-            trust_low_threshold=_line_role_trust_low_threshold(settings),
         )
         deterministic_baseline[candidate.atomic_index] = baseline_prediction
         if label is None:
@@ -488,11 +364,7 @@ def _label_atomic_lines_internal(
                 and _should_escalate_candidate(
                     candidate=candidate,
                     deterministic_label=label,
-                    trust_score=baseline_prediction.trust_score or baseline_prediction.confidence,
-                    escalation_score=baseline_prediction.escalation_score or 0.0,
                     escalation_reasons=baseline_prediction.escalation_reasons,
-                    by_atomic_index=by_atomic_index,
-                    settings=settings,
                 )
             ):
                 unresolved.append(candidate)
@@ -624,14 +496,12 @@ def _label_atomic_lines_internal(
             prediction=sanitized_baseline,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
-            trust_low_threshold=_line_role_trust_low_threshold(settings),
         )
         sanitized_current = _apply_prediction_decision_metadata(
             prediction=sanitized_current,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
             baseline_prediction=sanitized_baseline,
-            trust_low_threshold=_line_role_trust_low_threshold(settings),
         )
         sanitized_by_index[candidate.atomic_index] = sanitized_current
         sanitized_baseline_by_index[candidate.atomic_index] = sanitized_baseline
@@ -760,9 +630,8 @@ def build_line_role_codex_execution_plan(
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
     unresolved: list[AtomicLineCandidate] = []
     deterministic_metadata_by_atomic: dict[int, CanonicalLineRolePrediction] = {}
-    trust_low_threshold = _line_role_trust_low_threshold(settings)
     for candidate in ordered:
-        label, confidence, tags = _deterministic_label(
+        label, tags = _deterministic_label(
             candidate,
             by_atomic_index=by_atomic_index,
         )
@@ -776,7 +645,6 @@ def build_line_role_codex_execution_plan(
                     ),
                     candidate=candidate,
                     by_atomic_index=by_atomic_index,
-                    trust_low_threshold=trust_low_threshold,
                 )
             )
             unresolved.append(candidate)
@@ -790,23 +658,17 @@ def build_line_role_codex_execution_plan(
                 text=str(candidate.text),
                 within_recipe_span=bool(candidate.within_recipe_span),
                 label=label,
-                confidence=confidence,
                 decided_by="rule",
                 reason_tags=list(tags),
             ),
             candidate=candidate,
             by_atomic_index=by_atomic_index,
-            trust_low_threshold=trust_low_threshold,
         )
         deterministic_metadata_by_atomic[int(candidate.atomic_index)] = deterministic_prediction
         if _should_escalate_candidate(
             candidate=candidate,
             deterministic_label=label,
-            trust_score=deterministic_prediction.trust_score or deterministic_prediction.confidence,
-            escalation_score=deterministic_prediction.escalation_score or 0.0,
             escalation_reasons=deterministic_prediction.escalation_reasons,
-            by_atomic_index=by_atomic_index,
-            settings=settings,
         ):
             unresolved.append(candidate)
 
@@ -828,16 +690,6 @@ def build_line_role_codex_execution_plan(
                     "recipe_id": candidate.recipe_id,
                     "within_recipe_span": bool(candidate.within_recipe_span),
                     "text": str(candidate.text),
-                    "trust_score": (
-                        deterministic_prediction.trust_score
-                        if deterministic_prediction is not None
-                        else None
-                    ),
-                    "escalation_score": (
-                        deterministic_prediction.escalation_score
-                        if deterministic_prediction is not None
-                        else None
-                    ),
                     "escalation_reasons": (
                         list(deterministic_prediction.escalation_reasons)
                         if deterministic_prediction is not None
@@ -1109,7 +961,6 @@ def _downgraded_prediction(
         text=prediction.text,
         within_recipe_span=prediction.within_recipe_span,
         label=prediction.label,
-        confidence=prediction.confidence,
         decided_by="fallback",
         reason_tags=reason_tags,
     )
@@ -1431,7 +1282,6 @@ def _run_codex_batch(
                 by_atomic_index[row["atomic_index"]].within_recipe_span
             ),
             label=row["label"],
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         )
@@ -2076,16 +1926,16 @@ def _deterministic_label(
     candidate: AtomicLineCandidate,
     *,
     by_atomic_index: dict[int, AtomicLineCandidate] | None = None,
-) -> tuple[str | None, float, list[str]]:
+) -> tuple[str | None, list[str]]:
     tags = {str(tag) for tag in candidate.rule_tags}
     if "note_prefix" in tags or _looks_note_text(candidate.text):
-        return "RECIPE_NOTES", 0.99, ["note_prefix"]
+        return "RECIPE_NOTES", ["note_prefix"]
     if "variant_heading" in tags or _looks_variant_heading_text(candidate.text):
-        return "RECIPE_VARIANT", 0.98, ["variant_heading"]
+        return "RECIPE_VARIANT", ["variant_heading"]
     if _looks_editorial_note(candidate.text):
         if candidate.within_recipe_span:
-            return "RECIPE_NOTES", 0.84, ["editorial_note"]
-        return "RECIPE_NOTES", 0.84, ["outside_recipe_editorial_note"]
+            return "RECIPE_NOTES", ["editorial_note"]
+        return "RECIPE_NOTES", ["outside_recipe_editorial_note"]
     if (
         not candidate.within_recipe_span
         and _looks_recipe_note_prose(candidate.text)
@@ -2093,7 +1943,7 @@ def _deterministic_label(
         and "yield_prefix" not in tags
         and "howto_heading" not in tags
     ):
-        return "RECIPE_NOTES", 0.82, ["outside_recipe_note_prose"]
+        return "RECIPE_NOTES", ["outside_recipe_note_prose"]
     if (
         not candidate.within_recipe_span
         and _looks_prose(candidate.text)
@@ -2102,63 +1952,63 @@ def _deterministic_label(
         and "howto_heading" not in tags
     ):
         if _looks_narrative_prose(candidate.text):
-            return "OTHER", 0.74, ["outside_recipe_narrative"]
+            return "OTHER", ["outside_recipe_narrative"]
         if _looks_explicit_knowledge_cue(candidate.text):
-            return "KNOWLEDGE", 0.9, [
+            return "KNOWLEDGE", [
                 "outside_recipe_span",
                 "prose_like",
                 "explicit_knowledge_cue",
             ]
-        return "OTHER", 0.72, ["outside_recipe_span", "prose_default_other"]
+        return "OTHER", ["outside_recipe_span", "prose_default_other"]
     if "yield_prefix" in tags:
-        return "YIELD_LINE", 0.99, ["yield_prefix"]
+        return "YIELD_LINE", ["yield_prefix"]
     if "howto_heading" in tags:
-        return "HOWTO_SECTION", 0.99, ["howto_heading"]
+        return "HOWTO_SECTION", ["howto_heading"]
     if _looks_subsection_heading_context(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
-        return "HOWTO_SECTION", 0.9, ["subsection_heading_context"]
+        return "HOWTO_SECTION", ["subsection_heading_context"]
     if "note_like_prose" in tags:
-        return "RECIPE_NOTES", 0.91, ["note_like_prose"]
+        return "RECIPE_NOTES", ["note_like_prose"]
     if "ingredient_like" in tags:
         if _looks_recipe_title_with_context(
             candidate,
             by_atomic_index=by_atomic_index,
         ):
-            return "RECIPE_TITLE", 0.84, ["title_like", "ingredient_heading_override"]
-        return "INGREDIENT_LINE", 0.98, ["ingredient_like"]
+            return "RECIPE_TITLE", ["title_like", "ingredient_heading_override"]
+        return "INGREDIENT_LINE", ["ingredient_like"]
     if "instruction_with_time" in tags:
-        return "INSTRUCTION_LINE", 0.96, ["instruction_with_time"]
+        return "INSTRUCTION_LINE", ["instruction_with_time"]
     if "instruction_like" in tags:
-        return "INSTRUCTION_LINE", 0.95, ["instruction_like"]
+        return "INSTRUCTION_LINE", ["instruction_like"]
     if "time_metadata" in tags and _is_primary_time_line(candidate.text):
-        return "TIME_LINE", 0.95, ["time_metadata"]
+        return "TIME_LINE", ["time_metadata"]
     if "outside_recipe_span" in tags:
         if _looks_recipe_title_with_context(
             candidate,
             by_atomic_index=by_atomic_index,
         ):
-            return "RECIPE_TITLE", 0.79, ["title_like", "outside_recipe_span"]
+            return "RECIPE_TITLE", ["title_like", "outside_recipe_span"]
         if _looks_prose(candidate.text):
             if _looks_narrative_prose(candidate.text):
-                return "OTHER", 0.7, ["outside_recipe_narrative", "outside_recipe_span"]
+                return "OTHER", ["outside_recipe_narrative", "outside_recipe_span"]
             if _looks_explicit_knowledge_cue(candidate.text):
-                return "KNOWLEDGE", 0.86, [
+                return "KNOWLEDGE", [
                     "outside_recipe_span",
                     "prose_like",
                     "explicit_knowledge_cue",
                 ]
-            return "OTHER", 0.66, ["outside_recipe_span", "prose_default_other"]
-        return "OTHER", 0.65, ["outside_recipe_span"]
+            return "OTHER", ["outside_recipe_span", "prose_default_other"]
+        return "OTHER", ["outside_recipe_span"]
     if (
         "title_like" in tags or _looks_recipe_title(candidate.text)
     ) and _looks_recipe_title_with_context(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
-        return "RECIPE_TITLE", 0.8, ["title_like"]
-    return None, 0.0, ["needs_disambiguation"]
+        return "RECIPE_TITLE", ["title_like"]
+    return None, ["needs_disambiguation"]
 
 
 def _fallback_prediction(
@@ -2169,17 +2019,15 @@ def _fallback_prediction(
 ) -> CanonicalLineRolePrediction:
     if by_atomic_index is None:
         by_atomic_index = {int(candidate.atomic_index): candidate}
-    deterministic_label, deterministic_confidence, deterministic_tags = _deterministic_label(
+    deterministic_label, deterministic_tags = _deterministic_label(
         candidate,
         by_atomic_index=by_atomic_index,
     )
     if deterministic_label is not None and deterministic_label in FREEFORM_ALLOWED_LABELS:
         label = deterministic_label
-        confidence = max(0.35, float(deterministic_confidence))
         reason_tags = [reason, "deterministic_recovered", *deterministic_tags]
     else:
         label = "OTHER"
-        confidence = 0.35
         reason_tags = [reason, "deterministic_unavailable"]
     return CanonicalLineRolePrediction(
         recipe_id=candidate.recipe_id,
@@ -2189,7 +2037,6 @@ def _fallback_prediction(
         text=str(candidate.text),
         within_recipe_span=bool(candidate.within_recipe_span),
         label=label,
-        confidence=confidence,
         decided_by="fallback",
         reason_tags=reason_tags,
     )
@@ -2274,7 +2121,6 @@ def _sanitize_prediction(
         text=prediction.text,
         within_recipe_span=prediction.within_recipe_span,
         label=label,
-        confidence=prediction.confidence,
         decided_by=decided_by,
         reason_tags=reason_tags,
     )
@@ -2302,7 +2148,6 @@ def _prediction_with_reason_tags(
         text=prediction.text,
         within_recipe_span=prediction.within_recipe_span,
         label=prediction.label,
-        confidence=prediction.confidence,
         decided_by=decided_by or prediction.decided_by,
         reason_tags=reason_tags,
     )
@@ -2388,35 +2233,15 @@ def _should_escalate_candidate(
     *,
     candidate: AtomicLineCandidate,
     deterministic_label: str | None,
-    trust_score: float,
-    escalation_score: float,
     escalation_reasons: Sequence[str],
-    by_atomic_index: dict[int, AtomicLineCandidate],
-    settings: RunSettings | None = None,
 ) -> bool:
-    del by_atomic_index
-    if float(escalation_score) < _line_role_escalation_threshold(settings):
+    if not candidate.within_recipe_span:
         return False
-    if (
-        not candidate.within_recipe_span
-        and not _outside_span_low_confidence_escalation_enabled()
-    ):
+    if deterministic_label in {"RECIPE_TITLE", "RECIPE_VARIANT"}:
         return False
-    if deterministic_label == "RECIPE_TITLE":
-        return False
-    if (
-        float(trust_score) >= _line_role_trust_low_threshold(settings)
-        and not escalation_reasons
-    ):
+    if not escalation_reasons:
         return False
     return True
-
-
-def _outside_span_low_confidence_escalation_enabled() -> bool:
-    raw_value = str(
-        os.getenv(_LINE_ROLE_OUTSIDE_SPAN_LOW_CONF_ESCALATION_ENV) or ""
-    ).strip().lower()
-    return raw_value in {"1", "true", "yes", "on"}
 
 
 def _outside_span_title_variant_allowed(

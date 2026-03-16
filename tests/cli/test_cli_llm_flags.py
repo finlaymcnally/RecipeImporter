@@ -38,8 +38,8 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--codex-farm-pipeline-pass1" not in result.stdout
     assert "--codex-farm-pipeline-pass2" not in result.stdout
     assert "--codex-farm-pipeline-pass3" not in result.stdout
-    assert "--codex-farm-pipeline-pass4-knowledge" not in result.stdout
-    assert "--codex-farm-pipeline-pass5-tags" not in result.stdout
+    assert "--codex-farm-pipeline-knowledge" not in result.stdout
+    assert "--codex-farm-pipeline-tags" not in result.stdout
     assert "--table-extraction" not in result.stdout
     assert "codex-farm-single-correction-v1" in result.stdout
     assert "codex-farm-3pass-v1" not in result.stdout
@@ -76,6 +76,6 @@ def test_benchmark_help_exposes_knowledge_codex_flags() -> None:
     assert "--recipe-scorer-backend" not in result.stdout
     assert "--line-role-guardrail-mode" not in result.stdout
     assert "--codex-farm-failure-mode" not in result.stdout
-    assert "--codex-farm-pipeline-pass4-knowledge" not in result.stdout
+    assert "--codex-farm-pipeline-knowledge" not in result.stdout
     assert "--codex-farm-benchmark-selective-retry" not in result.stdout
     assert "--codex-farm-benchmark-selective-retry-max-attempts" not in result.stdout

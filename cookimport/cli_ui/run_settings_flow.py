@@ -39,7 +39,7 @@ _INTERACTIVE_BLOCK_LABEL_PIPELINE_LABELS: dict[str, str] = {
 }
 _INTERACTIVE_KNOWLEDGE_PIPELINE_LABELS: dict[str, str] = {
     "off": "Off",
-    "codex-farm-knowledge-v1": "CodexFarm pass4 knowledge harvest",
+    "codex-farm-knowledge-v1": "CodexFarm knowledge extraction",
 }
 _CODEX_REASONING_EFFORT_ORDER = (
     "none",
@@ -289,7 +289,7 @@ def _choose_interactive_benchmark_llm_surfaces(
     knowledge_choice = menu_select(
         "Knowledge harvest for this run:",
         menu_help=(
-            "Turn pass4 knowledge harvest on only when you want Codex to classify "
+            "Turn knowledge extraction on only when you want Codex to classify "
             "non-recipe knowledge blocks for this benchmark run."
         ),
         default=knowledge_default,

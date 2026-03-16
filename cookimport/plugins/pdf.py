@@ -1288,10 +1288,12 @@ class PdfImporter:
         )
         if raw_backend is None and run_settings is not None:
             raw_backend = getattr(run_settings, "multi_recipe_splitter", None)
-        normalized = str(raw_backend or "legacy").strip().lower().replace("-", "_")
-        if normalized in {"legacy", "off", "rules_v1"}:
+        normalized = str(raw_backend or "rules_v1").strip().lower().replace("-", "_")
+        if normalized == "legacy":
+            return "rules_v1"
+        if normalized in {"off", "rules_v1"}:
             return normalized
-        return "legacy"
+        return "rules_v1"
 
     def _build_multi_recipe_split_config(
         self,
@@ -1330,7 +1332,7 @@ class PdfImporter:
     ]:
         backend = self._resolve_multi_recipe_splitter_backend(run_settings)
         passthrough_meta: list[dict[str, Any] | None] = [None] * len(candidates)
-        if backend in {"legacy", "off"}:
+        if backend == "off":
             return list(candidates), passthrough_meta, None
 
         config = self._build_multi_recipe_split_config(run_settings, backend=backend)

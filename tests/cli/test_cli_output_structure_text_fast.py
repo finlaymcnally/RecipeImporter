@@ -106,7 +106,7 @@ def test_stage_output_structure(tmp_path):
     assert report["runConfig"]["epub_unstructured_skip_headers_footers"] is True
     assert report["runConfig"]["epub_unstructured_preprocess_mode"] == "semantic_v1"
     assert "section_detector_backend" not in report["runConfig"]
-    assert report["runConfig"]["multi_recipe_splitter"] == "legacy"
+    assert report["runConfig"]["multi_recipe_splitter"] == "rules_v1"
     assert "multi_recipe_trace" not in report["runConfig"]
     assert report["runConfig"]["multi_recipe_min_ingredient_lines"] == 1
     assert report["runConfig"]["multi_recipe_min_instruction_lines"] == 1

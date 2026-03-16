@@ -70,8 +70,8 @@ _STAGE_FIXED_BEHAVIOR_FIELDS = (
     "instruction_step_segmenter",
     "multi_recipe_trace",
     "p6_emit_metadata_debug",
-    "codex_farm_pipeline_pass4_knowledge",
-    "codex_farm_pipeline_pass5_tags",
+    "codex_farm_pipeline_knowledge",
+    "codex_farm_pipeline_tags",
 )
 _BENCHMARK_OPERATOR_FIELDS = (
     "workers",
@@ -111,7 +111,7 @@ _BENCHMARK_INTERNAL_FIELDS = _STAGE_INTERNAL_FIELDS + ("line_role_guardrail_mode
 _BENCHMARK_FIXED_BEHAVIOR_FIELDS = tuple(
     field_name
     for field_name in _STAGE_FIXED_BEHAVIOR_FIELDS
-    if field_name != "codex_farm_pipeline_pass5_tags"
+    if field_name != "codex_farm_pipeline_tags"
 ) + (
     "benchmark_sequence_matcher",
 )

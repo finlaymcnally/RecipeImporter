@@ -14,16 +14,18 @@ runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-04_20.33.53/single-profile-benchmark/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
-PASS4_SAMPLE_BUNDLE = (
+KNOWLEDGE_SAMPLE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-06_15.22.11/single-profile-benchmark/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
-PASS4_SOURCE_KEY = "02_saltfatacidheatcutdown"
+KNOWLEDGE_SOURCE_KEY = (
+    "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
+)
 SPARSE_SINGLE_PROFILE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-16_12.14.35/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
 SPARSE_SINGLE_PROFILE_SOURCE_KEY = (
     "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
@@ -44,46 +46,149 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
     return rows
 
 
-def _make_current_pass4_bundle(tmp_path: Path) -> Path:
+def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> Path:
     copied_root = tmp_path / "single-profile-benchmark"
-    shutil.copytree(PASS4_SAMPLE_BUNDLE.parent, copied_root)
+    shutil.copytree(KNOWLEDGE_SAMPLE_BUNDLE.parent, copied_root)
+    run_dir = copied_root / "line_role_only"
+    prompts_dir = run_dir / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    knowledge_prompt_path = prompts_dir / "prompt_extract_knowledge_optional.txt"
+    knowledge_prompt_path.write_text("knowledge prompt body\n", encoding="utf-8")
+    prompt_samples_path = prompts_dir / "prompt_type_samples_from_full_prompt_log.md"
+    prompt_samples_path.write_text(
+        "# Prompt samples\n\n## knowledge (Knowledge)\n\ncall_id: `fixture-knowledge`\n",
+        encoding="utf-8",
+    )
+    prediction_run_dir = run_dir / "prediction-run"
+    prediction_run_dir.mkdir(parents=True, exist_ok=True)
+    prompt_budget_path = prediction_run_dir / "prompt_budget_summary.json"
+    prompt_budget_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_budget_summary.v1",
+                "by_stage": {"knowledge": {"call_count": 1, "tokens_total": 1234}},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    knowledge_manifest_path = (
+        prediction_run_dir / "raw" / "llm" / "fixture-slug" / "knowledge_manifest.json"
+    )
+    knowledge_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    knowledge_manifest_path.write_text(
+        json.dumps({"pipeline_id": "recipe.knowledge.compact.v1"}, indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
     bundle_dir = copied_root / "upload_bundle_v1"
     index_path = bundle_dir / "upload_bundle_index.json"
     index_payload = _read_json(index_path)
     index_payload["source_dir"] = str(copied_root)
-    row_locators = ((index_payload.get("navigation") or {}).get("row_locators") or {})
-    pass4_rows = row_locators.get("pass4_by_run")
-    if isinstance(pass4_rows, list):
-        for row in pass4_rows:
+    analysis = index_payload.setdefault("analysis", {})
+    knowledge_summary = dict(analysis.get("knowledge", {}) or {})
+    if isinstance(knowledge_summary, dict):
+        knowledge_summary["schema_version"] = "upload_bundle_knowledge.v1"
+        rows = knowledge_summary.get("rows")
+        if isinstance(rows, list) and rows:
+            row = dict(rows[0])
+            row["enabled"] = enabled
+            row["pipeline"] = "codex-farm-knowledge-v1"
+            row["pipeline_id"] = "recipe.knowledge.compact.v1"
+            row["llm_knowledge_pipeline"] = "codex-farm-knowledge-v1"
+            row["knowledge_call_count"] = 1
+            row["knowledge_token_total"] = 1234
+            row["prompt_knowledge_status"] = "written"
+            row["knowledge_manifest_status"] = "written"
+            row["prompt_samples_status"] = "written"
+            row["prompt_budget_summary_status"] = "written"
+            row["prompt_knowledge_in_bundle"] = True
+            row["knowledge_manifest_in_bundle"] = True
+            row["prompt_samples_in_bundle"] = True
+            row["prompt_budget_summary_in_bundle"] = True
+            row["jobs_written"] = 1
+            row["outputs_parsed"] = 1
+            row["snippets_written"] = 1
+            row["source_key"] = KNOWLEDGE_SOURCE_KEY
+            knowledge_summary["rows"] = [row]
+        knowledge_summary["enabled_run_count"] = 1 if enabled else 0
+        analysis["knowledge"] = knowledge_summary
+    navigation = (index_payload.get("navigation") or {})
+    row_locators = (navigation.get("row_locators") or {})
+    knowledge_rows = row_locators.get("knowledge_by_run")
+    if isinstance(knowledge_rows, list):
+        for row in knowledge_rows:
             if not isinstance(row, dict):
                 continue
-            if "knowledge_manifest_json" in row:
-                continue
-            for label, locator in list(row.items()):
-                if label in {"run_id", "output_subdir"} or not isinstance(locator, dict):
-                    continue
-                locator_path = str(locator.get("path") or "")
-                if "knowledge_manifest" not in locator_path:
-                    continue
-                row["knowledge_manifest_json"] = locator
-                del row[label]
-                break
+            row["prompt_samples_md"] = {
+                "path": "line_role_only/prompts/prompt_type_samples_from_full_prompt_log.md",
+                "payload_row": 999001,
+            }
+            row["prompt_knowledge_txt"] = {
+                "path": "line_role_only/prompts/prompt_extract_knowledge_optional.txt",
+                "payload_row": 999002,
+            }
+            row["knowledge_manifest_json"] = {
+                "path": "line_role_only/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json",
+                "payload_row": 999003,
+            }
+            row["prompt_budget_summary_json"] = {
+                "path": "line_role_only/prediction-run/prompt_budget_summary.json",
+                "payload_row": 999004,
+            }
+    index_payload["navigation"]["row_locators"] = row_locators
     index_path.write_text(
         json.dumps(index_payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     payload_path = bundle_dir / "upload_bundle_payload.jsonl"
     payload_rows = _read_jsonl(payload_path)
-    for row in payload_rows:
-        path = str(row.get("path") or "")
-        if path.endswith("pass4_knowledge_manifest.json"):
-            row["path"] = path[: -len("pass4_knowledge_manifest.json")] + "knowledge_manifest.json"
+    payload_rows.extend(
+        [
+            {
+                "path": "line_role_only/prompts/prompt_type_samples_from_full_prompt_log.md",
+                "content_type": "text",
+                "category": "run_artifact",
+                "run_subdir": "line_role_only",
+                "bytes": prompt_samples_path.stat().st_size,
+                "sha256": "fixture-prompt-samples",
+                "content_text": prompt_samples_path.read_text(encoding="utf-8"),
+            },
+            {
+                "path": "line_role_only/prompts/prompt_extract_knowledge_optional.txt",
+                "content_type": "text",
+                "category": "run_artifact",
+                "run_subdir": "line_role_only",
+                "bytes": knowledge_prompt_path.stat().st_size,
+                "sha256": "fixture-knowledge-prompt",
+                "content_text": knowledge_prompt_path.read_text(encoding="utf-8"),
+            },
+            {
+                "path": "line_role_only/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json",
+                "content_type": "json",
+                "category": "run_artifact",
+                "run_subdir": "line_role_only",
+                "bytes": knowledge_manifest_path.stat().st_size,
+                "sha256": "fixture-knowledge-manifest",
+                "content_json": json.loads(knowledge_manifest_path.read_text(encoding="utf-8")),
+            },
+            {
+                "path": "line_role_only/prediction-run/prompt_budget_summary.json",
+                "content_type": "json",
+                "category": "run_artifact",
+                "run_subdir": "line_role_only",
+                "bytes": prompt_budget_path.stat().st_size,
+                "sha256": "fixture-prompt-budget",
+                "content_json": json.loads(prompt_budget_path.read_text(encoding="utf-8")),
+            },
+        ]
+    )
     payload_path.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in payload_rows),
         encoding="utf-8",
     )
-    for manifest_path in copied_root.rglob("pass4_knowledge_manifest.json"):
-        manifest_path.rename(manifest_path.with_name("knowledge_manifest.json"))
     return bundle_dir
 
 
@@ -111,27 +216,21 @@ def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> Non
         "page_context",
         "uncertainty",
     ]
-    include_case_ids = payload["asks"][0]["selectors"]["include_case_ids"]
-    assert len(include_case_ids) == 1
-    assert include_case_ids[0] in payload["asks"][0]["question"]
+    assert payload["asks"][0]["selectors"]["include_case_ids"] == []
+    assert "selectors" in payload["asks"][0]["question"].lower()
 
 
 def test_select_cases_is_byte_stable_for_same_arguments(tmp_path: Path) -> None:
     out_path = tmp_path / "selectors.json"
+    line_range = f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628:657"
     args = [
         "select-cases",
         "--bundle",
         str(SAMPLE_BUNDLE),
         "--stage",
         "line_role",
-        "--include-case-id",
-        "regression_c6",
-        "--include-case-id",
-        "regression_c11",
-        "--include-case-id",
-        "outside_span_window_628_657",
-        "--include-case-id",
-        "win_c10",
+        "--include-line-range",
+        line_range,
         "--out",
         str(out_path),
     ]
@@ -148,20 +247,17 @@ def test_select_cases_is_byte_stable_for_same_arguments(tmp_path: Path) -> None:
 
     payload = _read_json(out_path)
     selectors = payload["selectors"]
-    assert [row["case_id"] for row in selectors] == [
-        "outside_span_window_628_657",
-        "regression_c11",
-        "regression_c6",
-        "win_c10",
-    ]
-    outside_span = selectors[0]
-    assert outside_span["kind"] == "line_range"
-    assert outside_span["start"] == 628
-    assert outside_span["end"] == 657
+    assert len(selectors) == 1
+    selector = selectors[0]
+    assert selector["case_id"] == "line_range_628_657"
+    assert selector["kind"] == "line_range"
+    assert selector["start"] == 628
+    assert selector["end"] == 657
 
 
 def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
     selectors_path = tmp_path / "selectors.json"
+    line_range = f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628:657"
     select_result = runner.invoke(
         app,
         [
@@ -170,10 +266,8 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
             str(SAMPLE_BUNDLE),
             "--stage",
             "line_role",
-            "--include-case-id",
-            "regression_c6",
-            "--include-case-id",
-            "win_c10",
+            "--include-line-range",
+            line_range,
             "--out",
             str(selectors_path),
         ],
@@ -197,7 +291,7 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
 
     pack_index = _read_json(pack_dir / "index.json")
     assert pack_index["schema_version"] == "cf.followup_pack.v1"
-    assert pack_index["selector_count"] == 2
+    assert pack_index["selector_count"] == 1
     assert (pack_dir / "README.md").is_file()
     assert (pack_dir / "case_export" / "case_export.jsonl").is_file()
     assert (pack_dir / "line_role_audit.jsonl").is_file()
@@ -206,22 +300,17 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
     assert (pack_dir / "uncertainty.jsonl").is_file()
 
     case_rows = _read_jsonl(pack_dir / "case_export" / "case_export.jsonl")
-    assert [row["case_id"] for row in case_rows] == ["regression_c6", "win_c10"]
-    regression_case = case_rows[0]
-    assert regression_case["metrics"]["delta_codex_minus_baseline"] == -0.8125
-    assert regression_case["stage_comparison"]["short_title"] == (
-        "Autumn: Roasted Squash, Sage, and Hazelnut"
-    )
+    assert len(case_rows) == 1
+    assert case_rows[0]["case_id"] == "line_range_628_657"
 
     audit_rows = _read_jsonl(pack_dir / "line_role_audit.jsonl")
-    assert any(row["case_id"] == "regression_c6" for row in audit_rows)
+    assert audit_rows == []
 
     prompt_rows = _read_jsonl(pack_dir / "prompt_link_audit.jsonl")
     assert all(row["status"] in {"ok", "not_applicable", "broken"} for row in prompt_rows)
 
     uncertainty_rows = _read_jsonl(pack_dir / "uncertainty.jsonl")
-    assert uncertainty_rows
-    assert "trust_score" in uncertainty_rows[0]
+    assert uncertainty_rows == []
 
 
 def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None:
@@ -254,11 +343,12 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
         "default_stage_filters": ["line_role"],
         "asks": [
             {
-                "ask_id": "ask_regression_c6",
-                "question": "Why is regression_c6 bad?",
+                "ask_id": "ask_line_range",
+                "question": "Show the line-role evidence for one explicit window.",
                 "outputs": ["case_export", "line_role_audit", "prompt_link_audit"],
                 "selectors": {
-                    "include_case_ids": ["regression_c6"],
+                    "include_case_ids": [],
+                    "include_line_ranges": [f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628:657"],
                     "top_neg": 0,
                     "top_pos": 0,
                     "outside_span": 0,
@@ -267,10 +357,11 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
             },
             {
                 "ask_id": "ask_outside_span",
-                "question": "Show context for the outside-span weird window.",
+                "question": "Show context for the explicit line window.",
                 "outputs": ["page_context", "uncertainty"],
                 "selectors": {
-                    "include_case_ids": ["outside_span_window_628_657"],
+                    "include_case_ids": [],
+                    "include_line_ranges": [f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628:657"],
                     "top_neg": 0,
                     "top_pos": 0,
                     "outside_span": 0,
@@ -303,7 +394,7 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
     assert (out_dir / "request_manifest.json").is_file()
     assert (out_dir / "README.md").is_file()
 
-    ask1_dir = out_dir / "asks" / "ask_regression_c6"
+    ask1_dir = out_dir / "asks" / "ask_line_range"
     ask1_index = _read_json(ask1_dir / "index.json")
     assert ask1_index["delta_contract"]["requester_already_has_upload_bundle_v1"] is True
     assert (ask1_dir / "selectors.json").is_file()
@@ -319,18 +410,20 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
     assert not (ask2_dir / "case_export").exists()
 
     selectors_payload = _read_json(ask2_dir / "selectors.json")
-    assert selectors_payload["selectors"][0]["case_id"] == "outside_span_window_628_657"
+    assert selectors_payload["selectors"][0]["case_id"] == "line_range_628_657"
 
 
-def test_request_template_includes_pass4_example_when_bundle_has_pass4(tmp_path: Path) -> None:
-    pass4_bundle = _make_current_pass4_bundle(tmp_path)
-    out_path = tmp_path / "followup_request_pass4.json"
+def test_request_template_includes_knowledge_example_when_bundle_has_knowledge(
+    tmp_path: Path,
+) -> None:
+    knowledge_bundle = _make_current_knowledge_bundle(tmp_path)
+    out_path = tmp_path / "followup_request_knowledge.json"
     result = runner.invoke(
         app,
         [
             "request-template",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--out",
             str(out_path),
         ],
@@ -338,15 +431,15 @@ def test_request_template_includes_pass4_example_when_bundle_has_pass4(tmp_path:
     assert result.exit_code == 0
 
     payload = _read_json(out_path)
-    pass4_asks = [
+    knowledge_asks = [
         ask
         for ask in payload["asks"]
-        if "pass4_knowledge_audit" in ask.get("outputs", [])
+        if "knowledge_audit" in ask.get("outputs", [])
     ]
-    assert pass4_asks
-    assert pass4_asks[0]["selectors"]["stage_filters"] == ["pass4"]
-    assert pass4_asks[0]["selectors"]["include_pass4_output_subdirs"] == [
-        f"{PASS4_SOURCE_KEY}/codexfarm"
+    assert knowledge_asks
+    assert knowledge_asks[0]["selectors"]["stage_filters"] == ["knowledge"]
+    assert knowledge_asks[0]["selectors"]["include_knowledge_output_subdirs"] == [
+        "line_role_only"
     ]
 
 
@@ -394,19 +487,19 @@ def test_request_template_for_sparse_bundle_builds_without_missing_case_ids(
     assert (ask_dir / "uncertainty.jsonl").is_file()
 
 
-def test_select_cases_supports_pass4_source_key(tmp_path: Path) -> None:
-    pass4_bundle = _make_current_pass4_bundle(tmp_path)
-    out_path = tmp_path / "pass4_selectors.json"
+def test_select_cases_supports_knowledge_source_key(tmp_path: Path) -> None:
+    knowledge_bundle = _make_current_knowledge_bundle(tmp_path)
+    out_path = tmp_path / "knowledge_selectors.json"
     result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--stage",
-            "pass4",
-            "--include-pass4-source-key",
-            PASS4_SOURCE_KEY,
+            "knowledge",
+            "--include-knowledge-source-key",
+            KNOWLEDGE_SOURCE_KEY,
             "--out",
             str(out_path),
         ],
@@ -417,27 +510,28 @@ def test_select_cases_supports_pass4_source_key(tmp_path: Path) -> None:
     selectors = payload["selectors"]
     assert len(selectors) == 1
     row = selectors[0]
-    assert row["kind"] == "pass4_run"
-    assert row["book_slug"] == PASS4_SOURCE_KEY
-    assert row["output_subdir"] == f"{PASS4_SOURCE_KEY}/codexfarm"
-    assert row["case_id"].startswith("pass4_")
+    assert row["kind"] == "knowledge_run"
+    assert row["source_key"] == KNOWLEDGE_SOURCE_KEY
+    assert row["output_subdir"] == "line_role_only"
+    assert row["case_id"].startswith("knowledge_")
     assert row["payload_locators"]
 
 
-def test_select_cases_supports_pass4_source_key_for_sparse_single_profile_bundle(
+def test_select_cases_supports_knowledge_source_key_for_sparse_single_profile_bundle(
     tmp_path: Path,
 ) -> None:
-    out_path = tmp_path / "sparse_pass4_selectors.json"
+    sparse_bundle = _make_current_knowledge_bundle(tmp_path, enabled=False)
+    out_path = tmp_path / "sparse_knowledge_selectors.json"
     result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(SPARSE_SINGLE_PROFILE_BUNDLE),
+            str(sparse_bundle),
             "--stage",
-            "pass4",
-            "--include-pass4-source-key",
-            SPARSE_SINGLE_PROFILE_SOURCE_KEY,
+            "knowledge",
+            "--include-knowledge-source-key",
+            KNOWLEDGE_SOURCE_KEY,
             "--out",
             str(out_path),
         ],
@@ -448,38 +542,38 @@ def test_select_cases_supports_pass4_source_key_for_sparse_single_profile_bundle
     selectors = payload["selectors"]
     assert len(selectors) == 1
     row = selectors[0]
-    assert row["kind"] == "pass4_run"
-    assert row["source_key"] == SPARSE_SINGLE_PROFILE_SOURCE_KEY
+    assert row["kind"] == "knowledge_run"
+    assert row["source_key"] == KNOWLEDGE_SOURCE_KEY
     assert row["output_subdir"] == "line_role_only"
     assert row["enabled"] is False
 
 
-def test_audit_pass4_knowledge_writes_rows(tmp_path: Path) -> None:
-    pass4_bundle = _make_current_pass4_bundle(tmp_path)
-    selectors_path = tmp_path / "pass4_selectors.json"
+def test_audit_knowledge_writes_rows(tmp_path: Path) -> None:
+    knowledge_bundle = _make_current_knowledge_bundle(tmp_path)
+    selectors_path = tmp_path / "knowledge_selectors.json"
     select_result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--stage",
-            "pass4",
-            "--include-pass4-source-key",
-            PASS4_SOURCE_KEY,
+            "knowledge",
+            "--include-knowledge-source-key",
+            KNOWLEDGE_SOURCE_KEY,
             "--out",
             str(selectors_path),
         ],
     )
     assert select_result.exit_code == 0
 
-    out_path = tmp_path / "pass4_knowledge_audit.jsonl"
+    out_path = tmp_path / "knowledge_audit.jsonl"
     result = runner.invoke(
         app,
         [
-            "audit-pass4-knowledge",
+            "audit-knowledge",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--selectors",
             str(selectors_path),
             "--out",
@@ -491,41 +585,41 @@ def test_audit_pass4_knowledge_writes_rows(tmp_path: Path) -> None:
     rows = _read_jsonl(out_path)
     assert len(rows) == 1
     row = rows[0]
-    assert row["schema_version"] == "cf.pass4_knowledge_audit.v1"
-    assert row["book_slug"] == PASS4_SOURCE_KEY
+    assert row["schema_version"] == "cf.knowledge_audit.v1"
+    assert row["book_slug"] == "line_role_only"
     assert row["status"] == "ok"
     assert row["enabled"] is True
     assert row["outputs_parsed"] > 0
-    assert "prompt_task4_txt" in row["local_artifacts"]
+    assert "prompt_knowledge_txt" in row["local_artifacts"]
     assert "knowledge_manifest_json" in row["payload_locators"]
 
 
-def test_pack_includes_pass4_knowledge_audit_and_case_export(tmp_path: Path) -> None:
-    pass4_bundle = _make_current_pass4_bundle(tmp_path)
-    selectors_path = tmp_path / "pass4_selectors.json"
+def test_pack_includes_knowledge_audit_and_case_export(tmp_path: Path) -> None:
+    knowledge_bundle = _make_current_knowledge_bundle(tmp_path)
+    selectors_path = tmp_path / "knowledge_selectors.json"
     select_result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--stage",
-            "pass4",
-            "--include-pass4-source-key",
-            PASS4_SOURCE_KEY,
+            "knowledge",
+            "--include-knowledge-source-key",
+            KNOWLEDGE_SOURCE_KEY,
             "--out",
             str(selectors_path),
         ],
     )
     assert select_result.exit_code == 0
 
-    pack_dir = tmp_path / "pass4_pack"
+    pack_dir = tmp_path / "knowledge_pack"
     pack_result = runner.invoke(
         app,
         [
             "pack",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--selectors",
             str(selectors_path),
             "--out",
@@ -535,32 +629,32 @@ def test_pack_includes_pass4_knowledge_audit_and_case_export(tmp_path: Path) -> 
     assert pack_result.exit_code == 0
 
     pack_index = _read_json(pack_dir / "index.json")
-    assert pack_index["pass4_knowledge_audit_rows"] == 1
-    assert (pack_dir / "pass4_knowledge_audit.jsonl").is_file()
+    assert pack_index["knowledge_audit_rows"] == 1
+    assert (pack_dir / "knowledge_audit.jsonl").is_file()
 
     case_rows = _read_jsonl(pack_dir / "case_export" / "case_export.jsonl")
     assert len(case_rows) == 1
     case_row = case_rows[0]
-    assert case_row["kind"] == "pass4_run"
-    assert case_row["pass4_knowledge_summary"]["enabled"] is True
+    assert case_row["kind"] == "knowledge_run"
+    assert case_row["knowledge_summary"]["enabled"] is True
     assert any(
         (
-            "prompt_task4_knowledge.txt" in row["path"]
-            or "prompt_task4_pass4_knowledge.txt" in row["path"]
+            "prompt_extract_knowledge_optional.txt" in row["path"]
+            or "prompt_extract_knowledge_optional_stage.txt" in row["path"]
         )
-        for row in case_row["pass4_artifacts"]
+        for row in case_row["knowledge_artifacts"]
     )
 
 
-def test_build_followup_writes_pass4_followup_packet(tmp_path: Path) -> None:
-    pass4_bundle = _make_current_pass4_bundle(tmp_path)
-    template_path = tmp_path / "pass4_template.json"
+def test_build_followup_writes_knowledge_followup_packet(tmp_path: Path) -> None:
+    knowledge_bundle = _make_current_knowledge_bundle(tmp_path)
+    template_path = tmp_path / "knowledge_template.json"
     template_result = runner.invoke(
         app,
         [
             "request-template",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--out",
             str(template_path),
         ],
@@ -568,47 +662,47 @@ def test_build_followup_writes_pass4_followup_packet(tmp_path: Path) -> None:
     assert template_result.exit_code == 0
     template_payload = _read_json(template_path)
 
-    request_path = tmp_path / "pass4_followup_request.json"
+    request_path = tmp_path / "knowledge_followup_request.json"
     request_payload = {
         "schema_version": "cf.followup_request.v1",
-        "bundle_dir": str(pass4_bundle),
+        "bundle_dir": str(knowledge_bundle),
         "bundle_sha256": template_payload["bundle_sha256"],
-        "request_id": "followup_pass4_request",
-        "request_summary": "Answer one pass4 knowledge follow-up ask.",
+        "request_id": "followup_knowledge_request",
+        "request_summary": "Answer one knowledge-stage follow-up ask.",
         "requester_context": {
             "already_has_upload_bundle_v1": True,
             "prefer_new_local_artifacts_over_bundle_repeats": True,
             "duplicate_bundle_payloads_only_when_needed_for_context": True,
         },
-        "default_stage_filters": ["pass4"],
+        "default_stage_filters": ["knowledge"],
         "asks": [
             {
-                "ask_id": "ask_pass4_saltfat",
-                "question": "Show the pass4 knowledge evidence for Salt Fat Acid Heat.",
-                "outputs": ["case_export", "pass4_knowledge_audit"],
+                "ask_id": "ask_knowledge_saltfat",
+                "question": "Show the knowledge-stage evidence for Salt Fat Acid Heat.",
+                "outputs": ["case_export", "knowledge_audit"],
                 "selectors": {
                     "include_case_ids": [],
                     "include_recipe_ids": [],
                     "include_line_ranges": [],
-                    "include_pass4_source_keys": [PASS4_SOURCE_KEY],
-                    "include_pass4_output_subdirs": [],
+                    "include_knowledge_source_keys": [KNOWLEDGE_SOURCE_KEY],
+                    "include_knowledge_output_subdirs": [],
                     "top_neg": 0,
                     "top_pos": 0,
                     "outside_span": 0,
-                    "stage_filters": ["pass4"],
+                    "stage_filters": ["knowledge"],
                 },
             }
         ],
     }
     request_path.write_text(json.dumps(request_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    out_dir = tmp_path / "followup_pass4"
+    out_dir = tmp_path / "followup_knowledge"
     result = runner.invoke(
         app,
         [
             "build-followup",
             "--bundle",
-            str(pass4_bundle),
+            str(knowledge_bundle),
             "--request",
             str(request_path),
             "--out",
@@ -617,8 +711,8 @@ def test_build_followup_writes_pass4_followup_packet(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0
 
-    ask_dir = out_dir / "asks" / "ask_pass4_saltfat"
+    ask_dir = out_dir / "asks" / "ask_knowledge_saltfat"
     ask_index = _read_json(ask_dir / "index.json")
-    assert ask_index["requested_outputs"] == ["case_export", "pass4_knowledge_audit"]
+    assert ask_index["requested_outputs"] == ["case_export", "knowledge_audit"]
     assert (ask_dir / "case_export" / "case_export.jsonl").is_file()
-    assert (ask_dir / "pass4_knowledge_audit.jsonl").is_file()
+    assert (ask_dir / "knowledge_audit.jsonl").is_file()

@@ -72,8 +72,6 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "recipe_score_min_instruction_lines",
     "pdf_column_gap_ratio",
     "line_role_guardrail_mode",
-    "line_role_trust_low_threshold",
-    "line_role_escalation_threshold",
     "codex_farm_failure_mode",
     "ocr_device",
     "ocr_batch_size",
@@ -127,8 +125,6 @@ _SUMMARY_ORDER = (
     "atomic_block_splitter",
     "line_role_pipeline",
     "line_role_guardrail_mode",
-    "line_role_trust_low_threshold",
-    "line_role_escalation_threshold",
     "llm_knowledge_pipeline",
     "llm_tags_pipeline",
     "codex_farm_recipe_mode",
@@ -196,7 +192,6 @@ class PdfOcrPolicy(str, Enum):
 
 
 class SectionDetectorBackend(str, Enum):
-    legacy = "legacy"
     shared_v1 = "shared_v1"
 
 
@@ -212,7 +207,6 @@ class InstructionStepSegmenter(str, Enum):
 
 
 class MultiRecipeSplitter(str, Enum):
-    legacy = "legacy"
     off = "off"
     rules_v1 = "rules_v1"
 
@@ -251,7 +245,6 @@ class IngredientTextFixBackend(str, Enum):
 
 
 class IngredientPreNormalizeMode(str, Enum):
-    legacy = "legacy"
     aggressive_v1 = "aggressive_v1"
 
 
@@ -267,7 +260,6 @@ class IngredientParserBackend(str, Enum):
 
 
 class IngredientUnitCanonicalizer(str, Enum):
-    legacy = "legacy"
     pint = "pint"
 
 
@@ -306,7 +298,6 @@ class P6OvenlikeMode(str, Enum):
 
 
 class P6YieldMode(str, Enum):
-    legacy_v1 = "legacy_v1"
     scored_v1 = "scored_v1"
 
 
@@ -510,14 +501,14 @@ class RunSettings(BaseModel):
         ),
     )
     multi_recipe_splitter: MultiRecipeSplitter = Field(
-        default=MultiRecipeSplitter.legacy,
+        default=MultiRecipeSplitter.rules_v1,
         json_schema_extra=_ui_meta(
             group="Extraction",
             label="Multi-recipe Splitter",
             order=67,
             description=(
-                "Candidate splitter backend for merged multi-recipe spans. "
-                "legacy keeps importer-local behavior; rules_v1 uses shared deterministic splitting."
+                "Candidate splitter backend for merged multi-recipe spans "
+                "(off or shared deterministic rules_v1)."
             ),
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
@@ -662,14 +653,13 @@ class RunSettings(BaseModel):
         ),
     )
     ingredient_pre_normalize_mode: IngredientPreNormalizeMode = Field(
-        default=IngredientPreNormalizeMode.legacy,
+        default=IngredientPreNormalizeMode.aggressive_v1,
         json_schema_extra=_ui_meta(
             group="Parsing",
             label="Ingredient Pre-normalize Mode",
             order=68,
             description=(
-                "Ingredient pre-parse normalization mode "
-                "(legacy or aggressive_v1)."
+                "Ingredient pre-parse normalization mode (aggressive_v1)."
             ),
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
@@ -701,13 +691,13 @@ class RunSettings(BaseModel):
         ),
     )
     ingredient_unit_canonicalizer: IngredientUnitCanonicalizer = Field(
-        default=IngredientUnitCanonicalizer.legacy,
+        default=IngredientUnitCanonicalizer.pint,
         json_schema_extra=_ui_meta(
             group="Parsing",
             label="Ingredient Unit Canonicalizer",
             order=71,
             description=(
-                "Unit canonicalization mode (legacy or pint) applied after parsing."
+                "Unit canonicalization mode (pint) applied after parsing."
             ),
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
@@ -785,12 +775,12 @@ class RunSettings(BaseModel):
         ),
     )
     p6_yield_mode: P6YieldMode = Field(
-        default=P6YieldMode.legacy_v1,
+        default=P6YieldMode.scored_v1,
         json_schema_extra=_ui_meta(
             group="Parsing",
             label="P6 Yield Mode",
             order=78,
-            description="Priority 6 yield parser mode (legacy_v1 passthrough or scored_v1).",
+            description="Priority 6 yield parser mode (scored_v1).",
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
@@ -980,36 +970,6 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
-    line_role_trust_low_threshold: float = Field(
-        default=0.9,
-        ge=0.0,
-        le=1.0,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Line Role Trust Low",
-            order=114,
-            description=(
-                "Internal-only trust threshold for low-trust structured line-role "
-                "decisions."
-            ),
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    line_role_escalation_threshold: float = Field(
-        default=0.75,
-        ge=0.0,
-        le=1.0,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Line Role Escalation",
-            order=114.5,
-            description=(
-                "Internal-only escalation threshold for deciding whether a "
-                "deterministic line-role prediction should be sent to Codex."
-            ),
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
     llm_knowledge_pipeline: LlmKnowledgePipeline = Field(
         default=LlmKnowledgePipeline.off,
         json_schema_extra=_ui_meta(
@@ -1029,7 +989,7 @@ class RunSettings(BaseModel):
             label="Tags LLM Pipeline",
             order=116,
             description=(
-                "Optional pass-5 tag suggestion pipeline over staged final drafts. "
+                "Optional tag-suggestion pipeline over staged final drafts. "
                 "Off keeps deterministic behavior."
             ),
         ),
@@ -1133,7 +1093,7 @@ class RunSettings(BaseModel):
             label="Tag Catalog JSON",
             order=145,
             description=(
-                "Tag catalog snapshot path used by pass-5 tag suggestions when llm_tags_pipeline is enabled."
+                "Tag catalog snapshot path used by LLM tag suggestions when llm_tags_pipeline is enabled."
             ),
         ),
     )
@@ -1363,12 +1323,12 @@ class RunSettings(BaseModel):
         return _bucket1_fixed_behavior().p6_emit_metadata_debug
 
     @property
-    def codex_farm_pipeline_pass4_knowledge(self) -> str:
-        return _bucket1_fixed_behavior().codex_farm_pipeline_pass4_knowledge
+    def codex_farm_pipeline_knowledge(self) -> str:
+        return _bucket1_fixed_behavior().codex_farm_pipeline_knowledge
 
     @property
-    def codex_farm_pipeline_pass5_tags(self) -> str:
-        return _bucket1_fixed_behavior().codex_farm_pipeline_pass5_tags
+    def codex_farm_pipeline_tags(self) -> str:
+        return _bucket1_fixed_behavior().codex_farm_pipeline_tags
 
 
 @dataclass(frozen=True)
@@ -1659,7 +1619,7 @@ def build_run_settings(
     ocr_batch_size: int,
     pdf_column_gap_ratio: float = 0.12,
     warm_models: bool,
-    multi_recipe_splitter: str | MultiRecipeSplitter = MultiRecipeSplitter.legacy,
+    multi_recipe_splitter: str | MultiRecipeSplitter = MultiRecipeSplitter.rules_v1,
     multi_recipe_min_ingredient_lines: int = 1,
     multi_recipe_min_instruction_lines: int = 1,
     multi_recipe_for_the_guardrail: bool = True,
@@ -1675,7 +1635,7 @@ def build_run_settings(
     ) = IngredientTextFixBackend.none,
     ingredient_pre_normalize_mode: (
         str | IngredientPreNormalizeMode
-    ) = IngredientPreNormalizeMode.legacy,
+    ) = IngredientPreNormalizeMode.aggressive_v1,
     ingredient_packaging_mode: (
         str | IngredientPackagingMode
     ) = IngredientPackagingMode.off,
@@ -1684,7 +1644,7 @@ def build_run_settings(
     ) = IngredientParserBackend.ingredient_parser_nlp,
     ingredient_unit_canonicalizer: (
         str | IngredientUnitCanonicalizer
-    ) = IngredientUnitCanonicalizer.legacy,
+    ) = IngredientUnitCanonicalizer.pint,
     ingredient_missing_unit_policy: (
         str | IngredientMissingUnitPolicy
     ) = IngredientMissingUnitPolicy.null,
@@ -1699,7 +1659,7 @@ def build_run_settings(
         str | P6TemperatureUnitBackend
     ) = P6TemperatureUnitBackend.builtin_v1,
     p6_ovenlike_mode: str | P6OvenlikeMode = P6OvenlikeMode.keywords_v1,
-    p6_yield_mode: str | P6YieldMode = P6YieldMode.legacy_v1,
+    p6_yield_mode: str | P6YieldMode = P6YieldMode.scored_v1,
     recipe_scorer_backend: str = "heuristic_v1",
     recipe_score_gold_min: float = 0.75,
     recipe_score_silver_min: float = 0.55,
@@ -1712,8 +1672,6 @@ def build_run_settings(
     line_role_guardrail_mode: (
         str | LineRoleGuardrailMode
     ) = LineRoleGuardrailMode.enforce,
-    line_role_trust_low_threshold: float = 0.9,
-    line_role_escalation_threshold: float = 0.75,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
@@ -1811,8 +1769,6 @@ def build_run_settings(
             "atomic_block_splitter": _normalized_value(atomic_block_splitter),
             "line_role_pipeline": _normalized_value(line_role_pipeline),
             "line_role_guardrail_mode": _normalized_value(line_role_guardrail_mode),
-            "line_role_trust_low_threshold": float(line_role_trust_low_threshold),
-            "line_role_escalation_threshold": float(line_role_escalation_threshold),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),

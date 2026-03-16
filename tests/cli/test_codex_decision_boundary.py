@@ -275,7 +275,7 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
         no_upload=True,
         llm_recipe_pipeline="codex-farm-single-correction-v1",
         llm_knowledge_pipeline="codex-farm-knowledge-v1",
-        codex_farm_pipeline_pass4_knowledge="recipe.knowledge.custom.v9",
+        codex_farm_pipeline_knowledge="recipe.knowledge.custom.v9",
         codex_farm_knowledge_context_blocks=19,
         codex_execution_policy="plan",
     )
@@ -284,8 +284,8 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
     assert captured["codex_execution_policy"] == "plan"
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert (
-        captured["codex_farm_pipeline_pass4_knowledge"]
-        == fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
+        captured["codex_farm_pipeline_knowledge"]
+        == fixed_bucket1_behavior.codex_farm_pipeline_knowledge
     )
     assert captured["codex_farm_knowledge_context_blocks"] == 19
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))

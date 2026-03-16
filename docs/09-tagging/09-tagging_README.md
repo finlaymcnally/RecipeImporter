@@ -14,7 +14,7 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
 
 - Deterministic tagging is the base path everywhere:
   - signal extraction (`signals.py` or `db_read.py`) -> rules/policies (`rules.py`, `policies.py`) -> scoring/selection (`engine.py`).
-- Optional pass5 LLM tagging is additive (fills missing categories only), never replacement:
+- Optional LLM tagging is additive (fills missing categories only), never replacement:
   - standalone draft path: `cookimport tag-recipes suggest ... --llm`
   - standalone DB path: `cookimport tag-recipes apply ... --llm`
   - stage path: `cookimport stage ... --llm-tags-pipeline codex-farm-tags-v1 --tag-catalog-json <path>`
@@ -34,7 +34,7 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
 - `policies.py`: category single/multi policy + thresholds/max-tags
 - `engine.py`: regex/numeric scoring, thresholds, and policy application
 - `llm_second_pass.py`: missing-category shortlist requests + failure-mode behavior (`fail` or `fallback`)
-- `codex_farm_tags_provider.py`: pass5 bundle schema validation, shortlist/category enforcement, raw I/O/manifest writing
+- `codex_farm_tags_provider.py`: tags bundle schema validation, shortlist/category enforcement, raw I/O/manifest writing
 - `orchestrator.py`: shared draft-file runner and stage pass runner
 - `render.py`: text/json serializers + per-run tagging report writer
 - `db_write.py`: idempotent `recipe_tag_assignments` insert + tag-id verification
@@ -46,12 +46,12 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
 
 - `cookimport/cli.py`:
   - mounts `tag-catalog` / `tag-recipes` command groups
-  - exposes stage options `--llm-tags-pipeline`, `--codex-farm-pipeline-pass5-tags`, `--tag-catalog-json`, `--codex-farm-failure-mode`
+  - exposes stage options `--llm-tags-pipeline`, `--codex-farm-pipeline-tags`, `--tag-catalog-json`, `--codex-farm-failure-mode`
   - validates `--tag-catalog-json` when stage tags are enabled
   - runs `run_stage_tagging_pass(...)` after staged `final drafts/` outputs exist
 - `cookimport/config/run_settings.py`:
   - typed fields/defaults for `llm_tags_pipeline`, `tag_catalog_json`, and `codex_farm_failure_mode`
-  - exposes the fixed pass5 pipeline id via `RunSettings.codex_farm_pipeline_pass5_tags`
+  - exposes the fixed tags pipeline id via `RunSettings.codex_farm_pipeline_tags`
   - normalizes values via `build_run_settings(...)`
 
 ## CLI Surfaces
@@ -65,18 +65,18 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
 - `cookimport tag-recipes apply`:
   - DB recipe tagging (dry-run default), optional `--llm`, insert-only apply path
 
-## Pass5 Runtime And Artifacts
+## Tags Runtime And Artifacts
 
-When pass5 is enabled (`llm_tags_pipeline=codex-farm-tags-v1`), stage writes:
+When LLM tagging is enabled (`llm_tags_pipeline=codex-farm-tags-v1`), stage writes:
 
 - `tags/<workbook_slug>/<draft_stem>.tags.json`
 - `tags/<workbook_slug>/tagging_report.json`
 - `tags/tags_index.json`
-- `raw/llm/<workbook_slug>/pass5_tags/in/*.json`
-- `raw/llm/<workbook_slug>/pass5_tags/out/*.json`
-- `raw/llm/<workbook_slug>/pass5_tags_manifest.json`
+- `raw/llm/<workbook_slug>/tags/in/*.json`
+- `raw/llm/<workbook_slug>/tags/out/*.json`
+- `raw/llm/<workbook_slug>/tags_manifest.json`
 
-For ad-hoc `tag-recipes suggest --llm` / `apply --llm` paths, pass5 can run in temporary dirs unless a raw pass directory is explicitly provided by caller.
+For ad-hoc `tag-recipes suggest --llm` / `apply --llm` paths, the tags pipeline can run in temporary dirs unless a raw stage directory is explicitly provided by caller.
 
 Per-recipe `*.tags.json` artifacts preserve deterministic + LLM provenance:
 
@@ -89,7 +89,7 @@ Run reports preserve aggregate validation details:
 - `llm.validation` counters in `tagging_report.json`
 - `llm.reports` and `llm.validations` in `tags/tags_index.json`
 
-## Pass5 Validation And Failure Boundaries
+## Tags Validation And Failure Boundaries
 
 - Provider accepts only schema-valid bundle outputs (`bundle_version=1`).
 - Selected tags are dropped when any check fails:
@@ -102,16 +102,16 @@ Run reports preserve aggregate validation details:
 
 ## Known Gaps and Caveats
 
-- Existing in-repo fixtures can validate pass5 wiring and schemas, but quality of proposed tags still depends on catalog quality and prompt quality.
+- Existing in-repo fixtures can validate tags-pipeline wiring and schemas, but quality of proposed tags still depends on catalog quality and prompt quality.
 - Missing `tags/` outputs are usually wiring/gating issues:
   - `llm_tags_pipeline` disabled
   - missing `tag_catalog_json`
-  - pass5 runner failure under `codex_farm_failure_mode=fallback`
-- If pass5 is set to `fail`, setup/runtime errors intentionally fail the stage run.
+  - tags runner failure under `codex_farm_failure_mode=fallback`
+- If the tags pipeline is set to `fail`, setup/runtime errors intentionally fail the stage run.
 
 ## Operational docs
 
-- Pass5 LLM tagging details:
+- LLM tagging details:
   `docs/10-llm/tags_pass.md`
 - Version/build/fix-attempt history:
   `docs/09-tagging/09-tagging_log.md`

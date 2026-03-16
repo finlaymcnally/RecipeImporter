@@ -216,7 +216,7 @@ def run_stage_tagging_pass(
             tags_index_path=None,
             workbook_reports={},
             totals={"workbooks": 0, "recipes": 0, "tags": 0, "llm_tags": 0, "new_tag_proposals": 0},
-            llm={"enabled": True, "pipeline_id": run_settings.codex_farm_pipeline_pass5_tags},
+            llm={"enabled": True, "pipeline_id": run_settings.codex_farm_pipeline_tags},
         )
     workbook_dirs = sorted(path for path in final_drafts_root.iterdir() if path.is_dir())
     tags_root = run_root / "tags"
@@ -226,7 +226,7 @@ def run_stage_tagging_pass(
     catalog_fingerprint = get_catalog_fingerprint_from_json(catalog_json)
     llm_config = LlmSecondPassConfig(
         enabled=True,
-        pipeline_id=run_settings.codex_farm_pipeline_pass5_tags,
+        pipeline_id=run_settings.codex_farm_pipeline_tags,
         codex_farm_cmd=run_settings.codex_farm_cmd,
         codex_farm_root=run_settings.codex_farm_root,
         codex_farm_workspace_root=run_settings.codex_farm_workspace_root,
@@ -282,7 +282,7 @@ def run_stage_tagging_pass(
         "catalog_fingerprint": catalog_fingerprint,
         "tag_catalog_json": str(catalog_json),
         "pipeline": run_settings.llm_tags_pipeline.value,
-        "pipeline_id": run_settings.codex_farm_pipeline_pass5_tags,
+        "pipeline_id": run_settings.codex_farm_pipeline_tags,
         "workbooks": workbook_reports,
         "totals": {
             "workbooks": len(workbook_reports),
@@ -309,7 +309,7 @@ def run_stage_tagging_pass(
                 {
                     "enabled": True,
                     "pipeline": run_settings.llm_tags_pipeline.value,
-                    "pipeline_id": run_settings.codex_farm_pipeline_pass5_tags,
+                    "pipeline_id": run_settings.codex_farm_pipeline_tags,
                     "paths": {
                         "stage_dir": str(
                             workbook_manifest_dir / stage_artifact_stem("tags")
@@ -339,7 +339,7 @@ def run_stage_tagging_pass(
         llm={
             "reports": llm_reports,
             "validations": llm_validations,
-            "pipeline_id": run_settings.codex_farm_pipeline_pass5_tags,
+            "pipeline_id": run_settings.codex_farm_pipeline_tags,
         },
     )
 

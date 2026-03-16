@@ -1,0 +1,22 @@
+{
+  "bundle_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1",
+  "bundle_sha256": "c8a6f812c18c8cb67904460f75252a4784ff400b14999697796f90c224402be7",
+  "files": {
+    "case_export_dir": "case_export",
+    "knowledge_audit_jsonl": "knowledge_audit.jsonl",
+    "line_role_audit_jsonl": "line_role_audit.jsonl",
+    "page_context_jsonl": "page_context.jsonl",
+    "prompt_link_audit_jsonl": "prompt_link_audit.jsonl",
+    "selectors_json": "selectors.json",
+    "uncertainty_jsonl": "uncertainty.jsonl"
+  },
+  "generated_at": "2026-03-16_13.34.29",
+  "git_sha": "babdd885c49a01755e12ae315df137189bff8dcf",
+  "knowledge_audit_rows": 0,
+  "line_role_audit_rows": 0,
+  "page_context_rows": 0,
+  "prompt_link_audit_rows": 0,
+  "schema_version": "cf.followup_pack.v1",
+  "selector_count": 1,
+  "uncertainty_rows": 0
+}

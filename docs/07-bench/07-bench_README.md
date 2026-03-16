@@ -115,14 +115,14 @@ Active use cases:
 - build a request template for external reviewers
 - select/export concrete cases from the base bundle
 - audit line-role joins and prompt links
-- audit pass4 knowledge evidence
+- audit knowledge-stage evidence
 - build additive `followup_dataN/` packets
 
-Pass4 is now a first-class follow-up seam:
+Knowledge extraction is now a first-class follow-up seam:
 
-- selectors can target pass4 source keys/output subdirs explicitly
-- `audit-pass4-knowledge` emits run-level knowledge evidence
-- follow-up packets can include `pass4_knowledge_audit.jsonl`
+- selectors can target knowledge source keys/output subdirs explicitly
+- `audit-knowledge` emits run-level knowledge evidence
+- follow-up packets can include `knowledge_audit.jsonl`
 - uncertainty/follow-up exports now center on low trust plus explicit escalation reasons instead of confidence-only thresholds
 
 ## 3. Scoring And Artifact Contracts
@@ -187,22 +187,27 @@ Current rules:
 - the sequence matcher is fixed to `dmp`; non-`dmp` modes are not an active benchmark surface
 - canonical-text benchmark runs score the same canonical pointer pair used by all benchmark modes
 
-Current line-role and pass4 behavior:
+Current line-role and knowledge behavior:
 
 - `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set canonical scorer pointers to these projection artifacts for that run
-- those line-role artifacts now expose `trust_score`, `escalation_score`, and `escalation_reasons`; compatibility `confidence` there is a trust alias for older readers
+- those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
 - `08_nonrecipe_spans.json` is the authoritative Stage 7 ownership artifact for the scored outside-span `KNOWLEDGE` vs `OTHER` seam
 - `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge extraction outputs
 - older roots can still fall back to `knowledge/<workbook_slug>/snippets.jsonl` or legacy knowledge manifests when auditing historical runs
 - prediction-run and eval diagnostics can emit:
   - `knowledge_manifest.json`
-  - `pass4_merge_changed_rows.jsonl`
-  - `pass4_merge_summary.json`
+  - knowledge-merge changed-row diagnostics
+  - knowledge-merge summary diagnostics
 
 Canonical-text diagnostics commonly include:
 
 - `aligned_prediction_blocks.jsonl`
+- `missed_gold_lines.jsonl`
+- `wrong_label_lines.jsonl`
+- `missed_gold_blocks.jsonl`
+- `wrong_label_blocks.jsonl`
 - `joined_line_table.jsonl`
+- legacy alias files such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired
 - `line_role_flips_vs_baseline.jsonl`
 - `slice_metrics.json`
 - `knowledge_budget.json`
@@ -249,10 +254,10 @@ Current bundle rules:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`
   - `build_final_recipe`
-- `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; any pass-slot aliases left in packets are compatibility-only output fields
-- pass4 must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
+- `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; archived `pass1`/`pass2`/`pass3`/`pass4` prompt rows are read-only compatibility input, not a new-output shape
+- knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
-- follow-up tooling may still accept historical local filenames such as `pass4_knowledge_manifest.json` or older prompt-task sample paths when auditing archived bundles, but those are compatibility reads only and should not be reintroduced into new reviewer-facing bundle fields
+- follow-up tooling may still accept historical local filenames when auditing archived bundles, but those are compatibility reads only and should not be reintroduced into new reviewer-facing bundle fields
 
 Oracle upload contract:
 

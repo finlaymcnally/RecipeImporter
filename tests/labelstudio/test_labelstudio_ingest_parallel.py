@@ -34,7 +34,7 @@ from cookimport.labelstudio.models import ArchiveBlock
 from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     AuthoritativeLabeledLine,
-    LabelFirstCompatibilityResult,
+    LabelFirstStageResult,
     RecipeSpan,
 )
 from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
@@ -46,8 +46,8 @@ def _make_label_first_result(
     *,
     source: Path,
     raw_artifacts: list[RawArtifact],
-) -> LabelFirstCompatibilityResult:
-    return LabelFirstCompatibilityResult(
+) -> LabelFirstStageResult:
+    return LabelFirstStageResult(
         labeled_lines=[
             AuthoritativeLabeledLine(
                 source_block_id="block:0",
@@ -56,7 +56,6 @@ def _make_label_first_result(
                 text="Pancakes",
                 deterministic_label="RECIPE_TITLE",
                 final_label="RECIPE_TITLE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeLabeledLine(
@@ -66,7 +65,6 @@ def _make_label_first_result(
                 text="SERVES 2",
                 deterministic_label="YIELD_LINE",
                 final_label="YIELD_LINE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeLabeledLine(
@@ -76,7 +74,6 @@ def _make_label_first_result(
                 text="1 cup flour",
                 deterministic_label="INGREDIENT_LINE",
                 final_label="INGREDIENT_LINE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeLabeledLine(
@@ -86,7 +83,6 @@ def _make_label_first_result(
                 text="Whisk batter",
                 deterministic_label="INSTRUCTION_LINE",
                 final_label="INSTRUCTION_LINE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeLabeledLine(
@@ -96,7 +92,6 @@ def _make_label_first_result(
                 text="NOTE: Keep warm",
                 deterministic_label="RECIPE_NOTES",
                 final_label="RECIPE_NOTES",
-                confidence=0.95,
                 decided_by="rule",
             ),
         ],
@@ -107,7 +102,6 @@ def _make_label_first_result(
                 supporting_atomic_indices=[0],
                 deterministic_label="RECIPE_TITLE",
                 final_label="RECIPE_TITLE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeBlockLabel(
@@ -116,7 +110,6 @@ def _make_label_first_result(
                 supporting_atomic_indices=[1],
                 deterministic_label="YIELD_LINE",
                 final_label="YIELD_LINE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeBlockLabel(
@@ -125,7 +118,6 @@ def _make_label_first_result(
                 supporting_atomic_indices=[2],
                 deterministic_label="INGREDIENT_LINE",
                 final_label="INGREDIENT_LINE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeBlockLabel(
@@ -134,7 +126,6 @@ def _make_label_first_result(
                 supporting_atomic_indices=[3],
                 deterministic_label="INSTRUCTION_LINE",
                 final_label="INSTRUCTION_LINE",
-                confidence=0.95,
                 decided_by="rule",
             ),
             AuthoritativeBlockLabel(
@@ -143,7 +134,6 @@ def _make_label_first_result(
                 supporting_atomic_indices=[4],
                 deterministic_label="RECIPE_NOTES",
                 final_label="RECIPE_NOTES",
-                confidence=0.95,
                 decided_by="rule",
             ),
         ],
@@ -168,7 +158,7 @@ def _make_label_first_result(
             )
         ],
         non_recipe_lines=[],
-        conversion_result=ConversionResult(
+        updated_conversion_result=ConversionResult(
             recipes=[
                 RecipeCandidate(
                     name="Pancakes",
@@ -453,7 +443,7 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
         workbook="book",
         workbookPath=str(source),
     )
-    label_result = LabelFirstCompatibilityResult(
+    label_result = LabelFirstStageResult(
         labeled_lines=[],
         block_labels=[
             AuthoritativeBlockLabel(
@@ -462,7 +452,6 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
                 supporting_atomic_indices=[0],
                 deterministic_label="RECIPE_TITLE",
                 final_label="RECIPE_TITLE",
-                confidence=1.0,
                 decided_by="rule",
             ),
             AuthoritativeBlockLabel(
@@ -471,7 +460,6 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
                 supporting_atomic_indices=[1],
                 deterministic_label="INSTRUCTION_LINE",
                 final_label="INSTRUCTION_LINE",
-                confidence=1.0,
                 decided_by="rule",
             ),
             AuthoritativeBlockLabel(
@@ -480,7 +468,6 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
                 supporting_atomic_indices=[2],
                 deterministic_label="KNOWLEDGE",
                 final_label="KNOWLEDGE",
-                confidence=1.0,
                 decided_by="rule",
             ),
         ],
@@ -494,7 +481,7 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
             )
         ],
         non_recipe_lines=[],
-        conversion_result=authoritative_result,
+        updated_conversion_result=authoritative_result,
         archive_blocks=[
             {"index": 0, "block_id": "b0", "text": "Toast"},
             {"index": 1, "block_id": "b1", "text": "Toast the bread."},
@@ -512,7 +499,7 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
         lambda _path: "hash",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_label_first_compatibility_result",
+        "cookimport.labelstudio.ingest.build_label_first_stage_result",
         lambda **_kwargs: label_result,
     )
     seen_rows: list[list[dict[str, object]]] = []
@@ -1969,11 +1956,11 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
         lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_label_first_compatibility_result",
+        "cookimport.labelstudio.ingest.build_label_first_stage_result",
         lambda **_kwargs: label_first_result,
     )
     monkeypatch.setattr(
-        "cookimport.staging.import_session.build_label_first_compatibility_result",
+        "cookimport.staging.import_session.build_label_first_stage_result",
         lambda **_kwargs: label_first_result,
     )
 
@@ -2062,7 +2049,6 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
             text="Tahini Dressing",
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.95,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -2072,7 +2058,6 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
             text="Makes 1 cup",
             deterministic_label="YIELD_LINE",
             final_label="YIELD_LINE",
-            confidence=0.95,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -2082,7 +2067,6 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
             text="1/2 cup tahini",
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.95,
             decided_by="rule",
         ),
     ]
@@ -2093,7 +2077,6 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
             supporting_atomic_indices=[0, 1],
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.95,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -2102,7 +2085,6 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
             supporting_atomic_indices=[2],
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.95,
             decided_by="rule",
         ),
     ]
@@ -2201,7 +2183,6 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
                 atomic_index=candidate.atomic_index,
                 text=str(candidate.text),
                 label="OTHER",
-                confidence=0.90,
                 decided_by="rule",
                 reason_tags=["test_label"],
             )
@@ -2446,7 +2427,6 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
                 atomic_index=candidate.atomic_index,
                 text=str(candidate.text),
                 label="OTHER",
-                confidence=0.90,
                 decided_by="rule",
                 reason_tags=["test_label"],
             )

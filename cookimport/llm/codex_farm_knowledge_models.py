@@ -72,7 +72,7 @@ class KnowledgeBlockDecisionV1(BaseModel):
         return int(value)
 
 
-class Pass4KnowledgeOutputV1(BaseModel):
+class KnowledgeOutputV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bundle_version: Literal["1"] = _BUNDLE_VERSION

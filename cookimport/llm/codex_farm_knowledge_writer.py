@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .codex_farm_knowledge_models import Pass4KnowledgeOutputV1
+from .codex_farm_knowledge_models import KnowledgeOutputV1
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,11 +20,11 @@ def write_knowledge_artifacts(
     *,
     run_root: Path,
     workbook_slug: str,
-    outputs: Mapping[str, Pass4KnowledgeOutputV1],
+    outputs: Mapping[str, KnowledgeOutputV1],
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     chunk_lane_by_id: Mapping[str, str | None] | None = None,
 ) -> KnowledgeWriteReport:
-    """Write pass4 knowledge reviewer artifacts under the run directory."""
+    """Write knowledge-stage reviewer artifacts under the run directory."""
     knowledge_dir = run_root / "knowledge" / workbook_slug
     knowledge_dir.mkdir(parents=True, exist_ok=True)
     snippets_path = knowledge_dir / "snippets.jsonl"

@@ -626,7 +626,6 @@ def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
             text="NOTE: Keep blender cup warm.",
             within_recipe_span=True,
             label="OTHER",
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         ),
@@ -638,7 +637,6 @@ def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
             text="NOTE: Keep blender cup warm.",
             within_recipe_span=True,
             label="RECIPE_NOTES",
-            confidence=0.91,
             decided_by="rule",
             reason_tags=["note_prefix"],
         ),
@@ -672,7 +670,6 @@ def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence()
             text="Stir well and taste for seasoning.",
             within_recipe_span=True,
             label="TIME_LINE",
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         ),
@@ -684,7 +681,6 @@ def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence()
             text="Stir well and taste for seasoning.",
             within_recipe_span=True,
             label="INSTRUCTION_LINE",
-            confidence=0.95,
             decided_by="rule",
             reason_tags=["instruction_like"],
         ),
@@ -697,7 +693,7 @@ def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence()
     assert "ownership_veto_time_line_needs_strong_evidence" in accepted.reason_tags
 
 
-def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypatch) -> None:
+def test_codex_mode_preserves_deterministic_recipe_title_without_score_escalation(monkeypatch) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -737,9 +733,7 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
     assert len(predictions) == 2
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "rule"
-    assert predictions[0].trust_score == predictions[0].confidence
-    assert predictions[0].escalation_score is not None
-    assert "low_trust_structured_label" in predictions[0].escalation_reasons
+    assert predictions[0].escalation_reasons == ["outside_span_structured_label"]
 
 
 def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
@@ -1037,7 +1031,7 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
     assert by_index[1].decided_by == "fallback"
 
 
-def test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_span(
+def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_reasons(
     monkeypatch,
 ) -> None:
     candidates = [
@@ -1055,7 +1049,7 @@ def test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_s
     ]
 
     def _should_not_call_codex(**_kwargs):
-        raise AssertionError("outside-span low-confidence escalation should be disabled")
+        raise AssertionError("outside-span score-based escalation should be gone")
 
     monkeypatch.setattr(
         "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
@@ -1068,8 +1062,7 @@ def test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_s
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by in {"rule", "fallback"}
-    assert predictions[0].trust_score == predictions[0].confidence
-    assert predictions[0].escalation_score is not None
+    assert predictions[0].escalation_reasons == []
 
 
 def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> None:
@@ -1112,7 +1105,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             text="candidate 0",
             within_recipe_span=False,
             label="RECIPE_TITLE",
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         ),
@@ -1124,7 +1116,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             text="candidate 1",
             within_recipe_span=False,
             label="RECIPE_VARIANT",
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         ),
@@ -1138,7 +1129,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             text=f"inside {index}",
             within_recipe_span=True,
             label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
             reason_tags=["instruction_like"],
         )
@@ -1151,7 +1141,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             text=f"candidate {index}",
             within_recipe_span=False,
             label="OTHER",
-            confidence=0.7,
             decided_by="rule",
             reason_tags=["outside_recipe_span"],
         )
@@ -1166,7 +1155,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             text=f"inside {index}",
             within_recipe_span=True,
             label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
             reason_tags=["instruction_like"],
         )
@@ -1211,7 +1199,6 @@ def test_do_no_harm_arbitration_full_fallback_reverts_all_rows() -> None:
             text=f"candidate {index}",
             within_recipe_span=(index >= 8),
             label="RECIPE_TITLE" if index < 8 else "INSTRUCTION_LINE",
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         )
@@ -1223,7 +1210,6 @@ def test_do_no_harm_arbitration_full_fallback_reverts_all_rows() -> None:
             text=f"candidate {index}",
             within_recipe_span=(index >= 8),
             label="OTHER",
-            confidence=0.7,
             decided_by="rule",
             reason_tags=["baseline"],
         )
@@ -1294,7 +1280,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             text="candidate 0",
             within_recipe_span=False,
             label="RECIPE_TITLE",
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         ),
@@ -1306,7 +1291,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             text="candidate 1",
             within_recipe_span=False,
             label="RECIPE_VARIANT",
-            confidence=0.75,
             decided_by="codex",
             reason_tags=["codex_line_role"],
         ),
@@ -1320,7 +1304,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             text="candidate 0",
             within_recipe_span=False,
             label="OTHER",
-            confidence=0.7,
             decided_by="rule",
             reason_tags=["outside_recipe_span"],
         ),
@@ -1332,7 +1315,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             text="candidate 1",
             within_recipe_span=False,
             label="OTHER",
-            confidence=0.7,
             decided_by="rule",
             reason_tags=["outside_recipe_span"],
         ),
@@ -1346,7 +1328,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             text=f"inside {index}",
             within_recipe_span=True,
             label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
             reason_tags=["instruction_like"],
         )
@@ -1358,7 +1339,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             text=f"inside {index}",
             within_recipe_span=True,
             label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
             reason_tags=["instruction_like"],
         )
@@ -1454,7 +1434,6 @@ def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
     assert plan["planned_candidate_count"] == 1
     assert plan["batches"][0]["atomic_indices"] == [0]
     assert "candidate_labels" not in plan["batches"][0]["rows"][0]
-    assert plan["batches"][0]["rows"][0]["trust_score"] == 0.35
     assert plan["batches"][0]["rows"][0]["escalation_reasons"] == [
         "deterministic_unresolved",
         "fallback_decision",

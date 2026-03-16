@@ -71,9 +71,9 @@ from cookimport.parsing.canonical_line_roles import (
     build_line_role_codex_execution_plan,
 )
 from cookimport.parsing.label_source_of_truth import (
-    LabelFirstCompatibilityResult,
+    LabelFirstStageResult,
     authoritative_lines_to_canonical_predictions,
-    build_label_first_compatibility_result,
+    build_label_first_stage_result,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.parsing.tips import partition_tip_candidates
@@ -1164,7 +1164,7 @@ def _write_authoritative_line_role_artifacts(
     source_file: str,
     source_hash: str,
     workbook_slug: str,
-    label_first_result: LabelFirstCompatibilityResult,
+    label_first_result: LabelFirstStageResult,
 ) -> tuple[dict[str, Path], dict[str, Any]]:
     pipeline_dir = run_root / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
@@ -1661,8 +1661,8 @@ def generate_pred_run_artifacts(
     ocr_batch_size: int = 1,
     pdf_column_gap_ratio: float = 0.12,
     warm_models: bool = False,
-    section_detector_backend: str = "legacy",
-    multi_recipe_splitter: str = "legacy",
+    section_detector_backend: str = "shared_v1",
+    multi_recipe_splitter: str = "rules_v1",
     multi_recipe_trace: bool = False,
     multi_recipe_min_ingredient_lines: int = 1,
     multi_recipe_min_instruction_lines: int = 1,
@@ -1677,17 +1677,17 @@ def generate_pred_run_artifacts(
     web_schema_min_ingredients: int = 2,
     web_schema_min_instruction_steps: int = 1,
     ingredient_text_fix_backend: str = "none",
-    ingredient_pre_normalize_mode: str = "legacy",
+    ingredient_pre_normalize_mode: str = "aggressive_v1",
     ingredient_packaging_mode: str = "off",
     ingredient_parser_backend: str = "ingredient_parser_nlp",
-    ingredient_unit_canonicalizer: str = "legacy",
+    ingredient_unit_canonicalizer: str = "pint",
     ingredient_missing_unit_policy: str = "null",
     p6_time_backend: str = "regex_v1",
     p6_time_total_strategy: str = "sum_all_v1",
     p6_temperature_backend: str = "regex_v1",
     p6_temperature_unit_backend: str = "builtin_v1",
     p6_ovenlike_mode: str = "keywords_v1",
-    p6_yield_mode: str = "legacy_v1",
+    p6_yield_mode: str = "scored_v1",
     p6_emit_metadata_debug: bool = False,
     recipe_scorer_backend: str = "heuristic_v1",
     recipe_score_gold_min: float = 0.75,
@@ -1704,7 +1704,7 @@ def generate_pred_run_artifacts(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
-    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
+    codex_farm_pipeline_knowledge: str = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_recipe_mode: str = "extract",
@@ -1827,8 +1827,8 @@ def generate_pred_run_artifacts(
     selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
         codex_farm_recipe_mode
     )
-    selected_codex_farm_pipeline_pass4_knowledge = (
-        fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
+    selected_codex_farm_pipeline_knowledge = (
+        fixed_bucket1_behavior.codex_farm_pipeline_knowledge
     )
     selected_codex_farm_knowledge_context_blocks = max(
         0,
@@ -2331,11 +2331,11 @@ def generate_pred_run_artifacts(
     )
     archive = list(prepared_archive.blocks)
     book_id = result.workbook or path.stem
-    authoritative_label_result: LabelFirstCompatibilityResult | None = None
+    authoritative_label_result: LabelFirstStageResult | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     stage7_block_rows: list[dict[str, Any]] = []
     if processed_output_root is None or codex_execution.plan_only:
-        authoritative_label_result = build_label_first_compatibility_result(
+        authoritative_label_result = build_label_first_stage_result(
             conversion_result=result,
             source_file=path,
             importer_name=importer.name,
@@ -2344,7 +2344,7 @@ def generate_pred_run_artifacts(
             live_llm_allowed=bool(allow_codex),
             progress_callback=_notify,
         )
-        result = authoritative_label_result.conversion_result
+        result = authoritative_label_result.updated_conversion_result
         nonrecipe_stage_result = build_nonrecipe_stage_result(
             full_blocks=authoritative_label_result.archive_blocks,
             final_block_labels=authoritative_label_result.block_labels,
@@ -2387,7 +2387,7 @@ def generate_pred_run_artifacts(
             planned_work["knowledge_harvest"] = {
                 "enabled": True,
                 "pipeline": run_settings.llm_knowledge_pipeline.value,
-                "pipeline_id": run_settings.codex_farm_pipeline_pass4_knowledge,
+                "pipeline_id": run_settings.codex_farm_pipeline_knowledge,
                 "context_blocks": run_settings.codex_farm_knowledge_context_blocks,
                 "chunk_count": len(result.chunks),
                 "non_recipe_block_count": len(stage7_block_rows),
@@ -3391,7 +3391,7 @@ def generate_pred_run_artifacts(
         manifest,
         run_root,
     )
-    if isinstance(prompt_budget_summary.get("by_pass"), dict) and prompt_budget_summary["by_pass"]:
+    if isinstance(prompt_budget_summary.get("by_stage"), dict) and prompt_budget_summary["by_stage"]:
         prompt_budget_summary_path = write_prediction_run_prompt_budget_summary(
             run_root,
             prompt_budget_summary,
@@ -3727,8 +3727,8 @@ def run_labelstudio_import(
     ocr_batch_size: int = 1,
     pdf_column_gap_ratio: float = 0.12,
     warm_models: bool = False,
-    section_detector_backend: str = "legacy",
-    multi_recipe_splitter: str = "legacy",
+    section_detector_backend: str = "shared_v1",
+    multi_recipe_splitter: str = "rules_v1",
     multi_recipe_trace: bool = False,
     multi_recipe_min_ingredient_lines: int = 1,
     multi_recipe_min_instruction_lines: int = 1,
@@ -3743,17 +3743,17 @@ def run_labelstudio_import(
     web_schema_min_ingredients: int = 2,
     web_schema_min_instruction_steps: int = 1,
     ingredient_text_fix_backend: str = "none",
-    ingredient_pre_normalize_mode: str = "legacy",
+    ingredient_pre_normalize_mode: str = "aggressive_v1",
     ingredient_packaging_mode: str = "off",
     ingredient_parser_backend: str = "ingredient_parser_nlp",
-    ingredient_unit_canonicalizer: str = "legacy",
+    ingredient_unit_canonicalizer: str = "pint",
     ingredient_missing_unit_policy: str = "null",
     p6_time_backend: str = "regex_v1",
     p6_time_total_strategy: str = "sum_all_v1",
     p6_temperature_backend: str = "regex_v1",
     p6_temperature_unit_backend: str = "builtin_v1",
     p6_ovenlike_mode: str = "keywords_v1",
-    p6_yield_mode: str = "legacy_v1",
+    p6_yield_mode: str = "scored_v1",
     p6_emit_metadata_debug: bool = False,
     recipe_scorer_backend: str = "heuristic_v1",
     recipe_score_gold_min: float = 0.75,
@@ -3768,7 +3768,7 @@ def run_labelstudio_import(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
-    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
+    codex_farm_pipeline_knowledge: str = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_recipe_mode: str = "extract",
@@ -3876,7 +3876,7 @@ def run_labelstudio_import(
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
-        codex_farm_pipeline_pass4_knowledge=codex_farm_pipeline_pass4_knowledge,
+        codex_farm_pipeline_knowledge=codex_farm_pipeline_knowledge,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         codex_farm_recipe_mode=codex_farm_recipe_mode,

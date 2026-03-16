@@ -360,7 +360,7 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_preprocess_mode": "br_split_v1",
             "epub_unstructured_skip_headers_footers": False,
-            "multi_recipe_splitter": "legacy",
+            "multi_recipe_splitter": "rules_v1",
             "pdf_ocr_policy": "auto",
         },
         warn_context="test saved qualitysuite winner settings",
@@ -858,8 +858,8 @@ def test_load_qualitysuite_winner_run_settings_ignores_stale_payload(
                     "instruction_step_segmentation_policy": "auto",
                     "instruction_step_segmenter": "heuristic_v1",
                     "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-                    "multi_recipe_splitter": "legacy",
-                    "section_detector_backend": "legacy",
+                    "multi_recipe_splitter": "rules_v1",
+                    "section_detector_backend": "shared_v1",
                     "table_extraction": "off",
                 },
             },
@@ -918,8 +918,8 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     assert captured["path"] == selected_file
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
-    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.compact.v1"
-    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.v1"
+    assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
+    assert captured["codex_farm_pipeline_tags"] == "recipe.tags.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
     assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 
@@ -939,8 +939,8 @@ def test_import_entrypoint_passes_extended_stage_settings(
         "llm_recipe_pipeline": "off",
         "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
         "llm_tags_pipeline": "codex-farm-tags-v1",
-        "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.custom.v9",
-        "codex_farm_pipeline_pass5_tags": "recipe.tags.custom.v3",
+        "codex_farm_pipeline_knowledge": "recipe.knowledge.custom.v9",
+        "codex_farm_pipeline_tags": "recipe.tags.custom.v3",
         "codex_farm_knowledge_context_blocks": 42,
         "tag_catalog_json": "data/tagging/custom_catalog.json",
     }
@@ -972,8 +972,8 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
-    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.compact.v1"
-    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.v1"
+    assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
+    assert captured["codex_farm_pipeline_tags"] == "recipe.tags.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 42
     assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 

@@ -19,7 +19,6 @@ def _block_label(index: int, label: str) -> AuthoritativeBlockLabel:
         supporting_atomic_indices=[],
         deterministic_label=label,
         final_label=label,
-        confidence=1.0,
         decided_by="rule",
         reason_tags=[],
     )

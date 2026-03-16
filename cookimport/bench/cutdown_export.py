@@ -73,8 +73,6 @@ def build_line_role_joined_line_rows(
                 "within_recipe_span": line_meta.get("within_recipe_span"),
                 "decided_by": line_meta.get("decided_by"),
                 "recipe_id": line_meta.get("recipe_id"),
-                "trust_score": line_meta.get("trust_score"),
-                "escalation_score": line_meta.get("escalation_score"),
                 "escalation_reasons": line_meta.get("escalation_reasons"),
                 "line_role_match_kind": str(line_meta.get("match_kind") or "unmatched"),
                 "line_role_prediction_atomic_index": line_meta.get(
@@ -318,8 +316,6 @@ def _line_role_meta_payload(
         "decided_by": str(row.get("decided_by") or "").strip().lower() or None,
         "within_recipe_span": _coerce_bool(row.get("within_recipe_span")),
         "recipe_id": str(row.get("recipe_id") or "").strip() or None,
-        "trust_score": _coerce_float(row.get("trust_score")),
-        "escalation_score": _coerce_float(row.get("escalation_score")),
         "escalation_reasons": row.get("escalation_reasons") or [],
         "match_kind": str(match_kind),
         "prediction_atomic_index": _coerce_int(row.get("atomic_index")),

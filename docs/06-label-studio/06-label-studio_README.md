@@ -275,8 +275,6 @@ Benchmark eval artifacts include:
 - `eval_report.md` (only when markdown writes are enabled)
 - `missed_gold_blocks.jsonl`
 - `wrong_label_blocks.jsonl`
-- `missed_gold_spans.jsonl` (legacy alias)
-- `false_positive_preds.jsonl` (legacy alias)
 - `run_manifest.json`
 
 Canonical-text mode also writes line/alignment diagnostics:
@@ -303,9 +301,9 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/guardrail_changed_rows.jsonl`
 - `line-role-pipeline/do_no_harm_diagnostics.json`
 - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
-Prediction-generation now reuses authoritative line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` evidence comes from Stage 7 non-recipe artifacts instead of a pass4 merge step.
-Those authoritative and projected line-role rows now carry separate `trust_score`, `escalation_score`, and `escalation_reasons`; compatibility `confidence` is only the trust alias on this seam.
-Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same trust/escalation contract.
+Prediction-generation now reuses authoritative line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` evidence comes from Stage 7 non-recipe artifacts instead of a knowledge-stage merge step.
+Those authoritative and projected line-role rows now carry `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone from this seam.
+Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.
 Canonical line-role codex inflight is now resolved inside `canonical_line_roles.py`; `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the explicit override.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
 When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:

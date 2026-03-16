@@ -214,11 +214,11 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
             {
                 "pipeline_id": "recipe.knowledge.compact.v1",
                 "paths": {
-                    "pass4_in_dir": str(knowledge_in),
-                    "pass4_out_dir": str(knowledge_out),
+                    "knowledge_in_dir": str(knowledge_in),
+                    "knowledge_out_dir": str(knowledge_out),
                 },
                 "process_run": {
-                    "run_id": "run-pass4",
+                    "run_id": "run-knowledge",
                     "telemetry": {"csv_path": str(telemetry_csv)},
                 },
             },
@@ -234,7 +234,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                     "pipeline_id": "recipe.tags.v1",
                     "paths": {"in_dir": str(tags_in), "out_dir": str(tags_out)},
                     "process_run": {
-                        "run_id": "run-pass5",
+                        "run_id": "run-tags",
                         "telemetry": {"csv_path": str(telemetry_csv)},
                     },
                 }
@@ -258,24 +258,24 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert "INPUT recipe_llm_correct_and_link => r0000.json" in combined
     assert "OUTPUT tags => r0000.json" in combined
 
-    task1_path = eval_output_dir / "prompts" / "prompt_task1_recipe_correction.txt"
-    task4_path = eval_output_dir / "prompts" / "prompt_task4_knowledge.txt"
-    task5_path = eval_output_dir / "prompts" / "prompt_task5_tags.txt"
-    for category_path in (task1_path, task4_path, task5_path):
+    recipe_path = eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt"
+    knowledge_path = eval_output_dir / "prompts" / "prompt_extract_knowledge_optional.txt"
+    tags_path = eval_output_dir / "prompts" / "prompt_tags.txt"
+    for category_path in (recipe_path, knowledge_path, tags_path):
         assert category_path.exists()
 
-    task1_text = task1_path.read_text(encoding="utf-8")
-    assert "ATTACHMENT task1 =>" in task1_text
-    assert str(attached) in task1_text
-    assert "attachment content" in task1_text
+    recipe_text = recipe_path.read_text(encoding="utf-8")
+    assert "ATTACHMENT recipe_llm_correct_and_link =>" in recipe_text
+    assert str(attached) in recipe_text
+    assert "attachment content" in recipe_text
 
     manifest_path = eval_output_dir / "prompts" / "prompt_category_logs_manifest.txt"
     assert manifest_path.exists()
     manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
     assert manifest_lines == [
-        str(task1_path),
-        str(task4_path),
-        str(task5_path),
+        str(recipe_path),
+        str(knowledge_path),
+        str(tags_path),
     ]
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
@@ -392,9 +392,9 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         repo_root=tmp_path,
     )
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_task1_recipe_correction.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task4_knowledge.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task5_tags.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_extract_knowledge_optional.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_tags.txt").exists()
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     full_prompt_rows = [
         json.loads(line)
@@ -468,7 +468,7 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
     )
 
     assert log_path is not None and log_path.exists()
-    correction_path = eval_output_dir / "prompts" / "prompt_task1_recipe_correction.txt"
+    correction_path = eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt"
     assert correction_path.exists()
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
@@ -485,7 +485,6 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
     assert correction_row["stage_key"] == "recipe_llm_correct_and_link"
     assert correction_row["stage_artifact_stem"] == "recipe_correction"
     assert correction_row["stage_label"] == "Recipe Correction"
-    assert correction_row["stage_matches_legacy"] is False
 
     prompt_samples_path = (
         eval_output_dir
@@ -534,15 +533,12 @@ def test_prompt_artifact_renderer_supports_non_pass_stage_descriptors(
 
     stage1 = prompt_artifacts.PromptStageDescriptor(
         schema_version=prompt_artifacts.PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION,
-        legacy_pass="slot_a",
-        task_name="task_a",
-        slot_index=11,
+        stage_order=11,
         stage_dir_name="segmentation_stage",
         stage_key="segmentation",
         stage_heading_key="segmentation",
         stage_label="Segmentation",
         stage_artifact_stem="segmentation",
-        stage_matches_legacy=False,
         pipeline_id="recipe.segmenter.v1",
         manifest_name="synthetic_manifest.json",
         manifest_path=None,
@@ -553,15 +549,12 @@ def test_prompt_artifact_renderer_supports_non_pass_stage_descriptors(
     )
     stage2 = prompt_artifacts.PromptStageDescriptor(
         schema_version=prompt_artifacts.PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION,
-        legacy_pass="slot_b",
-        task_name="task_b",
-        slot_index=12,
+        stage_order=12,
         stage_dir_name="repair_stage",
         stage_key="repair",
         stage_heading_key="repair",
         stage_label="Repair",
         stage_artifact_stem="repair",
-        stage_matches_legacy=False,
         pipeline_id="recipe.repair.v1",
         manifest_name="synthetic_manifest.json",
         manifest_path=None,
@@ -590,8 +583,8 @@ def test_prompt_artifact_renderer_supports_non_pass_stage_descriptors(
     )
 
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_task_a_segmentation.txt").exists()
-    assert (eval_output_dir / "prompts" / "prompt_task_b_repair.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_segmentation.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_repair.txt").exists()
 
     full_prompt_rows = [
         json.loads(line)
@@ -639,15 +632,12 @@ def test_prompt_artifact_builder_accepts_custom_descriptor_discoverer(
 
     stage = prompt_artifacts.PromptStageDescriptor(
         schema_version=prompt_artifacts.PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION,
-        legacy_pass="slot_linkage",
-        task_name="task_linkage",
-        slot_index=21,
+        stage_order=21,
         stage_dir_name="linkage_stage",
         stage_key="linkage",
         stage_heading_key="linkage",
         stage_label="Linkage",
         stage_artifact_stem="linkage",
-        stage_matches_legacy=False,
         pipeline_id="recipe.linkage.v1",
         manifest_name="synthetic_manifest.json",
         manifest_path=None,
@@ -683,7 +673,7 @@ def test_prompt_artifact_builder_accepts_custom_descriptor_discoverer(
 
     assert discover_calls == [pred_run]
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_task_linkage_linkage.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_linkage.txt").exists()
 
     full_prompt_rows = [
         json.loads(line)
@@ -716,7 +706,7 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         encoding="utf-8",
     )
     (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
-        "prompt_task1_recipe_correction.txt\n",
+        "prompt_recipe_llm_correct_and_link.txt\n",
         encoding="utf-8",
     )
     (prompts_dir / "full_prompt_log.jsonl").write_text(
@@ -969,35 +959,10 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     summary_path = write_prediction_run_prompt_budget_summary(pred_run, summary)
 
     written = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert written["by_pass"]["pass1"]["call_count"] == 2
-    assert written["by_pass"]["pass2"]["tokens_total"] == 104
-    assert written["by_pass"]["pass4"]["call_count"] == 4
-    assert written["by_pass"]["pass4"]["tokens_total"] == 360
-    assert written["by_pass"]["line_role"]["call_count"] == 2
-    assert written["by_pass"]["line_role"]["attempt_count"] == 3
+    assert written["by_stage"]["pass1"]["call_count"] == 2
+    assert written["by_stage"]["pass2"]["tokens_total"] == 104
+    assert written["by_stage"]["knowledge"]["call_count"] == 4
+    assert written["by_stage"]["knowledge"]["tokens_total"] == 360
+    assert written["by_stage"]["line_role"]["call_count"] == 2
+    assert written["by_stage"]["line_role"]["attempt_count"] == 3
     assert written["totals"]["tokens_total"] == 651
-
-def test_copy_line_role_pass4_merge_artifacts_for_benchmark_writes_summary(
-    tmp_path: Path,
-) -> None:
-    pred_run = tmp_path / "prediction-run"
-    eval_output_dir = tmp_path / "eval"
-    line_role_output_dir = eval_output_dir / "line-role-pipeline"
-    line_role_output_dir.mkdir(parents=True, exist_ok=True)
-    joined_line_rows = [
-        {
-            "line_index": 7,
-            "gold_label": "KNOWLEDGE",
-            "pred_label": "KNOWLEDGE",
-            "within_recipe_span": False,
-        }
-    ]
-
-    artifacts = cli._copy_line_role_pass4_merge_artifacts_for_benchmark(
-        pred_run=pred_run,
-        line_role_output_dir=line_role_output_dir,
-        joined_line_rows=joined_line_rows,
-        eval_output_dir=eval_output_dir,
-    )
-
-    assert artifacts == {}

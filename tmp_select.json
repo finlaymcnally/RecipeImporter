@@ -1,0 +1,24 @@
+{
+  "bundle_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1",
+  "bundle_sha256": "c8a6f812c18c8cb67904460f75252a4784ff400b14999697796f90c224402be7",
+  "command": "cf-debug select-cases --bundle data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1 --out tmp_select.json --top-neg 0 --top-pos 0 --outside-span 0 --stage line_role --include-line-range 789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:628:657",
+  "generated_at": "2026-03-16_13.34.29",
+  "git_sha": "babdd885c49a01755e12ae315df137189bff8dcf",
+  "schema_version": "cf.selector.v1",
+  "selectors": [
+    {
+      "case_id": "line_range_628_657",
+      "end": 657,
+      "kind": "line_range",
+      "payload_locators": [],
+      "reason": "explicit_line_range",
+      "reason_rank": 0,
+      "selector_id": "line_range:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:628:657",
+      "source_key": "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c",
+      "start": 628
+    }
+  ],
+  "stage_filters": [
+    "line_role"
+  ]
+}

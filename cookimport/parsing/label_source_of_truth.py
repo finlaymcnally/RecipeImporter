@@ -84,22 +84,12 @@ class AuthoritativeLabeledLine(BaseModel):
     within_recipe_span_hint: bool = False
     deterministic_label: str
     final_label: str
-    confidence: float
-    trust_score: float | None = None
-    escalation_score: float | None = None
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _sync_confidence_alias(self) -> "AuthoritativeLabeledLine":
-        trust = self.trust_score
-        if trust is None:
-            trust = self.confidence
-        self.trust_score = round(float(trust), 4)
-        self.confidence = self.trust_score
-        if self.escalation_score is not None:
-            self.escalation_score = round(float(self.escalation_score), 4)
+    def _normalize_metadata(self) -> "AuthoritativeLabeledLine":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
         return self
@@ -113,22 +103,12 @@ class AuthoritativeBlockLabel(BaseModel):
     supporting_atomic_indices: list[int] = Field(default_factory=list)
     deterministic_label: str
     final_label: str
-    confidence: float
-    trust_score: float | None = None
-    escalation_score: float | None = None
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _sync_confidence_alias(self) -> "AuthoritativeBlockLabel":
-        trust = self.trust_score
-        if trust is None:
-            trust = self.confidence
-        self.trust_score = round(float(trust), 4)
-        self.confidence = self.trust_score
-        if self.escalation_score is not None:
-            self.escalation_score = round(float(self.escalation_score), 4)
+    def _normalize_metadata(self) -> "AuthoritativeBlockLabel":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
         return self
@@ -148,17 +128,11 @@ class RecipeSpan(BaseModel):
     title_block_index: int | None = None
     title_atomic_index: int | None = None
     warnings: list[str] = Field(default_factory=list)
-    trust_score: float | None = None
-    escalation_score: float | None = None
     escalation_reasons: list[str] = Field(default_factory=list)
     decision_notes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "RecipeSpan":
-        if self.trust_score is not None:
-            self.trust_score = round(float(self.trust_score), 4)
-        if self.escalation_score is not None:
-            self.escalation_score = round(float(self.escalation_score), 4)
         self.warnings = _unique_string_list(self.warnings)
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.decision_notes = _unique_string_list(self.decision_notes)
@@ -172,19 +146,19 @@ class LabelStageResult(BaseModel):
     block_labels: list[AuthoritativeBlockLabel] = Field(default_factory=list)
 
 
-class LabelFirstCompatibilityResult(BaseModel):
+class LabelFirstStageResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     labeled_lines: list[AuthoritativeLabeledLine] = Field(default_factory=list)
     block_labels: list[AuthoritativeBlockLabel] = Field(default_factory=list)
     recipe_spans: list[RecipeSpan] = Field(default_factory=list)
     non_recipe_lines: list[AuthoritativeLabeledLine] = Field(default_factory=list)
-    conversion_result: ConversionResult
+    updated_conversion_result: ConversionResult
     archive_blocks: list[dict[str, Any]] = Field(default_factory=list)
     source_hash: str | None = None
 
 
-def build_label_first_compatibility_result(
+def build_label_first_stage_result(
     *,
     conversion_result: ConversionResult,
     source_file: Path,
@@ -194,7 +168,7 @@ def build_label_first_compatibility_result(
     full_blocks: Sequence[dict[str, Any]] | None = None,
     live_llm_allowed: bool = False,
     progress_callback: Any | None = None,
-) -> LabelFirstCompatibilityResult:
+) -> LabelFirstStageResult:
     archive_blocks = _archive_block_rows(
         conversion_result=conversion_result,
         full_blocks=full_blocks,
@@ -237,7 +211,7 @@ def build_label_first_compatibility_result(
         block_labels,
         labeled_lines,
     )
-    compatibility = build_conversion_result_from_label_spans(
+    return build_conversion_result_from_label_spans(
         source_file=source_file,
         importer_name=importer_name,
         source_hash=source_hash,
@@ -248,7 +222,6 @@ def build_label_first_compatibility_result(
         recipe_spans=recipe_spans,
         run_settings=run_settings,
     )
-    return compatibility
 
 
 def build_conversion_result_from_label_spans(
@@ -262,7 +235,7 @@ def build_conversion_result_from_label_spans(
     block_labels: Sequence[AuthoritativeBlockLabel],
     recipe_spans: Sequence[RecipeSpan],
     run_settings: RunSettings | None = None,
-) -> LabelFirstCompatibilityResult:
+) -> LabelFirstStageResult:
     block_ids_in_recipe = {
         int(block_index)
         for span in recipe_spans
@@ -346,12 +319,12 @@ def build_conversion_result_from_label_spans(
         workbook=original_result.workbook,
         workbook_path=original_result.workbook_path,
     )
-    return LabelFirstCompatibilityResult(
+    return LabelFirstStageResult(
         labeled_lines=list(labeled_lines),
         block_labels=list(block_labels),
         recipe_spans=list(recipe_spans),
         non_recipe_lines=non_recipe_lines,
-        conversion_result=updated_result,
+        updated_conversion_result=updated_result,
         archive_blocks=[dict(block) for block in ordered_blocks],
         source_hash=source_hash,
     )
@@ -425,9 +398,6 @@ def authoritative_lines_to_canonical_predictions(
                 text=row.text,
                 within_recipe_span=recipe_index is not None,
                 label=row.final_label,
-                confidence=float(row.confidence),
-                trust_score=row.trust_score,
-                escalation_score=row.escalation_score,
                 decided_by=row.decided_by,
                 reason_tags=list(row.reason_tags),
                 escalation_reasons=list(row.escalation_reasons),
@@ -457,7 +427,6 @@ def _build_recipe_candidate_from_span(
 
     title_candidates = by_label.get("RECIPE_TITLE") or by_label.get("RECIPE_VARIANT") or []
     recipe_name = title_candidates[0] if title_candidates else _fallback_recipe_name(span_rows)
-    confidence = round(float(span.trust_score), 4) if span.trust_score is not None else None
     location = {
         "start_block": span.start_block_index,
         "end_block": span.end_block_index,
@@ -467,7 +436,7 @@ def _build_recipe_candidate_from_span(
         "title_block_index": span.title_block_index,
     }
     provenance = provenance_builder.build(
-        confidence_score=float(confidence or 0.0),
+        confidence_score=None,
         location=location,
     )
     comments = [RecipeComment(text=text) for text in by_label.get("RECIPE_NOTES", [])]
@@ -486,7 +455,6 @@ def _build_recipe_candidate_from_span(
         totalTime=(by_label.get("TIME_LINE") or [None])[0],
         comment=comments,
         provenance=provenance,
-        confidence=confidence,
     )
     return recipe
 
@@ -706,9 +674,6 @@ def _build_authoritative_lines(
                 within_recipe_span_hint=bool(prediction.within_recipe_span),
                 deterministic_label=deterministic_label,
                 final_label=final_label,
-                confidence=float(prediction.confidence),
-                trust_score=prediction.trust_score,
-                escalation_score=prediction.escalation_score,
                 decided_by=prediction.decided_by,
                 reason_tags=list(prediction.reason_tags),
                 escalation_reasons=list(prediction.escalation_reasons),
@@ -763,13 +728,6 @@ def _build_authoritative_block_labels(
                 supporting_atomic_indices=support,
                 deterministic_label=selected_det,
                 final_label=selected_final,
-                confidence=min(float(row.trust_score or row.confidence) for row in supporting_rows),
-                trust_score=min(
-                    float(row.trust_score or row.confidence) for row in supporting_rows
-                ),
-                escalation_score=max(
-                    float(row.escalation_score or 0.0) for row in rows
-                ),
                 decided_by=representative.decided_by,
                 reason_tags=reason_tags,
                 escalation_reasons=escalation_reasons,

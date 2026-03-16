@@ -133,7 +133,7 @@ class ProvenanceBuilder:
 
     def build(
         self,
-        confidence_score: float,
+        confidence_score: float | None,
         location: Dict[str, Any],
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -142,11 +142,12 @@ class ProvenanceBuilder:
             "source_hash": self.source_hash,
             "importer_version": self.importer_version,
             "extraction_method": self.extraction_method,
-            "confidence_score": confidence_score,
             "location": location,
             "processing_log": self.processing_log,
             "generated_at": datetime.now().isoformat(),
         }
+        if confidence_score is not None:
+            provenance["confidence_score"] = float(confidence_score)
         if extra:
             provenance.update(extra)
         return provenance

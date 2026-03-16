@@ -1385,35 +1385,6 @@ def _rows_from_line_mismatches(
     return missed_rows, wrong_rows
 
 
-def _legacy_alias_rows(
-    *,
-    missed_rows: list[dict[str, Any]],
-    wrong_rows: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    missed_gold = [
-        {
-            "span_id": f"line:{row['line_index']}",
-            "label": row["gold_label"],
-            "start_block_index": row["line_index"],
-            "end_block_index": row["line_index"],
-            "pred_label": row["pred_label"],
-        }
-        for row in missed_rows
-    ]
-    false_positive = [
-        {
-            "span_id": f"line:{row['line_index']}",
-            "label": row["pred_label"],
-            "start_block_index": row["line_index"],
-            "end_block_index": row["line_index"],
-            "gold_label": row["gold_label"],
-        }
-        for row in wrong_rows
-        if row["pred_label"] != "OTHER"
-    ]
-    return missed_gold, false_positive
-
-
 def format_canonical_eval_report_md(report: dict[str, Any]) -> str:
     counts = report.get("counts") or {}
     alignment = report.get("alignment") or {}
@@ -1588,10 +1559,6 @@ def evaluate_canonical_text(
         wrong_label_lines=[row for row in wrong_line_metrics if isinstance(row, dict)],
         lines_by_index=lines_by_index,
     )
-    missed_gold, false_positive = _legacy_alias_rows(
-        missed_rows=missed_rows,
-        wrong_rows=wrong_rows,
-    )
     unmatched_blocks = [row for row in aligned_blocks if not bool(row.get("matched"))]
     alignment_gaps = _build_alignment_gap_rows(
         lines=canonical_lines,
@@ -1616,8 +1583,6 @@ def evaluate_canonical_text(
 
     _write_jsonl(out_dir / "missed_gold_blocks.jsonl", missed_rows)
     _write_jsonl(out_dir / "wrong_label_blocks.jsonl", wrong_rows)
-    _write_jsonl(out_dir / "missed_gold_spans.jsonl", missed_gold)
-    _write_jsonl(out_dir / "false_positive_preds.jsonl", false_positive)
 
     report["artifacts"] = {
         "eval_report_json": str(out_dir / "eval_report.json"),
@@ -1707,6 +1672,4 @@ def evaluate_canonical_text(
         "report": report,
         "missed_gold_blocks": missed_rows,
         "wrong_label_blocks": wrong_rows,
-        "missed_gold": missed_gold,
-        "false_positive_preds": false_positive,
     }

@@ -31,8 +31,8 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
                 {
                     "id": experiment_id,
                     "run_settings": {
-                        "multi_recipe_splitter": "legacy",
-                        "section_detector_backend": "legacy",
+                        "multi_recipe_splitter": "rules_v1",
+                        "section_detector_backend": "shared_v1",
                     },
                 }
             ],
@@ -57,12 +57,12 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
 
     config_a_dims = {
         "epub_extractor": "beautifulsoup",
-        "multi_recipe_splitter": "legacy",
+        "multi_recipe_splitter": "rules_v1",
         "source_extension": ".epub",
     }
     config_b_dims = {
         "epub_extractor": "unstructured",
-        "multi_recipe_splitter": "legacy",
+        "multi_recipe_splitter": "rules_v1",
         "source_extension": ".epub",
     }
     config_a_dims_pdf = dict(config_a_dims)
@@ -130,7 +130,7 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
     winner_settings = payload.get("winner_run_settings")
     assert isinstance(winner_settings, dict)
     assert winner_settings.get("epub_extractor") == "beautifulsoup"
-    assert winner_settings.get("multi_recipe_splitter") == "legacy"
+    assert winner_settings.get("multi_recipe_splitter") == "rules_v1"
 
     pareto = payload.get("pareto_frontier")
     assert isinstance(pareto, dict)
@@ -174,7 +174,7 @@ def test_quality_leaderboard_prefers_run_config_hash_for_identity(
                 {
                     "id": experiment_id,
                     "run_settings": {
-                        "multi_recipe_splitter": "legacy",
+                        "multi_recipe_splitter": "rules_v1",
                     },
                 }
             ],
@@ -194,7 +194,7 @@ def test_quality_leaderboard_prefers_run_config_hash_for_identity(
 
     dims = {
         "epub_extractor": "beautifulsoup",
-        "multi_recipe_splitter": "legacy",
+        "multi_recipe_splitter": "rules_v1",
         "source_extension": ".epub",
     }
     _write_json(
@@ -358,7 +358,7 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
                 {
                     "id": experiment_id,
                     "run_settings": {
-                        "multi_recipe_splitter": "legacy",
+                        "multi_recipe_splitter": "rules_v1",
                     },
                 }
             ],
@@ -439,5 +439,3 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
         line_role_payload.get("line_role_dir")
         == "experiments/baseline/source_a/config_001_example/line-role-pipeline"
     )
-    assert line_role_payload.get("pass4_merge_summary_json") is None
-    assert line_role_payload.get("pass4_merge_summary") in ({}, None)

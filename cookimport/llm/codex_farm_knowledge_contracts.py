@@ -154,7 +154,7 @@ class KnowledgeJobSourceV1(BaseModel):
     source_hash: str
 
 
-class Pass4KnowledgeJobInputV1(BaseModel):
+class KnowledgeJobInputV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bundle_version: Literal["1"] = _BUNDLE_VERSION
@@ -166,7 +166,7 @@ class Pass4KnowledgeJobInputV1(BaseModel):
     guardrails: KnowledgeGuardrailsPayloadV1
 
 
-class Pass4KnowledgeCompactJobInputV1(BaseModel):
+class KnowledgeCompactJobInputV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bundle_version: Literal["1"] = _BUNDLE_VERSION

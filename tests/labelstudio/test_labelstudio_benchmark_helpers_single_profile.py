@@ -397,7 +397,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "multi_recipe_splitter": "legacy",
+            "multi_recipe_splitter": "rules_v1",
             "pdf_ocr_policy": "auto",
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_skip_headers_footers": False,

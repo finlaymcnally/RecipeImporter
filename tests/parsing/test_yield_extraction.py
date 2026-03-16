@@ -14,21 +14,21 @@ def _candidate(**overrides) -> RecipeCandidate:
     return RecipeCandidate(**payload)
 
 
-def test_normalize_yield_mode_defaults_to_legacy() -> None:
-    assert normalize_yield_mode(None) == "legacy_v1"
-    assert normalize_yield_mode({"p6_yield_mode": "invalid"}) == "legacy_v1"
+def test_normalize_yield_mode_defaults_to_scored() -> None:
+    assert normalize_yield_mode(None) == "scored_v1"
+    assert normalize_yield_mode({"p6_yield_mode": "invalid"}) == "scored_v1"
 
 
-def test_derive_yield_fields_legacy_mode_passthrough() -> None:
+def test_derive_yield_fields_scored_mode_uses_recipe_yield_when_present() -> None:
     candidate = _candidate(recipe_yield="Serves 4")
 
-    fields = derive_yield_fields(candidate, payload={"p6_yield_mode": "legacy_v1"})
+    fields = derive_yield_fields(candidate, payload={"p6_yield_mode": "scored_v1"})
 
-    assert fields["yield_units"] == 1
+    assert fields["yield_units"] == 4
     assert fields["yield_phrase"] == "Serves 4"
-    assert fields["yield_unit_name"] is None
+    assert fields["yield_unit_name"] == "serving"
     assert fields["yield_detail"] is None
-    assert fields["_p6_yield_debug"]["selected_source"] == "legacy"
+    assert fields["_p6_yield_debug"]["selected_source"] == "recipe_yield"
 
 
 def test_derive_yield_fields_scored_mode_selects_best_phrase() -> None:

@@ -15,7 +15,7 @@ Editable pipeline specs:
 
 - `pipelines/recipe.correction.compact.v1.json`
 - `pipelines/recipe.knowledge.compact.v1.json` (optional pass4 knowledge harvest)
-- `pipelines/recipe.tags.v1.json` (optional pass5 tag suggestions)
+- `pipelines/recipe.tags.v1.json` (optional tag suggestions)
 - `pipelines/line-role.canonical.v1.json` (canonical line-role surface)
 - `pipelines/prelabel.freeform.v1.json` (Label Studio freeform prelabel surface)
 

@@ -11,7 +11,7 @@ Codex Farm model discovery for interactive run settings now comes from `codex-fa
 When `codex-farm process --json` fails and returns a `run_id`, runner errors now include a follow-up summary from `codex-farm run errors --run-id ... --json`.
 If that summary reports `no last agent message` (typically `nonzero_exit_no_payload` chunk failures), the runner now treats it as recoverable partial-output mode so orchestrators can continue and mark only affected bundles as missing.
 
-Runner process metadata now surfaces CodexFarm `process --json.telemetry_report` as `telemetry_report`, best-effort `run autotune --json` output as `autotune_report`, and keeps `codex_exec_activity.csv` slices as `telemetry`; recipe/pass4/pass5 manifests persist all three for prompt-tuning analysis.
+Runner process metadata now surfaces CodexFarm `process --json.telemetry_report` as `telemetry_report`, best-effort `run autotune --json` output as `autotune_report`, and keeps `codex_exec_activity.csv` slices as `telemetry`; recipe/knowledge/tags manifests persist all three for prompt-tuning analysis.
 
 When a caller provides a progress callback, `SubprocessCodexFarmRunner` now executes `codex-farm process --progress-events --json`, parses `__codex_farm_progress__` stderr JSON events, and forwards spinner-friendly `task X/Y` status messages through the existing callback channel used by stage + benchmark flows.
 
@@ -25,6 +25,7 @@ Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor b
 - `render_prompt_artifacts_from_descriptors(...)` writes `prompts/` artifacts from normalized stage descriptors.
 - `build_prompt_response_log(...)` is the topology-neutral builder that accepts either explicit descriptors or injected discoverers.
 - `build_codex_farm_prompt_response_log(...)` is the convenience wrapper used by CLI call sites.
+- `prompt_preview.py` is the zero-token existing-output helper used by `cf-debug preview-prompts`; it rebuilds prompt previews from saved stage artifacts without invoking Codex.
 
 Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.correction.compact.v1` and `recipe.knowledge.compact.v1`), and those ids are now the default recipe-correction / knowledge-stage selections when CodexFarm recipe parsing or optional knowledge extraction is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
 

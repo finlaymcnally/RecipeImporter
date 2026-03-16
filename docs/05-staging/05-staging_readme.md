@@ -99,15 +99,15 @@ Per workbook (slugified file stem):
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
 - `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (internal-only Priority 6 diagnostics; Bucket 1 no longer exposes `p6_emit_metadata_debug` as a normal run setting)
-- `tags/<workbook_slug>/r{index}.tags.json` (if pass5 tags pipeline is enabled)
-- `tags/<workbook_slug>/tagging_report.json` (if pass5 tags pipeline is enabled)
-- `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)
+- `tags/<workbook_slug>/r{index}.tags.json` (if the tags pipeline is enabled)
+- `tags/<workbook_slug>/tagging_report.json` (if the tags pipeline is enabled)
+- `tags/tags_index.json` (if any tags artifacts were written in the run)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
   - includes `recipe_scoring_debug.jsonl` when importers emit candidate gate decisions
 - `raw/llm/<workbook_slug>/recipe_correction/{in,out}/*.json` (when recipe Codex correction ran)
 - `raw/llm/<workbook_slug>/recipe_manifest.json`
 - `raw/llm/<workbook_slug>/knowledge/{in,out}/*.json` + `knowledge_manifest.json` (if knowledge harvesting is enabled)
-- `raw/llm/<workbook_slug>/tags/{in,out}/*.json` + `tags_manifest.json` (if pass5 tags pipeline is enabled)
+- `raw/llm/<workbook_slug>/tags/{in,out}/*.json` + `tags_manifest.json` (if the tags pipeline is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
 - `stage_observability.json` at run root (canonical semantic stage index for the run)
@@ -117,9 +117,8 @@ Per workbook (slugified file stem):
 
 Label-first metadata note:
 
-- `label_det`, `label_llm_correct`, and `group_recipe_spans` now publish explicit `trust_score`, `escalation_score`, and `escalation_reasons` on authoritative line/block/span artifacts.
-- `span_decisions.json` is the compact reviewer/debug rollup for per-span trust and escalation notes.
-- Compatibility `confidence` remains in these artifacts only as a derived alias of `trust_score`.
+- `label_det`, `label_llm_correct`, and `group_recipe_spans` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
+- `span_decisions.json` is the compact reviewer/debug rollup for per-span escalation notes.
 
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).

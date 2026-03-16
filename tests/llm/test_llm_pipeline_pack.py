@@ -14,8 +14,8 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
 
     pipeline_ids = (
         "recipe.correction.compact.v1",
-        RunSettings().codex_farm_pipeline_pass4_knowledge,
-        RunSettings().codex_farm_pipeline_pass5_tags,
+        RunSettings().codex_farm_pipeline_knowledge,
+        RunSettings().codex_farm_pipeline_tags,
     )
 
     for pipeline_id in pipeline_ids:

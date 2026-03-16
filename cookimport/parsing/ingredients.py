@@ -14,14 +14,12 @@ from cookimport.parsing.sections import is_ingredient_section_header_line
 
 INGREDIENT_TEXT_FIX_BACKEND_NONE = "none"
 INGREDIENT_TEXT_FIX_BACKEND_FTFY = "ftfy"
-INGREDIENT_PRE_NORMALIZE_MODE_LEGACY = "legacy"
 INGREDIENT_PRE_NORMALIZE_MODE_AGGRESSIVE_V1 = "aggressive_v1"
 INGREDIENT_PACKAGING_MODE_OFF = "off"
 INGREDIENT_PACKAGING_MODE_REGEX_V1 = "regex_v1"
 INGREDIENT_PARSER_BACKEND_NLP = "ingredient_parser_nlp"
 INGREDIENT_PARSER_BACKEND_QUANTULUM3 = "quantulum3_regex"
 INGREDIENT_PARSER_BACKEND_HYBRID = "hybrid_nlp_then_quantulum3"
-INGREDIENT_UNIT_CANONICALIZER_LEGACY = "legacy"
 INGREDIENT_UNIT_CANONICALIZER_PINT = "pint"
 INGREDIENT_MISSING_UNIT_POLICY_LEGACY_MEDIUM = "legacy_medium"
 INGREDIENT_MISSING_UNIT_POLICY_NULL = "null"
@@ -32,7 +30,6 @@ _INGREDIENT_TEXT_FIX_BACKEND_ALLOWED = {
     INGREDIENT_TEXT_FIX_BACKEND_FTFY,
 }
 _INGREDIENT_PRE_NORMALIZE_MODE_ALLOWED = {
-    INGREDIENT_PRE_NORMALIZE_MODE_LEGACY,
     INGREDIENT_PRE_NORMALIZE_MODE_AGGRESSIVE_V1,
 }
 _INGREDIENT_PACKAGING_MODE_ALLOWED = {
@@ -45,7 +42,6 @@ _INGREDIENT_PARSER_BACKEND_ALLOWED = {
     INGREDIENT_PARSER_BACKEND_HYBRID,
 }
 _INGREDIENT_UNIT_CANONICALIZER_ALLOWED = {
-    INGREDIENT_UNIT_CANONICALIZER_LEGACY,
     INGREDIENT_UNIT_CANONICALIZER_PINT,
 }
 _INGREDIENT_MISSING_UNIT_POLICY_ALLOWED = {
@@ -65,10 +61,10 @@ _OPTION_KEYS = (
 
 _DEFAULT_OPTIONS: dict[str, str] = {
     "ingredient_text_fix_backend": INGREDIENT_TEXT_FIX_BACKEND_NONE,
-    "ingredient_pre_normalize_mode": INGREDIENT_PRE_NORMALIZE_MODE_LEGACY,
+    "ingredient_pre_normalize_mode": INGREDIENT_PRE_NORMALIZE_MODE_AGGRESSIVE_V1,
     "ingredient_packaging_mode": INGREDIENT_PACKAGING_MODE_OFF,
     "ingredient_parser_backend": INGREDIENT_PARSER_BACKEND_NLP,
-    "ingredient_unit_canonicalizer": INGREDIENT_UNIT_CANONICALIZER_LEGACY,
+    "ingredient_unit_canonicalizer": INGREDIENT_UNIT_CANONICALIZER_PINT,
     "ingredient_missing_unit_policy": INGREDIENT_MISSING_UNIT_POLICY_NULL,
 }
 
@@ -233,10 +229,10 @@ def parse_ingredient_line(
     text: str,
     *,
     ingredient_text_fix_backend: str = INGREDIENT_TEXT_FIX_BACKEND_NONE,
-    ingredient_pre_normalize_mode: str = INGREDIENT_PRE_NORMALIZE_MODE_LEGACY,
+    ingredient_pre_normalize_mode: str = INGREDIENT_PRE_NORMALIZE_MODE_AGGRESSIVE_V1,
     ingredient_packaging_mode: str = INGREDIENT_PACKAGING_MODE_OFF,
     ingredient_parser_backend: str = INGREDIENT_PARSER_BACKEND_NLP,
-    ingredient_unit_canonicalizer: str = INGREDIENT_UNIT_CANONICALIZER_LEGACY,
+    ingredient_unit_canonicalizer: str = INGREDIENT_UNIT_CANONICALIZER_PINT,
     ingredient_missing_unit_policy: str = INGREDIENT_MISSING_UNIT_POLICY_NULL,
 ) -> dict[str, Any]:
     """Parse one ingredient line into normalized staging fields."""
@@ -262,15 +258,9 @@ def parse_ingredient_line(
     if options["ingredient_text_fix_backend"] == INGREDIENT_TEXT_FIX_BACKEND_FTFY:
         working_text = _apply_ftfy_text_fix(working_text)
 
-    if (
-        options["ingredient_pre_normalize_mode"]
-        == INGREDIENT_PRE_NORMALIZE_MODE_AGGRESSIVE_V1
-    ):
-        working_text = normalize_fraction_and_range_spacing(
-            normalize_parentheses_space(dash_fold(working_text))
-        )
-    else:
-        working_text = _normalize_ingredient_text(working_text)
+    working_text = normalize_fraction_and_range_spacing(
+        normalize_parentheses_space(dash_fold(working_text))
+    )
 
     packaging_note: str | None = None
     if options["ingredient_packaging_mode"] == INGREDIENT_PACKAGING_MODE_REGEX_V1:
@@ -550,8 +540,7 @@ def _repair_result(
 
     if raw_unit_text:
         raw_unit_text = _normalize_unit_text(raw_unit_text)
-        if ingredient_unit_canonicalizer == INGREDIENT_UNIT_CANONICALIZER_PINT:
-            raw_unit_text = canonicalize_unit_with_pint(raw_unit_text)
+        raw_unit_text = canonicalize_unit_with_pint(raw_unit_text)
 
     if (
         input_qty is None

@@ -14,11 +14,11 @@ from cookimport.runs import KNOWLEDGE_MANIFEST_FILE_NAME, stage_artifact_stem
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 
 from .codex_farm_ids import sanitize_for_filename
-from .codex_farm_knowledge_ingest import read_pass4_knowledge_outputs
+from .codex_farm_knowledge_ingest import read_knowledge_outputs
 from .codex_farm_knowledge_jobs import (
-    COMPACT_PASS4_JOB_FORMAT,
-    LEGACY_PASS4_JOB_FORMAT,
-    build_pass4_knowledge_jobs,
+    COMPACT_KNOWLEDGE_JOB_FORMAT,
+    LEGACY_KNOWLEDGE_JOB_FORMAT,
+    build_knowledge_jobs,
 )
 from .codex_farm_knowledge_writer import KnowledgeWriteReport, write_knowledge_artifacts
 from .codex_farm_runner import (
@@ -32,9 +32,9 @@ from .codex_farm_runner import (
 
 logger = logging.getLogger(__name__)
 
-LEGACY_PASS4_PIPELINE_ID = "recipe.knowledge.v1"
-COMPACT_PASS4_PIPELINE_ID = "recipe.knowledge.compact.v1"
-DEFAULT_PASS4_PIPELINE_ID = COMPACT_PASS4_PIPELINE_ID
+LEGACY_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.v1"
+COMPACT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
+DEFAULT_KNOWLEDGE_PIPELINE_ID = COMPACT_KNOWLEDGE_PIPELINE_ID
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -66,7 +66,7 @@ def run_codex_farm_knowledge_harvest(
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmKnowledgeHarvestResult:
-    """Optional pass4: harvest cooking knowledge from Stage 7 knowledge spans via codex-farm."""
+    """Optional knowledge stage: harvest cooking knowledge from Stage 7 spans via codex-farm."""
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
     manifest_path = llm_raw_dir / KNOWLEDGE_MANIFEST_FILE_NAME
 
@@ -78,14 +78,14 @@ def run_codex_farm_knowledge_harvest(
         )
 
     knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("extract_knowledge_optional")
-    pass4_in_dir = knowledge_stage_dir / "in"
-    pass4_out_dir = knowledge_stage_dir / "out"
-    pass4_in_dir.mkdir(parents=True, exist_ok=True)
-    pass4_out_dir.mkdir(parents=True, exist_ok=True)
+    knowledge_in_dir = knowledge_stage_dir / "in"
+    knowledge_out_dir = knowledge_stage_dir / "out"
+    knowledge_in_dir.mkdir(parents=True, exist_ok=True)
+    knowledge_out_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline_id = _non_empty(
-        run_settings.codex_farm_pipeline_pass4_knowledge,
-        fallback=DEFAULT_PASS4_PIPELINE_ID,
+        run_settings.codex_farm_pipeline_knowledge,
+        fallback=DEFAULT_KNOWLEDGE_PIPELINE_ID,
     )
     if not nonrecipe_stage_result.knowledge_spans:
         llm_report = {
@@ -101,8 +101,8 @@ def run_codex_farm_knowledge_harvest(
             },
             "timing": {"total_seconds": 0.0},
             "paths": {
-                "pass4_in_dir": str(pass4_in_dir),
-                "pass4_out_dir": str(pass4_out_dir),
+                "knowledge_in_dir": str(knowledge_in_dir),
+                "knowledge_out_dir": str(knowledge_out_dir),
                 "manifest_path": str(manifest_path),
             },
             "missing_chunk_ids": [],
@@ -152,22 +152,22 @@ def run_codex_farm_knowledge_harvest(
         )
 
     started = time.perf_counter()
-    build_report = build_pass4_knowledge_jobs(
+    build_report = build_knowledge_jobs(
         full_blocks=full_blocks_payload,
         knowledge_spans=nonrecipe_stage_result.knowledge_spans,
         recipe_spans=recipe_spans,
         workbook_slug=workbook_slug,
         source_hash=_resolve_source_hash(conversion_result),
-        out_dir=pass4_in_dir,
+        out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
         overrides=overrides,
-        job_format=_resolve_pass4_job_format(pipeline_id),
+        job_format=_resolve_knowledge_job_format(pipeline_id),
     )
 
     process_run = codex_runner.run_pipeline(
         pipeline_id,
-        pass4_in_dir,
-        pass4_out_dir,
+        knowledge_in_dir,
+        knowledge_out_dir,
         env,
         root_dir=pipeline_root,
         workspace_root=workspace_root,
@@ -176,7 +176,7 @@ def run_codex_farm_knowledge_harvest(
     )
     process_run_payload = as_pipeline_run_result_payload(process_run)
 
-    outputs = read_pass4_knowledge_outputs(pass4_out_dir)
+    outputs = read_knowledge_outputs(knowledge_out_dir)
     missing_chunk_ids = sorted(set(build_report.chunk_ids) - set(outputs))
 
     write_report = write_knowledge_artifacts(
@@ -202,8 +202,8 @@ def run_codex_farm_knowledge_harvest(
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
-            "pass4_in_dir": str(pass4_in_dir),
-            "pass4_out_dir": str(pass4_out_dir),
+            "knowledge_in_dir": str(knowledge_in_dir),
+            "knowledge_out_dir": str(knowledge_out_dir),
             "snippets_path": str(write_report.snippets_path),
             "preview_path": str(write_report.preview_path),
             "manifest_path": str(manifest_path),
@@ -229,10 +229,10 @@ def _write_json(payload: Any, path: Path) -> None:
     )
 
 
-def _resolve_pass4_job_format(pipeline_id: str) -> str:
-    if str(pipeline_id).strip() == COMPACT_PASS4_PIPELINE_ID:
-        return COMPACT_PASS4_JOB_FORMAT
-    return LEGACY_PASS4_JOB_FORMAT
+def _resolve_knowledge_job_format(pipeline_id: str) -> str:
+    if str(pipeline_id).strip() == COMPACT_KNOWLEDGE_PIPELINE_ID:
+        return COMPACT_KNOWLEDGE_JOB_FORMAT
+    return LEGACY_KNOWLEDGE_JOB_FORMAT
 
 
 def _extract_full_blocks(result: ConversionResult) -> list[dict[str, Any]]:

@@ -10,10 +10,9 @@ from typing import Any, Mapping
 
 from cookimport.core.models import HowToStep, RecipeCandidate
 
-YIELD_MODE_LEGACY_V1 = "legacy_v1"
 YIELD_MODE_SCORED_V1 = "scored_v1"
 
-_ALLOWED_YIELD_MODES = {YIELD_MODE_LEGACY_V1, YIELD_MODE_SCORED_V1}
+_ALLOWED_YIELD_MODES = {YIELD_MODE_SCORED_V1}
 
 _YIELD_PREFIX_RE = re.compile(
     r"^\s*(serves?|servings?|yield|yields|makes?)\b",
@@ -80,11 +79,11 @@ class YieldParseResult:
 def normalize_yield_mode(payload: Mapping[str, Any] | None) -> str:
     source = payload or {}
     mode = str(
-        source.get("p6_yield_mode", source.get("yield_mode", YIELD_MODE_LEGACY_V1))
+        source.get("p6_yield_mode", source.get("yield_mode", YIELD_MODE_SCORED_V1))
     ).strip().lower().replace("-", "_")
     if mode in _ALLOWED_YIELD_MODES:
         return mode
-    return YIELD_MODE_LEGACY_V1
+    return YIELD_MODE_SCORED_V1
 
 
 def derive_yield_fields(
@@ -94,18 +93,6 @@ def derive_yield_fields(
 ) -> dict[str, Any]:
     """Derive normalized draft yield fields from candidate text sources."""
     mode = normalize_yield_mode(payload)
-    if mode == YIELD_MODE_LEGACY_V1:
-        return {
-            "yield_units": 1,
-            "yield_phrase": candidate.recipe_yield,
-            "yield_unit_name": None,
-            "yield_detail": None,
-            "_p6_yield_debug": {
-                "yield_mode": mode,
-                "selected_source": "legacy",
-            },
-        }
-
     candidates = _collect_candidates(candidate)
     selected = _select_candidate(candidates)
     selected_text = selected.text if selected is not None else (candidate.recipe_yield or None)

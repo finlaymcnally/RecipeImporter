@@ -27,12 +27,12 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeJobSourceV1,
     KnowledgeChunkPayloadV1,
     KnowledgeTableHintV1,
-    Pass4KnowledgeCompactJobInputV1,
-    Pass4KnowledgeJobInputV1,
+    KnowledgeCompactJobInputV1,
+    KnowledgeJobInputV1,
     SpanV1,
 )
-LEGACY_PASS4_JOB_FORMAT = "legacy"
-COMPACT_PASS4_JOB_FORMAT = "compact_v1"
+LEGACY_KNOWLEDGE_JOB_FORMAT = "legacy"
+COMPACT_KNOWLEDGE_JOB_FORMAT = "compact_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +42,7 @@ class KnowledgeJobBuildReport:
     chunk_lane_by_id: dict[str, str | None]
 
 
-def build_pass4_knowledge_jobs(
+def build_knowledge_jobs(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     knowledge_spans: Sequence[NonRecipeSpan],
@@ -52,9 +52,9 @@ def build_pass4_knowledge_jobs(
     out_dir: Path,
     context_blocks: int = 12,
     overrides: ParsingOverrides | None = None,
-    job_format: str = COMPACT_PASS4_JOB_FORMAT,
+    job_format: str = COMPACT_KNOWLEDGE_JOB_FORMAT,
 ) -> KnowledgeJobBuildReport:
-    """Write pass4 knowledge job bundles to out_dir and return a build report.
+    """Write knowledge-stage job bundles to out_dir and return a build report.
 
     Notes:
     - Uses deterministic chunking/highlights as hints only within Stage 7 knowledge spans.
@@ -63,7 +63,7 @@ def build_pass4_knowledge_jobs(
     out_dir.mkdir(parents=True, exist_ok=True)
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
-        raise ValueError("Cannot build pass4 knowledge jobs: empty full_blocks.")
+        raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
 
     recipe_spans_payload = [
         SpanV1(
@@ -100,7 +100,7 @@ def build_pass4_knowledge_jobs(
                 job_format=job_format,
             )
             payload_kwargs: dict[str, Any] = {"mode": "json", "by_alias": True}
-            if job_format == COMPACT_PASS4_JOB_FORMAT:
+            if job_format == COMPACT_KNOWLEDGE_JOB_FORMAT:
                 payload_kwargs["exclude_defaults"] = True
                 payload_kwargs["exclude_none"] = True
             _write_json(payload.model_dump(**payload_kwargs), out_dir / f"{chunk_id}.json")
@@ -149,7 +149,7 @@ def _build_job_payload(
     recipe_spans_payload: list[SpanV1],
     context_blocks: int,
     job_format: str,
-) -> Pass4KnowledgeJobInputV1 | Pass4KnowledgeCompactJobInputV1:
+) -> KnowledgeJobInputV1 | KnowledgeCompactJobInputV1:
     if not chunk.block_ids:
         raise ValueError(f"Chunk {chunk_id} has no block_ids; cannot build job bundle.")
 
@@ -181,7 +181,7 @@ def _build_job_payload(
     if suggested_lane in {ChunkLane.NOISE.value, ChunkLane.NARRATIVE.value}:
         suggested_skip_reason = f"lane={suggested_lane}"
 
-    if job_format == COMPACT_PASS4_JOB_FORMAT:
+    if job_format == COMPACT_KNOWLEDGE_JOB_FORMAT:
         chunk_blocks_payload = [
             _to_knowledge_compact_chunk_block(
                 full_blocks_by_index.get(idx) or {},
@@ -206,7 +206,7 @@ def _build_job_payload(
             for idx in after_indices
             if idx in full_blocks_by_index
         ]
-        return Pass4KnowledgeCompactJobInputV1(
+        return KnowledgeCompactJobInputV1(
             source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
             chunk=KnowledgeCompactChunkPayloadV1(
                 chunk_id=chunk_id,
@@ -255,7 +255,7 @@ def _build_job_payload(
         for idx in after_indices
         if idx in full_blocks_by_index
     ]
-    return Pass4KnowledgeJobInputV1(
+    return KnowledgeJobInputV1(
         source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
         chunk=KnowledgeChunkPayloadV1(
             chunk_id=chunk_id,

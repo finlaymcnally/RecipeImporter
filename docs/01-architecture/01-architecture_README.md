@@ -69,10 +69,10 @@ Architecture priorities:
 
 - label-first grouped spans and normalized block labels are the recipe/non-recipe authority boundary for stage-backed flows.
 - Stage 7 owns outside-recipe classification (`knowledge` vs `other`) for runtime decisions and benchmark evidence.
-- scalar confidence is persisted with labeled rows and compatibility recipe metadata, but grouping and Stage 7 ownership do not use it as authority.
-- low-confidence deterministic line-role cases may still escalate to Codex in `cookimport/parsing/canonical_line_roles.py`; that is an escalation seam, not the main runtime truth boundary.
+- scalar trust/confidence is no longer part of the label-first line-role contract.
+- line-role Codex escalation now depends on explicit escalation reasons, not score thresholds; that remains an escalation seam, not the main runtime truth boundary.
 - `decided_by` and `reason_tags` are the persisted decision-trace fields on current labeled rows.
-- authoritative line/block/span artifacts now also persist `trust_score`, `escalation_score`, and `escalation_reasons`; compatibility `confidence` on those seams is a trust alias for older readers.
+- authoritative line/block/span artifacts now persist `escalation_reasons` and omit scalar trust/confidence fields entirely.
 
 ### Current recipe LLM contract
 
@@ -85,7 +85,7 @@ Architecture priorities:
 
 ### Known current debt
 
-- historical benchmark/follow-up compatibility reads should stay narrow (`pass4_knowledge_manifest.json`, archived prompt-task sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
+- historical benchmark/follow-up compatibility reads should stay narrow (`knowledge_manifest.json`, archived prompt sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
 
 ## Docs Ownership Map
 

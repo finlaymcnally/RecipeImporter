@@ -7,7 +7,7 @@ from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate
 from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
-    LabelFirstCompatibilityResult,
+    LabelFirstStageResult,
     RecipeSpan,
 )
 from cookimport.staging import import_session
@@ -30,7 +30,6 @@ def _label_block(index: int, label: str) -> AuthoritativeBlockLabel:
         supporting_atomic_indices=[index],
         deterministic_label=label,
         final_label=label,
-        confidence=1.0,
         decided_by="rule",
         reason_tags=[],
     )
@@ -88,18 +87,18 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
         workbook="book",
         workbookPath=str(source),
     )
-    label_result = LabelFirstCompatibilityResult(
+    label_result = LabelFirstStageResult(
         labeled_lines=[],
         block_labels=[_label_block(0, "KNOWLEDGE")],
         recipe_spans=[],
         non_recipe_lines=[],
-        conversion_result=authoritative_result,
+        updated_conversion_result=authoritative_result,
         archive_blocks=[{"index": 0, "block_id": "b0", "text": "Technique note"}],
         source_hash="hash-123",
     )
     monkeypatch.setattr(
         import_session,
-        "build_label_first_compatibility_result",
+        "build_label_first_stage_result",
         lambda **_kwargs: label_result,
     )
     monkeypatch.setattr(import_session, "extract_and_annotate_tables", lambda *args, **kwargs: [])
@@ -165,7 +164,7 @@ def test_execute_stage_import_session_uses_stage7_rows_for_tables_and_chunks(
         workbook="book",
         workbookPath=str(source),
     )
-    label_result = LabelFirstCompatibilityResult(
+    label_result = LabelFirstStageResult(
         labeled_lines=[],
         block_labels=[_label_block(0, "RECIPE_TITLE"), _label_block(1, "KNOWLEDGE")],
         recipe_spans=[
@@ -178,7 +177,7 @@ def test_execute_stage_import_session_uses_stage7_rows_for_tables_and_chunks(
             )
         ],
         non_recipe_lines=[],
-        conversion_result=authoritative_result,
+        updated_conversion_result=authoritative_result,
         archive_blocks=[
             {"index": 0, "block_id": "b0", "text": "Recipe"},
             {"index": 1, "block_id": "b1", "text": "Technique note"},
@@ -187,7 +186,7 @@ def test_execute_stage_import_session_uses_stage7_rows_for_tables_and_chunks(
     )
     monkeypatch.setattr(
         import_session,
-        "build_label_first_compatibility_result",
+        "build_label_first_stage_result",
         lambda **_kwargs: label_result,
     )
     seen_table_rows: list[list[dict[str, object]]] = []

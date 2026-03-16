@@ -16,8 +16,8 @@ from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipelin
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
 from cookimport.parsing.label_source_of_truth import (
-    LabelFirstCompatibilityResult,
-    build_label_first_compatibility_result,
+    LabelFirstStageResult,
+    build_label_first_stage_result,
 )
 from cookimport.parsing.tables import extract_and_annotate_tables
 from cookimport.staging.nonrecipe_stage import (
@@ -57,7 +57,7 @@ class StageImportSessionResult:
     run_config_summary: str | None
     llm_report: dict[str, Any]
     timing: dict[str, Any]
-    label_first_result: LabelFirstCompatibilityResult | None = None
+    label_first_result: LabelFirstStageResult | None = None
     label_artifact_paths: dict[str, Path] | None = None
 
 
@@ -104,7 +104,7 @@ def _write_label_first_artifacts(
     *,
     run_root: Path,
     workbook_slug: str,
-    label_first_result: LabelFirstCompatibilityResult,
+    label_first_result: LabelFirstStageResult,
     line_role_pipeline: str,
 ) -> dict[str, Path]:
     det_lines_path = run_root / "label_det" / workbook_slug / "labeled_lines.jsonl"
@@ -126,9 +126,6 @@ def _write_label_first_artifacts(
             "text": row.text,
             "label": row.deterministic_label,
             "final_label": row.final_label,
-            "confidence": row.confidence,
-            "trust_score": row.trust_score,
-            "escalation_score": row.escalation_score,
             "decided_by": row.decided_by,
             "reason_tags": list(row.reason_tags),
             "escalation_reasons": list(row.escalation_reasons),
@@ -145,9 +142,6 @@ def _write_label_first_artifacts(
                 "supporting_atomic_indices": list(row.supporting_atomic_indices),
                 "label": row.deterministic_label,
                 "final_label": row.final_label,
-                "confidence": row.confidence,
-                "trust_score": row.trust_score,
-                "escalation_score": row.escalation_score,
                 "decided_by": row.decided_by,
                 "reason_tags": list(row.reason_tags),
                 "escalation_reasons": list(row.escalation_reasons),
@@ -168,9 +162,6 @@ def _write_label_first_artifacts(
                 "text": row.text,
                 "deterministic_label": row.deterministic_label,
                 "label": row.final_label,
-                "confidence": row.confidence,
-                "trust_score": row.trust_score,
-                "escalation_score": row.escalation_score,
                 "decided_by": row.decided_by,
                 "reason_tags": list(row.reason_tags),
                 "escalation_reasons": list(row.escalation_reasons),
@@ -220,8 +211,6 @@ def _write_label_first_artifacts(
                     "span_id": row.span_id,
                     "start_block_index": row.start_block_index,
                     "end_block_index": row.end_block_index,
-                    "trust_score": row.trust_score,
-                    "escalation_score": row.escalation_score,
                     "escalation_reasons": list(row.escalation_reasons),
                     "decision_notes": list(row.decision_notes),
                     "warnings": list(row.warnings),
@@ -323,14 +312,14 @@ def execute_stage_import_session_from_result(
     llm_schema_overrides: dict[str, dict[str, Any]] | None = None
     llm_draft_overrides: dict[str, dict[str, Any]] | None = None
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
-    label_first_result: LabelFirstCompatibilityResult | None = None
+    label_first_result: LabelFirstStageResult | None = None
     label_artifact_paths: dict[str, Path] | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     live_llm_allowed = bool((run_config or {}).get("codex_execution_live_llm_allowed"))
 
     _notify(progress_callback, "Building authoritative labels...")
     with measure(stats, "label_source_of_truth_seconds"):
-        label_first_result = build_label_first_compatibility_result(
+        label_first_result = build_label_first_stage_result(
             conversion_result=result,
             source_file=source_file,
             importer_name=importer_name,
@@ -340,7 +329,7 @@ def execute_stage_import_session_from_result(
             live_llm_allowed=live_llm_allowed,
             progress_callback=progress_callback,
         )
-    result = label_first_result.conversion_result
+    result = label_first_result.updated_conversion_result
     label_artifact_paths = _write_label_first_artifacts(
         run_root=run_root,
         workbook_slug=workbook_slug,
@@ -435,8 +424,8 @@ def execute_stage_import_session_from_result(
             overrides=parsing_overrides,
         )
 
-    # Keep the legacy field populated for compatibility/reporting, but Stage 7
-    # rows above are the authority for tables, chunking, and knowledge work.
+    # Mirror the Stage 7 rows onto ConversionResult so downstream consumers read
+    # the same current non-recipe view used for tables, chunking, and knowledge work.
     result.non_recipe_blocks = stage7_block_rows
 
     knowledge_write_report = None

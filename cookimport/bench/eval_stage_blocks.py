@@ -1866,30 +1866,6 @@ def evaluate_stage_blocks(
     _write_jsonl(missed_boundaries_path, missed_boundary_rows)
     _write_jsonl(false_positive_boundaries_path, false_positive_boundary_rows)
 
-    # Legacy aliases keep existing bench packet/report tooling functioning.
-    legacy_missed = [
-        {
-            "span_id": f"block:{row['block_index']}",
-            "label": row["gold_label"],
-            "start_block_index": row["block_index"],
-            "end_block_index": row["block_index"],
-            "pred_label": row["pred_label"],
-        }
-        for row in missed_rows
-    ]
-    legacy_false_positive = [
-        {
-            "span_id": f"block:{row['block_index']}",
-            "label": row["pred_label"],
-            "start_block_index": row["block_index"],
-            "end_block_index": row["block_index"],
-            "gold_label": row["gold_label"],
-        }
-        for row in wrong_rows
-        if row["pred_label"] != "OTHER"
-    ]
-    _write_jsonl(out_dir / "missed_gold_spans.jsonl", legacy_missed)
-    _write_jsonl(out_dir / "false_positive_preds.jsonl", legacy_false_positive)
     subphase_seconds["artifact_write_seconds"] = max(
         0.0,
         time.monotonic() - artifact_write_started,
@@ -1979,6 +1955,4 @@ def evaluate_stage_blocks(
         "wrong_label_blocks": wrong_rows,
         "missed_gold_boundaries": missed_boundary_rows,
         "false_positive_boundaries": false_positive_boundary_rows,
-        "missed_gold": legacy_missed,
-        "false_positive_preds": legacy_false_positive,
     }

@@ -18,7 +18,6 @@ def test_projection_preserves_within_recipe_span_for_urn_ids() -> None:
                 text="1 cup sugar",
                 within_recipe_span=True,
                 label="INGREDIENT_LINE",
-                confidence=0.99,
                 decided_by="rule",
                 reason_tags=["test"],
             )
@@ -40,7 +39,6 @@ def test_projection_keeps_explicit_span_flag_even_for_recipe_index_ids() -> None
                 text="Preface",
                 within_recipe_span=False,
                 label="OTHER",
-                confidence=0.99,
                 decided_by="rule",
                 reason_tags=["test"],
             )
@@ -73,7 +71,6 @@ def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) ->
                 text="1 cup sugar",
                 within_recipe_span=True,
                 label="INGREDIENT_LINE",
-                confidence=0.99,
                 decided_by="rule",
                 reason_tags=["test"],
             )
@@ -100,7 +97,6 @@ def test_projection_artifacts_preserve_projected_labels(tmp_path) -> None:
                 text="Recipe title",
                 within_recipe_span=False,
                 label="RECIPE_TITLE",
-                confidence=0.99,
                 decided_by="rule",
                 reason_tags=["test"],
             ),
@@ -112,7 +108,6 @@ def test_projection_artifacts_preserve_projected_labels(tmp_path) -> None:
                 text="Useful kitchen note",
                 within_recipe_span=False,
                 label="OTHER",
-                confidence=0.99,
                 decided_by="rule",
                 reason_tags=["test"],
             ),

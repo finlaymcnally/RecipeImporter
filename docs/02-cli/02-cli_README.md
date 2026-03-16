@@ -29,8 +29,9 @@ Behavior differences:
 - `cf-debug` is a non-interactive follow-up/debugging CLI for existing benchmark `upload_bundle_v1/` directories. Its high-level iterative workflow is:
   - `request-template`: create a manifest you can fill with the web AI's asks.
   - `build-followup`: answer that manifest into a new `followup_dataN/` folder that assumes the requester already has `upload_bundle_v1`.
-  - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-pass4-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
-  - pass4 follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-pass4-source-key` or `--include-pass4-output-subdir`, and `audit-pass4-knowledge` / `pack` / `build-followup` can emit `pass4_knowledge_audit.jsonl` plus pass4 artifact references.
+  - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
+  - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing processed run or benchmark run root.
+  - knowledge follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-knowledge-source-key` or `--include-knowledge-output-subdir`, and `audit-knowledge` / `pack` / `build-followup` can emit `knowledge_audit.jsonl` plus knowledge artifact references.
 - `import` / `C3import`:
   - no args: runs `stage(path=data/input)` immediately (non-interactive)
   - one positive integer arg: treated as `--limit` and runs `stage(path=data/input, limit=N)`
@@ -202,7 +203,7 @@ The post-Bucket-2 product contract now has two public layers:
 - `codex_farm_knowledge_context_blocks` (default `12`)
 - `tag_catalog_json` (default `data/tagging/tag_catalog.json`)
 
-Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_pass4_knowledge` and `codex_farm_pipeline_pass5_tags`. `table_extraction` is retired entirely; new runs always extract tables.
+Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge` and `codex_farm_pipeline_tags`. `table_extraction` is retired entirely; new runs always extract tables.
 
 Normal stage summaries now render the smaller operator contract first. Raw/full payloads still persist in manifests, reports, saved settings, and benchmark artifacts for compatibility and reproducibility.
 
@@ -210,10 +211,10 @@ What each setting affects:
 
 - `workers`, split workers, page/spine split size: `stage` and benchmark import parallelism/sharding.
 - `all_method_max_parallel_sources`: all-matched source-level concurrency cap (how many books run at once).
-- `all_method_source_scheduling`: source job order strategy (`discovery` legacy FIFO or `tail_pair` heavy/light interleave).
+- `all_method_source_scheduling`: source job order strategy (`discovery` source order or `tail_pair` heavy/light interleave).
 - `all_method_source_shard_threshold_seconds`, `all_method_source_shard_max_parts`, `all_method_source_shard_min_variants`: heavy-source sharding controls for all-matched runs (split one source’s variant set into multiple schedulable jobs).
-- `all_method_scheduler_scope`: all-method all-matched scheduler implementation (`global` uses one run-wide config queue + run-wide eval-signature dedupe; `legacy` keeps per-source config schedulers).
-- `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: all-method config scheduler controls (inflight cap, split-heavy slots, evaluate-tail cap, prewarm runway, smart/fixed admission mode; in `global` scope these apply to one run-wide scheduler, while in `legacy` scope they apply per source).
+- `all_method_scheduler_scope`: all-method all-matched scheduler implementation (`global` is the only supported scheduler and uses one run-wide config queue + run-wide eval-signature dedupe).
+- `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: all-method config scheduler controls for the run-wide global scheduler (inflight cap, split-heavy slots, evaluate-tail cap, prewarm runway, smart/fixed admission mode).
 - `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
 - all-method canonical alignment cache root is resolved per run and shared across timestamps (default under `data/golden/benchmark-vs-golden/.cache/canonical_alignment`; override via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`).
 - `epub_extractor`: runtime extractor choice via `C3IMP_EPUB_EXTRACTOR` (default-enabled choices: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` are policy-locked off unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
@@ -239,7 +240,7 @@ Developer note:
 - Per-run setting definitions live in `cookimport/config/run_settings.py`. Interactive top-tier chooser logic lives in `cookimport/cli_ui/run_settings_flow.py`; keep import and benchmark aligned there.
 - `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
 - `stats_dashboard(...)` is also called directly from interactive helpers; it must coerce Typer `OptionInfo` defaults (`--serve/--host/--port` and related flags) before branching into serve mode.
-- Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge/tags pipeline toggles, pass4/pass5 pipeline IDs, and related context/catalog settings), not a partial subset.
+- Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge/tags pipeline toggles, pipeline IDs, and related context/catalog settings), not a partial subset.
 - `import` / `C3import` entrypoint shims should forward the expanded stage run-settings arguments so persisted settings can affect direct-entrypoint runs.
 
 ### [D] Import Flow
@@ -339,7 +340,7 @@ Interactive benchmark now has a mode submenu before execution:
    - `Single config, all matched sets: Repeat one config for every matched golden set`
 2. Single offline path:
    - resolves one selected automatic top-tier run profile family (same resolver used by interactive import),
-   - benchmark setup can now independently choose recipe Codex, block-labelling Codex, and pass4 knowledge harvest before execution,
+   - benchmark setup can now independently choose recipe Codex, block-labelling Codex, and knowledge extraction before execution,
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
@@ -532,8 +533,8 @@ Options:
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
-- `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `12`): context blocks before/after each knowledge chunk for pass4 bundles.
-- `--tag-catalog-json PATH` (default `data/tagging/tag_catalog.json`): tag catalog snapshot path required when pass5 tags is enabled.
+- `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `12`): context blocks before/after each knowledge chunk for knowledge bundles.
+- `--tag-catalog-json PATH` (default `data/tagging/tag_catalog.json`): tag catalog snapshot path required when LLM tags are enabled.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - Internal-only note: stage still accepts hidden codex-farm pipeline-id/debug overrides for experiments and old payload replay, but they are no longer advertised in `--help`.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
@@ -1154,7 +1155,7 @@ Options:
 - `--codex-farm-cmd TEXT` (default `codex-farm`): codex-farm executable used when `--llm` is enabled.
 - `--codex-farm-root PATH`: optional codex-farm pipeline-pack root.
 - `--codex-farm-workspace-root PATH`: optional codex-farm workspace root.
-- `--codex-farm-pipeline-pass5-tags TEXT` (default `recipe.tags.v1`): pass-5 tags pipeline id for LLM second pass.
+- `--codex-farm-pipeline-tags TEXT` (default `recipe.tags.v1`): tags pipeline id for LLM second pass.
 - `--codex-farm-failure-mode TEXT` (default `fallback`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 
 Runtime rule:
@@ -1178,7 +1179,7 @@ Options:
 - `--codex-farm-cmd TEXT` (default `codex-farm`): codex-farm executable used when `--llm` is enabled.
 - `--codex-farm-root PATH`: optional codex-farm pipeline-pack root.
 - `--codex-farm-workspace-root PATH`: optional codex-farm workspace root.
-- `--codex-farm-pipeline-pass5-tags TEXT` (default `recipe.tags.v1`): pass-5 tags pipeline id for LLM second pass.
+- `--codex-farm-pipeline-tags TEXT` (default `recipe.tags.v1`): tags pipeline id for LLM second pass.
 - `--codex-farm-failure-mode TEXT` (default `fallback`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `--import-batch-id TEXT`: batch filter for DB selection.
 - `--source TEXT`: source filter for DB selection.

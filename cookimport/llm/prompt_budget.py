@@ -17,46 +17,45 @@ def build_prediction_run_prompt_budget_summary(
     pred_manifest: Mapping[str, Any],
     pred_run_dir: Path,
 ) -> dict[str, Any]:
-    by_pass: dict[str, dict[str, Any]] = {}
+    by_stage: dict[str, dict[str, Any]] = {}
 
     llm_payload = pred_manifest.get("llm_codex_farm")
     if isinstance(llm_payload, Mapping):
         process_runs = llm_payload.get("process_runs")
         if isinstance(process_runs, Mapping):
-            for pass_name in ("pass1", "pass2", "pass3"):
-                pass_payload = process_runs.get(pass_name)
-                if not isinstance(pass_payload, Mapping):
+            for stage_name, stage_payload in sorted(process_runs.items()):
+                if not isinstance(stage_payload, Mapping):
                     continue
-                pass_summary = _build_codex_farm_pass_summary(
-                    pass_name=pass_name,
-                    pass_payload=pass_payload,
+                stage_summary = _build_codex_farm_stage_summary(
+                    stage_name=str(stage_name),
+                    stage_payload=stage_payload,
                 )
-                if pass_summary is not None:
-                    by_pass[pass_name] = pass_summary
+                if stage_summary is not None:
+                    by_stage[str(stage_name)] = stage_summary
         knowledge_payload = llm_payload.get("knowledge")
         if isinstance(knowledge_payload, Mapping):
             process_run = knowledge_payload.get("process_run")
             if isinstance(process_run, Mapping):
-                pass4_summary = _build_codex_farm_pass_summary(
-                    pass_name="pass4",
-                    pass_payload=process_run,
+                knowledge_summary = _build_codex_farm_stage_summary(
+                    stage_name="knowledge",
+                    stage_payload=process_run,
                 )
-                if pass4_summary is not None:
-                    by_pass["pass4"] = pass4_summary
+                if knowledge_summary is not None:
+                    by_stage["knowledge"] = knowledge_summary
 
-    line_role_summary = _build_line_role_pass_summary(
+    line_role_summary = _build_line_role_stage_summary(
         pred_manifest=pred_manifest,
         pred_run_dir=pred_run_dir,
     )
     if line_role_summary is not None:
-        by_pass["line_role"] = line_role_summary
+        by_stage["line_role"] = line_role_summary
 
     totals: dict[str, int | None] = {
         "call_count": None,
         "duration_total_ms": None,
         **{key: None for key in _TOKEN_KEYS},
     }
-    for payload in by_pass.values():
+    for payload in by_stage.values():
         totals["call_count"] = _sum_optional_ints(
             totals.get("call_count"),
             _nonnegative_int(payload.get("call_count")),
@@ -74,7 +73,7 @@ def build_prediction_run_prompt_budget_summary(
     return {
         "schema_version": "prompt_budget_summary.v1",
         "prediction_run_dir": str(pred_run_dir),
-        "by_pass": by_pass,
+        "by_stage": by_stage,
         "totals": totals,
     }
 
@@ -91,12 +90,12 @@ def write_prediction_run_prompt_budget_summary(
     return target_path
 
 
-def _build_codex_farm_pass_summary(
+def _build_codex_farm_stage_summary(
     *,
-    pass_name: str,
-    pass_payload: Mapping[str, Any],
+    stage_name: str,
+    stage_payload: Mapping[str, Any],
 ) -> dict[str, Any] | None:
-    process_payload = pass_payload.get("process_payload")
+    process_payload = stage_payload.get("process_payload")
     telemetry_rows = None
     if isinstance(process_payload, Mapping):
         telemetry = process_payload.get("telemetry")
@@ -116,7 +115,7 @@ def _build_codex_farm_pass_summary(
                     _nonnegative_int(row.get(key)),
                 )
 
-    summary_payload = _extract_summary_payload(pass_payload=pass_payload)
+    summary_payload = _extract_summary_payload(stage_payload=stage_payload)
     if isinstance(summary_payload, Mapping):
         for key in _TOKEN_KEYS:
             fallback_value = summary_payload.get(key)
@@ -146,7 +145,7 @@ def _build_codex_farm_pass_summary(
         return None
 
     return {
-        "pass": pass_name,
+        "stage": stage_name,
         "kind": "codex_farm",
         "call_count": call_count,
         "duration_total_ms": duration_total_ms,
@@ -154,7 +153,7 @@ def _build_codex_farm_pass_summary(
     }
 
 
-def _build_line_role_pass_summary(
+def _build_line_role_stage_summary(
     *,
     pred_manifest: Mapping[str, Any],
     pred_run_dir: Path,
@@ -192,7 +191,7 @@ def _build_line_role_pass_summary(
         return None
 
     return {
-        "pass": "line_role",
+        "stage": "line_role",
         "kind": "line_role",
         "call_count": call_count,
         "batch_count": batch_count,
@@ -221,15 +220,15 @@ def _resolve_line_role_telemetry_path(
     return None
 
 
-def _extract_summary_payload(*, pass_payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    process_payload = pass_payload.get("process_payload")
+def _extract_summary_payload(*, stage_payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    process_payload = stage_payload.get("process_payload")
     if isinstance(process_payload, Mapping):
         telemetry_report = process_payload.get("telemetry_report")
         if isinstance(telemetry_report, Mapping) and isinstance(
             telemetry_report.get("summary"), Mapping
         ):
             return telemetry_report.get("summary")
-    telemetry_report = pass_payload.get("telemetry_report")
+    telemetry_report = stage_payload.get("telemetry_report")
     if isinstance(telemetry_report, Mapping) and isinstance(
         telemetry_report.get("summary"), Mapping
     ):

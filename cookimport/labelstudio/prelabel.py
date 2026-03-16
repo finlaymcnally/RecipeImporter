@@ -351,14 +351,7 @@ PRELABEL_GRANULARITY_BLOCK = "block"
 PRELABEL_GRANULARITY_SPAN = "span"
 _PRELABEL_GRANULARITY_ALIASES = {
     PRELABEL_GRANULARITY_BLOCK: PRELABEL_GRANULARITY_BLOCK,
-    "legacy": PRELABEL_GRANULARITY_BLOCK,
-    "legacy_block": PRELABEL_GRANULARITY_BLOCK,
-    "legacy_block_based": PRELABEL_GRANULARITY_BLOCK,
-    "legacy,_block_based": PRELABEL_GRANULARITY_BLOCK,
-    "legacy,_block-based": PRELABEL_GRANULARITY_BLOCK,
     PRELABEL_GRANULARITY_SPAN: PRELABEL_GRANULARITY_SPAN,
-    "actual_freeform": PRELABEL_GRANULARITY_SPAN,
-    "actual_freeform_spans": PRELABEL_GRANULARITY_SPAN,
 }
 
 CODEX_REASONING_EFFORT_VALUES = (
@@ -377,8 +370,7 @@ def normalize_prelabel_granularity(value: str | None) -> str:
     resolved = _PRELABEL_GRANULARITY_ALIASES.get(normalized)
     if resolved is None:
         raise ValueError(
-            "prelabel_granularity must be one of: block, span "
-            "(aliases: legacy, actual_freeform)."
+            "prelabel_granularity must be one of: block, span."
         )
     return resolved
 
@@ -2203,8 +2195,6 @@ def _build_prompt(
                 "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
                 "{{SEGMENT_ID}}": segment_id,
                 "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
-                # Legacy placeholder retained for compatibility with existing custom templates.
-                "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_compact_lines,
                 "{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}": blocks_with_focus_markers_compact_lines,
             },
         )
@@ -2230,7 +2220,6 @@ def _build_prompt(
             "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
             "{{SEGMENT_ID}}": segment_id,
             "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
-            "{{BLOCKS_WITH_FOCUS_MARKERS_JSON_LINES}}": blocks_with_focus_markers_compact_lines,
             "{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}": blocks_with_focus_markers_compact_lines,
         },
     )

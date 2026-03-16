@@ -103,10 +103,10 @@ def suggest(
         "--codex-farm-workspace-root",
         help="Optional workspace root passed to codex-farm.",
     ),
-    codex_farm_pipeline_pass5_tags: str = typer.Option(
+    codex_farm_pipeline_tags: str = typer.Option(
         "recipe.tags.v1",
-        "--codex-farm-pipeline-pass5-tags",
-        help="Pass-5 codex-farm pipeline id used for tag suggestions.",
+        "--codex-farm-pipeline-tags",
+        help="Codex-farm pipeline id used for tag suggestions.",
     ),
     codex_farm_failure_mode: str = typer.Option(
         "fallback",
@@ -148,7 +148,7 @@ def suggest(
     if llm:
         llm_config = LlmSecondPassConfig(
             enabled=True,
-            pipeline_id=codex_farm_pipeline_pass5_tags,
+            pipeline_id=codex_farm_pipeline_tags,
             codex_farm_cmd=codex_farm_cmd,
             codex_farm_root=codex_farm_root,
             codex_farm_workspace_root=codex_farm_workspace_root,
@@ -208,10 +208,10 @@ def apply_tags(
         "--codex-farm-workspace-root",
         help="Optional workspace root passed to codex-farm.",
     ),
-    codex_farm_pipeline_pass5_tags: str = typer.Option(
+    codex_farm_pipeline_tags: str = typer.Option(
         "recipe.tags.v1",
-        "--codex-farm-pipeline-pass5-tags",
-        help="Pass-5 codex-farm pipeline id used for tag suggestions.",
+        "--codex-farm-pipeline-tags",
+        help="Codex-farm pipeline id used for tag suggestions.",
     ),
     codex_farm_failure_mode: str = typer.Option(
         "fallback",
@@ -279,7 +279,7 @@ def apply_tags(
     if llm:
         llm_config = LlmSecondPassConfig(
             enabled=True,
-            pipeline_id=codex_farm_pipeline_pass5_tags,
+            pipeline_id=codex_farm_pipeline_tags,
             codex_farm_cmd=codex_farm_cmd,
             codex_farm_root=codex_farm_root,
             codex_farm_workspace_root=codex_farm_workspace_root,

@@ -89,7 +89,7 @@ class NewTagProposalV1(BaseModel):
         return text
 
 
-class Pass5TagsOutputV1(BaseModel):
+class TagsOutputV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bundle_version: str
@@ -167,7 +167,7 @@ def run_codex_farm_tags_pass(
     started = time.perf_counter()
 
     if raw_pass_dir is None:
-        with TemporaryDirectory(prefix="cookimport-pass5-tags-") as temp_dir:
+        with TemporaryDirectory(prefix="cookimport-tags-") as temp_dir:
             temp_root = Path(temp_dir)
             return _run_with_dirs(
                 jobs=jobs,
@@ -268,11 +268,11 @@ def _run_with_dirs(
 
         try:
             payload = json.loads(out_path.read_text(encoding="utf-8"))
-            parsed = Pass5TagsOutputV1.model_validate(payload)
+            parsed = TagsOutputV1.model_validate(payload)
         except (OSError, json.JSONDecodeError, ValidationError) as exc:
             schema_invalid_outputs += 1
             _increment(drop_reasons, "schema_validation_failed")
-            logger.warning("Invalid pass5 tags output %s: %s", out_path, exc)
+            logger.warning("Invalid tags output %s: %s", out_path, exc)
             continue
 
         outputs_read += 1
@@ -280,7 +280,7 @@ def _run_with_dirs(
             schema_invalid_outputs += 1
             _increment(drop_reasons, "recipe_id_mismatch")
             logger.warning(
-                "Pass5 output recipe_id mismatch for %s: expected=%s got=%s",
+                "Tags output recipe_id mismatch for %s: expected=%s got=%s",
                 out_path,
                 job.recipe_id,
                 parsed.recipe_id,

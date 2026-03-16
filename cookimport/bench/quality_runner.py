@@ -96,8 +96,8 @@ _RUN_SETTINGS_PATCH_COMPAT_KEYS = {
     "benchmark_sequence_matcher",
     "multi_recipe_trace",
     "p6_emit_metadata_debug",
-    "codex_farm_pipeline_pass4_knowledge",
-    "codex_farm_pipeline_pass5_tags",
+    "codex_farm_pipeline_knowledge",
+    "codex_farm_pipeline_tags",
 }
 
 
@@ -3048,7 +3048,6 @@ def _summarize_line_role_artifacts(
 
         slice_payload = _load_json_object_or_none(slice_path) or {}
         knowledge_payload = _load_json_object_or_none(knowledge_path) or {}
-        pass4_merge_summary_payload = _load_json_object_or_none(pass4_merge_summary_path) or {}
         gates_payload = _load_json_object_or_none(gates_path) or {}
 
         gates_verdict = str(
@@ -3098,7 +3097,6 @@ def _summarize_line_role_artifacts(
                 }
                 if knowledge_payload
                 else {},
-                "pass4_merge_summary": pass4_merge_summary_payload,
             }
         )
 

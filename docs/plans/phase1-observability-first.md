@@ -36,7 +36,7 @@ For the rest of this phase series, treat the following semantic keys from `docs/
 - [x] (2026-03-15_23.40.19) Implemented shared stage observability models and run-level writer under `cookimport/runs/`.
 - [x] (2026-03-15_23.40.19) Renamed new raw stage-owned storage and run-level reporting so pass-slot names disappear from new stage and prompt outputs.
 - [x] (2026-03-16_00.25.40) Removed compatibility fields from benchmark upload-bundle rendering and starter-pack/casebook recipe-stage output; bundle analysis now emits semantic `recipe_stages` instead of `pass2_stage` / `pass3_stage`.
-- [x] (2026-03-16_00.25.40) Updated benchmark/follow-up tests and fixture helpers for semantic recipe stages, `recipe_manifest.json`, `knowledge_manifest.json`, and `prompt_task4_knowledge.txt`.
+- [x] (2026-03-16_00.25.40) Updated benchmark/follow-up tests and fixture helpers for semantic recipe stages, `recipe_manifest.json`, `knowledge_manifest.json`, and the semantic knowledge prompt artifact.
 - [x] (2026-03-15_23.40.19) Added focused tests for deterministic, three-pass, merged-repair, and pass4 knowledge cases under the new semantic-only naming.
 - [x] (2026-03-15_23.40.19) Updated short folder notes and current docs so future reviewers can understand the new observability contract from checked-in documentation alone.
 

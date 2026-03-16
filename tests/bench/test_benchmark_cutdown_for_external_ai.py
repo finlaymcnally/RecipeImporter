@@ -223,11 +223,11 @@ def _semantic_recipe_manifest_row(
     }
 
 
-def _write_pass4_knowledge_artifacts(
+def _write_knowledge_artifacts(
     run_dir: Path,
     *,
     workbook_slug: str = "fixture-slug",
-    pass4_call_count: int = 4,
+    knowledge_call_count: int = 4,
 ) -> None:
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
@@ -236,9 +236,9 @@ def _write_pass4_knowledge_artifacts(
             [
                 "# Prompt samples",
                 "",
-                "## pass4 (Knowledge Harvest)",
+                "## knowledge (Knowledge)",
                 "",
-                "call_id: `fixture-pass4`",
+                "call_id: `fixture-knowledge`",
                 "",
                 "Knowledge prompt body",
             ]
@@ -246,19 +246,19 @@ def _write_pass4_knowledge_artifacts(
         + "\n",
         encoding="utf-8",
     )
-    (prompts_dir / "prompt_task4_knowledge.txt").write_text(
-        "pass4 raw prompt body\n",
+    (prompts_dir / "prompt_extract_knowledge_optional.txt").write_text(
+        "knowledge raw prompt body\n",
         encoding="utf-8",
     )
     _write_json(
         run_dir / "prediction-run" / "prompt_budget_summary.json",
         {
             "schema_version": "prompt_budget_summary.v1",
-            "by_pass": {
-                "pass4": {
-                    "call_count": pass4_call_count,
-                    "duration_total_ms": pass4_call_count * 100,
-                    "tokens_total": pass4_call_count * 1000,
+            "by_stage": {
+                "knowledge": {
+                    "call_count": knowledge_call_count,
+                    "duration_total_ms": knowledge_call_count * 100,
+                    "tokens_total": knowledge_call_count * 1000,
                 }
             },
         },
@@ -272,9 +272,9 @@ def _write_pass4_knowledge_artifacts(
                     "pipeline": "codex-farm-knowledge-v1",
                     "pipeline_id": "recipe.knowledge.compact.v1",
                     "counts": {
-                        "jobs_written": pass4_call_count,
-                        "outputs_parsed": pass4_call_count,
-                        "snippets_written": pass4_call_count * 2,
+                        "jobs_written": knowledge_call_count,
+                        "outputs_parsed": knowledge_call_count,
+                        "snippets_written": knowledge_call_count * 2,
                     },
                     "paths": {
                         "manifest_path": str(
@@ -300,15 +300,15 @@ def _write_pass4_knowledge_artifacts(
         {
             "pipeline_id": "recipe.knowledge.compact.v1",
             "counts": {
-                "jobs_written": pass4_call_count,
-                "outputs_parsed": pass4_call_count,
-                "snippets_written": pass4_call_count * 2,
+                "jobs_written": knowledge_call_count,
+                "outputs_parsed": knowledge_call_count,
+                "snippets_written": knowledge_call_count * 2,
             },
         },
     )
 
 
-def _write_prediction_run_pass4_stage_outputs(
+def _write_prediction_run_knowledge_stage_outputs(
     prediction_run: Path,
     *,
     workbook_slug: str = "fixture-slug",
@@ -356,7 +356,7 @@ def _write_prediction_run_pass4_stage_outputs(
                     "pipeline": "codex-farm-knowledge-v1",
                     "pipeline_id": "recipe.knowledge.compact.v1",
                     "process_run": {
-                        "run_id": "run-pass4-reconstruct",
+                        "run_id": "run-knowledge-reconstruct",
                         "pipeline_id": "recipe.knowledge.compact.v1",
                     },
                 }
@@ -1058,7 +1058,7 @@ def test_preprocess_trace_outside_span_does_not_borrow_fallback_prompt_row(
     assert outside_rows[0]["span_region"] == "outside_active_recipe_span"
     assert outside_rows[0]["trace_status"] == "outside_span_unattributed"
     assert outside_rows[0]["call_id"] is None
-    assert outside_rows[0]["pass"] is None
+    assert outside_rows[0]["stage_key"] is None
 
 
 def test_main_process_manifest_includes_new_nested_gzip_paths(tmp_path: Path) -> None:
@@ -1482,7 +1482,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         "12_per_recipe_or_per_span_breakdown.json",
         "13_net_error_blame_summary.json",
         "14_config_version_metadata.json",
-        "15_low_trust_changed_lines.packet.jsonl",
+        "15_explicit_escalation_changed_lines.packet.jsonl",
         "16_baseline_trace_parity.json",
     }
     assert required_files.issubset({path.name for path in starter_dir.iterdir() if path.is_file()})
@@ -1633,8 +1633,8 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
                 "line_index": 1,
                 "atomic_index": 1,
                 "label": "RECIPE_NOTES",
-                "confidence": 0.42,
                 "decided_by": "rule",
+                "escalation_reasons": ["deterministic_unresolved"],
                 "text": "1 cup flour",
             }
         ],
@@ -1681,8 +1681,8 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
             {
                 "atomic_index": 0,
                 "label": "RECIPE_TITLE",
-                "confidence": 0.95,
                 "decided_by": "rule",
+                "escalation_reasons": [],
                 "text": "Dish Title",
             }
         ],
@@ -1734,8 +1734,8 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
             {
                 "atomic_index": 0,
                 "label": "RECIPE_TITLE",
-                "confidence": 0.95,
                 "decided_by": "rule",
+                "escalation_reasons": [],
                 "text": "Dish Title",
             }
         ],
@@ -1885,23 +1885,26 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
     assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
     assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
-    low_conf_packet = index_payload["analysis"].get("low_trust_changed_lines_packet")
-    assert isinstance(low_conf_packet, dict)
-    assert low_conf_packet.get("available") is True
-    low_conf_row_count = int(low_conf_packet.get("row_count") or 0)
-    assert low_conf_row_count >= 0
-    if low_conf_row_count == 0:
+    escalation_packet = index_payload["analysis"].get("explicit_escalation_changed_lines_packet")
+    assert isinstance(escalation_packet, dict)
+    assert escalation_packet.get("available") is True
+    escalation_row_count = int(escalation_packet.get("row_count") or 0)
+    assert escalation_row_count >= 0
+    if escalation_row_count == 0:
         assert "No changed lines intersected" in str(
-            low_conf_packet.get("empty_packet_note") or ""
+            escalation_packet.get("empty_packet_note") or ""
         )
     assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
-    line_role_signal = index_payload["analysis"].get("line_role_trust")
+    line_role_signal = index_payload["analysis"].get("line_role_escalation")
     assert isinstance(line_role_signal, dict)
     assert "candidate_label_signal" not in line_role_signal
     assert isinstance(line_role_signal.get("selective_escalation_signal"), dict)
     runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
     assert isinstance(runtime_summary.get("cost_signal"), dict)
     assert runtime_summary["cost_signal"]["available"] is False
+    assert "pass3" not in runtime_summary["by_stage"]
+    assert "recipe_llm_correct_and_link" in runtime_summary["by_stage"]
+    assert "build_final_recipe" in runtime_summary["by_stage"]
     assert (
         "recognized cost fields"
         in str(runtime_summary["cost_signal"]["unavailable_reason"])
@@ -1928,7 +1931,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     default_views = navigation_payload.get("default_initial_views")
     assert isinstance(default_views, list)
     assert "analysis.triage_packet" in default_views
-    assert "analysis.low_trust_changed_lines_packet" in default_views
+    assert "analysis.explicit_escalation_changed_lines_packet" in default_views
     assert "analysis.recipe_pipeline_context" in default_views
     row_locators = navigation_payload.get("row_locators")
     assert isinstance(row_locators, dict)
@@ -1965,7 +1968,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     )
     assert isinstance(root_locators.get("net_error_blame_summary_json"), dict)
     assert isinstance(root_locators.get("config_version_metadata_json"), dict)
-    assert isinstance(root_locators.get("low_trust_changed_lines_packet_jsonl"), dict)
+    assert isinstance(root_locators.get("explicit_escalation_changed_lines_packet_jsonl"), dict)
     alias_dedupe = navigation_payload.get("alias_dedupe")
     assert isinstance(alias_dedupe, dict)
     assert int(alias_dedupe.get("content_equivalent_group_count") or 0) >= 1
@@ -2324,8 +2327,8 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
     assert int(runtime_summary["calls_with_runtime"]) == 2
     assert int(runtime_summary["total_tokens"]) == 120000
     assert float(runtime_summary["recipe_correction_token_share"]) == 1.0
-    by_pass = runtime_summary["by_pass"]
-    assert int(by_pass["recipe_correction"]["total_tokens"]) == 120000
+    by_stage = runtime_summary["by_stage"]
+    assert int(by_stage["recipe_correction"]["total_tokens"]) == 120000
     assert runtime_summary["estimated_cost_signal"]["available"] is False
 
 
@@ -2351,7 +2354,7 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
         codex_run_dir / "prediction-run" / "prompt_budget_summary.json",
         {
             "schema_version": "prompt_budget_summary.v1",
-            "by_pass": {
+            "by_stage": {
                 "recipe_correction": {
                     "call_count": 2,
                     "duration_total_ms": 2200,
@@ -2376,10 +2379,10 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
     assert int(runtime_summary["call_count"]) == 5
     assert int(runtime_summary["total_tokens"]) == 170000
     assert float(runtime_summary["line_role_token_share"]) == round(50000 / 170000, 4)
-    assert int(runtime_summary["by_pass"]["line_role"]["total_tokens"]) == 50000
+    assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 50000
 
 
-def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
+def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
@@ -2398,7 +2401,7 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
     run_dir = session_root / run_id
     _write_prediction_run(run_dir, with_extracted_archive=False)
     _set_pred_run_artifact(run_dir, "prediction-run")
-    _write_pass4_knowledge_artifacts(run_dir, workbook_slug="fixture-slug", pass4_call_count=4)
+    _write_knowledge_artifacts(run_dir, workbook_slug="fixture-slug", knowledge_call_count=4)
 
     bundle_dir = session_root / "upload_bundle_v1"
     module.build_upload_bundle_for_existing_output(
@@ -2409,24 +2412,24 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
     )
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    pass4_summary = index_payload["analysis"]["pass4_knowledge"]
-    assert pass4_summary["enabled_run_count"] == 1
-    assert pass4_summary["runs_with_prompt_samples"] == 1
-    assert pass4_summary["runs_with_pass4_manifest"] == 1
-    assert pass4_summary["total_pass4_call_count"] == 4
-    row = pass4_summary["rows"][0]
+    knowledge_summary = index_payload["analysis"]["knowledge"]
+    assert knowledge_summary["enabled_run_count"] == 1
+    assert knowledge_summary["runs_with_prompt_samples"] == 1
+    assert knowledge_summary["runs_with_knowledge_manifest"] == 1
+    assert knowledge_summary["total_knowledge_call_count"] == 4
+    row = knowledge_summary["rows"][0]
     assert row["run_id"] == run_id
     assert row["enabled"] is True
     assert row["prompt_samples_status"] == "written"
-    assert row["prompt_task4_status"] == "written"
-    assert row["pass4_manifest_status"] == "written"
+    assert row["prompt_knowledge_status"] == "written"
+    assert row["knowledge_manifest_status"] == "written"
     assert row["prompt_budget_summary_status"] == "written"
     assert row["prompt_samples_in_bundle"] is True
-    assert row["prompt_task4_in_bundle"] is True
-    assert row["pass4_manifest_in_bundle"] is True
+    assert row["prompt_knowledge_in_bundle"] is True
+    assert row["knowledge_manifest_in_bundle"] is True
     assert row["prompt_budget_summary_in_bundle"] is True
 
-    row_locators = index_payload["navigation"]["row_locators"]["pass4_by_run"]
+    row_locators = index_payload["navigation"]["row_locators"]["knowledge_by_run"]
     assert isinstance(row_locators, list)
     locator_row = next(
         item for item in row_locators if str(item.get("run_id") or "") == run_id
@@ -2434,8 +2437,8 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
     assert locator_row["prompt_samples_md"]["path"].endswith(
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
-    assert locator_row["prompt_task4_txt"]["path"].endswith(
-        "prompts/prompt_task4_knowledge.txt"
+    assert locator_row["prompt_knowledge_txt"]["path"].endswith(
+        "prompts/prompt_extract_knowledge_optional.txt"
     )
     assert locator_row["knowledge_manifest_json"]["path"].endswith(
         "prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
@@ -2445,7 +2448,7 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
     )
 
 
-def test_resolve_pass4_prompt_task_path_supports_dynamic_stage_file_names(
+def test_resolve_knowledge_prompt_path_supports_dynamic_stage_file_names(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
@@ -2453,19 +2456,19 @@ def test_resolve_pass4_prompt_task_path_supports_dynamic_stage_file_names(
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
 
-    dynamic_path = prompts_dir / "prompt_task4_knowledge_stage.txt"
-    dynamic_path.write_text("dynamic pass4 content\n", encoding="utf-8")
+    dynamic_path = prompts_dir / "prompt_extract_knowledge_optional_stage.txt"
+    dynamic_path.write_text("dynamic knowledge content\n", encoding="utf-8")
     (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
         str(dynamic_path) + "\n",
         encoding="utf-8",
     )
 
-    resolved = module._resolve_pass4_prompt_task_path(run_dir)
+    resolved = module._resolve_knowledge_prompt_path(run_dir)
 
     assert resolved == dynamic_path
 
 
-def test_reconstruct_full_prompt_log_includes_pass4_rows(
+def test_reconstruct_full_prompt_log_includes_knowledge_rows(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
@@ -2481,7 +2484,7 @@ def test_reconstruct_full_prompt_log_includes_pass4_rows(
     )
     prediction_run = _write_prediction_run(run_dir, with_extracted_archive=False)
     _set_pred_run_artifact(run_dir, "prediction-run")
-    _write_prediction_run_pass4_stage_outputs(prediction_run, workbook_slug="fixture-slug")
+    _write_prediction_run_knowledge_stage_outputs(prediction_run, workbook_slug="fixture-slug")
 
     output_path = tmp_path / "reconstructed" / "full_prompt_log.jsonl"
     rows_written = module._reconstruct_full_prompt_log(
@@ -2494,9 +2497,9 @@ def test_reconstruct_full_prompt_log_includes_pass4_rows(
     rows = _read_jsonl(output_path)
     assert len(rows) == 1
     row = rows[0]
-    assert row["pass"] == "pass4"
+    assert row["stage_key"] == "extract_knowledge_optional"
     assert row["pipeline_id"] == "recipe.knowledge.compact.v1"
-    assert row["process_run_id"] == "run-pass4-reconstruct"
+    assert row["process_run_id"] == "run-knowledge-reconstruct"
     assert row["recipe_id"] == "knowledge:c0"
     assert row["parsed_response"] == {
         "bundle_version": "1",
@@ -2519,7 +2522,7 @@ def test_reconstruct_full_prompt_log_includes_pass4_rows(
     }
 
 
-def test_build_upload_bundle_high_level_includes_lightweight_pass4_artifacts(
+def test_build_upload_bundle_high_level_includes_lightweight_knowledge_artifacts(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
@@ -2538,7 +2541,7 @@ def test_build_upload_bundle_high_level_includes_lightweight_pass4_artifacts(
     run_dir = session_root / run_id
     _write_prediction_run(run_dir, with_extracted_archive=False)
     _set_pred_run_artifact(run_dir, "prediction-run")
-    _write_pass4_knowledge_artifacts(run_dir, workbook_slug="fixture-slug", pass4_call_count=3)
+    _write_knowledge_artifacts(run_dir, workbook_slug="fixture-slug", knowledge_call_count=3)
 
     bundle_dir = session_root / "upload_bundle_v1"
     module.build_upload_bundle_for_existing_output(
@@ -2561,12 +2564,12 @@ def test_build_upload_bundle_high_level_includes_lightweight_pass4_artifacts(
         f"{run_id}/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
         in artifact_paths
     )
-    assert f"{run_id}/prompts/prompt_task4_knowledge.txt" not in artifact_paths
+    assert f"{run_id}/prompts/prompt_extract_knowledge_optional.txt" not in artifact_paths
 
-    pass4_summary = index_payload["analysis"]["pass4_knowledge"]["rows"][0]
-    assert pass4_summary["prompt_samples_in_bundle"] is True
-    assert pass4_summary["pass4_manifest_in_bundle"] is True
-    assert pass4_summary["prompt_task4_in_bundle"] is False
+    knowledge_summary = index_payload["analysis"]["knowledge"]["rows"][0]
+    assert knowledge_summary["prompt_samples_in_bundle"] is True
+    assert knowledge_summary["knowledge_manifest_in_bundle"] is True
+    assert knowledge_summary["prompt_knowledge_in_bundle"] is False
 
 
 def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
@@ -2624,7 +2627,7 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
             run_dir / "prediction-run" / "prompt_budget_summary.json",
             {
                 "schema_version": "prompt_budget_summary.v1",
-                "by_pass": {
+                "by_stage": {
                     "recipe_correction": {
                         "call_count": 2,
                         "duration_total_ms": 200,
@@ -2854,8 +2857,8 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
             {
                 "line_index": 1,
                 "label": "INGREDIENT_LINE",
-                "confidence": 0.40,
                 "decided_by": "llm",
+                "escalation_reasons": ["explicit_escalation_reasons"],
                 "text": "1 cup flour",
                 "within_recipe_span": True,
                 "page_type": "recipe_page",
@@ -2905,8 +2908,8 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
             {
                 "line_index": 1,
                 "label": "INGREDIENT_LINE",
-                "confidence": 0.35,
                 "decided_by": "llm",
+                "escalation_reasons": ["explicit_escalation_reasons"],
                 "text": "1 cup flour",
                 "within_recipe_span": False,
                 "page_type": "front_matter",

@@ -135,7 +135,8 @@ Prompt/debug artifacts:
 - `prompts/full_prompt_log.jsonl` is the stable per-call truth
 - `prompts/prompt_request_response_log.txt` is the human-readable convenience export
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
-- `prediction-run/prompt_budget_summary.json` merges recipe/pass4/pass5 telemetry with line-role telemetry when present
+- `prediction-run/prompt_budget_summary.json` merges recipe/knowledge/tags telemetry with line-role telemetry when present
+- `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 
 Run-level observability note:
 - `stage_observability.json` at the run root is the canonical stage index. The recipe/knowledge/tags manifests above are stage-local detail, not a second naming system.

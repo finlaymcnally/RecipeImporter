@@ -27,10 +27,10 @@ From repo root:
 
 Optional knobs:
 
-- `--codex-farm-pipeline-pass4-knowledge recipe.knowledge.compact.v1`
+- `--codex-farm-pipeline-knowledge recipe.knowledge.compact.v1`
 - `--codex-farm-knowledge-context-blocks 12`
 - `--codex-farm-root <pack_root>` and `--codex-farm-workspace-root <dir>`
-- `--table-extraction on` (recommended for table-heavy books; compact pass4 bundles then include `chunk.blocks[*].table_hint`)
+- `--table-extraction on` (recommended for table-heavy books; compact knowledge bundles then include `chunk.blocks[*].table_hint`)
 
 Chunking note:
 - knowledge-stage inputs now come from Stage 7 `knowledge` spans first, then apply the existing adjacent-chunk consolidation logic inside those spans.
@@ -68,5 +68,5 @@ Local default pack files:
 - `llm_pipelines/schemas/recipe.knowledge.v1.output.schema.json`
 
 `table_hint` contract note:
-- When table extraction is enabled, compact pass4 input can include `chunk.blocks[*].table_hint` (`table_id`, `caption`, `row_index_in_table`) to help structural interpretation.
+- When table extraction is enabled, compact knowledge input can include `chunk.blocks[*].table_hint` (`table_id`, `caption`, `row_index_in_table`) to help structural interpretation.
 - Evidence still must quote verbatim from `chunk.blocks[*].text`.

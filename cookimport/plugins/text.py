@@ -517,9 +517,7 @@ class TextImporter:
             if progress_callback:
                 progress_callback("Splitting recipes...")
             split_backend = self._resolve_multi_recipe_splitter_backend(run_settings)
-            if split_backend == "legacy":
-                chunks = self._split_recipes(normalized)
-            elif split_backend == "off":
+            if split_backend == "off":
                 total_lines = len(normalized.splitlines())
                 chunks = [(normalized, (1, total_lines or 1))]
             else:
@@ -953,10 +951,12 @@ class TextImporter:
         raw_backend = getattr(getattr(run_settings, "multi_recipe_splitter", None), "value", None)
         if raw_backend is None and run_settings is not None:
             raw_backend = getattr(run_settings, "multi_recipe_splitter", None)
-        normalized = str(raw_backend or "legacy").strip().lower().replace("-", "_")
-        if normalized in {"legacy", "off", "rules_v1"}:
+        normalized = str(raw_backend or "rules_v1").strip().lower().replace("-", "_")
+        if normalized == "legacy":
+            return "rules_v1"
+        if normalized in {"off", "rules_v1"}:
             return normalized
-        return "legacy"
+        return "rules_v1"
 
     def _build_multi_recipe_split_config(
         self,

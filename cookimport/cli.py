@@ -150,7 +150,6 @@ from cookimport.bench.oracle_upload import (
 from cookimport.bench.pairwise_flips import build_line_role_flips_vs_baseline
 from cookimport.bench.slice_metrics import (
     build_line_role_knowledge_budget,
-    build_line_role_pass4_merge_summary,
     build_line_role_slice_metrics,
 )
 from cookimport.labelstudio.client import LabelStudioClient
@@ -371,7 +370,6 @@ ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 600
 ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT = 1
 ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 4
 ALL_METHOD_SCHEDULER_SCOPE_GLOBAL = "global"
-ALL_METHOD_SCHEDULER_SCOPE_LEGACY = "legacy"
 ALL_METHOD_SCHEDULER_SCOPE_DEFAULT = ALL_METHOD_SCHEDULER_SCOPE_GLOBAL
 ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY = "discovery"
 ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR = "tail_pair"
@@ -1144,10 +1142,7 @@ def _normalize_all_method_source_scheduling(value: Any) -> str:
 
 def _normalize_all_method_scheduler_scope(value: Any) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {
-        ALL_METHOD_SCHEDULER_SCOPE_GLOBAL,
-        ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
-    }:
+    if normalized == ALL_METHOD_SCHEDULER_SCOPE_GLOBAL:
         return normalized
     return ALL_METHOD_SCHEDULER_SCOPE_DEFAULT
 
@@ -1512,15 +1507,11 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                         "global - one global config queue across all matched sources",
                         value=ALL_METHOD_SCHEDULER_SCOPE_GLOBAL,
                     ),
-                    questionary.Choice(
-                        "legacy - one independent config scheduler per source",
-                        value=ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
-                    ),
                 ],
                 default=current_scope,
                 menu_help=(
                     "global shares split slots and eval-signature dedupe across the full "
-                    "all-matched run. legacy retains prior per-source scheduling behavior."
+                    "all-matched run."
                 ),
             )
             if val and val != BACK_ACTION:
@@ -1541,7 +1532,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                         value=ALL_METHOD_SOURCE_SCHEDULING_TAIL_PAIR,
                     ),
                     questionary.Choice(
-                        "discovery - legacy discovery/FIFO order",
+                        "discovery - source discovery order",
                         value=ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY,
                     ),
                 ],
@@ -7984,24 +7975,24 @@ def _normalize_pdf_column_gap_ratio(value: float) -> float:
 
 def _normalize_section_detector_backend(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {"legacy", "shared_v1"}:
+    if normalized == "shared_v1":
         return normalized
     _fail(
         f"Invalid section detector backend: {value!r}. "
-        "Expected one of: legacy, shared_v1."
+        "Expected: shared_v1."
     )
-    return "legacy"
+    return "shared_v1"
 
 
 def _normalize_multi_recipe_splitter(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {"legacy", "off", "rules_v1"}:
+    if normalized in {"off", "rules_v1"}:
         return normalized
     _fail(
         f"Invalid multi-recipe splitter backend: {value!r}. "
-        "Expected one of: legacy, off, rules_v1."
+        "Expected one of: off, rules_v1."
     )
-    return "legacy"
+    return "rules_v1"
 
 
 def _normalize_instruction_step_segmentation_policy(value: str) -> str:
@@ -8098,13 +8089,13 @@ def _normalize_ingredient_text_fix_backend(value: str) -> str:
 
 def _normalize_ingredient_pre_normalize_mode(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {"legacy", "aggressive_v1"}:
+    if normalized == "aggressive_v1":
         return normalized
     _fail(
         f"Invalid ingredient pre-normalize mode: {value!r}. "
-        "Expected one of: legacy, aggressive_v1."
+        "Expected: aggressive_v1."
     )
-    return "legacy"
+    return "aggressive_v1"
 
 
 def _normalize_ingredient_packaging_mode(value: str) -> str:
@@ -8135,13 +8126,13 @@ def _normalize_ingredient_parser_backend(value: str) -> str:
 
 def _normalize_ingredient_unit_canonicalizer(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {"legacy", "pint"}:
+    if normalized == "pint":
         return normalized
     _fail(
         f"Invalid ingredient unit canonicalizer: {value!r}. "
-        "Expected one of: legacy, pint."
+        "Expected: pint."
     )
-    return "legacy"
+    return "pint"
 
 
 def _normalize_ingredient_missing_unit_policy(value: str) -> str:
@@ -8212,13 +8203,13 @@ def _normalize_p6_ovenlike_mode(value: str) -> str:
 
 def _normalize_p6_yield_mode(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {"legacy_v1", "scored_v1"}:
+    if normalized == "scored_v1":
         return normalized
     _fail(
         f"Invalid Priority 6 yield mode: {value!r}. "
-        "Expected one of: legacy_v1, scored_v1."
+        "Expected: scored_v1."
     )
-    return "legacy_v1"
+    return "scored_v1"
 
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
@@ -11644,17 +11635,6 @@ def _load_jsonl_dict_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _copy_line_role_pass4_merge_artifacts_for_benchmark(
-    *,
-    pred_run: Path,
-    line_role_output_dir: Path,
-    joined_line_rows: list[dict[str, Any]],
-    eval_output_dir: Path,
-) -> dict[str, Any]:
-    del pred_run, line_role_output_dir, joined_line_rows, eval_output_dir
-    return {}
-
-
 def _build_prediction_bundle_from_import_result(
     *,
     import_result: dict[str, Any],
@@ -12732,8 +12712,8 @@ def _build_all_method_sweep_payloads(
     # Priority 2–6 deterministic knobs (non-LLM).
     add_one_at_a_time(
         key="multi_recipe_splitter",
-        values=("legacy", "off", "rules_v1"),
-        default="legacy",
+        values=("off", "rules_v1"),
+        default="rules_v1",
     )
     add_one_at_a_time(
         key="ingredient_missing_unit_policy",
@@ -12742,8 +12722,8 @@ def _build_all_method_sweep_payloads(
     )
     add_one_at_a_time(
         key="p6_yield_mode",
-        values=("legacy_v1", "scored_v1"),
-        default="legacy_v1",
+        values=("scored_v1",),
+        default="scored_v1",
     )
     add_one_at_a_time(
         key="p6_time_backend",
@@ -12868,14 +12848,14 @@ def _build_all_method_variants(
 
     def base_dimensions(payload: dict[str, Any]) -> dict[str, Any]:
         return {
-            "multi_recipe_splitter": str(payload.get("multi_recipe_splitter", "legacy")),
+            "multi_recipe_splitter": str(payload.get("multi_recipe_splitter", "rules_v1")),
             "ingredient_missing_unit_policy": str(payload.get("ingredient_missing_unit_policy", "null")),
             "p6_time_backend": str(payload.get("p6_time_backend", "regex_v1")),
             "p6_temperature_backend": str(payload.get("p6_temperature_backend", "regex_v1")),
             "p6_temperature_unit_backend": str(
                 payload.get("p6_temperature_unit_backend", "builtin_v1")
             ),
-            "p6_yield_mode": str(payload.get("p6_yield_mode", "legacy_v1")),
+            "p6_yield_mode": str(payload.get("p6_yield_mode", "scored_v1")),
             "pdf_ocr_policy": str(payload.get("pdf_ocr_policy", "auto")),
             "pdf_column_gap_ratio": float(payload.get("pdf_column_gap_ratio", 0.12)),
         }
@@ -12883,10 +12863,10 @@ def _build_all_method_variants(
     if source_ext != ".epub" and not webschema_source:
         for sweep_tag, payload in sweep_payloads:
             suffix = "" if sweep_tag == "base" else f"__det_{_all_method_variant_token(sweep_tag)}"
-            multi_recipe = str(payload.get("multi_recipe_splitter") or "legacy").strip().lower()
+            multi_recipe = str(payload.get("multi_recipe_splitter") or "rules_v1").strip().lower()
             multi_recipe_suffix = (
                 ""
-                if multi_recipe in {"", "legacy"}
+                if multi_recipe in {"", "rules_v1"}
                 else f"__multi_recipe_{_all_method_variant_token(multi_recipe)}"
             )
             add_variant(
@@ -15374,8 +15354,8 @@ def _run_all_method_prediction_once(
                             "codex_farm_workspace_root": benchmark_kwargs.get(
                                 "codex_farm_workspace_root"
                             ),
-                            "codex_farm_pipeline_pass4_knowledge": benchmark_kwargs[
-                                "codex_farm_pipeline_pass4_knowledge"
+                            "codex_farm_pipeline_knowledge": benchmark_kwargs[
+                                "codex_farm_pipeline_knowledge"
                             ],
                             "codex_farm_context_blocks": benchmark_kwargs[
                                 "codex_farm_context_blocks"
@@ -18612,36 +18592,7 @@ def _run_all_method_benchmark_multi_source(
     dashboard_output_root: Path | None = None,
     require_process_workers: bool = False,
 ) -> Path:
-    resolved_scheduler_scope = _normalize_all_method_scheduler_scope(scheduler_scope)
-    if resolved_scheduler_scope == ALL_METHOD_SCHEDULER_SCOPE_LEGACY:
-        return _run_all_method_benchmark_multi_source_legacy(
-            target_variants=target_variants,
-            unmatched_targets=unmatched_targets,
-            include_codex_farm_requested=include_codex_farm_requested,
-            include_codex_farm_effective=include_codex_farm_effective,
-            root_output_dir=root_output_dir,
-            processed_output_root=processed_output_root,
-            overlap_threshold=overlap_threshold,
-            force_source_match=force_source_match,
-            progress_callback=progress_callback,
-            dashboard=dashboard,
-            max_parallel_sources=max_parallel_sources,
-            max_inflight_pipelines=max_inflight_pipelines,
-            max_concurrent_split_phases=max_concurrent_split_phases,
-            max_eval_tail_pipelines=max_eval_tail_pipelines,
-            config_timeout_seconds=config_timeout_seconds,
-            retry_failed_configs=retry_failed_configs,
-            source_scheduling=source_scheduling,
-            source_shard_threshold_seconds=source_shard_threshold_seconds,
-            source_shard_max_parts=source_shard_max_parts,
-            source_shard_min_variants=source_shard_min_variants,
-            wing_backlog_target=wing_backlog_target,
-            smart_scheduler=smart_scheduler,
-            canonical_alignment_cache_root=canonical_alignment_cache_root,
-            prediction_reuse_cache_root=prediction_reuse_cache_root,
-            dashboard_output_root=dashboard_output_root,
-            require_process_workers=require_process_workers,
-        )
+    _normalize_all_method_scheduler_scope(scheduler_scope)
     return _run_all_method_benchmark_global_queue(
         target_variants=target_variants,
         unmatched_targets=unmatched_targets,
@@ -18670,1477 +18621,6 @@ def _run_all_method_benchmark_multi_source(
         dashboard_output_root=dashboard_output_root,
         require_process_workers=require_process_workers,
     )
-
-
-def _run_all_method_benchmark_multi_source_legacy(
-    *,
-    target_variants: list[tuple[AllMethodTarget, list[AllMethodVariant]]],
-    unmatched_targets: list[AllMethodUnmatchedGold],
-    include_codex_farm_requested: bool,
-    include_codex_farm_effective: bool,
-    root_output_dir: Path,
-    processed_output_root: Path,
-    overlap_threshold: float,
-    force_source_match: bool,
-    progress_callback: Callable[[str], None] | None = None,
-    dashboard: _AllMethodProgressDashboard | None = None,
-    max_parallel_sources: int | None = None,
-    max_inflight_pipelines: int | None = None,
-    max_concurrent_split_phases: int | None = None,
-    max_eval_tail_pipelines: int | None = None,
-    config_timeout_seconds: int | None = None,
-    retry_failed_configs: int | None = None,
-    source_scheduling: str | None = None,
-    source_shard_threshold_seconds: float | None = None,
-    source_shard_max_parts: int | None = None,
-    source_shard_min_variants: int | None = None,
-    wing_backlog_target: int | None = None,
-    smart_scheduler: bool = False,
-    canonical_alignment_cache_root: Path | None = None,
-    prediction_reuse_cache_root: Path | None = None,
-    dashboard_output_root: Path | None = None,
-    require_process_workers: bool = False,
-) -> Path:
-    run_started = time.monotonic()
-    root_output_dir.mkdir(parents=True, exist_ok=True)
-    processed_output_root.mkdir(parents=True, exist_ok=True)
-    effective_config_timeout_seconds = _resolve_all_method_config_timeout_seconds(
-        config_timeout_seconds
-    )
-    effective_retry_failed_configs = _resolve_all_method_retry_failed_configs(
-        retry_failed_configs
-    )
-    resolved_source_scheduling = _normalize_all_method_source_scheduling(
-        source_scheduling
-    )
-    resolved_source_shard_threshold_seconds = (
-        _coerce_positive_float(source_shard_threshold_seconds)
-        or ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT
-    )
-    resolved_source_shard_max_parts = (
-        _coerce_positive_int(source_shard_max_parts)
-        or ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT
-    )
-    resolved_source_shard_min_variants = (
-        _coerce_positive_int(source_shard_min_variants)
-        or ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT
-    )
-    resolved_canonical_cache_root = (
-        canonical_alignment_cache_root.expanduser()
-        if canonical_alignment_cache_root is not None
-        else _resolve_all_method_canonical_alignment_cache_root(
-            root_output_dir=root_output_dir
-        )
-    )
-    resolved_prediction_reuse_cache_root = (
-        prediction_reuse_cache_root.expanduser()
-        if prediction_reuse_cache_root is not None
-        else _resolve_all_method_prediction_reuse_cache_dir(
-            root_output_dir=root_output_dir
-        )
-    )
-    resolved_dashboard_output_root = (
-        dashboard_output_root.expanduser()
-        if dashboard_output_root is not None
-        else None
-    )
-
-    total_targets = len(target_variants)
-    total_planned_config_runs = sum(len(variants) for _target, variants in target_variants)
-    source_job_plans = _plan_all_method_source_jobs(
-        target_variants=target_variants,
-        scheduling_strategy=resolved_source_scheduling,
-        shard_threshold_seconds=resolved_source_shard_threshold_seconds,
-        shard_max_parts=resolved_source_shard_max_parts,
-        shard_min_variants=resolved_source_shard_min_variants,
-    )
-    total_source_jobs = len(source_job_plans)
-    source_parallelism_default = min(
-        _all_method_default_parallel_sources_from_cpu(),
-        max(1, total_source_jobs),
-    )
-    requested_source_parallelism = _report_count(max_parallel_sources)
-    source_parallelism_configured = (
-        requested_source_parallelism
-        if requested_source_parallelism > 0
-        else source_parallelism_default
-    )
-    source_parallelism_effective = _resolve_all_method_source_parallelism(
-        total_sources=max(1, total_source_jobs),
-        requested=max_parallel_sources,
-    )
-    refresh_dashboard_after_source = source_parallelism_effective <= 1
-
-    source_target_by_position: dict[int, AllMethodTarget] = {
-        source_position: target
-        for source_position, (target, _variants) in enumerate(target_variants)
-    }
-    source_variant_count_by_position: dict[int, int] = {
-        source_position: len(variants)
-        for source_position, (_target, variants) in enumerate(target_variants)
-    }
-    source_shard_total_by_position: dict[int, int] = defaultdict(int)
-    for plan in source_job_plans:
-        source_shard_total_by_position[plan.source_position] = max(
-            source_shard_total_by_position[plan.source_position],
-            max(1, _report_count(plan.shard_total)),
-        )
-
-    source_jobs: list[dict[str, Any]] = []
-    for job_position, plan in enumerate(source_job_plans):
-        source_jobs.append(
-            {
-                "job_position": job_position,
-                "job_index": job_position + 1,
-                "plan": plan,
-                "target": source_target_by_position[plan.source_position],
-                "source_root": root_output_dir / plan.source_slug,
-                "source_processed_root": processed_output_root / plan.source_slug,
-                "canonical_alignment_cache_dir": (
-                    resolved_canonical_cache_root / plan.source_group_key
-                ),
-            }
-        )
-
-    source_rows: list[dict[str, Any] | None] = [None] * max(0, len(source_jobs))
-    status_lock = threading.RLock()
-    active_source_jobs: dict[int, int] = defaultdict(int)
-    finished_source_jobs: dict[int, int] = defaultdict(int)
-    source_failed_seen: dict[int, bool] = defaultdict(bool)
-
-    def _emit_status(
-        message: str,
-        *,
-        color: typer.colors = typer.colors.CYAN,
-    ) -> None:
-        cleaned = str(message or "").strip()
-        if not cleaned:
-            return
-        with status_lock:
-            if progress_callback is not None:
-                if dashboard is not None:
-                    dashboard.set_task(cleaned)
-                    _notify_progress_callback(progress_callback, dashboard.render())
-                else:
-                    _notify_progress_callback(progress_callback, cleaned)
-                return
-            typer.secho(cleaned, fg=color)
-
-    def _mark_source_job_started(source_position: int) -> None:
-        if dashboard is None:
-            return
-        with status_lock:
-            previous_active = active_source_jobs[source_position]
-            active_source_jobs[source_position] = previous_active + 1
-            if previous_active <= 0:
-                dashboard.start_source(source_position)
-
-    def _mark_source_job_finished(source_position: int, *, failed: bool) -> None:
-        if dashboard is None:
-            return
-        with status_lock:
-            active_source_jobs[source_position] = max(
-                0,
-                active_source_jobs[source_position] - 1,
-            )
-            finished_source_jobs[source_position] += 1
-            if failed:
-                source_failed_seen[source_position] = True
-            expected_total = max(
-                1,
-                _report_count(source_shard_total_by_position.get(source_position)),
-            )
-            if (
-                active_source_jobs[source_position] == 0
-                and finished_source_jobs[source_position] >= expected_total
-            ):
-                dashboard.finish_source(
-                    source_position,
-                    failed=bool(source_failed_seen[source_position]),
-                )
-
-    def _failed_source_row(
-        *,
-        plan: _AllMethodSourceJobPlan,
-        target: AllMethodTarget,
-        error: str,
-    ) -> dict[str, Any]:
-        return {
-            "source_position": plan.source_position,
-            "source_group_key": plan.source_group_key,
-            "source_shard_index": plan.shard_index + 1,
-            "source_shard_total": max(1, _report_count(plan.shard_total)),
-            "source_estimated_seconds": plan.estimated_seconds,
-            "source_estimate_basis": plan.estimate_basis,
-            "status": "failed",
-            "source_file": str(target.source_file),
-            "source_file_name": target.source_file_name,
-            "gold_spans_path": str(target.gold_spans_path),
-            "gold_display": target.gold_display,
-            "source_slug": plan.source_slug,
-            "report_path": "",
-            "report_json_path": "",
-            "variant_count_planned": len(plan.variants),
-            "variant_count_completed": 0,
-            "variant_count_successful": 0,
-            "evaluation_signatures_unique": 0,
-            "evaluation_runs_executed": 0,
-            "evaluation_results_reused_in_run": 0,
-            "evaluation_results_reused_cross_run": 0,
-            "winner_metrics": {},
-            "timing_summary": {},
-            "scheduler": {},
-            "executor_resolution": {
-                "process_workers_required": bool(require_process_workers),
-                "process_worker_probe_available": None,
-                "process_worker_probe_error": None,
-                "config_executor_backends_seen": [],
-            },
-            "error": error,
-        }
-
-    def _run_source_job(job: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        job_position = int(job["job_position"])
-        source_index = int(job["job_index"])
-        plan = cast(_AllMethodSourceJobPlan, job["plan"])
-        source_position = plan.source_position
-        target = cast(AllMethodTarget, job["target"])
-        variants = list(plan.variants)
-        source_root = cast(Path, job["source_root"])
-        source_processed_root = cast(Path, job["source_processed_root"])
-        canonical_alignment_cache_dir = cast(
-            Path,
-            job["canonical_alignment_cache_dir"],
-        )
-
-        progress_label = format_task_counter(
-            "Running",
-            source_index,
-            max(1, total_source_jobs),
-            noun="source",
-        )
-        _mark_source_job_started(source_position)
-        _emit_status(f"{progress_label}: {plan.source_display_name}")
-
-        if not variants:
-            _mark_source_job_finished(source_position, failed=True)
-            _emit_status(
-                (
-                    "Failed "
-                    f"{format_task_counter('', source_index, max(1, total_source_jobs), noun='source')}: "
-                    "No benchmark variants generated for this source."
-                ),
-                color=typer.colors.RED,
-            )
-            return (
-                job_position,
-                _failed_source_row(
-                    plan=plan,
-                    target=target,
-                    error="No benchmark variants generated for this source.",
-                ),
-            )
-
-        def _source_progress(message: str) -> None:
-            if progress_callback is None:
-                return
-            with status_lock:
-                if parse_worker_activity(message) is not None:
-                    _notify_progress_callback(progress_callback, message)
-                    return
-                if _looks_like_all_method_dashboard_snapshot(message):
-                    # Always render from shared dashboard state so outer queue rows
-                    # stay stable even if an inbound snapshot is stale/partial.
-                    if dashboard is not None:
-                        _notify_progress_callback(progress_callback, dashboard.render())
-                    else:
-                        _notify_progress_callback(progress_callback, message)
-                    return
-                if dashboard is not None:
-                    dashboard.set_task(message)
-                    _notify_progress_callback(progress_callback, dashboard.render())
-                    return
-                _notify_progress_callback(progress_callback, message)
-
-        try:
-            report_md_path = _run_all_method_benchmark(
-                gold_spans_path=plan.gold_spans_path,
-                source_file=plan.source_file,
-                variants=variants,
-                include_codex_farm_requested=include_codex_farm_requested,
-                include_codex_farm_effective=include_codex_farm_effective,
-                root_output_dir=source_root,
-                processed_output_root=source_processed_root,
-                overlap_threshold=overlap_threshold,
-                force_source_match=force_source_match,
-                progress_callback=_source_progress if progress_callback else None,
-                dashboard=dashboard,
-                dashboard_source_index=source_position if dashboard is not None else None,
-                max_inflight_pipelines=max_inflight_pipelines,
-                max_concurrent_split_phases=max_concurrent_split_phases,
-                max_eval_tail_pipelines=max_eval_tail_pipelines,
-                config_timeout_seconds=effective_config_timeout_seconds,
-                retry_failed_configs=effective_retry_failed_configs,
-                wing_backlog_target=wing_backlog_target,
-                smart_scheduler=smart_scheduler,
-                refresh_dashboard_after_source=refresh_dashboard_after_source,
-                source_parallelism_effective=source_parallelism_effective,
-                canonical_alignment_cache_dir_override=canonical_alignment_cache_dir,
-                prediction_reuse_cache_dir_override=resolved_prediction_reuse_cache_root,
-                dashboard_output_root=resolved_dashboard_output_root,
-                require_process_workers=require_process_workers,
-            )
-            report_json_path = report_md_path.with_suffix(".json")
-            report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
-            if not isinstance(report_payload, dict):
-                raise ValueError("Invalid all-method report payload.")
-
-            winner = report_payload.get("winner_by_f1")
-            winner_metrics = {
-                "precision": _report_metric(
-                    winner.get("precision") if isinstance(winner, dict) else None
-                ),
-                "recall": _report_metric(
-                    winner.get("recall") if isinstance(winner, dict) else None
-                ),
-                "f1": _report_metric(
-                    winner.get("f1") if isinstance(winner, dict) else None
-                ),
-            }
-            successful_variants = _report_count(report_payload.get("successful_variants"))
-            failed_variants = _report_count(report_payload.get("failed_variants"))
-            source_timing_summary = report_payload.get("timing_summary")
-            normalized_source_timing = (
-                dict(source_timing_summary)
-                if isinstance(source_timing_summary, dict)
-                else {}
-            )
-            source_scheduler_summary = report_payload.get("scheduler")
-            normalized_source_scheduler = (
-                dict(source_scheduler_summary)
-                if isinstance(source_scheduler_summary, dict)
-                else {}
-            )
-            source_executor_resolution = report_payload.get("executor_resolution")
-            normalized_source_executor_resolution = (
-                dict(source_executor_resolution)
-                if isinstance(source_executor_resolution, dict)
-                else {}
-            )
-
-            row = {
-                "source_position": source_position,
-                "source_group_key": plan.source_group_key,
-                "source_shard_index": plan.shard_index + 1,
-                "source_shard_total": max(1, _report_count(plan.shard_total)),
-                "source_estimated_seconds": plan.estimated_seconds,
-                "source_estimate_basis": plan.estimate_basis,
-                "status": "ok",
-                "source_file": str(plan.source_file),
-                "source_file_name": plan.source_display_name,
-                "gold_spans_path": str(plan.gold_spans_path),
-                "gold_display": target.gold_display,
-                "source_slug": plan.source_slug,
-                "report_path": _path_for_manifest(root_output_dir, report_md_path) or "",
-                "report_json_path": (
-                    _path_for_manifest(root_output_dir, report_json_path) or ""
-                ),
-                "variant_count_planned": len(plan.variants),
-                "variant_count_completed": successful_variants + failed_variants,
-                "variant_count_successful": successful_variants,
-                "evaluation_signatures_unique": _report_count(
-                    report_payload.get("evaluation_signatures_unique")
-                ),
-                "evaluation_runs_executed": _report_count(
-                    report_payload.get("evaluation_runs_executed")
-                ),
-                "evaluation_results_reused_in_run": _report_count(
-                    report_payload.get("evaluation_results_reused_in_run")
-                ),
-                "evaluation_results_reused_cross_run": _report_count(
-                    report_payload.get("evaluation_results_reused_cross_run")
-                ),
-                "winner_metrics": winner_metrics,
-                "timing_summary": normalized_source_timing,
-                "scheduler": normalized_source_scheduler,
-                "executor_resolution": normalized_source_executor_resolution,
-                "error": "",
-            }
-            _mark_source_job_finished(source_position, failed=False)
-            _emit_status(
-                (
-                    "Completed "
-                    f"{format_task_counter('', source_index, max(1, total_source_jobs), noun='source')}: "
-                    f"{plan.source_display_name}"
-                ),
-                color=typer.colors.CYAN,
-            )
-            return job_position, row
-        except Exception as exc:  # noqa: BLE001
-            _mark_source_job_finished(source_position, failed=True)
-            _emit_status(
-                (
-                    "Failed "
-                    f"{format_task_counter('', source_index, max(1, total_source_jobs), noun='source')}: {exc}"
-                ),
-                color=typer.colors.RED,
-            )
-            return (
-                job_position,
-                _failed_source_row(
-                    plan=plan,
-                    target=target,
-                    error=str(exc),
-                ),
-            )
-
-    if source_jobs:
-        if source_parallelism_effective <= 1:
-            for job in source_jobs:
-                job_position, row = _run_source_job(job)
-                source_rows[job_position] = row
-        else:
-            try:
-                source_executor = ThreadPoolExecutor(max_workers=source_parallelism_effective)
-            except (PermissionError, OSError) as exc:
-                _emit_status(
-                    (
-                        "Source parallel executor unavailable "
-                        f"({exc}); falling back to serial source mode."
-                    ),
-                    color=typer.colors.YELLOW,
-                )
-                source_parallelism_effective = 1
-                for job in source_jobs:
-                    job_position, row = _run_source_job(job)
-                    source_rows[job_position] = row
-            else:
-                pending_jobs = list(source_jobs)
-                futures: dict[Any, dict[str, Any]] = {}
-                with source_executor:
-                    while pending_jobs or futures:
-                        while pending_jobs and len(futures) < source_parallelism_effective:
-                            next_job = pending_jobs.pop(0)
-                            try:
-                                future = source_executor.submit(_run_source_job, next_job)
-                            except Exception as exc:  # noqa: BLE001
-                                job_position = int(next_job["job_position"])
-                                plan = cast(_AllMethodSourceJobPlan, next_job["plan"])
-                                source_position = plan.source_position
-                                target = cast(AllMethodTarget, next_job["target"])
-                                _mark_source_job_started(source_position)
-                                _mark_source_job_finished(source_position, failed=True)
-                                _emit_status(
-                                    (
-                                        "Failed "
-                                        f"{format_task_counter('', job_position + 1, max(1, total_source_jobs), noun='source')}: "
-                                        f"Failed to submit source worker: {exc}"
-                                    ),
-                                    color=typer.colors.RED,
-                                )
-                                source_rows[job_position] = _failed_source_row(
-                                    plan=plan,
-                                    target=target,
-                                    error=f"Failed to submit source worker: {exc}",
-                                )
-                                continue
-                            futures[future] = next_job
-
-                        if not futures:
-                            continue
-
-                        done, _ = wait(
-                            list(futures.keys()),
-                            return_when=FIRST_COMPLETED,
-                        )
-                        for done_future in done:
-                            submitted_job = futures.pop(done_future)
-                            try:
-                                job_position, row = done_future.result()
-                            except Exception as exc:  # noqa: BLE001
-                                job_position = int(submitted_job["job_position"])
-                                plan = cast(_AllMethodSourceJobPlan, submitted_job["plan"])
-                                source_position = plan.source_position
-                                target = cast(AllMethodTarget, submitted_job["target"])
-                                _mark_source_job_started(source_position)
-                                _mark_source_job_finished(source_position, failed=True)
-                                _emit_status(
-                                    (
-                                        "Failed "
-                                        f"{format_task_counter('', job_position + 1, max(1, total_source_jobs), noun='source')}: "
-                                        f"Source worker failed: {exc}"
-                                    ),
-                                    color=typer.colors.RED,
-                                )
-                                row = _failed_source_row(
-                                    plan=plan,
-                                    target=target,
-                                    error=f"Source worker failed: {exc}",
-                                )
-                            source_rows[job_position] = row
-
-    ordered_source_job_rows: list[dict[str, Any]] = []
-    for job_position, row in enumerate(source_rows):
-        if isinstance(row, dict):
-            ordered_source_job_rows.append(row)
-            continue
-        fallback_job = source_jobs[job_position]
-        fallback_plan = cast(_AllMethodSourceJobPlan, fallback_job["plan"])
-        fallback_target = cast(AllMethodTarget, fallback_job["target"])
-        ordered_source_job_rows.append(
-            _failed_source_row(
-                plan=fallback_plan,
-                target=fallback_target,
-                error="Source run did not produce a result.",
-            )
-        )
-    source_job_rows = ordered_source_job_rows
-
-    grouped_job_rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in source_job_rows:
-        grouped_job_rows[_report_count(row.get("source_position"))].append(row)
-
-    def _aggregate_source_scheduler(job_rows: list[dict[str, Any]]) -> dict[str, Any]:
-        scheduler_capacity_seconds = 0.0
-        scheduler_busy_seconds = 0.0
-        scheduler_idle_gap_seconds = 0.0
-        scheduler_wing_area_seconds = 0.0
-        scheduler_wing_seconds_weight = 0.0
-        scheduler_max_wing_backlog = 0
-        scheduler_max_active_pipelines = 0
-        scheduler_max_eval_active = 0
-        scheduler_wing_backlog_target = 0
-        scheduler_split_slots = 0
-        scheduler_split_worker_cap = 0
-        scheduler_split_worker_cap_by_cpu = 0
-        scheduler_split_worker_cap_by_memory = 0
-        scheduler_smart_tail_buffer = 0
-        scheduler_eval_tail_headroom_configured = 0
-        scheduler_eval_tail_headroom_effective = 0
-        scheduler_max_active_during_eval = 0
-        scheduler_source_parallelism_effective = 0
-        scheduler_cpu_budget_per_source = 0
-        scheduler_cpu_budget_total = 0
-        scheduler_effective_inflight = 0
-        scheduler_modes: set[str] = set()
-        scheduler_eval_tail_modes: set[str] = set()
-        scheduler_sources = 0
-
-        for row in job_rows:
-            if str(row.get("status", "")).lower() != "ok":
-                continue
-            scheduler = row.get("scheduler")
-            if not isinstance(scheduler, dict):
-                continue
-            scheduler_sources += 1
-            scheduler_modes.add(str(scheduler.get("mode") or "fixed"))
-            scheduler_split_slots = max(
-                scheduler_split_slots,
-                _report_count(scheduler.get("split_phase_slots")),
-            )
-            scheduler_wing_backlog_target = max(
-                scheduler_wing_backlog_target,
-                _report_count(scheduler.get("wing_backlog_target")),
-            )
-            scheduler_split_worker_cap = max(
-                scheduler_split_worker_cap,
-                _report_count(scheduler.get("split_worker_cap_per_config")),
-            )
-            scheduler_split_worker_cap_by_cpu = max(
-                scheduler_split_worker_cap_by_cpu,
-                _report_count(scheduler.get("split_worker_cap_by_cpu")),
-            )
-            scheduler_split_worker_cap_by_memory = max(
-                scheduler_split_worker_cap_by_memory,
-                _report_count(scheduler.get("split_worker_cap_by_memory")),
-            )
-            scheduler_smart_tail_buffer = max(
-                scheduler_smart_tail_buffer,
-                _report_count(scheduler.get("smart_tail_buffer_slots")),
-            )
-            scheduler_eval_tail_modes.add(
-                str(scheduler.get("eval_tail_headroom_mode") or "auto")
-            )
-            scheduler_eval_tail_headroom_configured = max(
-                scheduler_eval_tail_headroom_configured,
-                _report_count(
-                    scheduler.get(
-                        "eval_tail_headroom_configured",
-                        scheduler.get("max_eval_tail_pipelines"),
-                    )
-                ),
-            )
-            scheduler_eval_tail_headroom_effective = max(
-                scheduler_eval_tail_headroom_effective,
-                _report_count(
-                    scheduler.get(
-                        "eval_tail_headroom_effective",
-                        scheduler.get("max_eval_tail_pipelines"),
-                    )
-                ),
-            )
-            scheduler_max_active_during_eval = max(
-                scheduler_max_active_during_eval,
-                _report_count(
-                    scheduler.get(
-                        "max_active_during_eval",
-                        scheduler.get("effective_inflight_pipelines"),
-                    )
-                ),
-            )
-            scheduler_source_parallelism_effective = max(
-                scheduler_source_parallelism_effective,
-                _report_count(scheduler.get("source_parallelism_effective")),
-            )
-            scheduler_cpu_budget_per_source = max(
-                scheduler_cpu_budget_per_source,
-                _report_count(scheduler.get("cpu_budget_per_source")),
-            )
-            scheduler_cpu_budget_total = max(
-                scheduler_cpu_budget_total,
-                _report_count(scheduler.get("cpu_budget_total")),
-            )
-            scheduler_effective_inflight = max(
-                scheduler_effective_inflight,
-                _report_count(scheduler.get("effective_inflight_pipelines")),
-            )
-            capacity_seconds = _report_metric(scheduler.get("heavy_slot_capacity_seconds"))
-            busy_seconds = _report_metric(scheduler.get("heavy_slot_busy_seconds"))
-            idle_gap_seconds = _report_metric(scheduler.get("idle_gap_seconds"))
-            avg_wing = _report_metric(scheduler.get("avg_wing_backlog"))
-            max_wing = _report_count(scheduler.get("max_wing_backlog"))
-            max_active = _report_count(scheduler.get("max_active_pipelines_observed"))
-            max_eval_active = _report_count(scheduler.get("max_eval_active_observed"))
-            scheduler_capacity_seconds += capacity_seconds
-            scheduler_busy_seconds += busy_seconds
-            scheduler_idle_gap_seconds += idle_gap_seconds
-            scheduler_wing_area_seconds += avg_wing * capacity_seconds
-            scheduler_wing_seconds_weight += capacity_seconds
-            scheduler_max_wing_backlog = max(scheduler_max_wing_backlog, max_wing)
-            scheduler_max_active_pipelines = max(scheduler_max_active_pipelines, max_active)
-            scheduler_max_eval_active = max(scheduler_max_eval_active, max_eval_active)
-
-        scheduler_utilization_pct = (
-            (scheduler_busy_seconds / scheduler_capacity_seconds) * 100.0
-            if scheduler_capacity_seconds > 0
-            else 0.0
-        )
-        scheduler_avg_wing_backlog = (
-            scheduler_wing_area_seconds / scheduler_wing_seconds_weight
-            if scheduler_wing_seconds_weight > 0
-            else 0.0
-        )
-        if scheduler_sources <= 0:
-            return {}
-        return {
-            "mode": (
-                "mixed"
-                if len(scheduler_modes) > 1
-                else (next(iter(scheduler_modes)) if scheduler_modes else "fixed")
-            ),
-            "source_count": scheduler_sources,
-            "effective_inflight_pipelines": scheduler_effective_inflight,
-            "split_phase_slots": scheduler_split_slots,
-            "wing_backlog_target": scheduler_wing_backlog_target,
-            "split_worker_cap_per_config": scheduler_split_worker_cap,
-            "split_worker_cap_by_cpu": scheduler_split_worker_cap_by_cpu,
-            "split_worker_cap_by_memory": scheduler_split_worker_cap_by_memory,
-            "eval_tail_headroom_mode": (
-                "mixed"
-                if len(scheduler_eval_tail_modes) > 1
-                else (
-                    next(iter(scheduler_eval_tail_modes))
-                    if scheduler_eval_tail_modes
-                    else "auto"
-                )
-            ),
-            "eval_tail_headroom_configured": scheduler_eval_tail_headroom_configured,
-            "eval_tail_headroom_effective": scheduler_eval_tail_headroom_effective,
-            "max_active_during_eval": scheduler_max_active_during_eval,
-            "source_parallelism_effective": scheduler_source_parallelism_effective,
-            "cpu_budget_per_source": scheduler_cpu_budget_per_source,
-            "cpu_budget_total": scheduler_cpu_budget_total,
-            "max_eval_tail_pipelines": scheduler_eval_tail_headroom_effective,
-            "smart_tail_buffer_slots": scheduler_smart_tail_buffer,
-            "config_timeout_seconds": effective_config_timeout_seconds,
-            "failed_retry_limit": effective_retry_failed_configs,
-            "heavy_slot_capacity_seconds": scheduler_capacity_seconds,
-            "heavy_slot_busy_seconds": scheduler_busy_seconds,
-            "heavy_slot_utilization_pct": scheduler_utilization_pct,
-            "avg_wing_backlog": scheduler_avg_wing_backlog,
-            "max_wing_backlog": scheduler_max_wing_backlog,
-            "idle_gap_seconds": scheduler_idle_gap_seconds,
-            "max_active_pipelines_observed": scheduler_max_active_pipelines,
-            "max_eval_active_observed": scheduler_max_eval_active,
-        }
-
-    def _aggregate_source_rows(
-        *,
-        source_position: int,
-        job_rows: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        target = source_target_by_position[source_position]
-        ordered_rows = sorted(
-            job_rows,
-            key=lambda row: (
-                _report_count(row.get("source_shard_index")),
-                str(row.get("source_slug") or ""),
-            ),
-        )
-        if not ordered_rows:
-            fallback_plan = _AllMethodSourceJobPlan(
-                source_position=source_position,
-                source_group_key=slugify_name(target.source_file.stem),
-                source_display_name=target.source_file_name,
-                source_slug=slugify_name(target.source_file.stem),
-                source_file=target.source_file,
-                gold_spans_path=target.gold_spans_path,
-                variants=[],
-                shard_index=0,
-                shard_total=1,
-                estimated_seconds=1.0,
-                estimate_basis="missing_plan",
-            )
-            return _failed_source_row(
-                plan=fallback_plan,
-                target=target,
-                error="Source plan did not produce any jobs.",
-            )
-
-        source_group_key = str(ordered_rows[0].get("source_group_key") or "").strip()
-        if not source_group_key:
-            source_group_key = slugify_name(target.source_file.stem)
-        source_shard_total = max(1, len(ordered_rows))
-        status = "ok"
-        errors: list[str] = []
-        variant_count_planned = 0
-        variant_count_completed = 0
-        variant_count_successful = 0
-        evaluation_signatures_unique = 0
-        evaluation_runs_executed = 0
-        evaluation_results_reused_in_run = 0
-        evaluation_results_reused_cross_run = 0
-        prediction_signatures_unique = 0
-        prediction_runs_executed = 0
-        prediction_results_reused_in_run = 0
-        prediction_results_reused_cross_run = 0
-        split_convert_input_groups = 0
-        split_convert_reuse_candidates = 0
-        split_convert_reuse_safe_candidates = 0
-        split_convert_reuse_blocked_by_prediction_variance = 0
-        source_estimated_seconds = 0.0
-        estimate_basis_tokens: set[str] = set()
-        best_winner_metrics: dict[str, float] = {}
-        best_winner_f1: float | None = None
-        source_wall_total = 0.0
-        config_total_seconds = 0.0
-        source_wall_seen = False
-        config_seconds_seen = False
-        slowest_config_dir: str | None = None
-        slowest_config_seconds: float | None = None
-        source_shards_payload: list[dict[str, Any]] = []
-        report_paths: list[str] = []
-        report_json_paths: list[str] = []
-
-        for row in ordered_rows:
-            row_status = str(row.get("status", "")).strip().lower()
-            if row_status != "ok":
-                status = "failed"
-                error_text = str(row.get("error") or "").strip()
-                if error_text:
-                    errors.append(error_text)
-            variant_count_planned += _report_count(row.get("variant_count_planned"))
-            variant_count_completed += _report_count(row.get("variant_count_completed"))
-            variant_count_successful += _report_count(row.get("variant_count_successful"))
-            evaluation_signatures_unique += _report_count(
-                row.get("evaluation_signatures_unique")
-            )
-            evaluation_runs_executed += _report_count(
-                row.get("evaluation_runs_executed")
-            )
-            evaluation_results_reused_in_run += _report_count(
-                row.get("evaluation_results_reused_in_run")
-            )
-            evaluation_results_reused_cross_run += _report_count(
-                row.get("evaluation_results_reused_cross_run")
-            )
-            prediction_signatures_unique += _report_count(
-                row.get("prediction_signatures_unique")
-            )
-            prediction_runs_executed += _report_count(
-                row.get("prediction_runs_executed")
-            )
-            prediction_results_reused_in_run += _report_count(
-                row.get("prediction_results_reused_in_run")
-            )
-            prediction_results_reused_cross_run += _report_count(
-                row.get("prediction_results_reused_cross_run")
-            )
-            split_convert_input_groups += _report_count(
-                row.get("split_convert_input_groups")
-            )
-            split_convert_reuse_candidates += _report_count(
-                row.get("split_convert_reuse_candidates")
-            )
-            split_convert_reuse_safe_candidates += _report_count(
-                row.get("split_convert_reuse_safe_candidates")
-            )
-            split_convert_reuse_blocked_by_prediction_variance += _report_count(
-                row.get("split_convert_reuse_blocked_by_prediction_variance")
-            )
-            source_estimated_seconds += _report_metric(row.get("source_estimated_seconds"))
-            estimate_basis = str(row.get("source_estimate_basis") or "").strip()
-            if estimate_basis:
-                estimate_basis_tokens.add(estimate_basis)
-            report_path = str(row.get("report_path") or "").strip()
-            if report_path:
-                report_paths.append(report_path)
-            report_json_path = str(row.get("report_json_path") or "").strip()
-            if report_json_path:
-                report_json_paths.append(report_json_path)
-
-            winner_metrics = row.get("winner_metrics")
-            winner_f1 = _report_metric(
-                winner_metrics.get("f1") if isinstance(winner_metrics, dict) else None
-            )
-            if best_winner_f1 is None or winner_f1 > best_winner_f1:
-                best_winner_f1 = winner_f1
-                best_winner_metrics = {
-                    "precision": _report_metric(
-                        winner_metrics.get("precision")
-                        if isinstance(winner_metrics, dict)
-                        else None
-                    ),
-                    "recall": _report_metric(
-                        winner_metrics.get("recall")
-                        if isinstance(winner_metrics, dict)
-                        else None
-                    ),
-                    "f1": winner_f1,
-                }
-
-            timing_summary = row.get("timing_summary")
-            if isinstance(timing_summary, dict):
-                source_seconds = _report_optional_metric(
-                    timing_summary.get("source_wall_seconds")
-                )
-                if source_seconds is not None:
-                    source_wall_total += source_seconds
-                    source_wall_seen = True
-                config_seconds = _report_optional_metric(
-                    timing_summary.get("config_total_seconds")
-                )
-                if config_seconds is not None:
-                    config_total_seconds += config_seconds
-                    config_seconds_seen = True
-                candidate_slowest_seconds = _report_optional_metric(
-                    timing_summary.get("slowest_config_seconds")
-                )
-                candidate_slowest_dir = str(
-                    timing_summary.get("slowest_config_dir") or ""
-                ).strip()
-                if (
-                    candidate_slowest_seconds is not None
-                    and candidate_slowest_dir
-                    and (
-                        slowest_config_seconds is None
-                        or candidate_slowest_seconds > slowest_config_seconds
-                    )
-                ):
-                    slowest_config_seconds = candidate_slowest_seconds
-                    slowest_config_dir = candidate_slowest_dir
-                    if _report_count(row.get("source_shard_total")) > 1:
-                        slowest_config_dir = (
-                            f"shard_{_report_count(row.get('source_shard_index')):02d}/"
-                            f"{candidate_slowest_dir}"
-                        )
-
-            source_shards_payload.append(
-                {
-                    "status": row_status,
-                    "source_slug": row.get("source_slug", ""),
-                    "source_shard_index": _report_count(row.get("source_shard_index")),
-                    "source_shard_total": _report_count(row.get("source_shard_total")),
-                    "source_estimated_seconds": _report_metric(
-                        row.get("source_estimated_seconds")
-                    ),
-                    "source_estimate_basis": row.get("source_estimate_basis", ""),
-                    "variant_count_planned": _report_count(row.get("variant_count_planned")),
-                    "variant_count_completed": _report_count(
-                        row.get("variant_count_completed")
-                    ),
-                    "variant_count_successful": _report_count(
-                        row.get("variant_count_successful")
-                    ),
-                    "evaluation_signatures_unique": _report_count(
-                        row.get("evaluation_signatures_unique")
-                    ),
-                    "evaluation_runs_executed": _report_count(
-                        row.get("evaluation_runs_executed")
-                    ),
-                    "evaluation_results_reused_in_run": _report_count(
-                        row.get("evaluation_results_reused_in_run")
-                    ),
-                    "evaluation_results_reused_cross_run": _report_count(
-                        row.get("evaluation_results_reused_cross_run")
-                    ),
-                    "prediction_signatures_unique": _report_count(
-                        row.get("prediction_signatures_unique")
-                    ),
-                    "prediction_runs_executed": _report_count(
-                        row.get("prediction_runs_executed")
-                    ),
-                    "prediction_results_reused_in_run": _report_count(
-                        row.get("prediction_results_reused_in_run")
-                    ),
-                    "prediction_results_reused_cross_run": _report_count(
-                        row.get("prediction_results_reused_cross_run")
-                    ),
-                    "split_convert_input_groups": _report_count(
-                        row.get("split_convert_input_groups")
-                    ),
-                    "split_convert_reuse_candidates": _report_count(
-                        row.get("split_convert_reuse_candidates")
-                    ),
-                    "split_convert_reuse_safe_candidates": _report_count(
-                        row.get("split_convert_reuse_safe_candidates")
-                    ),
-                    "split_convert_reuse_blocked_by_prediction_variance": _report_count(
-                        row.get("split_convert_reuse_blocked_by_prediction_variance")
-                    ),
-                    "report_path": report_path,
-                    "report_json_path": report_json_path,
-                    "error": str(row.get("error") or ""),
-                    "timing_summary": (
-                        dict(timing_summary)
-                        if isinstance(timing_summary, dict)
-                        else {}
-                    ),
-                }
-            )
-
-        aggregate_timing_summary: dict[str, Any] = {}
-        if source_wall_seen:
-            aggregate_timing_summary["source_wall_seconds"] = source_wall_total
-        if config_seconds_seen:
-            aggregate_timing_summary["config_total_seconds"] = config_total_seconds
-        if slowest_config_dir and slowest_config_seconds is not None:
-            aggregate_timing_summary["slowest_config_dir"] = slowest_config_dir
-            aggregate_timing_summary["slowest_config_seconds"] = slowest_config_seconds
-
-        aggregate_scheduler = _aggregate_source_scheduler(ordered_rows)
-        error_text = " | ".join(error for error in errors if error)
-        if status != "ok" and not error_text:
-            error_text = "One or more source shards failed."
-
-        return {
-            "status": status,
-            "source_position": source_position,
-            "source_group_key": source_group_key,
-            "source_shard_index": 1,
-            "source_shard_total": source_shard_total,
-            "source_estimated_seconds": source_estimated_seconds,
-            "source_estimate_basis": (
-                "+".join(sorted(estimate_basis_tokens))
-                if estimate_basis_tokens
-                else "unknown"
-            ),
-            "source_file": str(target.source_file),
-            "source_file_name": target.source_file_name,
-            "gold_spans_path": str(target.gold_spans_path),
-            "gold_display": target.gold_display,
-            "source_slug": source_group_key,
-            "report_path": report_paths[0] if report_paths else "",
-            "report_json_path": report_json_paths[0] if report_json_paths else "",
-            "report_paths": report_paths,
-            "report_json_paths": report_json_paths,
-            "variant_count_planned": variant_count_planned,
-            "variant_count_completed": variant_count_completed,
-            "variant_count_successful": variant_count_successful,
-            "evaluation_signatures_unique": evaluation_signatures_unique,
-            "evaluation_runs_executed": evaluation_runs_executed,
-            "evaluation_results_reused_in_run": evaluation_results_reused_in_run,
-            "evaluation_results_reused_cross_run": evaluation_results_reused_cross_run,
-            "prediction_signatures_unique": prediction_signatures_unique,
-            "prediction_runs_executed": prediction_runs_executed,
-            "prediction_results_reused_in_run": prediction_results_reused_in_run,
-            "prediction_results_reused_cross_run": prediction_results_reused_cross_run,
-            "split_convert_input_groups": split_convert_input_groups,
-            "split_convert_reuse_candidates": split_convert_reuse_candidates,
-            "split_convert_reuse_safe_candidates": split_convert_reuse_safe_candidates,
-            "split_convert_reuse_blocked_by_prediction_variance": (
-                split_convert_reuse_blocked_by_prediction_variance
-            ),
-            "winner_metrics": best_winner_metrics,
-            "timing_summary": aggregate_timing_summary,
-            "scheduler": aggregate_scheduler,
-            "source_shards": source_shards_payload,
-            "error": error_text,
-        }
-
-    source_rows = []
-    for source_position in range(total_targets):
-        source_rows.append(
-            _aggregate_source_rows(
-                source_position=source_position,
-                job_rows=grouped_job_rows.get(source_position, []),
-            )
-        )
-
-    successful_source_count = sum(
-        1 for row in source_rows if str(row.get("status", "")).lower() == "ok"
-    )
-    total_completed_config_runs = sum(
-        _report_count(row.get("variant_count_completed")) for row in source_rows
-    )
-    total_successful_config_runs = sum(
-        _report_count(row.get("variant_count_successful")) for row in source_rows
-    )
-    total_failed_config_runs = max(
-        0, total_completed_config_runs - total_successful_config_runs
-    )
-    total_evaluation_signatures_unique = sum(
-        _report_count(row.get("evaluation_signatures_unique")) for row in source_rows
-    )
-    total_evaluation_runs_executed = sum(
-        _report_count(row.get("evaluation_runs_executed")) for row in source_rows
-    )
-    total_evaluation_results_reused_in_run = sum(
-        _report_count(row.get("evaluation_results_reused_in_run"))
-        for row in source_rows
-    )
-    total_evaluation_results_reused_cross_run = sum(
-        _report_count(row.get("evaluation_results_reused_cross_run"))
-        for row in source_rows
-    )
-    total_prediction_signatures_unique = sum(
-        _report_count(row.get("prediction_signatures_unique")) for row in source_rows
-    )
-    total_prediction_runs_executed = sum(
-        _report_count(row.get("prediction_runs_executed")) for row in source_rows
-    )
-    total_prediction_results_reused_in_run = sum(
-        _report_count(row.get("prediction_results_reused_in_run"))
-        for row in source_rows
-    )
-    total_prediction_results_reused_cross_run = sum(
-        _report_count(row.get("prediction_results_reused_cross_run"))
-        for row in source_rows
-    )
-    total_split_convert_input_groups = sum(
-        _report_count(row.get("split_convert_input_groups")) for row in source_rows
-    )
-    total_split_convert_reuse_candidates = sum(
-        _report_count(row.get("split_convert_reuse_candidates")) for row in source_rows
-    )
-    total_split_convert_reuse_safe_candidates = sum(
-        _report_count(row.get("split_convert_reuse_safe_candidates"))
-        for row in source_rows
-    )
-    total_split_convert_reuse_blocked = sum(
-        _report_count(row.get("split_convert_reuse_blocked_by_prediction_variance"))
-        for row in source_rows
-    )
-    run_wall_seconds = max(0.0, time.monotonic() - run_started)
-
-    source_timing_values: list[tuple[dict[str, Any], float]] = []
-    config_total_seconds = 0.0
-    for row in source_rows:
-        if str(row.get("status", "")).lower() != "ok":
-            continue
-        timing_summary = row.get("timing_summary")
-        if not isinstance(timing_summary, dict):
-            continue
-        source_seconds = _report_optional_metric(
-            timing_summary.get("source_wall_seconds")
-        )
-        if source_seconds is not None:
-            source_timing_values.append((row, source_seconds))
-        config_seconds = _report_optional_metric(
-            timing_summary.get("config_total_seconds")
-        )
-        if config_seconds is not None:
-            config_total_seconds += config_seconds
-
-    source_total_seconds = sum(seconds for _row, seconds in source_timing_values)
-    source_average_seconds = (
-        source_total_seconds / len(source_timing_values) if source_timing_values else None
-    )
-    config_average_seconds = (
-        config_total_seconds / total_successful_config_runs
-        if total_successful_config_runs > 0
-        else None
-    )
-    slowest_source_row = (
-        max(source_timing_values, key=lambda item: item[1])[0]
-        if source_timing_values
-        else None
-    )
-    slowest_source_seconds = (
-        max(seconds for _row, seconds in source_timing_values)
-        if source_timing_values
-        else None
-    )
-    slowest_config_name: str | None = None
-    slowest_config_seconds: float | None = None
-    for row in source_rows:
-        timing_summary = row.get("timing_summary")
-        if not isinstance(timing_summary, dict):
-            continue
-        candidate_seconds = _report_optional_metric(
-            timing_summary.get("slowest_config_seconds")
-        )
-        if candidate_seconds is None:
-            continue
-        candidate_dir = str(timing_summary.get("slowest_config_dir") or "").strip()
-        if not candidate_dir:
-            continue
-        candidate_name = f"{row.get('source_slug', '')}/{candidate_dir}".strip("/")
-        if slowest_config_seconds is None or candidate_seconds > slowest_config_seconds:
-            slowest_config_seconds = candidate_seconds
-            slowest_config_name = candidate_name
-
-    scheduler_capacity_seconds = 0.0
-    scheduler_busy_seconds = 0.0
-    scheduler_idle_gap_seconds = 0.0
-    scheduler_wing_area_seconds = 0.0
-    scheduler_wing_seconds_weight = 0.0
-    scheduler_max_wing_backlog = 0
-    scheduler_max_active_pipelines = 0
-    scheduler_max_eval_active = 0
-    scheduler_wing_backlog_target = 0
-    scheduler_split_slots = 0
-    scheduler_split_worker_cap = 0
-    scheduler_split_worker_cap_by_cpu = 0
-    scheduler_split_worker_cap_by_memory = 0
-    scheduler_smart_tail_buffer = 0
-    scheduler_eval_tail_headroom_configured = 0
-    scheduler_eval_tail_headroom_effective = 0
-    scheduler_max_active_during_eval = 0
-    scheduler_source_parallelism_effective = 0
-    scheduler_cpu_budget_per_source = 0
-    scheduler_cpu_budget_total = 0
-    scheduler_effective_inflight = 0
-    scheduler_sources = 0
-    scheduler_modes: set[str] = set()
-    scheduler_eval_tail_modes: set[str] = set()
-    for row in source_rows:
-        if str(row.get("status", "")).lower() != "ok":
-            continue
-        scheduler = row.get("scheduler")
-        if not isinstance(scheduler, dict):
-            continue
-        scheduler_sources += 1
-        scheduler_modes.add(str(scheduler.get("mode") or "fixed"))
-        scheduler_split_slots = max(
-            scheduler_split_slots,
-            _report_count(scheduler.get("split_phase_slots")),
-        )
-        scheduler_wing_backlog_target = max(
-            scheduler_wing_backlog_target,
-            _report_count(scheduler.get("wing_backlog_target")),
-        )
-        scheduler_split_worker_cap = max(
-            scheduler_split_worker_cap,
-            _report_count(scheduler.get("split_worker_cap_per_config")),
-        )
-        scheduler_split_worker_cap_by_cpu = max(
-            scheduler_split_worker_cap_by_cpu,
-            _report_count(scheduler.get("split_worker_cap_by_cpu")),
-        )
-        scheduler_split_worker_cap_by_memory = max(
-            scheduler_split_worker_cap_by_memory,
-            _report_count(scheduler.get("split_worker_cap_by_memory")),
-        )
-        scheduler_smart_tail_buffer = max(
-            scheduler_smart_tail_buffer,
-            _report_count(scheduler.get("smart_tail_buffer_slots")),
-        )
-        scheduler_eval_tail_modes.add(
-            str(scheduler.get("eval_tail_headroom_mode") or "auto")
-        )
-        scheduler_eval_tail_headroom_configured = max(
-            scheduler_eval_tail_headroom_configured,
-            _report_count(
-                scheduler.get(
-                    "eval_tail_headroom_configured",
-                    scheduler.get("max_eval_tail_pipelines"),
-                )
-            ),
-        )
-        scheduler_eval_tail_headroom_effective = max(
-            scheduler_eval_tail_headroom_effective,
-            _report_count(
-                scheduler.get(
-                    "eval_tail_headroom_effective",
-                    scheduler.get("max_eval_tail_pipelines"),
-                )
-            ),
-        )
-        scheduler_max_active_during_eval = max(
-            scheduler_max_active_during_eval,
-            _report_count(
-                scheduler.get(
-                    "max_active_during_eval",
-                    scheduler.get("effective_inflight_pipelines"),
-                )
-            ),
-        )
-        scheduler_source_parallelism_effective = max(
-            scheduler_source_parallelism_effective,
-            _report_count(scheduler.get("source_parallelism_effective")),
-        )
-        scheduler_cpu_budget_per_source = max(
-            scheduler_cpu_budget_per_source,
-            _report_count(scheduler.get("cpu_budget_per_source")),
-        )
-        scheduler_cpu_budget_total = max(
-            scheduler_cpu_budget_total,
-            _report_count(scheduler.get("cpu_budget_total")),
-        )
-        scheduler_effective_inflight = max(
-            scheduler_effective_inflight,
-            _report_count(scheduler.get("effective_inflight_pipelines")),
-        )
-        capacity_seconds = _report_metric(scheduler.get("heavy_slot_capacity_seconds"))
-        busy_seconds = _report_metric(scheduler.get("heavy_slot_busy_seconds"))
-        idle_gap_seconds = _report_metric(scheduler.get("idle_gap_seconds"))
-        avg_wing = _report_metric(scheduler.get("avg_wing_backlog"))
-        max_wing = _report_count(scheduler.get("max_wing_backlog"))
-        max_active = _report_count(scheduler.get("max_active_pipelines_observed"))
-        max_eval_active = _report_count(scheduler.get("max_eval_active_observed"))
-        scheduler_capacity_seconds += capacity_seconds
-        scheduler_busy_seconds += busy_seconds
-        scheduler_idle_gap_seconds += idle_gap_seconds
-        scheduler_wing_area_seconds += avg_wing * capacity_seconds
-        scheduler_wing_seconds_weight += capacity_seconds
-        scheduler_max_wing_backlog = max(scheduler_max_wing_backlog, max_wing)
-        scheduler_max_active_pipelines = max(
-            scheduler_max_active_pipelines,
-            max_active,
-        )
-        scheduler_max_eval_active = max(
-            scheduler_max_eval_active,
-            max_eval_active,
-        )
-    scheduler_utilization_pct = (
-        (scheduler_busy_seconds / scheduler_capacity_seconds) * 100.0
-        if scheduler_capacity_seconds > 0
-        else 0.0
-    )
-    scheduler_avg_wing_backlog = (
-        scheduler_wing_area_seconds / scheduler_wing_seconds_weight
-        if scheduler_wing_seconds_weight > 0
-        else 0.0
-    )
-    all_source_executor_resolution = [
-        row.get("executor_resolution")
-        for row in source_rows
-        if isinstance(row, dict) and isinstance(row.get("executor_resolution"), dict)
-    ]
-    executor_backends_seen_legacy: set[str] = set()
-    process_probe_values_legacy: set[bool] = set()
-    process_probe_errors_legacy: list[str] = []
-    for item in all_source_executor_resolution:
-        backends_raw = item.get("config_executor_backends_seen")
-        if isinstance(backends_raw, list):
-            for backend in backends_raw:
-                backend_text = str(backend or "").strip()
-                if backend_text:
-                    executor_backends_seen_legacy.add(backend_text)
-        probe_available_raw = item.get("process_worker_probe_available")
-        if isinstance(probe_available_raw, bool):
-            process_probe_values_legacy.add(probe_available_raw)
-        probe_error_text = str(item.get("process_worker_probe_error") or "").strip()
-        if probe_error_text:
-            process_probe_errors_legacy.append(probe_error_text)
-    process_probe_available_legacy: bool | None = None
-    if process_probe_values_legacy:
-        process_probe_available_legacy = all(process_probe_values_legacy)
-    process_probe_error_legacy = (
-        "; ".join(sorted(set(process_probe_errors_legacy)))
-        if process_probe_errors_legacy
-        else None
-    )
-
-    report_payload: dict[str, Any] = {
-        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
-        "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-        "matched_target_count": total_targets,
-        "unmatched_target_count": len(unmatched_targets),
-        "scheduler_scope": "legacy_per_source",
-        "source_schedule_strategy": resolved_source_scheduling,
-        "source_shard_threshold_seconds": resolved_source_shard_threshold_seconds,
-        "source_shard_max_parts": resolved_source_shard_max_parts,
-        "source_shard_min_variants": resolved_source_shard_min_variants,
-        "source_job_count_planned": total_source_jobs,
-        "source_schedule_plan": [
-            {
-                "dispatch_index": dispatch_index + 1,
-                "source_position": plan.source_position + 1,
-                "source_group_key": plan.source_group_key,
-                "source_file": str(plan.source_file),
-                "source_file_name": plan.source_display_name,
-                "source_slug": plan.source_slug,
-                "source_shard_index": plan.shard_index + 1,
-                "source_shard_total": max(1, _report_count(plan.shard_total)),
-                "variant_count": len(plan.variants),
-                "estimated_seconds": plan.estimated_seconds,
-                "estimate_basis": plan.estimate_basis,
-            }
-            for dispatch_index, plan in enumerate(source_job_plans)
-        ],
-        "source_parallelism_configured": source_parallelism_configured,
-        "source_parallelism_effective": source_parallelism_effective,
-        "total_config_runs_planned": total_planned_config_runs,
-        "total_config_runs_completed": total_completed_config_runs,
-        "total_config_runs_successful": total_successful_config_runs,
-        "global_queue_planned_configs": total_planned_config_runs,
-        "global_queue_completed_configs": total_completed_config_runs,
-        "global_queue_failed_configs": total_failed_config_runs,
-        "evaluation_signatures_unique": total_evaluation_signatures_unique,
-        "evaluation_runs_executed": total_evaluation_runs_executed,
-        "evaluation_results_reused_in_run": total_evaluation_results_reused_in_run,
-        "evaluation_results_reused_cross_run": total_evaluation_results_reused_cross_run,
-        "prediction_signatures_unique": total_prediction_signatures_unique,
-        "prediction_runs_executed": total_prediction_runs_executed,
-        "prediction_results_reused_in_run": total_prediction_results_reused_in_run,
-        "prediction_results_reused_cross_run": total_prediction_results_reused_cross_run,
-        "split_convert_input_groups": total_split_convert_input_groups,
-        "split_convert_reuse_candidates": total_split_convert_reuse_candidates,
-        "split_convert_reuse_safe_candidates": total_split_convert_reuse_safe_candidates,
-        "split_convert_reuse_blocked_by_prediction_variance": total_split_convert_reuse_blocked,
-        "prediction_reuse_key_schema_version": (
-            ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION
-        ),
-        "split_convert_input_key_schema_version": (
-            ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION
-        ),
-        "successful_source_count": successful_source_count,
-        "failed_source_count": total_targets - successful_source_count,
-        "config_timeout_seconds": effective_config_timeout_seconds,
-        "retry_failed_configs_requested": effective_retry_failed_configs,
-        "include_codex_farm_requested": include_codex_farm_requested,
-        "include_codex_farm_effective": include_codex_farm_effective,
-        "canonical_alignment_cache_root": str(resolved_canonical_cache_root),
-        "prediction_reuse_cache_root": str(resolved_prediction_reuse_cache_root),
-        "executor_resolution": {
-            "process_workers_required": bool(require_process_workers),
-            "process_worker_probe_available": process_probe_available_legacy,
-            "process_worker_probe_error": process_probe_error_legacy,
-            "config_executor_backends_seen": sorted(executor_backends_seen_legacy),
-        },
-        "timing_summary": {
-            "run_wall_seconds": run_wall_seconds,
-            "source_total_seconds": source_total_seconds,
-            "source_average_seconds": source_average_seconds,
-            "config_total_seconds": config_total_seconds,
-            "config_average_seconds": config_average_seconds,
-            "slowest_source": (
-                str(slowest_source_row.get("source_file", ""))
-                if isinstance(slowest_source_row, dict)
-                else None
-            ),
-            "slowest_source_seconds": slowest_source_seconds,
-            "slowest_config": slowest_config_name,
-            "slowest_config_seconds": slowest_config_seconds,
-        },
-        "scheduler_summary": {
-            "mode": (
-                "mixed"
-                if len(scheduler_modes) > 1
-                else (next(iter(scheduler_modes)) if scheduler_modes else "fixed")
-            ),
-            "source_count": scheduler_sources,
-            "effective_inflight_pipelines": scheduler_effective_inflight,
-            "split_phase_slots": scheduler_split_slots,
-            "wing_backlog_target": scheduler_wing_backlog_target,
-            "split_worker_cap_per_config": scheduler_split_worker_cap,
-            "split_worker_cap_by_cpu": scheduler_split_worker_cap_by_cpu,
-            "split_worker_cap_by_memory": scheduler_split_worker_cap_by_memory,
-            "eval_tail_headroom_mode": (
-                "mixed"
-                if len(scheduler_eval_tail_modes) > 1
-                else (
-                    next(iter(scheduler_eval_tail_modes))
-                    if scheduler_eval_tail_modes
-                    else "auto"
-                )
-            ),
-            "eval_tail_headroom_configured": scheduler_eval_tail_headroom_configured,
-            "eval_tail_headroom_effective": scheduler_eval_tail_headroom_effective,
-            "max_active_during_eval": scheduler_max_active_during_eval,
-            "source_parallelism_effective": scheduler_source_parallelism_effective,
-            "cpu_budget_per_source": scheduler_cpu_budget_per_source,
-            "cpu_budget_total": scheduler_cpu_budget_total,
-            "max_eval_tail_pipelines": scheduler_eval_tail_headroom_effective,
-            "smart_tail_buffer_slots": scheduler_smart_tail_buffer,
-            "config_timeout_seconds": effective_config_timeout_seconds,
-            "failed_retry_limit": effective_retry_failed_configs,
-            "heavy_slot_capacity_seconds": scheduler_capacity_seconds,
-            "heavy_slot_busy_seconds": scheduler_busy_seconds,
-            "heavy_slot_utilization_pct": scheduler_utilization_pct,
-            "avg_wing_backlog": scheduler_avg_wing_backlog,
-            "max_wing_backlog": scheduler_max_wing_backlog,
-            "idle_gap_seconds": scheduler_idle_gap_seconds,
-            "max_active_pipelines_observed": scheduler_max_active_pipelines,
-            "max_eval_active_observed": scheduler_max_eval_active,
-        },
-        "sources": source_rows,
-        "unmatched": [
-            {
-                "gold_spans_path": str(unmatched.gold_spans_path),
-                "gold_display": unmatched.gold_display,
-                "reason": unmatched.reason,
-                "source_hint": unmatched.source_hint,
-            }
-            for unmatched in unmatched_targets
-        ],
-    }
-
-    if not refresh_dashboard_after_source:
-        history_csv_path = history_csv_for_output(
-            processed_output_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
-        )
-        _refresh_dashboard_after_history_write(
-            csv_path=history_csv_path,
-            output_root=resolved_dashboard_output_root,
-            dashboard_out_dir=(
-                history_root_for_output(resolved_dashboard_output_root) / "dashboard"
-                if resolved_dashboard_output_root is not None
-                else None
-            ),
-            reason="all-method benchmark multi-source batch append",
-        )
-
-    report_json_path = root_output_dir / "all_method_benchmark_multi_source_report.json"
-    report_json_path.write_text(
-        json.dumps(report_payload, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    report_md_path = root_output_dir / "all_method_benchmark_multi_source_report.md"
-    report_md_path.write_text(
-        _render_all_method_multi_source_report_md(report_payload),
-        encoding="utf-8",
-    )
-
-    completion_color = (
-        typer.colors.GREEN
-        if successful_source_count == total_targets
-        and total_successful_config_runs == total_planned_config_runs
-        else typer.colors.YELLOW
-    )
-    _emit_status(
-        (
-            "All method benchmark complete: "
-            f"sources {successful_source_count}/{total_targets}, "
-            f"configs {total_successful_config_runs}/{total_planned_config_runs}."
-        ),
-        color=completion_color,
-    )
-    if progress_callback is None:
-        typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
-    return report_md_path
 
 
 def _run_all_method_benchmark(
@@ -23413,16 +21893,16 @@ def stage(
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     ),
     section_detector_backend: str = typer.Option(
-        "legacy",
+        "shared_v1",
         "--section-detector-backend",
         hidden=True,
-        help="Section detector backend: legacy or shared_v1.",
+        help="Section detector backend: shared_v1.",
     ),
     multi_recipe_splitter: str = typer.Option(
-        "legacy",
+        "rules_v1",
         "--multi-recipe-splitter",
         hidden=True,
-        help="Shared multi-recipe splitter backend: legacy, off, or rules_v1.",
+        help="Shared multi-recipe splitter backend: off or rules_v1.",
     ),
     multi_recipe_trace: bool = typer.Option(
         False,
@@ -23519,10 +21999,10 @@ def stage(
         help="Ingredient text-fix backend: none or ftfy.",
     ),
     ingredient_pre_normalize_mode: str = typer.Option(
-        "legacy",
+        "aggressive_v1",
         "--ingredient-pre-normalize-mode",
         hidden=True,
-        help="Ingredient pre-normalization mode: legacy or aggressive_v1.",
+        help="Ingredient pre-normalization mode: aggressive_v1.",
     ),
     ingredient_packaging_mode: str = typer.Option(
         "off",
@@ -23540,10 +22020,10 @@ def stage(
         ),
     ),
     ingredient_unit_canonicalizer: str = typer.Option(
-        "legacy",
+        "pint",
         "--ingredient-unit-canonicalizer",
         hidden=True,
-        help="Ingredient unit canonicalizer: legacy or pint.",
+        help="Ingredient unit canonicalizer: pint.",
     ),
     ingredient_missing_unit_policy: str = typer.Option(
         "null",
@@ -23588,10 +22068,10 @@ def stage(
         help="Priority 6 oven-like temperature classifier mode: keywords_v1 or off.",
     ),
     p6_yield_mode: str = typer.Option(
-        "legacy_v1",
+        "scored_v1",
         "--p6-yield-mode",
         hidden=True,
-        help="Priority 6 yield parser mode: legacy_v1 or scored_v1.",
+        help="Priority 6 yield parser mode: scored_v1.",
     ),
     p6_emit_metadata_debug: bool = typer.Option(
         False,
@@ -23648,8 +22128,7 @@ def stage(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-single-correction-v1. "
-            "Legacy saved values load as aliases."
+            "Values: off or codex-farm-single-correction-v1."
         ),
     ),
     llm_knowledge_pipeline: str = typer.Option(
@@ -23696,17 +22175,17 @@ def stage(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     ),
-    codex_farm_pipeline_pass4_knowledge: str = typer.Option(
+    codex_farm_pipeline_knowledge: str = typer.Option(
         "recipe.knowledge.compact.v1",
-        "--codex-farm-pipeline-pass4-knowledge",
+        "--codex-farm-pipeline-knowledge",
         hidden=True,
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
     ),
-    codex_farm_pipeline_pass5_tags: str = typer.Option(
+    codex_farm_pipeline_tags: str = typer.Option(
         "recipe.tags.v1",
-        "--codex-farm-pipeline-pass5-tags",
+        "--codex-farm-pipeline-tags",
         hidden=True,
-        help="Pass-5 codex-farm pipeline id (tag suggestions).",
+        help="Codex-farm pipeline id for tag suggestions.",
     ),
     codex_farm_context_blocks: int = typer.Option(
         30,
@@ -23838,11 +22317,11 @@ def stage(
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
-    codex_farm_pipeline_pass4_knowledge = _unwrap_typer_option_default(
-        codex_farm_pipeline_pass4_knowledge
+    codex_farm_pipeline_knowledge = _unwrap_typer_option_default(
+        codex_farm_pipeline_knowledge
     )
-    codex_farm_pipeline_pass5_tags = _unwrap_typer_option_default(
-        codex_farm_pipeline_pass5_tags
+    codex_farm_pipeline_tags = _unwrap_typer_option_default(
+        codex_farm_pipeline_tags
     )
     codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
     codex_farm_knowledge_context_blocks = _unwrap_typer_option_default(
@@ -23962,11 +22441,11 @@ def stage(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pipeline_pass4_knowledge = (
-        fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
+    selected_codex_farm_pipeline_knowledge = (
+        fixed_bucket1_behavior.codex_farm_pipeline_knowledge
     )
-    selected_codex_farm_pipeline_pass5_tags = (
-        fixed_bucket1_behavior.codex_farm_pipeline_pass5_tags
+    selected_codex_farm_pipeline_tags = (
+        fixed_bucket1_behavior.codex_farm_pipeline_tags
     )
     selected_tag_catalog_json = Path(tag_catalog_json).expanduser()
 
@@ -26625,8 +25104,7 @@ def labelstudio_import(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-single-correction-v1. "
-            "Legacy saved values load as aliases."
+            "Values: off or codex-farm-single-correction-v1."
         ),
     ),
     allow_codex: bool = typer.Option(
@@ -27648,13 +26126,13 @@ def labelstudio_benchmark(
     section_detector_backend: Annotated[str, typer.Option(
         "--section-detector-backend",
         hidden=True,
-        help="Section detector backend: legacy or shared_v1.",
-    )] = "legacy",
+        help="Section detector backend: shared_v1.",
+    )] = "shared_v1",
     multi_recipe_splitter: Annotated[str, typer.Option(
         "--multi-recipe-splitter",
         hidden=True,
-        help="Shared multi-recipe splitter backend: legacy, off, or rules_v1.",
-    )] = "legacy",
+        help="Shared multi-recipe splitter backend: off or rules_v1.",
+    )] = "rules_v1",
     multi_recipe_trace: Annotated[bool, typer.Option(
         "--multi-recipe-trace/--no-multi-recipe-trace",
         hidden=True,
@@ -27733,8 +26211,8 @@ def labelstudio_benchmark(
     ingredient_pre_normalize_mode: Annotated[str, typer.Option(
         "--ingredient-pre-normalize-mode",
         hidden=True,
-        help="Ingredient pre-normalization mode: legacy or aggressive_v1.",
-    )] = "legacy",
+        help="Ingredient pre-normalization mode: aggressive_v1.",
+    )] = "aggressive_v1",
     ingredient_packaging_mode: Annotated[str, typer.Option(
         "--ingredient-packaging-mode",
         hidden=True,
@@ -27751,8 +26229,8 @@ def labelstudio_benchmark(
     ingredient_unit_canonicalizer: Annotated[str, typer.Option(
         "--ingredient-unit-canonicalizer",
         hidden=True,
-        help="Ingredient unit canonicalizer: legacy or pint.",
-    )] = "legacy",
+        help="Ingredient unit canonicalizer: pint.",
+    )] = "pint",
     ingredient_missing_unit_policy: Annotated[str, typer.Option(
         "--ingredient-missing-unit-policy",
         hidden=True,
@@ -27792,8 +26270,8 @@ def labelstudio_benchmark(
     p6_yield_mode: Annotated[str, typer.Option(
         "--p6-yield-mode",
         hidden=True,
-        help="Priority 6 yield parser mode: legacy_v1 or scored_v1.",
-    )] = "legacy_v1",
+        help="Priority 6 yield parser mode: scored_v1.",
+    )] = "scored_v1",
     p6_emit_metadata_debug: Annotated[bool, typer.Option(
         "--p6-emit-metadata-debug/--no-p6-emit-metadata-debug",
         hidden=True,
@@ -27841,8 +26319,7 @@ def labelstudio_benchmark(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-single-correction-v1. "
-            "Legacy saved values load as aliases."
+            "Values: off or codex-farm-single-correction-v1."
         ),
     )] = "off",
     llm_knowledge_pipeline: Annotated[str, typer.Option(
@@ -27935,8 +26412,8 @@ def labelstudio_benchmark(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     )] = None,
-    codex_farm_pipeline_pass4_knowledge: Annotated[str, typer.Option(
-        "--codex-farm-pipeline-pass4-knowledge",
+    codex_farm_pipeline_knowledge: Annotated[str, typer.Option(
+        "--codex-farm-pipeline-knowledge",
         hidden=True,
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
     )] = "recipe.knowledge.compact.v1",
@@ -28160,8 +26637,8 @@ def labelstudio_benchmark(
         )
     except ValueError as exc:
         _fail(f"--codex-farm-thinking-effort invalid: {exc}")
-    selected_codex_farm_pipeline_pass4_knowledge = (
-        fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
+    selected_codex_farm_pipeline_knowledge = (
+        fixed_bucket1_behavior.codex_farm_pipeline_knowledge
     )
     selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
     if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
@@ -28349,7 +26826,7 @@ def labelstudio_benchmark(
             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
             codex_farm_root=codex_farm_root,
             codex_farm_workspace_root=codex_farm_workspace_root,
-            codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
+            codex_farm_pipeline_knowledge=selected_codex_farm_pipeline_knowledge,
             codex_farm_context_blocks=codex_farm_context_blocks,
             codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
             codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
@@ -28630,8 +27107,8 @@ def labelstudio_benchmark(
                                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                                 codex_farm_root=codex_farm_root,
                                 codex_farm_workspace_root=codex_farm_workspace_root,
-                                codex_farm_pipeline_pass4_knowledge=(
-                                    selected_codex_farm_pipeline_pass4_knowledge
+                                codex_farm_pipeline_knowledge=(
+                                    selected_codex_farm_pipeline_knowledge
                                 ),
                                 codex_farm_context_blocks=codex_farm_context_blocks,
                                 codex_farm_knowledge_context_blocks=(
@@ -28745,8 +27222,8 @@ def labelstudio_benchmark(
                             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                             codex_farm_root=codex_farm_root,
                             codex_farm_workspace_root=codex_farm_workspace_root,
-                            codex_farm_pipeline_pass4_knowledge=(
-                                selected_codex_farm_pipeline_pass4_knowledge
+                            codex_farm_pipeline_knowledge=(
+                                selected_codex_farm_pipeline_knowledge
                             ),
                             codex_farm_context_blocks=codex_farm_context_blocks,
                             codex_farm_knowledge_context_blocks=(
@@ -29286,13 +27763,6 @@ def labelstudio_benchmark(
             json.dumps(knowledge_budget_payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        pass4_merge_artifacts = _copy_line_role_pass4_merge_artifacts_for_benchmark(
-            pred_run=pred_run,
-            line_role_output_dir=line_role_output_dir,
-            joined_line_rows=joined_line_rows,
-            eval_output_dir=eval_output_dir,
-        )
-
         prompt_eval_alignment_path = line_role_output_dir / "prompt_eval_alignment.md"
         write_prompt_eval_alignment_doc(
             output_path=prompt_eval_alignment_path,
@@ -29335,7 +27805,6 @@ def labelstudio_benchmark(
                 eval_output_dir,
                 knowledge_budget_path,
             ),
-            **pass4_merge_artifacts,
             "prompt_eval_alignment_md": _path_for_manifest(
                 eval_output_dir,
                 prompt_eval_alignment_path,
@@ -29559,8 +28028,6 @@ def labelstudio_benchmark(
         "eval_report_json": "eval_report.json",
         "missed_gold_blocks_jsonl": "missed_gold_blocks.jsonl",
         "wrong_label_blocks_jsonl": "wrong_label_blocks.jsonl",
-        "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
-        "false_positive_preds_jsonl": "false_positive_preds.jsonl",
         "history_csv": str(history_csv_for_output(processed_output_dir)),
         "timing": benchmark_timing,
     }

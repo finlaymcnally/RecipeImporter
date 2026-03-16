@@ -278,7 +278,7 @@ def test_evaluate_canonical_text_includes_howto_section_totals(tmp_path: Path) -
     assert report["confusion"]["HOWTO_SECTION"]["HOWTO_SECTION"] == 1
 
 
-def test_evaluate_canonical_text_scores_pass4_knowledge_in_line_role_projection(
+def test_evaluate_canonical_text_scores_knowledge_stage_in_line_role_projection(
     tmp_path: Path,
 ) -> None:
     canonical_text = "Recipe Title\nUseful kitchen note\n1 cup stock"
@@ -324,7 +324,6 @@ def test_evaluate_canonical_text_scores_pass4_knowledge_in_line_role_projection(
             text="Recipe Title",
             within_recipe_span=False,
             label="RECIPE_TITLE",
-            confidence=0.99,
             decided_by="rule",
             reason_tags=["test"],
         ),
@@ -336,7 +335,6 @@ def test_evaluate_canonical_text_scores_pass4_knowledge_in_line_role_projection(
             text="Useful kitchen note",
             within_recipe_span=False,
             label="OTHER",
-            confidence=0.99,
             decided_by="rule",
             reason_tags=["test"],
         ),
@@ -348,7 +346,6 @@ def test_evaluate_canonical_text_scores_pass4_knowledge_in_line_role_projection(
             text="1 cup stock",
             within_recipe_span=True,
             label="INGREDIENT_LINE",
-            confidence=0.99,
             decided_by="rule",
             reason_tags=["test"],
         ),
@@ -539,8 +536,6 @@ def test_evaluate_stage_blocks_writes_reports_and_debug_artifacts(tmp_path: Path
     assert (out_dir / "wrong_label_blocks.jsonl").exists()
     assert (out_dir / "missed_gold_boundaries.jsonl").exists()
     assert (out_dir / "false_positive_boundaries.jsonl").exists()
-    assert (out_dir / "missed_gold_spans.jsonl").exists()
-    assert (out_dir / "false_positive_preds.jsonl").exists()
 
     missed_rows = [
         json.loads(line)
@@ -1413,6 +1408,29 @@ def _write_minimal_canonical_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         encoding="utf-8",
     )
     return gold_export_root, stage_predictions_path, extracted_archive_path
+
+
+def test_evaluate_canonical_text_omits_legacy_alias_artifacts(tmp_path: Path) -> None:
+    gold_export_root, stage_predictions_path, extracted_archive_path = _write_minimal_canonical_fixture(
+        tmp_path
+    )
+    out_dir = tmp_path / "eval"
+
+    result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=out_dir,
+    )
+
+    assert "missed_gold" not in result
+    assert "false_positive_preds" not in result
+    assert (out_dir / "missed_gold_lines.jsonl").exists()
+    assert (out_dir / "wrong_label_lines.jsonl").exists()
+    assert (out_dir / "missed_gold_blocks.jsonl").exists()
+    assert (out_dir / "wrong_label_blocks.jsonl").exists()
+    assert not (out_dir / "missed_gold_spans.jsonl").exists()
+    assert not (out_dir / "false_positive_preds.jsonl").exists()
 
 
 def test_evaluate_canonical_text_auto_matches_legacy_metrics(

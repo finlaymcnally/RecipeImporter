@@ -103,7 +103,7 @@ def test_run_settings_rejects_legacy_merged_recipe_codex_farm_pipeline() -> None
 def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> None:
     settings = RunSettings()
 
-    assert settings.codex_farm_pipeline_pass4_knowledge == "recipe.knowledge.compact.v1"
+    assert settings.codex_farm_pipeline_knowledge == "recipe.knowledge.compact.v1"
 
 
 def test_build_run_settings_defaults_match_safe_run_settings_defaults() -> None:
@@ -222,7 +222,7 @@ def test_run_settings_ui_specs_include_internal_bucket2_fields_when_requested(
     assert set(BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES).issubset(by_name)
 
     multi_recipe_spec = next(spec for spec in specs if spec.name == "multi_recipe_splitter")
-    assert multi_recipe_spec.choices == ("legacy", "off", "rules_v1")
+    assert multi_recipe_spec.choices == ("off", "rules_v1")
     p6_time_backend_spec = next(spec for spec in specs if spec.name == "p6_time_backend")
     assert p6_time_backend_spec.choices == (
         "regex_v1",
@@ -238,7 +238,7 @@ def test_run_settings_ui_specs_include_internal_bucket2_fields_when_requested(
         "selective_sum_v1",
     )
     p6_yield_mode_spec = next(spec for spec in specs if spec.name == "p6_yield_mode")
-    assert p6_yield_mode_spec.choices == ("legacy_v1", "scored_v1")
+    assert p6_yield_mode_spec.choices == ("scored_v1",)
 
 
 def test_bucket2_public_projection_and_summary_omit_internal_fields() -> None:

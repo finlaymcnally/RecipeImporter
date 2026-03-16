@@ -109,7 +109,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         p6_temperature_backend="hybrid_regex_quantulum3_v1",
         p6_temperature_unit_backend="builtin_v1",
         p6_ovenlike_mode="keywords_v1",
-        p6_yield_mode="legacy_v1",
+        p6_yield_mode="scored_v1",
         p6_emit_metadata_debug=False,
         pdf_ocr_policy="off",
         pdf_column_gap_ratio=0.09,
@@ -119,7 +119,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         codex_farm_recipe_mode="benchmark",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
-        codex_farm_pipeline_pass4_knowledge="recipe.knowledge.custom.v9",
+        codex_farm_pipeline_knowledge="recipe.knowledge.custom.v9",
         codex_farm_knowledge_context_blocks=21,
     )
 
@@ -159,7 +159,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_temperature_backend"] == "hybrid_regex_quantulum3_v1"
     assert kwargs["p6_temperature_unit_backend"] == "builtin_v1"
     assert kwargs["p6_ovenlike_mode"] == "keywords_v1"
-    assert kwargs["p6_yield_mode"] == "legacy_v1"
+    assert kwargs["p6_yield_mode"] == "scored_v1"
     assert (
         kwargs["p6_emit_metadata_debug"]
         is fixed_bucket1_behavior.p6_emit_metadata_debug
@@ -173,8 +173,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert kwargs["codex_farm_reasoning_effort"] == "low"
     assert (
-        kwargs["codex_farm_pipeline_pass4_knowledge"]
-        == fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
+        kwargs["codex_farm_pipeline_knowledge"]
+        == fixed_bucket1_behavior.codex_farm_pipeline_knowledge
     )
     assert kwargs["codex_farm_knowledge_context_blocks"] == 21
 
@@ -183,7 +183,6 @@ def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -
     settings = RunSettings(
         llm_tags_pipeline="codex-farm-tags-v1",
         tag_catalog_json="/tmp/tags.json",
-        codex_farm_pipeline_pass5_tags="recipe.tags.custom.v9",
     )
 
     kwargs = build_benchmark_call_kwargs_from_run_settings(
@@ -201,6 +200,7 @@ def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -
     extra_kwargs = sorted(set(kwargs) - signature_params)
 
     assert extra_kwargs == []
+    assert "codex_farm_pipeline_tags" not in kwargs
 
 
 def test_prediction_identity_excludes_runtime_only_settings() -> None:
@@ -216,7 +216,7 @@ def test_prediction_identity_excludes_runtime_only_settings() -> None:
         codex_farm_root="/tmp/codex-a",
         codex_farm_workspace_root="/tmp/work-a",
         line_role_pipeline="deterministic-v1",
-        section_detector_backend="legacy",
+        section_detector_backend="shared_v1",
     )
     runtime_only_changed = RunSettings(
         workers=8,
@@ -229,7 +229,7 @@ def test_prediction_identity_excludes_runtime_only_settings() -> None:
         codex_farm_root="/tmp/codex-b",
         codex_farm_workspace_root="/tmp/work-b",
         line_role_pipeline="deterministic-v1",
-        section_detector_backend="legacy",
+        section_detector_backend="shared_v1",
     )
 
     assert build_all_method_prediction_identity_payload(
@@ -240,11 +240,11 @@ def test_prediction_identity_excludes_runtime_only_settings() -> None:
 def test_prediction_identity_changes_when_prediction_shape_changes() -> None:
     baseline = RunSettings(
         line_role_pipeline="off",
-        section_detector_backend="legacy",
+        section_detector_backend="shared_v1",
     )
     changed = RunSettings(
         line_role_pipeline="deterministic-v1",
-        section_detector_backend="legacy",
+        section_detector_backend="shared_v1",
     )
 
     assert build_all_method_prediction_identity_payload(

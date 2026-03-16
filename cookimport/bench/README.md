@@ -20,7 +20,7 @@ Current scoring contract:
 - Multi-book single-profile `upload_bundle_v1` group bundles are now curated first-pass packets: target is ~30MB, raw prompt logs/full-context trace dumps stay local for follow-up, and `upload_bundle_index.json` records the actual final bundle bytes plus any trimmed paths.
 - `upload_bundle_v1` generation now has explicit flexibility seams: `upload_bundle_v1_model.py` defines the normalized source model, `upload_bundle_v1_existing_output.py` adapts current benchmark roots into that model, and `upload_bundle_v1_render.py` hosts topology-tolerant rendering helpers used by the script wrapper.
 - Recipe-stage topology now flows through that same model seam: `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` render one semantic recipe-stage contract from `UploadBundleSourceModel.topology` (`recipe_topology_key` plus ordered `recipe_stages`) instead of `pass2_stage` / `pass3_stage` compatibility fields.
-- Pass4 follow-up selectors accept either the historical book slug or the bundle's exact `source_key`; sparse single-profile bundles do not need a codex-enabled run just to resolve `--include-pass4-source-key`.
+- Knowledge follow-up selectors accept either the historical book slug or the bundle's exact `source_key`; sparse single-profile bundles do not need a codex-enabled run just to resolve `--include-knowledge-source-key`.
 - Deterministic speed regression tooling lives in:
   - `speed_suite.py` (`bench speed-discover` target discovery from pulled gold exports)
   - `speed_runner.py` (`bench speed-run` repeated stage/benchmark timing samples, including optional `benchmark_all_method_multi_source`)

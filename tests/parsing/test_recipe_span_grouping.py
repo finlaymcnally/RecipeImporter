@@ -16,7 +16,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             text="Pancakes",
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -26,7 +25,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             text="1 cup flour",
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -36,7 +34,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             text="Whisk batter",
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -46,7 +43,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             text="Waffles",
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -56,7 +52,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             text="Bake until crisp",
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
     ]
@@ -67,7 +62,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             supporting_atomic_indices=[0],
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -76,7 +70,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             supporting_atomic_indices=[1],
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -85,7 +78,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             supporting_atomic_indices=[2],
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -94,7 +86,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             supporting_atomic_indices=[],
             deterministic_label="KNOWLEDGE",
             final_label="KNOWLEDGE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -103,7 +94,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             supporting_atomic_indices=[3],
             deterministic_label="RECIPE_TITLE",
             final_label="RECIPE_TITLE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -112,7 +102,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
             supporting_atomic_indices=[4],
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
     ]
@@ -123,7 +112,6 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
     assert len(spans) == 2
     assert spans[0].block_indices == [0, 1, 2]
     assert spans[0].title_block_index == 0
-    assert spans[0].trust_score == 0.9
     assert spans[0].escalation_reasons == []
     assert spans[1].block_indices == [4, 5]
     assert spans[1].title_block_index == 4
@@ -138,7 +126,6 @@ def test_group_recipe_spans_from_labels_warns_when_recipeish_blocks_have_no_titl
             text="1 cup flour",
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeLabeledLine(
@@ -148,7 +135,6 @@ def test_group_recipe_spans_from_labels_warns_when_recipeish_blocks_have_no_titl
             text="Whisk batter",
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
     ]
@@ -159,7 +145,6 @@ def test_group_recipe_spans_from_labels_warns_when_recipeish_blocks_have_no_titl
             supporting_atomic_indices=[0],
             deterministic_label="INGREDIENT_LINE",
             final_label="INGREDIENT_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
         AuthoritativeBlockLabel(
@@ -168,7 +153,6 @@ def test_group_recipe_spans_from_labels_warns_when_recipeish_blocks_have_no_titl
             supporting_atomic_indices=[1],
             deterministic_label="INSTRUCTION_LINE",
             final_label="INSTRUCTION_LINE",
-            confidence=0.9,
             decided_by="rule",
         ),
     ]

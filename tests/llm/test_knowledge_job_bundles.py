@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 
 from cookimport.llm.codex_farm_knowledge_jobs import (
-    COMPACT_PASS4_JOB_FORMAT,
-    LEGACY_PASS4_JOB_FORMAT,
-    build_pass4_knowledge_jobs,
+    COMPACT_KNOWLEDGE_JOB_FORMAT,
+    LEGACY_KNOWLEDGE_JOB_FORMAT,
+    build_knowledge_jobs,
 )
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
@@ -19,7 +19,7 @@ def _load_all_jobs(in_dir: Path) -> list[dict]:
     return payloads
 
 
-def test_build_pass4_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(tmp_path: Path) -> None:
+def test_build_knowledge_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(tmp_path: Path) -> None:
     full_blocks = [
         {"index": 0, "text": "Preface"},
         {"index": 1, "text": "A beautiful gorgeous stunning book."},
@@ -60,7 +60,7 @@ def test_build_pass4_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(t
     ]
     in_dir = tmp_path / "in"
 
-    build_pass4_knowledge_jobs(
+    build_knowledge_jobs(
         full_blocks=full_blocks,
         knowledge_spans=knowledge_spans,
         recipe_spans=[
@@ -79,7 +79,7 @@ def test_build_pass4_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(t
     )
 
     job_paths = sorted(in_dir.glob("*.json"))
-    assert job_paths, "Expected pass4 knowledge job bundles to be written."
+    assert job_paths, "Expected knowledge job bundles to be written."
 
     first_bytes = {path.name: path.read_bytes() for path in job_paths}
     payloads = _load_all_jobs(in_dir)
@@ -122,7 +122,7 @@ def test_build_pass4_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(t
     assert 2 in context_recipe_indices or 3 in context_recipe_indices
 
     # Idempotence: rerun yields identical JSON bytes.
-    build_pass4_knowledge_jobs(
+    build_knowledge_jobs(
         full_blocks=full_blocks,
         knowledge_spans=knowledge_spans,
         recipe_spans=[
@@ -143,7 +143,7 @@ def test_build_pass4_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(t
     assert first_bytes == second_bytes
 
 
-def test_build_pass4_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> None:
+def test_build_knowledge_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> None:
     full_blocks = [
         {"index": 0, "text": "Preface"},
         {"index": 1, "text": "Narrative intro."},
@@ -179,7 +179,7 @@ def test_build_pass4_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> 
     legacy_dir = tmp_path / "legacy"
     compact_dir = tmp_path / "compact"
 
-    build_pass4_knowledge_jobs(
+    build_knowledge_jobs(
         full_blocks=full_blocks,
         knowledge_spans=knowledge_spans,
         recipe_spans=[
@@ -195,9 +195,9 @@ def test_build_pass4_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> 
         source_hash="hash123",
         out_dir=legacy_dir,
         context_blocks=2,
-        job_format=LEGACY_PASS4_JOB_FORMAT,
+        job_format=LEGACY_KNOWLEDGE_JOB_FORMAT,
     )
-    build_pass4_knowledge_jobs(
+    build_knowledge_jobs(
         full_blocks=full_blocks,
         knowledge_spans=knowledge_spans,
         recipe_spans=[
@@ -213,7 +213,7 @@ def test_build_pass4_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> 
         source_hash="hash123",
         out_dir=compact_dir,
         context_blocks=2,
-        job_format=COMPACT_PASS4_JOB_FORMAT,
+        job_format=COMPACT_KNOWLEDGE_JOB_FORMAT,
     )
 
     legacy_payloads = _load_all_jobs(legacy_dir)
