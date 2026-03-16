@@ -191,7 +191,6 @@ Optional stage lanes:
 - `<out>/<timestamp>/label_llm_correct/<workbook_slug>/...` for final corrected authoritative labels plus label diffs when line-role correction is enabled
 - `<out>/<timestamp>/group_recipe_spans/<workbook_slug>/...` for deterministic recipe-span grouping and normalized authoritative block-label outputs
 - `<out>/<timestamp>/knowledge/<workbook_slug>/...` and `<out>/<timestamp>/knowledge/knowledge_index.json` when knowledge-pass artifacts exist
-- `<out>/<timestamp>/tags/<workbook_slug>/...` and `<out>/<timestamp>/tags/tags_index.json` when tags-pass artifacts exist
 
 Important clarification:
 - report file is written at run root, not in a stage `reports/` subfolder.

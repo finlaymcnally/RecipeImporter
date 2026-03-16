@@ -119,7 +119,7 @@ Persistent `Settings` now covers the saved operator defaults used by interactive
 - webschema extractor/policy/min-threshold defaults
 - saved recipe/knowledge/tags pipeline defaults
 - saved Codex command/path/model/reasoning/context defaults
-- tag-catalog path, output root, split sizing, warm-models, and Label Studio credentials
+- output root, split sizing, warm-models, and Label Studio credentials
 
 Important split:
 - the top-tier per-run chooser (`choose_run_settings(...)`) is still the refactor-aware place where each import/benchmark run picks CodexFarm vs vanilla and benchmark-specific line-role / knowledge toggles
@@ -158,7 +158,7 @@ Resolved profile families:
     (shared section detection, always-on heuristic fallback segmentation,
     compact codex pass ids, pattern hints off, pass2-ok skip on).
 - `Vanilla automatic top-tier`:
-  - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`),
+  - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`),
   - deterministic line-role + atomic splitter enabled (`line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`),
   - current top-tier parsing baseline pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`,
   - deterministic parsing knobs pinned to `shared_v1 + rules_v1 + always + heuristic_v1 + pdf_ocr_policy=off`,
@@ -167,7 +167,7 @@ Resolved profile families:
 Config keys and defaults:
 
 The post-Bucket-2 product contract now has two public layers:
-- ordinary operator settings: the day-to-day knobs surfaced most directly by `stage`/interactive flows (`workers`, split sizing, `epub_extractor`, `pdf_ocr_policy`, Codex enablement/path/context knobs, and tag-catalog wiring),
+- ordinary operator settings: the day-to-day knobs surfaced most directly by `stage`/interactive flows (`workers`, split sizing, `epub_extractor`, `pdf_ocr_policy`, and Codex enablement/path/context knobs),
 - benchmark-lab settings: still-public persistence fields used for EPUB parser tuning, some web fallback tuning, and benchmark-only line-role/Codex override work, but no longer treated as the normal stage help story.
 
 - `workers` (default `7`)
@@ -206,16 +206,14 @@ The post-Bucket-2 product contract now has two public layers:
 - `warm_models` (default `false`)
 - `llm_recipe_pipeline` (default `off`)
 - `llm_knowledge_pipeline` (default `off`)
-- `llm_tags_pipeline` (default `off`)
 - `labelstudio-import --prelabel` is also a Codex-backed path and now requires `--allow-codex` even if `llm_recipe_pipeline=off`
 - `codex_farm_cmd` (default `codex-farm`)
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
 - `codex_farm_context_blocks` (default `30`)
 - `codex_farm_knowledge_context_blocks` (default `12`)
-- `tag_catalog_json` (default `data/tagging/tag_catalog.json`)
 
-Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge` and `codex_farm_pipeline_tags`. `table_extraction` is retired entirely; new runs always extract tables.
+Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge`. `table_extraction` is retired entirely; new runs always extract tables.
 
 Normal stage summaries now render the smaller operator contract first. Raw/full payloads still persist in manifests, reports, saved settings, and benchmark artifacts for compatibility and reproducibility.
 
@@ -244,15 +242,14 @@ What each setting affects:
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
 - `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-farm-single-correction-v1`).
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
-- `llm_tags_pipeline`: optional tags pass (`off` or `codex-farm-tags-v1`) used by `stage` only.
-- `tag_catalog_json`: required catalog snapshot path when `llm_tags_pipeline` is enabled.
+- recipe correction also emits raw selected tags, which are normalized into `recipe.tags` and JSON-LD `keywords` during stage/import runs.
 - `codex_farm_*`: codex-farm command/root/workspace/context behavior used by `stage`; pipeline-id/failure internals remain loadable from explicit settings payloads but are hidden from ordinary help/UI.
 
 Developer note:
 - Per-run setting definitions live in `cookimport/config/run_settings.py`. Interactive top-tier chooser logic lives in `cookimport/cli_ui/run_settings_flow.py`; keep import and benchmark aligned there.
 - `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
 - `stats_dashboard(...)` is also called directly from interactive helpers; it must coerce Typer `OptionInfo` defaults (`--serve/--host/--port` and related flags) before branching into serve mode.
-- Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge/tags pipeline toggles, pipeline IDs, and related context/catalog settings), not a partial subset.
+- Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge toggles, pipeline IDs, and related context settings), not a partial subset.
 - `import` / `C3import` entrypoint shims should forward the expanded stage run-settings arguments so persisted settings can affect direct-entrypoint runs.
 
 ### [D] Import Flow
@@ -453,8 +450,6 @@ Top-level command groups:
 - `cookimport stats-dashboard`
 - `cookimport compare-control <run|agent|discovery-preferences|dashboard-state>`
 - `cookimport bench <oracle-upload|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-lightweight-series|quality-leaderboard|quality-compare|eval-stage>`
-- `cookimport tag-catalog export`
-- `cookimport tag-recipes <debug-signals|suggest|apply>`
 
 `cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
 `cookimport bench quality-lightweight-series` still exists only as a disabled compatibility shim and exits immediately; use `bench quality-run` and `bench quality-compare` instead.
@@ -538,15 +533,13 @@ Options:
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-single-correction-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
-- `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--allow-codex / --no-allow-codex` (default disabled): required for execute-mode Codex-backed stage runs.
 - `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` writes a zero-token `codex_execution_plan.json` and returns before stage processing.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
-- `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `12`): context blocks before/after each knowledge chunk for knowledge bundles.
-- `--tag-catalog-json PATH` (default `data/tagging/tag_catalog.json`): tag catalog snapshot path required when LLM tags are enabled.
+- `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `2`): context blocks before/after each knowledge chunk for knowledge bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - Internal-only note: stage still accepts hidden codex-farm pipeline-id/debug overrides for experiments and old payload replay, but they are no longer advertised in `--help`.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
@@ -1128,75 +1121,6 @@ Options:
 - `--boundary-tolerance-blocks INTEGER>=0` (default `0`): tolerance window used when matching gold/pred boundaries.
 - `--segmentation-metrics TEXT` (default `boundary_f1`): comma-separated segmentation metrics (`boundary_f1`, optional `pk`, `windowdiff`, `boundary_similarity` when `segeval` is installed).
 
-### `cookimport tag-catalog export`
-
-Exports DB-backed tag catalog to JSON.
-
-Options:
-
-- `--db-url TEXT` (or `COOKIMPORT_DATABASE_URL`): Postgres connection string.
-- `--out PATH` (required): output JSON path.
-
-### `cookimport tag-recipes debug-signals`
-
-Prints the signal pack used by tagging logic.
-
-Options:
-
-- `--draft PATH`: staged draft JSON input.
-- `--db-url TEXT` (or `COOKIMPORT_DATABASE_URL`): Postgres connection string.
-- `--recipe-id TEXT`: recipe UUID for DB fetch.
-
-Runtime rule:
-
-- Must provide `--draft` OR (`--db-url` and `--recipe-id`).
-
-### `cookimport tag-recipes suggest`
-
-Runs deterministic tagging and optional LLM second pass on draft files.
-
-Options:
-
-- `--draft PATH`: single draft JSON.
-- `--draft-dir PATH`: directory of draft JSON files (recursive).
-- `--catalog-json PATH` (required): tag catalog JSON.
-- `--out-dir PATH`: where to write per-recipe `*.tags.json`.
-- `--explain` (default `false`): include evidence text in output.
-- `--limit INTEGER`: cap number of recipes processed.
-- `--llm` (default `false`): enable LLM second pass for missing categories.
-- `--codex-farm-cmd TEXT` (default `codex-farm`): codex-farm executable used when `--llm` is enabled.
-- `--codex-farm-root PATH`: optional codex-farm pipeline-pack root.
-- `--codex-farm-workspace-root PATH`: optional codex-farm workspace root.
-- `--codex-farm-pipeline-tags TEXT` (default `recipe.tags.v1`): tags pipeline id for LLM second pass.
-- `--codex-farm-failure-mode TEXT` (default `fallback`): `fail|fallback` behavior when codex-farm setup/invocation fails.
-
-Runtime rule:
-
-- Must provide `--draft` or `--draft-dir`.
-
-### `cookimport tag-recipes apply`
-
-Applies suggested tags to DB records (dry-run by default).
-
-Options:
-
-- `--db-url TEXT` (or `COOKIMPORT_DATABASE_URL`): Postgres connection string.
-- `--recipe-id TEXT`: single recipe UUID.
-- `--catalog-json PATH` (required): tag catalog JSON.
-- `--apply` (default `false`): actually write tag assignments.
-- `--yes, -y` (default `false`): skip per-recipe confirmation prompts.
-- `--explain` (default `false`): show evidence.
-- `--min-confidence FLOAT`: filter suggestions below threshold.
-- `--llm` (default `false`): enable LLM second pass.
-- `--codex-farm-cmd TEXT` (default `codex-farm`): codex-farm executable used when `--llm` is enabled.
-- `--codex-farm-root PATH`: optional codex-farm pipeline-pack root.
-- `--codex-farm-workspace-root PATH`: optional codex-farm workspace root.
-- `--codex-farm-pipeline-tags TEXT` (default `recipe.tags.v1`): tags pipeline id for LLM second pass.
-- `--codex-farm-failure-mode TEXT` (default `fallback`): `fail|fallback` behavior when codex-farm setup/invocation fails.
-- `--import-batch-id TEXT`: batch filter for DB selection.
-- `--source TEXT`: source filter for DB selection.
-- `--limit INTEGER`: max recipes in batch mode (defaults to `100` internally when omitted).
-
 ## Environment Variables
 
 CLI-relevant environment variables:
@@ -1224,7 +1148,6 @@ CLI-relevant environment variables:
 - `COOKIMPORT_CODEX_MODEL`: default Codex model used by prelabel flows when `--codex-model` is omitted.
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.
-- `COOKIMPORT_DATABASE_URL`: DB URL fallback for `tag-catalog export`, `tag-recipes debug-signals`, and `tag-recipes apply`.
 - `COOKIMPORT_SPACY`: optional parser signal toggle (`1|true|yes`) when parsing overrides do not explicitly set SpaCy behavior.
 - `COOKIMPORT_CACHE_DIR`: preferred cache root for OCR model/artifact caches.
 - `XDG_CACHE_HOME`: fallback cache root when `COOKIMPORT_CACHE_DIR` is unset.

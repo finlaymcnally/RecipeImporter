@@ -1,8 +1,8 @@
 ---
-summary: "Current LLM integration boundaries for CodexFarm across recipe, line-role, knowledge, tags, and prelabel flows."
+summary: "Current LLM integration boundaries for CodexFarm across recipe, line-role, knowledge, and prelabel flows."
 read_when:
   - When changing codex-farm settings or pipeline IDs
-  - When debugging optional knowledge-stage or tags-stage artifacts
+  - When debugging optional knowledge-stage artifacts
   - When auditing recipe pipeline enablement/default behavior
   - When reconciling Label Studio prediction-run LLM wiring vs stage wiring
 ---
@@ -36,18 +36,18 @@ Recipe CodexFarm path:
 Other active Codex-backed surfaces:
 
 - Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`
-- Tags stage: `cookimport/tagging/orchestrator.py`, `cookimport/tagging/llm_second_pass.py`, `cookimport/tagging/codex_farm_tags_provider.py`, `cookimport/tagging/cli.py`
 - Canonical line-role: `cookimport/parsing/canonical_line_roles.py`, `cookimport/llm/canonical_line_role_prompt.py`
 - Freeform prelabel: `cookimport/labelstudio/prelabel.py`
 - Prompt/debug artifact export: `cookimport/llm/prompt_artifacts.py`
 
-All five live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, `tags`, and `prelabel`.
+Recipe tagging is part of the recipe surface itself. The recipe-correction prompt emits raw selected tags, and deterministic normalization folds them into staged outputs.
+
+The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prelabel`.
 
 ## Current live surfaces
 
 - `llm_recipe_pipeline`: `off`, `codex-farm-single-correction-v1`
 - `llm_knowledge_pipeline`: `off`, `codex-farm-knowledge-v1`
-- `llm_tags_pipeline`: `off`, `codex-farm-tags-v1`
 - `line_role_pipeline`: `off`, `deterministic-v1`, `codex-line-role-v1`
 - Prelabel is a separate Codex surface routed through CodexFarm pipeline `prelabel.freeform.v1`
 
@@ -59,7 +59,6 @@ All five live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, `tag
   - `llm_recipe_pipeline=off`
   - `line_role_pipeline=off`
   - `llm_knowledge_pipeline=off`
-  - `llm_tags_pipeline=off`
   - `atomic_block_splitter=off`
 - `cookimport/config/codex_decision.py` is the shared approval and metadata layer.
 - Execute mode requires explicit approval at the command boundary.
@@ -76,14 +75,13 @@ Benchmark split:
 
 ## Prediction-run versus stage boundary
 
-- Stage/import runs can execute recipe Codex, optional knowledge extraction, and tags-stage suggestions.
-- The tags stage runs after final drafts are written and reads from `final drafts/<workbook_slug>/`.
+- Stage/import runs can execute recipe Codex and optional knowledge extraction.
+- Inline recipe tags are part of the recipe correction call and ride along with normal recipe processing.
 - Prediction-run generation can plan or execute:
   - recipe Codex passes
   - optional knowledge extraction over Stage 7 `knowledge` spans
   - canonical line-role Codex labeling
   - freeform prelabel
-- Prediction-run generation does not run tags-stage suggestions unless a processed stage output is also being written through the stage session path.
 - Prediction-run plan mode happens after deterministic conversion and archive preparation so the plan artifact can enumerate concrete recipe bundles, knowledge jobs, and line-role batches.
 
 ## Artifacts
@@ -96,7 +94,7 @@ Recipe passes write under:
 
 Recipe runtime note:
 - the canonical recipe path is now one LLM correction call per authoritative recipe span
-- deterministic code builds the intermediate `RecipeCandidate`, Codex corrects it and emits `ingredient_step_mapping`, then deterministic code rebuilds the final cookbook3 draft locally
+- deterministic code builds the intermediate `RecipeCandidate`, Codex corrects it and emits `ingredient_step_mapping` plus raw `selected_tags`, then deterministic code rebuilds the final cookbook3 draft locally and normalizes tags before write-out
 - `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
 
 Knowledge-stage writes:
@@ -111,15 +109,7 @@ Knowledge-stage writes:
 
 `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are now the machine-readable outside-span contract. `snippets.jsonl` remains reviewer-facing evidence only.
 
-Tags stage writes:
-
-- `data/output/<ts>/raw/llm/<workbook_slug>/tags/{in,out}/`
-- `data/output/<ts>/raw/llm/<workbook_slug>/tags_manifest.json`
-- `data/output/<ts>/tags/<workbook_slug>/r{index}.tags.json`
-- `data/output/<ts>/tags/<workbook_slug>/tagging_report.json`
-- `data/output/<ts>/tags/tags_index.json`
-
-For stage runs, the accepted tag set is also projected back into the staged recipe artifacts:
+Inline recipe tagging writes through the normal recipe artifacts:
 
 - `data/output/<ts>/final drafts/<workbook_slug>/r{index}.json` as `recipe.tags`
 - `data/output/<ts>/intermediate drafts/<workbook_slug>/r{index}.jsonld` as `keywords`
@@ -138,7 +128,7 @@ Prompt/debug artifacts:
 - `prompts/full_prompt_log.jsonl` is the stable per-call truth
 - `prompts/prompt_request_response_log.txt` is the human-readable convenience export
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
-- `prediction-run/prompt_budget_summary.json` merges recipe/knowledge/tags telemetry with line-role telemetry when present and now publishes semantic `by_stage` totals instead of an old pass-slot grouping container
+- `prediction-run/prompt_budget_summary.json` merges recipe/knowledge telemetry with line-role telemetry when present and now publishes semantic `by_stage` totals instead of an old pass-slot grouping container
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`

@@ -51,8 +51,6 @@ From `pyproject.toml`:
 - `debug-epub-extract`
 - `labelstudio-benchmark`
 - `bench` (offline benchmark suite: speed/quality discovery-runs/compare, `gc`, `eval-stage`)
-- `tag-catalog` (subcommand: `export`)
-- `tag-recipes` (subcommands: `debug-signals`, `suggest`, `apply`)
 - `epub` (subcommands: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`)
 
 ## 3. Architecture (current)
@@ -194,15 +192,16 @@ All run-producing paths now rely on `run_manifest.json` as a stable traceability
 - `bench speed-*`, `bench quality-*`, `bench gc`, and `bench eval-stage` provide offline benchmark/regression tooling.
 - `bench quality-lightweight-series` is currently disabled in CLI to prevent accidental heavy runs.
 
-## 7. Tagging Subsystem
+## 7. Tagging
 
-Tagging is now a first-class command surface:
+Tagging is part of the recipe-correction path.
 
-- catalog export from DB (`tag-catalog export`)
-- deterministic suggestion + optional LLM second pass (`tag-recipes suggest`)
-- DB apply path with dry-run default (`tag-recipes apply`)
+Core modules:
 
-Core modules: `cookimport/tagging/*`.
+- `cookimport/llm/recipe_tagging_guide.py`
+- `cookimport/llm/codex_farm_contracts.py`
+- `cookimport/llm/codex_farm_orchestrator.py`
+- `cookimport/staging/recipe_tag_normalization.py`
 
 ## 8. Tech Stack (active dependencies)
 
@@ -226,7 +225,7 @@ Important clarification:
 - Stage LLM paths are optional run-settings choices:
   - recipe correction: `llm_recipe_pipeline=codex-farm-single-correction-v1`
   - knowledge harvesting: `llm_knowledge_pipeline=codex-farm-knowledge-v1` (knowledge extraction)
-  - tag suggestion pass: `llm_tags_pipeline=codex-farm-tags-v1` (tags stage)
+- recipe correction also emits raw selected tags, which are normalized into `recipe.tags` and JSON-LD `keywords`
 - Shared defaults are deterministic: `llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`. Codex-enabled paths are explicit opt-ins.
 - Label Studio freeform prelabel uses local Codex CLI invocation (`codex exec -` fallback path included).
 - Deterministic stage behavior remains the baseline when LLM settings are `off`.

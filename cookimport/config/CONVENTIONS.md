@@ -28,7 +28,7 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
   - `stage`, `labelstudio-import`, and `import` use `--allow-codex`.
   - `labelstudio-benchmark` live Codex runs also require `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and must stay blocked in agent-run environments.
 - codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
-- Recipe tags are now part of the recipe-correction surface. The recipe prompt owns raw tag selection, and deterministic normalization runs before staged outputs are written; there is no standalone tags-pass runtime or tags-stage artifact family.
+- Recipe tags are now part of the recipe-correction surface. The recipe prompt owns raw tag selection, and deterministic normalization runs before staged outputs are written; there is no separate tags runtime or tags-only artifact family.
 - Default local codex-farm recipe prompts live in `llm_pipelines/prompts/recipe.correction.compact.v1.prompt.md`; the knowledge prompt lives beside it under `llm_pipelines/prompts/`.
 - For local codex-farm packs, pipeline JSON `prompt_template_path` / `output_schema_path` entries are the source of truth; avoid keeping duplicate filename schemes in `llm_pipelines/prompts/` that are not referenced by those pipeline specs.
 - New processing-option contract (do all, or the feature is incomplete):

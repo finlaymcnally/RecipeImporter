@@ -11,11 +11,6 @@ from cookimport.bench import oracle_upload
 
 
 runner = CliRunner()
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_SINGLE_PROFILE_ROOT = (
-    REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-04_20.33.53/single-profile-benchmark"
-)
 
 
 def _make_bundle(bundle_dir: Path) -> Path:
@@ -159,7 +154,10 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
 
 def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    sample_single_profile_root = tmp_path / "single-profile-benchmark"
+    _make_bundle(sample_single_profile_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME)
     captured: dict[str, object] = {}
 
     def fake_run_oracle_benchmark_upload(
@@ -188,7 +186,7 @@ def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
         [
             "bench",
             "oracle-upload",
-            str(SAMPLE_SINGLE_PROFILE_ROOT),
+            str(sample_single_profile_root),
             "--mode",
             "dry-run",
         ],
@@ -199,7 +197,7 @@ def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
     target = captured["target"]
     assert isinstance(target, oracle_upload.OracleBenchmarkBundleTarget)
     assert target.bundle_dir == (
-        SAMPLE_SINGLE_PROFILE_ROOT / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        sample_single_profile_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     assert str(target.bundle_dir) in result.output
     assert "Oracle mode: dry-run" in result.output

@@ -1653,7 +1653,6 @@ def _validate_qualitysuite_requested_settings_disallow_codex_farm(
         for enabled, name in (
             (surface.recipe_codex_enabled, "recipe"),
             (surface.knowledge_codex_enabled, "knowledge"),
-            (surface.tags_codex_enabled, "tags"),
         )
         if enabled
     ]

@@ -99,15 +99,11 @@ Per workbook (slugified file stem):
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
 - `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (internal-only Priority 6 diagnostics; Bucket 1 no longer exposes `p6_emit_metadata_debug` as a normal run setting)
-- `tags/<workbook_slug>/r{index}.tags.json` (if the tags pipeline is enabled)
-- `tags/<workbook_slug>/tagging_report.json` (if the tags pipeline is enabled)
-- `tags/tags_index.json` (if any tags artifacts were written in the run)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
   - includes `recipe_scoring_debug.jsonl` when importers emit candidate gate decisions
 - `raw/llm/<workbook_slug>/recipe_correction/{in,out}/*.json` (when recipe Codex correction ran)
 - `raw/llm/<workbook_slug>/recipe_manifest.json`
 - `raw/llm/<workbook_slug>/knowledge/{in,out}/*.json` + `knowledge_manifest.json` (if knowledge harvesting is enabled)
-- `raw/llm/<workbook_slug>/tags/{in,out}/*.json` + `tags_manifest.json` (if the tags pipeline is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
 - `stage_observability.json` at run root (canonical semantic stage index for the run)
@@ -132,13 +128,13 @@ Code pointers (prefer these over line numbers, which drift often):
 
 - `cookimport/cli_worker.py` (`stage_one_file`) and `cookimport/cli.py` (`_merge_split_jobs`) assemble per-run output dirs and invoke staging writers.
 - `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_stage_block_predictions`, `write_report`) implements the file layout above.
-- `cookimport/cli.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) and `cookimport/tagging/orchestrator.py` (`run_stage_tagging_pass`) add run-level index/summary/manifest artifacts.
+- `cookimport/cli.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) adds run-level index/summary/manifest artifacts.
 - `cookimport/runs/stage_observability.py` is the canonical run-level stage model/writer used by summaries and manifests.
 
 Tags embedding note:
 - `final drafts/<workbook_slug>/r{index}.json` can now contain `recipe.tags` as a flat accepted tag list.
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld` uses matching schema.org `keywords`.
-- When the optional tags stage runs, it writes sidecar `tags/` artifacts and then projects the accepted tag set back into those final/intermediate recipe files.
+- Those tags now come directly from recipe correction plus deterministic normalization.
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now prefers deterministic Stage 7 `08_nonrecipe_spans.json` ownership when available.
