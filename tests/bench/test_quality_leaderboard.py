@@ -419,37 +419,6 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
         },
     )
     _write_json(
-        line_role_dir / "pass4_merge_report.json",
-        {
-            "schema_version": "line_role_pass4_merge_report.v1",
-            "merge_mode": "block_classifications",
-            "usable_evidence": True,
-            "selected_line_count": 1,
-            "upgraded_other_to_knowledge_count": 1,
-        },
-    )
-    (line_role_dir / "pass4_merge_changed_rows.jsonl").write_text(
-        json.dumps(
-            {
-                "line_index": 0,
-                "old_label": "OTHER",
-                "new_label": "KNOWLEDGE",
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    _write_json(
-        line_role_dir / "pass4_merge_summary.json",
-        {
-            "schema_version": "line_role_pass4_merge_summary.v1",
-            "changed_line_count": 1,
-            "changed_lines_matching_gold": 1,
-            "changed_lines_wrong": 0,
-        },
-    )
-    _write_json(
         line_role_dir / "regression_gates.json",
         {"overall": {"verdict": "PASS"}, "gates": []},
     )
@@ -470,8 +439,5 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
         line_role_payload.get("line_role_dir")
         == "experiments/baseline/source_a/config_001_example/line-role-pipeline"
     )
-    assert (
-        line_role_payload.get("pass4_merge_summary_json")
-        == "experiments/baseline/source_a/config_001_example/line-role-pipeline/pass4_merge_summary.json"
-    )
-    assert line_role_payload.get("pass4_merge_summary", {}).get("changed_line_count") == 1
+    assert line_role_payload.get("pass4_merge_summary_json") is None
+    assert line_role_payload.get("pass4_merge_summary") in ({}, None)

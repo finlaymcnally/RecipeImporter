@@ -12,6 +12,7 @@ from cookimport.parsing.sections import (
     extract_instruction_sections,
 )
 from cookimport.parsing.tips import extract_recipe_specific_notes
+from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 
 FREEFORM_LABELS: tuple[str, ...] = (
     "RECIPE_TITLE",
@@ -90,8 +91,7 @@ def build_stage_block_predictions(
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: Iterable[dict[str, Any]] | None = None,
-    knowledge_block_classifications_path: Path | None = None,
-    knowledge_snippets_path: Path | None = None,
+    nonrecipe_stage_result: NonRecipeStageResult | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic per-block label manifest from staged outputs."""
     archive = _load_archive(conversion_result, archive_blocks)
@@ -108,28 +108,26 @@ def build_stage_block_predictions(
             notes=notes,
         )
 
-    knowledge_categories = _load_knowledge_categories(knowledge_block_classifications_path)
-    knowledge_indices = {
-        block_index
-        for block_index, category in knowledge_categories.items()
-        if category == "knowledge"
-    }
-    if knowledge_categories:
-        notes.append("KNOWLEDGE labels were derived from pass4 block classifications.")
-    elif not knowledge_indices:
-        knowledge_indices = _load_knowledge_indices(knowledge_snippets_path)
-    if not knowledge_indices and not knowledge_categories:
+    if nonrecipe_stage_result is not None:
+        knowledge_indices = {
+            int(block_index)
+            for block_index, category in nonrecipe_stage_result.block_category_by_index.items()
+            if category == "knowledge"
+        }
+        if knowledge_indices:
+            notes.append("KNOWLEDGE labels were derived from deterministic Stage 7 categories.")
+    else:
         knowledge_indices = _load_chunk_lane_knowledge_indices(conversion_result)
         if knowledge_indices:
             notes.append(
                 "KNOWLEDGE labels were derived from deterministic chunk lanes."
             )
     if knowledge_indices and block_count == 0:
-        notes.append("Knowledge snippets were present but no extracted archive blocks were available.")
+        notes.append("Knowledge blocks were present but no extracted archive blocks were available.")
     for block_index in sorted(knowledge_indices):
         if block_index < 0 or block_index >= block_count:
             notes.append(
-                f"Knowledge snippet referenced out-of-range block {block_index}; ignored."
+                f"Knowledge block reference was out of range ({block_index}); ignored."
             )
             continue
         block_labels.setdefault(block_index, set()).add("KNOWLEDGE")
@@ -967,70 +965,6 @@ def _resolve_block_label(labels: list[str]) -> str:
         if label in label_set:
             return label
     return "OTHER"
-
-
-def _load_knowledge_indices(snippets_path: Path | None) -> set[int]:
-    if snippets_path is None:
-        return set()
-    if not snippets_path.exists() or not snippets_path.is_file():
-        return set()
-
-    indices: set[int] = set()
-    for line in snippets_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
-            continue
-
-        provenance = payload.get("provenance")
-        if not isinstance(provenance, dict):
-            continue
-        raw_indices = provenance.get("block_indices")
-        if not isinstance(raw_indices, list):
-            continue
-        for value in raw_indices:
-            coerced = _coerce_int(value)
-            if coerced is None:
-                continue
-            indices.add(coerced)
-    return indices
-
-
-def _load_knowledge_categories(
-    block_classifications_path: Path | None,
-) -> dict[int, str]:
-    if (
-        block_classifications_path is None
-        or not block_classifications_path.exists()
-        or not block_classifications_path.is_file()
-    ):
-        return {}
-
-    categories: dict[int, str] = {}
-    for line in block_classifications_path.read_text(encoding="utf-8").splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        try:
-            block_index = int(payload.get("block_index"))
-        except (TypeError, ValueError):
-            continue
-        category = str(payload.get("category") or "").strip().lower()
-        if category not in {"knowledge", "other"}:
-            continue
-        categories[block_index] = category
-    return categories
 
 
 def _load_chunk_lane_knowledge_indices(

@@ -171,7 +171,7 @@ def test_interactive_benchmark_single_offline_codex_shaped_smoke(
     assert len(benchmark_calls) == 2
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-farm-2stage-repair-v1",
+        "codex-farm-single-correction-v1",
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
     assert [call["codex_farm_model"] for call in benchmark_calls] == [

@@ -38,8 +38,11 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Final conversion to cookbook3 output shape (internal model label still `RecipeDraftV1`).
   - Applies staging safety normalization for ingredient lines.
   - Applies deterministic fallback instruction-step segmentation from run settings before section extraction/step parsing.
+- `cookimport/staging/nonrecipe_stage.py`
+  - Deterministic Stage 7 ownership for all outside-recipe blocks.
+  - Collapses final non-recipe labels into contiguous `knowledge` / `other` spans and feeds optional knowledge extraction.
 - `cookimport/staging/writer.py`
-  - Writes intermediate/final outputs, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
+  - Writes intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
 - `cookimport/staging/stage_block_predictions.py`
   - Builds deterministic block-level benchmark evidence labels (`stage_block_predictions.v1`) from staged recipes + archive blocks + knowledge hints.
@@ -71,6 +74,8 @@ Per run, output root:
 
 Per workbook (slugified file stem):
 
+- `08_nonrecipe_spans.json`
+- `09_knowledge_outputs.json`
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`
@@ -82,8 +87,8 @@ Per workbook (slugified file stem):
 - `chunks/<workbook_slug>/c{index}.json` (if any)
 - `chunks/<workbook_slug>/chunks.md` (if any; skipped with `stage --no-write-markdown`)
 - `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
-- `knowledge/<workbook_slug>/snippets.jsonl` (if pass4 knowledge harvesting is enabled)
-- `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
+- `knowledge/<workbook_slug>/snippets.jsonl` (if optional knowledge extraction is enabled and Stage 7 found `knowledge` spans)
+- `knowledge/<workbook_slug>/knowledge.md` (same condition as `snippets.jsonl`)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
 - `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (internal-only Priority 6 diagnostics; Bucket 1 no longer exposes `p6_emit_metadata_debug` as a normal run setting)
@@ -121,8 +126,9 @@ Code pointers (prefer these over line numbers, which drift often):
 - `cookimport/runs/stage_observability.py` is the canonical run-level stage model/writer used by summaries and manifests.
 
 Stage-block `KNOWLEDGE` label contract:
-- `stage_block_predictions.json` prefers pass4 snippet evidence when available.
-- If pass4 knowledge harvesting is off (or snippets are absent), `KNOWLEDGE` labeling falls back to deterministic chunk-lane mapping so benchmark evidence stays complete.
+- `stage_block_predictions.json` now prefers deterministic Stage 7 `08_nonrecipe_spans.json` ownership when available.
+- Optional knowledge snippets can enrich notes, but they are no longer the primary `KNOWLEDGE` classifier.
+- Legacy chunk-lane fallback remains only for older paths that do not have Stage 7 ownership wired through.
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).

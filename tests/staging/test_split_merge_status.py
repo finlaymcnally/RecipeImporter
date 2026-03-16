@@ -86,6 +86,10 @@ def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
 def _output_stats_category_for_path(relative_path: Path) -> str | None:
     if not relative_path.parts:
         return None
+    if relative_path.name == "08_nonrecipe_spans.json":
+        return "nonRecipe"
+    if relative_path.name == "09_knowledge_outputs.json":
+        return "knowledge"
     top = relative_path.parts[0]
     if top == "intermediate drafts":
         return "intermediateDrafts"

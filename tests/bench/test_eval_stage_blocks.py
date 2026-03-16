@@ -375,32 +375,18 @@ def test_evaluate_canonical_text_scores_pass4_knowledge_in_line_role_projection(
     assert baseline_result["report"]["overall_line_accuracy"] == pytest.approx(2 / 3)
     assert baseline_result["report"]["per_label"]["KNOWLEDGE"]["tp"] == 0
 
-    snippets_path = tmp_path / "knowledge-snippets.jsonl"
-    snippets_path.write_text(
-        json.dumps(
-            {
-                "snippet_id": "k0",
-                "provenance": {"block_indices": [1]},
-                "evidence": [{"block_index": 1, "quote": "Useful kitchen note"}],
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    merged_artifacts = write_line_role_projection_artifacts(
-        run_root=tmp_path / "merged",
+    repeated_artifacts = write_line_role_projection_artifacts(
+        run_root=tmp_path / "repeated",
         source_file="book.epub",
         source_hash="hash-123",
         workbook_slug="book",
         predictions=predictions,
-        knowledge_snippets_path=snippets_path,
     )
-    merged_result = evaluate_canonical_text(
+    repeated_result = evaluate_canonical_text(
         gold_export_root=gold_export_root,
-        stage_predictions_json=merged_artifacts["stage_block_predictions_path"],
-        extracted_blocks_json=merged_artifacts["extracted_archive_path"],
-        out_dir=tmp_path / "merged-eval",
+        stage_predictions_json=repeated_artifacts["stage_block_predictions_path"],
+        extracted_blocks_json=repeated_artifacts["extracted_archive_path"],
+        out_dir=tmp_path / "repeated-eval",
         canonical_paths={
             "canonical_text_path": gold_export_root / "canonical_text.txt",
             "canonical_span_labels_path": gold_export_root / "canonical_span_labels.jsonl",
@@ -408,8 +394,8 @@ def test_evaluate_canonical_text_scores_pass4_knowledge_in_line_role_projection(
         },
     )
 
-    assert merged_result["report"]["overall_line_accuracy"] == pytest.approx(1.0)
-    assert merged_result["report"]["per_label"]["KNOWLEDGE"]["tp"] == 1
+    assert repeated_result["report"]["overall_line_accuracy"] == pytest.approx(2 / 3)
+    assert repeated_result["report"]["per_label"]["KNOWLEDGE"]["tp"] == 0
 
 
 def test_compute_block_metrics_reports_macro_and_worst_label() -> None:

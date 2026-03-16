@@ -1,15 +1,20 @@
 ---
-summary: "How to run the optional codex-farm pass4 knowledge harvesting workflow and where its artifacts live."
+summary: "How the optional codex-farm knowledge stage now runs on Stage 7 knowledge spans and where its artifacts live."
 read_when:
-  - "When enabling or debugging pass4 knowledge harvesting outputs"
-  - "When editing the compact pass4 codex-farm pipeline prompt/schema assets"
+  - "When enabling or debugging optional knowledge extraction outputs"
+  - "When editing the compact knowledge-stage codex-farm pipeline prompt/schema assets"
 ---
 
-# Pass 4: Knowledge Harvesting (codex-farm)
+# Optional Knowledge Extraction (codex-farm)
 
-Pass 4 is an **optional** codex-farm pipeline that extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don’t guidance) from the **non-recipe text** in a block-first cookbook source (EPUB/PDF/text extractors that emit `full_text` blocks and `nonRecipeBlocks`).
+The knowledge stage is an **optional** codex-farm pipeline that extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) only from Stage 7 blocks already classified as `knowledge`.
 
-Pass4 now also emits a per-block binary classification over `chunk.blocks`: each block is labeled `knowledge` or `other`. Downstream canonical scoring uses that artifact as the primary outside-span `KNOWLEDGE` versus `OTHER` signal; snippets remain as the user-facing summary output.
+The deterministic classifier runs first and always writes:
+
+- `08_nonrecipe_spans.json`
+- `09_knowledge_outputs.json`
+
+Those files are the authoritative outside-recipe ownership boundary. The LLM stage no longer publishes `block_classifications.jsonl` and no longer decides `KNOWLEDGE` versus `OTHER` for downstream readers.
 
 It is **off by default** and does nothing unless explicitly enabled.
 
@@ -28,7 +33,7 @@ Optional knobs:
 - `--table-extraction on` (recommended for table-heavy books; compact pass4 bundles then include `chunk.blocks[*].table_hint`)
 
 Chunking note:
-- pass4 inputs now come from a post-highlight adjacent-chunk consolidation step, so run-to-run chunk counts may decrease when same-topic knowledge blocks are contiguous.
+- knowledge-stage inputs now come from Stage 7 `knowledge` spans first, then apply the existing adjacent-chunk consolidation logic inside those spans.
 - table chunks are intentionally excluded from consolidation and remain isolated.
 
 ## Output locations
@@ -36,17 +41,23 @@ Chunking note:
 Per staged workbook (`<workbook_slug>`):
 
 - Raw codex-farm IO:
-  - `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge/in/*.json`
-  - `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge/out/*.json`
-  - `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge_manifest.json`
-- User-facing artifacts:
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/out/*.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
+- Canonical stage artifacts:
+  - `data/output/<ts>/08_nonrecipe_spans.json`
+  - `data/output/<ts>/09_knowledge_outputs.json`
+- Reviewer-facing extraction artifacts:
   - `data/output/<ts>/knowledge/<workbook_slug>/snippets.jsonl`
-  - `data/output/<ts>/knowledge/<workbook_slug>/block_classifications.jsonl`
   - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 
 Run-level index (if any knowledge artifacts were written):
 
 - `data/output/<ts>/knowledge/knowledge_index.json`
+
+Manifest/runtime note:
+- `knowledge_manifest.json` now advertises `input_mode = "stage7_knowledge_spans"`.
+- If Stage 7 finds zero `knowledge` spans, the manifest is still written as a successful no-op with zero jobs.
 
 ## Pipeline assets
 

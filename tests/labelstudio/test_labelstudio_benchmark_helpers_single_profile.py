@@ -430,7 +430,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     assert len(benchmark_calls) == 2
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-farm-3pass-v1",
+        "codex-farm-single-correction-v1",
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
         "deterministic-v1",
@@ -470,8 +470,8 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
         True,
     ]
     assert [call["codex_farm_pipeline_pass2"] for call in benchmark_calls] == [
-        "recipe.schemaorg.compact.v1",
-        "recipe.schemaorg.compact.v1",
+        "recipe.correction.compact.v1",
+        "recipe.correction.compact.v1",
     ]
     assert [call["codex_farm_pipeline_pass3"] for call in benchmark_calls] == [
         "recipe.final.compact.v1",
@@ -809,7 +809,7 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
     assert [call["source_file"] for call in benchmark_calls] == [source_b, source_b]
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-farm-3pass-v1",
+        "codex-farm-single-correction-v1",
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "vanilla",
@@ -861,7 +861,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
     )
 
     def _fake_labelstudio_benchmark(**kwargs):
-        if kwargs.get("llm_recipe_pipeline") == "codex-farm-3pass-v1":
+        if kwargs.get("llm_recipe_pipeline") == "codex-farm-single-correction-v1":
             raise RuntimeError(failure_text)
         return None
 

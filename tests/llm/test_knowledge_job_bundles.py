@@ -8,6 +8,8 @@ from cookimport.llm.codex_farm_knowledge_jobs import (
     LEGACY_PASS4_JOB_FORMAT,
     build_pass4_knowledge_jobs,
 )
+from cookimport.parsing.label_source_of_truth import RecipeSpan
+from cookimport.staging.nonrecipe_stage import NonRecipeSpan
 
 
 def _load_all_jobs(in_dir: Path) -> list[dict]:
@@ -17,21 +19,12 @@ def _load_all_jobs(in_dir: Path) -> list[dict]:
     return payloads
 
 
-def test_build_pass4_jobs_writes_only_non_recipe_blocks_and_is_idempotent(tmp_path: Path) -> None:
+def test_build_pass4_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(tmp_path: Path) -> None:
     full_blocks = [
         {"index": 0, "text": "Preface"},
         {"index": 1, "text": "A beautiful gorgeous stunning book."},
         {"index": 2, "text": "Toast"},
         {"index": 3, "text": "1 slice bread"},
-        {"index": 4, "text": "Technique: To prevent curdling, whisk constantly."},
-        {"index": 5, "text": "Use low heat and add acid slowly."},
-        {"index": 6, "text": "More notes."},
-        {"index": 7, "text": "End."},
-    ]
-    # Recipe span is [2,4): indices 2 and 3 are recipe blocks.
-    non_recipe_blocks = [
-        {"index": 0, "text": "Preface", "features": {"is_header_likely": True}},
-        {"index": 1, "text": "A beautiful gorgeous stunning book."},
         {
             "index": 4,
             "text": "Technique: To prevent curdling, whisk constantly.",
@@ -55,11 +48,30 @@ def test_build_pass4_jobs_writes_only_non_recipe_blocks_and_is_idempotent(tmp_pa
         {"index": 6, "text": "More notes."},
         {"index": 7, "text": "End."},
     ]
+    knowledge_spans = [
+        NonRecipeSpan(
+            span_id="nr.knowledge.4.8",
+            category="knowledge",
+            block_start_index=4,
+            block_end_index=8,
+            block_indices=[4, 5, 6, 7],
+            block_ids=["b4", "b5", "b6", "b7"],
+        )
+    ]
     in_dir = tmp_path / "in"
 
     build_pass4_knowledge_jobs(
         full_blocks=full_blocks,
-        non_recipe_blocks=non_recipe_blocks,
+        knowledge_spans=knowledge_spans,
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=2,
+                end_block_index=4,
+                block_indices=[2, 3],
+                source_block_ids=["b2", "b3"],
+            )
+        ],
         workbook_slug="book",
         source_hash="hash123",
         out_dir=in_dir,
@@ -112,7 +124,16 @@ def test_build_pass4_jobs_writes_only_non_recipe_blocks_and_is_idempotent(tmp_pa
     # Idempotence: rerun yields identical JSON bytes.
     build_pass4_knowledge_jobs(
         full_blocks=full_blocks,
-        non_recipe_blocks=non_recipe_blocks,
+        knowledge_spans=knowledge_spans,
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=2,
+                end_block_index=4,
+                block_indices=[2, 3],
+                source_block_ids=["b2", "b3"],
+            )
+        ],
         workbook_slug="book",
         source_hash="hash123",
         out_dir=in_dir,
@@ -145,20 +166,31 @@ def test_build_pass4_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> 
         {"index": 6, "text": "More notes."},
         {"index": 7, "text": "End."},
     ]
-    non_recipe_blocks = [
-        full_blocks[0],
-        full_blocks[1],
-        full_blocks[4],
-        full_blocks[5],
-        full_blocks[6],
-        full_blocks[7],
+    knowledge_spans = [
+        NonRecipeSpan(
+            span_id="nr.knowledge.4.8",
+            category="knowledge",
+            block_start_index=4,
+            block_end_index=8,
+            block_indices=[4, 5, 6, 7],
+            block_ids=["b4", "b5", "b6", "b7"],
+        )
     ]
     legacy_dir = tmp_path / "legacy"
     compact_dir = tmp_path / "compact"
 
     build_pass4_knowledge_jobs(
         full_blocks=full_blocks,
-        non_recipe_blocks=non_recipe_blocks,
+        knowledge_spans=knowledge_spans,
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=2,
+                end_block_index=4,
+                block_indices=[2, 3],
+                source_block_ids=["b2", "b3"],
+            )
+        ],
         workbook_slug="book",
         source_hash="hash123",
         out_dir=legacy_dir,
@@ -167,7 +199,16 @@ def test_build_pass4_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> 
     )
     build_pass4_knowledge_jobs(
         full_blocks=full_blocks,
-        non_recipe_blocks=non_recipe_blocks,
+        knowledge_spans=knowledge_spans,
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=2,
+                end_block_index=4,
+                block_indices=[2, 3],
+                source_block_ids=["b2", "b3"],
+            )
+        ],
         workbook_slug="book",
         source_hash="hash123",
         out_dir=compact_dir,

@@ -8256,6 +8256,10 @@ def _normalize_p6_yield_mode(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized == "codex-farm-3pass-v1":
+        normalized = "codex-farm-single-correction-v1"
+    elif normalized == "codex-farm-2stage-repair-v1":
+        normalized = "codex-farm-single-correction-v1"
     if normalized in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return normalized
     _fail(
@@ -11692,50 +11696,8 @@ def _copy_line_role_pass4_merge_artifacts_for_benchmark(
     joined_line_rows: list[dict[str, Any]],
     eval_output_dir: Path,
 ) -> dict[str, Any]:
-    prediction_line_role_dir = pred_run / "line-role-pipeline"
-    source_report_path = prediction_line_role_dir / "pass4_merge_report.json"
-    source_changed_rows_path = prediction_line_role_dir / "pass4_merge_changed_rows.jsonl"
-    if not source_report_path.exists() and not source_changed_rows_path.exists():
-        return {}
-
-    artifacts: dict[str, Any] = {}
-    target_report_path = line_role_output_dir / "pass4_merge_report.json"
-    target_changed_rows_path = line_role_output_dir / "pass4_merge_changed_rows.jsonl"
-    if source_report_path.exists():
-        if source_report_path.resolve(strict=False) != target_report_path.resolve(strict=False):
-            shutil.copy2(source_report_path, target_report_path)
-        artifacts["pass4_merge_report_json"] = _path_for_manifest(
-            eval_output_dir,
-            target_report_path,
-        )
-    if source_changed_rows_path.exists():
-        if (
-            source_changed_rows_path.resolve(strict=False)
-            != target_changed_rows_path.resolve(strict=False)
-        ):
-            shutil.copy2(source_changed_rows_path, target_changed_rows_path)
-        artifacts["pass4_merge_changed_rows_jsonl"] = _path_for_manifest(
-            eval_output_dir,
-            target_changed_rows_path,
-        )
-
-    merge_report = _load_json_object_or_none(target_report_path) or {}
-    changed_rows = _load_jsonl_dict_rows(target_changed_rows_path)
-    summary_payload = build_line_role_pass4_merge_summary(
-        joined_line_rows,
-        changed_rows,
-        merge_report=merge_report if merge_report else None,
-    )
-    summary_path = line_role_output_dir / "pass4_merge_summary.json"
-    summary_path.write_text(
-        json.dumps(summary_payload, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    artifacts["pass4_merge_summary_json"] = _path_for_manifest(
-        eval_output_dir,
-        summary_path,
-    )
-    return artifacts
+    del pred_run, line_role_output_dir, joined_line_rows, eval_output_dir
+    return {}
 
 
 def _build_prediction_bundle_from_import_result(

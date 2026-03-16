@@ -66,32 +66,56 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "family": "label_stage",
         "order": 7,
     },
+    "classify_nonrecipe": {
+        "label": "Classify Non-Recipe",
+        "artifact_stem": "classify_nonrecipe",
+        "family": "deterministic",
+        "order": 8,
+    },
+    "build_intermediate_det": {
+        "label": "Build Intermediate Recipe",
+        "artifact_stem": "build_intermediate_det",
+        "family": "recipe_deterministic",
+        "order": 10,
+    },
+    "recipe_llm_correct_and_link": {
+        "label": "Recipe LLM Correction",
+        "artifact_stem": "recipe_correction",
+        "family": "recipe_llm",
+        "order": 20,
+    },
+    "build_final_recipe": {
+        "label": "Build Final Recipe",
+        "artifact_stem": "build_final_recipe",
+        "family": "recipe_deterministic",
+        "order": 30,
+    },
     "chunking": {
         "label": "Chunking",
         "artifact_stem": "chunking",
-        "family": "recipe_llm",
+        "family": "recipe_llm_legacy",
         "order": 10,
     },
     "schemaorg": {
         "label": "Schema.org Extraction",
         "artifact_stem": "schemaorg",
-        "family": "recipe_llm",
+        "family": "recipe_llm_legacy",
         "order": 20,
     },
     "merged_repair": {
         "label": "Merged Repair",
         "artifact_stem": "merged_repair",
-        "family": "recipe_llm",
+        "family": "recipe_llm_legacy",
         "order": 20,
     },
     "final": {
         "label": "Final Draft",
         "artifact_stem": "final",
-        "family": "recipe_llm",
+        "family": "recipe_llm_legacy",
         "order": 30,
     },
-    "knowledge": {
-        "label": "Knowledge Harvest",
+    "extract_knowledge_optional": {
+        "label": "Extract Knowledge Optional",
         "artifact_stem": "knowledge",
         "family": "knowledge_llm",
         "order": 40,
@@ -136,6 +160,12 @@ def stage_family(stage_key: str) -> str:
 
 def recipe_stage_keys_for_pipeline(pipeline_id: str | None) -> tuple[str, ...]:
     normalized = str(pipeline_id or "").strip()
+    if normalized == "codex-farm-single-correction-v1":
+        return (
+            "build_intermediate_det",
+            "recipe_llm_correct_and_link",
+            "build_final_recipe",
+        )
     if normalized == "codex-farm-2stage-repair-v1":
         return ("chunking", "merged_repair")
     if normalized and normalized != "off":
@@ -175,6 +205,8 @@ def _recipe_stage_key_map(
 ) -> tuple[str, ...]:
     pipeline_id = str(recipe_manifest_payload.get("pipeline") or "").strip() or None
     candidate_keys = list(recipe_stage_keys_for_pipeline(pipeline_id))
+    if pipeline_id == "codex-farm-single-correction-v1":
+        return tuple(candidate_keys)
     if "final" in candidate_keys and not (workbook_dir / "final").exists():
         candidate_keys = [key for key in candidate_keys if key != "final"]
     return tuple(candidate_keys)
@@ -203,7 +235,17 @@ def build_stage_observability_report(
                 stage_dir = workbook_dir / stage_artifact_stem(key)
                 input_dir = stage_dir / "in"
                 output_dir = stage_dir / "out"
-                if not stage_dir.exists() and not input_dir.exists() and not output_dir.exists():
+                if (
+                    key == "recipe_llm_correct_and_link"
+                    and not stage_dir.exists()
+                    and not input_dir.exists()
+                    and not output_dir.exists()
+                ):
+                    continue
+                if key not in {
+                    "build_intermediate_det",
+                    "build_final_recipe",
+                } and not stage_dir.exists() and not input_dir.exists() and not output_dir.exists():
                     continue
                 stage_rows.setdefault(
                     key,
@@ -229,9 +271,9 @@ def build_stage_observability_report(
 
             knowledge_manifest_path = workbook_dir / KNOWLEDGE_MANIFEST_FILE_NAME
             knowledge_manifest_payload = _load_json_dict(knowledge_manifest_path) or {}
-            knowledge_dir = workbook_dir / "knowledge"
+            knowledge_dir = workbook_dir / stage_artifact_stem("extract_knowledge_optional")
             if knowledge_manifest_path.exists() or knowledge_dir.exists():
-                key = "knowledge"
+                key = "extract_knowledge_optional"
                 stage_rows.setdefault(
                     key,
                     ObservedStage(
@@ -325,6 +367,38 @@ def build_stage_observability_report(
                     },
                 )
             )
+    nonrecipe_spans_path = run_root / "08_nonrecipe_spans.json"
+    if nonrecipe_spans_path.exists():
+        stage_key = "classify_nonrecipe"
+        stage_rows.setdefault(
+            stage_key,
+            ObservedStage(
+                stage_key=stage_key,
+                stage_label=stage_label(stage_key),
+                stage_artifact_stem=stage_artifact_stem(stage_key),
+                stage_family=stage_family(stage_key),
+                stage_order=stage_order(stage_key),
+                artifact_paths={
+                    "nonrecipe_spans_json": _relative_to(run_root, nonrecipe_spans_path) or ""
+                },
+            ),
+        )
+    knowledge_outputs_path = run_root / "09_knowledge_outputs.json"
+    if knowledge_outputs_path.exists():
+        stage_key = "extract_knowledge_optional"
+        stage_rows.setdefault(
+            stage_key,
+            ObservedStage(
+                stage_key=stage_key,
+                stage_label=stage_label(stage_key),
+                stage_artifact_stem=stage_artifact_stem(stage_key),
+                stage_family=stage_family(stage_key),
+                stage_order=stage_order(stage_key),
+                artifact_paths={
+                    "knowledge_outputs_json": _relative_to(run_root, knowledge_outputs_path) or ""
+                },
+            ),
+        )
     for artifact_key, path_name in (
         ("intermediate_drafts_dir", "intermediate drafts"),
         ("final_drafts_dir", "final drafts"),

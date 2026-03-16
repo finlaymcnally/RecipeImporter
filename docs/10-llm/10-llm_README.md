@@ -2,7 +2,7 @@
 summary: "Current LLM integration boundaries for CodexFarm across recipe, line-role, knowledge, tags, and prelabel flows."
 read_when:
   - When changing codex-farm settings or pipeline IDs
-  - When debugging pass4 knowledge or pass5 tag artifacts
+  - When debugging optional knowledge-stage or pass5 tag artifacts
   - When auditing recipe pipeline enablement/default behavior
   - When reconciling Label Studio prediction-run LLM wiring vs stage wiring
 ---
@@ -37,7 +37,7 @@ Recipe CodexFarm path:
 
 Other active Codex-backed surfaces:
 
-- Pass4 knowledge: `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`
+- Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`
 - Pass5 tags: `cookimport/tagging/orchestrator.py`, `cookimport/tagging/llm_second_pass.py`, `cookimport/tagging/codex_farm_tags_provider.py`, `cookimport/tagging/cli.py`
 - Canonical line-role: `cookimport/parsing/canonical_line_roles.py`, `cookimport/llm/canonical_line_role_prompt.py`
 - Freeform prelabel: `cookimport/labelstudio/prelabel.py`
@@ -47,7 +47,8 @@ All five live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, `tag
 
 ## Current live surfaces
 
-- `llm_recipe_pipeline`: `off`, `codex-farm-3pass-v1`, `codex-farm-2stage-repair-v1`
+- `llm_recipe_pipeline`: `off`, `codex-farm-single-correction-v1`
+  - legacy `codex-farm-3pass-v1` and `codex-farm-2stage-repair-v1` payloads now normalize to `codex-farm-single-correction-v1`
 - `llm_knowledge_pipeline`: `off`, `codex-farm-knowledge-v1`
 - `llm_tags_pipeline`: `off`, `codex-farm-tags-v1`
 - `line_role_pipeline`: `off`, `deterministic-v1`, `codex-line-role-v1`
@@ -78,11 +79,11 @@ Benchmark split:
 
 ## Prediction-run versus stage boundary
 
-- Stage/import runs can execute recipe Codex, pass4 knowledge, and pass5 tags.
+- Stage/import runs can execute recipe Codex, optional knowledge extraction, and pass5 tags.
 - Pass5 tags run after final drafts are written and read from `final drafts/<workbook_slug>/`.
 - Prediction-run generation can plan or execute:
   - recipe Codex passes
-  - pass4 knowledge harvest
+  - optional knowledge extraction over Stage 7 `knowledge` spans
   - canonical line-role Codex labeling
   - freeform prelabel
 - Prediction-run generation does not run pass5 tagging unless a processed stage output is also being written through the stage session path.
@@ -92,26 +93,26 @@ Benchmark split:
 
 Recipe passes write under:
 
-- `data/output/<ts>/raw/llm/<workbook_slug>/chunking/{in,out}/`
-- `data/output/<ts>/raw/llm/<workbook_slug>/schemaorg/{in,out}/` for the three-pass recipe pipeline
-- `data/output/<ts>/raw/llm/<workbook_slug>/merged_repair/{in,out}/` for the merged-repair recipe pipeline
-- `data/output/<ts>/raw/llm/<workbook_slug>/final/{in,out}/` when the three-pass recipe pipeline executes the final LLM stage
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_manifest.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/transport_audit/*.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/evidence_normalization/*.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/guardrail_report.json` and `guardrail_rows.jsonl` when emitted
-- `data/output/<ts>/raw/llm/<workbook_slug>/merged_repair_audit/` for `codex-farm-2stage-repair-v1`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction_audit/`
 
-Pass4 knowledge writes:
+Recipe runtime note:
+- the canonical recipe path is now one LLM correction call per authoritative recipe span
+- deterministic code builds the intermediate `RecipeCandidate`, Codex corrects it and emits `ingredient_step_mapping`, then deterministic code rebuilds the final cookbook3 draft locally
+- `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
 
+Knowledge-stage writes:
+
+- `data/output/<ts>/08_nonrecipe_spans.json`
+- `data/output/<ts>/09_knowledge_outputs.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
-- `data/output/<ts>/knowledge/<workbook_slug>/block_classifications.jsonl`
 - `data/output/<ts>/knowledge/<workbook_slug>/snippets.jsonl`
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
-`block_classifications.jsonl` is the primary machine-readable outside-span contract. `snippets.jsonl` remains the reviewer-facing fallback/evidence surface.
+`08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are now the machine-readable outside-span contract. `snippets.jsonl` remains reviewer-facing evidence only.
 
 Pass5 tags writes:
 
@@ -156,10 +157,8 @@ Run-level observability note:
 
 Compact/default contract:
 
-- Default recipe pass IDs are compact-first:
-  - `recipe.schemaorg.compact.v1`
-  - `recipe.final.compact.v1`
-  - `recipe.knowledge.compact.v1`
+- Default recipe correction pack id is `recipe.correction.compact.v1`
+- Knowledge pack remains `recipe.knowledge.compact.v1`
 - Canonical line-role prompt format defaults to `compact_v1` when `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT` is unset.
 
 Structured output contract:

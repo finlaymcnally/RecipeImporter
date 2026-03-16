@@ -309,6 +309,64 @@ def _sanitize_staging_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]
     return sanitized
 
 
+def _normalize_mapping_override(
+    value: Mapping[str, Any] | None,
+    *,
+    ingredient_count: int,
+    step_count: int,
+) -> dict[int, list[int]]:
+    if not isinstance(value, Mapping):
+        return {}
+    normalized: dict[int, list[int]] = {}
+    for raw_ingredient_index, raw_step_indexes in value.items():
+        try:
+            ingredient_index = int(raw_ingredient_index)
+        except (TypeError, ValueError):
+            continue
+        if ingredient_index < 0 or ingredient_index >= ingredient_count:
+            continue
+        if not isinstance(raw_step_indexes, list):
+            continue
+        seen_steps: set[int] = set()
+        normalized_steps: list[int] = []
+        for raw_step_index in raw_step_indexes:
+            try:
+                step_index = int(raw_step_index)
+            except (TypeError, ValueError):
+                continue
+            if step_index < 0 or step_index >= step_count or step_index in seen_steps:
+                continue
+            seen_steps.add(step_index)
+            normalized_steps.append(step_index)
+        normalized[ingredient_index] = normalized_steps
+    return normalized
+
+
+def _build_step_lines_from_mapping_override(
+    *,
+    all_ingredient_lines: list[dict[str, Any]],
+    mapping_override: Mapping[str, Any],
+    step_count: int,
+) -> tuple[list[list[dict[str, Any]]], set[int]]:
+    normalized_mapping = _normalize_mapping_override(
+        mapping_override,
+        ingredient_count=len(all_ingredient_lines),
+        step_count=step_count,
+    )
+    step_lines: list[list[dict[str, Any]]] = [[] for _ in range(step_count)]
+    assigned_indices: set[int] = set()
+    for ingredient_index, ingredient_line in enumerate(all_ingredient_lines):
+        if ingredient_line.get("quantity_kind") == "section_header":
+            continue
+        target_steps = normalized_mapping.get(ingredient_index, [])
+        if not target_steps:
+            continue
+        assigned_indices.add(ingredient_index)
+        for step_index in target_steps:
+            step_lines[step_index].append(dict(ingredient_line))
+    return step_lines, assigned_indices
+
+
 def _convert_ingredient(
     text: str,
     *,
@@ -455,6 +513,8 @@ def recipe_candidate_to_draft_v1(
     *,
     ingredient_parser_options: Mapping[str, Any] | None = None,
     instruction_step_options: Mapping[str, Any] | None = None,
+    ingredient_step_mapping_override: Mapping[str, Any] | None = None,
+    ingredient_step_mapping_reason: str | None = None,
 ) -> dict[str, Any]:
     """Convert a RecipeCandidate into cookbook3 format (internal model: RecipeDraftV1)."""
 
@@ -525,13 +585,26 @@ def recipe_candidate_to_draft_v1(
 
     ingredient_section_key_by_line = _derive_ingredient_section_keys(all_ingredient_lines)
 
-    step_ingredient_lines, assignment_debug = assign_ingredient_lines_to_steps(
-        instruction_texts,
-        all_ingredient_lines,
-        ingredient_section_key_by_line=ingredient_section_key_by_line,
-        step_section_key_by_step=step_section_key_by_step,
-        debug=True,
-    )
+    if isinstance(ingredient_step_mapping_override, Mapping):
+        step_ingredient_lines, assigned_indices = _build_step_lines_from_mapping_override(
+            all_ingredient_lines=all_ingredient_lines,
+            mapping_override=ingredient_step_mapping_override,
+            step_count=len(instruction_texts),
+        )
+        assignment_debug = None
+    else:
+        step_ingredient_lines, assignment_debug = assign_ingredient_lines_to_steps(
+            instruction_texts,
+            all_ingredient_lines,
+            ingredient_section_key_by_line=ingredient_section_key_by_line,
+            step_section_key_by_step=step_section_key_by_step,
+            debug=True,
+        )
+        assigned_indices = {
+            assignment.ingredient_index
+            for assignment in assignment_debug.assignments
+            if assignment.assigned_steps
+        }
 
     instruction_parse_options = normalize_instruction_parse_options(instruction_step_options)
     emit_p6_metadata_debug = _resolve_p6_emit_metadata_debug(instruction_step_options)
@@ -593,12 +666,6 @@ def recipe_candidate_to_draft_v1(
         steps_data.append(step_entry)
 
     # Find any ingredients that weren't assigned to any step
-    assigned_indices = {
-        assignment.ingredient_index
-        for assignment in assignment_debug.assignments
-        if assignment.assigned_steps
-    }
-
     unassigned_raw = [
         line for idx, line in enumerate(all_ingredient_lines)
         if idx not in assigned_indices

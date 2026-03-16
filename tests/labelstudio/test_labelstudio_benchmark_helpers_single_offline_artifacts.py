@@ -453,7 +453,7 @@ def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fall
         / "raw"
         / "llm"
         / "book"
-        / "llm_manifest.json"
+        / cli.RECIPE_MANIFEST_FILE_NAME
     )
     llm_manifest_path.parent.mkdir(parents=True, exist_ok=True)
     llm_manifest_path.write_text(

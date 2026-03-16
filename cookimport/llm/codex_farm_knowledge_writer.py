@@ -7,16 +7,13 @@ from typing import Any, Mapping
 
 from .codex_farm_knowledge_models import Pass4KnowledgeOutputV1
 
-BLOCK_CLASSIFICATIONS_FILENAME = "block_classifications.jsonl"
-
 
 @dataclass(frozen=True, slots=True)
 class KnowledgeWriteReport:
     snippets_written: int
-    block_classifications_written: int
     snippets_path: Path
-    block_classifications_path: Path
     preview_path: Path
+    snippet_records: list[dict[str, Any]]
 
 
 def write_knowledge_artifacts(
@@ -27,42 +24,18 @@ def write_knowledge_artifacts(
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     chunk_lane_by_id: Mapping[str, str | None] | None = None,
 ) -> KnowledgeWriteReport:
-    """Write pass4 knowledge artifacts under the run directory.
-
-    Artifacts:
-    - knowledge/<workbook_slug>/snippets.jsonl
-    - knowledge/<workbook_slug>/block_classifications.jsonl
-    - knowledge/<workbook_slug>/knowledge.md
-    """
+    """Write pass4 knowledge reviewer artifacts under the run directory."""
     knowledge_dir = run_root / "knowledge" / workbook_slug
     knowledge_dir.mkdir(parents=True, exist_ok=True)
     snippets_path = knowledge_dir / "snippets.jsonl"
-    block_classifications_path = knowledge_dir / BLOCK_CLASSIFICATIONS_FILENAME
     preview_path = knowledge_dir / "knowledge.md"
 
     lanes = dict(chunk_lane_by_id or {})
     snippet_records: list[dict[str, Any]] = []
-    block_classification_records: list[dict[str, Any]] = []
 
     for chunk_id in sorted(outputs):
         output = outputs[chunk_id]
         lane = lanes.get(chunk_id)
-        for decision in output.block_decisions:
-            block_index = int(decision.block_index)
-            if block_index not in full_blocks_by_index:
-                raise ValueError(
-                    "Block decision references missing block index "
-                    f"{block_index} (chunk_id={chunk_id})."
-                )
-            record = {
-                "chunk_id": chunk_id,
-                "block_index": block_index,
-                "category": str(decision.category),
-                "chunk_is_useful": bool(output.is_useful),
-            }
-            if lane is not None:
-                record["heuristic_lane"] = lane
-            block_classification_records.append(record)
         for snippet_index, snippet in enumerate(output.snippets):
             evidence_indices = [int(pointer.block_index) for pointer in snippet.evidence]
             for idx in evidence_indices:
@@ -89,14 +62,6 @@ def write_knowledge_artifacts(
                 record["heuristic_lane"] = lane
             snippet_records.append(record)
 
-    block_classifications_path.write_text(
-        "".join(
-            json.dumps(record, sort_keys=True, ensure_ascii=True) + "\n"
-            for record in block_classification_records
-        ),
-        encoding="utf-8",
-    )
-
     snippets_path.write_text(
         "".join(
             json.dumps(record, sort_keys=True, ensure_ascii=True) + "\n"
@@ -116,10 +81,9 @@ def write_knowledge_artifacts(
 
     return KnowledgeWriteReport(
         snippets_written=len(snippet_records),
-        block_classifications_written=len(block_classification_records),
         snippets_path=snippets_path,
-        block_classifications_path=block_classifications_path,
         preview_path=preview_path,
+        snippet_records=snippet_records,
     )
 
 

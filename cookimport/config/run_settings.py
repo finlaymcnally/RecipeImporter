@@ -140,10 +140,13 @@ _SUMMARY_ORDER = (
 )
 
 RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
+RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES = {
+    "codex-farm-2stage-repair-v1": "codex-farm-single-correction-v1",
+    "codex-farm-3pass-v1": "codex-farm-single-correction-v1",
+}
 RECIPE_CODEX_FARM_ALLOWED_PIPELINES = (
     "off",
-    "codex-farm-3pass-v1",
-    "codex-farm-2stage-repair-v1",
+    "codex-farm-single-correction-v1",
 )
 RECIPE_CODEX_FARM_EXECUTION_PIPELINES = tuple(
     value for value in RECIPE_CODEX_FARM_ALLOWED_PIPELINES if value != "off"
@@ -151,7 +154,8 @@ RECIPE_CODEX_FARM_EXECUTION_PIPELINES = tuple(
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY = (
     "Recipe codex-farm parsing correction supports "
-    "'off', 'codex-farm-3pass-v1', and 'codex-farm-2stage-repair-v1'."
+    "'off' and 'codex-farm-single-correction-v1'. "
+    "Legacy 'codex-farm-3pass-v1' and 'codex-farm-2stage-repair-v1' values load as aliases."
 )
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
@@ -309,8 +313,7 @@ class P6YieldMode(str, Enum):
 
 class LlmRecipePipeline(str, Enum):
     off = "off"
-    codex_farm_3pass_v1 = "codex-farm-3pass-v1"
-    codex_farm_2stage_repair_v1 = "codex-farm-2stage-repair-v1"
+    codex_farm_single_correction_v1 = "codex-farm-single-correction-v1"
 
 
 class AtomicBlockSplitter(str, Enum):
@@ -1197,6 +1200,21 @@ class RunSettings(BaseModel):
             "Invalid codex_farm_recipe_mode. Expected one of: extract, benchmark."
         )
 
+    @field_validator("llm_recipe_pipeline", mode="before")
+    @classmethod
+    def _normalize_llm_recipe_pipeline(
+        cls,
+        value: Any,
+    ) -> str | LlmRecipePipeline:
+        normalized = str(getattr(value, "value", value) or "").strip().lower()
+        normalized = RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES.get(
+            normalized,
+            normalized or LlmRecipePipeline.off.value,
+        )
+        if normalized not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
+            raise ValueError(RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR)
+        return normalized
+
     @classmethod
     def from_dict(
         cls,
@@ -1218,6 +1236,10 @@ class RunSettings(BaseModel):
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw.value).strip().lower()
             else:
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw).strip().lower()
+            normalized_recipe_pipeline = RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES.get(
+                normalized_recipe_pipeline,
+                normalized_recipe_pipeline,
+            )
             if normalized_recipe_pipeline not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
                 raise ValueError(
                     "Invalid llm_recipe_pipeline in "

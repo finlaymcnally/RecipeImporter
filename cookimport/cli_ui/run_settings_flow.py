@@ -31,8 +31,7 @@ _WORKER_UTILIZATION_DEFAULT = 1.0
 _TOP_TIER_PROFILE_ENV = "COOKIMPORT_TOP_TIER_PROFILE"
 _INTERACTIVE_RECIPE_PIPELINE_LABELS: dict[str, str] = {
     "off": "Vanilla / deterministic only",
-    "codex-farm-3pass-v1": "CodexFarm current 3-pass control",
-    "codex-farm-2stage-repair-v1": "CodexFarm merged 2-stage prototype",
+    "codex-farm-single-correction-v1": "CodexFarm single correction",
 }
 _INTERACTIVE_BLOCK_LABEL_PIPELINE_LABELS: dict[str, str] = {
     "deterministic-v1": "Deterministic line-role baseline",
@@ -142,6 +141,8 @@ def _default_codex_recipe_pipeline(global_defaults: RunSettings) -> str:
 
 def _normalize_interactive_recipe_pipeline(value: Any) -> str | None:
     raw = str(value or "").strip().lower()
+    if raw in {"codex-farm-3pass-v1", "codex-farm-2stage-repair-v1"}:
+        raw = "codex-farm-single-correction-v1"
     if raw in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return raw
     return None
@@ -210,17 +211,10 @@ def _choose_interactive_recipe_pipeline(
             ),
             questionary.Choice(
                 (
-                    f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['codex-farm-3pass-v1']} "
-                    "(`codex-farm-3pass-v1`)"
+                    f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['codex-farm-single-correction-v1']} "
+                    "(`codex-farm-single-correction-v1`)"
                 ),
-                value="codex-farm-3pass-v1",
-            ),
-            questionary.Choice(
-                (
-                    f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['codex-farm-2stage-repair-v1']} "
-                    "(`codex-farm-2stage-repair-v1`)"
-                ),
-                value="codex-farm-2stage-repair-v1",
+                value="codex-farm-single-correction-v1",
             ),
         ],
     )

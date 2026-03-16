@@ -9,13 +9,11 @@ This root must contain:
 - `prompts/`
 - `schemas/`
 
-## Codex-farm recipe 3-pass defaults
+## Codex-farm recipe defaults
 
 Editable pipeline specs:
 
-- `pipelines/recipe.chunking.v1.json`
-- `pipelines/recipe.schemaorg.compact.v1.json`
-- `pipelines/recipe.final.compact.v1.json`
+- `pipelines/recipe.correction.compact.v1.json`
 - `pipelines/recipe.knowledge.compact.v1.json` (optional pass4 knowledge harvest)
 - `pipelines/recipe.tags.v1.json` (optional pass5 tag suggestions)
 - `pipelines/line-role.canonical.v1.json` (canonical line-role surface)
@@ -23,23 +21,19 @@ Editable pipeline specs:
 
 Editable prompt text:
 
-- `prompts/recipe.chunking.v1.prompt.md`
-- `prompts/recipe.schemaorg.compact.v1.prompt.md`
-- `prompts/recipe.final.compact.v1.prompt.md`
+- `prompts/recipe.correction.compact.v1.prompt.md`
 - `prompts/recipe.knowledge.compact.v1.prompt.md`
 - `prompts/recipe.tags.v1.prompt.md`
 
 Output schemas:
 
-- `schemas/recipe.chunking.v1.output.schema.json`
-- `schemas/recipe.schemaorg.v1.output.schema.json`
-- `schemas/recipe.final.v1.output.schema.json`
+- `schemas/recipe.correction.v1.output.schema.json`
 - `schemas/recipe.knowledge.v1.output.schema.json`
 - `schemas/recipe.tags.v1.output.schema.json`
 - `schemas/line-role.canonical.v1.output.schema.json`
 - `schemas/prelabel.freeform.v1.output.schema.json`
 
-To tune pass behavior, edit prompt text files in `prompts/`. The shipped pack keeps only the compact pass2/pass3/pass4 assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`. Those compact pipeline ids still reuse the existing pass2/pass3/pass4 output schemas while sending smaller input payloads.
+To tune pass behavior, edit prompt text files in `prompts/`. The canonical recipe pack now uses one compact correction asset, `recipe.correction.compact.v1`, plus the optional knowledge and tag packs.
 
 Recipe pass2/pass3/merged-repair schemas now use native nested JSON objects for recipe payload fields (`schemaorg_recipe`, `field_evidence`, `draft_v1`, `canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
 

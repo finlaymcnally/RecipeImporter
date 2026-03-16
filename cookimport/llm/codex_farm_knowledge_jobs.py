@@ -7,6 +7,11 @@ from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import ChunkLane, KnowledgeChunk, ParsingOverrides
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
+from cookimport.parsing.label_source_of_truth import RecipeSpan
+from cookimport.staging.nonrecipe_stage import (
+    NonRecipeSpan,
+    block_rows_for_nonrecipe_span,
+)
 
 from .codex_farm_knowledge_contracts import (
     KnowledgeCompactChunkBlockV1,
@@ -26,8 +31,6 @@ from .codex_farm_knowledge_contracts import (
     Pass4KnowledgeJobInputV1,
     SpanV1,
 )
-from .non_recipe_spans import Span
-
 LEGACY_PASS4_JOB_FORMAT = "legacy"
 COMPACT_PASS4_JOB_FORMAT = "compact_v1"
 
@@ -37,13 +40,13 @@ class KnowledgeJobBuildReport:
     jobs_written: int
     chunk_ids: list[str]
     chunk_lane_by_id: dict[str, str | None]
-    recipe_spans: list[Span]
 
 
 def build_pass4_knowledge_jobs(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
-    non_recipe_blocks: Sequence[Mapping[str, Any]],
+    knowledge_spans: Sequence[NonRecipeSpan],
+    recipe_spans: Sequence[RecipeSpan],
     workbook_slug: str,
     source_hash: str,
     out_dir: Path,
@@ -54,31 +57,33 @@ def build_pass4_knowledge_jobs(
     """Write pass4 knowledge job bundles to out_dir and return a build report.
 
     Notes:
-    - Uses deterministic chunking/highlights as hints only; no filtering by lane.
-    - Chunk blocks come only from non-recipe blocks; context may overlap recipes.
+    - Uses deterministic chunking/highlights as hints only within Stage 7 knowledge spans.
+    - Chunk blocks come only from Stage 7 knowledge spans; context may overlap recipes.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build pass4 knowledge jobs: empty full_blocks.")
 
-    non_recipe_sorted = _sorted_blocks_by_index(non_recipe_blocks)
-    non_recipe_indices = {int(block["index"]) for block in non_recipe_sorted}
-    table_hints_by_index = _table_hints_by_index(non_recipe_sorted)
-
-    recipe_spans = _recipe_spans_from_indices(
-        recipe_indices=[
-            idx for idx in sorted(full_blocks_by_index) if idx not in non_recipe_indices
-        ]
-    )
-    recipe_spans_payload = [SpanV1(start=span.start, end=span.end) for span in recipe_spans]
-
-    sequences = _split_contiguous_sequences(non_recipe_sorted)
+    recipe_spans_payload = [
+        SpanV1(
+            start=int(span.start_block_index),
+            end=int(span.end_block_index),
+        )
+        for span in recipe_spans
+    ]
     chunk_ids: list[str] = []
     chunk_lane_by_id: dict[str, str | None] = {}
     chunk_counter = 0
 
-    for sequence in sequences:
+    for stage_span in knowledge_spans:
+        sequence = block_rows_for_nonrecipe_span(
+            full_blocks=full_blocks,
+            span=stage_span,
+        )
+        if not sequence:
+            continue
+        table_hints_by_index = _table_hints_by_index(sequence)
         chunks = chunks_from_non_recipe_blocks(sequence, overrides=overrides)
         for chunk in chunks:
             chunk_id = f"{workbook_slug}.c{chunk_counter:04d}.nr"
@@ -109,7 +114,6 @@ def build_pass4_knowledge_jobs(
         jobs_written=len(chunk_ids),
         chunk_ids=chunk_ids,
         chunk_lane_by_id=chunk_lane_by_id,
-        recipe_spans=recipe_spans,
     )
 
 
@@ -131,57 +135,6 @@ def _prepare_full_blocks_by_index(
         payload["block_id"] = block_id.strip()
         by_index[index] = payload
     return by_index
-
-
-def _sorted_blocks_by_index(blocks: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    prepared: list[dict[str, Any]] = []
-    for block in blocks:
-        if not isinstance(block, Mapping):
-            continue
-        index = _coerce_int(block.get("index"))
-        if index is None:
-            continue
-        payload = dict(block)
-        payload["index"] = index
-        prepared.append(payload)
-    prepared.sort(key=lambda item: int(item["index"]))
-    return prepared
-
-
-def _split_contiguous_sequences(blocks_sorted: Sequence[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-    sequences: list[list[dict[str, Any]]] = []
-    current: list[dict[str, Any]] = []
-    previous_index: int | None = None
-    for block in blocks_sorted:
-        index = int(block["index"])
-        if previous_index is None or index == previous_index + 1:
-            current.append(block)
-        else:
-            if current:
-                sequences.append(current)
-            current = [block]
-        previous_index = index
-    if current:
-        sequences.append(current)
-    return sequences
-
-
-def _recipe_spans_from_indices(*, recipe_indices: Sequence[int]) -> list[Span]:
-    if not recipe_indices:
-        return []
-    sorted_indices = sorted(set(int(idx) for idx in recipe_indices))
-    spans: list[Span] = []
-    start = sorted_indices[0]
-    previous = start
-    for idx in sorted_indices[1:]:
-        if idx == previous + 1:
-            previous = idx
-            continue
-        spans.append(Span(start, previous + 1))
-        start = idx
-        previous = idx
-    spans.append(Span(start, previous + 1))
-    return spans
 
 
 def _build_job_payload(

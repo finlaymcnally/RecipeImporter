@@ -293,7 +293,7 @@ Compare runs write:
 
 When line-role prediction is enabled in prediction generation, prediction runs also write:
 - `line-role-pipeline/line_role_predictions.jsonl`
-- `line-role-pipeline/freeform_span_predictions.jsonl`
+- `line-role-pipeline/projected_spans.jsonl`
 - `line-role-pipeline/stage_block_predictions.json`
 - `line-role-pipeline/extracted_archive.json`
 - `line-role-pipeline/guardrail_report.json`
@@ -302,7 +302,8 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/guardrail_changed_rows.jsonl`
 - `line-role-pipeline/do_no_harm_diagnostics.json`
 - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
-Prediction-generation defaults for canonical line-role codex inflight are now shared at ingest seam: non-split jobs use `8`, split-gated jobs use `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` still overrides both.
+Prediction-generation now reuses authoritative line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` evidence comes from Stage 7 non-recipe artifacts instead of a pass4 merge step.
+Canonical line-role codex inflight is now resolved inside `canonical_line_roles.py`; `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the explicit override.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
 When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:
 - `line-role-pipeline/joined_line_table.jsonl`
@@ -335,6 +336,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
 - If `line_role_pipeline != off`, benchmark manifests include line-role diagnostics pointers and an optional `line_role_pipeline_recipe_projection` summary.
 - Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
+- New-format benchmark/prediction runs do not write or consume `pass4_merge_report.json`; Stage 7 ownership is already baked into the reused stage artifacts.
 - Line-role manifests now also surface do-no-harm pointers:
   - `line_role_pipeline_do_no_harm_diagnostics_json`
   - `line_role_pipeline_do_no_harm_changed_rows_jsonl`

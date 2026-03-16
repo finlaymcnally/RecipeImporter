@@ -595,7 +595,7 @@ def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_
     assert len(helper_calls) == 1
     selected_settings = helper_calls[0]["selected_benchmark_settings"]
     assert isinstance(selected_settings, cli.RunSettings)
-    assert selected_settings.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
+    assert selected_settings.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
     assert str(selected_settings.codex_farm_model) == "gpt-5.3-codex-spark"
     assert selected_settings.codex_farm_reasoning_effort is not None
     assert selected_settings.codex_farm_reasoning_effort.value == "low"

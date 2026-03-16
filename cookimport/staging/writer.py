@@ -28,6 +28,7 @@ from cookimport.parsing.label_source_of_truth import (
     LabelFirstCompatibilityResult,
     build_authoritative_stage_block_predictions,
 )
+from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.parsing.tables import ExtractedTable
 from cookimport.parsing.sections import extract_ingredient_sections, extract_instruction_sections
 from cookimport.parsing.step_segmentation import (
@@ -50,6 +51,8 @@ _OUTPUT_CATEGORY_TABLES = "tables"
 _OUTPUT_CATEGORY_RAW = "rawArtifacts"
 _OUTPUT_CATEGORY_SECTIONS = "sections"
 _OUTPUT_CATEGORY_BENCH = "benchArtifacts"
+_OUTPUT_CATEGORY_NONRECIPE = "nonRecipe"
+_OUTPUT_CATEGORY_KNOWLEDGE = "knowledge"
 
 _IO_PACE_EVERY_WRITES_ENV = "COOKIMPORT_IO_PACE_EVERY_WRITES"
 _IO_PACE_SLEEP_MS_ENV = "COOKIMPORT_IO_PACE_SLEEP_MS"
@@ -1198,8 +1201,7 @@ def write_stage_block_predictions(
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: list[dict[str, Any]] | None = None,
-    knowledge_block_classifications_path: Path | None = None,
-    knowledge_snippets_path: Path | None = None,
+    nonrecipe_stage_result: NonRecipeStageResult | None = None,
     output_stats: OutputStats | None = None,
     label_first_result: LabelFirstCompatibilityResult | None = None,
 ) -> Path:
@@ -1219,8 +1221,7 @@ def write_stage_block_predictions(
             source_file=source_file,
             source_hash=source_hash,
             archive_blocks=archive_blocks,
-            knowledge_block_classifications_path=knowledge_block_classifications_path,
-            knowledge_snippets_path=knowledge_snippets_path,
+            nonrecipe_stage_result=nonrecipe_stage_result,
         )
     out_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
     _write_json_payload(
@@ -1230,6 +1231,118 @@ def write_stage_block_predictions(
         category=_OUTPUT_CATEGORY_BENCH,
     )
     return out_path
+
+
+def write_nonrecipe_stage_outputs(
+    stage_result: NonRecipeStageResult,
+    output_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    path = output_dir / "08_nonrecipe_spans.json"
+    payload = {
+        "schema_version": "nonrecipe_spans.v1",
+        "counts": {
+            "nonrecipe_spans": len(stage_result.nonrecipe_spans),
+            "knowledge_spans": len(stage_result.knowledge_spans),
+            "other_spans": len(stage_result.other_spans),
+            "knowledge_blocks": sum(
+                1 for category in stage_result.block_category_by_index.values()
+                if category == "knowledge"
+            ),
+            "other_blocks": sum(
+                1 for category in stage_result.block_category_by_index.values()
+                if category == "other"
+            ),
+            "warnings": len(stage_result.warnings),
+        },
+        "warnings": list(stage_result.warnings),
+        "block_category_by_index": {
+            str(index): category
+            for index, category in sorted(stage_result.block_category_by_index.items())
+        },
+        "spans": [
+            {
+                "span_id": span.span_id,
+                "category": span.category,
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
+            for span in stage_result.nonrecipe_spans
+        ],
+    }
+    _write_json_payload(
+        payload,
+        path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_NONRECIPE,
+    )
+    return path
+
+
+def write_knowledge_outputs_artifact(
+    *,
+    run_root: Path,
+    stage_result: NonRecipeStageResult,
+    llm_report: Mapping[str, Any] | None,
+    snippet_records: list[dict[str, Any]] | None,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    counts = {}
+    if isinstance(llm_report, Mapping):
+        raw_counts = llm_report.get("counts")
+        if isinstance(raw_counts, Mapping):
+            counts = {
+                str(key): raw_counts.get(key)
+                for key in raw_counts
+            }
+    path = run_root / "09_knowledge_outputs.json"
+    payload = {
+        "schema_version": "knowledge_outputs.v1",
+        "input_mode": "stage7_knowledge_spans",
+        "counts": {
+            "nonrecipe_spans": len(stage_result.nonrecipe_spans),
+            "knowledge_spans": len(stage_result.knowledge_spans),
+            "other_spans": len(stage_result.other_spans),
+            "knowledge_blocks": sum(
+                1 for category in stage_result.block_category_by_index.values()
+                if category == "knowledge"
+            ),
+            "other_blocks": sum(
+                1 for category in stage_result.block_category_by_index.values()
+                if category == "other"
+            ),
+            "jobs_written": int(counts.get("jobs_written") or 0),
+            "outputs_parsed": int(counts.get("outputs_parsed") or 0),
+            "chunks_missing": int(counts.get("chunks_missing") or 0),
+            "snippets_written": int(counts.get("snippets_written") or 0),
+        },
+        "pipeline": str((llm_report or {}).get("pipeline") or "off"),
+        "enabled": bool((llm_report or {}).get("enabled")),
+        "knowledge_spans": [
+            {
+                "span_id": span.span_id,
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
+            for span in stage_result.knowledge_spans
+        ],
+        "artifact_paths": dict((llm_report or {}).get("paths") or {}),
+        "missing_chunk_ids": list((llm_report or {}).get("missing_chunk_ids") or []),
+        "warnings": list(stage_result.warnings),
+        "snippets": list(snippet_records or []),
+    }
+    _write_json_payload(
+        payload,
+        path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_KNOWLEDGE,
+    )
+    return path
 
 
 def _format_chunks_md(chunks: list[KnowledgeChunk]) -> list[str]:

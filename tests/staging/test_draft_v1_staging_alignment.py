@@ -104,6 +104,26 @@ def test_draft_v1_falls_back_to_untitled_title_when_blank() -> None:
     assert draft["recipe"]["title"] == "Untitled Recipe"
 
 
+def test_draft_v1_honors_explicit_ingredient_step_mapping_override() -> None:
+    candidate = RecipeCandidate(
+        name="Mapping Override",
+        ingredients=["1 cup flour", "1 egg"],
+        instructions=["Whisk the egg.", "Fold in the flour."],
+    )
+
+    draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+        ingredient_step_mapping_override={"0": [1], "1": [0]},
+        ingredient_step_mapping_reason=None,
+    )
+
+    assert [line["raw_text"] for line in draft["steps"][0]["ingredient_lines"]] == ["1 egg"]
+    assert [line["raw_text"] for line in draft["steps"][1]["ingredient_lines"]] == [
+        "1 cup flour"
+    ]
+
+
 def test_sanitize_staging_line_caps_recipe_multiplier() -> None:
     line = _sanitize_staging_line(
         {

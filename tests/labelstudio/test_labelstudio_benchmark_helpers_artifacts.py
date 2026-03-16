@@ -1021,38 +1021,6 @@ def test_copy_line_role_pass4_merge_artifacts_for_benchmark_writes_summary(
     tmp_path: Path,
 ) -> None:
     pred_run = tmp_path / "prediction-run"
-    pred_line_role_dir = pred_run / "line-role-pipeline"
-    pred_line_role_dir.mkdir(parents=True, exist_ok=True)
-    (pred_line_role_dir / "pass4_merge_report.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "line_role_pass4_merge_report.v1",
-                "merge_mode": "block_classifications",
-                "usable_evidence": True,
-                "selected_block_count": 1,
-                "selected_line_count": 1,
-                "upgraded_other_to_knowledge_count": 1,
-                "downgraded_knowledge_to_other_count": 0,
-            },
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (pred_line_role_dir / "pass4_merge_changed_rows.jsonl").write_text(
-        json.dumps(
-            {
-                "line_index": 7,
-                "old_label": "OTHER",
-                "new_label": "KNOWLEDGE",
-                "selection_reason": "block_classification_knowledge",
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
     eval_output_dir = tmp_path / "eval"
     line_role_output_dir = eval_output_dir / "line-role-pipeline"
     line_role_output_dir.mkdir(parents=True, exist_ok=True)
@@ -1072,16 +1040,4 @@ def test_copy_line_role_pass4_merge_artifacts_for_benchmark_writes_summary(
         eval_output_dir=eval_output_dir,
     )
 
-    assert artifacts == {
-        "pass4_merge_report_json": "line-role-pipeline/pass4_merge_report.json",
-        "pass4_merge_changed_rows_jsonl": "line-role-pipeline/pass4_merge_changed_rows.jsonl",
-        "pass4_merge_summary_json": "line-role-pipeline/pass4_merge_summary.json",
-    }
-    summary = json.loads(
-        (line_role_output_dir / "pass4_merge_summary.json").read_text(encoding="utf-8")
-    )
-    assert summary["changed_line_count"] == 1
-    assert summary["changed_lines_matching_gold"] == 1
-    assert summary["changed_lines_wrong"] == 0
-    assert summary["changed_to_knowledge_gold_knowledge"] == 1
-    assert summary["merge_report"]["merge_mode"] == "block_classifications"
+    assert artifacts == {}

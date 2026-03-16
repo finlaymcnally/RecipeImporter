@@ -26,11 +26,14 @@ The user-visible proof is simple. A label-first stage run with recipe Codex enab
 - [x] (2026-03-15_22.21.11) Traced the current recipe LLM seam through `cookimport/llm/codex_farm_orchestrator.py`, `cookimport/llm/codex_farm_contracts.py`, `cookimport/staging/import_session.py`, and `cookimport/staging/draft_v1.py`.
 - [x] (2026-03-15_22.21.11) Recorded the key architectural finding in `docs/understandings/2026-03-15_22.21.11-phase3-single-correction-seam.md`.
 - [x] (2026-03-15_22.21.11) Wrote this ExecPlan.
-- [ ] Introduce the Phase 3 correction contract and deterministic span-to-intermediate builder.
-- [ ] Replace the current three-pass and merged-repair recipe orchestration with one canonical recipe-correction stage.
-- [ ] Add deterministic final-assembly support for explicit linkage payloads and remove the need for full final-draft LLM overrides.
-- [ ] Update run settings, CLI labels, benchmark/Label Studio compatibility shims, and prompt artifacts so the new single-stage naming is the product truth.
-- [ ] Add focused tests, run domain validation, and verify plan-mode plus execute-mode behavior on a small real import.
+- [x] (2026-03-16_00.35.04) Recorded the live implementation seam in `docs/understandings/2026-03-16_00.35.04-phase3-single-correction-cutover-targets.md` before changing code.
+- [x] (2026-03-16_01.10.00) Introduced the Phase 3 correction pack assets under `llm_pipelines/pipelines/recipe.correction.compact.v1.json`, `llm_pipelines/prompts/recipe.correction.compact.v1.prompt.md`, and `llm_pipelines/schemas/recipe.correction.v1.output.schema.json`.
+- [x] (2026-03-16_01.10.00) Replaced the public recipe Codex execution path with one canonical single-correction route in `cookimport/llm/codex_farm_orchestrator.py`; any non-`off` recipe pipeline value now routes through one correction stage and emits semantic stage planning/manifest rows.
+- [x] (2026-03-16_01.10.00) Added deterministic final-assembly support for explicit linkage payloads in `cookimport/staging/draft_v1.py`.
+- [x] (2026-03-16_01.10.00) Updated run settings, CLI/interactive normalization, stage observability, and local docs so `codex-farm-single-correction-v1` / `recipe.correction.compact.v1` are the new write-time truth.
+- [x] (2026-03-16_01.10.00) Replaced the old pass-oriented orchestrator tests with focused single-correction tests and added staging coverage for explicit ingredient-step mapping overrides.
+- [ ] Run the broader non-slow `llm` and `staging` domain wrappers.
+- [ ] Verify a small real stage run or plan-mode run against an input file under `data/input/`.
 
 ## Surprises & Discoveries
 
@@ -45,6 +48,12 @@ The user-visible proof is simple. A label-first stage run with recipe Codex enab
 
 - Observation: most of the remaining complexity is semantic naming and compatibility, not raw Codex execution mechanics.
   Evidence: the merged-repair path is already exposed through `codex-farm-2stage-repair-v1`, but manifests, raw folder names, tests, and benchmark artifact readers still describe recipe work through `pass1`, `pass2`, and `pass3` compatibility slots.
+
+- Observation: the current writer seam can stay intact if the recipe orchestrator updates `ConversionResult.recipes` with corrected `RecipeCandidate` values and only uses final-draft overrides for the deterministic linkage-aware rebuild.
+  Evidence: `cookimport/staging/import_session.py` already threads the updated `ConversionResult` plus optional `draft_overrides_by_recipe_id` into writer functions; no writer API change was required to cut over the recipe LLM path.
+
+- Observation: explicit ingredient-step mappings are sensitive to instruction segmentation policy because the override indexes apply after `draft_v1` normalizes and segments instructions.
+  Evidence: the new staging test had to pin `instruction_step_segmentation_policy=off` to keep two raw instruction rows from collapsing into one normalized step before the override was applied.
 
 ## Decision Log
 
@@ -76,11 +85,15 @@ The user-visible proof is simple. A label-first stage run with recipe Codex enab
   Rationale: Phase 2 exists to make grouped spans and normalized block labels authoritative. If Phase 3 starts from `ConversionResult`, it can silently fall back into candidate-first ownership and erase the point of the previous phase.
   Date/Author: 2026-03-15 / Codex
 
+- Decision: keep the writer-facing override seam unchanged for this cutover and derive final-draft overrides locally from the corrected candidate plus mapping override instead of adding a new writer API for linkage payloads.
+  Rationale: this preserves the existing stage/import writer contract while still removing the second recipe LLM pass and making final assembly deterministic.
+  Date/Author: 2026-03-16 / Codex
+
 ## Outcomes & Retrospective
 
-No implementation has been performed yet. The main outcome of this planning pass is a concrete migration path that reuses the current merged-repair seam, adds the missing deterministic final-assembly capability, and makes single-stage recipe correction the truthful runtime story instead of a prototype branch.
+Phase 3 is now implemented on the main write path. The recipe LLM runtime writes one canonical correction stage, the deterministic draft builder accepts explicit ingredient-step mappings, and new pack assets plus run settings name the product truth as `codex-farm-single-correction-v1` / `recipe.correction.compact.v1`.
 
-The biggest remaining risk is compatibility surface area. Recipe LLM execution touches stage runs, benchmark prediction generation, Label Studio normalization, prompt artifact exports, and report readers. This plan keeps that manageable by preserving read-time aliases while making the write path tell the truth immediately.
+The remaining work is validation breadth, not architecture. Focused staging and llm tests pass after the cutover, but the broader `./scripts/test-suite.sh domain llm`, `./scripts/test-suite.sh domain staging`, and one small real stage run still need to be executed to flush out compatibility fallout in untouched benchmark or reporting helpers.
 
 ## Context and Orientation
 
@@ -218,6 +231,8 @@ The orchestration is correct when the canonical recipe Codex route plans and exe
 The final assembly is correct when the same corrected `RecipeCandidate` can produce both intermediate JSON-LD and final `RecipeDraftV1` outputs locally, and when an explicit linkage payload changes step assignment in the final draft exactly as the test fixture expects.
 
 The migration is complete when:
+
+Plan revision note (2026-03-16 / Codex): updated progress, discoveries, decisions, and outcomes after implementing the single-correction write path, linkage-aware deterministic final assembly, semantic observability naming, new correction-pack assets, and the focused test/doc refresh. Remaining unchecked items are broader validation tasks rather than missing design work.
 
 - `tests/llm/test_codex_farm_contracts.py`, `tests/llm/test_writer_overrides.py`, `tests/llm/test_codex_farm_orchestrator.py`, and `tests/llm/test_codex_farm_orchestrator_stage_integration.py` pass.
 - the non-slow `llm` and `staging` domain suites pass through `./scripts/test-suite.sh`.

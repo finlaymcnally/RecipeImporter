@@ -134,6 +134,11 @@ from cookimport.runs import (
     write_stage_observability_report,
 )
 from cookimport.staging.import_session import execute_stage_import_session_from_result
+from cookimport.staging.nonrecipe_stage import (
+    NonRecipeStageResult,
+    block_rows_for_nonrecipe_stage,
+    build_nonrecipe_stage_result,
+)
 from cookimport.staging.writer import (
     OutputStats,
     write_chunk_outputs,
@@ -442,6 +447,8 @@ def _normalize_epub_extractor(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized in {"codex-farm-3pass-v1", "codex-farm-2stage-repair-v1"}:
+        normalized = "codex-farm-single-correction-v1"
     if normalized in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return normalized
     raise ValueError(
@@ -1123,8 +1130,6 @@ def _write_processed_outputs(
     schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     llm_codex_farm: dict[str, Any] | None = None,
-    knowledge_block_classifications_path: Path | None = None,
-    knowledge_snippets_path: Path | None = None,
     write_markdown: bool = True,
 ) -> Path:
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
@@ -2359,6 +2364,7 @@ def generate_pred_run_artifacts(
     archive = list(prepared_archive.blocks)
     book_id = result.workbook or path.stem
     authoritative_label_result: LabelFirstCompatibilityResult | None = None
+    nonrecipe_stage_result: NonRecipeStageResult | None = None
     if processed_output_root is None or codex_execution.plan_only:
         authoritative_label_result = build_label_first_compatibility_result(
             conversion_result=result,
@@ -2370,6 +2376,15 @@ def generate_pred_run_artifacts(
             progress_callback=_notify,
         )
         result = authoritative_label_result.conversion_result
+        nonrecipe_stage_result = build_nonrecipe_stage_result(
+            full_blocks=authoritative_label_result.archive_blocks,
+            final_block_labels=authoritative_label_result.block_labels,
+            recipe_spans=authoritative_label_result.recipe_spans,
+        )
+        result.non_recipe_blocks = block_rows_for_nonrecipe_stage(
+            full_blocks=authoritative_label_result.archive_blocks,
+            stage_result=nonrecipe_stage_result,
+        )
     line_role_artifacts: dict[str, Path] | None = None
     line_role_recipe_projection_summary: dict[str, Any] | None = None
     archive_payload_rows: list[dict[str, Any]] | None = None
@@ -2406,6 +2421,11 @@ def generate_pred_run_artifacts(
                 "context_blocks": run_settings.codex_farm_knowledge_context_blocks,
                 "chunk_count": len(result.chunks),
                 "non_recipe_block_count": len(result.non_recipe_blocks),
+                "knowledge_span_count": (
+                    len(nonrecipe_stage_result.knowledge_spans)
+                    if nonrecipe_stage_result is not None
+                    else 0
+                ),
             }
         if run_settings.line_role_pipeline.value != "off":
             planned_work["line_role"] = build_line_role_codex_execution_plan(
@@ -2558,6 +2578,20 @@ def generate_pred_run_artifacts(
         try:
             knowledge_apply = run_codex_farm_knowledge_harvest(
                 conversion_result=result,
+                nonrecipe_stage_result=(
+                    nonrecipe_stage_result
+                    if nonrecipe_stage_result is not None
+                    else build_nonrecipe_stage_result(
+                        full_blocks=authoritative_label_result.archive_blocks,
+                        final_block_labels=authoritative_label_result.block_labels,
+                        recipe_spans=authoritative_label_result.recipe_spans,
+                    )
+                ),
+                recipe_spans=list(
+                    authoritative_label_result.recipe_spans
+                    if authoritative_label_result is not None
+                    else []
+                ),
                 run_settings=run_settings,
                 run_root=run_root,
                 workbook_slug=book_slug,

@@ -2,7 +2,7 @@
 
 Optional LLM integrations live here.
 
-Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with strict pass contracts in `codex_farm_contracts.py` and subprocess/fake runners in `codex_farm_runner.py` and `fake_codex_farm_runner.py`.
+Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with strict contracts in `codex_farm_contracts.py` and subprocess/fake runners in `codex_farm_runner.py` and `fake_codex_farm_runner.py`.
 
 Run settings now include explicit pass pipeline ids (`codex_farm_pipeline_pass1/2/3`) plus optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
 
@@ -26,9 +26,11 @@ Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor b
 - `build_prompt_response_log(...)` is the topology-neutral builder that accepts either explicit descriptors or injected discoverers.
 - `build_codex_farm_prompt_response_log(...)` is the convenience wrapper used by CLI call sites.
 
-Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`), and those compact ids are now the default pass2/pass3/pass4 selections when CodexFarm recipe parsing or knowledge harvest is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
+Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`), and those compact ids are now the default pass2/pass3/knowledge-stage selections when CodexFarm recipe parsing or optional knowledge extraction is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
 
-The step4 prototype adds `llm_recipe_pipeline=codex-farm-2stage-repair-v1`, which keeps pass1 chunking but swaps the pass2/pass3 seam for one merged compact stage (`recipe.merged-repair.compact.v1`). The merged stage emits one canonical recipe object as a native nested JSON object; recipeimport derives schema.org and `RecipeDraftV1` shapes locally and writes per-recipe audit files under `raw/llm/<workbook>/merged_repair_audit/`.
+Knowledge harvest now runs only over Stage 7 `knowledge` spans from `cookimport/staging/nonrecipe_stage.py`. The deterministic ownership artifacts are `08_nonrecipe_spans.json` and `09_knowledge_outputs.json`; the LLM side still writes raw `knowledge/{in,out}` plus optional reviewer artifacts `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md`.
+
+The canonical recipe path is now `llm_recipe_pipeline=codex-farm-single-correction-v1`. It runs one compact correction stage (`recipe.correction.compact.v1`), updates the intermediate `RecipeCandidate`, and rebuilds final cookbook3 drafts locally from the corrected candidate plus `ingredient_step_mapping`.
 
 Current recipe-object transport note: pass2, pass3, and merged-repair loaders now accept both native nested objects and legacy JSON-string wrapper fields. New pack assets and fake-runner outputs use native nested objects, while old benchmark artifacts still load through the compatibility shim.
 

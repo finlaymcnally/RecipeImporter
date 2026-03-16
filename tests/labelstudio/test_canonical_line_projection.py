@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from cookimport.labelstudio.canonical_line_projection import (
     project_line_roles_to_freeform_spans,
     write_line_role_projection_artifacts,
@@ -87,21 +85,7 @@ def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) ->
     assert artifacts["do_no_harm_diagnostics_path"].name == "do_no_harm_diagnostics.json"
     assert artifacts["do_no_harm_changed_rows_path"].name == "do_no_harm_changed_rows.jsonl"
 
-
-def test_projection_artifacts_merge_pass4_knowledge_into_other_spans(tmp_path) -> None:
-    block_classifications_path = tmp_path / "block_classifications.jsonl"
-    block_classifications_path.write_text(
-        json.dumps(
-            {
-                "block_index": 1,
-                "category": "knowledge",
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
+def test_projection_artifacts_preserve_projected_labels(tmp_path) -> None:
     artifacts = write_line_role_projection_artifacts(
         run_root=tmp_path,
         source_file="book.epub",
@@ -133,95 +117,7 @@ def test_projection_artifacts_merge_pass4_knowledge_into_other_spans(tmp_path) -
                 reason_tags=["test"],
             ),
         ],
-        knowledge_block_classifications_path=block_classifications_path,
     )
 
-    stage_payload = json.loads(
-        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
-    )
-    assert stage_payload["block_labels"]["1"] == "KNOWLEDGE"
-    assert any("Pass4 block classifications merged" in note for note in stage_payload["notes"])
-
-    merge_report = json.loads(
-        artifacts["pass4_merge_report_path"].read_text(encoding="utf-8")
-    )
-    assert merge_report["merge_mode"] == "block_classifications"
-    assert merge_report["selected_line_count"] == 1
-    assert merge_report["upgraded_other_to_knowledge_count"] == 1
-
-    changed_rows = [
-        json.loads(line)
-        for line in artifacts["pass4_merge_changed_rows_path"].read_text(
-            encoding="utf-8"
-        ).splitlines()
-        if line.strip()
-    ]
-    assert len(changed_rows) == 1
-    assert changed_rows[0]["line_index"] == 1
-    assert changed_rows[0]["old_label"] == "OTHER"
-    assert changed_rows[0]["new_label"] == "KNOWLEDGE"
-    assert changed_rows[0]["selection_reason"] == "block_classification_knowledge"
-
-    projected_rows = [
-        json.loads(line)
-        for line in artifacts["projected_spans_path"].read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert projected_rows[1]["label"] == "KNOWLEDGE"
-
-
-def test_projection_artifacts_downgrade_pass4_other_classifications(tmp_path) -> None:
-    block_classifications_path = tmp_path / "block_classifications.jsonl"
-    block_classifications_path.write_text(
-        json.dumps(
-            {
-                "block_index": 1,
-                "category": "other",
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    artifacts = write_line_role_projection_artifacts(
-        run_root=tmp_path,
-        source_file="book.epub",
-        source_hash="hash",
-        workbook_slug="book",
-        predictions=[
-            CanonicalLineRolePrediction(
-                recipe_id=None,
-                block_id="b1",
-                block_index=1,
-                atomic_index=1,
-                text="Kitchen memoir prose",
-                within_recipe_span=False,
-                label="KNOWLEDGE",
-                confidence=0.99,
-                decided_by="rule",
-                reason_tags=["test"],
-            ),
-            CanonicalLineRolePrediction(
-                recipe_id="recipe:0",
-                block_id="b2",
-                block_index=2,
-                atomic_index=2,
-                text="1 cup stock",
-                within_recipe_span=True,
-                label="INGREDIENT_LINE",
-                confidence=0.99,
-                decided_by="rule",
-                reason_tags=["test"],
-            ),
-        ],
-        knowledge_block_classifications_path=block_classifications_path,
-    )
-
-    projected_rows = [
-        json.loads(line)
-        for line in artifacts["projected_spans_path"].read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert projected_rows[0]["label"] == "OTHER"
-    assert projected_rows[1]["label"] == "INGREDIENT_LINE"
+    projected_rows = artifacts["projected_spans_path"].read_text(encoding="utf-8").splitlines()
+    assert '"label": "OTHER"' in projected_rows[1]

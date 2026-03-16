@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -15,19 +14,6 @@ from cookimport.staging.draft_v1 import (
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
-_WHITESPACE_RE = re.compile(r"\s+")
-_MATCH_CHAR_MAP = str.maketrans(
-    {
-        "’": "'",
-        "‘": "'",
-        "“": '"',
-        "”": '"',
-        "–": "-",
-        "—": "-",
-        "−": "-",
-        "…": "...",
-    }
-)
 
 
 class FreeformSpanPrediction(BaseModel):
@@ -104,365 +90,6 @@ def build_line_role_stage_prediction_payload(
     }
 
 
-def _normalize_match_text(text: str) -> str:
-    normalized = str(text or "").translate(_MATCH_CHAR_MAP).lower()
-    normalized = _WHITESPACE_RE.sub(" ", normalized)
-    return normalized.strip()
-
-
-def _load_pass4_knowledge_evidence(
-    snippets_path: Path | None,
-) -> tuple[dict[int, set[str]], set[int]]:
-    if snippets_path is None or not snippets_path.exists() or not snippets_path.is_file():
-        return {}, set()
-
-    quotes_by_block: dict[int, set[str]] = {}
-    provenance_blocks: set[int] = set()
-    for line in snippets_path.read_text(encoding="utf-8").splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
-            continue
-
-        provenance = payload.get("provenance")
-        if isinstance(provenance, dict):
-            raw_indices = provenance.get("block_indices")
-            if isinstance(raw_indices, list):
-                for value in raw_indices:
-                    try:
-                        provenance_blocks.add(int(value))
-                    except (TypeError, ValueError):
-                        continue
-
-        evidence_rows = payload.get("evidence")
-        if not isinstance(evidence_rows, list):
-            continue
-        for evidence in evidence_rows:
-            if not isinstance(evidence, dict):
-                continue
-            try:
-                block_index = int(evidence.get("block_index"))
-            except (TypeError, ValueError):
-                continue
-            provenance_blocks.add(block_index)
-            quote = _normalize_match_text(str(evidence.get("quote") or ""))
-            if not quote:
-                continue
-            quotes_by_block.setdefault(block_index, set()).add(quote)
-
-    return quotes_by_block, provenance_blocks
-
-
-def _load_pass4_block_categories(
-    block_classifications_path: Path | None,
-) -> dict[int, str]:
-    if (
-        block_classifications_path is None
-        or not block_classifications_path.exists()
-        or not block_classifications_path.is_file()
-    ):
-        return {}
-
-    categories: dict[int, str] = {}
-    for line in block_classifications_path.read_text(encoding="utf-8").splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        try:
-            block_index = int(payload.get("block_index"))
-        except (TypeError, ValueError):
-            continue
-        category = str(payload.get("category") or "").strip().lower()
-        if category not in {"knowledge", "other"}:
-            continue
-        categories[block_index] = category
-    return categories
-
-
-def _quote_matches_span(*, quote: str, span_text: str) -> bool:
-    normalized_quote = _normalize_match_text(quote)
-    normalized_span = _normalize_match_text(span_text)
-    if not normalized_quote or not normalized_span:
-        return False
-    return normalized_quote in normalized_span or normalized_span in normalized_quote
-
-
-def _build_pass4_merge_report_payload(
-    *,
-    knowledge_block_classifications_path: Path | None,
-    knowledge_snippets_path: Path | None,
-) -> dict[str, Any]:
-    return {
-        "schema_version": "line_role_pass4_merge_report.v1",
-        "knowledge_block_classifications_path": (
-            str(knowledge_block_classifications_path)
-            if knowledge_block_classifications_path is not None
-            else None
-        ),
-        "knowledge_block_classifications_present": bool(
-            knowledge_block_classifications_path is not None
-            and knowledge_block_classifications_path.exists()
-            and knowledge_block_classifications_path.is_file()
-        ),
-        "knowledge_snippets_path": (
-            str(knowledge_snippets_path) if knowledge_snippets_path is not None else None
-        ),
-        "knowledge_snippets_present": bool(
-            knowledge_snippets_path is not None
-            and knowledge_snippets_path.exists()
-            and knowledge_snippets_path.is_file()
-        ),
-        "merge_mode": None,
-        "usable_evidence": False,
-        "selected_block_count": 0,
-        "selected_line_count": 0,
-        "selected_outside_recipe_line_count": 0,
-        "selected_non_other_line_count": 0,
-        "quote_matched_line_count": 0,
-        "provenance_fallback_line_count": 0,
-        "snippet_provenance_block_count": 0,
-        "snippet_quote_block_count": 0,
-        "classified_knowledge_block_count": 0,
-        "classified_other_block_count": 0,
-        "upgraded_other_to_knowledge_count": 0,
-        "downgraded_knowledge_to_other_count": 0,
-    }
-
-
-def _merge_pass4_knowledge_into_spans(
-    spans: Sequence[FreeformSpanPrediction],
-    *,
-    knowledge_block_classifications_path: Path | None,
-    knowledge_snippets_path: Path | None,
-) -> tuple[list[FreeformSpanPrediction], list[str], dict[str, Any], list[dict[str, Any]]]:
-    report_payload = _build_pass4_merge_report_payload(
-        knowledge_block_classifications_path=knowledge_block_classifications_path,
-        knowledge_snippets_path=knowledge_snippets_path,
-    )
-    block_categories = _load_pass4_block_categories(knowledge_block_classifications_path)
-    if block_categories:
-        selected_knowledge_line_indices: set[int] = set()
-        selected_other_line_indices: set[int] = set()
-        spans_by_block: dict[int, list[FreeformSpanPrediction]] = {}
-        for span in spans:
-            spans_by_block.setdefault(int(span.block_index), []).append(span)
-        for block_index, category in sorted(block_categories.items()):
-            block_spans = [
-                span for span in spans_by_block.get(block_index, []) if not bool(span.within_recipe_span)
-            ]
-            if not block_spans:
-                continue
-            line_indices = {int(span.line_index) for span in block_spans}
-            if category == "knowledge":
-                selected_knowledge_line_indices.update(line_indices)
-            else:
-                selected_other_line_indices.update(line_indices)
-
-        merged_spans: list[FreeformSpanPrediction] = []
-        upgraded_count = 0
-        downgraded_count = 0
-        changed_rows: list[dict[str, Any]] = []
-        for span in spans:
-            line_index = int(span.line_index)
-            if line_index in selected_knowledge_line_indices and str(span.label) == "OTHER":
-                merged_spans.append(span.model_copy(update={"label": "KNOWLEDGE"}))
-                upgraded_count += 1
-                changed_rows.append(
-                    {
-                        "schema_version": "line_role_pass4_merge_changed_row.v1",
-                        "line_index": line_index,
-                        "atomic_index": int(span.atomic_index),
-                        "block_index": int(span.block_index),
-                        "block_id": str(span.block_id),
-                        "recipe_id": span.recipe_id,
-                        "recipe_index": span.recipe_index,
-                        "within_recipe_span": bool(span.within_recipe_span),
-                        "old_label": str(span.label),
-                        "new_label": "KNOWLEDGE",
-                        "text": str(span.text),
-                        "selection_reason": "block_classification_knowledge",
-                        "matched_quotes": [],
-                    }
-                )
-                continue
-            if line_index in selected_other_line_indices and str(span.label) == "KNOWLEDGE":
-                merged_spans.append(span.model_copy(update={"label": "OTHER"}))
-                downgraded_count += 1
-                changed_rows.append(
-                    {
-                        "schema_version": "line_role_pass4_merge_changed_row.v1",
-                        "line_index": line_index,
-                        "atomic_index": int(span.atomic_index),
-                        "block_index": int(span.block_index),
-                        "block_id": str(span.block_id),
-                        "recipe_id": span.recipe_id,
-                        "recipe_index": span.recipe_index,
-                        "within_recipe_span": bool(span.within_recipe_span),
-                        "old_label": str(span.label),
-                        "new_label": "OTHER",
-                        "text": str(span.text),
-                        "selection_reason": "block_classification_other",
-                        "matched_quotes": [],
-                    }
-                )
-                continue
-            merged_spans.append(span)
-
-        report_payload["merge_mode"] = "block_classifications"
-        report_payload["usable_evidence"] = True
-        report_payload["classified_knowledge_block_count"] = sum(
-            1 for category in block_categories.values() if category == "knowledge"
-        )
-        report_payload["classified_other_block_count"] = sum(
-            1 for category in block_categories.values() if category == "other"
-        )
-        report_payload["selected_block_count"] = len(
-            {
-                block_index
-                for block_index in block_categories
-                if any(
-                    not bool(span.within_recipe_span)
-                    for span in spans_by_block.get(block_index, [])
-                )
-            }
-        )
-        report_payload["selected_line_count"] = len(
-            selected_knowledge_line_indices | selected_other_line_indices
-        )
-        report_payload["selected_outside_recipe_line_count"] = int(
-            report_payload["selected_line_count"]
-        )
-        report_payload["selected_non_other_line_count"] = (
-            int(report_payload["selected_line_count"]) - upgraded_count - downgraded_count
-        )
-        report_payload["upgraded_other_to_knowledge_count"] = upgraded_count
-        report_payload["downgraded_knowledge_to_other_count"] = downgraded_count
-
-        notes = ["Pass4 block classifications merged into canonical line-role projection."]
-        if upgraded_count:
-            notes.append(
-                f"Pass4 upgraded {upgraded_count} projected OTHER spans to KNOWLEDGE."
-            )
-        if downgraded_count:
-            notes.append(
-                f"Pass4 downgraded {downgraded_count} projected KNOWLEDGE spans to OTHER."
-            )
-        if not upgraded_count and not downgraded_count:
-            notes.append("Pass4 block classifications did not change projected labels.")
-        return merged_spans, notes, report_payload, changed_rows
-
-    quotes_by_block, provenance_blocks = _load_pass4_knowledge_evidence(knowledge_snippets_path)
-    report_payload["snippet_provenance_block_count"] = len(provenance_blocks)
-    report_payload["snippet_quote_block_count"] = len(quotes_by_block)
-    if not provenance_blocks:
-        if knowledge_snippets_path is not None and knowledge_snippets_path.exists():
-            return (
-                list(spans),
-                ["Pass4 knowledge snippets were present but did not yield usable evidence."],
-                report_payload,
-                [],
-            )
-        return list(spans), [], report_payload, []
-
-    spans_by_block: dict[int, list[FreeformSpanPrediction]] = {}
-    for span in spans:
-        spans_by_block.setdefault(int(span.block_index), []).append(span)
-
-    selected_line_details: dict[int, dict[str, Any]] = {}
-    selected_blocks: set[int] = set()
-    for block_index in sorted(provenance_blocks):
-        block_spans = [
-            span for span in spans_by_block.get(block_index, []) if not bool(span.within_recipe_span)
-        ]
-        if not block_spans:
-            continue
-        selected_blocks.add(block_index)
-        block_quotes = quotes_by_block.get(block_index, set())
-        quote_matched_any = False
-        for span in block_spans:
-            matched_quotes = [
-                quote for quote in block_quotes if _quote_matches_span(quote=quote, span_text=span.text)
-            ]
-            if not matched_quotes:
-                continue
-            quote_matched_any = True
-            selected_line_details[int(span.line_index)] = {
-                "selection_reason": "quote_match",
-                "matched_quotes": sorted(set(str(quote) for quote in matched_quotes)),
-            }
-        if quote_matched_any:
-            continue
-        for span in block_spans:
-            selected_line_details[int(span.line_index)] = {
-                "selection_reason": "provenance_block_fallback",
-                "matched_quotes": [],
-            }
-
-    merged_spans: list[FreeformSpanPrediction] = []
-    upgraded_count = 0
-    changed_rows = []
-    for span in spans:
-        details = selected_line_details.get(int(span.line_index))
-        if details is not None and str(span.label) == "OTHER":
-            merged_spans.append(span.model_copy(update={"label": "KNOWLEDGE"}))
-            upgraded_count += 1
-            changed_rows.append(
-                {
-                    "schema_version": "line_role_pass4_merge_changed_row.v1",
-                    "line_index": int(span.line_index),
-                    "atomic_index": int(span.atomic_index),
-                    "block_index": int(span.block_index),
-                    "block_id": str(span.block_id),
-                    "recipe_id": span.recipe_id,
-                    "recipe_index": span.recipe_index,
-                    "within_recipe_span": bool(span.within_recipe_span),
-                    "old_label": str(span.label),
-                    "new_label": "KNOWLEDGE",
-                    "text": str(span.text),
-                    "selection_reason": str(details.get("selection_reason") or ""),
-                    "matched_quotes": list(details.get("matched_quotes") or []),
-                }
-            )
-            continue
-        merged_spans.append(span)
-
-    report_payload["merge_mode"] = "snippets"
-    report_payload["usable_evidence"] = True
-    report_payload["selected_block_count"] = len(selected_blocks)
-    report_payload["selected_line_count"] = len(selected_line_details)
-    report_payload["selected_outside_recipe_line_count"] = len(selected_line_details)
-    report_payload["selected_non_other_line_count"] = len(selected_line_details) - upgraded_count
-    report_payload["quote_matched_line_count"] = sum(
-        1
-        for details in selected_line_details.values()
-        if str(details.get("selection_reason") or "") == "quote_match"
-    )
-    report_payload["provenance_fallback_line_count"] = sum(
-        1
-        for details in selected_line_details.values()
-        if str(details.get("selection_reason") or "") == "provenance_block_fallback"
-    )
-    report_payload["upgraded_other_to_knowledge_count"] = upgraded_count
-
-    notes = ["Pass4 knowledge evidence merged into canonical line-role projection."]
-    if upgraded_count:
-        notes.append(f"Pass4 upgraded {upgraded_count} projected OTHER spans to KNOWLEDGE.")
-    else:
-        notes.append("Pass4 knowledge evidence did not change projected labels.")
-    return merged_spans, notes, report_payload, changed_rows
-
-
 def build_line_role_extracted_archive_payload(
     spans: Sequence[FreeformSpanPrediction],
 ) -> list[dict[str, Any]]:
@@ -502,18 +129,11 @@ def write_line_role_projection_artifacts(
     source_hash: str,
     workbook_slug: str,
     predictions: Sequence[CanonicalLineRolePrediction],
-    knowledge_block_classifications_path: Path | None = None,
-    knowledge_snippets_path: Path | None = None,
 ) -> dict[str, Path]:
     pipeline_dir = run_root / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
 
     spans = project_line_roles_to_freeform_spans(predictions)
-    spans, merge_notes, pass4_merge_report, pass4_merge_changed_rows = _merge_pass4_knowledge_into_spans(
-        spans,
-        knowledge_block_classifications_path=knowledge_block_classifications_path,
-        knowledge_snippets_path=knowledge_snippets_path,
-    )
     line_role_predictions_path = pipeline_dir / "line_role_predictions.jsonl"
     line_role_predictions_path.write_text(
         "".join(
@@ -537,7 +157,6 @@ def write_line_role_projection_artifacts(
         source_file=source_file,
         source_hash=source_hash,
         workbook_slug=workbook_slug,
-        notes=merge_notes,
     )
     stage_path = pipeline_dir / "stage_block_predictions.json"
     stage_path.write_text(
@@ -557,19 +176,6 @@ def write_line_role_projection_artifacts(
         "stage_block_predictions_path": stage_path,
         "extracted_archive_path": extracted_archive_path,
     }
-    if knowledge_block_classifications_path is not None or knowledge_snippets_path is not None:
-        pass4_merge_report_path = pipeline_dir / "pass4_merge_report.json"
-        pass4_merge_report_path.write_text(
-            json.dumps(pass4_merge_report, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        artifact_paths["pass4_merge_report_path"] = pass4_merge_report_path
-        pass4_merge_changed_rows_path = pipeline_dir / "pass4_merge_changed_rows.jsonl"
-        pass4_merge_changed_rows_path.write_text(
-            "".join(json.dumps(row, sort_keys=True) + "\n" for row in pass4_merge_changed_rows),
-            encoding="utf-8",
-        )
-        artifact_paths["pass4_merge_changed_rows_path"] = pass4_merge_changed_rows_path
     telemetry_summary_path = pipeline_dir / "telemetry_summary.json"
     if telemetry_summary_path.exists():
         artifact_paths["telemetry_summary_path"] = telemetry_summary_path

@@ -13,7 +13,7 @@ TopTierProfileKind = Literal["codexfarm", "vanilla"]
 BenchmarkVariantKind = Literal["vanilla", "codexfarm"]
 CodexExecutionPolicyMode = Literal["execute", "plan"]
 
-RECIPE_CODEX_PIPELINE = "codex-farm-3pass-v1"
+RECIPE_CODEX_PIPELINE = "codex-farm-single-correction-v1"
 RECIPE_CODEX_PIPELINES = frozenset(RECIPE_CODEX_FARM_EXECUTION_PIPELINES)
 LINE_ROLE_CODEX_PIPELINE = "codex-line-role-v1"
 LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
@@ -26,7 +26,7 @@ INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
 INSTRUCTION_STEP_SEGMENTER_HEURISTIC_V1 = "heuristic_v1"
 BENCHMARK_SEQUENCE_MATCHER_DMP = "dmp"
 CODEX_FARM_PASS1_PIPELINE = "recipe.chunking.v1"
-COMPACT_PASS2_PIPELINE = "recipe.schemaorg.compact.v1"
+COMPACT_PASS2_PIPELINE = "recipe.correction.compact.v1"
 COMPACT_PASS3_PIPELINE = "recipe.final.compact.v1"
 COMPACT_PASS4_KNOWLEDGE_PIPELINE = "recipe.knowledge.compact.v1"
 PASS5_TAGS_PIPELINE = "recipe.tags.v1"

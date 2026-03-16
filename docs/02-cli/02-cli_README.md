@@ -114,8 +114,9 @@ Menu numbering and shortcuts:
 
 Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - `Recipe pipeline for this run?`
-  - choices are `off`, `codex-farm-3pass-v1`, and `codex-farm-2stage-repair-v1`,
+  - choices are `off` and `codex-farm-single-correction-v1`,
   - default is inferred from global `llm_recipe_pipeline`,
+  - legacy saved values `codex-farm-3pass-v1` and `codex-farm-2stage-repair-v1` normalize to `codex-farm-single-correction-v1`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
 - interactive benchmark setup then also asks:
   - `Block labelling for this run?` -> `line_role_pipeline=deterministic-v1|codex-line-role-v1` (and keeps `atomic_block_splitter=atomic-v1`)
@@ -130,7 +131,7 @@ Resolved profile families:
   - interactive loading reuses only real `RunSettings` model fields during harmonization, so persistence metadata such as `bucket1_fixed_behavior_version` should not replay warning dumps in the chooser,
   - stale winner caches are treated as disposable and ignored with one concise warning rather than being migrated forever,
   - otherwise use built-in codex top-tier baseline,
-  - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-farm-3pass-v1` control or `codex-farm-2stage-repair-v1` prototype):
+  - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-farm-single-correction-v1`):
     `llm_knowledge_pipeline=codex-farm-knowledge-v1`,
     `line_role_pipeline=codex-line-role-v1`,
     `atomic_block_splitter=atomic-v1`,

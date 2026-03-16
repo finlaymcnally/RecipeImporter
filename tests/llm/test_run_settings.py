@@ -93,19 +93,19 @@ def test_run_settings_rejects_unknown_keys() -> None:
 def test_run_settings_accepts_recipe_codex_farm_pipeline() -> None:
     settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
 
-    assert settings.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+    assert settings.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
 
 
 def test_run_settings_accepts_merged_recipe_codex_farm_pipeline() -> None:
     settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
 
-    assert settings.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
+    assert settings.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
 
 
 def test_run_settings_defaults_use_compact_codex_farm_pass_pipelines() -> None:
     settings = RunSettings()
 
-    assert settings.codex_farm_pipeline_pass2 == "recipe.schemaorg.compact.v1"
+    assert settings.codex_farm_pipeline_pass2 == "recipe.correction.compact.v1"
     assert settings.codex_farm_pipeline_pass3 == "recipe.final.compact.v1"
     assert settings.codex_farm_pipeline_pass4_knowledge == "recipe.knowledge.compact.v1"
 
@@ -153,8 +153,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
     assert llm_recipe_spec.choices == (
         "off",
-        "codex-farm-3pass-v1",
-        "codex-farm-2stage-repair-v1",
+        "codex-farm-single-correction-v1",
     )
     atomic_block_splitter_spec = next(
         spec for spec in specs if spec.name == "atomic_block_splitter"
@@ -283,7 +282,7 @@ def test_operator_and_benchmark_lab_projections_split_public_surface() -> None:
     payload = {
         "workers": 3,
         "epub_extractor": "beautifulsoup",
-        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
         "atomic_block_splitter": "atomic-v1",
         "line_role_pipeline": "deterministic-v1",
         "codex_farm_model": "gpt-5.3-codex-spark",
@@ -334,8 +333,7 @@ def test_run_settings_ui_specs_include_recipe_codex_farm_without_env_gate() -> N
 
     assert llm_recipe_spec.choices == (
         "off",
-        "codex-farm-3pass-v1",
-        "codex-farm-2stage-repair-v1",
+        "codex-farm-single-correction-v1",
     )
 
 

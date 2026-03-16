@@ -37,16 +37,15 @@ def test_build_stage_observability_report_for_deterministic_stage_run(tmp_path: 
     assert report.stages[0].stage_label == "Write Outputs"
 
 
-def test_build_stage_observability_report_for_three_pass_recipe_run(tmp_path: Path) -> None:
+def test_build_stage_observability_report_for_single_correction_recipe_run(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     llm_root = run_root / "raw" / "llm" / "book"
-    for stage_key in ("chunking", "schemaorg", "final"):
-        (llm_root / stage_key / "in").mkdir(parents=True)
+    (llm_root / "recipe_correction" / "in").mkdir(parents=True)
     _write_json(
         llm_root / RECIPE_MANIFEST_FILE_NAME,
         {
-            "pipeline": "codex-farm-3pass-v1",
-            "process_runs": {"pass1": {}, "pass2": {}, "pass3": {}},
+            "pipeline": "codex-farm-single-correction-v1",
+            "process_runs": {"recipe_correction": {}},
         },
     )
 
@@ -57,42 +56,24 @@ def test_build_stage_observability_report_for_three_pass_recipe_run(tmp_path: Pa
         run_config={},
     )
 
-    assert _stage_keys(report) == ["chunking", "schemaorg", "final"]
-    assert [row.stage_label for row in report.stages] == [
-        "Chunking",
-        "Schema.org Extraction",
-        "Final Draft",
+    assert _stage_keys(report) == [
+        "build_intermediate_det",
+        "recipe_llm_correct_and_link",
+        "build_final_recipe",
     ]
-
-
-def test_build_stage_observability_report_for_merged_repair_recipe_run(tmp_path: Path) -> None:
-    run_root = tmp_path / "run"
-    llm_root = run_root / "raw" / "llm" / "book"
-    for stage_key in ("chunking", "merged_repair"):
-        (llm_root / stage_key / "out").mkdir(parents=True)
-    _write_json(
-        llm_root / RECIPE_MANIFEST_FILE_NAME,
-        {
-            "pipeline": "codex-farm-2stage-repair-v1",
-            "process_runs": {"pass1": {}, "pass2": {}},
-        },
-    )
-
-    report = build_stage_observability_report(
-        run_root=run_root,
-        run_kind="bench_pred_run",
-        created_at="2026-03-15T23:40:19",
-        run_config={},
-    )
-
-    assert _stage_keys(report) == ["chunking", "merged_repair"]
-    assert report.stages[1].stage_label == "Merged Repair"
+    assert [row.stage_label for row in report.stages] == [
+        "Build Intermediate Recipe",
+        "Recipe LLM Correction",
+        "Build Final Recipe",
+    ]
 
 
 def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     llm_root = run_root / "raw" / "llm" / "book"
     (llm_root / "knowledge" / "in").mkdir(parents=True)
+    (run_root / "08_nonrecipe_spans.json").write_text("{}", encoding="utf-8")
+    (run_root / "09_knowledge_outputs.json").write_text("{}", encoding="utf-8")
     _write_json(
         llm_root / KNOWLEDGE_MANIFEST_FILE_NAME,
         {"pipeline_id": "recipe.knowledge.compact.v1"},
@@ -105,8 +86,12 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
         run_config={},
     )
 
-    assert _stage_keys(report) == ["knowledge", "write_outputs"]
-    assert report.stages[0].workbooks[0].manifest_path == (
+    assert _stage_keys(report) == [
+        "classify_nonrecipe",
+        "extract_knowledge_optional",
+        "write_outputs",
+    ]
+    assert report.stages[1].workbooks[0].manifest_path == (
         "raw/llm/book/knowledge_manifest.json"
     )
 

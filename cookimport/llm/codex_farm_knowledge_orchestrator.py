@@ -9,7 +9,9 @@ from typing import Any, Callable, Mapping
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, ParsingOverrides
+from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.runs import KNOWLEDGE_MANIFEST_FILE_NAME, stage_artifact_stem
+from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 
 from .codex_farm_ids import sanitize_for_filename
 from .codex_farm_knowledge_ingest import read_pass4_knowledge_outputs
@@ -54,6 +56,8 @@ class CodexFarmKnowledgeHarvestResult:
 def run_codex_farm_knowledge_harvest(
     *,
     conversion_result: ConversionResult,
+    nonrecipe_stage_result: NonRecipeStageResult,
+    recipe_spans: list[RecipeSpan],
     run_settings: RunSettings,
     run_root: Path,
     workbook_slug: str,
@@ -62,7 +66,7 @@ def run_codex_farm_knowledge_harvest(
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmKnowledgeHarvestResult:
-    """Optional pass4: harvest cooking knowledge from non-recipe blocks via codex-farm."""
+    """Optional pass4: harvest cooking knowledge from Stage 7 knowledge spans via codex-farm."""
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
     manifest_path = llm_raw_dir / KNOWLEDGE_MANIFEST_FILE_NAME
 
@@ -73,11 +77,44 @@ def run_codex_farm_knowledge_harvest(
             manifest_path=manifest_path,
         )
 
-    knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("knowledge")
+    knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("extract_knowledge_optional")
     pass4_in_dir = knowledge_stage_dir / "in"
     pass4_out_dir = knowledge_stage_dir / "out"
     pass4_in_dir.mkdir(parents=True, exist_ok=True)
     pass4_out_dir.mkdir(parents=True, exist_ok=True)
+
+    pipeline_id = _non_empty(
+        run_settings.codex_farm_pipeline_pass4_knowledge,
+        fallback=DEFAULT_PASS4_PIPELINE_ID,
+    )
+    if not nonrecipe_stage_result.knowledge_spans:
+        llm_report = {
+            "enabled": True,
+            "pipeline": run_settings.llm_knowledge_pipeline.value,
+            "pipeline_id": pipeline_id,
+            "input_mode": "stage7_knowledge_spans",
+            "counts": {
+                "jobs_written": 0,
+                "outputs_parsed": 0,
+                "chunks_missing": 0,
+                "snippets_written": 0,
+            },
+            "timing": {"total_seconds": 0.0},
+            "paths": {
+                "pass4_in_dir": str(pass4_in_dir),
+                "pass4_out_dir": str(pass4_out_dir),
+                "manifest_path": str(manifest_path),
+            },
+            "missing_chunk_ids": [],
+            "stage_status": "no_knowledge_spans",
+        }
+        _write_json(llm_report, manifest_path)
+        return CodexFarmKnowledgeHarvestResult(
+            llm_report=llm_report,
+            llm_raw_dir=llm_raw_dir,
+            manifest_path=manifest_path,
+            write_report=None,
+        )
 
     full_blocks_payload = _prepare_full_blocks(
         full_blocks if full_blocks is not None else _extract_full_blocks(conversion_result)
@@ -87,12 +124,6 @@ def run_codex_farm_knowledge_harvest(
             "Cannot run codex-farm knowledge harvest: no full_text blocks available."
         )
     full_blocks_by_index = {int(block["index"]): block for block in full_blocks_payload}
-
-    non_recipe_blocks = conversion_result.non_recipe_blocks
-    if not non_recipe_blocks:
-        raise CodexFarmRunnerError(
-            "Cannot run codex-farm knowledge harvest: no non_recipe_blocks available."
-        )
 
     pipeline_root = _resolve_pipeline_root(run_settings)
     workspace_root = _resolve_workspace_root(run_settings)
@@ -104,10 +135,6 @@ def run_codex_farm_knowledge_harvest(
     codex_model = run_settings.codex_farm_model
     codex_reasoning_effort = _effort_override_value(
         run_settings.codex_farm_reasoning_effort
-    )
-    pipeline_id = _non_empty(
-        run_settings.codex_farm_pipeline_pass4_knowledge,
-        fallback=DEFAULT_PASS4_PIPELINE_ID,
     )
     output_schema_path: str | None = None
     if runner is None:
@@ -127,7 +154,8 @@ def run_codex_farm_knowledge_harvest(
     started = time.perf_counter()
     build_report = build_pass4_knowledge_jobs(
         full_blocks=full_blocks_payload,
-        non_recipe_blocks=non_recipe_blocks,
+        knowledge_spans=nonrecipe_stage_result.knowledge_spans,
+        recipe_spans=recipe_spans,
         workbook_slug=workbook_slug,
         source_hash=_resolve_source_hash(conversion_result),
         out_dir=pass4_in_dir,
@@ -164,20 +192,19 @@ def run_codex_farm_knowledge_harvest(
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
+        "input_mode": "stage7_knowledge_spans",
         "output_schema_path": output_schema_path,
         "counts": {
             "jobs_written": build_report.jobs_written,
             "outputs_parsed": len(outputs),
             "chunks_missing": len(missing_chunk_ids),
             "snippets_written": write_report.snippets_written,
-            "block_classifications_written": write_report.block_classifications_written,
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
             "pass4_in_dir": str(pass4_in_dir),
             "pass4_out_dir": str(pass4_out_dir),
             "snippets_path": str(write_report.snippets_path),
-            "block_classifications_path": str(write_report.block_classifications_path),
             "preview_path": str(write_report.preview_path),
             "manifest_path": str(manifest_path),
         },

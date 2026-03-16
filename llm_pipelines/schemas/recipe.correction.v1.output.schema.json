@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recipe.correction.v1 output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_version",
+    "recipe_id",
+    "canonical_recipe",
+    "ingredient_step_mapping",
+    "ingredient_step_mapping_reason",
+    "warnings"
+  ],
+  "properties": {
+    "bundle_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "recipe_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "ingredients",
+        "steps",
+        "description",
+        "recipeYield"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipeYield": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ingredient_step_mapping": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ingredient_index",
+          "step_indexes"
+        ],
+        "properties": {
+          "ingredient_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "step_indexes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "ingredient_step_mapping_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

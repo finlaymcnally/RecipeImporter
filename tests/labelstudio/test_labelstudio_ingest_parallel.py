@@ -225,10 +225,13 @@ def _make_label_first_result(
 
 
 def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
-    assert _normalize_llm_recipe_pipeline("codex-farm-3pass-v1") == "codex-farm-3pass-v1"
+    assert (
+        _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
+        == "codex-farm-single-correction-v1"
+    )
     assert (
         _normalize_llm_recipe_pipeline("codex-farm-2stage-repair-v1")
-        == "codex-farm-2stage-repair-v1"
+        == "codex-farm-single-correction-v1"
     )
 
 
@@ -306,7 +309,7 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         codex_execution_policy="plan",
     )
 
@@ -1647,6 +1650,28 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
             )
         ],
     )
+    monkeypatch.setattr(
+        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Example line",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Example line",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
     monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.build_freeform_span_tasks",
@@ -1744,6 +1769,28 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
             ArchiveBlock(
                 index=0,
                 text="Pancakes SERVES 2 1 cup flour; Whisk batter NOTE: Keep warm",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Toast the bread.",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Example line",
                 location={"block_index": 0, "line_index": 0},
                 source_kind="raw",
             )
@@ -1849,7 +1896,7 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
     )
 
 
-def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default(
+def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(
     monkeypatch, tmp_path: Path
 ) -> None:
     source = tmp_path / "book.epub"
@@ -1878,9 +1925,9 @@ def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default
 
     observed_codex_max_inflight: list[int | None] = []
 
-    def _fake_label_atomic_lines(candidates, _settings, **kwargs):
+    def _fake_label_atomic_lines_with_baseline(candidates, _settings, **kwargs):
         observed_codex_max_inflight.append(kwargs.get("codex_max_inflight"))
-        return [
+        predictions = [
             CanonicalLineRolePrediction(
                 recipe_id=candidate.recipe_id,
                 block_id=candidate.block_id,
@@ -1894,6 +1941,7 @@ def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default
             )
             for candidate in candidates
         ]
+        return predictions, predictions
 
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.registry.get_importer",
@@ -1901,6 +1949,17 @@ def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Example line",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
         lambda *_args, **_kwargs: [
             ArchiveBlock(
                 index=0,
@@ -1944,8 +2003,8 @@ def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default
         lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.label_atomic_lines",
-        _fake_label_atomic_lines,
+        "cookimport.parsing.label_source_of_truth.label_atomic_lines_with_baseline",
+        _fake_label_atomic_lines_with_baseline,
     )
 
     generate_pred_run_artifacts(
@@ -1958,10 +2017,10 @@ def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default
         write_markdown=False,
     )
 
-    assert observed_codex_max_inflight == [4]
+    assert observed_codex_max_inflight == [None]
 
 
-def test_generate_pred_run_artifacts_rebuilds_line_role_candidates_after_llm_recipe_update(
+def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_after_llm_recipe_update(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2001,58 +2060,15 @@ def test_generate_pred_run_artifacts_rebuilds_line_role_candidates_after_llm_rec
                 progress_callback("fake convert complete")
             return initial_result.model_copy(deep=True)
 
-    observed_candidate_builds: list[tuple[int | None, int | None, bool]] = []
-    observed_line_role_spans: list[list[bool]] = []
-
-    def _fake_build_line_role_candidates_from_archive(
-        *, archive_payload, result, atomic_block_splitter
-    ):
-        del archive_payload, atomic_block_splitter
-        location = result.recipes[0].provenance.get("location", {})
-        start_block = location.get("start_block")
-        end_block = location.get("end_block")
-        within_recipe_span = start_block == 0 and end_block == 0
-        observed_candidate_builds.append(
-            (start_block, end_block, within_recipe_span)
-        )
-        return [
-            AtomicLineCandidate(
-                recipe_id="recipe:0" if within_recipe_span else None,
-                block_id="block:0",
-                block_index=0,
-                atomic_index=0,
-                text="Toast the bread.",
-                within_recipe_span=within_recipe_span,
-            )
-        ]
-
     def _fake_run_codex_farm_recipe_pipeline(**_kwargs):
         return SimpleNamespace(
             updated_conversion_result=updated_result.model_copy(deep=True),
             intermediate_overrides_by_recipe_id={},
             final_overrides_by_recipe_id={},
-            llm_report={"enabled": True, "pipeline": "codex-farm-2stage-repair-v1"},
+            llm_report={"enabled": True, "pipeline": "codex-farm-single-correction-v1"},
         )
 
-    def _fake_label_atomic_lines(candidates, _settings, **_kwargs):
-        observed_line_role_spans.append(
-            [bool(candidate.within_recipe_span) for candidate in candidates]
-        )
-        return [
-            CanonicalLineRolePrediction(
-                recipe_id=candidate.recipe_id,
-                block_id=candidate.block_id,
-                block_index=candidate.block_index,
-                atomic_index=candidate.atomic_index,
-                text=str(candidate.text),
-                within_recipe_span=bool(candidate.within_recipe_span),
-                label="INSTRUCTION_LINE" if candidate.within_recipe_span else "OTHER",
-                confidence=0.9,
-                decided_by="rule",
-                reason_tags=["test_label"],
-            )
-            for candidate in candidates
-        ]
+    authoritative_calls: list[int] = []
 
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.registry.get_importer",
@@ -2072,10 +2088,6 @@ def test_generate_pred_run_artifacts_rebuilds_line_role_candidates_after_llm_rec
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.compute_file_hash",
         lambda _path: "hash-123",
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
-        _fake_build_line_role_candidates_from_archive,
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.run_codex_farm_recipe_pipeline",
@@ -2098,23 +2110,35 @@ def test_generate_pred_run_artifacts_rebuilds_line_role_candidates_after_llm_rec
         lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.label_atomic_lines",
-        _fake_label_atomic_lines,
+        "cookimport.labelstudio.ingest._write_authoritative_line_role_artifacts",
+        lambda **_kwargs: (
+            authoritative_calls.append(1) or {
+                "line_role_predictions_path": tmp_path / "line_role_predictions.jsonl",
+                "projected_spans_path": tmp_path / "projected_spans.jsonl",
+                "stage_block_predictions_path": tmp_path / "stage_block_predictions.json",
+                "extracted_archive_path": tmp_path / "extracted_archive.json",
+            },
+            {
+                "recipes_applied": 0,
+                "span_count": 0,
+                "authoritative_stage_outputs_mutated": False,
+                "mode": "authoritative_reuse",
+            },
+        ),
     )
 
     generate_pred_run_artifacts(
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="deterministic-v1",
         allow_codex=True,
         write_label_studio_tasks=False,
         write_markdown=False,
     )
 
-    assert observed_candidate_builds == [(99, 99, False), (0, 0, True)]
-    assert observed_line_role_spans == [[True]]
+    assert authoritative_calls == [1]
 
 
 def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
@@ -2146,9 +2170,9 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
 
     observed_live_llm_allowed: list[bool | None] = []
 
-    def _fake_label_atomic_lines(candidates, _settings, **kwargs):
+    def _fake_label_atomic_lines_with_baseline(candidates, _settings, **kwargs):
         observed_live_llm_allowed.append(kwargs.get("live_llm_allowed"))
-        return [
+        predictions = [
             CanonicalLineRolePrediction(
                 recipe_id=candidate.recipe_id,
                 block_id=candidate.block_id,
@@ -2162,6 +2186,7 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
             )
             for candidate in candidates
         ]
+        return predictions, predictions
 
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.registry.get_importer",
@@ -2169,6 +2194,17 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Example line",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
         lambda *_args, **_kwargs: [
             ArchiveBlock(
                 index=0,
@@ -2213,8 +2249,8 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
         lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.label_atomic_lines",
-        _fake_label_atomic_lines,
+        "cookimport.parsing.label_source_of_truth.label_atomic_lines_with_baseline",
+        _fake_label_atomic_lines_with_baseline,
     )
 
     generate_pred_run_artifacts(

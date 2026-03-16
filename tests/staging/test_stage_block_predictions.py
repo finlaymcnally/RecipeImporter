@@ -11,6 +11,7 @@ from cookimport.core.models import (
     RawArtifact,
     RecipeCandidate,
 )
+from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.staging.stage_block_predictions import (
     _is_howto_section_text,
     build_stage_block_predictions,
@@ -71,34 +72,16 @@ def _build_result(
 
 def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Path) -> None:
     result = _build_result()
-    block_classifications_path = tmp_path / "block_classifications.jsonl"
-    block_classifications_path.write_text(
-        json.dumps(
-            {
-                "block_index": 8,
-                "category": "knowledge",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    snippets_path = tmp_path / "snippets.jsonl"
-    snippets_path.write_text(
-        json.dumps(
-            {
-                "snippet_id": "k1",
-                "provenance": {"block_indices": [8]},
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
 
     payload = build_stage_block_predictions(
         result,
         "simple",
-        knowledge_block_classifications_path=block_classifications_path,
-        knowledge_snippets_path=snippets_path,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[],
+            knowledge_spans=[],
+            other_spans=[],
+            block_category_by_index={8: "knowledge"},
+        ),
     )
 
     assert payload["schema_version"] == "stage_block_predictions.v1"
@@ -128,7 +111,7 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
         and set(conflict.get("labels", [])) == {"INSTRUCTION_LINE", "RECIPE_VARIANT"}
         for conflict in conflicts
     )
-    assert "KNOWLEDGE labels were derived from pass4 block classifications." in payload["notes"]
+    assert "KNOWLEDGE labels were derived from deterministic Stage 7 categories." in payload["notes"]
 
 
 def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> None:
@@ -151,18 +134,18 @@ def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> N
     assert 8 in payload["label_blocks"]["KNOWLEDGE"]
 
 
-def test_build_stage_block_predictions_ignores_pass4_other_blocks(tmp_path: Path) -> None:
+def test_build_stage_block_predictions_ignores_stage7_other_blocks() -> None:
     result = _build_result()
-    block_classifications_path = tmp_path / "block_classifications.jsonl"
-    block_classifications_path.write_text(
-        json.dumps({"block_index": 8, "category": "other"}, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
 
     payload = build_stage_block_predictions(
         result,
         "simple",
-        knowledge_block_classifications_path=block_classifications_path,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[],
+            knowledge_spans=[],
+            other_spans=[],
+            block_category_by_index={8: "other"},
+        ),
     )
 
     assert payload["block_labels"]["8"] == "OTHER"
