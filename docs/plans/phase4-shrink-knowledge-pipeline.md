@@ -35,6 +35,7 @@ The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` s
 - [x] (2026-03-16_01.13.12) Narrowed the optional knowledge stage so it only consumes Stage 7 `knowledge` spans and never acts as the primary classifier for `knowledge` versus `other`.
 - [x] (2026-03-16_01.13.12) Updated benchmark and Label Studio readers so they consume Stage 7 ownership directly and deleted pass4 relabeling/reporting seams.
 - [x] (2026-03-16_01.13.12) Added focused tests, ran the `llm`, `staging`, and `labelstudio` domain suites, and updated the short docs.
+- [x] (2026-03-16_10.40.00) Closed the remaining Stage 7 authority gap by driving stage-backed tables/chunks and Label Studio plan-mode knowledge counts from Stage 7-derived rows directly, leaving `ConversionResult.non_recipe_blocks` as compatibility cache data only.
 
 ## Surprises & Discoveries
 
@@ -81,7 +82,7 @@ The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` s
 
 ## Outcomes & Retrospective
 
-Phase 4 landed as the hard cut described above. The runtime now builds `NonRecipeStageResult` from authoritative labels plus recipe spans, writes `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` on every stage-backed run, scopes the optional knowledge extractor to Stage 7 `knowledge` spans only, and treats snippets as evidence instead of classifier truth.
+Phase 4 landed as the hard cut described above. The runtime now builds `NonRecipeStageResult` from authoritative labels plus recipe spans, writes `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` on every stage-backed run, scopes the optional knowledge extractor to Stage 7 `knowledge` spans only, and treats snippets as evidence instead of classifier truth. The last lingering runtime reads of `result.non_recipe_blocks` in stage-backed tables/chunks and Label Studio plan-mode knowledge accounting were removed during the 2026-03-16 gap-closure follow-up.
 
 The major deletions are real. `knowledge/<workbook_slug>/block_classifications.jsonl` is gone, `pass4_merge_report.json` is gone from new-format Label Studio flows, `stage_block_predictions.py` no longer reads pass4 artifacts as authority, and the knowledge orchestrator now advertises `input_mode = "stage7_knowledge_spans"` with a clean zero-job no-op when no knowledge spans exist.
 

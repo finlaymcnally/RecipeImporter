@@ -267,7 +267,7 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
         observed_progress_callbacks.append(callable(progress_callback))
         if callable(progress_callback):
             progress_callback(
-                "codex-farm recipe.schemaorg.compact.v1 task 1/2 | "
+                "codex-farm recipe.correction.compact.v1 task 1/2 | "
                 "running 1 | active [r0001.json]"
             )
             progress_callback("Evaluating predictions... task 2/2")
@@ -345,7 +345,7 @@ def test_print_codex_decision_is_suppressed_inside_benchmark_summary_override(
     policy = cli.resolve_codex_execution_policy(
         "labelstudio_benchmark",
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "line_role_pipeline": "codex-line-role-v1",
         },
         allow_codex=True,
@@ -396,7 +396,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "multi_recipe_splitter": "legacy",
             "pdf_ocr_policy": "auto",
             "epub_unstructured_html_parser_version": "v2",
@@ -468,14 +468,6 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     assert [call["epub_unstructured_skip_headers_footers"] for call in benchmark_calls] == [
         True,
         True,
-    ]
-    assert [call["codex_farm_pipeline_pass2"] for call in benchmark_calls] == [
-        "recipe.correction.compact.v1",
-        "recipe.correction.compact.v1",
-    ]
-    assert [call["codex_farm_pipeline_pass3"] for call in benchmark_calls] == [
-        "recipe.final.compact.v1",
-        "recipe.final.compact.v1",
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla",
@@ -779,7 +771,7 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_11.22.22"
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test single-profile selected codex",
     )
 
@@ -853,7 +845,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
     )
 
     failure_text = (
-        "codex-farm failed for recipe.chunking.v1 "
+        "codex-farm failed for recipe.correction.compact.v1 "
         "(subprocess_exit=1, out_dir=/tmp/pass1/out, "
         "stderr_summary=codex execution precheck failed before `process`: "
         "OpenAI Codex v0.111.0 (research preview); "
@@ -878,7 +870,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
     benchmark_eval_output = tmp_path / "golden" / "2026-03-06_15.05.00"
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test single-profile codex failure formatting",
     )
 
@@ -897,7 +889,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
         if "Single-profile benchmark failed for" in message
     ]
     assert len(failure_messages) == 1
-    assert "codexfarm=codex-farm recipe.chunking.v1:" in failure_messages[0]
+    assert "codexfarm=codex-farm recipe.correction.compact.v1:" in failure_messages[0]
     assert "codex execution precheck failed before `process`" in failure_messages[0]
     assert "usage limit for GPT-5.3-Codex-Spark" in failure_messages[0]
     assert "out_dir=/tmp/pass1/out" not in failure_messages[0]

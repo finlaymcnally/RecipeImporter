@@ -220,12 +220,12 @@ def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
     )
     assert len(variants) == 26
     assert len({variant.run_settings.stable_hash() for variant in variants}) == 26
-    assert any("__llm_recipe_codex_farm_3pass_v1" in variant.slug for variant in variants)
+    assert any("__llm_recipe_codex_farm_single_correction_v1" in variant.slug for variant in variants)
 
 def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled() -> None:
     base_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
             "llm_tags_pipeline": "codex-farm-tags-v1",
             "line_role_pipeline": "codex-line-role-v1",
@@ -243,12 +243,12 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     baseline_variants = [
         variant
         for variant in variants
-        if "__llm_recipe_codex_farm_3pass_v1" not in variant.slug
+        if "__llm_recipe_codex_farm_single_correction_v1" not in variant.slug
     ]
     codex_variants = [
         variant
         for variant in variants
-        if "__llm_recipe_codex_farm_3pass_v1" in variant.slug
+        if "__llm_recipe_codex_farm_single_correction_v1" in variant.slug
     ]
 
     assert len(baseline_variants) == 13
@@ -270,7 +270,7 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     } == {"atomic-v1"}
     assert {
         variant.run_settings.llm_recipe_pipeline.value for variant in codex_variants
-    } == {"codex-farm-3pass-v1"}
+    } == {"codex-farm-single-correction-v1"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in codex_variants
     } == {"codex-line-role-v1"}
@@ -293,7 +293,7 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
 def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() -> None:
     base_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
             "llm_tags_pipeline": "codex-farm-tags-v1",
             "line_role_pipeline": "codex-line-role-v1",

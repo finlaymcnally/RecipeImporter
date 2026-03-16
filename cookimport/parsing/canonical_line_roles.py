@@ -14,7 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable, Literal, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cookimport.config.prediction_identity import (
     build_line_role_cache_identity_payload,
@@ -141,12 +141,24 @@ _EXPLICIT_KNOWLEDGE_CUE_RE = re.compile(
     re.IGNORECASE,
 )
 _CODEX_LOW_CONFIDENCE_THRESHOLD = 0.90
+_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT = _CODEX_LOW_CONFIDENCE_THRESHOLD
+_LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT = 0.75
 _RECIPEISH_OUTSIDE_SPAN_LABELS = {
     "RECIPE_TITLE",
     "RECIPE_VARIANT",
     "HOWTO_SECTION",
     "INSTRUCTION_LINE",
     "INGREDIENT_LINE",
+}
+_STRUCTURED_LINE_ROLE_LABELS = {
+    "RECIPE_TITLE",
+    "RECIPE_VARIANT",
+    "HOWTO_SECTION",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "YIELD_LINE",
+    "TIME_LINE",
+    "RECIPE_NOTES",
 }
 _LINE_ROLE_OUTSIDE_SPAN_LOW_CONF_ESCALATION_ENV = (
     "COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION"
@@ -192,8 +204,179 @@ class CanonicalLineRolePrediction(BaseModel):
     within_recipe_span: bool = False
     label: str
     confidence: float
+    trust_score: float | None = None
+    escalation_score: float | None = None
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
+    escalation_reasons: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sync_trust_compatibility_alias(self) -> "CanonicalLineRolePrediction":
+        trust = self.trust_score
+        if trust is None:
+            trust = self.confidence
+        trust = _rounded_score(trust)
+        escalation = self.escalation_score
+        if escalation is None:
+            escalation = max(0.0, 1.0 - trust)
+        self.trust_score = trust
+        self.escalation_score = _rounded_score(escalation)
+        self.confidence = trust
+        self.escalation_reasons = _unique_string_list(self.escalation_reasons)
+        self.reason_tags = _unique_string_list(self.reason_tags)
+        return self
+
+
+def _rounded_score(value: float | int | None) -> float:
+    try:
+        rendered = float(value)
+    except (TypeError, ValueError):
+        rendered = 0.0
+    return round(max(0.0, min(1.0, rendered)), 4)
+
+
+def _unique_string_list(values: Sequence[Any]) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        rendered = str(value or "").strip()
+        if not rendered or rendered in seen:
+            continue
+        seen.add(rendered)
+        output.append(rendered)
+    return output
+
+
+def _line_role_trust_low_threshold(settings: RunSettings | None = None) -> float:
+    if settings is None:
+        return float(_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT)
+    raw_value = getattr(
+        settings,
+        "line_role_trust_low_threshold",
+        _LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT,
+    )
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return float(_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT)
+
+
+def _line_role_escalation_threshold(settings: RunSettings | None = None) -> float:
+    if settings is None:
+        return float(_LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT)
+    raw_value = getattr(
+        settings,
+        "line_role_escalation_threshold",
+        _LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT,
+    )
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return float(_LINE_ROLE_ESCALATION_THRESHOLD_DEFAULT)
+
+
+def _prediction_label_is_structured(label: str | None) -> bool:
+    return str(label or "OTHER") in _STRUCTURED_LINE_ROLE_LABELS
+
+
+def _prediction_has_reason_tag(
+    prediction: CanonicalLineRolePrediction,
+    fragment: str,
+) -> bool:
+    return any(fragment in str(tag) for tag in prediction.reason_tags)
+
+
+def _apply_prediction_decision_metadata(
+    *,
+    prediction: CanonicalLineRolePrediction,
+    candidate: AtomicLineCandidate,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    baseline_prediction: CanonicalLineRolePrediction | None = None,
+    trust_low_threshold: float | None = None,
+) -> CanonicalLineRolePrediction:
+    low_trust_threshold = (
+        float(trust_low_threshold)
+        if trust_low_threshold is not None
+        else float(_LINE_ROLE_TRUST_LOW_THRESHOLD_DEFAULT)
+    )
+    trust_score = _rounded_score(prediction.confidence)
+    label = str(prediction.label or "OTHER")
+    structured_label = _prediction_label_is_structured(label)
+
+    if prediction.decided_by == "codex":
+        trust_score = min(trust_score, 0.78)
+    elif prediction.decided_by == "fallback":
+        trust_score = min(trust_score, 0.68)
+
+    if _prediction_has_reason_tag(prediction, "deterministic_unresolved"):
+        trust_score = min(trust_score, 0.35)
+    if _prediction_has_reason_tag(prediction, "deterministic_recovered"):
+        trust_score = min(trust_score, 0.55)
+    if _prediction_has_reason_tag(prediction, "sanitized_"):
+        trust_score = min(trust_score, 0.62)
+    if _prediction_has_reason_tag(prediction, "outside_span_") and structured_label:
+        trust_score = min(trust_score, 0.58)
+    if _prediction_has_reason_tag(prediction, "ownership_veto"):
+        trust_score = min(trust_score, 0.52)
+
+    reasons: list[str] = []
+    if _prediction_has_reason_tag(prediction, "deterministic_unresolved") or _prediction_has_reason_tag(
+        prediction,
+        "deterministic_unavailable",
+    ):
+        reasons.append("deterministic_unresolved")
+    if prediction.decided_by == "fallback":
+        reasons.append("fallback_decision")
+    if structured_label and trust_score < low_trust_threshold:
+        reasons.append("low_trust_structured_label")
+    if (
+        not candidate.within_recipe_span
+        and label in _RECIPEISH_OUTSIDE_SPAN_LABELS
+    ):
+        reasons.append("outside_span_structured_label")
+    if baseline_prediction is not None:
+        baseline_label = str(baseline_prediction.label or "OTHER")
+        if (
+            prediction.decided_by == "codex"
+            and baseline_label
+            and baseline_label != label
+        ):
+            reasons.append("codex_disagreed_with_rule")
+    if _prediction_has_reason_tag(prediction, "ownership_veto"):
+        reasons.append("ownership_veto")
+    if _prediction_has_reason_tag(prediction, "sanitized_"):
+        reasons.append("sanitized_label_adjustment")
+
+    escalation_score = max(0.0, 1.0 - trust_score)
+    if "deterministic_unresolved" in reasons:
+        escalation_score = max(escalation_score, 0.95)
+    if "codex_disagreed_with_rule" in reasons or "ownership_veto" in reasons:
+        escalation_score = max(escalation_score, 0.88)
+    if "fallback_decision" in reasons:
+        escalation_score = max(escalation_score, 0.82)
+    if "outside_span_structured_label" in reasons:
+        escalation_score = max(escalation_score, 0.85)
+    if "low_trust_structured_label" in reasons:
+        escalation_score = max(escalation_score, 0.75)
+    if "sanitized_label_adjustment" in reasons:
+        escalation_score = max(escalation_score, 0.68)
+    if (
+        prediction.decided_by == "rule"
+        and not reasons
+        and _has_strong_syntax_label_evidence(
+            label=label,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        escalation_score = min(escalation_score, 0.08)
+
+    payload = prediction.model_dump(mode="python")
+    payload["trust_score"] = _rounded_score(trust_score)
+    payload["escalation_score"] = _rounded_score(escalation_score)
+    payload["escalation_reasons"] = _unique_string_list(reasons)
+    payload["confidence"] = _rounded_score(trust_score)
+    return CanonicalLineRolePrediction.model_validate(payload)
 
 
 @dataclass(frozen=True)
@@ -231,10 +414,10 @@ def _label_atomic_lines_internal(
     codex_cmd: str | None = None,
     codex_runner: CodexFarmRunner | None = None,
     progress_callback: Callable[[str], None] | None = None,
-) -> list[CanonicalLineRolePrediction]:
+) -> tuple[list[CanonicalLineRolePrediction], list[CanonicalLineRolePrediction]]:
     ordered = list(candidates)
     if not ordered:
-        return []
+        return [], []
     deterministic_total = len(ordered)
     deterministic_interval = _line_role_progress_interval(deterministic_total)
     _notify_line_role_progress(
@@ -290,17 +473,26 @@ def _label_atomic_lines_internal(
                 decided_by="rule",
                 reason_tags=tags,
             )
+        baseline_prediction = _apply_prediction_decision_metadata(
+            prediction=baseline_prediction,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+            trust_low_threshold=_line_role_trust_low_threshold(settings),
+        )
         deterministic_baseline[candidate.atomic_index] = baseline_prediction
         if label is None:
             unresolved.append(candidate)
         else:
             if (
                 mode == "codex-line-role-v1"
-                and _should_escalate_low_confidence_candidate(
+                and _should_escalate_candidate(
                     candidate=candidate,
                     deterministic_label=label,
-                    confidence=confidence,
+                    trust_score=baseline_prediction.trust_score or baseline_prediction.confidence,
+                    escalation_score=baseline_prediction.escalation_score or 0.0,
+                    escalation_reasons=baseline_prediction.escalation_reasons,
                     by_atomic_index=by_atomic_index,
+                    settings=settings,
                 )
             ):
                 unresolved.append(candidate)
@@ -428,6 +620,19 @@ def _label_atomic_lines_internal(
             candidate=candidate,
             by_atomic_index=by_atomic_index,
         )
+        sanitized_baseline = _apply_prediction_decision_metadata(
+            prediction=sanitized_baseline,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+            trust_low_threshold=_line_role_trust_low_threshold(settings),
+        )
+        sanitized_current = _apply_prediction_decision_metadata(
+            prediction=sanitized_current,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+            baseline_prediction=sanitized_baseline,
+            trust_low_threshold=_line_role_trust_low_threshold(settings),
+        )
         sanitized_by_index[candidate.atomic_index] = sanitized_current
         sanitized_baseline_by_index[candidate.atomic_index] = sanitized_baseline
     if mode == "codex-line-role-v1":
@@ -466,6 +671,7 @@ def _label_atomic_lines_internal(
     _write_cached_predictions(
         cache_path=cache_path,
         predictions=sanitized,
+        baseline_predictions=sanitized_baseline,
     )
     return sanitized, sanitized_baseline
 
@@ -553,19 +759,54 @@ def build_line_role_codex_execution_plan(
 
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
     unresolved: list[AtomicLineCandidate] = []
+    deterministic_metadata_by_atomic: dict[int, CanonicalLineRolePrediction] = {}
+    trust_low_threshold = _line_role_trust_low_threshold(settings)
     for candidate in ordered:
-        label, confidence, _tags = _deterministic_label(
+        label, confidence, tags = _deterministic_label(
             candidate,
             by_atomic_index=by_atomic_index,
         )
         if label is None:
+            deterministic_metadata_by_atomic[int(candidate.atomic_index)] = (
+                _apply_prediction_decision_metadata(
+                    prediction=_fallback_prediction(
+                        candidate,
+                        reason="deterministic_unresolved",
+                        by_atomic_index=by_atomic_index,
+                    ),
+                    candidate=candidate,
+                    by_atomic_index=by_atomic_index,
+                    trust_low_threshold=trust_low_threshold,
+                )
+            )
             unresolved.append(candidate)
             continue
-        if _should_escalate_low_confidence_candidate(
+        deterministic_prediction = _apply_prediction_decision_metadata(
+            prediction=CanonicalLineRolePrediction(
+                recipe_id=candidate.recipe_id,
+                block_id=str(candidate.block_id),
+                block_index=int(candidate.block_index),
+                atomic_index=int(candidate.atomic_index),
+                text=str(candidate.text),
+                within_recipe_span=bool(candidate.within_recipe_span),
+                label=label,
+                confidence=confidence,
+                decided_by="rule",
+                reason_tags=list(tags),
+            ),
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+            trust_low_threshold=trust_low_threshold,
+        )
+        deterministic_metadata_by_atomic[int(candidate.atomic_index)] = deterministic_prediction
+        if _should_escalate_candidate(
             candidate=candidate,
             deterministic_label=label,
-            confidence=confidence,
+            trust_score=deterministic_prediction.trust_score or deterministic_prediction.confidence,
+            escalation_score=deterministic_prediction.escalation_score or 0.0,
+            escalation_reasons=deterministic_prediction.escalation_reasons,
             by_atomic_index=by_atomic_index,
+            settings=settings,
         ):
             unresolved.append(candidate)
 
@@ -576,6 +817,9 @@ def build_line_role_codex_execution_plan(
     ):
         rows: list[dict[str, Any]] = []
         for candidate in batch:
+            deterministic_prediction = deterministic_metadata_by_atomic.get(
+                int(candidate.atomic_index)
+            )
             rows.append(
                 {
                     "atomic_index": int(candidate.atomic_index),
@@ -584,6 +828,21 @@ def build_line_role_codex_execution_plan(
                     "recipe_id": candidate.recipe_id,
                     "within_recipe_span": bool(candidate.within_recipe_span),
                     "text": str(candidate.text),
+                    "trust_score": (
+                        deterministic_prediction.trust_score
+                        if deterministic_prediction is not None
+                        else None
+                    ),
+                    "escalation_score": (
+                        deterministic_prediction.escalation_score
+                        if deterministic_prediction is not None
+                        else None
+                    ),
+                    "escalation_reasons": (
+                        list(deterministic_prediction.escalation_reasons)
+                        if deterministic_prediction is not None
+                        else []
+                    ),
                 }
             )
         planned_batches.append(
@@ -1738,7 +1997,7 @@ def _load_cached_predictions(
     *,
     cache_path: Path,
     expected_candidates: Sequence[AtomicLineCandidate],
-) -> list[CanonicalLineRolePrediction] | None:
+) -> tuple[list[CanonicalLineRolePrediction], list[CanonicalLineRolePrediction]] | None:
     if not cache_path.exists():
         return None
     try:
@@ -1752,26 +2011,38 @@ def _load_cached_predictions(
     raw_predictions = payload.get("predictions")
     if not isinstance(raw_predictions, list):
         return None
+    raw_baseline_predictions = payload.get("baseline_predictions")
+    if raw_baseline_predictions is None:
+        raw_baseline_predictions = raw_predictions
+    if not isinstance(raw_baseline_predictions, list):
+        return None
     predictions: list[CanonicalLineRolePrediction] = []
+    baseline_predictions: list[CanonicalLineRolePrediction] = []
     try:
         for row in raw_predictions:
             predictions.append(CanonicalLineRolePrediction.model_validate(row))
+        for row in raw_baseline_predictions:
+            baseline_predictions.append(CanonicalLineRolePrediction.model_validate(row))
     except Exception:
         return None
-    if len(predictions) != len(expected_candidates):
+    if (
+        len(predictions) != len(expected_candidates)
+        or len(baseline_predictions) != len(expected_candidates)
+    ):
         return None
     for candidate, prediction in zip(expected_candidates, predictions):
         if int(candidate.atomic_index) != int(prediction.atomic_index):
             return None
         if str(candidate.text) != str(prediction.text):
             return None
-    return predictions
+    return predictions, baseline_predictions
 
 
 def _write_cached_predictions(
     *,
     cache_path: Path | None,
     predictions: Sequence[CanonicalLineRolePrediction],
+    baseline_predictions: Sequence[CanonicalLineRolePrediction],
 ) -> None:
     if cache_path is None:
         return
@@ -1780,6 +2051,9 @@ def _write_cached_predictions(
         payload = {
             "schema_version": _LINE_ROLE_CACHE_SCHEMA_VERSION,
             "predictions": [row.model_dump(mode="json") for row in predictions],
+            "baseline_predictions": [
+                row.model_dump(mode="json") for row in baseline_predictions
+            ],
         }
         tmp_path = cache_path.with_suffix(".tmp")
         tmp_path.write_text(
@@ -2110,15 +2384,18 @@ def _apply_label_ownership_arbitration(
     )
 
 
-def _should_escalate_low_confidence_candidate(
+def _should_escalate_candidate(
     *,
     candidate: AtomicLineCandidate,
     deterministic_label: str | None,
-    confidence: float,
+    trust_score: float,
+    escalation_score: float,
+    escalation_reasons: Sequence[str],
     by_atomic_index: dict[int, AtomicLineCandidate],
+    settings: RunSettings | None = None,
 ) -> bool:
     del by_atomic_index
-    if float(confidence) >= _CODEX_LOW_CONFIDENCE_THRESHOLD:
+    if float(escalation_score) < _line_role_escalation_threshold(settings):
         return False
     if (
         not candidate.within_recipe_span
@@ -2126,6 +2403,11 @@ def _should_escalate_low_confidence_candidate(
     ):
         return False
     if deterministic_label == "RECIPE_TITLE":
+        return False
+    if (
+        float(trust_score) >= _line_role_trust_low_threshold(settings)
+        and not escalation_reasons
+    ):
         return False
     return True
 

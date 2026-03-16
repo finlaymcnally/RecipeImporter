@@ -75,6 +75,12 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 - Freeform prelabel backend identity was standardized on `codex-farm`.
 - Retired `codex-cli` aliases were removed from active policy/runtime handling.
 
+### 2026-03-15: eval artifact-root canonicalization
+
+- `labelstudio-eval` manifests now treat `artifacts.artifact_root_dir` as the canonical prediction-run pointer.
+- `pred_run_dir` remains only historical compatibility baggage; new manifest logic should not depend on it.
+- This matters because eval outputs and prediction artifacts can live under different directories; falling back to the eval root produces the wrong artifact base.
+
 ## 2) Current Non-Negotiable Contracts
 
 - Runtime scope is `freeform-spans`.
@@ -96,6 +102,7 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 - Do not assume callback/spinner failures indicate conversion/import failure.
 - Do not diagnose benchmark mismatch before checking source-identity constraints.
 - Do not change scorers because a reused project is missing a code label; check project `label_config` freshness first.
+- Do not recover the prediction-run directory from eval-root-relative guesses when `artifact_root_dir` is present.
 - Do not treat plan-only previews as if downstream task/eval artifacts should exist.
 - Do not reintroduce retired prelabel backend aliases (`codex-cli`, direct `codex exec`) into active runtime paths.
 

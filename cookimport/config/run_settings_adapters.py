@@ -70,13 +70,8 @@ _STAGE_FIXED_BEHAVIOR_FIELDS = (
     "instruction_step_segmenter",
     "multi_recipe_trace",
     "p6_emit_metadata_debug",
-    "codex_farm_pass1_pattern_hints_enabled",
-    "codex_farm_pipeline_pass1",
-    "codex_farm_pipeline_pass2",
-    "codex_farm_pipeline_pass3",
     "codex_farm_pipeline_pass4_knowledge",
     "codex_farm_pipeline_pass5_tags",
-    "codex_farm_pass3_skip_pass2_ok",
 )
 _BENCHMARK_OPERATOR_FIELDS = (
     "workers",
@@ -119,8 +114,6 @@ _BENCHMARK_FIXED_BEHAVIOR_FIELDS = tuple(
     if field_name != "codex_farm_pipeline_pass5_tags"
 ) + (
     "benchmark_sequence_matcher",
-    "codex_farm_benchmark_selective_retry_enabled",
-    "codex_farm_benchmark_selective_retry_max_attempts",
 )
 
 

@@ -9,17 +9,14 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_labelstudio_ingest_defaults_use_compact_codex_farm_pass_pipelines() -> None:
+def test_labelstudio_ingest_removes_legacy_codex_farm_pass_pipeline_knobs() -> None:
     generate_signature = inspect.signature(generate_pred_run_artifacts)
     import_signature = inspect.signature(run_labelstudio_import)
 
     for signature in (generate_signature, import_signature):
-        assert signature.parameters["codex_farm_pipeline_pass2"].default == (
-            "recipe.schemaorg.compact.v1"
-        )
-        assert signature.parameters["codex_farm_pipeline_pass3"].default == (
-            "recipe.final.compact.v1"
-        )
+        assert "codex_farm_pipeline_pass1" not in signature.parameters
+        assert "codex_farm_pipeline_pass2" not in signature.parameters
+        assert "codex_farm_pipeline_pass3" not in signature.parameters
 
 def test_labelstudio_import_prints_processing_time(
     monkeypatch: pytest.MonkeyPatch,
@@ -59,9 +56,6 @@ def test_labelstudio_import_prints_processing_time(
         prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
-        codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
-        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert "Processing time: 1m 5s" in secho_messages
@@ -116,9 +110,6 @@ def test_labelstudio_import_prints_prelabel_failure_summary(
         prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
-        codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
-        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert any("PRELABEL ERRORS: 8/9 tasks failed (1 succeeded)." in line for line in secho_messages)
@@ -182,9 +173,6 @@ def test_labelstudio_import_prints_prelabel_token_usage_with_reasoning(
         prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
-        codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
-        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert any(
@@ -242,9 +230,6 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
         prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
-        codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
-        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert captured["segment_blocks"] == 40
@@ -252,8 +237,6 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
     assert captured["segment_focus_blocks"] == 28
     assert captured["target_task_count"] == 55
     assert captured["prelabel_timeout_seconds"] == cli.DEFAULT_PRELABEL_TIMEOUT_SECONDS
-    assert captured["codex_farm_pass1_pattern_hints_enabled"] is False
-    assert captured["codex_farm_pass3_skip_pass2_ok"] is True
 
 def test_discover_freeform_gold_exports_orders_newest_first(tmp_path: Path) -> None:
     older = tmp_path / "2026-01-01-000000" / "labelstudio" / "book" / "exports"

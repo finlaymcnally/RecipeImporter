@@ -447,8 +447,6 @@ def _normalize_epub_extractor(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized in {"codex-farm-3pass-v1", "codex-farm-2stage-repair-v1"}:
-        normalized = "codex-farm-single-correction-v1"
     if normalized in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return normalized
     raise ValueError(
@@ -1714,15 +1712,8 @@ def generate_pred_run_artifacts(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
-    codex_farm_pass1_pattern_hints_enabled: bool = False,
-    codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
-    codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
-    codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
     codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: int = 30,
-    codex_farm_pass3_skip_pass2_ok: bool = True,
-    codex_farm_benchmark_selective_retry_enabled: bool = True,
-    codex_farm_benchmark_selective_retry_max_attempts: int = 1,
     codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
@@ -1841,26 +1832,11 @@ def generate_pred_run_artifacts(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pass1_pattern_hints_enabled = (
-        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
-    )
-    selected_codex_farm_pass3_skip_pass2_ok = (
-        fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
-    )
     selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
         codex_farm_recipe_mode
     )
-    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
-    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
-    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
     selected_codex_farm_pipeline_pass4_knowledge = (
         fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
-    )
-    selected_codex_farm_benchmark_selective_retry_enabled = (
-        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
-    )
-    selected_codex_farm_benchmark_selective_retry_max_attempts = (
-        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
     )
     selected_codex_farm_knowledge_context_blocks = max(
         0,
@@ -2365,6 +2341,7 @@ def generate_pred_run_artifacts(
     book_id = result.workbook or path.stem
     authoritative_label_result: LabelFirstCompatibilityResult | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
+    stage7_block_rows: list[dict[str, Any]] = []
     if processed_output_root is None or codex_execution.plan_only:
         authoritative_label_result = build_label_first_compatibility_result(
             conversion_result=result,
@@ -2381,10 +2358,11 @@ def generate_pred_run_artifacts(
             final_block_labels=authoritative_label_result.block_labels,
             recipe_spans=authoritative_label_result.recipe_spans,
         )
-        result.non_recipe_blocks = block_rows_for_nonrecipe_stage(
+        stage7_block_rows = block_rows_for_nonrecipe_stage(
             full_blocks=authoritative_label_result.archive_blocks,
             stage_result=nonrecipe_stage_result,
         )
+        result.non_recipe_blocks = list(stage7_block_rows)
     line_role_artifacts: dict[str, Path] | None = None
     line_role_recipe_projection_summary: dict[str, Any] | None = None
     archive_payload_rows: list[dict[str, Any]] | None = None
@@ -2410,8 +2388,8 @@ def generate_pred_run_artifacts(
                 workbook_slug=book_slug,
             )
         if run_settings.llm_knowledge_pipeline.value != "off":
-            if result.non_recipe_blocks:
-                result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+            if stage7_block_rows:
+                result.chunks = chunks_from_non_recipe_blocks(stage7_block_rows)
             elif result.topic_candidates:
                 result.chunks = chunks_from_topic_candidates(result.topic_candidates)
             planned_work["knowledge_harvest"] = {
@@ -2420,7 +2398,7 @@ def generate_pred_run_artifacts(
                 "pipeline_id": run_settings.codex_farm_pipeline_pass4_knowledge,
                 "context_blocks": run_settings.codex_farm_knowledge_context_blocks,
                 "chunk_count": len(result.chunks),
-                "non_recipe_block_count": len(result.non_recipe_blocks),
+                "non_recipe_block_count": len(stage7_block_rows),
                 "knowledge_span_count": (
                     len(nonrecipe_stage_result.knowledge_spans)
                     if nonrecipe_stage_result is not None
@@ -2568,8 +2546,8 @@ def generate_pred_run_artifacts(
     result.report.llm_codex_farm = llm_report
 
     if processed_output_root is None:
-        if result.non_recipe_blocks:
-            result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+        if stage7_block_rows:
+            result.chunks = chunks_from_non_recipe_blocks(stage7_block_rows)
         elif result.topic_candidates:
             result.chunks = chunks_from_topic_candidates(result.topic_candidates)
 
@@ -3578,16 +3556,10 @@ def generate_pred_run_artifacts(
         prompt_inputs_manifest_path = run_root / "prompt_inputs_manifest.txt"
         prompt_outputs_manifest_path = run_root / "prompt_outputs_manifest.txt"
         prompt_input_dirs = (
-            llm_run_dir / stage_artifact_stem("chunking") / "in",
-            llm_run_dir / stage_artifact_stem("schemaorg") / "in",
-            llm_run_dir / stage_artifact_stem("merged_repair") / "in",
-            llm_run_dir / stage_artifact_stem("final") / "in",
+            llm_run_dir / stage_artifact_stem("recipe_llm_correct_and_link") / "in",
         )
         prompt_output_dirs = (
-            llm_run_dir / stage_artifact_stem("chunking") / "out",
-            llm_run_dir / stage_artifact_stem("schemaorg") / "out",
-            llm_run_dir / stage_artifact_stem("merged_repair") / "out",
-            llm_run_dir / stage_artifact_stem("final") / "out",
+            llm_run_dir / stage_artifact_stem("recipe_llm_correct_and_link") / "out",
         )
 
         def _build_prompt_manifest(
@@ -3807,13 +3779,8 @@ def run_labelstudio_import(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
-    codex_farm_pass1_pattern_hints_enabled: bool = False,
-    codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
-    codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
-    codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
     codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: int = 30,
-    codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
@@ -3920,13 +3887,8 @@ def run_labelstudio_import(
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
-        codex_farm_pass1_pattern_hints_enabled=codex_farm_pass1_pattern_hints_enabled,
-        codex_farm_pipeline_pass1=codex_farm_pipeline_pass1,
-        codex_farm_pipeline_pass2=codex_farm_pipeline_pass2,
-        codex_farm_pipeline_pass3=codex_farm_pipeline_pass3,
         codex_farm_pipeline_pass4_knowledge=codex_farm_pipeline_pass4_knowledge,
         codex_farm_context_blocks=codex_farm_context_blocks,
-        codex_farm_pass3_skip_pass2_ok=codex_farm_pass3_skip_pass2_ok,
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         codex_farm_recipe_mode=codex_farm_recipe_mode,
         codex_farm_failure_mode=codex_farm_failure_mode,

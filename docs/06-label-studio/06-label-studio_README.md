@@ -211,6 +211,7 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 For metadata parity with benchmark/prediction manifests, `labelstudio-eval` now accepts optional
 `--llm-recipe-pipeline`, `--atomic-block-splitter`, and `--line-role-pipeline` overrides; when omitted,
 values are inferred from prediction-run metadata.
+New eval manifests should record the prediction-run root under `artifacts.artifact_root_dir`; `pred_run_dir` is only a stale historical alias and should not be reintroduced on new writes.
 
 ### 5.3 Benchmark behavior
 
@@ -303,6 +304,8 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/do_no_harm_diagnostics.json`
 - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
 Prediction-generation now reuses authoritative line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` evidence comes from Stage 7 non-recipe artifacts instead of a pass4 merge step.
+Those authoritative and projected line-role rows now carry separate `trust_score`, `escalation_score`, and `escalation_reasons`; compatibility `confidence` is only the trust alias on this seam.
+Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same trust/escalation contract.
 Canonical line-role codex inflight is now resolved inside `canonical_line_roles.py`; `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the explicit override.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
 When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:
@@ -336,6 +339,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
 - If `line_role_pipeline != off`, benchmark manifests include line-role diagnostics pointers and an optional `line_role_pipeline_recipe_projection` summary.
 - Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
+- Eval/benchmark manifests should resolve the prediction-run directory from `artifacts.artifact_root_dir`; do not add new readers that prefer eval-root-relative fallbacks when the prediction artifacts live elsewhere.
 - New-format benchmark/prediction runs do not write or consume `pass4_merge_report.json`; Stage 7 ownership is already baked into the reused stage artifacts.
 - Line-role manifests now also surface do-no-harm pointers:
   - `line_role_pipeline_do_no_harm_diagnostics_json`

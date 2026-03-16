@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import csv
+import io
+
 import tests.llm.test_codex_farm_orchestrator as _base
+from cookimport.llm.codex_farm_runner import (
+    CodexFarmRunnerError,
+    SubprocessCodexFarmRunner,
+    ensure_codex_farm_pipelines_exist,
+    list_codex_farm_models,
+)
 
 # Reuse shared imports/helpers from the base orchestrator test module.
 globals().update({
@@ -19,7 +28,7 @@ def test_subprocess_runner_reports_missing_binary(tmp_path: Path) -> None:
 
     runner = SubprocessCodexFarmRunner(cmd="definitely-missing-codex-farm-binary")
     with pytest.raises(CodexFarmRunnerError):
-        runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+        runner.run_pipeline("recipe.correction.compact.v1", in_dir, out_dir, {})
 
 
 def test_subprocess_runner_passes_root_and_workspace_flags(
@@ -29,8 +38,8 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
     workspace_root = tmp_path / "workspace"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,9 +60,9 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -93,7 +102,7 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
                     {
                         "schema_version": 1,
                         "run_id": "run-test-passes-root-and-workspace-flags",
-                        "pipeline_id": "recipe.chunking.v1",
+                        "pipeline_id": "recipe.correction.compact.v1",
                         "flag_overrides": [],
                         "command_preview": "",
                     }
@@ -106,7 +115,7 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     run_result = runner.run_pipeline(
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
         in_dir,
         out_dir,
         {"EXTRA_ENV": "1"},
@@ -153,7 +162,7 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
         "run-test-passes-root-and-workspace-flags",
         "--json",
         "--pipeline",
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
     ]
 
 
@@ -164,8 +173,8 @@ def test_subprocess_runner_appends_benchmark_mode_flag_from_env(
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,9 +194,9 @@ def test_subprocess_runner_appends_benchmark_mode_flag_from_env(
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -218,7 +227,7 @@ def test_subprocess_runner_appends_benchmark_mode_flag_from_env(
                     {
                         "schema_version": 1,
                         "run_id": "run-benchmark-mode-flag",
-                        "pipeline_id": "recipe.chunking.v1",
+                        "pipeline_id": "recipe.correction.compact.v1",
                         "flag_overrides": [],
                         "command_preview": "",
                     }
@@ -231,7 +240,7 @@ def test_subprocess_runner_appends_benchmark_mode_flag_from_env(
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     run_result = runner.run_pipeline(
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
         in_dir,
         out_dir,
         {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "benchmark"},
@@ -252,8 +261,8 @@ def test_subprocess_runner_retries_extract_without_benchmark_mode_flag_when_unsu
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,9 +282,9 @@ def test_subprocess_runner_retries_extract_without_benchmark_mode_flag_when_unsu
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -314,7 +323,7 @@ def test_subprocess_runner_retries_extract_without_benchmark_mode_flag_when_unsu
                     {
                         "schema_version": 1,
                         "run_id": "run-extract-fallback",
-                        "pipeline_id": "recipe.chunking.v1",
+                        "pipeline_id": "recipe.correction.compact.v1",
                         "flag_overrides": [],
                         "command_preview": "",
                     }
@@ -327,7 +336,7 @@ def test_subprocess_runner_retries_extract_without_benchmark_mode_flag_when_unsu
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     run_result = runner.run_pipeline(
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
         in_dir,
         out_dir,
         {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "extract"},
@@ -347,8 +356,8 @@ def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -368,9 +377,9 @@ def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -394,7 +403,7 @@ def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     with pytest.raises(CodexFarmRunnerError, match="does not support --benchmark-mode"):
         runner.run_pipeline(
-            "recipe.chunking.v1",
+            "recipe.correction.compact.v1",
             in_dir,
             out_dir,
             {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "benchmark"},
@@ -410,8 +419,8 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -431,9 +440,9 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -551,7 +560,7 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
                     {
                         "schema_version": 1,
                         "run_id": "run-progress-events",
-                        "pipeline_id": "recipe.chunking.v1",
+                        "pipeline_id": "recipe.correction.compact.v1",
                         "flag_overrides": [],
                         "command_preview": "",
                     }
@@ -569,7 +578,7 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
         progress_callback=progress_messages.append,
     )
     run_result = runner.run_pipeline(
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
         in_dir,
         out_dir,
         {},
@@ -594,8 +603,8 @@ def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -615,9 +624,9 @@ def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -660,7 +669,7 @@ def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported
                     {
                         "schema_version": 1,
                         "run_id": "run-progress-events-fallback",
-                        "pipeline_id": "recipe.chunking.v1",
+                        "pipeline_id": "recipe.correction.compact.v1",
                         "flag_overrides": [],
                         "command_preview": "",
                     }
@@ -681,7 +690,7 @@ def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported
         progress_callback=progress_messages.append,
     )
     run_result = runner.run_pipeline(
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
         in_dir,
         out_dir,
         {},
@@ -703,8 +712,8 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
     data_dir = tmp_path / "farm-data"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     telemetry_csv = data_dir / "codex_exec_activity.csv"
 
     in_dir.mkdir(parents=True, exist_ok=True)
@@ -727,9 +736,9 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -808,7 +817,7 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
                 "tokens_total": "130",
                 "prompt_sha256": "prompt-sha",
                 "prompt_chars": "999",
-                "pipeline_id": "recipe.chunking.v1",
+                "pipeline_id": "recipe.correction.compact.v1",
                 "run_id": "run-123",
                 "task_id": "task-1",
                 "worker_id": "worker-a",
@@ -868,7 +877,7 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
                     {
                         "schema_version": 1,
                         "run_id": "run-123",
-                        "pipeline_id": "recipe.chunking.v1",
+                        "pipeline_id": "recipe.correction.compact.v1",
                         "flag_overrides": [
                             {
                                 "flag": "--workers",
@@ -887,7 +896,7 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
 
     runner = SubprocessCodexFarmRunner(cmd=f"codex-farm --data-dir {data_dir}")
     run_result = runner.run_pipeline(
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
         in_dir,
         out_dir,
         {},
@@ -923,7 +932,7 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
         "run-123",
         "--json",
         "--pipeline",
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
     ]
 
 
@@ -933,15 +942,15 @@ def test_subprocess_runner_fails_before_process_when_output_schema_missing(
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
     (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
                 "output_schema_path": "schemas/missing.schema.json",
             }
         ),
@@ -959,7 +968,7 @@ def test_subprocess_runner_fails_before_process_when_output_schema_missing(
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     with pytest.raises(CodexFarmRunnerError) as exc_info:
         runner.run_pipeline(
-            "recipe.chunking.v1",
+            "recipe.correction.compact.v1",
             in_dir,
             out_dir,
             {},
@@ -976,8 +985,8 @@ def test_subprocess_runner_rejects_process_payload_missing_output_schema_path(
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
     root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
     in_dir.mkdir(parents=True, exist_ok=True)
     schema_path.parent.mkdir(parents=True, exist_ok=True)
     pipeline_path.parent.mkdir(parents=True, exist_ok=True)
@@ -997,9 +1006,9 @@ def test_subprocess_runner_rejects_process_payload_missing_output_schema_path(
     pipeline_path.write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.chunking.v1",
-                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
             }
         ),
         encoding="utf-8",
@@ -1023,7 +1032,7 @@ def test_subprocess_runner_rejects_process_payload_missing_output_schema_path(
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     with pytest.raises(CodexFarmRunnerError) as exc_info:
         runner.run_pipeline(
-            "recipe.chunking.v1",
+            "recipe.correction.compact.v1",
             in_dir,
             out_dir,
             {},
@@ -1099,7 +1108,7 @@ def test_subprocess_runner_uses_run_errors_followup_on_failure(
                         "run_id": "run-123",
                         "status": "failed",
                         "exit_code": 1,
-                        "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+                        "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
                     }
                 ),
                 stderr="pipeline failed",
@@ -1122,7 +1131,7 @@ def test_subprocess_runner_uses_run_errors_followup_on_failure(
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     with pytest.raises(CodexFarmRunnerError) as exc_info:
-        runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+        runner.run_pipeline("recipe.correction.compact.v1", in_dir, out_dir, {})
 
     assert "run-123" in str(exc_info.value)
     assert "simulated worker error" in str(exc_info.value)
@@ -1161,10 +1170,10 @@ def test_subprocess_runner_surfaces_precheck_stderr_when_failure_has_no_run_id(
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     with pytest.raises(CodexFarmRunnerError) as exc_info:
-        runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+        runner.run_pipeline("recipe.correction.compact.v1", in_dir, out_dir, {})
 
     message = str(exc_info.value)
-    assert "codex-farm failed for recipe.chunking.v1" in message
+    assert "codex-farm failed for recipe.correction.compact.v1" in message
     assert "subprocess_exit=1" in message
     assert "stderr_summary=codex execution precheck failed before `process`" in message
     assert "usage limit for GPT-5.3-Codex-Spark" in message
@@ -1221,7 +1230,7 @@ def test_subprocess_runner_tolerates_no_last_agent_message_failures(
     monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
-    run_result = runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+    run_result = runner.run_pipeline("recipe.correction.compact.v1", in_dir, out_dir, {})
 
     assert run_result.run_id == "run-123"
     assert run_result.subprocess_exit_code == 1
@@ -1236,7 +1245,7 @@ def test_subprocess_runner_tolerates_no_last_agent_message_failures(
         "run-123",
         "--json",
         "--pipeline",
-        "recipe.chunking.v1",
+        "recipe.correction.compact.v1",
     ]
 
 
@@ -1318,7 +1327,7 @@ def test_subprocess_runner_routes_recoverable_partial_output_warning_to_progress
         cmd="codex-farm",
         progress_callback=progress_messages.append,
     )
-    run_result = runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+    run_result = runner.run_pipeline("recipe.correction.compact.v1", in_dir, out_dir, {})
 
     assert run_result.run_id == "run-progress-123"
     assert run_result.subprocess_exit_code == 1
@@ -1413,7 +1422,7 @@ def test_subprocess_runner_recovers_high_coverage_benchmark_partial_timeout_mix(
         progress_callback=progress_messages.append,
     )
     run_result = runner.run_pipeline(
-        "recipe.schemaorg.compact.v1",
+        "recipe.knowledge.compact.v1",
         in_dir,
         out_dir,
         {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "benchmark"},
@@ -1491,7 +1500,7 @@ def test_subprocess_runner_keeps_timeout_mixed_partial_failure_hard_outside_benc
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
     with pytest.raises(CodexFarmRunnerError, match="failure_categories=nonzero_exit_no_payload:1,timeout:1"):
-        runner.run_pipeline("recipe.schemaorg.compact.v1", in_dir, out_dir, {})
+        runner.run_pipeline("recipe.knowledge.compact.v1", in_dir, out_dir, {})
 
 
 def test_ensure_codex_farm_pipelines_exist_queries_cli(
@@ -1508,8 +1517,8 @@ def test_ensure_codex_farm_pipelines_exist_queries_cli(
             returncode=0,
             stdout=json.dumps(
                 [
-                    {"pipeline_id": "recipe.chunking.v1"},
-                    {"pipeline_id": "recipe.schemaorg.v1"},
+                    {"pipeline_id": "recipe.correction.compact.v1"},
+                    {"pipeline_id": "recipe.knowledge.compact.v1"},
                 ]
             ),
             stderr="",
@@ -1520,7 +1529,7 @@ def test_ensure_codex_farm_pipelines_exist_queries_cli(
     ensure_codex_farm_pipelines_exist(
         cmd="codex-farm",
         root_dir=pack_root,
-        pipeline_ids=("recipe.chunking.v1",),
+        pipeline_ids=("recipe.correction.compact.v1",),
     )
 
     command = captured.get("command")
@@ -1545,7 +1554,7 @@ def test_ensure_codex_farm_pipelines_exist_raises_for_missing_pipeline(
     def _fake_run(command, **_kwargs):  # noqa: ANN001
         return SimpleNamespace(
             returncode=0,
-            stdout=json.dumps([{"pipeline_id": "recipe.chunking.v1"}]),
+            stdout=json.dumps([{"pipeline_id": "recipe.correction.compact.v1"}]),
             stderr="",
         )
 
@@ -1555,6 +1564,6 @@ def test_ensure_codex_farm_pipelines_exist_raises_for_missing_pipeline(
         ensure_codex_farm_pipelines_exist(
             cmd="codex-farm",
             root_dir=pack_root,
-            pipeline_ids=("recipe.final.compact.v1",),
+            pipeline_ids=("recipe.tags.v1",),
         )
-    assert "recipe.final.compact.v1" in str(exc_info.value)
+    assert "recipe.tags.v1" in str(exc_info.value)

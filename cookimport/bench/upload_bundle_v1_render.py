@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
+from cookimport.runs.stage_observability import (
+    recipe_stage_keys_for_pipeline,
+    stage_label,
+)
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -35,24 +39,11 @@ def _coerce_str_list(value: Any) -> list[str]:
     return []
 
 
-def _float_or_zero(value: Any) -> float:
-    parsed = _coerce_float(value)
-    return float(parsed) if parsed is not None else 0.0
-
-
-def _default_recipe_stages() -> list[dict[str, str]]:
-    return [
-        {"stage_key": "schemaorg", "stage_label": "Schema.org Extraction"},
-        {"stage_key": "final", "stage_label": "Final Draft"},
-    ]
-
-
-def _recipe_stages_from_context(context_payload: dict[str, Any]) -> list[dict[str, str]]:
-    recipe_stages = context_payload.get("recipe_stages")
-    if not isinstance(recipe_stages, list):
-        return _default_recipe_stages()
+def _coerce_stage_rows(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
     rows: list[dict[str, str]] = []
-    for row in recipe_stages:
+    for row in value:
         if not isinstance(row, dict):
             continue
         stage_key = str(row.get("stage_key") or "").strip()
@@ -60,20 +51,41 @@ def _recipe_stages_from_context(context_payload: dict[str, Any]) -> list[dict[st
         if not stage_key or not stage_label:
             continue
         rows.append({"stage_key": stage_key, "stage_label": stage_label})
+    return rows
+
+
+def _float_or_zero(value: Any) -> float:
+    parsed = _coerce_float(value)
+    return float(parsed) if parsed is not None else 0.0
+
+
+def _default_recipe_stages() -> list[dict[str, str]]:
+    return [
+        {
+            "stage_key": stage_key,
+            "stage_label": stage_label(stage_key),
+        }
+        for stage_key in recipe_stage_keys_for_pipeline(
+            "codex-farm-single-correction-v1"
+        )
+    ]
+
+
+def _recipe_stages_from_context(context_payload: dict[str, Any]) -> list[dict[str, str]]:
+    rows = _coerce_stage_rows(context_payload.get("recipe_stages"))
     return rows or _default_recipe_stages()
 
 
-def _recipe_stage_metric_key(stage_key: str, pass_stage_per_label_metrics: dict[str, Any]) -> str:
-    if stage_key == "schemaorg":
+def _recipe_stage_metric_key(
+    stage_key: str,
+    pass_stage_per_label_metrics: dict[str, Any],
+) -> str | None:
+    if stage_key == "build_intermediate_det":
+        return None
+    if stage_key == "recipe_llm_correct_and_link":
         return "pass2"
-    if stage_key == "final":
+    if stage_key == "build_final_recipe":
         return "pass3"
-    if stage_key == "merged_repair":
-        if isinstance(pass_stage_per_label_metrics.get("merged_repair"), dict):
-            return "merged_repair"
-        if isinstance(pass_stage_per_label_metrics.get("pass3"), dict):
-            return "pass3"
-        return "pass2"
     return stage_key
 
 
@@ -85,7 +97,14 @@ def _build_recipe_stage_row(
 ) -> dict[str, Any]:
     stage_key = str(recipe_stage.get("stage_key") or "")
     stage_label = str(recipe_stage.get("stage_label") or stage_key)
-    if stage_key == "schemaorg":
+    if stage_key == "build_intermediate_det":
+        return {
+            "stage_key": stage_key,
+            "stage_label": stage_label,
+            "status": "ok",
+            "deterministic_stage": True,
+        }
+    if stage_key == "recipe_llm_correct_and_link":
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,
@@ -99,7 +118,7 @@ def _build_recipe_stage_row(
                 _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
             ),
         }
-    if stage_key == "final":
+    if stage_key == "build_final_recipe":
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,
@@ -111,26 +130,10 @@ def _build_recipe_stage_row(
             "warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
             "fallback_reason": pass3_fallback_reason,
         }
-    merged_warning_buckets = _coerce_str_list(row.get("pass2_warning_buckets")) + _coerce_str_list(
-        row.get("pass3_warning_buckets")
-    )
-    deduped_warning_buckets = list(dict.fromkeys(merged_warning_buckets))
     return {
         "stage_key": stage_key,
         "stage_label": stage_label,
-        "status": str(row.get("pass3_status") or row.get("pass2_status") or ""),
-        "execution_mode": str(row.get("pass3_execution_mode") or ""),
-        "routing_reason": str(row.get("pass3_routing_reason") or ""),
-        "empty_mapping": bool(row.get("pass3_empty_mapping")),
-        "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
-        "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0)
-        + int(_coerce_int(row.get("pass3_warning_count")) or 0),
-        "warning_buckets": deduped_warning_buckets,
-        "degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
-        "extracted_instruction_count": int(
-            _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
-        ),
-        "fallback_reason": pass3_fallback_reason,
+        "status": "",
     }
 
 
@@ -189,7 +192,6 @@ def build_stage_separated_comparison(
                 "final_or_fallback_stage": {
                     "status": "fallback" if pass3_fallback_reason else "final",
                     "fallback_reason": pass3_fallback_reason or None,
-                    "chunking_status": str(row.get("pass1_status") or ""),
                     "recipe_stage_statuses": {
                         str(stage_row.get("stage_key") or ""): str(stage_row.get("status") or "")
                         for stage_row in recipe_stage_rows
@@ -210,7 +212,21 @@ def build_stage_separated_comparison(
     )
 
     def _build_pass_stage_row(stage_key: str, stage_label: str, label: str) -> dict[str, Any]:
-        metric_key = _recipe_stage_metric_key(stage_key, pass_stage_per_label_metrics)
+        metric_key = _recipe_stage_metric_key(
+            stage_key,
+            pass_stage_per_label_metrics,
+        )
+        if metric_key is None:
+            return {
+                "stage_key": stage_key,
+                "stage_label": stage_label,
+                "label_scored": False,
+                "unavailable_reason": (
+                    "Deterministic intermediate build is not separately scored in the "
+                    "benchmark artifacts."
+                ),
+                "runs_scored": 0,
+            }
         stage_payload = pass_stage_per_label_metrics.get(metric_key)
         stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
         stage_labels = stage_payload.get("labels")
@@ -285,7 +301,7 @@ def build_stage_separated_comparison(
         "schema_version": "upload_bundle_stage_comparison.v2",
         "pair_count": len(comparison_pairs),
         "recipe_topology_key": str(
-            context_payload.get("recipe_topology_key") or "schemaorg_final"
+            context_payload.get("recipe_topology_key") or "single_correction"
         ),
         "recipe_stages": recipe_stages,
         "per_recipe": per_recipe_rows,
@@ -307,8 +323,7 @@ def build_recipe_pipeline_context_from_model(
             if isinstance(topology.get("codex_recipe_pipelines"), list)
             else []
         ),
-        "merged_repair_active": bool(topology.get("merged_repair_active")),
-        "recipe_topology_key": str(topology.get("recipe_topology_key") or "schemaorg_final"),
+        "recipe_topology_key": str(topology.get("recipe_topology_key") or "single_correction"),
         "recipe_stages": _recipe_stages_from_context(topology),
         "observed_recipe_stage_call_counts": (
             dict(topology.get("observed_recipe_stage_call_counts"))
@@ -323,6 +338,11 @@ def build_recipe_pipeline_context_from_model(
         "observed_recipe_routing_reasons": (
             list(topology.get("observed_recipe_routing_reasons"))
             if isinstance(topology.get("observed_recipe_routing_reasons"), list)
+            else []
+        ),
+        "observed_recipe_pipelines": (
+            list(topology.get("observed_recipe_pipelines"))
+            if isinstance(topology.get("observed_recipe_pipelines"), list)
             else []
         ),
     }

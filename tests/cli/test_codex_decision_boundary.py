@@ -29,7 +29,7 @@ def test_stage_requires_allow_codex(
         cli.stage(
             path=source_file,
             out=tmp_path / "output",
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
         )
 
     assert excinfo.value.exit_code == 1
@@ -55,7 +55,7 @@ def test_stage_requires_allow_codex_for_merged_recipe_pipeline(
         cli.stage(
             path=source_file,
             out=tmp_path / "output",
-            llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
         )
 
     assert excinfo.value.exit_code == 1
@@ -72,7 +72,7 @@ def test_stage_plan_mode_allows_codex_without_allow_codex(
     run_root = cli.stage(
         path=source_file,
         out=tmp_path / "output",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         codex_execution_policy="plan",
     )
 
@@ -107,7 +107,7 @@ def test_labelstudio_import_requires_allow_codex(
             path=source_file,
             output_dir=tmp_path / "labelstudio",
             allow_labelstudio_write=True,
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
         )
 
     assert excinfo.value.exit_code == 1
@@ -189,7 +189,7 @@ def test_labelstudio_import_plan_mode_allows_codex_without_allow_codex(
     cli.labelstudio_import(
         path=source_file,
         output_dir=tmp_path / "labelstudio",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         codex_execution_policy="plan",
     )
 
@@ -222,7 +222,7 @@ def test_labelstudio_benchmark_requires_allow_codex(
             processed_output_dir=tmp_path / "processed",
             eval_output_dir=tmp_path / "eval",
             no_upload=True,
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
         )
 
     assert excinfo.value.exit_code == 1
@@ -254,7 +254,7 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
             "manifest_path": prediction_manifest,
             "codex_execution_plan_path": plan_path,
             "run_config": {
-                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                 "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
             },
             "run_config_hash": "hash",
@@ -273,7 +273,7 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
         processed_output_dir=tmp_path / "processed",
         eval_output_dir=eval_root,
         no_upload=True,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         llm_knowledge_pipeline="codex-farm-knowledge-v1",
         codex_farm_pipeline_pass4_knowledge="recipe.knowledge.custom.v9",
         codex_farm_knowledge_context_blocks=19,
@@ -323,7 +323,7 @@ def test_labelstudio_benchmark_requires_benchmark_codex_confirmation(
             processed_output_dir=tmp_path / "processed",
             eval_output_dir=tmp_path / "eval",
             no_upload=True,
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
             allow_codex=True,
         )
 
@@ -357,7 +357,7 @@ def test_labelstudio_benchmark_live_codex_blocked_in_agent_environment(
             processed_output_dir=tmp_path / "processed",
             eval_output_dir=tmp_path / "eval",
             no_upload=True,
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
             allow_codex=True,
             benchmark_codex_confirmation=cli.BENCH_CODEX_FARM_CONFIRMATION_TOKEN,
         )

@@ -48,7 +48,6 @@ All five live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, `tag
 ## Current live surfaces
 
 - `llm_recipe_pipeline`: `off`, `codex-farm-single-correction-v1`
-  - legacy `codex-farm-3pass-v1` and `codex-farm-2stage-repair-v1` payloads now normalize to `codex-farm-single-correction-v1`
 - `llm_knowledge_pipeline`: `off`, `codex-farm-knowledge-v1`
 - `llm_tags_pipeline`: `off`, `codex-farm-tags-v1`
 - `line_role_pipeline`: `off`, `deterministic-v1`, `codex-line-role-v1`

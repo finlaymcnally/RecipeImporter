@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -34,6 +35,49 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
             continue
         rows.append(json.loads(text))
     return rows
+
+
+def _make_current_pass4_bundle(tmp_path: Path) -> Path:
+    copied_root = tmp_path / "single-profile-benchmark"
+    shutil.copytree(PASS4_SAMPLE_BUNDLE.parent, copied_root)
+    bundle_dir = copied_root / "upload_bundle_v1"
+    index_path = bundle_dir / "upload_bundle_index.json"
+    index_payload = _read_json(index_path)
+    index_payload["source_dir"] = str(copied_root)
+    row_locators = ((index_payload.get("navigation") or {}).get("row_locators") or {})
+    pass4_rows = row_locators.get("pass4_by_run")
+    if isinstance(pass4_rows, list):
+        for row in pass4_rows:
+            if not isinstance(row, dict):
+                continue
+            if "knowledge_manifest_json" in row:
+                continue
+            for label, locator in list(row.items()):
+                if label in {"run_id", "output_subdir"} or not isinstance(locator, dict):
+                    continue
+                locator_path = str(locator.get("path") or "")
+                if "knowledge_manifest" not in locator_path:
+                    continue
+                row["knowledge_manifest_json"] = locator
+                del row[label]
+                break
+    index_path.write_text(
+        json.dumps(index_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    payload_path = bundle_dir / "upload_bundle_payload.jsonl"
+    payload_rows = _read_jsonl(payload_path)
+    for row in payload_rows:
+        path = str(row.get("path") or "")
+        if path.endswith("pass4_knowledge_manifest.json"):
+            row["path"] = path[: -len("pass4_knowledge_manifest.json")] + "knowledge_manifest.json"
+    payload_path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in payload_rows),
+        encoding="utf-8",
+    )
+    for manifest_path in copied_root.rglob("pass4_knowledge_manifest.json"):
+        manifest_path.rename(manifest_path.with_name("knowledge_manifest.json"))
+    return bundle_dir
 
 
 def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> None:
@@ -168,6 +212,7 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
 
     uncertainty_rows = _read_jsonl(pack_dir / "uncertainty.jsonl")
     assert uncertainty_rows
+    assert "trust_score" in uncertainty_rows[0]
 
 
 def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None:
@@ -269,13 +314,14 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
 
 
 def test_request_template_includes_pass4_example_when_bundle_has_pass4(tmp_path: Path) -> None:
+    pass4_bundle = _make_current_pass4_bundle(tmp_path)
     out_path = tmp_path / "followup_request_pass4.json"
     result = runner.invoke(
         app,
         [
             "request-template",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--out",
             str(out_path),
         ],
@@ -296,13 +342,14 @@ def test_request_template_includes_pass4_example_when_bundle_has_pass4(tmp_path:
 
 
 def test_select_cases_supports_pass4_source_key(tmp_path: Path) -> None:
+    pass4_bundle = _make_current_pass4_bundle(tmp_path)
     out_path = tmp_path / "pass4_selectors.json"
     result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--stage",
             "pass4",
             "--include-pass4-source-key",
@@ -325,13 +372,14 @@ def test_select_cases_supports_pass4_source_key(tmp_path: Path) -> None:
 
 
 def test_audit_pass4_knowledge_writes_rows(tmp_path: Path) -> None:
+    pass4_bundle = _make_current_pass4_bundle(tmp_path)
     selectors_path = tmp_path / "pass4_selectors.json"
     select_result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--stage",
             "pass4",
             "--include-pass4-source-key",
@@ -348,7 +396,7 @@ def test_audit_pass4_knowledge_writes_rows(tmp_path: Path) -> None:
         [
             "audit-pass4-knowledge",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--selectors",
             str(selectors_path),
             "--out",
@@ -366,17 +414,18 @@ def test_audit_pass4_knowledge_writes_rows(tmp_path: Path) -> None:
     assert row["enabled"] is True
     assert row["outputs_parsed"] > 0
     assert "prompt_task4_txt" in row["local_artifacts"]
-    assert "pass4_manifest_json" in row["payload_locators"]
+    assert "knowledge_manifest_json" in row["payload_locators"]
 
 
 def test_pack_includes_pass4_knowledge_audit_and_case_export(tmp_path: Path) -> None:
+    pass4_bundle = _make_current_pass4_bundle(tmp_path)
     selectors_path = tmp_path / "pass4_selectors.json"
     select_result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--stage",
             "pass4",
             "--include-pass4-source-key",
@@ -393,7 +442,7 @@ def test_pack_includes_pass4_knowledge_audit_and_case_export(tmp_path: Path) -> 
         [
             "pack",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--selectors",
             str(selectors_path),
             "--out",
@@ -421,13 +470,14 @@ def test_pack_includes_pass4_knowledge_audit_and_case_export(tmp_path: Path) -> 
 
 
 def test_build_followup_writes_pass4_followup_packet(tmp_path: Path) -> None:
+    pass4_bundle = _make_current_pass4_bundle(tmp_path)
     template_path = tmp_path / "pass4_template.json"
     template_result = runner.invoke(
         app,
         [
             "request-template",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--out",
             str(template_path),
         ],
@@ -438,7 +488,7 @@ def test_build_followup_writes_pass4_followup_packet(tmp_path: Path) -> None:
     request_path = tmp_path / "pass4_followup_request.json"
     request_payload = {
         "schema_version": "cf.followup_request.v1",
-        "bundle_dir": str(PASS4_SAMPLE_BUNDLE),
+        "bundle_dir": str(pass4_bundle),
         "bundle_sha256": template_payload["bundle_sha256"],
         "request_id": "followup_pass4_request",
         "request_summary": "Answer one pass4 knowledge follow-up ask.",
@@ -475,7 +525,7 @@ def test_build_followup_writes_pass4_followup_packet(tmp_path: Path) -> None:
         [
             "build-followup",
             "--bundle",
-            str(PASS4_SAMPLE_BUNDLE),
+            str(pass4_bundle),
             "--request",
             str(request_path),
             "--out",

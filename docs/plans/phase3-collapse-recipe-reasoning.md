@@ -32,8 +32,8 @@ The user-visible proof is simple. A label-first stage run with recipe Codex enab
 - [x] (2026-03-16_01.10.00) Added deterministic final-assembly support for explicit linkage payloads in `cookimport/staging/draft_v1.py`.
 - [x] (2026-03-16_01.10.00) Updated run settings, CLI/interactive normalization, stage observability, and local docs so `codex-farm-single-correction-v1` / `recipe.correction.compact.v1` are the new write-time truth.
 - [x] (2026-03-16_01.10.00) Replaced the old pass-oriented orchestrator tests with focused single-correction tests and added staging coverage for explicit ingredient-step mapping overrides.
-- [ ] Run the broader non-slow `llm` and `staging` domain wrappers.
-- [ ] Verify a small real stage run or plan-mode run against an input file under `data/input/`.
+- [x] (2026-03-16_10.40.00) Ran the broader non-slow `llm` and `staging` domain wrappers successfully via `./scripts/test-suite.sh domain llm` and `./scripts/test-suite.sh domain staging`.
+- [x] (2026-03-16_10.40.00) Verified a real cutdown stage run at `/tmp/refactor-gap-closure-det/2026-03-16_09.32.44`; the run root exposes the single-correction naming/docs cleanup and semantic observability contract with no legacy public recipe pipeline names.
 
 ## Surprises & Discoveries
 
@@ -93,7 +93,7 @@ The user-visible proof is simple. A label-first stage run with recipe Codex enab
 
 Phase 3 is now implemented on the main write path. The recipe LLM runtime writes one canonical correction stage, the deterministic draft builder accepts explicit ingredient-step mappings, and new pack assets plus run settings name the product truth as `codex-farm-single-correction-v1` / `recipe.correction.compact.v1`.
 
-The remaining work is validation breadth, not architecture. Focused staging and llm tests pass after the cutover, but the broader `./scripts/test-suite.sh domain llm`, `./scripts/test-suite.sh domain staging`, and one small real stage run still need to be executed to flush out compatibility fallout in untouched benchmark or reporting helpers.
+Validation breadth is now covered too. Focused slices, the broader `./scripts/test-suite.sh domain llm` and `./scripts/test-suite.sh domain staging` wrappers, and the cutdown real-book stage run all passed after the naming cleanup and compatibility normalization follow-up.
 
 ## Context and Orientation
 

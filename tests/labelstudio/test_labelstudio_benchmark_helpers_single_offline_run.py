@@ -14,7 +14,7 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test codex-enabled",
     )
     benchmark_eval_output = (
@@ -33,9 +33,9 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
         eval_output_dir.mkdir(parents=True, exist_ok=True)
         llm_pipeline = str(kwargs.get("llm_recipe_pipeline") or "").strip().lower()
         metrics = {
-            "precision": 0.42 if llm_pipeline == "codex-farm-3pass-v1" else 0.39,
-            "recall": 0.33 if llm_pipeline == "codex-farm-3pass-v1" else 0.30,
-            "f1": 0.37 if llm_pipeline == "codex-farm-3pass-v1" else 0.34,
+            "precision": 0.42 if llm_pipeline == "codex-farm-single-correction-v1" else 0.39,
+            "recall": 0.33 if llm_pipeline == "codex-farm-single-correction-v1" else 0.30,
+            "f1": 0.37 if llm_pipeline == "codex-farm-single-correction-v1" else 0.34,
             "practical_precision": None,
             "practical_recall": None,
             "practical_f1": None,
@@ -52,11 +52,11 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
                         "llm_recipe_pipeline": llm_pipeline,
                         "codex_farm_model": (
                             "gpt-5.3-codex-spark"
-                            if llm_pipeline == "codex-farm-3pass-v1"
+                            if llm_pipeline == "codex-farm-single-correction-v1"
                             else None
                         ),
                         "codex_farm_reasoning_effort": (
-                            "low" if llm_pipeline == "codex-farm-3pass-v1" else None
+                            "low" if llm_pipeline == "codex-farm-single-correction-v1" else None
                         ),
                     },
                 }
@@ -94,7 +94,7 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     assert len(benchmark_calls) == 2
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-farm-3pass-v1",
+        "codex-farm-single-correction-v1",
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
         "deterministic-v1",
@@ -108,14 +108,6 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     assert [call["single_offline_split_cache_mode"] for call in benchmark_calls] == [
         "auto",
         "auto",
-    ]
-    assert [call["codex_farm_pipeline_pass2"] for call in benchmark_calls] == [
-        "recipe.schemaorg.compact.v1",
-        "recipe.schemaorg.compact.v1",
-    ]
-    assert [call["codex_farm_pipeline_pass3"] for call in benchmark_calls] == [
-        "recipe.final.compact.v1",
-        "recipe.final.compact.v1",
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-offline-benchmark" / "vanilla",
@@ -164,7 +156,7 @@ def test_interactive_single_offline_preserves_selected_codex_recipe_pipeline(
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test merged-prototype benchmark",
     )
     benchmark_eval_output = (
@@ -213,14 +205,14 @@ def test_interactive_single_offline_preserves_selected_codex_recipe_pipeline(
     assert completed is True
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-farm-2stage-repair-v1",
+        "codex-farm-single-correction-v1",
     ]
 
 
 def test_interactive_single_offline_variants_ignore_persistence_only_metadata() -> None:
     selected_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-2stage-repair-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "codex_farm_model": "gpt-5.3-codex-spark",
             "codex_farm_reasoning_effort": "low",
         },
@@ -232,7 +224,7 @@ def test_interactive_single_offline_variants_ignore_persistence_only_metadata() 
     assert [slug for slug, _settings in variants] == ["vanilla", "codexfarm"]
     assert [settings.llm_recipe_pipeline.value for _, settings in variants] == [
         "off",
-        "codex-farm-2stage-repair-v1",
+        "codex-farm-single-correction-v1",
     ]
     assert [str(settings.codex_farm_model) for _, settings in variants] == [
         "gpt-5.3-codex-spark",
@@ -496,7 +488,7 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test markdown-summary",
     )
     benchmark_eval_output = (
@@ -514,16 +506,16 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
         eval_output_dir.mkdir(parents=True, exist_ok=True)
         llm_pipeline = str(kwargs.get("llm_recipe_pipeline") or "").strip().lower()
         metrics = {
-            "overall_line_accuracy": 0.71 if llm_pipeline == "codex-farm-3pass-v1" else 0.68,
-            "precision": 0.42 if llm_pipeline == "codex-farm-3pass-v1" else 0.39,
-            "recall": 0.41 if llm_pipeline == "codex-farm-3pass-v1" else 0.38,
-            "f1": 0.40 if llm_pipeline == "codex-farm-3pass-v1" else 0.37,
+            "overall_line_accuracy": 0.71 if llm_pipeline == "codex-farm-single-correction-v1" else 0.68,
+            "precision": 0.42 if llm_pipeline == "codex-farm-single-correction-v1" else 0.39,
+            "recall": 0.41 if llm_pipeline == "codex-farm-single-correction-v1" else 0.38,
+            "f1": 0.40 if llm_pipeline == "codex-farm-single-correction-v1" else 0.37,
             "macro_f1_excluding_other": 0.52
-            if llm_pipeline == "codex-farm-3pass-v1"
+            if llm_pipeline == "codex-farm-single-correction-v1"
             else 0.49,
-            "practical_precision": 0.31 if llm_pipeline == "codex-farm-3pass-v1" else 0.29,
-            "practical_recall": 0.30 if llm_pipeline == "codex-farm-3pass-v1" else 0.28,
-            "practical_f1": 0.29 if llm_pipeline == "codex-farm-3pass-v1" else 0.27,
+            "practical_precision": 0.31 if llm_pipeline == "codex-farm-single-correction-v1" else 0.29,
+            "practical_recall": 0.30 if llm_pipeline == "codex-farm-single-correction-v1" else 0.28,
+            "practical_f1": 0.29 if llm_pipeline == "codex-farm-single-correction-v1" else 0.27,
         }
         (eval_output_dir / "eval_report.json").write_text(
             json.dumps(metrics),
@@ -641,7 +633,7 @@ def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_c
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test codex-fails",
     )
     benchmark_eval_output = (
@@ -678,7 +670,7 @@ def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_c
     assert completed is False
     assert len(benchmark_calls) == 2
     assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
-    assert benchmark_calls[1]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert benchmark_calls[1]["llm_recipe_pipeline"] == "codex-farm-single-correction-v1"
     assert not (
         benchmark_eval_output
         / "single-offline-benchmark"

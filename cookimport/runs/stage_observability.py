@@ -90,30 +90,6 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "family": "recipe_deterministic",
         "order": 30,
     },
-    "chunking": {
-        "label": "Chunking",
-        "artifact_stem": "chunking",
-        "family": "recipe_llm_legacy",
-        "order": 10,
-    },
-    "schemaorg": {
-        "label": "Schema.org Extraction",
-        "artifact_stem": "schemaorg",
-        "family": "recipe_llm_legacy",
-        "order": 20,
-    },
-    "merged_repair": {
-        "label": "Merged Repair",
-        "artifact_stem": "merged_repair",
-        "family": "recipe_llm_legacy",
-        "order": 20,
-    },
-    "final": {
-        "label": "Final Draft",
-        "artifact_stem": "final",
-        "family": "recipe_llm_legacy",
-        "order": 30,
-    },
     "extract_knowledge_optional": {
         "label": "Extract Knowledge Optional",
         "artifact_stem": "knowledge",
@@ -166,10 +142,6 @@ def recipe_stage_keys_for_pipeline(pipeline_id: str | None) -> tuple[str, ...]:
             "recipe_llm_correct_and_link",
             "build_final_recipe",
         )
-    if normalized == "codex-farm-2stage-repair-v1":
-        return ("chunking", "merged_repair")
-    if normalized and normalized != "off":
-        return ("chunking", "schemaorg", "final")
     return ()
 
 

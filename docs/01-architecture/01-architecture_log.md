@@ -139,3 +139,73 @@ Durable findings:
 
 Anti-loop note:
 - if benchmark/import behavior diverges, check for duplicate session ownership before patching prompt packs, diagnostic projections, or score interpretation
+
+## 2026-03-15 to 2026-03-16 refactor closure notes
+
+### 2026-03-15_23.40.19 phase1 observability cutover surface
+
+Problem captured:
+- runtime stage meaning was being reconstructed separately by stage storage, prompt export, and benchmark bundle tooling
+- raw LLM directory naming was still acting like the most authoritative stage description
+
+Durable decisions:
+- run-level semantic stage observability is the shared contract for prompt export and bundle/render surfaces
+- new reviewer-facing and doc-facing stage descriptions should come from semantic stage rows, not pass-slot labels or local path guessing
+- old pass-slot or raw-path naming may survive only as narrow historical read compatibility
+
+### 2026-03-16_00.08.23 and 2026-03-16_10.40.00 label-first authority hard cut
+
+Problem captured:
+- Phase 2 still had one candidate-first escape hatch: if authoritative regrouping produced zero recipes, the stage session restored importer-owned results
+- Stage 7 existed, but stage-backed tables/chunks and some Label Studio accounting still read `ConversionResult.non_recipe_blocks` as live authority
+
+Durable decisions:
+- stage-backed paths stay on the authoritative label-first result even when regrouping disagrees with importer candidates
+- that mismatch now writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently restoring candidate-first ownership
+- Stage 7 rows are the live source for non-recipe tables, chunks, knowledge counts, and benchmark evidence
+- `ConversionResult.non_recipe_blocks` remains compatibility cache data only after Stage 7 work is complete
+
+Anti-loop note:
+- if a fix proposal needs candidate-first fallback or `non_recipe_blocks` as a live decision boundary, it is undoing the refactor
+
+### 2026-03-16_00.35.04 and 2026-03-16_10.40.00 single-correction recipe contract
+
+Problem captured:
+- the canonical Phase 3 runtime had landed, but docs/help/rendering still advertised 3-pass or merged-repair names as if they were current product truth
+
+Durable decisions:
+- public write-time recipe pipeline id is `codex-farm-single-correction-v1`
+- the recipe Codex path is one correction stage plus deterministic final draft rebuild from explicit ingredient-step mappings
+- legacy ids remain read-time aliases only; new user-facing docs and reviewer surfaces should not present them as primary values
+
+Anti-loop note:
+- if a new doc or UI change reintroduces `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1` as live options, treat that as naming drift, not product complexity
+
+### 2026-03-16_09.03.14 confidence-after-refactor boundary
+
+Problem captured:
+- confidence was easy to misread as either fully authoritative or fully obsolete after the label-first and Stage 7 cutovers
+
+Durable decisions:
+- scalar confidence still exists on authoritative labeled rows and still drives selective Codex escalation in line-role correction
+- recipe grouping and Stage 7 ownership ignore scalar confidence and trust final labels instead
+- `decided_by` and `reason_tags` are the active persisted trace fields
+- separate persisted `trust_score` and `escalation_score` fields are still not implemented
+
+Anti-loop note:
+- do not add new runtime dependence on scalar confidence for grouping/ownership just because the field still exists on labels and provenance
+
+### 2026-03-16_09.45.00 refactor gap review outcome
+
+Problem captured:
+- after Phases 1-4 landed, the remaining drift was mostly stale docs/help/readers rather than missing core runtime behavior
+
+Durable decisions:
+- treat surviving legacy names and compatibility readers as cleanup targets, not evidence that the old architecture is still co-primary
+- keep historical read compatibility narrow and explicit; do not let it masquerade as current write-time contract
+
+Still-relevant examples:
+- benchmark/reviewer topology currently exposes `schemaorg` / `final` or `merged_repair` semantic summaries rather than the fuller Phase 3 observability stage trio
+- `cookimport/bench/followup_bundle.py` still reads `pass4_knowledge_manifest.json` for archived bundles
+- `cookimport/config/run_settings.py` and `cookimport/labelstudio/ingest.py` still accept legacy recipe pipeline ids on load as compatibility aliases
+- `cookimport/llm/codex_farm_orchestrator.py::run_codex_farm_recipe_pipeline(...)` still contains unreachable legacy pass-state-machine code after the early single-correction return

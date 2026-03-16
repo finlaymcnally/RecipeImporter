@@ -33,9 +33,9 @@ Output schemas:
 - `schemas/line-role.canonical.v1.output.schema.json`
 - `schemas/prelabel.freeform.v1.output.schema.json`
 
-To tune pass behavior, edit prompt text files in `prompts/`. The canonical recipe pack now uses one compact correction asset, `recipe.correction.compact.v1`, plus the optional knowledge and tag packs.
+To tune pass behavior, edit prompt text files in `prompts/`. The recipe path now uses one compact correction asset, `recipe.correction.compact.v1`, plus the optional knowledge and tag packs.
 
-Recipe pass2/pass3/merged-repair schemas now use native nested JSON objects for recipe payload fields (`schemaorg_recipe`, `field_evidence`, `draft_v1`, `canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
+Recipe correction schemas use native nested JSON objects for recipe payload fields (`canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
 
 Prompt input contract:
 - `prompt_input_mode` is set to `"inline"` for recipe pipelines.
@@ -44,7 +44,7 @@ Prompt input contract:
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).
-- Recipe codex-farm passes (`recipe.chunking.v1`, `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, `recipe.knowledge.compact.v1`, `recipe.tags.v1`) default to `codex_timeout_seconds: 600`.
+- Recipe codex-farm packs (`recipe.correction.compact.v1`, `recipe.knowledge.compact.v1`, `recipe.tags.v1`) default to `codex_timeout_seconds: 600`.
 
 ## Label Studio freeform AI templates
 

@@ -10,22 +10,10 @@ PACK_ROOT = REPO_ROOT / "llm_pipelines"
 PIPELINES_DIR = PACK_ROOT / "pipelines"
 
 EXPECTED_PIPELINES = {
-    "recipe.chunking.v1": {
-        "pipeline_file": "recipe.chunking.v1.json",
-        "prompt_path": "prompts/recipe.chunking.v1.prompt.md",
-        "schema_path": "schemas/recipe.chunking.v1.output.schema.json",
-        "required_keys": {"bundle_version", "recipe_id"},
-    },
-    "recipe.schemaorg.compact.v1": {
-        "pipeline_file": "recipe.schemaorg.compact.v1.json",
-        "prompt_path": "prompts/recipe.schemaorg.compact.v1.prompt.md",
-        "schema_path": "schemas/recipe.schemaorg.v1.output.schema.json",
-        "required_keys": {"bundle_version", "recipe_id"},
-    },
-    "recipe.final.compact.v1": {
-        "pipeline_file": "recipe.final.compact.v1.json",
-        "prompt_path": "prompts/recipe.final.compact.v1.prompt.md",
-        "schema_path": "schemas/recipe.final.v1.output.schema.json",
+    "recipe.correction.compact.v1": {
+        "pipeline_file": "recipe.correction.compact.v1.json",
+        "prompt_path": "prompts/recipe.correction.compact.v1.prompt.md",
+        "schema_path": "schemas/recipe.correction.v1.output.schema.json",
         "required_keys": {"bundle_version", "recipe_id"},
     },
     "recipe.knowledge.compact.v1": {
@@ -92,20 +80,9 @@ def test_output_schemas_require_all_top_level_properties() -> None:
 
 
 def test_recipe_output_schemas_use_native_nested_objects_for_recipe_payloads() -> None:
-    schemaorg_schema = _load_json(PACK_ROOT / "schemas/recipe.schemaorg.v1.output.schema.json")
-    final_schema = _load_json(PACK_ROOT / "schemas/recipe.final.v1.output.schema.json")
-    merged_schema = _load_json(PACK_ROOT / "schemas/recipe.merged-repair.v1.output.schema.json")
+    correction_schema = _load_json(PACK_ROOT / "schemas/recipe.correction.v1.output.schema.json")
 
-    schemaorg_properties = schemaorg_schema["properties"]
-    assert schemaorg_properties["schemaorg_recipe"]["type"] == "object"
-    assert schemaorg_properties["field_evidence"]["type"] == "object"
-
-    final_properties = final_schema["properties"]
-    assert final_properties["draft_v1"]["type"] == "object"
-    assert final_properties["ingredient_step_mapping"]["type"] == "array"
-    assert final_properties["ingredient_step_mapping"]["items"]["type"] == "object"
-
-    merged_properties = merged_schema["properties"]
-    assert merged_properties["canonical_recipe"]["type"] == "object"
-    assert merged_properties["ingredient_step_mapping"]["type"] == "array"
-    assert merged_properties["ingredient_step_mapping"]["items"]["type"] == "object"
+    correction_properties = correction_schema["properties"]
+    assert correction_properties["canonical_recipe"]["type"] == "object"
+    assert correction_properties["ingredient_step_mapping"]["type"] == "array"
+    assert correction_properties["ingredient_step_mapping"]["items"]["type"] == "object"

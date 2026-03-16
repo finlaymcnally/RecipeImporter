@@ -24,7 +24,7 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 - benchmark line-role knobs (`atomic_block_splitter`, `line_role_pipeline`) must be wired through benchmark prediction generation, persisted in run manifests/reports/cutdown summaries, and kept separate from `llm_recipe_pipeline` intent.
 - New runs always perform deterministic table detection/export (`tables/<workbook>/tables.jsonl` + `tables.md`), table-aware chunking, and optional pass4 `chunk.blocks[*].table_hint` enrichment. The old `table_extraction` setting is no longer a supported live input.
 - Chunk-consolidation contract: table chunks (`provenance.table_ids` present) must never merge with non-table chunks (or other table chunks) in either `merge_small_chunks` or adjacent-topic consolidation. Debug/rollback knob for consolidation remains `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0`.
-- `llm_recipe_pipeline` accepts `off|codex-farm-3pass-v1` without environment gating; CLI/pred-run normalization should enforce only enum validity.
+- `llm_recipe_pipeline` accepts `off|codex-farm-single-correction-v1` without environment gating; validation should reject removed legacy recipe pipeline ids instead of normalizing them.
 - Direct run surfaces (`stage`, `labelstudio-import`, `labelstudio-benchmark`, and the `import` entrypoint) must fail closed unless Codex-backed settings are accompanied by explicit command approval at the caller boundary.
   - `stage`, `labelstudio-import`, and `import` use `--allow-codex`.
   - `labelstudio-benchmark` live Codex runs also require `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and must stay blocked in agent-run environments.
@@ -34,7 +34,7 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
   - `tags/<workbook_slug>/tagging_report.json`
   - `tags/tags_index.json`
   - `raw/llm/<workbook_slug>/pass5_tags/{in,out}/*.json` + `raw/llm/<workbook_slug>/pass5_tags_manifest.json`
-- Default local codex-farm recipe pass prompts live in `llm_pipelines/prompts/recipe.{chunking,schemaorg,final}.v1.prompt.md`; text-only tuning should happen there without touching orchestration code.
+- Default local codex-farm recipe prompts live in `llm_pipelines/prompts/recipe.correction.compact.v1.prompt.md`; knowledge and tags prompts live beside it under `llm_pipelines/prompts/`.
 - For local codex-farm packs, pipeline JSON `prompt_template_path` / `output_schema_path` entries are the source of truth; avoid keeping duplicate filename schemes in `llm_pipelines/prompts/` that are not referenced by those pipeline specs.
 - New processing-option contract (do all, or the feature is incomplete):
   - add option to `RunSettings` + interactive selectors,

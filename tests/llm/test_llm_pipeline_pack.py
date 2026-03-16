@@ -12,13 +12,10 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
     pack_root = repo_root / "llm_pipelines"
     pipelines_dir = pack_root / "pipelines"
 
-    settings = RunSettings()
     pipeline_ids = (
-        settings.codex_farm_pipeline_pass1,
-        settings.codex_farm_pipeline_pass2,
-        settings.codex_farm_pipeline_pass3,
-        settings.codex_farm_pipeline_pass4_knowledge,
-        settings.codex_farm_pipeline_pass5_tags,
+        "recipe.correction.compact.v1",
+        RunSettings().codex_farm_pipeline_pass4_knowledge,
+        RunSettings().codex_farm_pipeline_pass5_tags,
     )
 
     for pipeline_id in pipeline_ids:

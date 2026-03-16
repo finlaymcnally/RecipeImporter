@@ -22,71 +22,49 @@ PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
 PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
 
 _CODEXFARM_PASS_DIR_MAP: dict[str, str] = {
-    "pass1": "chunking",
-    "pass2": "schemaorg",
-    "pass3": "final",
-    "pass4": "knowledge",
-    "pass5": "tags",
+    "task1": "recipe_correction",
+    "task4": "knowledge",
+    "task5": "tags",
 }
 
 _CODEXFARM_PASS_TASK_MAP: dict[str, str] = {
-    "pass1": "task1",
-    "pass2": "task2",
-    "pass3": "task3",
-    "pass4": "task4",
-    "pass5": "task5",
+    "task1": "task1",
+    "task4": "task4",
+    "task5": "task5",
 }
 
 _CODEXFARM_PASS_PIPELINE_MAP: dict[str, str] = {
-    "pass1": "recipe.chunking.v1",
-    "pass2": "recipe.schemaorg.compact.v1",
-    "pass3": "recipe.final.compact.v1",
-    "pass4": "recipe.knowledge.compact.v1",
-    "pass5": "recipe.tags.v1",
+    "task1": "recipe.correction.compact.v1",
+    "task4": "recipe.knowledge.compact.v1",
+    "task5": "recipe.tags.v1",
 }
 
 _CODEXFARM_PASS_SORT_ORDER: dict[str, int] = {
-    "pass1": 1,
-    "pass2": 2,
-    "pass3": 3,
-    "pass4": 4,
-    "pass5": 5,
+    "task1": 1,
+    "task4": 4,
+    "task5": 5,
 }
 
 _CODEXFARM_PASS_MANIFEST_NAME_MAP: dict[str, str] = {
-    "pass1": RECIPE_MANIFEST_FILE_NAME,
-    "pass2": RECIPE_MANIFEST_FILE_NAME,
-    "pass3": RECIPE_MANIFEST_FILE_NAME,
-    "pass4": KNOWLEDGE_MANIFEST_FILE_NAME,
-    "pass5": TAGS_MANIFEST_FILE_NAME,
+    "task1": RECIPE_MANIFEST_FILE_NAME,
+    "task4": KNOWLEDGE_MANIFEST_FILE_NAME,
+    "task5": TAGS_MANIFEST_FILE_NAME,
 }
 
 _PROMPT_STAGE_SLOT_METADATA: dict[str, dict[str, Any]] = {
-    "pass1": {
+    "task1": {
         "slot_index": 1,
-        "default_label": "Chunking",
-        "default_artifact_stem": "chunking",
-        "expected_stage_key": "chunking",
+        "default_label": "Recipe Correction",
+        "default_artifact_stem": "recipe_correction",
+        "expected_stage_key": "recipe_llm_correct_and_link",
     },
-    "pass2": {
-        "slot_index": 2,
-        "default_label": "Schema.org Extraction",
-        "default_artifact_stem": "schemaorg",
-        "expected_stage_key": "schemaorg",
-    },
-    "pass3": {
-        "slot_index": 3,
-        "default_label": "Final Draft",
-        "default_artifact_stem": "final",
-        "expected_stage_key": "final",
-    },
-    "pass4": {
+    "task4": {
         "slot_index": 4,
         "default_label": "Knowledge Harvest",
         "default_artifact_stem": "knowledge",
-        "expected_stage_key": "knowledge",
+        "expected_stage_key": "extract_knowledge_optional",
     },
-    "pass5": {
+    "task5": {
         "slot_index": 5,
         "default_label": "Tag Suggestions",
         "default_artifact_stem": "tags",
@@ -95,12 +73,10 @@ _PROMPT_STAGE_SLOT_METADATA: dict[str, dict[str, Any]] = {
 }
 
 _PROMPT_STAGE_LABELS_BY_KEY = {
-    "chunking": "Chunking",
-    "schemaorg": "Schema.org Extraction",
-    "final": "Final Draft",
+    "recipe_llm_correct_and_link": "Recipe Correction",
+    "extract_knowledge_optional": "Knowledge Harvest",
     "knowledge": "Knowledge Harvest",
     "tags": "Tag Suggestions",
-    "merged_repair": "Merged Repair",
 }
 
 _TEXT_ATTACHMENT_SUFFIXES = {
@@ -305,9 +281,10 @@ def _build_prompt_stage_metadata(
     default_label = _clean_prompt_stage_text(slot_metadata.get("default_label"))
     default_artifact_stem = _clean_prompt_stage_text(slot_metadata.get("default_artifact_stem"))
     path_slug = slugify_name(str(path_root or "").strip()) if path_root else ""
-    stage_key = _derive_prompt_stage_key_from_pipeline_id(pipeline_id) or _fallback_prompt_stage_key(
-        pass_name=pass_name,
-        path_root=path_root,
+    stage_key = (
+        expected_stage_key
+        or _derive_prompt_stage_key_from_pipeline_id(pipeline_id)
+        or _fallback_prompt_stage_key(pass_name=pass_name, path_root=path_root)
     )
     matches_legacy = bool(
         expected_stage_key
@@ -319,12 +296,10 @@ def _build_prompt_stage_metadata(
     artifact_stem = (
         path_slug
         if matches_legacy and path_slug
-        else slugify_name(stage_key or default_artifact_stem or pass_name)
+        else slugify_name(default_artifact_stem or stage_key or pass_name)
     )
     label = (
-        default_label
-        if matches_legacy and default_label is not None
-        else _prompt_stage_label_from_key(stage_key)
+        default_label if default_label is not None else _prompt_stage_label_from_key(stage_key)
     )
     return {
         "pass_name": pass_name,
@@ -382,13 +357,13 @@ def _resolve_process_run_payload_for_legacy_pass(
     legacy_pass: str,
     manifest_payload: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if legacy_pass in {"pass1", "pass2", "pass3"}:
+    if legacy_pass == "task1":
         process_runs = manifest_payload.get("process_runs")
         if not isinstance(process_runs, dict):
             return None
-        pass_payload = process_runs.get(legacy_pass)
+        pass_payload = process_runs.get("recipe_correction")
         return pass_payload if isinstance(pass_payload, dict) else None
-    if legacy_pass == "pass4":
+    if legacy_pass == "task4":
         process_run = manifest_payload.get("process_run")
         if isinstance(process_run, dict):
             return process_run
@@ -398,7 +373,7 @@ def _resolve_process_run_payload_for_legacy_pass(
             if isinstance(report_process_run, dict):
                 return report_process_run
         return None
-    if legacy_pass == "pass5":
+    if legacy_pass == "task5":
         llm_report = manifest_payload.get("llm_report")
         if isinstance(llm_report, dict):
             report_process_run = llm_report.get("process_run")
@@ -415,7 +390,7 @@ def _resolve_manifest_pipeline_id_for_legacy_pass(
     legacy_pass: str,
     manifest_payload: dict[str, Any],
 ) -> str | None:
-    if legacy_pass in {"pass1", "pass2", "pass3"}:
+    if legacy_pass == "task1":
         process_run = _resolve_process_run_payload_for_legacy_pass(
             legacy_pass=legacy_pass,
             manifest_payload=manifest_payload,
@@ -424,8 +399,13 @@ def _resolve_manifest_pipeline_id_for_legacy_pass(
             candidate = _clean_text(process_run.get("pipeline_id"))
             if candidate is not None:
                 return candidate
+        pipelines = manifest_payload.get("pipelines")
+        if isinstance(pipelines, dict):
+            candidate = _clean_text(pipelines.get("recipe_correction"))
+            if candidate is not None:
+                return candidate
         return _CODEXFARM_PASS_PIPELINE_MAP.get(legacy_pass)
-    if legacy_pass == "pass4":
+    if legacy_pass == "task4":
         candidate = _clean_text(manifest_payload.get("pipeline_id"))
         if candidate is not None:
             return candidate
@@ -435,7 +415,7 @@ def _resolve_manifest_pipeline_id_for_legacy_pass(
             if report_candidate is not None:
                 return report_candidate
         return _CODEXFARM_PASS_PIPELINE_MAP.get(legacy_pass)
-    if legacy_pass == "pass5":
+    if legacy_pass == "task5":
         llm_report = manifest_payload.get("llm_report")
         if isinstance(llm_report, dict):
             report_candidate = _clean_text(llm_report.get("pipeline_id"))
@@ -455,7 +435,7 @@ def _resolve_stage_in_out_dirs_for_legacy_pass(
     stage_dir_name: str,
 ) -> tuple[Path, Path]:
     paths_payload: dict[str, Any] = {}
-    if legacy_pass == "pass5":
+    if legacy_pass == "task5":
         llm_report = manifest_payload.get("llm_report")
         if isinstance(llm_report, dict):
             llm_paths = llm_report.get("paths")
@@ -467,18 +447,14 @@ def _resolve_stage_in_out_dirs_for_legacy_pass(
             paths_payload = raw_paths
 
     pass_input_key_map = {
-        "pass1": "pass1_in",
-        "pass2": "pass2_in",
-        "pass3": "pass3_in",
-        "pass4": "pass4_in_dir",
-        "pass5": "in_dir",
+        "task1": "recipe_correction_in",
+        "task4": "pass4_in_dir",
+        "task5": "in_dir",
     }
     pass_output_key_map = {
-        "pass1": "pass1_out",
-        "pass2": "pass2_out",
-        "pass3": "pass3_out",
-        "pass4": "pass4_out_dir",
-        "pass5": "out_dir",
+        "task1": "recipe_correction_out",
+        "task4": "pass4_out_dir",
+        "task5": "out_dir",
     }
 
     input_key = pass_input_key_map.get(legacy_pass)
@@ -523,7 +499,7 @@ def discover_codexfarm_prompt_run_descriptors(
         notes: list[str] = []
         stages: list[PromptStageDescriptor] = []
         if not manifest_payload_by_name:
-            notes.append("missing pass manifests")
+            notes.append("missing prompt manifests")
         else:
             for legacy_pass, stage_dir_name in _CODEXFARM_PASS_DIR_MAP.items():
                 manifest_name = _CODEXFARM_PASS_MANIFEST_NAME_MAP.get(legacy_pass)

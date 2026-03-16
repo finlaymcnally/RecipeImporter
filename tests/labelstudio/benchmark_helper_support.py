@@ -290,29 +290,31 @@ def _write_labelstudio_compare_source_row(
     )
 
     if (
-        llm_recipe_pipeline == "codex-farm-3pass-v1"
+        llm_recipe_pipeline == "codex-farm-single-correction-v1"
         and codex_farm_recipe_mode == "benchmark"
         and write_required_llm_debug
     ):
         llm_root = prediction_run_root / "llm"
-        pass1_in = llm_root / "chunking" / "in"
-        pass1_out = llm_root / "chunking" / "out"
-        pass2_in = llm_root / "schemaorg" / "in"
-        pass2_out = llm_root / "schemaorg" / "out"
-        pass3_in = llm_root / "final" / "in"
-        pass3_out = llm_root / "final" / "out"
-        for folder in (pass1_in, pass1_out, pass2_in, pass2_out, pass3_in, pass3_out):
+        correction_in = llm_root / "recipe_correction" / "in"
+        correction_out = llm_root / "recipe_correction" / "out"
+        for folder in (correction_in, correction_out):
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "r0000.json").write_text("{}", encoding="utf-8")
         llm_manifest = {
+            "pipeline": "codex-farm-single-correction-v1",
+            "pipelines": {
+                "recipe_correction": "recipe.correction.compact.v1",
+            },
             "paths": {
-                "pass1_in": str(pass1_in),
-                "pass1_out": str(pass1_out),
-                "pass2_in": str(pass2_in),
-                "pass2_out": str(pass2_out),
-                "pass3_in": str(pass3_in),
-                "pass3_out": str(pass3_out),
-            }
+                "recipe_correction_in": str(correction_in),
+                "recipe_correction_out": str(correction_out),
+            },
+            "process_runs": {
+                "recipe_correction": {
+                    "run_id": "run-recipe-correction",
+                    "pipeline_id": "recipe.correction.compact.v1",
+                },
+            },
         }
         llm_manifest_path = prediction_run_root / "recipe_manifest.json"
         llm_manifest_path.write_text(
@@ -322,14 +324,10 @@ def _write_labelstudio_compare_source_row(
         prediction_run_manifest["artifacts"]["recipe_manifest_json"] = str(llm_manifest_path)
         if write_prompt_manifests:
             prompt_input_payloads = [
-                pass1_in / "prompt_request_0.json",
-                pass2_in / "prompt_request_1.json",
-                pass3_in / "prompt_request_2.json",
+                correction_in / "prompt_request_0.json",
             ]
             prompt_output_payloads = [
-                pass1_out / "prompt_response_0.json",
-                pass2_out / "prompt_response_1.json",
-                pass3_out / "prompt_response_2.json",
+                correction_out / "prompt_response_0.json",
             ]
             for payload_path in prompt_input_payloads:
                 payload_path.write_text("{}", encoding="utf-8")

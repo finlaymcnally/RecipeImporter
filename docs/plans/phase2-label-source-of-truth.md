@@ -34,7 +34,7 @@ The user-visible proof is a small cookbook import where the stage run writes Sta
 - [x] (2026-03-16_00.08.23) Switched `cookimport/labelstudio/ingest.py` to reuse the stage-produced label-first bundle instead of rerunning a second post-stage line-role pass for projection artifacts.
 - [x] (2026-03-16_00.08.23) Registered the new stage keys in stage observability and run manifests so stage and prediction runs report the same label-first artifact lanes.
 - [x] (2026-03-16_00.08.23) Added targeted tests for deterministic recipe-span grouping, label-first conversion, and the Label Studio authoritative-stage reuse seam.
-- [ ] Validate the new runtime on a real cutdown book and update any remaining docs touched by the new runtime.
+- [x] (2026-03-16_10.40.00) Closed the remaining authority gap by deleting the last `original_result` fallback in `cookimport/staging/import_session.py`, writing `group_recipe_spans/<workbook_slug>/authority_mismatch.json` when regrouping finds zero recipes, and validating the label-first runtime on `/tmp/refactor-gap-closure-det/2026-03-16_09.32.44`.
 
 ## Surprises & Discoveries
 
@@ -70,7 +70,7 @@ The user-visible proof is a small cookbook import where the stage run writes Sta
 
 ## Outcomes & Retrospective
 
-Phase 2 is implemented for the runtime seam described in this plan. Stage runs now settle labeled-line truth once, normalize it into authoritative block labels plus grouped recipe spans, and write those artifacts before recipe drafting. Label Studio prediction runs reuse that same bundle instead of rerunning a second post-stage line-role classifier. The remaining planned follow-up is real-book validation and any Phase 3 work that can finally delete the temporary `ConversionResult` bridge once downstream draft building no longer needs it.
+Phase 2 is implemented for the runtime seam described in this plan. Stage runs now settle labeled-line truth once, normalize it into authoritative block labels plus grouped recipe spans, and write those artifacts before recipe drafting. Label Studio prediction runs reuse that same bundle instead of rerunning a second post-stage line-role classifier, and the stage session no longer restores importer-owned recipes when authoritative regrouping disagrees. The remaining bridge is only the compatibility `ConversionResult` shape for downstream code that has not been hard-deleted yet.
 
 ## Context and Orientation
 

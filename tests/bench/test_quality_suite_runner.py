@@ -696,7 +696,7 @@ def test_run_quality_suite_rejects_codex_farm_enabled_requested_settings(
     base_run_settings_file = tmp_path / "base_run_settings.json"
     _write_json(
         base_run_settings_file,
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
     )
 
     with pytest.raises(ValueError) as excinfo:

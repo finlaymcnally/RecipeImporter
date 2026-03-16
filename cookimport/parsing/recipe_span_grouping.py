@@ -90,12 +90,21 @@ def _build_span(
     title_block_index: int | None = None
     title_atomic_index: int | None = None
     warnings: list[str] = []
+    block_trust_scores: list[float] = []
+    block_escalation_scores: list[float] = []
+    escalation_reasons: list[str] = []
+    decision_notes: list[str] = []
 
     for row in block_rows:
         block_atomic_indices = sorted(
             int(value) for value in atomic_indices_by_block.get(int(row.source_block_index), [])
         )
         atomic_indices.extend(block_atomic_indices)
+        if row.trust_score is not None:
+            block_trust_scores.append(float(row.trust_score))
+        if row.escalation_score is not None:
+            block_escalation_scores.append(float(row.escalation_score))
+        escalation_reasons.extend(row.escalation_reasons)
         if title_block_index is None and str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS:
             title_block_index = int(row.source_block_index)
             if block_atomic_indices:
@@ -103,8 +112,26 @@ def _build_span(
 
     if warning:
         warnings.append(warning)
+        escalation_reasons.append(warning)
+        decision_notes.append(warning)
     if not any(str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS for row in block_rows):
         warnings.append("recipe_span_missing_title_label")
+        escalation_reasons.append("missing_required_recipe_fields")
+        decision_notes.append("span_missing_title_block")
+
+    if title_block_index is not None:
+        title_row = next(
+            (
+                row
+                for row in block_rows
+                if int(row.source_block_index) == int(title_block_index)
+            ),
+            None,
+        )
+        if title_row is not None and title_row.trust_score is not None and float(title_row.trust_score) < 0.9:
+            escalation_reasons.append("low_trust_title_block")
+            decision_notes.append("title_block_trust_below_rule_hold")
+            block_escalation_scores.append(max(float(title_row.escalation_score or 0.0), 0.8))
 
     atomic_indices = sorted(set(atomic_indices))
     return RecipeSpan(
@@ -119,4 +146,8 @@ def _build_span(
         title_block_index=title_block_index,
         title_atomic_index=title_atomic_index,
         warnings=warnings,
+        trust_score=min(block_trust_scores) if block_trust_scores else None,
+        escalation_score=max(block_escalation_scores) if block_escalation_scores else None,
+        escalation_reasons=escalation_reasons,
+        decision_notes=decision_notes,
     )

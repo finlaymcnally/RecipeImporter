@@ -136,14 +136,18 @@ def build_followup(
     request: Path = typer.Option(..., "--request", exists=True, file_okay=True, dir_okay=False),
     out: Path = typer.Option(..., "--out"),
     readme: bool = typer.Option(True, "--readme/--no-readme"),
-    confidence_threshold: float = typer.Option(0.9, "--confidence-threshold"),
+    trust_threshold: float = typer.Option(
+        0.9,
+        "--trust-threshold",
+        "--confidence-threshold",
+    ),
 ) -> None:
     write_followup_request_packet(
         bundle_dir=bundle,
         request_path=request,
         out_dir=out,
         include_readme=readme,
-        confidence_threshold=confidence_threshold,
+        trust_threshold=trust_threshold,
     )
     typer.echo(str(out))
 
@@ -203,13 +207,17 @@ def export_uncertainty(
     bundle: Path = typer.Option(..., "--bundle", exists=True, file_okay=False, dir_okay=True),
     selectors: Path = typer.Option(..., "--selectors", exists=True, file_okay=True, dir_okay=False),
     out: Path = typer.Option(..., "--out"),
-    confidence_threshold: float = typer.Option(0.9, "--confidence-threshold"),
+    trust_threshold: float = typer.Option(
+        0.9,
+        "--trust-threshold",
+        "--confidence-threshold",
+    ),
 ) -> None:
     write_uncertainty_export(
         bundle_dir=bundle,
         selectors_path=selectors,
         out_path=out,
-        confidence_threshold=confidence_threshold,
+        trust_threshold=trust_threshold,
     )
     typer.echo(str(out))
 
@@ -220,14 +228,18 @@ def pack(
     selectors: Path = typer.Option(..., "--selectors", exists=True, file_okay=True, dir_okay=False),
     out: Path = typer.Option(..., "--out"),
     readme: bool = typer.Option(True, "--readme/--no-readme"),
-    confidence_threshold: float = typer.Option(0.9, "--confidence-threshold"),
+    trust_threshold: float = typer.Option(
+        0.9,
+        "--trust-threshold",
+        "--confidence-threshold",
+    ),
 ) -> None:
     write_followup_pack(
         bundle_dir=bundle,
         selectors_path=selectors,
         out_dir=out,
         include_readme=readme,
-        confidence_threshold=confidence_threshold,
+        trust_threshold=trust_threshold,
     )
     typer.echo(str(out))
 

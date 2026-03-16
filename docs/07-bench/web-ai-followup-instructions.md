@@ -94,9 +94,9 @@ When present, these are the highest-value things to reason from before asking fo
 - `analysis.failure_ledger`
 - `analysis.regression_casebook`
 - `analysis.changed_lines_stratified_sample`
-- `analysis.low_confidence_changed_lines_packet`
+- `analysis.low_trust_changed_lines_packet`
 - `analysis.call_inventory_runtime`
-- `analysis.line_role_confidence`
+- `analysis.line_role_trust`
 - `analysis.pass4_knowledge`
 - `analysis.group_high_level`, `analysis.book_scorecard`, `analysis.ablation_summary`, `analysis.outside_span_by_book`, `analysis.runtime_by_book` for multi-book sessions
 
@@ -174,7 +174,7 @@ Use this when you want the minimum case-centered packet.
 
 ### `cf-debug audit-line-role`
 
-Purpose: inspect line-role predictions, candidate labels, prompt-linked files, confidence, and simple invariants for selected lines/cases.
+Purpose: inspect line-role predictions, candidate labels, prompt-linked files, trust/escalation metadata, and simple invariants for selected lines/cases.
 
 Output:
 
@@ -214,13 +214,13 @@ Use this when the error smells like layout bleed, heading confusion, page marker
 
 ### `cf-debug export-uncertainty`
 
-Purpose: emit low-confidence or ambiguous signal around the selected cases.
+Purpose: emit low-trust or explicit-escalation signal around the selected cases.
 
 Output:
 
 - `uncertainty.jsonl`
 
-Use this when you want confidence-driven evidence rather than prompt provenance.
+Use this when you want trust/escalation-driven evidence rather than prompt provenance.
 
 ### `cf-debug pack`
 

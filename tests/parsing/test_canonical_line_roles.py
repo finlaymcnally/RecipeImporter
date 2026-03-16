@@ -737,6 +737,9 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
     assert len(predictions) == 2
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "rule"
+    assert predictions[0].trust_score == predictions[0].confidence
+    assert predictions[0].escalation_score is not None
+    assert "low_trust_structured_label" in predictions[0].escalation_reasons
 
 
 def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
@@ -1065,6 +1068,8 @@ def test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_s
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by in {"rule", "fallback"}
+    assert predictions[0].trust_score == predictions[0].confidence
+    assert predictions[0].escalation_score is not None
 
 
 def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> None:
@@ -1449,6 +1454,11 @@ def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
     assert plan["planned_candidate_count"] == 1
     assert plan["batches"][0]["atomic_indices"] == [0]
     assert "candidate_labels" not in plan["batches"][0]["rows"][0]
+    assert plan["batches"][0]["rows"][0]["trust_score"] == 0.35
+    assert plan["batches"][0]["rows"][0]["escalation_reasons"] == [
+        "deterministic_unresolved",
+        "fallback_decision",
+    ]
 
 
 def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:

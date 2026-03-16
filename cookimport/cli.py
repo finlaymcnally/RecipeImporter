@@ -5357,10 +5357,7 @@ def _has_llm_artifact_evidence(
     if not llm_root.exists() or not llm_root.is_dir():
         return False
     recipe_stage_dirs = {
-        stage_artifact_stem("chunking"),
-        stage_artifact_stem("schemaorg"),
-        stage_artifact_stem("merged_repair"),
-        stage_artifact_stem("final"),
+        stage_artifact_stem("recipe_llm_correct_and_link"),
     }
     for workbook_dir in llm_root.iterdir():
         if not workbook_dir.is_dir():
@@ -5429,7 +5426,7 @@ def _resolve_codex_farm_mode_and_pipeline(
     ).strip()
     if not raw_pipeline:
         if raw_mode == CODEX_FARM_RECIPE_MODE_BENCHMARK:
-            raw_pipeline = "codex-farm-3pass-v1"
+            raw_pipeline = "codex-farm-single-correction-v1"
         else:
             raw_pipeline = "off"
 
@@ -5511,57 +5508,33 @@ def _build_source_debug_artifact_status(
         prompt_output_payloads = _read_artifact_list_from_manifest(
             prompt_outputs_manifest
         )
-        llm_manifest_path = _resolve_artifact_path(
+        recipe_manifest_path = _resolve_artifact_path(
             candidate_prediction_run_dir,
-            prediction_artifacts.get("llm_manifest_json"),
+            prediction_artifacts.get("recipe_manifest_json"),
         )
-        llm_manifest = (
-            _load_json_dict(llm_manifest_path)
-            if llm_manifest_path is not None
+        recipe_manifest = (
+            _load_json_dict(recipe_manifest_path)
+            if recipe_manifest_path is not None
             else None
         )
-        llm_paths = (
-            llm_manifest.get("paths")
-            if isinstance(llm_manifest, dict)
+        recipe_paths = (
+            recipe_manifest.get("paths")
+            if isinstance(recipe_manifest, dict)
             else None
         )
-        if not isinstance(llm_paths, dict):
-            llm_paths = {}
-        pass1_in = _resolve_artifact_path(
-            llm_manifest_path.parent
-            if llm_manifest_path is not None
+        if not isinstance(recipe_paths, dict):
+            recipe_paths = {}
+        recipe_correction_in = _resolve_artifact_path(
+            recipe_manifest_path.parent
+            if recipe_manifest_path is not None
             else candidate_prediction_run_dir,
-            llm_paths.get("pass1_in"),
+            recipe_paths.get("recipe_correction_in"),
         )
-        pass1_out = _resolve_artifact_path(
-            llm_manifest_path.parent
-            if llm_manifest_path is not None
+        recipe_correction_out = _resolve_artifact_path(
+            recipe_manifest_path.parent
+            if recipe_manifest_path is not None
             else candidate_prediction_run_dir,
-            llm_paths.get("pass1_out"),
-        )
-        pass2_in = _resolve_artifact_path(
-            llm_manifest_path.parent
-            if llm_manifest_path is not None
-            else candidate_prediction_run_dir,
-            llm_paths.get("pass2_in"),
-        )
-        pass2_out = _resolve_artifact_path(
-            llm_manifest_path.parent
-            if llm_manifest_path is not None
-            else candidate_prediction_run_dir,
-            llm_paths.get("pass2_out"),
-        )
-        pass3_in = _resolve_artifact_path(
-            llm_manifest_path.parent
-            if llm_manifest_path is not None
-            else candidate_prediction_run_dir,
-            llm_paths.get("pass3_in"),
-        )
-        pass3_out = _resolve_artifact_path(
-            llm_manifest_path.parent
-            if llm_manifest_path is not None
-            else candidate_prediction_run_dir,
-            llm_paths.get("pass3_out"),
+            recipe_paths.get("recipe_correction_out"),
         )
         checks.extend(
             [
@@ -5608,43 +5581,35 @@ def _build_source_debug_artifact_status(
                     "count": len(prompt_output_payloads),
                 },
                 {
-                    "name": "llm_manifest_json",
+                    "name": "recipe_manifest_json",
                     "present": bool(
-                        llm_manifest_path is not None
-                        and llm_manifest_path.exists()
-                        and llm_manifest_path.is_file()
+                        recipe_manifest_path is not None
+                        and recipe_manifest_path.exists()
+                        and recipe_manifest_path.is_file()
                     ),
-                    "path": str(llm_manifest_path) if llm_manifest_path is not None else None,
+                    "path": (
+                        str(recipe_manifest_path)
+                        if recipe_manifest_path is not None
+                        else None
+                    ),
                 },
                 {
-                    "name": "pass1_in_json",
-                    "present": _dir_has_json_files(pass1_in),
-                    "path": str(pass1_in) if pass1_in is not None else None,
+                    "name": "recipe_correction_in_json",
+                    "present": _dir_has_json_files(recipe_correction_in),
+                    "path": (
+                        str(recipe_correction_in)
+                        if recipe_correction_in is not None
+                        else None
+                    ),
                 },
                 {
-                    "name": "pass1_out_json",
-                    "present": _dir_has_json_files(pass1_out),
-                    "path": str(pass1_out) if pass1_out is not None else None,
-                },
-                {
-                    "name": "pass2_in_json",
-                    "present": _dir_has_json_files(pass2_in),
-                    "path": str(pass2_in) if pass2_in is not None else None,
-                },
-                {
-                    "name": "pass2_out_json",
-                    "present": _dir_has_json_files(pass2_out),
-                    "path": str(pass2_out) if pass2_out is not None else None,
-                },
-                {
-                    "name": "pass3_in_json",
-                    "present": _dir_has_json_files(pass3_in),
-                    "path": str(pass3_in) if pass3_in is not None else None,
-                },
-                {
-                    "name": "pass3_out_json",
-                    "present": _dir_has_json_files(pass3_out),
-                    "path": str(pass3_out) if pass3_out is not None else None,
+                    "name": "recipe_correction_out_json",
+                    "present": _dir_has_json_files(recipe_correction_out),
+                    "path": (
+                        str(recipe_correction_out)
+                        if recipe_correction_out is not None
+                        else None
+                    ),
                 },
             ]
         )
@@ -6038,8 +6003,10 @@ def _build_line_role_regression_gate_payload(
         history_rows,
         source_key=BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY,
         predicate=lambda row: (
-            str((row.get("_run_config") or {}).get("llm_recipe_pipeline") or "").strip()
-            == "codex-farm-3pass-v1"
+            _normalize_llm_recipe_pipeline(
+                str((row.get("_run_config") or {}).get("llm_recipe_pipeline") or "off")
+            )
+            == "codex-farm-single-correction-v1"
             and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
             and str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
         ),
@@ -6118,7 +6085,7 @@ def _build_line_role_regression_gate_payload(
     confusion_baseline_source = "missing"
     if isinstance(codex_foodlab_report, dict):
         confusion_baseline_report = codex_foodlab_report
-        confusion_baseline_source = "codex-farm-3pass-v1"
+        confusion_baseline_source = "codex-farm-single-correction-v1"
     elif isinstance(vanilla_foodlab_report, dict):
         confusion_baseline_report = vanilla_foodlab_report
         confusion_baseline_source = "vanilla-off-fallback"
@@ -8256,10 +8223,6 @@ def _normalize_p6_yield_mode(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized == "codex-farm-3pass-v1":
-        normalized = "codex-farm-single-correction-v1"
-    elif normalized == "codex-farm-2stage-repair-v1":
-        normalized = "codex-farm-single-correction-v1"
     if normalized in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return normalized
     _fail(
@@ -8798,16 +8761,12 @@ def _humanize_codex_pipeline_stage_label(pipeline_id: str) -> str:
     lowered = normalized.lower()
     if not normalized:
         return "codex stage"
-    if "chunking" in lowered:
-        return "pass1 chunking"
-    if "schemaorg" in lowered:
-        return "pass2 schemaorg"
-    if ".final." in lowered or lowered.endswith(".final") or "final" in lowered:
-        return "pass3 final"
+    if "recipe.correction" in lowered or "recipe_correction" in lowered or "correction" in lowered:
+        return "recipe correction"
     if "knowledge" in lowered:
-        return "pass4 knowledge"
+        return "knowledge harvest"
     if "tags" in lowered:
-        return "pass5 tags"
+        return "tag suggestions"
     return normalized
 
 
@@ -9371,16 +9330,12 @@ def _run_with_progress_status(
         lowered = normalized.lower()
         if not normalized:
             return "codex stage"
-        if "chunking" in lowered:
-            return "pass1 chunking"
-        if "schemaorg" in lowered:
-            return "pass2 schemaorg"
-        if ".final." in lowered or lowered.endswith(".final") or "final" in lowered:
-            return "pass3 final"
+        if "recipe.correction" in lowered or "recipe_correction" in lowered or "correction" in lowered:
+            return "recipe correction"
         if "knowledge" in lowered:
-            return "pass4 knowledge"
+            return "knowledge harvest"
         if "tags" in lowered:
-            return "pass5 tags"
+            return "tag suggestions"
         return normalized
 
     def _summarize_codex_progress_message(message: str) -> tuple[str, str | None]:
@@ -12865,8 +12820,13 @@ def _build_all_method_variants(
             if apply_baseline_contract
             else dict(payload)
         )
+        run_settings_payload = {
+            key: value
+            for key, value in normalized_payload.items()
+            if key in RunSettings.model_fields
+        }
         run_settings = RunSettings.from_dict(
-            normalized_payload,
+            run_settings_payload,
             warn_context="all-method variant",
         )
         stable_hash = run_settings.stable_hash()
@@ -12892,11 +12852,14 @@ def _build_all_method_variants(
                     normalized_payload
                 )
                 codex_dimensions = dict(dimensions)
-                codex_dimensions["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
+                codex_dimensions["llm_recipe_pipeline"] = "codex-farm-single-correction-v1"
                 codex_dimensions["line_role_pipeline"] = "codex-line-role-v1"
                 codex_dimensions["atomic_block_splitter"] = "atomic-v1"
                 add_variant(
-                    slug=f"{slug}__llm_recipe_{_all_method_variant_token('codex-farm-3pass-v1')}",
+                    slug=(
+                        f"{slug}__llm_recipe_"
+                        f"{_all_method_variant_token('codex-farm-single-correction-v1')}"
+                    ),
                     payload=codex_payload,
                     dimensions=codex_dimensions,
                     sweep_tag=sweep_tag,
@@ -15411,32 +15374,11 @@ def _run_all_method_prediction_once(
                             "codex_farm_workspace_root": benchmark_kwargs.get(
                                 "codex_farm_workspace_root"
                             ),
-                            "codex_farm_pass1_pattern_hints_enabled": benchmark_kwargs[
-                                "codex_farm_pass1_pattern_hints_enabled"
-                            ],
-                            "codex_farm_pipeline_pass1": benchmark_kwargs[
-                                "codex_farm_pipeline_pass1"
-                            ],
-                            "codex_farm_pipeline_pass2": benchmark_kwargs[
-                                "codex_farm_pipeline_pass2"
-                            ],
-                            "codex_farm_pipeline_pass3": benchmark_kwargs[
-                                "codex_farm_pipeline_pass3"
-                            ],
                             "codex_farm_pipeline_pass4_knowledge": benchmark_kwargs[
                                 "codex_farm_pipeline_pass4_knowledge"
                             ],
                             "codex_farm_context_blocks": benchmark_kwargs[
                                 "codex_farm_context_blocks"
-                            ],
-                            "codex_farm_pass3_skip_pass2_ok": benchmark_kwargs[
-                                "codex_farm_pass3_skip_pass2_ok"
-                            ],
-                            "codex_farm_benchmark_selective_retry_enabled": benchmark_kwargs[
-                                "codex_farm_benchmark_selective_retry_enabled"
-                            ],
-                            "codex_farm_benchmark_selective_retry_max_attempts": benchmark_kwargs[
-                                "codex_farm_benchmark_selective_retry_max_attempts"
                             ],
                             "codex_farm_knowledge_context_blocks": benchmark_kwargs[
                                 "codex_farm_knowledge_context_blocks"
@@ -23706,7 +23648,8 @@ def stage(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off, codex-farm-3pass-v1, or codex-farm-2stage-repair-v1."
+            "Values: off or codex-farm-single-correction-v1. "
+            "Legacy saved values load as aliases."
         ),
     ),
     llm_knowledge_pipeline: str = typer.Option(
@@ -23753,33 +23696,6 @@ def stage(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     ),
-    codex_farm_pass1_pattern_hints_enabled: bool = typer.Option(
-        False,
-        "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
-        hidden=True,
-        help=(
-            "Include deterministic pattern metadata hints in pass1 bundles "
-            "for advisory boundary context."
-        ),
-    ),
-    codex_farm_pipeline_pass1: str = typer.Option(
-        "recipe.chunking.v1",
-        "--codex-farm-pipeline-pass1",
-        hidden=True,
-        help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
-    ),
-    codex_farm_pipeline_pass2: str = typer.Option(
-        "recipe.schemaorg.compact.v1",
-        "--codex-farm-pipeline-pass2",
-        hidden=True,
-        help="Pass-2 codex-farm pipeline id (schema.org extraction).",
-    ),
-    codex_farm_pipeline_pass3: str = typer.Option(
-        "recipe.final.compact.v1",
-        "--codex-farm-pipeline-pass3",
-        hidden=True,
-        help="Pass-3 codex-farm pipeline id (final draft generation).",
-    ),
     codex_farm_pipeline_pass4_knowledge: str = typer.Option(
         "recipe.knowledge.compact.v1",
         "--codex-farm-pipeline-pass4-knowledge",
@@ -23797,15 +23713,6 @@ def stage(
         "--codex-farm-context-blocks",
         min=0,
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
-    ),
-    codex_farm_pass3_skip_pass2_ok: bool = typer.Option(
-        True,
-        "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
-        hidden=True,
-        help=(
-            "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
-            "deterministically."
-        ),
     ),
     codex_farm_knowledge_context_blocks: int = typer.Option(
         12,
@@ -23931,12 +23838,6 @@ def stage(
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
-    codex_farm_pass1_pattern_hints_enabled = _unwrap_typer_option_default(
-        codex_farm_pass1_pattern_hints_enabled
-    )
-    codex_farm_pipeline_pass1 = _unwrap_typer_option_default(codex_farm_pipeline_pass1)
-    codex_farm_pipeline_pass2 = _unwrap_typer_option_default(codex_farm_pipeline_pass2)
-    codex_farm_pipeline_pass3 = _unwrap_typer_option_default(codex_farm_pipeline_pass3)
     codex_farm_pipeline_pass4_knowledge = _unwrap_typer_option_default(
         codex_farm_pipeline_pass4_knowledge
     )
@@ -23944,9 +23845,6 @@ def stage(
         codex_farm_pipeline_pass5_tags
     )
     codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
-    codex_farm_pass3_skip_pass2_ok = _unwrap_typer_option_default(
-        codex_farm_pass3_skip_pass2_ok
-    )
     codex_farm_knowledge_context_blocks = _unwrap_typer_option_default(
         codex_farm_knowledge_context_blocks
     )
@@ -24064,12 +23962,6 @@ def stage(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pass1_pattern_hints_enabled = (
-        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
-    )
-    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
-    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
-    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
     selected_codex_farm_pipeline_pass4_knowledge = (
         fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
     )
@@ -26733,7 +26625,8 @@ def labelstudio_import(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off, codex-farm-3pass-v1, or codex-farm-2stage-repair-v1."
+            "Values: off or codex-farm-single-correction-v1. "
+            "Legacy saved values load as aliases."
         ),
     ),
     allow_codex: bool = typer.Option(
@@ -26767,47 +26660,11 @@ def labelstudio_import(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     ),
-    codex_farm_pass1_pattern_hints_enabled: bool = typer.Option(
-        False,
-        "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
-        hidden=True,
-        help=(
-            "Include deterministic pattern metadata hints in pass1 bundles "
-            "for advisory boundary context."
-        ),
-    ),
-    codex_farm_pipeline_pass1: str = typer.Option(
-        "recipe.chunking.v1",
-        "--codex-farm-pipeline-pass1",
-        hidden=True,
-        help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
-    ),
-    codex_farm_pipeline_pass2: str = typer.Option(
-        "recipe.schemaorg.compact.v1",
-        "--codex-farm-pipeline-pass2",
-        hidden=True,
-        help="Pass-2 codex-farm pipeline id (schema.org extraction).",
-    ),
-    codex_farm_pipeline_pass3: str = typer.Option(
-        "recipe.final.compact.v1",
-        "--codex-farm-pipeline-pass3",
-        hidden=True,
-        help="Pass-3 codex-farm pipeline id (final draft generation).",
-    ),
     codex_farm_context_blocks: int = typer.Option(
         30,
         "--codex-farm-context-blocks",
         min=0,
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
-    ),
-    codex_farm_pass3_skip_pass2_ok: bool = typer.Option(
-        True,
-        "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
-        hidden=True,
-        help=(
-            "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
-            "deterministically."
-        ),
     ),
     codex_farm_failure_mode: str = typer.Option(
         "fail",
@@ -26846,16 +26703,7 @@ def labelstudio_import(
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
-    codex_farm_pass1_pattern_hints_enabled = _unwrap_typer_option_default(
-        codex_farm_pass1_pattern_hints_enabled
-    )
-    codex_farm_pipeline_pass1 = _unwrap_typer_option_default(codex_farm_pipeline_pass1)
-    codex_farm_pipeline_pass2 = _unwrap_typer_option_default(codex_farm_pipeline_pass2)
-    codex_farm_pipeline_pass3 = _unwrap_typer_option_default(codex_farm_pipeline_pass3)
     codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
-    codex_farm_pass3_skip_pass2_ok = _unwrap_typer_option_default(
-        codex_farm_pass3_skip_pass2_ok
-    )
     codex_farm_failure_mode = _unwrap_typer_option_default(codex_farm_failure_mode)
 
     normalized_prelabel_upload_as = prelabel_upload_as.strip().lower()
@@ -26884,15 +26732,6 @@ def labelstudio_import(
     fixed_bucket1_behavior = bucket1_fixed_behavior()
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
-    )
-    selected_codex_farm_pass1_pattern_hints_enabled = (
-        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
-    )
-    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
-    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
-    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
-    selected_codex_farm_pass3_skip_pass2_ok = (
-        fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
     )
     selected_codex_execution_policy = normalize_codex_execution_policy_mode(
         codex_execution_policy
@@ -26943,14 +26782,7 @@ def labelstudio_import(
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
-                codex_farm_pass1_pattern_hints_enabled=(
-                    selected_codex_farm_pass1_pattern_hints_enabled
-                ),
-                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=codex_farm_context_blocks,
-                codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_codex=bool(allow_codex),
                 codex_execution_policy=selected_codex_execution_policy,
@@ -27010,14 +26842,7 @@ def labelstudio_import(
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
-                codex_farm_pass1_pattern_hints_enabled=(
-                    selected_codex_farm_pass1_pattern_hints_enabled
-                ),
-                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=codex_farm_context_blocks,
-                codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_codex=bool(allow_codex),
                 codex_execution_policy=selected_codex_execution_policy,
@@ -28016,7 +27841,8 @@ def labelstudio_benchmark(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off, codex-farm-3pass-v1, or codex-farm-2stage-repair-v1."
+            "Values: off or codex-farm-single-correction-v1. "
+            "Legacy saved values load as aliases."
         ),
     )] = "off",
     llm_knowledge_pipeline: Annotated[str, typer.Option(
@@ -28109,29 +27935,6 @@ def labelstudio_benchmark(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     )] = None,
-    codex_farm_pass1_pattern_hints_enabled: Annotated[bool, typer.Option(
-        "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
-        hidden=True,
-        help=(
-            "Include deterministic pattern metadata hints in pass1 bundles "
-            "for advisory boundary context."
-        ),
-    )] = False,
-    codex_farm_pipeline_pass1: Annotated[str, typer.Option(
-        "--codex-farm-pipeline-pass1",
-        hidden=True,
-        help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
-    )] = "recipe.chunking.v1",
-    codex_farm_pipeline_pass2: Annotated[str, typer.Option(
-        "--codex-farm-pipeline-pass2",
-        hidden=True,
-        help="Pass-2 codex-farm pipeline id (schema.org extraction).",
-    )] = "recipe.schemaorg.compact.v1",
-    codex_farm_pipeline_pass3: Annotated[str, typer.Option(
-        "--codex-farm-pipeline-pass3",
-        hidden=True,
-        help="Pass-3 codex-farm pipeline id (final draft generation).",
-    )] = "recipe.final.compact.v1",
     codex_farm_pipeline_pass4_knowledge: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass4-knowledge",
         hidden=True,
@@ -28142,31 +27945,6 @@ def labelstudio_benchmark(
         min=0,
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
     )] = 30,
-    codex_farm_pass3_skip_pass2_ok: Annotated[bool, typer.Option(
-        "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
-        hidden=True,
-        help=(
-            "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
-            "deterministically."
-        ),
-    )] = True,
-    codex_farm_benchmark_selective_retry_enabled: Annotated[bool, typer.Option(
-        "--codex-farm-benchmark-selective-retry/--no-codex-farm-benchmark-selective-retry",
-        hidden=True,
-        help=(
-            "Benchmark-only retry for missing Codex Farm pass2/pass3 bundle files "
-            "after recoverable partial-output runs."
-        ),
-    )] = True,
-    codex_farm_benchmark_selective_retry_max_attempts: Annotated[int, typer.Option(
-        "--codex-farm-benchmark-selective-retry-max-attempts",
-        min=1,
-        hidden=True,
-        help=(
-            "Maximum benchmark-only retry attempts for missing Codex Farm pass2/"
-            "pass3 bundle files."
-        ),
-    )] = 1,
     codex_farm_knowledge_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-knowledge-context-blocks",
         min=0,
@@ -28371,18 +28149,6 @@ def labelstudio_benchmark(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pass1_pattern_hints_enabled = (
-        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
-    )
-    selected_codex_farm_pass3_skip_pass2_ok = (
-        fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
-    )
-    selected_codex_farm_benchmark_selective_retry_enabled = (
-        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
-    )
-    selected_codex_farm_benchmark_selective_retry_max_attempts = (
-        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
-    )
     selected_codex_farm_model = (
         str(codex_farm_model or "").strip() or None
     )
@@ -28394,9 +28160,6 @@ def labelstudio_benchmark(
         )
     except ValueError as exc:
         _fail(f"--codex-farm-thinking-effort invalid: {exc}")
-    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
-    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
-    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
     selected_codex_farm_pipeline_pass4_knowledge = (
         fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
     )
@@ -28586,19 +28349,8 @@ def labelstudio_benchmark(
             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
             codex_farm_root=codex_farm_root,
             codex_farm_workspace_root=codex_farm_workspace_root,
-            codex_farm_pass1_pattern_hints_enabled=selected_codex_farm_pass1_pattern_hints_enabled,
-            codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-            codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-            codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
             codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
             codex_farm_context_blocks=codex_farm_context_blocks,
-            codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
-            codex_farm_benchmark_selective_retry_enabled=(
-                selected_codex_farm_benchmark_selective_retry_enabled
-            ),
-            codex_farm_benchmark_selective_retry_max_attempts=(
-                selected_codex_farm_benchmark_selective_retry_max_attempts
-            ),
             codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
             codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
             codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -28878,25 +28630,10 @@ def labelstudio_benchmark(
                                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                                 codex_farm_root=codex_farm_root,
                                 codex_farm_workspace_root=codex_farm_workspace_root,
-                                codex_farm_pass1_pattern_hints_enabled=(
-                                    selected_codex_farm_pass1_pattern_hints_enabled
-                                ),
-                                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-                                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-                                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                                 codex_farm_pipeline_pass4_knowledge=(
                                     selected_codex_farm_pipeline_pass4_knowledge
                                 ),
                                 codex_farm_context_blocks=codex_farm_context_blocks,
-                                codex_farm_pass3_skip_pass2_ok=(
-                                    selected_codex_farm_pass3_skip_pass2_ok
-                                ),
-                                codex_farm_benchmark_selective_retry_enabled=(
-                                    selected_codex_farm_benchmark_selective_retry_enabled
-                                ),
-                                codex_farm_benchmark_selective_retry_max_attempts=(
-                                    selected_codex_farm_benchmark_selective_retry_max_attempts
-                                ),
                                 codex_farm_knowledge_context_blocks=(
                                     codex_farm_knowledge_context_blocks
                                 ),
@@ -29008,19 +28745,10 @@ def labelstudio_benchmark(
                             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                             codex_farm_root=codex_farm_root,
                             codex_farm_workspace_root=codex_farm_workspace_root,
-                            codex_farm_pass1_pattern_hints_enabled=(
-                                selected_codex_farm_pass1_pattern_hints_enabled
-                            ),
-                            codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-                            codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-                            codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                             codex_farm_pipeline_pass4_knowledge=(
                                 selected_codex_farm_pipeline_pass4_knowledge
                             ),
                             codex_farm_context_blocks=codex_farm_context_blocks,
-                            codex_farm_pass3_skip_pass2_ok=(
-                                selected_codex_farm_pass3_skip_pass2_ok
-                            ),
                             codex_farm_knowledge_context_blocks=(
                                 codex_farm_knowledge_context_blocks
                             ),
@@ -29979,7 +29707,7 @@ def labelstudio_benchmark(
             llm_manifest_path,
         )
         if benchmark_llm_manifest is not None:
-            benchmark_artifacts["llm_manifest_json"] = benchmark_llm_manifest
+            benchmark_artifacts["recipe_manifest_json"] = benchmark_llm_manifest
     for artifact_key, artifact_value in line_role_diagnostics_artifacts.items():
         if artifact_value:
             benchmark_artifacts[artifact_key] = artifact_value

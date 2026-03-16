@@ -850,3 +850,88 @@ The refactor is successful when:
 Post refactor things to check (FM reminder)
 uploadBundle , i tried to make it more flexible
 PromptLogFolder , i tried to make it more flexible
+
+
+
+## Confidence / Trust / Escalation Policy
+
+### Problem
+The current deterministic "confidence" score should not be treated as a reliable probability of correctness.
+
+It appears to mix together multiple meanings, such as:
+- weak rule match
+- fallback routing
+- true uncertainty
+- disagreement between candidate labels
+
+This makes the current score unsuitable as a primary control signal.
+
+### Policy
+The refactor should replace the single confidence score with two separate concepts:
+
+#### 1) Trust score
+Represents how likely a label or parsed output is correct.
+
+Used for:
+- debugging
+- QA prioritization
+- calibration measurement
+- review ordering
+
+#### 2) Escalation score
+Represents how strongly an item should be sent to the LLM for correction.
+
+Used for:
+- selective LLM invocation
+- context sizing
+- prioritizing expensive correction passes
+
+These two scores must not be treated as interchangeable.
+
+### Required Per-Item Decision Metadata
+Each block/recipe/span should carry structured decision metadata such as:
+- `decided_by`
+- `candidate_labels`
+- `rule_hits`
+- `parser_support`
+- `neighbor_agreement`
+- `source_structure_support`
+- `trust_score`
+- `escalation_score`
+- `escalation_reasons`
+
+### Important Rule
+A single scalar confidence value must not be the primary source of truth for:
+- grouping recipe spans
+- final recipe acceptance
+- knowledge extraction eligibility
+
+Those decisions should instead rely on:
+- final labels
+- validation checks
+- cross-stage consistency
+- provenance-aware rules
+
+### Escalation Heuristics
+Escalation should be triggered by signals such as:
+- fallback-decided labels
+- disagreement between candidate labels
+- disagreement between deterministic and LLM labels
+- parser warnings
+- structurally inconsistent recipe spans
+- missing required recipe fields
+- ambiguous ingredient-step linkage
+
+### Calibration Requirement
+Trust scores should be calibrated against a golden set and measured per label type.
+
+Calibration reports should include:
+- per-label precision/recall by score band
+- reliability curves
+- false-positive / false-negative patterns by score band
+
+### Recommended Design Principle
+Validation and consistency checks should matter more than raw confidence scores.
+
+Confidence is a supporting signal.
+It is not the architecture.

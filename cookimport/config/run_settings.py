@@ -72,6 +72,8 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "recipe_score_min_instruction_lines",
     "pdf_column_gap_ratio",
     "line_role_guardrail_mode",
+    "line_role_trust_low_threshold",
+    "line_role_escalation_threshold",
     "codex_farm_failure_mode",
     "ocr_device",
     "ocr_batch_size",
@@ -125,6 +127,8 @@ _SUMMARY_ORDER = (
     "atomic_block_splitter",
     "line_role_pipeline",
     "line_role_guardrail_mode",
+    "line_role_trust_low_threshold",
+    "line_role_escalation_threshold",
     "llm_knowledge_pipeline",
     "llm_tags_pipeline",
     "codex_farm_recipe_mode",
@@ -140,10 +144,6 @@ _SUMMARY_ORDER = (
 )
 
 RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
-RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES = {
-    "codex-farm-2stage-repair-v1": "codex-farm-single-correction-v1",
-    "codex-farm-3pass-v1": "codex-farm-single-correction-v1",
-}
 RECIPE_CODEX_FARM_ALLOWED_PIPELINES = (
     "off",
     "codex-farm-single-correction-v1",
@@ -154,8 +154,7 @@ RECIPE_CODEX_FARM_EXECUTION_PIPELINES = tuple(
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY = (
     "Recipe codex-farm parsing correction supports "
-    "'off' and 'codex-farm-single-correction-v1'. "
-    "Legacy 'codex-farm-3pass-v1' and 'codex-farm-2stage-repair-v1' values load as aliases."
+    "'off' and 'codex-farm-single-correction-v1'."
 )
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
@@ -981,6 +980,36 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
+    line_role_trust_low_threshold: float = Field(
+        default=0.9,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Line Role Trust Low",
+            order=114,
+            description=(
+                "Internal-only trust threshold for low-trust structured line-role "
+                "decisions."
+            ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    line_role_escalation_threshold: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Line Role Escalation",
+            order=114.5,
+            description=(
+                "Internal-only escalation threshold for deciding whether a "
+                "deterministic line-role prediction should be sent to Codex."
+            ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     llm_knowledge_pipeline: LlmKnowledgePipeline = Field(
         default=LlmKnowledgePipeline.off,
         json_schema_extra=_ui_meta(
@@ -1207,10 +1236,7 @@ class RunSettings(BaseModel):
         value: Any,
     ) -> str | LlmRecipePipeline:
         normalized = str(getattr(value, "value", value) or "").strip().lower()
-        normalized = RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES.get(
-            normalized,
-            normalized or LlmRecipePipeline.off.value,
-        )
+        normalized = normalized or LlmRecipePipeline.off.value
         if normalized not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
             raise ValueError(RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR)
         return normalized
@@ -1236,10 +1262,6 @@ class RunSettings(BaseModel):
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw.value).strip().lower()
             else:
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw).strip().lower()
-            normalized_recipe_pipeline = RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES.get(
-                normalized_recipe_pipeline,
-                normalized_recipe_pipeline,
-            )
             if normalized_recipe_pipeline not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
                 raise ValueError(
                     "Invalid llm_recipe_pipeline in "
@@ -1339,34 +1361,6 @@ class RunSettings(BaseModel):
     @property
     def p6_emit_metadata_debug(self) -> bool:
         return _bucket1_fixed_behavior().p6_emit_metadata_debug
-
-    @property
-    def codex_farm_pass1_pattern_hints_enabled(self) -> bool:
-        return _bucket1_fixed_behavior().codex_farm_pass1_pattern_hints_enabled
-
-    @property
-    def codex_farm_pipeline_pass1(self) -> str:
-        return _bucket1_fixed_behavior().codex_farm_pipeline_pass1
-
-    @property
-    def codex_farm_pipeline_pass2(self) -> str:
-        return _bucket1_fixed_behavior().codex_farm_pipeline_pass2
-
-    @property
-    def codex_farm_pipeline_pass3(self) -> str:
-        return _bucket1_fixed_behavior().codex_farm_pipeline_pass3
-
-    @property
-    def codex_farm_pass3_skip_pass2_ok(self) -> bool:
-        return _bucket1_fixed_behavior().codex_farm_pass3_skip_pass2_ok
-
-    @property
-    def codex_farm_benchmark_selective_retry_enabled(self) -> bool:
-        return _bucket1_fixed_behavior().codex_farm_benchmark_selective_retry_enabled
-
-    @property
-    def codex_farm_benchmark_selective_retry_max_attempts(self) -> int:
-        return _bucket1_fixed_behavior().codex_farm_benchmark_selective_retry_max_attempts
 
     @property
     def codex_farm_pipeline_pass4_knowledge(self) -> str:
@@ -1718,6 +1712,8 @@ def build_run_settings(
     line_role_guardrail_mode: (
         str | LineRoleGuardrailMode
     ) = LineRoleGuardrailMode.enforce,
+    line_role_trust_low_threshold: float = 0.9,
+    line_role_escalation_threshold: float = 0.75,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
@@ -1815,6 +1811,8 @@ def build_run_settings(
             "atomic_block_splitter": _normalized_value(atomic_block_splitter),
             "line_role_pipeline": _normalized_value(line_role_pipeline),
             "line_role_guardrail_mode": _normalized_value(line_role_guardrail_mode),
+            "line_role_trust_low_threshold": float(line_role_trust_low_threshold),
+            "line_role_escalation_threshold": float(line_role_escalation_threshold),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),

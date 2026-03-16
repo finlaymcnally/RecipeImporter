@@ -42,8 +42,6 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
         p6_emit_metadata_debug=True,
         pdf_ocr_policy="always",
         pdf_column_gap_ratio=0.2,
-        codex_farm_pass1_pattern_hints_enabled=True,
-        codex_farm_pass3_skip_pass2_ok=False,
     )
 
     kwargs = build_stage_call_kwargs_from_run_settings(
@@ -87,14 +85,6 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
     )
     assert kwargs["pdf_ocr_policy"] == "always"
     assert kwargs["pdf_column_gap_ratio"] == 0.2
-    assert (
-        kwargs["codex_farm_pass1_pattern_hints_enabled"]
-        is fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
-    )
-    assert (
-        kwargs["codex_farm_pass3_skip_pass2_ok"]
-        is fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
-    )
 
 
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
@@ -129,11 +119,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         codex_farm_recipe_mode="benchmark",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
-        codex_farm_pass1_pattern_hints_enabled=True,
         codex_farm_pipeline_pass4_knowledge="recipe.knowledge.custom.v9",
-        codex_farm_pass3_skip_pass2_ok=False,
-        codex_farm_benchmark_selective_retry_enabled=False,
-        codex_farm_benchmark_selective_retry_max_attempts=3,
         codex_farm_knowledge_context_blocks=21,
     )
 
@@ -187,24 +173,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert kwargs["codex_farm_reasoning_effort"] == "low"
     assert (
-        kwargs["codex_farm_pass1_pattern_hints_enabled"]
-        is fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
-    )
-    assert (
         kwargs["codex_farm_pipeline_pass4_knowledge"]
         == fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
-    )
-    assert (
-        kwargs["codex_farm_pass3_skip_pass2_ok"]
-        is fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
-    )
-    assert (
-        kwargs["codex_farm_benchmark_selective_retry_enabled"]
-        is fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
-    )
-    assert (
-        kwargs["codex_farm_benchmark_selective_retry_max_attempts"]
-        == fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
     )
     assert kwargs["codex_farm_knowledge_context_blocks"] == 21
 

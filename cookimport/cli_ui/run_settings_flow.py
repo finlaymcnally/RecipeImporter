@@ -141,8 +141,6 @@ def _default_codex_recipe_pipeline(global_defaults: RunSettings) -> str:
 
 def _normalize_interactive_recipe_pipeline(value: Any) -> str | None:
     raw = str(value or "").strip().lower()
-    if raw in {"codex-farm-3pass-v1", "codex-farm-2stage-repair-v1"}:
-        raw = "codex-farm-single-correction-v1"
     if raw in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return raw
     return None

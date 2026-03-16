@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import (
@@ -55,6 +55,18 @@ _LABEL_RESOLUTION_PRIORITY: tuple[str, ...] = (
 )
 
 
+def _unique_string_list(values: Sequence[Any]) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        rendered = str(value or "").strip()
+        if not rendered or rendered in seen:
+            continue
+        seen.add(rendered)
+        output.append(rendered)
+    return output
+
+
 class AuthoritativeLabeledLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -66,8 +78,24 @@ class AuthoritativeLabeledLine(BaseModel):
     deterministic_label: str
     final_label: str
     confidence: float
+    trust_score: float | None = None
+    escalation_score: float | None = None
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
+    escalation_reasons: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sync_confidence_alias(self) -> "AuthoritativeLabeledLine":
+        trust = self.trust_score
+        if trust is None:
+            trust = self.confidence
+        self.trust_score = round(float(trust), 4)
+        self.confidence = self.trust_score
+        if self.escalation_score is not None:
+            self.escalation_score = round(float(self.escalation_score), 4)
+        self.escalation_reasons = _unique_string_list(self.escalation_reasons)
+        self.reason_tags = _unique_string_list(self.reason_tags)
+        return self
 
 
 class AuthoritativeBlockLabel(BaseModel):
@@ -79,8 +107,24 @@ class AuthoritativeBlockLabel(BaseModel):
     deterministic_label: str
     final_label: str
     confidence: float
+    trust_score: float | None = None
+    escalation_score: float | None = None
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
+    escalation_reasons: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sync_confidence_alias(self) -> "AuthoritativeBlockLabel":
+        trust = self.trust_score
+        if trust is None:
+            trust = self.confidence
+        self.trust_score = round(float(trust), 4)
+        self.confidence = self.trust_score
+        if self.escalation_score is not None:
+            self.escalation_score = round(float(self.escalation_score), 4)
+        self.escalation_reasons = _unique_string_list(self.escalation_reasons)
+        self.reason_tags = _unique_string_list(self.reason_tags)
+        return self
 
 
 class RecipeSpan(BaseModel):
@@ -97,6 +141,21 @@ class RecipeSpan(BaseModel):
     title_block_index: int | None = None
     title_atomic_index: int | None = None
     warnings: list[str] = Field(default_factory=list)
+    trust_score: float | None = None
+    escalation_score: float | None = None
+    escalation_reasons: list[str] = Field(default_factory=list)
+    decision_notes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_metadata(self) -> "RecipeSpan":
+        if self.trust_score is not None:
+            self.trust_score = round(float(self.trust_score), 4)
+        if self.escalation_score is not None:
+            self.escalation_score = round(float(self.escalation_score), 4)
+        self.warnings = _unique_string_list(self.warnings)
+        self.escalation_reasons = _unique_string_list(self.escalation_reasons)
+        self.decision_notes = _unique_string_list(self.decision_notes)
+        return self
 
 
 class LabelStageResult(BaseModel):
@@ -359,8 +418,11 @@ def authoritative_lines_to_canonical_predictions(
                 within_recipe_span=recipe_index is not None,
                 label=row.final_label,
                 confidence=float(row.confidence),
+                trust_score=row.trust_score,
+                escalation_score=row.escalation_score,
                 decided_by=row.decided_by,
                 reason_tags=list(row.reason_tags),
+                escalation_reasons=list(row.escalation_reasons),
             )
         )
     return predictions
@@ -387,12 +449,7 @@ def _build_recipe_candidate_from_span(
 
     title_candidates = by_label.get("RECIPE_TITLE") or by_label.get("RECIPE_VARIANT") or []
     recipe_name = title_candidates[0] if title_candidates else _fallback_recipe_name(span_rows)
-    confidence_rows = [float(row.confidence) for row in span_rows]
-    confidence = (
-        round(sum(confidence_rows) / len(confidence_rows), 4)
-        if confidence_rows
-        else None
-    )
+    confidence = round(float(span.trust_score), 4) if span.trust_score is not None else None
     location = {
         "start_block": span.start_block_index,
         "end_block": span.end_block_index,
@@ -552,8 +609,11 @@ def _build_authoritative_lines(
                 deterministic_label=deterministic_label,
                 final_label=final_label,
                 confidence=float(prediction.confidence),
+                trust_score=prediction.trust_score,
+                escalation_score=prediction.escalation_score,
                 decided_by=prediction.decided_by,
                 reason_tags=list(prediction.reason_tags),
+                escalation_reasons=list(prediction.escalation_reasons),
             )
         )
     labeled_lines.sort(key=lambda row: row.atomic_index)
@@ -585,6 +645,19 @@ def _build_authoritative_block_labels(
             ),
             rows[0],
         )
+        supporting_rows = [row for row in rows if row.final_label == selected_final] or rows
+        escalation_reasons = _unique_string_list(
+            reason
+            for row in rows
+            for reason in row.escalation_reasons
+        )
+        reason_tags = _unique_string_list(
+            tag
+            for row in rows
+            for tag in row.reason_tags
+        )
+        if len({row.final_label for row in rows}) > 1:
+            escalation_reasons.append("mixed_block_labels")
         output.append(
             AuthoritativeBlockLabel(
                 source_block_id=representative.source_block_id,
@@ -592,9 +665,16 @@ def _build_authoritative_block_labels(
                 supporting_atomic_indices=support,
                 deterministic_label=selected_det,
                 final_label=selected_final,
-                confidence=max(float(row.confidence) for row in rows),
+                confidence=min(float(row.trust_score or row.confidence) for row in supporting_rows),
+                trust_score=min(
+                    float(row.trust_score or row.confidence) for row in supporting_rows
+                ),
+                escalation_score=max(
+                    float(row.escalation_score or 0.0) for row in rows
+                ),
                 decided_by=representative.decided_by,
-                reason_tags=list(representative.reason_tags),
+                reason_tags=reason_tags,
+                escalation_reasons=escalation_reasons,
             )
         )
     return output

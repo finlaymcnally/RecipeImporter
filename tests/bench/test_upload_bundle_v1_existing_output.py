@@ -44,7 +44,7 @@ def test_existing_output_adapter_prefers_root_summaries(tmp_path: Path) -> None:
                         "source_file": "book.epub",
                         "source_hash": "book-hash",
                         "source_key": "book-hash",
-                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     }
                 ]
             }
@@ -133,7 +133,7 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
                 full_prompt_log_status="complete",
                 full_prompt_log_rows=3,
                 line_role_pipeline="codex-line-role-v1",
-                llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+                llm_recipe_pipeline="codex-farm-single-correction-v1",
             )
         return SimpleNamespace(
             run_timestamp=None,
@@ -194,12 +194,28 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
     assert len(model.comparison_pairs) == 1
     assert model.adapter_metadata["uses_root_run_rows"] is False
     assert model.adapter_metadata["discovered_run_count"] == 2
-    assert model.topology["codex_recipe_pipelines"] == ["codex-farm-2stage-repair-v1"]
-    assert model.topology["merged_repair_active"] is True
-    assert model.topology["recipe_topology_key"] == "merged_repair"
-    assert model.topology["observed_recipe_stage_call_counts"] == {"merged_repair": 0}
+    assert model.topology["codex_recipe_pipelines"] == [
+        "codex-farm-single-correction-v1"
+    ]
+    assert model.topology["recipe_topology_key"] == "single_correction"
+    assert model.topology["observed_recipe_stage_call_counts"] == {
+        "build_intermediate_det": 0,
+        "recipe_llm_correct_and_link": 0,
+        "build_final_recipe": 0,
+    }
     assert model.topology["recipe_stages"] == [
-        {"stage_key": "merged_repair", "stage_label": "Merged Repair"}
+        {
+            "stage_key": "build_intermediate_det",
+            "stage_label": "Build Intermediate Recipe",
+        },
+        {
+            "stage_key": "recipe_llm_correct_and_link",
+            "stage_label": "Recipe LLM Correction",
+        },
+        {
+            "stage_key": "build_final_recipe",
+            "stage_label": "Build Final Recipe",
+        },
     ]
 
 

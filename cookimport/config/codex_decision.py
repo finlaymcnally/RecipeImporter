@@ -25,9 +25,6 @@ SECTION_DETECTOR_SHARED_V1 = "shared_v1"
 INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
 INSTRUCTION_STEP_SEGMENTER_HEURISTIC_V1 = "heuristic_v1"
 BENCHMARK_SEQUENCE_MATCHER_DMP = "dmp"
-CODEX_FARM_PASS1_PIPELINE = "recipe.chunking.v1"
-COMPACT_PASS2_PIPELINE = "recipe.correction.compact.v1"
-COMPACT_PASS3_PIPELINE = "recipe.final.compact.v1"
 COMPACT_PASS4_KNOWLEDGE_PIPELINE = "recipe.knowledge.compact.v1"
 PASS5_TAGS_PIPELINE = "recipe.tags.v1"
 
@@ -41,15 +38,8 @@ class Bucket1FixedBehavior:
     benchmark_sequence_matcher: str = BENCHMARK_SEQUENCE_MATCHER_DMP
     multi_recipe_trace: bool = False
     p6_emit_metadata_debug: bool = False
-    codex_farm_pass1_pattern_hints_enabled: bool = False
-    codex_farm_pipeline_pass1: str = CODEX_FARM_PASS1_PIPELINE
-    codex_farm_pipeline_pass2: str = COMPACT_PASS2_PIPELINE
-    codex_farm_pipeline_pass3: str = COMPACT_PASS3_PIPELINE
     codex_farm_pipeline_pass4_knowledge: str = COMPACT_PASS4_KNOWLEDGE_PIPELINE
     codex_farm_pipeline_pass5_tags: str = PASS5_TAGS_PIPELINE
-    codex_farm_pass3_skip_pass2_ok: bool = True
-    codex_farm_benchmark_selective_retry_enabled: bool = True
-    codex_farm_benchmark_selective_retry_max_attempts: int = 1
 
     def legacy_key_patch(self) -> dict[str, Any]:
         return {
@@ -61,23 +51,10 @@ class Bucket1FixedBehavior:
             "benchmark_sequence_matcher": self.benchmark_sequence_matcher,
             "multi_recipe_trace": self.multi_recipe_trace,
             "p6_emit_metadata_debug": self.p6_emit_metadata_debug,
-            "codex_farm_pass1_pattern_hints_enabled": (
-                self.codex_farm_pass1_pattern_hints_enabled
-            ),
-            "codex_farm_pipeline_pass1": self.codex_farm_pipeline_pass1,
-            "codex_farm_pipeline_pass2": self.codex_farm_pipeline_pass2,
-            "codex_farm_pipeline_pass3": self.codex_farm_pipeline_pass3,
             "codex_farm_pipeline_pass4_knowledge": (
                 self.codex_farm_pipeline_pass4_knowledge
             ),
             "codex_farm_pipeline_pass5_tags": self.codex_farm_pipeline_pass5_tags,
-            "codex_farm_pass3_skip_pass2_ok": self.codex_farm_pass3_skip_pass2_ok,
-            "codex_farm_benchmark_selective_retry_enabled": (
-                self.codex_farm_benchmark_selective_retry_enabled
-            ),
-            "codex_farm_benchmark_selective_retry_max_attempts": (
-                self.codex_farm_benchmark_selective_retry_max_attempts
-            ),
         }
 
     def manifest_metadata(self) -> dict[str, Any]:

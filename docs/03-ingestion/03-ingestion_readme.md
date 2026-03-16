@@ -96,7 +96,7 @@ OCR:
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
 - Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table export/chunking behavior, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
-- `RunSettings.from_dict(...)` validates recipe codex-farm parsing values and accepts both `llm_recipe_pipeline=codex-farm-3pass-v1` and `llm_recipe_pipeline=codex-farm-2stage-repair-v1` without env gating.
+- `RunSettings.from_dict(...)` validates recipe codex-farm parsing values against the current public surface (`off` and `codex-farm-single-correction-v1`) and rejects removed recipe-pipeline ids.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with process-first worker fanout and fallback order `ProcessPoolExecutor -> subprocess-backed workers -> ThreadPoolExecutor -> serial`.
 - Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
@@ -133,7 +133,7 @@ Non-split file:
 - Runs importer conversion
 - Applies optional `--limit` to recipes and tips
 - Hands the result to `execute_stage_import_session_from_result(...)`
-- Session can run codex-farm recipe/knowledge passes when enabled, extracts non-recipe tables, builds chunks from `non_recipe_blocks` or topic fallback, and writes intermediate/final outputs plus sections, tips, topic candidates, chunks when present, tables, raw artifacts, stage-block predictions, and report
+- Session can run codex-farm recipe/knowledge passes when enabled, extracts non-recipe tables from Stage 7 rows, builds chunks from Stage 7-owned non-recipe rows or topic fallback, and writes intermediate/final outputs plus sections, tips, topic candidates, chunks when present, tables, raw artifacts, stage-block predictions, and report
 
 Split job:
 - `stage_pdf_job(...)` or `stage_epub_job(...)`
@@ -502,7 +502,7 @@ Stage CLI options (key ones):
 - `--recipe-score-bronze-min`
 - `--recipe-score-min-ingredient-lines`
 - `--recipe-score-min-instruction-lines`
-- `--llm-recipe-pipeline` (`off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`)
+- `--llm-recipe-pipeline` (`off|codex-farm-single-correction-v1`)
 - `--llm-knowledge-pipeline`
 - `--llm-tags-pipeline`
 - `--multi-recipe-splitter`
@@ -583,7 +583,7 @@ When changing split/merge logic, update at least the split merge tests plus impo
 - PDF: check `start_page` / block order and column IDs.
 
 7. Validate chunk source:
-- `non_recipe_blocks` preferred; topic fallback if non-recipe absent.
+- Stage 7-owned non-recipe rows preferred; topic fallback if no Stage 7 non-recipe rows exist.
 
 ## Practical Change Guidance
 

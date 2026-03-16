@@ -160,7 +160,7 @@ def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -
     result = _build_conversion_result(source)
     settings = _build_run_settings(
         tmp_path / "pack",
-        llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     )
 
     plan = build_codex_farm_recipe_execution_plan(

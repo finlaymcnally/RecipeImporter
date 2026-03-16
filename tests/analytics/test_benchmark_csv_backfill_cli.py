@@ -45,7 +45,7 @@ def _write_prediction_manifest(
     }
     if include_codex_runtime:
         payload["run_config"] = {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "codex_farm_model": "gpt-5.3-codex-spark",
             "codex_farm_reasoning_effort": "<default>",
         }

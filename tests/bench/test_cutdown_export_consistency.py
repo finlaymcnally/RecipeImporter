@@ -489,7 +489,7 @@ def test_line_role_regression_gate_payload_uses_history_baselines(
             run_timestamp="2026-03-03T00:00:02",
             run_dir=foodlab_codex,
             file_name="thefoodlabCUTDOWN.epub",
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
             line_role_pipeline="off",
         )
         _row(

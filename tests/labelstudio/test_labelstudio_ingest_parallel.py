@@ -224,15 +224,11 @@ def _make_label_first_result(
     )
 
 
-def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
-    assert (
+def test_llm_recipe_pipeline_normalizer_rejects_legacy_codex_farm_ids() -> None:
+    with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
         _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
-        == "codex-farm-single-correction-v1"
-    )
-    assert (
+    with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
         _normalize_llm_recipe_pipeline("codex-farm-2stage-repair-v1")
-        == "codex-farm-single-correction-v1"
-    )
 
 
 def test_generate_pred_run_artifacts_rejects_legacy_prelabel_provider_alias(
@@ -397,6 +393,157 @@ def test_generate_pred_run_artifacts_plan_mode_tracks_prelabel_codex_surface(
     assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == ["prelabel"]
     assert plan_payload["codex_surfaces"] == ["prelabel"]
     assert plan_payload["planned_work"]["prelabel"]["enabled"] is True
+
+
+def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_counts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, *_args, **_kwargs):
+            return ConversionResult(
+                recipes=[
+                    RecipeCandidate(
+                        name="Toast",
+                        identifier="urn:test:toast",
+                        recipeIngredient=["1 slice bread"],
+                        recipeInstructions=["Toast the bread."],
+                        provenance={"location": {"start_block": 0, "end_block": 1}},
+                    )
+                ],
+                tips=[],
+                tipCandidates=[],
+                topicCandidates=[],
+                nonRecipeBlocks=[
+                    {"index": 90, "text": "stale block 1"},
+                    {"index": 91, "text": "stale block 2"},
+                ],
+                rawArtifacts=[],
+                report=ConversionReport(),
+                workbook="book",
+                workbookPath=str(source),
+            )
+
+    authoritative_result = ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Toast",
+                identifier="urn:test:toast",
+                recipeIngredient=["1 slice bread"],
+                recipeInstructions=["Toast the bread."],
+                provenance={"location": {"start_block": 0, "end_block": 1}},
+            )
+        ],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[
+            {"index": 90, "text": "old cache 1"},
+            {"index": 91, "text": "old cache 2"},
+        ],
+        rawArtifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath=str(source),
+    )
+    label_result = LabelFirstCompatibilityResult(
+        labeled_lines=[],
+        block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id="b0",
+                source_block_index=0,
+                supporting_atomic_indices=[0],
+                deterministic_label="RECIPE_TITLE",
+                final_label="RECIPE_TITLE",
+                confidence=1.0,
+                decided_by="rule",
+            ),
+            AuthoritativeBlockLabel(
+                source_block_id="b1",
+                source_block_index=1,
+                supporting_atomic_indices=[1],
+                deterministic_label="INSTRUCTION_LINE",
+                final_label="INSTRUCTION_LINE",
+                confidence=1.0,
+                decided_by="rule",
+            ),
+            AuthoritativeBlockLabel(
+                source_block_id="b2",
+                source_block_index=2,
+                supporting_atomic_indices=[2],
+                deterministic_label="KNOWLEDGE",
+                final_label="KNOWLEDGE",
+                confidence=1.0,
+                decided_by="rule",
+            ),
+        ],
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=0,
+                end_block_index=2,
+                block_indices=[0, 1],
+                source_block_ids=["b0", "b1"],
+            )
+        ],
+        non_recipe_lines=[],
+        conversion_result=authoritative_result,
+        archive_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Toast"},
+            {"index": 1, "block_id": "b1", "text": "Toast the bread."},
+            {"index": 2, "block_id": "b2", "text": "Use day-old bread."},
+        ],
+        source_hash="hash",
+    )
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_label_first_compatibility_result",
+        lambda **_kwargs: label_result,
+    )
+    seen_rows: list[list[dict[str, object]]] = []
+
+    def _capture_chunks(rows, **_kwargs):
+        seen_rows.append(list(rows))
+        return []
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.chunks_from_non_recipe_blocks",
+        _capture_chunks,
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        llm_recipe_pipeline="off",
+        llm_knowledge_pipeline="codex-farm-knowledge-v1",
+        codex_execution_policy="plan",
+    )
+
+    run_root = Path(result["run_root"])
+    plan_payload = json.loads(
+        (run_root / "codex_execution_plan.json").read_text(encoding="utf-8")
+    )
+
+    assert [row["index"] for row in seen_rows[0]] == [2]
+    assert (
+        plan_payload["planned_work"]["knowledge_harvest"]["non_recipe_block_count"]
+        == 1
+    )
 
 
 def test_plan_parallel_convert_jobs_pdf_splits(monkeypatch) -> None:
@@ -640,11 +787,15 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
     assert mismatch["schema_version"] == "report_totals_mismatch.v1"
     assert "totalRecipes" in mismatch["mismatched_fields"]
     assert mismatch["before"]["totalRecipes"] == 9
-    assert mismatch["expected"]["totalRecipes"] == 1
+    assert mismatch["expected"]["totalRecipes"] == 0
+    authority_mismatch_path = (
+        run_root / "group_recipe_spans" / "book" / "authority_mismatch.json"
+    )
+    assert authority_mismatch_path.exists()
 
     report_path = run_root / "book.excel_import_report.json"
     payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["totalRecipes"] == 1
+    assert payload["totalRecipes"] == 0
     assert payload["totalTips"] == 0
     assert any(
         "report_total_mismatch_detected" in warning
@@ -701,7 +852,7 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_ex
     assert mismatch["schema_version"] == "report_totals_mismatch.v1"
     assert mismatch["prepopulated"] is True
     assert mismatch["before"]["totalRecipes"] == 0
-    assert mismatch["expected"]["totalRecipes"] == 1
+    assert mismatch["expected"]["totalRecipes"] == 0
 
 
 def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_implicit_defaults(
@@ -746,7 +897,7 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_im
     assert mismatch["schema_version"] == "report_totals_mismatch.v1"
     assert mismatch["prepopulated"] is False
     assert mismatch["before"]["totalRecipes"] == 0
-    assert mismatch["expected"]["totalRecipes"] == 1
+    assert mismatch["expected"]["totalRecipes"] == 0
 
     report_path = run_root / "book.excel_import_report.json"
     payload = json.loads(report_path.read_text(encoding="utf-8"))

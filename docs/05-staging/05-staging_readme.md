@@ -76,6 +76,13 @@ Per workbook (slugified file stem):
 
 - `08_nonrecipe_spans.json`
 - `09_knowledge_outputs.json`
+- `label_det/<workbook_slug>/labeled_lines.jsonl`
+- `label_det/<workbook_slug>/block_labels.json`
+- `label_llm_correct/<workbook_slug>/labeled_lines.jsonl`
+- `label_llm_correct/<workbook_slug>/block_labels.json`
+- `group_recipe_spans/<workbook_slug>/recipe_spans.json`
+- `group_recipe_spans/<workbook_slug>/span_decisions.json`
+- `group_recipe_spans/<workbook_slug>/authoritative_block_labels.json`
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`
@@ -97,9 +104,7 @@ Per workbook (slugified file stem):
 - `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
   - includes `recipe_scoring_debug.jsonl` when importers emit candidate gate decisions
-- `raw/llm/<workbook_slug>/chunking/{in,out}/*.json` (if recipe Codex chunking ran)
-- `raw/llm/<workbook_slug>/schemaorg/{in,out}/*.json` or `raw/llm/<workbook_slug>/merged_repair/{in,out}/*.json` (depending on recipe Codex topology)
-- `raw/llm/<workbook_slug>/final/{in,out}/*.json` (if the three-pass recipe Codex final stage ran)
+- `raw/llm/<workbook_slug>/recipe_correction/{in,out}/*.json` (when recipe Codex correction ran)
 - `raw/llm/<workbook_slug>/recipe_manifest.json`
 - `raw/llm/<workbook_slug>/knowledge/{in,out}/*.json` + `knowledge_manifest.json` (if knowledge harvesting is enabled)
 - `raw/llm/<workbook_slug>/tags/{in,out}/*.json` + `tags_manifest.json` (if pass5 tags pipeline is enabled)
@@ -109,6 +114,12 @@ Per workbook (slugified file stem):
 - `run_summary.json` at run root (machine-readable per-run digest: books, major settings, codex-farm mode, topline metrics)
 - `run_summary.md` at run root (human-readable quick digest; written only when `stage --write-markdown` is enabled)
 - `run_manifest.json` at run root (source identity + artifact index for this stage run)
+
+Label-first metadata note:
+
+- `label_det`, `label_llm_correct`, and `group_recipe_spans` now publish explicit `trust_score`, `escalation_score`, and `escalation_reasons` on authoritative line/block/span artifacts.
+- `span_decisions.json` is the compact reviewer/debug rollup for per-span trust and escalation notes.
+- Compatibility `confidence` remains in these artifacts only as a derived alias of `trust_score`.
 
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).

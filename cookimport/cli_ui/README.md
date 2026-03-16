@@ -1,7 +1,7 @@
 Interactive run-settings UI helpers.
 
 - `run_settings_flow.py` asks `Recipe pipeline for this run?` for interactive Import/Benchmark flows.
-- Choices are `off`, `codex-farm-3pass-v1`, and `codex-farm-2stage-repair-v1`.
+- Choices are `off` and `codex-farm-single-correction-v1`.
 - Any non-`off` choice resolves `CodexFarm automatic top-tier` (winner-preferred when available), then reapplies the chosen recipe pipeline.
 - Interactive benchmark setup now adds two per-run Codex surface toggles after the recipe choice:
   - `Block labelling for this run?` maps to `line_role_pipeline=deterministic-v1|codex-line-role-v1` and keeps `atomic_block_splitter=atomic-v1`
@@ -15,7 +15,6 @@ Interactive run-settings UI helpers.
   - `llm_knowledge_pipeline=codex-farm-knowledge-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`
   - parsing stack pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`
   - deterministic parsing knobs pinned to `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`
-  - compact codex pass ids pinned to `recipe.schemaorg.compact.v1` and `recipe.final.compact.v1`
-  - codex routing pins `codex_farm_pass1_pattern_hints_enabled=false`, `codex_farm_pass3_skip_pass2_ok=true`
+  - recipe routing is fixed to the single-correction pipeline; only model/reasoning overrides remain operator-adjustable
 - `Vanilla` profile uses the same top-tier deterministic parsing stack with codex disabled and deterministic line-role enabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`).
 - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` still overrides the interactive prompt.

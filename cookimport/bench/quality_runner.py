@@ -96,15 +96,8 @@ _RUN_SETTINGS_PATCH_COMPAT_KEYS = {
     "benchmark_sequence_matcher",
     "multi_recipe_trace",
     "p6_emit_metadata_debug",
-    "codex_farm_pass1_pattern_hints_enabled",
-    "codex_farm_pipeline_pass1",
-    "codex_farm_pipeline_pass2",
-    "codex_farm_pipeline_pass3",
     "codex_farm_pipeline_pass4_knowledge",
     "codex_farm_pipeline_pass5_tags",
-    "codex_farm_pass3_skip_pass2_ok",
-    "codex_farm_benchmark_selective_retry_enabled",
-    "codex_farm_benchmark_selective_retry_max_attempts",
 }
 
 

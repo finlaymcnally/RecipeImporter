@@ -437,7 +437,7 @@ def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fall
             {
                 "source": {"path": str(tmp_path / "book.epub")},
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "codex_farm_model": None,
                     "codex_farm_reasoning_effort": None,
                 },

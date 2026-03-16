@@ -28,7 +28,7 @@ def _insight_records() -> list[dict[str, object]]:
             "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/book-a/codexfarm",
             "processed_report_path": "/tmp/out/run-a/report-a.json",
             "run_config": {
-                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                 "line_role_pipeline": "codex-line-role-v1",
                 "atomic_block_splitter": "atomic-v1",
                 "codex_farm_model": "gpt-5",
@@ -47,7 +47,7 @@ def _insight_records() -> list[dict[str, object]]:
             "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/book-b/codexfarm",
             "processed_report_path": "/tmp/out/run-b/report-b.json",
             "run_config": {
-                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                 "line_role_pipeline": "codex-line-role-v1",
                 "atomic_block_splitter": "atomic-v1",
                 "codex_farm_model": "gpt-5",
@@ -108,7 +108,7 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
         "tokens_total": 1300,
         "recipes": 4,
         "run_config": {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "codex_farm_model": "gpt-5",
             "codex_farm_reasoning_effort": "medium",
             "single_offline_split_cache": {
@@ -138,7 +138,7 @@ def test_ai_model_label_system_error_for_runtime_failure() -> None:
             "single-offline-benchmark/my-book/codexfarm"
         ),
         "run_config": {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "codex_farm_model": "gpt-5",
             "codex_farm_runtime_error": (
                 "codex-farm failed for recipe.schemaorg.v1 (subprocess_exit=124)"
@@ -166,7 +166,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
             "single-offline-benchmark/my-book/codexfarm"
         ),
         "run_config": {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "line_role_pipeline": "codex-line-role-v1",
         },
     }
@@ -187,7 +187,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     recipe_only = {
         "artifact_dir": "/tmp/qualitysuite/my-book/eval",
         "run_config": {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "line_role_pipeline": "off",
         },
     }
@@ -201,7 +201,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
             "single-offline-benchmark/my-book/codexfarm"
         ),
         "run_config": {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "line_role_pipeline": "off",
             "codex_farm_runtime_error": "codex auth failed",
         },

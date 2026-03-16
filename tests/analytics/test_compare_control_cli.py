@@ -20,7 +20,7 @@ def _sample_records() -> list[dict[str, object]]:
             "strict_accuracy": 0.82,
             "source_file": "book.epub",
             "run_config": {
-                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                 "line_role_pipeline": "codex-line-role-v1",
                 "codex_farm_model": "gpt-5",
                 "codex_farm_reasoning_effort": "medium",

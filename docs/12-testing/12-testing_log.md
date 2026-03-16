@@ -114,3 +114,44 @@ Still-active outcomes:
 Anti-loop note:
 
 - If someone says the env var "stopped working," verify whether they tried to use it on a broad run. That behavior is intentional.
+
+### 2026-03-15 measured fast-slice cleanup hotspots
+
+Still-active outcomes:
+
+- broad non-slow runtimes were dominated by a small set of integration-heavy files rather than by domain count alone
+- measured hotspot files before reclassification were:
+  - `tests/analytics/test_stats_dashboard.py` about `45s`
+  - `tests/ingestion/test_performance_features.py` about `15s`
+  - `tests/cli/test_cli_output_structure_epub_fast.py` about `11s`
+  - `tests/cli/test_cli_output_structure_text_fast.py` about `11s`
+  - `tests/parsing/test_canonical_line_roles.py` about `24s`
+- after moving those files into `_SLOW_FILES`, routine non-slow domain times dropped to about:
+  - analytics `7s`
+  - ingestion `10s`
+  - cli `8s`
+  - parsing `3s`
+- broad non-slow pytest finished in about `70.34s` after the cleanup, with unrelated existing failures still present
+
+Anti-loop note:
+
+- do not re-open slow-slice arguments from filenames alone; rerun timing first
+
+### 2026-03-15 Label Studio fast-slice hotspot split
+
+Still-active outcomes:
+
+- `./scripts/test-suite.sh domain labelstudio` is one single-process pytest invocation, so extra cores do not help unless the test strategy changes
+- pre-cleanup measurements showed:
+  - full non-slow `tests/labelstudio`: about `227.82s`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py`: about `121s`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py`: about `79s`
+  - progress/import-eval/artifact helper files were single-digit seconds
+- the heavy cost came from routing tests still reaching the real `_interactive_single_offline_benchmark(...)` helper and paying for comparison, bundle, and dashboard work
+- the durable split is:
+  - keep full single-offline helper coverage in the slow slice
+  - keep routing-only interactive tests at the helper boundary with stubs
+
+Anti-loop note:
+
+- if the `labelstudio` domain gets slow again, inspect whether routing tests stopped stubbing the single-offline helper before changing global pytest policy

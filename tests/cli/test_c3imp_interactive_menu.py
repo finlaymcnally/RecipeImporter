@@ -272,7 +272,7 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "line_role_pipeline": "codex-line-role-v1",
             "atomic_block_splitter": "atomic-v1",
             "epub_extractor": "unstructured",
@@ -399,7 +399,7 @@ def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "line_role_pipeline": "codex-line-role-v1",
             "atomic_block_splitter": "atomic-v1",
             "codex_farm_model": "gpt-5.3-codex",
@@ -414,7 +414,7 @@ def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
 
     def _menu_select(message: str, **_kwargs):
         if message == "Recipe pipeline for this run:":
-            return "codex-farm-2stage-repair-v1"
+            return "codex-farm-single-correction-v1"
         if message == "Codex Farm model override:":
             return "__pipeline_default__"
         if message == "Codex Farm reasoning effort override:":
@@ -450,7 +450,7 @@ def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "line_role_pipeline": "codex-line-role-v1",
             "atomic_block_splitter": "atomic-v1",
             "epub_unstructured_html_parser_version": "v2",
@@ -524,12 +524,12 @@ def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
 
 
-def test_choose_run_settings_recipe_pipeline_menu_can_select_merged_prototype(
+def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_aliases(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test global defaults",
     )
     monkeypatch.setattr(
@@ -542,7 +542,7 @@ def test_choose_run_settings_recipe_pipeline_menu_can_select_merged_prototype(
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda message, *_args, **_kwargs: (
-            "codex-farm-2stage-repair-v1"
+            "codex-farm-single-correction-v1"
             if message == "Recipe pipeline for this run:"
             else pytest.fail(f"unexpected menu prompt: {message}")
         ),
@@ -554,7 +554,7 @@ def test_choose_run_settings_recipe_pipeline_menu_can_select_merged_prototype(
     )
 
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
+    assert selected.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
     assert selected.line_role_pipeline.value == "codex-line-role-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
     assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
@@ -565,7 +565,7 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
         warn_context="test global defaults",
     )
     monkeypatch.setattr(
@@ -576,7 +576,7 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
 
     def _menu_select(message, *_args, **_kwargs):
         if message == "Recipe pipeline for this run:":
-            return "codex-farm-2stage-repair-v1"
+            return "codex-farm-single-correction-v1"
         if message == "Block labelling for this run:":
             return "deterministic-v1"
         if message == "Knowledge harvest for this run:":
@@ -593,7 +593,7 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     )
 
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
+    assert selected.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
     assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
     assert selected.llm_knowledge_pipeline.value == "off"
@@ -857,7 +857,7 @@ def test_load_qualitysuite_winner_run_settings_ignores_stale_payload(
                     "codex_farm_pipeline_pass3": "recipe.final.v1",
                     "instruction_step_segmentation_policy": "auto",
                     "instruction_step_segmenter": "heuristic_v1",
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "multi_recipe_splitter": "legacy",
                     "section_detector_backend": "legacy",
                     "table_extraction": "off",

@@ -90,23 +90,19 @@ def test_run_settings_rejects_unknown_keys() -> None:
         RunSettings.from_dict({"workers": 3, "unknown_new_field": "x"})
 
 
-def test_run_settings_accepts_recipe_codex_farm_pipeline() -> None:
-    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
-
-    assert settings.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
-
-
-def test_run_settings_accepts_merged_recipe_codex_farm_pipeline() -> None:
-    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
-
-    assert settings.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
+def test_run_settings_rejects_legacy_recipe_codex_farm_pipeline() -> None:
+    with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
+        RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
 
 
-def test_run_settings_defaults_use_compact_codex_farm_pass_pipelines() -> None:
+def test_run_settings_rejects_legacy_merged_recipe_codex_farm_pipeline() -> None:
+    with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
+        RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
+
+
+def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> None:
     settings = RunSettings()
 
-    assert settings.codex_farm_pipeline_pass2 == "recipe.correction.compact.v1"
-    assert settings.codex_farm_pipeline_pass3 == "recipe.final.compact.v1"
     assert settings.codex_farm_pipeline_pass4_knowledge == "recipe.knowledge.compact.v1"
 
 

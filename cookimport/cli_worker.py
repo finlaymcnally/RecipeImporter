@@ -27,7 +27,7 @@ from cookimport.plugins import registry
 # Ensure plugins are registered in workers
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika, webschema  # noqa: F401
 from cookimport.staging.import_session import execute_stage_import_session_from_result
-from cookimport.staging.writer import write_report
+from cookimport.staging.writer import write_raw_artifacts, write_report
 
 logger = logging.getLogger(__name__)
 

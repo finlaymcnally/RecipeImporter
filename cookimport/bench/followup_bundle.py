@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cookimport.llm.codex_farm_ids import sanitize_for_filename
 
 CHANGED_LINES_PAYLOAD_PATH = "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl"
 TRIAGE_PACKET_PAYLOAD_PATH = "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl"
@@ -144,6 +145,13 @@ def _recipe_suffix(recipe_id: str) -> str:
     if not text:
         return ""
     return text.rsplit(":", 1)[-1]
+
+
+def _recipe_artifact_filename(recipe_id: str) -> str:
+    rendered = sanitize_for_filename(str(recipe_id).strip())
+    if not rendered:
+        rendered = "recipe"
+    return f"{rendered}.json"
 
 
 def _recipe_case_id(recipe_id: str, delta: float | None) -> str:
@@ -393,13 +401,19 @@ class RunContext:
     @property
     def raw_llm_dir(self) -> Path | None:
         if self._raw_llm_dir is ...:
-            candidate_root = self.run_dir / "raw" / "llm"
             resolved: Path | None = None
-            if candidate_root.is_dir():
+            for candidate_root in (
+                self.run_dir / "raw" / "llm",
+                self.run_dir / "prediction-run" / "raw" / "llm",
+            ):
+                if not candidate_root.is_dir():
+                    continue
                 for child in sorted(candidate_root.iterdir()):
                     if child.is_dir():
                         resolved = child
                         break
+                if resolved is not None:
+                    break
             self._raw_llm_dir = resolved
         return self._raw_llm_dir
 
@@ -411,13 +425,8 @@ class RunContext:
         pattern = f"*_{source_key}_{suffix}.json"
         resolved: dict[str, str] = {}
         for label, relative in (
-            ("pass1_input", Path("chunking/in")),
-            ("pass1_output", Path("chunking/out")),
-            ("pass2_input", Path("schemaorg/in")),
-            ("pass2_output", Path("schemaorg/out")),
-            ("pass3_output", Path("final/out")),
-            ("evidence_normalization", Path("evidence_normalization")),
-            ("transport_audit", Path("transport_audit")),
+            ("recipe_correction_input", Path("recipe_correction/in")),
+            ("recipe_correction_output", Path("recipe_correction/out")),
         ):
             directory = self.raw_llm_dir / relative
             if not directory.is_dir():
@@ -425,6 +434,9 @@ class RunContext:
             matches = sorted(path for path in directory.glob(pattern) if path.is_file())
             if matches:
                 resolved[label] = str(matches[0])
+        audit_path = self.raw_llm_dir / "recipe_correction_audit" / _recipe_artifact_filename(recipe_id)
+        if audit_path.is_file():
+            resolved["recipe_correction_audit"] = str(audit_path)
         return resolved
 
     def pass4_artifact_paths(self) -> dict[str, str]:
@@ -445,13 +457,9 @@ class RunContext:
                     resolved[label] = str(path)
                     break
         if self.raw_llm_dir is not None:
-            for manifest_path in (
-                self.raw_llm_dir / "knowledge_manifest.json",
-                self.raw_llm_dir / "pass4_knowledge_manifest.json",
-            ):
-                if manifest_path.is_file():
-                    resolved["pass4_manifest_json"] = str(manifest_path)
-                    break
+            manifest_path = self.raw_llm_dir / "knowledge_manifest.json"
+            if manifest_path.is_file():
+                resolved["knowledge_manifest_json"] = str(manifest_path)
         return resolved
 
 
@@ -594,6 +602,25 @@ class FollowupBundleContext:
 
     def pass4_locators_for_run(self, run: RunContext) -> dict[str, dict[str, Any]]:
         locators: dict[str, dict[str, Any]] = {}
+        pass4_rows = (
+            ((self.index.get("navigation") or {}).get("row_locators") or {}).get("pass4_by_run")
+        )
+        if isinstance(pass4_rows, list):
+            for row in pass4_rows:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("output_subdir") or "").strip() != run.output_subdir:
+                    continue
+                for label in (
+                    "prompt_samples_md",
+                    "prompt_task4_txt",
+                    "knowledge_manifest_json",
+                    "prompt_budget_summary_json",
+                ):
+                    locator = row.get(label)
+                    if isinstance(locator, dict):
+                        locators[label] = locator
+                break
         for label, raw_path in run.pass4_artifact_paths().items():
             locator = self.payload_locator_for_file(Path(raw_path))
             if locator is not None:
@@ -1376,7 +1403,8 @@ def write_followup_request_packet(
     request_path: Path,
     out_dir: Path,
     include_readme: bool = True,
-    confidence_threshold: float = 0.9,
+    trust_threshold: float = 0.9,
+    confidence_threshold: float | None = None,
 ) -> dict[str, Any]:
     context = load_followup_bundle_context(bundle_dir)
     request_payload = _load_followup_request(request_path)
@@ -1386,6 +1414,11 @@ def write_followup_request_packet(
             "Follow-up request bundle_sha256 does not match the provided upload bundle."
         )
 
+    effective_trust_threshold = (
+        float(confidence_threshold)
+        if confidence_threshold is not None
+        else float(trust_threshold)
+    )
     default_stage_filters = _coerce_str_list(request_payload.get("default_stage_filters"))
     asks = [ask for ask in request_payload.get("asks", []) if isinstance(ask, dict)]
     if not asks:
@@ -1461,7 +1494,7 @@ def write_followup_request_packet(
                 bundle_dir=bundle_dir,
                 selectors_path=selectors_path,
                 out_path=ask_dir / "uncertainty.jsonl",
-                confidence_threshold=confidence_threshold,
+                trust_threshold=effective_trust_threshold,
             )
             files["uncertainty_jsonl"] = "uncertainty.jsonl"
 
@@ -1619,6 +1652,13 @@ def _build_line_role_audit_rows(
             baseline_pred = str(changed_row.get("vanilla_pred") or "").strip() or None
             gold_label = str(changed_row.get("gold_label") or "").strip() or None
             confidence = _coerce_float(line_role_row.get("confidence"))
+            trust_score = _coerce_float(
+                line_role_row.get("trust_score", line_role_row.get("confidence"))
+            )
+            escalation_score = _coerce_float(line_role_row.get("escalation_score"))
+            escalation_reasons = _coerce_str_list(
+                line_role_row.get("escalation_reasons")
+            )
             decided_by = str(line_role_row.get("decided_by") or "").strip().lower()
             violations: list[str] = []
             if decided_by == "codex" and parsed_label is None:
@@ -1646,6 +1686,9 @@ def _build_line_role_audit_rows(
                     "parsed_label": parsed_label,
                     "final_label_after_postprocess": final_label,
                     "confidence": confidence,
+                    "trust_score": trust_score,
+                    "escalation_score": escalation_score,
+                    "escalation_reasons": escalation_reasons,
                     "decided_by": line_role_row.get("decided_by"),
                     "prompt_file": str(prompt_link.prompt_file) if prompt_link and prompt_link.prompt_file else None,
                     "response_file": str(prompt_link.response_file) if prompt_link and prompt_link.response_file else None,
@@ -1795,7 +1838,7 @@ def _pass4_audit_row(
         "prompt_samples_md": str(summary.get("prompt_samples_status") or "").strip().lower(),
         "prompt_task4_txt": str(summary.get("prompt_task4_status") or "").strip().lower(),
         "prompt_budget_summary_json": str(summary.get("prompt_budget_summary_status") or "").strip().lower(),
-        "pass4_manifest_json": str(summary.get("pass4_manifest_status") or "").strip().lower(),
+        "knowledge_manifest_json": str(summary.get("pass4_manifest_status") or "").strip().lower(),
     }
     for kind, expected_status in expected_status_by_kind.items():
         if (
@@ -1924,15 +1967,20 @@ def _build_uncertainty_rows(
     *,
     context: FollowupBundleContext,
     selectors: list[dict[str, Any]],
-    confidence_threshold: float,
+    trust_threshold: float,
 ) -> list[dict[str, Any]]:
     line_role_rows = _build_line_role_audit_rows(context=context, selectors=selectors)
     rows: list[dict[str, Any]] = []
     for row in line_role_rows:
         confidence = _coerce_float(row.get("confidence"))
+        trust_score = _coerce_float(row.get("trust_score"))
+        escalation_score = _coerce_float(row.get("escalation_score"))
+        escalation_reasons = _coerce_str_list(row.get("escalation_reasons"))
         reasons: list[str] = []
-        if confidence is not None and confidence < confidence_threshold:
-            reasons.append("low_confidence")
+        if trust_score is not None and trust_score < trust_threshold:
+            reasons.append("low_trust")
+        if escalation_reasons:
+            reasons.append("explicit_escalation_reasons")
         if row.get("violations"):
             reasons.append("audit_violations")
         if not reasons:
@@ -1947,8 +1995,11 @@ def _build_uncertainty_rows(
                 "line_index": row.get("line_index"),
                 "raw_text": row.get("raw_text"),
                 "confidence": confidence,
+                "trust_score": trust_score,
+                "escalation_score": escalation_score,
                 "decided_by": row.get("decided_by"),
                 "reasons": sorted(set(reasons)),
+                "escalation_reasons": escalation_reasons,
                 "violations": row.get("violations"),
             }
         )
@@ -1961,14 +2012,20 @@ def write_uncertainty_export(
     bundle_dir: Path,
     selectors_path: Path,
     out_path: Path,
-    confidence_threshold: float = 0.9,
+    trust_threshold: float = 0.9,
+    confidence_threshold: float | None = None,
 ) -> list[dict[str, Any]]:
     context = load_followup_bundle_context(bundle_dir)
     selectors = _load_selectors(selectors_path)
+    effective_trust_threshold = (
+        float(confidence_threshold)
+        if confidence_threshold is not None
+        else float(trust_threshold)
+    )
     rows = _build_uncertainty_rows(
         context=context,
         selectors=selectors,
-        confidence_threshold=confidence_threshold,
+        trust_threshold=effective_trust_threshold,
     )
     _write_jsonl(out_path, rows)
     return rows
@@ -2077,8 +2134,13 @@ def write_case_export(
                 "triage": triage_row,
                 "stage_comparison": stage_row,
                 "line_level_changed_rows": selected_rows,
-                "raw_block_window": _read_json(Path(recipe_artifacts["pass1_input"])).get("blocks_candidate")
-                if selector_kind != "pass4_run" and "pass1_input" in recipe_artifacts
+                "raw_block_window": _read_json(
+                    Path(recipe_artifacts["recipe_correction_input"])
+                ).get("evidence_rows")
+                if (
+                    selector_kind != "pass4_run"
+                    and "recipe_correction_input" in recipe_artifacts
+                )
                 else [],
                 "pass_summaries": {
                     key: _read_json(Path(path)) if Path(path).is_file() else None
@@ -2124,11 +2186,17 @@ def write_followup_pack(
     selectors_path: Path,
     out_dir: Path,
     include_readme: bool = True,
-    confidence_threshold: float = 0.9,
+    trust_threshold: float = 0.9,
+    confidence_threshold: float | None = None,
 ) -> dict[str, Any]:
     context = load_followup_bundle_context(bundle_dir)
     selectors = _load_selectors(selectors_path)
     out_dir.mkdir(parents=True, exist_ok=True)
+    effective_trust_threshold = (
+        float(confidence_threshold)
+        if confidence_threshold is not None
+        else float(trust_threshold)
+    )
 
     case_export_dir = out_dir / "case_export"
     write_case_export(bundle_dir=bundle_dir, selectors_path=selectors_path, out_dir=case_export_dir)
@@ -2156,7 +2224,7 @@ def write_followup_pack(
         bundle_dir=bundle_dir,
         selectors_path=selectors_path,
         out_path=out_dir / "uncertainty.jsonl",
-        confidence_threshold=confidence_threshold,
+        trust_threshold=effective_trust_threshold,
     )
     selectors_payload = _read_json(selectors_path)
     _write_json(out_dir / "selectors.json", selectors_payload)
@@ -2236,13 +2304,13 @@ def write_ablation_matrix(
             "variant_id": "recipe_only",
             "atomic_block_splitter": "off",
             "line_role_pipeline": "off",
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
         },
         {
             "variant_id": "full_stack",
             "atomic_block_splitter": "atomic-v1",
             "line_role_pipeline": "codex-line-role-v1",
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
         },
     ]
     payload = {

@@ -16,27 +16,19 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    pass1_in = run_dir / "chunking" / "in"
-    pass1_out = run_dir / "chunking" / "out"
-    pass2_in = run_dir / "schemaorg" / "in"
-    pass2_out = run_dir / "schemaorg" / "out"
-    pass3_in = run_dir / "final" / "in"
-    pass3_out = run_dir / "final" / "out"
-    pass4_in = run_dir / "knowledge" / "in"
-    pass4_out = run_dir / "knowledge" / "out"
-    pass5_in = run_dir / "tags" / "in"
-    pass5_out = run_dir / "tags" / "out"
+    correction_in = run_dir / "recipe_correction" / "in"
+    correction_out = run_dir / "recipe_correction" / "out"
+    knowledge_in = run_dir / "knowledge" / "in"
+    knowledge_out = run_dir / "knowledge" / "out"
+    tags_in = run_dir / "tags" / "in"
+    tags_out = run_dir / "tags" / "out"
     for folder in (
-        pass1_in,
-        pass1_out,
-        pass2_in,
-        pass2_out,
-        pass3_in,
-        pass3_out,
-        pass4_in,
-        pass4_out,
-        pass5_in,
-        pass5_out,
+        correction_in,
+        correction_out,
+        knowledge_in,
+        knowledge_out,
+        tags_in,
+        tags_out,
     ):
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -44,55 +36,39 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     attached.parent.mkdir(parents=True, exist_ok=True)
     attached.write_text("attachment content\n", encoding="utf-8")
 
-    (pass1_in / "r0000.json").write_text(
-        json.dumps({"prompt_text": "pass1 prompt", "attachment_file_path": str(attached)}),
+    (correction_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "recipe correction prompt", "attachment_file_path": str(attached)}),
         encoding="utf-8",
     )
-    (pass1_out / "r0000.json").write_text(
-        json.dumps({"result": "pass1 response"}),
+    (correction_out / "r0000.json").write_text(
+        json.dumps({"result": "recipe correction response"}),
         encoding="utf-8",
     )
-    (pass2_in / "r0000.json").write_text(
-        json.dumps({"prompt_text": "pass2 prompt"}),
+    (knowledge_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "knowledge prompt"}),
         encoding="utf-8",
     )
-    (pass2_out / "r0000.json").write_text(
-        json.dumps({"result": "pass2 response"}),
+    (knowledge_out / "r0000.json").write_text(
+        json.dumps({"result": "knowledge response"}),
         encoding="utf-8",
     )
-    (pass3_in / "r0000.json").write_text(
-        json.dumps({"prompt_text": "pass3 prompt"}),
+    (tags_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "tags prompt"}),
         encoding="utf-8",
     )
-    (pass3_out / "r0000.json").write_text(
-        json.dumps({"result": "pass3 response"}),
+    (tags_out / "r0000.json").write_text(
+        json.dumps({"result": "tags response"}),
         encoding="utf-8",
     )
-    (pass4_in / "r0000.json").write_text(
-        json.dumps({"prompt_text": "pass4 prompt"}),
-        encoding="utf-8",
-    )
-    (pass4_out / "r0000.json").write_text(
-        json.dumps({"result": "pass4 response"}),
-        encoding="utf-8",
-    )
-    (pass5_in / "r0000.json").write_text(
-        json.dumps({"prompt_text": "pass5 prompt"}),
-        encoding="utf-8",
-    )
-    (pass5_out / "r0000.json").write_text(
-        json.dumps({"result": "pass5 response"}),
-        encoding="utf-8",
-    )
-    pass1_trace_dir = pass1_out / ".codex-farm-traces" / "task-pass1"
-    pass1_trace_dir.mkdir(parents=True, exist_ok=True)
-    pass1_trace = pass1_trace_dir / "trace-pass1.trace.json"
-    pass1_trace.write_text(
+    correction_trace_dir = correction_out / ".codex-farm-traces" / "task-pass1"
+    correction_trace_dir.mkdir(parents=True, exist_ok=True)
+    correction_trace = correction_trace_dir / "trace-pass1.trace.json"
+    correction_trace.write_text(
         json.dumps(
             {
                 "captured_at_utc": "2026-03-02T23:59:01Z",
                 "run_id": "run-pass1",
-                "pipeline_id": "recipe.chunking.v1",
+                "pipeline_id": "recipe.correction.compact.v1",
                 "task_id": "task-pass1",
                 "reasoning_event_count": 1,
                 "reasoning_event_types": ["response.reasoning_summary_text.delta"],
@@ -157,7 +133,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         writer.writerow(
             {
                 "run_id": "run-pass1",
-                "input_path": str(pass1_in / "r0000.json"),
+                "input_path": str(correction_in / "r0000.json"),
                 "prompt_text": "Telemetry prompt body",
                 "model": "gpt-5-test",
                 "reasoning_effort": "high",
@@ -188,10 +164,10 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                 "usage_json": "{\"tokens\":123}",
                 "finished_at_utc": "2026-03-02T23:59:00Z",
                 # Simulate stale source-root telemetry paths; loader should resolve
-                # local trace files under pass out dir by task id.
+                # local trace files under the current stage out dir by task id.
                 "trace_path": str(
                     Path("/tmp/old-run/.codex-farm-traces/task-pass1")
-                    / pass1_trace.name
+                    / correction_trace.name
                 ),
                 "trace_action_count": "2",
                 "trace_action_types_json": json.dumps(
@@ -210,30 +186,22 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         json.dumps(
             {
                 "enabled": True,
-                "pipeline": "codex-farm-3pass-v1",
+                "pipeline": "codex-farm-single-correction-v1",
                 "codex_farm_model": "manifest-model",
                 "codex_farm_reasoning_effort": "medium",
                 "process_runs": {
-                    "pass1": {
+                    "recipe_correction": {
                         "run_id": "run-pass1",
-                        "telemetry": {"csv_path": str(telemetry_csv)},
-                    },
-                    "pass2": {
-                        "run_id": "run-pass2",
-                        "telemetry": {"csv_path": str(telemetry_csv)},
-                    },
-                    "pass3": {
-                        "run_id": "run-pass3",
+                        "pipeline_id": "recipe.correction.compact.v1",
                         "telemetry": {"csv_path": str(telemetry_csv)},
                     },
                 },
+                "pipelines": {
+                    "recipe_correction": "recipe.correction.compact.v1",
+                },
                 "paths": {
-                    "pass1_in": str(pass1_in),
-                    "pass1_out": str(pass1_out),
-                    "pass2_in": str(pass2_in),
-                    "pass2_out": str(pass2_out),
-                    "pass3_in": str(pass3_in),
-                    "pass3_out": str(pass3_out),
+                    "recipe_correction_in": str(correction_in),
+                    "recipe_correction_out": str(correction_out),
                 },
             },
             indent=2,
@@ -246,8 +214,8 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
             {
                 "pipeline_id": "recipe.knowledge.compact.v1",
                 "paths": {
-                    "pass4_in_dir": str(pass4_in),
-                    "pass4_out_dir": str(pass4_out),
+                    "pass4_in_dir": str(knowledge_in),
+                    "pass4_out_dir": str(knowledge_out),
                 },
                 "process_run": {
                     "run_id": "run-pass4",
@@ -264,7 +232,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
             {
                 "llm_report": {
                     "pipeline_id": "recipe.tags.v1",
-                    "paths": {"in_dir": str(pass5_in), "out_dir": str(pass5_out)},
+                    "paths": {"in_dir": str(tags_in), "out_dir": str(tags_out)},
                     "process_run": {
                         "run_id": "run-pass5",
                         "telemetry": {"csv_path": str(telemetry_csv)},
@@ -287,15 +255,13 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
     assert log_path is not None and log_path.exists()
     combined = log_path.read_text(encoding="utf-8")
-    assert "INPUT chunking => r0000.json" in combined
-    assert "OUTPUT final => r0000.json" in combined
+    assert "INPUT recipe_llm_correct_and_link => r0000.json" in combined
+    assert "OUTPUT tags => r0000.json" in combined
 
-    task1_path = eval_output_dir / "prompts" / "prompt_task1_chunking.txt"
-    task2_path = eval_output_dir / "prompts" / "prompt_task2_schemaorg.txt"
-    task3_path = eval_output_dir / "prompts" / "prompt_task3_final.txt"
+    task1_path = eval_output_dir / "prompts" / "prompt_task1_recipe_correction.txt"
     task4_path = eval_output_dir / "prompts" / "prompt_task4_knowledge.txt"
     task5_path = eval_output_dir / "prompts" / "prompt_task5_tags.txt"
-    for category_path in (task1_path, task2_path, task3_path, task4_path, task5_path):
+    for category_path in (task1_path, task4_path, task5_path):
         assert category_path.exists()
 
     task1_text = task1_path.read_text(encoding="utf-8")
@@ -308,8 +274,6 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
     assert manifest_lines == [
         str(task1_path),
-        str(task2_path),
-        str(task3_path),
         str(task4_path),
         str(task5_path),
     ]
@@ -321,49 +285,49 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert len(full_prompt_rows) == 5
+    assert len(full_prompt_rows) == 3
     assert {str(row.get("stage_key") or "") for row in full_prompt_rows} == {
-        "chunking",
-        "schemaorg",
-        "final",
-        "knowledge",
+        "recipe_llm_correct_and_link",
+        "extract_knowledge_optional",
         "tags",
     }
-    pass1_row = next(
-        row for row in full_prompt_rows if row.get("stage_key") == "chunking"
+    correction_row = next(
+        row
+        for row in full_prompt_rows
+        if row.get("stage_key") == "recipe_llm_correct_and_link"
     )
-    assert pass1_row["call_id"] == "r0000"
-    assert pass1_row["request_messages"][0]["role"] == "user"
-    assert pass1_row["request_payload_source"] == "telemetry_csv"
-    assert pass1_row["request_messages"][0]["content"] == "Telemetry prompt body"
-    assert pass1_row["request"]["model"] == "gpt-5-test"
-    assert pass1_row["request"]["reasoning_effort"] == "high"
-    assert pass1_row["request"]["sandbox"] == "workspace-write"
-    assert pass1_row["request"]["ask_for_approval"] is True
-    assert pass1_row["request"]["web_search"] is False
-    assert pass1_row["request"]["output_schema_path"] == "/tmp/schema-pass1.json"
-    assert pass1_row["timestamp_utc"] == "2026-03-02T23:59:00Z"
-    assert pass1_row["request_telemetry"]["task_id"] == "task-pass1"
-    assert pass1_row["request_telemetry"]["prompt_chars"] == 20
-    assert pass1_row["request_telemetry"]["tokens_total"] == 133
-    assert pass1_row["request_telemetry"]["usage_json"] == {"tokens": 123}
-    assert pass1_row["request_telemetry"]["trace_action_count"] == 2
-    assert pass1_row["request_telemetry"]["trace_reasoning_count"] == 1
-    assert pass1_row["request_telemetry"]["trace_reasoning_types"] == [
+    assert correction_row["call_id"] == "r0000"
+    assert correction_row["request_messages"][0]["role"] == "user"
+    assert correction_row["request_payload_source"] == "telemetry_csv"
+    assert correction_row["request_messages"][0]["content"] == "Telemetry prompt body"
+    assert correction_row["request"]["model"] == "gpt-5-test"
+    assert correction_row["request"]["reasoning_effort"] == "high"
+    assert correction_row["request"]["sandbox"] == "workspace-write"
+    assert correction_row["request"]["ask_for_approval"] is True
+    assert correction_row["request"]["web_search"] is False
+    assert correction_row["request"]["output_schema_path"] == "/tmp/schema-pass1.json"
+    assert correction_row["timestamp_utc"] == "2026-03-02T23:59:00Z"
+    assert correction_row["request_telemetry"]["task_id"] == "task-pass1"
+    assert correction_row["request_telemetry"]["prompt_chars"] == 20
+    assert correction_row["request_telemetry"]["tokens_total"] == 133
+    assert correction_row["request_telemetry"]["usage_json"] == {"tokens": 123}
+    assert correction_row["request_telemetry"]["trace_action_count"] == 2
+    assert correction_row["request_telemetry"]["trace_reasoning_count"] == 1
+    assert correction_row["request_telemetry"]["trace_reasoning_types"] == [
         "response.reasoning_summary_text.delta"
     ]
-    assert pass1_row["request_telemetry"]["trace_resolved_path"] == str(pass1_trace)
-    assert pass1_row["thinking_trace"]["path"] == str(pass1_trace)
-    assert pass1_row["thinking_trace"]["available"] is True
-    assert pass1_row["thinking_trace"]["reasoning_event_count"] == 1
-    assert pass1_row["thinking_trace"]["reasoning_events"] == [
+    assert correction_row["request_telemetry"]["trace_resolved_path"] == str(correction_trace)
+    assert correction_row["thinking_trace"]["path"] == str(correction_trace)
+    assert correction_row["thinking_trace"]["available"] is True
+    assert correction_row["thinking_trace"]["reasoning_event_count"] == 1
+    assert correction_row["thinking_trace"]["reasoning_events"] == [
         {
             "type": "response.reasoning_summary_text.delta",
             "delta": "candidate span tightened",
         }
     ]
-    assert pass1_row["parsed_response"] == {"result": "pass1 response"}
-    assert pass1_row["raw_response"]["output_file"].endswith("r0000.json")
+    assert correction_row["parsed_response"] == {"result": "recipe correction response"}
+    assert correction_row["raw_response"]["output_file"].endswith("r0000.json")
 
     prompt_samples_path = (
         eval_output_dir
@@ -372,10 +336,8 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     )
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## chunking (Chunking)" in prompt_samples
-    assert "## schemaorg (Schema.org Extraction)" in prompt_samples
-    assert "## final (Final Draft)" in prompt_samples
-    assert "## knowledge (Knowledge Harvest)" in prompt_samples
+    assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
+    assert "## extract_knowledge_optional (Knowledge Harvest)" in prompt_samples
     assert "## tags (Tag Suggestions)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
@@ -387,19 +349,34 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    pass1_in = run_dir / "chunking" / "in"
-    pass1_out = run_dir / "chunking" / "out"
-    pass1_in.mkdir(parents=True, exist_ok=True)
-    pass1_out.mkdir(parents=True, exist_ok=True)
-    (pass1_in / "r0000.json").write_text(json.dumps({"prompt_text": "ok"}), encoding="utf-8")
-    (pass1_out / "r0000.json").write_text(json.dumps({"result": "ok"}), encoding="utf-8")
+    correction_in = run_dir / "recipe_correction" / "in"
+    correction_out = run_dir / "recipe_correction" / "out"
+    correction_in.mkdir(parents=True, exist_ok=True)
+    correction_out.mkdir(parents=True, exist_ok=True)
+    (correction_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "ok"}),
+        encoding="utf-8",
+    )
+    (correction_out / "r0000.json").write_text(
+        json.dumps({"result": "ok"}),
+        encoding="utf-8",
+    )
 
     (run_dir / "recipe_manifest.json").write_text(
         json.dumps(
             {
+                "process_runs": {
+                    "recipe_correction": {
+                        "run_id": "run-pass1",
+                        "pipeline_id": "recipe.correction.compact.v1",
+                    },
+                },
+                "pipelines": {
+                    "recipe_correction": "recipe.correction.compact.v1",
+                },
                 "paths": {
-                    "pass1_in": str(pass1_in),
-                    "pass1_out": str(pass1_out),
+                    "recipe_correction_in": str(correction_in),
+                    "recipe_correction_out": str(correction_out),
                 }
             },
             indent=2,
@@ -415,9 +392,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         repo_root=tmp_path,
     )
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_task1_chunking.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task2_schemaorg.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task3_final.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_task1_recipe_correction.txt").exists()
     assert not (eval_output_dir / "prompts" / "prompt_task4_knowledge.txt").exists()
     assert not (eval_output_dir / "prompts" / "prompt_task5_tags.txt").exists()
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
@@ -427,7 +402,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         if line.strip()
     ]
     assert len(full_prompt_rows) == 1
-    assert full_prompt_rows[0]["stage_key"] == "chunking"
+    assert full_prompt_rows[0]["stage_key"] == "recipe_llm_correct_and_link"
     prompt_samples_path = (
         eval_output_dir
         / "prompts"
@@ -435,39 +410,28 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     )
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## chunking (Chunking)" in prompt_samples
-    assert "## schemaorg (Schema.org Extraction)" in prompt_samples
-    assert "## knowledge (Knowledge Harvest)" in prompt_samples
-    assert "## tags (Tag Suggestions)" in prompt_samples
+    assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
+    assert "## extract_knowledge_optional (Knowledge Harvest)" in prompt_samples
     assert "_No rows captured for this stage._" in prompt_samples
+    assert "## tags (Tag Suggestions)" in prompt_samples
 
 
-def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merged_repair(
+def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_labels(
     tmp_path: Path,
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    pass1_in = run_dir / "chunking" / "in"
-    pass1_out = run_dir / "chunking" / "out"
-    pass2_in = run_dir / "merged_repair" / "in"
-    pass2_out = run_dir / "merged_repair" / "out"
-    for folder in (pass1_in, pass1_out, pass2_in, pass2_out):
+    correction_in = run_dir / "recipe_correction" / "in"
+    correction_out = run_dir / "recipe_correction" / "out"
+    for folder in (correction_in, correction_out):
         folder.mkdir(parents=True, exist_ok=True)
 
-    (pass1_in / "r0000.json").write_text(
-        json.dumps({"prompt_text": "pass1 prompt"}),
+    (correction_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "recipe correction prompt"}),
         encoding="utf-8",
     )
-    (pass1_out / "r0000.json").write_text(
-        json.dumps({"result": "pass1 response"}),
-        encoding="utf-8",
-    )
-    (pass2_in / "r0000.json").write_text(
-        json.dumps({"prompt_text": "merged repair prompt"}),
-        encoding="utf-8",
-    )
-    (pass2_out / "r0000.json").write_text(
-        json.dumps({"result": "merged repair response"}),
+    (correction_out / "r0000.json").write_text(
+        json.dumps({"result": "recipe correction response"}),
         encoding="utf-8",
     )
 
@@ -475,22 +439,19 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
         json.dumps(
             {
                 "enabled": True,
-                "pipeline": "codex-farm-2stage-repair-v1",
+                "pipeline": "codex-farm-single-correction-v1",
                 "process_runs": {
-                    "pass1": {
+                    "recipe_correction": {
                         "run_id": "run-pass1",
-                        "pipeline_id": "recipe.chunking.v1",
-                    },
-                    "pass2": {
-                        "run_id": "run-pass2",
-                        "pipeline_id": "recipe.merged-repair.compact.v1",
+                        "pipeline_id": "recipe.correction.compact.v1",
                     },
                 },
+                "pipelines": {
+                    "recipe_correction": "recipe.correction.compact.v1",
+                },
                 "paths": {
-                    "pass1_in": str(pass1_in),
-                    "pass1_out": str(pass1_out),
-                    "pass2_in": str(pass2_in),
-                    "pass2_out": str(pass2_out),
+                    "recipe_correction_in": str(correction_in),
+                    "recipe_correction_out": str(correction_out),
                 },
             },
             indent=2,
@@ -507,10 +468,8 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
     )
 
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_task1_chunking.txt").exists()
-    merged_repair_path = eval_output_dir / "prompts" / "prompt_task2_merged_repair.txt"
-    assert merged_repair_path.exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task2_schemaorg.txt").exists()
+    correction_path = eval_output_dir / "prompts" / "prompt_task1_recipe_correction.txt"
+    assert correction_path.exists()
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     full_prompt_rows = [
@@ -518,13 +477,15 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
         for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    merged_repair_row = next(
-        row for row in full_prompt_rows if row.get("stage_key") == "merged_repair"
+    correction_row = next(
+        row
+        for row in full_prompt_rows
+        if row.get("stage_key") == "recipe_llm_correct_and_link"
     )
-    assert merged_repair_row["stage_key"] == "merged_repair"
-    assert merged_repair_row["stage_artifact_stem"] == "merged_repair"
-    assert merged_repair_row["stage_label"] == "Merged Repair"
-    assert merged_repair_row["stage_matches_legacy"] is False
+    assert correction_row["stage_key"] == "recipe_llm_correct_and_link"
+    assert correction_row["stage_artifact_stem"] == "recipe_correction"
+    assert correction_row["stage_label"] == "Recipe Correction"
+    assert correction_row["stage_matches_legacy"] is False
 
     prompt_samples_path = (
         eval_output_dir
@@ -532,9 +493,8 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
         / "prompt_type_samples_from_full_prompt_log.md"
     )
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## merged_repair (Merged Repair)" in prompt_samples
-    assert "## pass2 (Schema.org Extraction)" not in prompt_samples
-    assert "merged repair prompt" in prompt_samples
+    assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
+    assert "recipe correction prompt" in prompt_samples
 
 
 def test_prompt_artifact_renderer_supports_non_pass_stage_descriptors(
@@ -756,7 +716,7 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         encoding="utf-8",
     )
     (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
-        "prompt_task1_chunking.txt\n",
+        "prompt_task1_recipe_correction.txt\n",
         encoding="utf-8",
     )
     (prompts_dir / "full_prompt_log.jsonl").write_text(
@@ -773,7 +733,7 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         output_root=output_root,
         requested_path=requested_path,
         run_dt=dt.datetime(2026, 3, 3, 12, 0, 0),
-        run_config={"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        run_config={"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
     )
 
     run_manifest_payload = json.loads(
@@ -842,7 +802,7 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
                 "source_hash": "source-hash",
                 "recipe_count": 7,
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "codex_farm_cmd": "codex-farm",
                     "workers": 1,
                 },

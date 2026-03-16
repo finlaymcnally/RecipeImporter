@@ -153,7 +153,7 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
             source_hash="hash-demo",
             processed_report_path=None,
             run_config={
-                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                 "atomic_block_splitter": "atomic-v1",
                 "line_role_pipeline": "deterministic-v1",
             },

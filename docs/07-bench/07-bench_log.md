@@ -251,7 +251,47 @@ Anti-loop note:
 
 - if a refactor needs a second primary prediction lane or path-derived topology again, it is reintroducing the old fork
 
-## 13. 2026-03-15 QualitySuite guard order and payload projection
+## 13. 2026-03-15 canonical scorer-pointer cutover and hard deletion
+
+Problem captured:
+
+- benchmark helper paths still carried stage-vs-line-role scorer branches and duplicate manifest keys
+- compatibility readers could silently recover artifacts from old filenames or implicit directories, which made it hard to tell whether the canonical benchmark contract was actually populated
+
+Durable decisions:
+
+- every prediction/eval run now exposes one canonical scorer pointer pair:
+  - `stage_block_predictions_path`
+  - `extracted_archive_path`
+- when line-role projection artifacts become the scored surface for a run, prediction generation rewires that same canonical pointer pair to the line-role artifacts instead of publishing a second scorer namespace
+- duplicate scorer keys were removed from manifests/import payloads rather than kept as aliases
+- benchmark bundle/eval resolution now requires the canonical pointers and should fail loudly when they are missing
+
+Anti-loop note:
+
+- if a helper wants to guess scorer files from path layout, that is reintroducing the deleted compatibility contract
+
+## 14. 2026-03-16 semantic recipe-stage bundle contract
+
+Problem captured:
+
+- reviewer-facing bundle output was still teaching pass-slot internals (`pass2_stage`, `pass3_stage`) instead of the semantic recipe stages a reviewer actually needs
+- starter-pack/casebook rendering and follow-up tooling were at risk of baking those implementation names back into the external surface
+
+Durable decisions:
+
+- `upload_bundle_v1` and related rendering now expose `recipe_topology_key` plus ordered semantic `recipe_stages`
+- the active stage meanings are:
+  - standard recipe pipeline: `schemaorg`, `final`
+  - historical merged-repair topology: `merged_repair`
+- starter-pack and casebook rendering should present chunking separately from recipe correction/finalization rather than flattening everything into pass-slot labels
+- historical bundles may still be read through narrow compatibility adapters for old pass4 sample names and related local artifact names, but new reviewer-facing bundle fields must stay semantic
+
+Anti-loop note:
+
+- if external-review output starts showing pass-slot field names again, fix the normalized model or renderer instead of adding more compatibility prose around it
+
+## 15. 2026-03-15 QualitySuite guard order and payload projection
 
 Problem captured:
 
@@ -267,7 +307,7 @@ Anti-loop note:
 
 - if QualitySuite behavior looks inconsistent, debug validation order and payload projection before relaxing strict settings loading
 
-## 14. Retired History Notice
+## 16. Retired History Notice
 
 The following removed benchmark workflows were intentionally pruned from this log:
 

@@ -466,8 +466,8 @@ Gates include:
 ### What it does
 
 - Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
-- Supports optional Codex fallback for unresolved or low-confidence candidates when `line_role_pipeline=codex-line-role-v1`.
-- Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`) and reason tags.
+- Supports optional Codex fallback for unresolved or explicitly escalated candidates when `line_role_pipeline=codex-line-role-v1`.
+- Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`), reason tags, and explicit decision metadata: `trust_score`, `escalation_score`, and `escalation_reasons`.
 - Prediction rows also carry `within_recipe_span` context (from atomized candidates), which benchmark Milestone-5 diagnostics reuse for slice metrics and knowledge-budget reporting.
 
 ### Current safeguards
@@ -486,8 +486,9 @@ Gates include:
 - Short ingredient fragments (for example split quantity/name rows) now get neighbor-aware rescue to `INGREDIENT_LINE` when adjacent ingredient-dominant context supports it.
 - Codex fallback uses strict JSON validation with the full global line-role label set available on every row; parse failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
 - Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
-- Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).
-- Outside-span low-confidence escalation is disabled by default; codex escalation remains inside-span-first (optional override: `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION=1`).
+- Strong deterministic `RECIPE_TITLE` outcomes are held on the rule path even when trust is modest.
+- Outside-span low-trust escalation is disabled by default; codex escalation remains inside-span-first (optional override: `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION=1`).
+- Compatibility `confidence` on this seam is now a derived alias of `trust_score`; grouping and Stage 7 ownership must not use either scalar as primary authority.
 - Codex mode now applies an explicit line-role guardrail mode after sanitization: `off`, `preview`, or `enforce`.
 - `preview` computes the same downgrade decisions as enforce mode but leaves accepted predictions unchanged; `enforce` applies partial downgrades or full-source fallback to deterministic baseline labels.
 - Guardrail diagnostics are written under `line-role-pipeline/`:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from typer.testing import CliRunner
 
 from cookimport.cli import _normalize_llm_recipe_pipeline, app
@@ -40,19 +41,24 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--codex-farm-pipeline-pass4-knowledge" not in result.stdout
     assert "--codex-farm-pipeline-pass5-tags" not in result.stdout
     assert "--table-extraction" not in result.stdout
-    assert "codex-farm-3pass-v1" in result.stdout
-    assert "codex-farm-2stage-repair-v1" in result.stdout
+    assert "codex-farm-single-correction-v1" in result.stdout
+    assert "codex-farm-3pass-v1" not in result.stdout
+    assert "codex-farm-2stage-repair-v1" not in result.stdout
 
 
 def test_stage_accepts_recipe_codex_farm_pipeline_enablement() -> None:
-    assert (
+    assert _normalize_llm_recipe_pipeline("codex-farm-single-correction-v1") == (
+        "codex-farm-single-correction-v1"
+    )
+
+
+def test_stage_rejects_legacy_recipe_codex_farm_pipeline_values() -> None:
+    with pytest.raises(Exception) as exc_info:
         _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
-        == "codex-farm-3pass-v1"
-    )
-    assert (
+    assert exc_info.value.__class__.__name__ == "Exit"
+    with pytest.raises(Exception) as exc_info:
         _normalize_llm_recipe_pipeline("codex-farm-2stage-repair-v1")
-        == "codex-farm-2stage-repair-v1"
-    )
+    assert exc_info.value.__class__.__name__ == "Exit"
 
 
 def test_benchmark_help_exposes_knowledge_codex_flags() -> None:

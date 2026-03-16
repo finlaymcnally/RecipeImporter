@@ -1258,14 +1258,14 @@ const allMethodRow = {
 const missingTelemetryRecord = {
   strict_accuracy: 0.54,
   run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    llm_recipe_pipeline: "codex-farm-single-correction-v1",
     codex_farm_model: "gpt-5.1-codex-mini",
   },
 };
 const explicitZeroTelemetryRecord = {
   strict_accuracy: 0.54,
   run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    llm_recipe_pipeline: "codex-farm-single-correction-v1",
     codex_farm_model: "gpt-5.1-codex-mini",
   },
   tokens_input: 0,
@@ -1276,7 +1276,7 @@ const explicitZeroTelemetryRecord = {
 const runtimeErrorRecord = {
   strict_accuracy: 0.54,
   run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    llm_recipe_pipeline: "codex-farm-single-correction-v1",
     line_role_pipeline: "off",
     codex_farm_model: "gpt-5.1-codex-mini",
     codex_farm_runtime_error: "codex-farm failed for recipe.schemaorg.v1 (subprocess_exit=124)",
@@ -1308,7 +1308,7 @@ const legacyCodexfarmRecord = {
   strict_accuracy: 0.54,
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm",
   run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    llm_recipe_pipeline: "codex-farm-single-correction-v1",
     codex_farm_model: "gpt-5.1-codex-mini",
   },
 };
@@ -1322,7 +1322,7 @@ const legacyRunDirCodexfarmRecord = {
   run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm",
   report_path: "/tmp/output/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm/2026-03-03_13.08.47/report.json",
   run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    llm_recipe_pipeline: "codex-farm-single-correction-v1",
     line_role_pipeline: "off",
   },
 };
@@ -1443,7 +1443,7 @@ const singleProfileRecord = {
   run_timestamp: "2026-03-06T00.45.00",
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/mybook/2026-03-06_00.45.00",
   run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    llm_recipe_pipeline: "codex-farm-single-correction-v1",
     line_role_pipeline: "codex-line-role-v1",
     codex_farm_model: "gpt-5.3-codex-spark",
   },
@@ -1461,7 +1461,7 @@ const olderSingleProfileRecord = {
   run_timestamp: "2026-03-06T00.44.00",
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/mybook/2026-03-06_00.44.00",
   run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    llm_recipe_pipeline: "codex-farm-single-correction-v1",
     line_role_pipeline: "codex-line-role-v1",
     codex_farm_model: "gpt-5.3-codex-spark",
   },
@@ -2457,7 +2457,7 @@ class TestCollectors:
                     "importer_name": "epub",
                     "recipe_count": 19,
                     "run_config": {
-                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                         "workers": 7,
                     },
                     "llm_codex_farm": {
@@ -2489,7 +2489,7 @@ class TestCollectors:
                 "gold_matched": "163",
                 "run_config_json": json.dumps(
                     {
-                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                         "workers": 7,
                     }
                 ),
@@ -2536,7 +2536,7 @@ class TestCollectors:
                     "source_file": str(tmp_path / "input" / "SeaAndSmokeCUTDOWN.epub"),
                     "importer_name": "epub",
                     "run_config": {
-                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                         "workers": 7,
                     },
                     "llm_codex_farm": {
@@ -2566,7 +2566,7 @@ class TestCollectors:
                 "gold_matched": "163",
                 "run_config_json": json.dumps(
                     {
-                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                         "workers": 7,
                         "codex_farm_model": "gpt-5.1-codex-mini",
                     }
@@ -2618,14 +2618,14 @@ class TestCollectors:
                 "gold_matched": "163",
                 "run_config_json": json.dumps(
                     {
-                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                         "workers": 7,
                         "codex_farm_model": "gpt-5.3-codex-spark",
                         "codex_farm_reasoning_effort": "high",
                     }
                 ),
                 "run_config_summary": (
-                    "llm_recipe_pipeline=codex-farm-3pass-v1 | workers=7 | "
+                    "llm_recipe_pipeline=codex-farm-single-correction-v1 | workers=7 | "
                     "codex_farm_model=gpt-5.3-codex-spark | "
                     "codex_farm_reasoning_effort=high"
                 ),
@@ -3866,7 +3866,7 @@ class TestRenderer:
                     "2026-03-04_08.00.00/single-offline-benchmark/book_b/2026-03-04_08.11.01/codexfarm"
                 ),
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "line_role_pipeline": "codex-line-role-v1",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "low",
@@ -3883,7 +3883,7 @@ class TestRenderer:
                     "2026-03-04_08.00.00/single-offline-benchmark/book_c/2026-03-04_08.10.01/codexfarm"
                 ),
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "line_role_pipeline": "codex-line-role-v1",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "low",
@@ -3900,7 +3900,7 @@ class TestRenderer:
                     "2026-03-03_20.00.00/single-offline-benchmark/book_d/2026-03-03_20.10.01/codexfarm"
                 ),
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "line_role_pipeline": "codex-line-role-v1",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "medium",
@@ -3918,7 +3918,7 @@ class TestRenderer:
         assert result["token_use_display"] == "2k"
         assert result["context_model"] == "gpt-5.3-codex-spark"
         assert result["context_effort"] == "low"
-        assert result["context_pipeline"] == "codex-farm-3pass-v1"
+        assert result["context_pipeline"] == "codex-farm-single-correction-v1"
         assert result["quality_metric_key"] == "strict_accuracy"
         assert result["quality_per_million_tokens"] == pytest.approx(267.229, rel=1e-4)
         assert result["quality_delta_vs_vanilla"] == pytest.approx(0.35)
@@ -3996,7 +3996,7 @@ class TestBenchmarkSemantics:
                 "seaandsmokecutdown/codexfarm/2026-03-03_13.07.43/report.json"
             ),
             "run_config": {
-                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                 "line_role_pipeline": "off",
             },
         }
@@ -4107,7 +4107,7 @@ class TestBenchmarkSemantics:
                     "2026-03-01_10.06.00/codexfarm"
                 ),
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "line_role_pipeline": "codex-line-role-v1",
                 },
                 "strict_accuracy": 0.58,
@@ -4146,7 +4146,7 @@ class TestBenchmarkSemantics:
                     "2026-03-01_10.06.00/codexfarm"
                 ),
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "line_role_pipeline": "codex-line-role-v1",
                 },
                 "tokens_total": 2300,
@@ -4187,7 +4187,7 @@ class TestBenchmarkSemantics:
                     "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/codexfarm"
                 ),
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "line_role_pipeline": "codex-line-role-v1",
                 },
                 "strict_accuracy": 0.58,
@@ -4266,7 +4266,7 @@ class TestBenchmarkSemantics:
                     "2026-03-01_10.06.00/codexfarm"
                 ),
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
                     "line_role_pipeline": "codex-line-role-v1",
                 },
                 "strict_accuracy": 0.58,

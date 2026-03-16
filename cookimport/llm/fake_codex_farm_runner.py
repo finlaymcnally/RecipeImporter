@@ -55,18 +55,7 @@ class FakeCodexFarmRunner:
 
 
 def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if pipeline_id == "recipe.chunking.v1":
-        return {
-            "bundle_version": "1",
-            "recipe_id": payload.get("recipe_id"),
-            "is_recipe": True,
-            "start_block_index": payload.get("heuristic_start_block_index"),
-            "end_block_index": payload.get("heuristic_end_block_index"),
-            "title": None,
-            "reasoning_tags": ["fake-runner"],
-            "excluded_block_ids": [],
-        }
-    if pipeline_id in {"recipe.schemaorg.v1", "recipe.schemaorg.compact.v1"}:
+    if pipeline_id == "recipe.correction.compact.v1":
         canonical_text = str(payload.get("canonical_text") or "").strip()
         evidence_rows = payload.get("evidence_rows")
         first_line = canonical_text.splitlines()[0].strip() if canonical_text else ""
@@ -81,42 +70,12 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
         return {
             "bundle_version": "1",
             "recipe_id": payload.get("recipe_id"),
-            "schemaorg_recipe": {
-                "@context": "http://schema.org",
-                "@type": "Recipe",
-                "name": recipe_name,
+            "canonical_recipe": {
+                "title": recipe_name,
                 "description": None,
-                "recipeYield": None,
-                "recipeIngredient": [],
-                "recipeInstructions": [],
-                "comment": None,
-            },
-            "extracted_ingredients": [],
-            "extracted_instructions": [],
-            "field_evidence": {
-                "name": None,
-                "description": None,
-                "recipeYield": None,
-                "recipeIngredient": [],
-                "recipeInstructions": [],
-                "comment": None,
-            },
-            "warnings": [],
-        }
-    if pipeline_id in {"recipe.final.v1", "recipe.final.compact.v1"}:
-        return {
-            "bundle_version": "1",
-            "recipe_id": payload.get("recipe_id"),
-            "draft_v1": {
-                "schema_v": 1,
-                "source": None,
-                "recipe": {"title": str(payload.get("recipe_id") or "Untitled Recipe")},
-                "steps": [
-                    {
-                        "instruction": "See original recipe for details.",
-                        "ingredient_lines": [],
-                    }
-                ],
+                "recipe_yield": None,
+                "ingredients": [],
+                "steps": [],
             },
             "ingredient_step_mapping": [],
             "ingredient_step_mapping_reason": "unclear_alignment",

@@ -123,6 +123,7 @@ Pass4 is now a first-class follow-up seam:
 - selectors can target pass4 source keys/output subdirs explicitly
 - `audit-pass4-knowledge` emits run-level knowledge evidence
 - follow-up packets can include `pass4_knowledge_audit.jsonl`
+- uncertainty/follow-up exports now center on low trust plus explicit escalation reasons instead of confidence-only thresholds
 
 ## 3. Scoring And Artifact Contracts
 
@@ -142,6 +143,7 @@ Current rule:
   - `stage_block_predictions_path`
   - `extracted_archive_path`
 - prediction generation is responsible for setting those canonical pointers to the correct artifacts for the run
+- new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing legacy fallback filenames or implicit directories
 
 ### 3.2 Gold inputs
 
@@ -188,10 +190,12 @@ Current rules:
 Current line-role and pass4 behavior:
 
 - `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set canonical scorer pointers to these projection artifacts for that run
-- `knowledge/<workbook_slug>/block_classifications.jsonl` is the preferred pass4 artifact for the scored outside-span `KNOWLEDGE` vs `OTHER` seam
-- older roots can still fall back to `knowledge/<workbook_slug>/snippets.jsonl`
+- those line-role artifacts now expose `trust_score`, `escalation_score`, and `escalation_reasons`; compatibility `confidence` there is a trust alias for older readers
+- `08_nonrecipe_spans.json` is the authoritative Stage 7 ownership artifact for the scored outside-span `KNOWLEDGE` vs `OTHER` seam
+- `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge extraction outputs
+- older roots can still fall back to `knowledge/<workbook_slug>/snippets.jsonl` or legacy knowledge manifests when auditing historical runs
 - prediction-run and eval diagnostics can emit:
-  - `pass4_merge_report.json`
+  - `knowledge_manifest.json`
   - `pass4_merge_changed_rows.jsonl`
   - `pass4_merge_summary.json`
 
@@ -241,8 +245,13 @@ Current bundle rules:
 
 - reviewer-facing topology should be derived from the normalized model, not guessed from path layout
 - `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam and expose semantic recipe stages (`recipe_topology_key`, ordered `recipe_stages`) instead of `pass2_stage` / `pass3_stage` compatibility fields
+- current semantic recipe-stage values are:
+  - `build_intermediate_det`
+  - `recipe_llm_correct_and_link`
+  - `build_final_recipe`
 - pass4 must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
+- follow-up tooling may still accept historical local filenames such as `pass4_knowledge_manifest.json` or older prompt-task sample paths when auditing archived bundles, but those are compatibility reads only and should not be reintroduced into new reviewer-facing bundle fields
 
 Oracle upload contract:
 

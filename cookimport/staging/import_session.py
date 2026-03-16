@@ -113,6 +113,7 @@ def _write_label_first_artifacts(
     final_blocks_path = run_root / "label_llm_correct" / workbook_slug / "block_labels.json"
     final_diffs_path = run_root / "label_llm_correct" / workbook_slug / "label_diffs.jsonl"
     span_path = run_root / "group_recipe_spans" / workbook_slug / "recipe_spans.json"
+    span_decisions_path = run_root / "group_recipe_spans" / workbook_slug / "span_decisions.json"
     authoritative_blocks_path = (
         run_root / "group_recipe_spans" / workbook_slug / "authoritative_block_labels.json"
     )
@@ -126,8 +127,11 @@ def _write_label_first_artifacts(
             "label": row.deterministic_label,
             "final_label": row.final_label,
             "confidence": row.confidence,
+            "trust_score": row.trust_score,
+            "escalation_score": row.escalation_score,
             "decided_by": row.decided_by,
             "reason_tags": list(row.reason_tags),
+            "escalation_reasons": list(row.escalation_reasons),
         }
         for row in label_first_result.labeled_lines
     ]
@@ -142,8 +146,11 @@ def _write_label_first_artifacts(
                 "label": row.deterministic_label,
                 "final_label": row.final_label,
                 "confidence": row.confidence,
+                "trust_score": row.trust_score,
+                "escalation_score": row.escalation_score,
                 "decided_by": row.decided_by,
                 "reason_tags": list(row.reason_tags),
+                "escalation_reasons": list(row.escalation_reasons),
             }
             for row in label_first_result.block_labels
         ],
@@ -162,8 +169,11 @@ def _write_label_first_artifacts(
                 "deterministic_label": row.deterministic_label,
                 "label": row.final_label,
                 "confidence": row.confidence,
+                "trust_score": row.trust_score,
+                "escalation_score": row.escalation_score,
                 "decided_by": row.decided_by,
                 "reason_tags": list(row.reason_tags),
+                "escalation_reasons": list(row.escalation_reasons),
             }
             for row in label_first_result.labeled_lines
         ]
@@ -201,6 +211,26 @@ def _write_label_first_artifacts(
         },
     )
     _write_json(
+        span_decisions_path,
+        {
+            "schema_version": "group_recipe_span_decisions.v1",
+            "workbook_slug": workbook_slug,
+            "span_decisions": [
+                {
+                    "span_id": row.span_id,
+                    "start_block_index": row.start_block_index,
+                    "end_block_index": row.end_block_index,
+                    "trust_score": row.trust_score,
+                    "escalation_score": row.escalation_score,
+                    "escalation_reasons": list(row.escalation_reasons),
+                    "decision_notes": list(row.decision_notes),
+                    "warnings": list(row.warnings),
+                }
+                for row in label_first_result.recipe_spans
+            ],
+        },
+    )
+    _write_json(
         authoritative_blocks_path,
         {
             "schema_version": "authoritative_block_labels.v1",
@@ -215,6 +245,7 @@ def _write_label_first_artifacts(
         "label_det_lines_path": det_lines_path,
         "label_det_blocks_path": det_blocks_path,
         "recipe_spans_path": span_path,
+        "span_decisions_path": span_decisions_path,
         "authoritative_block_labels_path": authoritative_blocks_path,
     }
     if wrote_final_stage:
@@ -226,6 +257,38 @@ def _write_label_first_artifacts(
             }
         )
     return paths
+
+
+def _write_label_first_authority_mismatch_artifact(
+    *,
+    run_root: Path,
+    workbook_slug: str,
+    importer_recipe_count: int,
+    authoritative_recipe_count: int,
+    recipe_spans: list[dict[str, Any]],
+) -> Path:
+    mismatch_path = (
+        run_root
+        / "group_recipe_spans"
+        / workbook_slug
+        / "authority_mismatch.json"
+    )
+    _write_json(
+        mismatch_path,
+        {
+            "schema_version": "group_recipe_spans_authority_mismatch.v1",
+            "workbook_slug": workbook_slug,
+            "importer_recipe_count": int(importer_recipe_count),
+            "authoritative_recipe_count": int(authoritative_recipe_count),
+            "warning": (
+                "Authoritative Stage 2 regrouping produced zero recipes even though "
+                "the importer reported recipe candidates. The run stayed on the "
+                "authoritative label-first path."
+            ),
+            "recipe_spans": list(recipe_spans),
+        },
+    )
+    return mismatch_path
 
 
 def execute_stage_import_session_from_result(
@@ -277,20 +340,32 @@ def execute_stage_import_session_from_result(
             live_llm_allowed=live_llm_allowed,
             progress_callback=progress_callback,
         )
-    if (
-        original_result.recipes
-        and not label_first_result.conversion_result.recipes
-    ):
-        label_first_result = None
-        result = original_result
-        label_artifact_paths = None
-    else:
-        result = label_first_result.conversion_result
-        label_artifact_paths = _write_label_first_artifacts(
-            run_root=run_root,
-            workbook_slug=workbook_slug,
-            label_first_result=label_first_result,
-            line_role_pipeline=str(getattr(run_settings.line_role_pipeline, "value", "off")),
+    result = label_first_result.conversion_result
+    label_artifact_paths = _write_label_first_artifacts(
+        run_root=run_root,
+        workbook_slug=workbook_slug,
+        label_first_result=label_first_result,
+        line_role_pipeline=str(getattr(run_settings.line_role_pipeline, "value", "off")),
+    )
+    if original_result.recipes and not result.recipes:
+        if result.report is None:
+            result.report = ConversionReport()
+        result.report.warnings.append(
+            "Authoritative Stage 2 regrouping found zero recipes after importer "
+            "candidates were detected; keeping label-first outputs and writing "
+            "group_recipe_spans authority diagnostics."
+        )
+        label_artifact_paths["authority_mismatch_path"] = (
+            _write_label_first_authority_mismatch_artifact(
+                run_root=run_root,
+                workbook_slug=workbook_slug,
+                importer_recipe_count=len(original_result.recipes),
+                authoritative_recipe_count=len(result.recipes),
+                recipe_spans=[
+                    row.model_dump(mode="json")
+                    for row in label_first_result.recipe_spans
+                ],
+            )
         )
 
     if run_settings.llm_recipe_pipeline.value != "off":
@@ -335,30 +410,34 @@ def execute_stage_import_session_from_result(
         recipe_spans=label_first_result.recipe_spans if label_first_result is not None else [],
         overrides=parsing_overrides,
     )
-    result.non_recipe_blocks = block_rows_for_nonrecipe_stage(
+    stage7_block_rows = block_rows_for_nonrecipe_stage(
         full_blocks=archive_blocks,
         stage_result=nonrecipe_stage_result,
     )
 
     extracted_tables = []
-    if result.non_recipe_blocks:
+    if stage7_block_rows:
         _notify(progress_callback, "Extracting knowledge tables...")
         extracted_tables = extract_and_annotate_tables(
-            result.non_recipe_blocks,
+            stage7_block_rows,
             source_hash=_resolve_source_hash(result, source_file),
         )
 
     _notify(progress_callback, "Generating knowledge chunks...")
-    if result.non_recipe_blocks:
+    if stage7_block_rows:
         result.chunks = chunks_from_non_recipe_blocks(
-            result.non_recipe_blocks,
+            stage7_block_rows,
             overrides=parsing_overrides,
         )
     elif result.topic_candidates:
-            result.chunks = chunks_from_topic_candidates(
-                result.topic_candidates,
-                overrides=parsing_overrides,
-            )
+        result.chunks = chunks_from_topic_candidates(
+            result.topic_candidates,
+            overrides=parsing_overrides,
+        )
+
+    # Keep the legacy field populated for compatibility/reporting, but Stage 7
+    # rows above are the authority for tables, chunking, and knowledge work.
+    result.non_recipe_blocks = stage7_block_rows
 
     knowledge_write_report = None
     if run_settings.llm_knowledge_pipeline.value != "off":

@@ -329,7 +329,6 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     )
 
     captured_generate: dict[str, object] = {}
-    fixed_bucket1_behavior = cli.bucket1_fixed_behavior()
     llm_manifest_path = prediction_run / "raw" / "llm" / "book" / "llm_manifest.json"
     codex_execution_plan_path = prediction_run / "codex_execution_plan.json"
 
@@ -363,7 +362,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
                 {
                     "run_kind": "bench_pred_run",
                     "artifacts": {
-                        "llm_manifest_json": str(llm_manifest_path),
+                        "recipe_manifest_json": str(llm_manifest_path),
                     },
                 },
                 indent=2,
@@ -405,12 +404,10 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         codex_execution_policy="plan",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
-        codex_farm_benchmark_selective_retry_enabled=False,
-        codex_farm_benchmark_selective_retry_max_attempts=3,
         write_markdown=False,
         write_label_studio_tasks=False,
         pdf_ocr_policy="always",
@@ -424,19 +421,11 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     assert captured_generate["write_label_studio_tasks"] is False
     assert captured_generate["pdf_ocr_policy"] == "always"
     assert captured_generate["pdf_column_gap_ratio"] == 0.21
-    assert captured_generate["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert captured_generate["llm_recipe_pipeline"] == "codex-farm-single-correction-v1"
     assert captured_generate["allow_codex"] is False
     assert captured_generate["codex_execution_policy"] == "plan"
     assert captured_generate["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert captured_generate["codex_farm_reasoning_effort"] == "low"
-    assert (
-        captured_generate["codex_farm_benchmark_selective_retry_enabled"]
-        is fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
-    )
-    assert (
-        captured_generate["codex_farm_benchmark_selective_retry_max_attempts"]
-        == fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
-    )
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
     run_manifest_path = eval_root / "run_manifest.json"
@@ -446,7 +435,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
-    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-farm-single-correction-v1"
     assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "plan"
     assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "plan"
     assert run_manifest["run_config"]["codex_execution_plan_only"] is True
@@ -477,7 +466,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
         ]
         == 1
     )
-    assert "llm_manifest_json" not in run_manifest["artifacts"]
+    assert "recipe_manifest_json" not in run_manifest["artifacts"]
     assert "eval_report_md" not in run_manifest["artifacts"]
     assert not (eval_root / "eval_report.md").exists()
     upload_bundle_dir = eval_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
@@ -1128,15 +1117,8 @@ def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only
             "codex_farm_reasoning_effort": None,
             "codex_farm_root": None,
             "codex_farm_workspace_root": None,
-            "codex_farm_pass1_pattern_hints_enabled": False,
-            "codex_farm_pipeline_pass1": None,
-            "codex_farm_pipeline_pass2": None,
-            "codex_farm_pipeline_pass3": None,
             "codex_farm_pipeline_pass4_knowledge": None,
             "codex_farm_context_blocks": 0,
-            "codex_farm_pass3_skip_pass2_ok": True,
-            "codex_farm_benchmark_selective_retry_enabled": False,
-            "codex_farm_benchmark_selective_retry_max_attempts": 1,
             "codex_farm_knowledge_context_blocks": 0,
             "codex_farm_recipe_mode": "extract",
             "codex_farm_failure_mode": "fail_closed",

@@ -7,15 +7,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
-
-MERGED_REPAIR_RECIPE_PIPELINE_ID = "codex-farm-2stage-repair-v1"
-MERGED_REPAIR_PASS3_EXECUTION_MODES = frozenset(
-    {
-        "llm_merged_repair",
-        "llm_merged_repair_then_deterministic_fallback",
-    }
+from cookimport.runs.stage_observability import (
+    recipe_stage_keys_for_pipeline,
+    stage_label,
 )
-MERGED_REPAIR_PASS3_ROUTING_REASON = "merged_repair_stage"
+
+CANONICAL_SINGLE_CORRECTION_RECIPE_PIPELINE_ID = "codex-farm-single-correction-v1"
 
 
 @dataclass(frozen=True)
@@ -42,19 +39,35 @@ def _is_codex_pipeline_enabled(value: Any) -> bool:
     return normalized not in {"", "off", "none", "false", "0"}
 
 
-def _is_merged_repair_recipe_pipeline(value: Any) -> bool:
-    return str(value or "").strip() == MERGED_REPAIR_RECIPE_PIPELINE_ID
+def normalize_recipe_pipeline_id(value: Any) -> str:
+    return str(value or "").strip()
 
 
-def _standard_recipe_stages() -> list[dict[str, str]]:
+def _semantic_recipe_stages() -> list[dict[str, str]]:
     return [
-        {"stage_key": "schemaorg", "stage_label": "Schema.org Extraction"},
-        {"stage_key": "final", "stage_label": "Final Draft"},
+        {
+            "stage_key": stage_key,
+            "stage_label": stage_label(stage_key),
+        }
+        for stage_key in recipe_stage_keys_for_pipeline(
+            CANONICAL_SINGLE_CORRECTION_RECIPE_PIPELINE_ID
+        )
     ]
 
 
-def _merged_repair_recipe_stages() -> list[dict[str, str]]:
-    return [{"stage_key": "merged_repair", "stage_label": "Merged Repair"}]
+def _semantic_recipe_stage_call_counts(
+    *,
+    observed_pass2_call_count: int,
+    observed_pass3_call_count: int,
+) -> dict[str, int]:
+    pass2_count = int(observed_pass2_call_count)
+    pass3_count = int(observed_pass3_call_count)
+    correction_count = pass2_count or pass3_count
+    return {
+        "build_intermediate_det": max(correction_count, pass3_count),
+        "recipe_llm_correct_and_link": correction_count,
+        "build_final_recipe": pass3_count,
+    }
 
 
 def build_recipe_pipeline_topology_context(
@@ -65,11 +78,18 @@ def build_recipe_pipeline_topology_context(
     observed_pass2_call_count: int,
     observed_pass3_call_count: int,
 ) -> dict[str, Any]:
-    normalized_pipelines = sorted(
+    raw_pipelines = sorted(
         {
             str(pipeline or "").strip()
             for pipeline in codex_recipe_pipelines
             if str(pipeline or "").strip()
+        }
+    )
+    normalized_pipelines = sorted(
+        {
+            normalize_recipe_pipeline_id(pipeline)
+            for pipeline in raw_pipelines
+            if normalize_recipe_pipeline_id(pipeline)
         }
     )
     normalized_execution_modes = sorted(
@@ -86,37 +106,20 @@ def build_recipe_pipeline_topology_context(
             if str(reason or "").strip()
         }
     )
-    merged_repair_active = any(
-        _is_merged_repair_recipe_pipeline(pipeline)
-        for pipeline in normalized_pipelines
-    ) or any(
-        mode.lower() in MERGED_REPAIR_PASS3_EXECUTION_MODES
-        for mode in normalized_execution_modes
-    ) or (MERGED_REPAIR_PASS3_ROUTING_REASON in normalized_routing_reasons)
-    recipe_stages = (
-        _merged_repair_recipe_stages()
-        if merged_repair_active
-        else _standard_recipe_stages()
-    )
+    recipe_stages = _semantic_recipe_stages() if normalized_pipelines else []
     observed_recipe_stage_call_counts = (
-        {
-            "merged_repair": max(
-                int(observed_pass2_call_count),
-                int(observed_pass3_call_count),
-            )
-        }
-        if merged_repair_active
-        else {
-            "schemaorg": int(observed_pass2_call_count),
-            "final": int(observed_pass3_call_count),
-        }
+        _semantic_recipe_stage_call_counts(
+            observed_pass2_call_count=observed_pass2_call_count,
+            observed_pass3_call_count=observed_pass3_call_count,
+        )
+        if recipe_stages
+        else {}
     )
     return {
-        "schema_version": "upload_bundle_recipe_pipeline_context.v2",
+        "schema_version": "upload_bundle_recipe_pipeline_context.v3",
         "codex_recipe_pipelines": normalized_pipelines,
-        "merged_repair_active": merged_repair_active,
         "recipe_topology_key": (
-            "merged_repair" if merged_repair_active else "schemaorg_final"
+            "single_correction" if recipe_stages else ""
         ),
         "recipe_stages": recipe_stages,
         "observed_recipe_stage_call_counts": observed_recipe_stage_call_counts,

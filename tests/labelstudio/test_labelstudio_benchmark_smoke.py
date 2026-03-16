@@ -149,7 +149,7 @@ def test_interactive_benchmark_single_offline_codex_shaped_smoke(
     golden_root = tmp_path / "golden"
     selected_benchmark_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-2stage-repair-v1",
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "codex_farm_model": "gpt-5.3-codex-spark",
             "codex_farm_reasoning_effort": "low",
         },

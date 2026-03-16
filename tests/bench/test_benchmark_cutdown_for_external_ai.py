@@ -656,7 +656,7 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
         module,
         run_root=tmp_path,
         run_id="2026-03-02_10.00.00",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[
             {"line_index": 1, "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "pred_label": "KNOWLEDGE"},
@@ -705,7 +705,7 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
         module,
         run_root=tmp_path,
         run_id="2026-03-02_12.00.00",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -800,7 +800,7 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
         module,
         run_root=tmp_path,
         run_id="2026-03-02_11.00.00",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[
             {"line_index": 1, "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "pred_label": "KNOWLEDGE"},
@@ -871,7 +871,7 @@ def test_build_run_cutdown_writes_new_gzip_artifacts(tmp_path: Path) -> None:
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[
             {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "gold_label": "RECIPE_NOTES", "pred_label": "KNOWLEDGE"},
@@ -930,7 +930,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         module,
         run_root=run_root,
         run_id=missing_pred_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -956,7 +956,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         module,
         run_root=run_root,
         run_id=missing_archive_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -987,7 +987,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         module,
         run_root=run_root,
         run_id=missing_full_prompt_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
     )
@@ -1026,7 +1026,7 @@ def test_preprocess_trace_outside_span_does_not_borrow_fallback_prompt_row(
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 99, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1069,7 +1069,7 @@ def test_main_process_manifest_includes_new_nested_gzip_paths(tmp_path: Path) ->
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1106,7 +1106,7 @@ def test_main_upload_3_files_only_consolidates_and_preserves_artifacts(tmp_path:
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1182,7 +1182,7 @@ def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> No
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1282,7 +1282,7 @@ def test_main_flattened_summary_includes_project_context_digest(tmp_path: Path) 
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1319,7 +1319,7 @@ def test_main_project_context_metadata_fallback_when_context_missing(tmp_path: P
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1362,7 +1362,7 @@ def test_main_gzip_exports_are_byte_stable_across_repeated_runs(tmp_path: Path) 
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1425,7 +1425,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[
             {"line_index": 1, "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "pred_label": "KNOWLEDGE"},
@@ -1534,7 +1534,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         "12_per_recipe_or_per_span_breakdown.json",
         "13_net_error_blame_summary.json",
         "14_config_version_metadata.json",
-        "15_low_confidence_changed_lines.packet.jsonl",
+        "15_low_trust_changed_lines.packet.jsonl",
         "16_baseline_trace_parity.json",
     }
     assert required_files.issubset({path.name for path in starter_dir.iterdir() if path.is_file()})
@@ -1600,19 +1600,25 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         for stage in first_packet["recipe_stages"]
         if isinstance(stage, dict)
     }
-    assert recipe_stage_summaries["schemaorg"]["degradation_reasons"] == [
+    assert recipe_stage_summaries["recipe_llm_correct_and_link"]["degradation_reasons"] == [
         "missing_instructions",
         "page_or_layout_artifact",
     ]
-    assert recipe_stage_summaries["schemaorg"]["degradation_severity"] == "hard"
-    assert recipe_stage_summaries["schemaorg"]["promotion_policy"] == "hard_fallback"
-    assert recipe_stage_summaries["final"]["execution_mode"] == "deterministic"
     assert (
-        recipe_stage_summaries["final"]["routing_reason"]
+        recipe_stage_summaries["recipe_llm_correct_and_link"]["degradation_severity"]
+        == "hard"
+    )
+    assert (
+        recipe_stage_summaries["recipe_llm_correct_and_link"]["promotion_policy"]
+        == "hard_fallback"
+    )
+    assert recipe_stage_summaries["build_final_recipe"]["execution_mode"] == "deterministic"
+    assert (
+        recipe_stage_summaries["build_final_recipe"]["routing_reason"]
         == "pass2_hard_degradation_forced_fallback"
     )
     assert (
-        recipe_stage_summaries["final"]["fallback_reason"]
+        recipe_stage_summaries["build_final_recipe"]["fallback_reason"]
         == "pass3 output rejected as low quality"
     )
     assert first_packet["transport_summary"]["mismatch"] is True
@@ -1645,7 +1651,7 @@ def test_main_starter_pack_omits_outside_trace_when_threshold_not_met(tmp_path: 
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -1691,7 +1697,7 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
@@ -1741,7 +1747,7 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
@@ -1794,7 +1800,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
@@ -1925,22 +1931,35 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert isinstance(config_meta.get("pair_comparability"), dict)
     recipe_pipeline_context = index_payload["analysis"].get("recipe_pipeline_context")
     assert isinstance(recipe_pipeline_context, dict)
-    assert recipe_pipeline_context.get("recipe_topology_key") == "schemaorg_final"
+    assert recipe_pipeline_context.get("recipe_topology_key") == "single_correction"
     assert recipe_pipeline_context.get("recipe_stages") == [
-        {"stage_key": "schemaorg", "stage_label": "Schema.org Extraction"},
-        {"stage_key": "final", "stage_label": "Final Draft"},
+        {
+            "stage_key": "build_intermediate_det",
+            "stage_label": "Build Intermediate Recipe",
+        },
+        {
+            "stage_key": "recipe_llm_correct_and_link",
+            "stage_label": "Recipe LLM Correction",
+        },
+        {
+            "stage_key": "build_final_recipe",
+            "stage_label": "Build Final Recipe",
+        },
     ]
     run_settings_rows = config_meta.get("runs")
     assert isinstance(run_settings_rows, list)
     codex_settings = next(
         row for row in run_settings_rows if str(row.get("run_id") or "") == codex_run_id
     )
-    assert codex_settings["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert (
+        codex_settings["llm_recipe_pipeline"]
+        == "codex-farm-single-correction-v1"
+    )
     assert codex_settings["line_role_pipeline"] == "codex-line-role-v1"
     assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
     assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
     assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
-    low_conf_packet = index_payload["analysis"].get("low_confidence_changed_lines_packet")
+    low_conf_packet = index_payload["analysis"].get("low_trust_changed_lines_packet")
     assert isinstance(low_conf_packet, dict)
     assert low_conf_packet.get("available") is True
     low_conf_row_count = int(low_conf_packet.get("row_count") or 0)
@@ -1950,7 +1969,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
             low_conf_packet.get("empty_packet_note") or ""
         )
     assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
-    line_role_signal = index_payload["analysis"].get("line_role_confidence")
+    line_role_signal = index_payload["analysis"].get("line_role_trust")
     assert isinstance(line_role_signal, dict)
     assert "candidate_label_signal" not in line_role_signal
     assert isinstance(line_role_signal.get("selective_escalation_signal"), dict)
@@ -1983,7 +2002,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     default_views = navigation_payload.get("default_initial_views")
     assert isinstance(default_views, list)
     assert "analysis.triage_packet" in default_views
-    assert "analysis.low_confidence_changed_lines_packet" in default_views
+    assert "analysis.low_trust_changed_lines_packet" in default_views
     assert "analysis.recipe_pipeline_context" in default_views
     row_locators = navigation_payload.get("row_locators")
     assert isinstance(row_locators, dict)
@@ -2020,7 +2039,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     )
     assert isinstance(root_locators.get("net_error_blame_summary_json"), dict)
     assert isinstance(root_locators.get("config_version_metadata_json"), dict)
-    assert isinstance(root_locators.get("low_confidence_changed_lines_packet_jsonl"), dict)
+    assert isinstance(root_locators.get("low_trust_changed_lines_packet_jsonl"), dict)
     alias_dedupe = navigation_payload.get("alias_dedupe")
     assert isinstance(alias_dedupe, dict)
     assert int(alias_dedupe.get("content_equivalent_group_count") or 0) >= 1
@@ -2058,7 +2077,7 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[
             {
@@ -2142,7 +2161,7 @@ def test_build_upload_bundle_stage_separated_comparison_scores_pass2_and_pass3(
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -2195,20 +2214,23 @@ def test_build_upload_bundle_stage_separated_comparison_scores_pass2_and_pass3(
         for stage in ingredient_row["recipe_stages"]
         if isinstance(stage, dict)
     }
-    schemaorg_stage = recipe_stages["schemaorg"]
-    final_stage = recipe_stages["final"]
+    correction_stage = recipe_stages["recipe_llm_correct_and_link"]
+    final_stage = recipe_stages["build_final_recipe"]
+    intermediate_stage = recipe_stages["build_intermediate_det"]
 
-    assert schemaorg_stage["label_scored"] is True
+    assert correction_stage["label_scored"] is True
     assert final_stage["label_scored"] is True
-    assert int(schemaorg_stage["runs_scored"]) == 1
+    assert intermediate_stage["label_scored"] is False
+    assert int(correction_stage["runs_scored"]) == 1
     assert int(final_stage["runs_scored"]) == 1
-    assert "unavailable_reason" not in schemaorg_stage
+    assert "unavailable_reason" not in correction_stage
     assert "unavailable_reason" not in final_stage
-    assert float(schemaorg_stage["f1_avg"]) > 0.0
+    assert "unavailable_reason" in intermediate_stage
+    assert float(correction_stage["f1_avg"]) > 0.0
     assert float(final_stage["f1_avg"]) > 0.0
 
 
-def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
+def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
@@ -2220,7 +2242,7 @@ def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -2246,9 +2268,9 @@ def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
                 "pass1_status": "ok",
                 "pass2_status": "ok",
                 "pass3_status": "ok",
-                "pass2_promotion_policy": "merged_repair_canonical_derivation",
-                "pass3_execution_mode": "llm_merged_repair",
-                "pass3_routing_reason": "merged_repair_stage",
+                "pass2_promotion_policy": "keep_llm_result",
+                "pass3_execution_mode": "deterministic",
+                "pass3_routing_reason": "normal_final_assembly",
             }
         },
     )
@@ -2264,40 +2286,69 @@ def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
     recipe_pipeline_context = index_payload["analysis"]["recipe_pipeline_context"]
-    assert recipe_pipeline_context["merged_repair_active"] is True
-    assert recipe_pipeline_context["recipe_topology_key"] == "merged_repair"
+    assert recipe_pipeline_context["recipe_topology_key"] == "single_correction"
     assert recipe_pipeline_context["codex_recipe_pipelines"] == [
-        "codex-farm-2stage-repair-v1"
+        "codex-farm-single-correction-v1"
     ]
     assert recipe_pipeline_context["recipe_stages"] == [
-        {"stage_key": "merged_repair", "stage_label": "Merged Repair"}
+        {
+            "stage_key": "build_intermediate_det",
+            "stage_label": "Build Intermediate Recipe",
+        },
+        {
+            "stage_key": "recipe_llm_correct_and_link",
+            "stage_label": "Recipe LLM Correction",
+        },
+        {
+            "stage_key": "build_final_recipe",
+            "stage_label": "Build Final Recipe",
+        },
     ]
+    assert "historical_recipe_stages" not in recipe_pipeline_context
+    assert "historical_recipe_topology_key" not in recipe_pipeline_context
+    assert "historical_recipe_pipeline_aliases" not in recipe_pipeline_context
 
     stage_separated = index_payload["analysis"]["stage_separated_comparison"]
-    assert stage_separated["recipe_topology_key"] == "merged_repair"
+    assert stage_separated["recipe_topology_key"] == "single_correction"
     assert stage_separated["recipe_stages"] == [
-        {"stage_key": "merged_repair", "stage_label": "Merged Repair"}
+        {
+            "stage_key": "build_intermediate_det",
+            "stage_label": "Build Intermediate Recipe",
+        },
+        {
+            "stage_key": "recipe_llm_correct_and_link",
+            "stage_label": "Recipe LLM Correction",
+        },
+        {
+            "stage_key": "build_final_recipe",
+            "stage_label": "Build Final Recipe",
+        },
     ]
 
     blame_summary = index_payload["analysis"]["net_error_blame_summary"]
     bucket_definitions = blame_summary["bucket_definitions"]
-    assert "not a separate live pass2 call" in str(bucket_definitions["pass2_extraction"])
-    assert "not a separate live pass3 call" in str(bucket_definitions["pass3_mapping"])
+    assert "suggesting extraction-stage loss" in str(bucket_definitions["pass2_extraction"])
+    assert "indicating mapping-stage loss" in str(bucket_definitions["pass3_mapping"])
 
     overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
         encoding="utf-8"
     )
     assert "## Recipe Pipeline Context" in overview_text
-    assert "codex-farm-2stage-repair-v1" in overview_text
-    assert "Merged Repair" in overview_text
+    assert "codex-farm-single-correction-v1" in overview_text
+    assert "Build Intermediate Recipe" in overview_text
+    assert "Recipe LLM Correction" in overview_text
+    assert "Build Final Recipe" in overview_text
 
     payload_rows = _jsonl_rows_by_path(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
     casebook = payload_rows[
         f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/07_casebook.md"
     ]["content_text"]
-    assert "recipe_pipeline_id: codex-farm-2stage-repair-v1" in str(casebook)
-    assert "recipe_stages: Merged Repair" in str(casebook)
-    assert "- Merged Repair:" in str(casebook)
+    assert "recipe_pipeline_id: codex-farm-single-correction-v1" in str(casebook)
+    assert (
+        "recipe_stages: Build Intermediate Recipe, Recipe LLM Correction, Build Final Recipe"
+        in str(casebook)
+    )
+    assert "- Recipe LLM Correction:" in str(casebook)
 
 
 def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_prediction_manifest(
@@ -2311,7 +2362,7 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
         line_role_pipeline="codex-line-role-v1",
@@ -2389,7 +2440,7 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
         line_role_pipeline="codex-line-role-v1",
@@ -2450,7 +2501,7 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
@@ -2497,7 +2548,7 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
     assert locator_row["prompt_task4_txt"]["path"].endswith(
         "prompts/prompt_task4_knowledge.txt"
     )
-    assert locator_row["pass4_manifest_json"]["path"].endswith(
+    assert locator_row["knowledge_manifest_json"]["path"].endswith(
         "prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
     )
     assert locator_row["prompt_budget_summary_json"]["path"].endswith(
@@ -2534,7 +2585,7 @@ def test_reconstruct_full_prompt_log_includes_pass4_rows(
         module,
         run_root=tmp_path / "single-profile-benchmark" / "book_a",
         run_id="codexfarm",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[],
@@ -2590,7 +2641,7 @@ def test_build_upload_bundle_high_level_includes_lightweight_pass4_artifacts(
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
@@ -2651,7 +2702,7 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
         module,
         run_root=single_root,
         run_id="2026-03-04_10.00.00",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=_make_wrong_rows(),
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
@@ -2672,7 +2723,7 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
             module,
             run_root=multi_root,
             run_id=f"2026-03-04_10.0{index}.00",
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
             line_role_pipeline="codex-line-role-v1",
             wrong_label_rows=_make_wrong_rows(),
             full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
@@ -2807,7 +2858,7 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
             module,
             run_root=session_root,
             run_id=run_id,
-            llm_recipe_pipeline="codex-farm-3pass-v1",
+            llm_recipe_pipeline="codex-farm-single-correction-v1",
             line_role_pipeline="codex-line-role-v1",
             wrong_label_rows=[
                 {
@@ -2900,7 +2951,7 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
         module,
         run_root=session_root / "book_a",
         run_id="codexfarm",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_with_runtime(
@@ -2951,7 +3002,7 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
         module,
         run_root=session_root / "book_b",
         run_id="codexfarm",
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_with_runtime(
@@ -3079,7 +3130,7 @@ def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -3128,7 +3179,7 @@ def test_build_upload_bundle_critical_row_locator_coverage_gate(tmp_path: Path) 
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )

@@ -52,6 +52,8 @@ Architecture priorities:
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - split merge helpers and recipe-ID reassignment logic live in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_det`, optional `label_llm_correct`, and `group_recipe_spans` artifacts are written under the stage run root and drive downstream stage block predictions.
+- if label-first regrouping yields zero recipes after importer candidates existed, the stage session stays on the authoritative label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently reverting to candidate-first ownership.
+- Stage 7 non-recipe rows now drive table extraction, chunking, and stage-backed Label Studio knowledge counts; `ConversionResult.non_recipe_blocks` is repopulated only afterward as a compatibility cache.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest.py` can:
@@ -62,6 +64,24 @@ Architecture priorities:
   - upload tasks when write consent is explicit
   - perform merge-time block-index rebasing across split jobs
   - treat processed `stage_block_predictions.json` as the primary benchmark scoring input, with freeform projection artifacts derived from the same authoritative label-first bundle instead of a second diagnostic rerun
+
+### Current authority boundaries
+
+- label-first grouped spans and normalized block labels are the recipe/non-recipe authority boundary for stage-backed flows.
+- Stage 7 owns outside-recipe classification (`knowledge` vs `other`) for runtime decisions and benchmark evidence.
+- scalar confidence is persisted with labeled rows and compatibility recipe metadata, but grouping and Stage 7 ownership do not use it as authority.
+- low-confidence deterministic line-role cases may still escalate to Codex in `cookimport/parsing/canonical_line_roles.py`; that is an escalation seam, not the main runtime truth boundary.
+- `decided_by` and `reason_tags` are the persisted decision-trace fields on current labeled rows.
+- separate persisted `trust_score` / `escalation_score` fields do not exist yet; do not document or depend on them as if they are live contracts.
+
+### Current recipe LLM contract
+
+- the canonical public recipe pipeline id is `codex-farm-single-correction-v1`.
+- the active recipe Codex path is one correction stage that updates an intermediate `RecipeCandidate`, returns `ingredient_step_mapping`, and rebuilds final cookbook drafts locally.
+
+### Known current debt
+
+- benchmark and follow-up readers should keep current-format output aligned with the semantic recipe trio and `knowledge_manifest.json`.
 
 ## Docs Ownership Map
 
@@ -258,6 +278,7 @@ Manifest responsibilities:
 - source identity (`path`, `source_hash`)
 - effective run config snapshot/hash/summary
 - key artifact pointers needed to trace stage/prediction/eval relationships without reading internals
+- semantic stage observability (`cookimport/runs/stage_observability.py`) is the shared run-level source for stage naming; do not infer current stage meaning only from raw LLM directory names or old pass-slot labels
 
 History-root rule:
 - for repo-local outputs (default `data/output`), stage/benchmark history writes append to `<repo>/.history/performance_history.csv`

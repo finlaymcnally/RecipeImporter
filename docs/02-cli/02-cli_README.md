@@ -116,7 +116,6 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - `Recipe pipeline for this run?`
   - choices are `off` and `codex-farm-single-correction-v1`,
   - default is inferred from global `llm_recipe_pipeline`,
-  - legacy saved values `codex-farm-3pass-v1` and `codex-farm-2stage-repair-v1` normalize to `codex-farm-single-correction-v1`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
 - interactive benchmark setup then also asks:
   - `Block labelling for this run?` -> `line_role_pipeline=deterministic-v1|codex-line-role-v1` (and keeps `atomic_block_splitter=atomic-v1`)
@@ -203,7 +202,7 @@ The post-Bucket-2 product contract now has two public layers:
 - `codex_farm_knowledge_context_blocks` (default `12`)
 - `tag_catalog_json` (default `data/tagging/tag_catalog.json`)
 
-Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, `codex_farm_pass1_pattern_hints_enabled`, `codex_farm_pipeline_pass1/2/3/4_knowledge/5_tags`, `codex_farm_pass3_skip_pass2_ok`, and `codex_farm_benchmark_selective_retry_*`. `table_extraction` is retired entirely; new runs always extract tables.
+Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_pass4_knowledge` and `codex_farm_pipeline_pass5_tags`. `table_extraction` is retired entirely; new runs always extract tables.
 
 Normal stage summaries now render the smaller operator contract first. Raw/full payloads still persist in manifests, reports, saved settings, and benchmark artifacts for compatibility and reproducibility.
 
@@ -230,7 +229,7 @@ What each setting affects:
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
-- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off`, `codex-farm-3pass-v1`, or `codex-farm-2stage-repair-v1`).
+- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-farm-single-correction-v1`).
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
 - `llm_tags_pipeline`: optional tags pass (`off` or `codex-farm-tags-v1`) used by `stage` only.
 - `tag_catalog_json`: required catalog snapshot path when `llm_tags_pipeline` is enabled.
@@ -344,7 +343,7 @@ Interactive benchmark now has a mode submenu before execution:
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
-     - `single-offline-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1`),
+     - `single-offline-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-farm-single-correction-v1`),
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
@@ -524,7 +523,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-single-correction-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--allow-codex / --no-allow-codex` (default disabled): required for execute-mode Codex-backed stage runs.
@@ -781,13 +780,10 @@ Options:
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
 - `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-single-correction-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used when `--llm-recipe-pipeline` is enabled.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
-- `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id.
-- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.compact.v1`): pass-2 pipeline id.
-- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.compact.v1`): pass-3 pipeline id.
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate in pass-1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 
@@ -936,7 +932,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-single-correction-v1`.
 - `--codex-farm-recipe-mode TEXT` (default `extract`): `extract|benchmark`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.

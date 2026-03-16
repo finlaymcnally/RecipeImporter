@@ -123,6 +123,8 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
     assert len(spans) == 2
     assert spans[0].block_indices == [0, 1, 2]
     assert spans[0].title_block_index == 0
+    assert spans[0].trust_score == 0.9
+    assert spans[0].escalation_reasons == []
     assert spans[1].block_indices == [4, 5]
     assert spans[1].title_block_index == 4
 
@@ -175,3 +177,5 @@ def test_group_recipe_spans_from_labels_warns_when_recipeish_blocks_have_no_titl
 
     assert len(spans) == 1
     assert "recipe_span_missing_title_label" in spans[0].warnings
+    assert "missing_required_recipe_fields" in spans[0].escalation_reasons
+    assert "span_missing_title_block" in spans[0].decision_notes
