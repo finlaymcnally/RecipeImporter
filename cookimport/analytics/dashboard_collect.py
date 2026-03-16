@@ -59,7 +59,6 @@ _TS_DIR_RE = re.compile(
 )
 
 _JOB_PARTS = ".job_parts"
-_PREDICTION_RUN = "prediction-run"
 _PYTEST_RUN_SEGMENT_RE = re.compile(r"^pytest-\d+$")
 _BENCHMARK_ARTIFACT_EXCLUDE_TOKEN_RE = re.compile(
     r"(^|[-_])(gate|gated|smoke|test|debug|quick|probe|sample|trial|regression)([-_]|$)"
@@ -805,7 +804,7 @@ def _is_pytest_temp_eval_artifact(path_value: str | Path | None) -> bool:
         if (
             _PYTEST_RUN_SEGMENT_RE.match(parts[idx])
             and parts[idx + 1].startswith("test_")
-            and parts[idx + 2] in {"eval", _PREDICTION_RUN}
+            and parts[idx + 2] == "eval"
         ):
             return True
     return False
@@ -1125,8 +1124,6 @@ def _enrich_csv_benchmark_records_from_manifests(
         manifest_candidates = (
             eval_dir / "manifest.json",
             eval_dir / "run_manifest.json",
-            eval_dir / _PREDICTION_RUN / "manifest.json",
-            eval_dir / _PREDICTION_RUN / "run_manifest.json",
         )
         for manifest_path in manifest_candidates:
             manifest = _load_manifest(manifest_path)
@@ -1663,9 +1660,6 @@ def _collect_benchmarks(
 
         eval_dir = rp.parent
 
-        # Skip prediction-run directories
-        if _PREDICTION_RUN in eval_dir.parts:
-            continue
         if _is_excluded_benchmark_artifact(eval_dir):
             continue
 
@@ -1821,7 +1815,6 @@ def _collect_benchmarks(
         # Optional: coverage.json enrichment
         coverage_candidates = (
             eval_dir / "coverage.json",
-            eval_dir / _PREDICTION_RUN / "coverage.json",
         )
         for coverage_path in coverage_candidates:
             if not coverage_path.is_file():
@@ -1841,7 +1834,6 @@ def _collect_benchmarks(
         # Optional: manifest.json enrichment
         manifest_candidates = (
             eval_dir / "manifest.json",
-            eval_dir / _PREDICTION_RUN / "manifest.json",
         )
         for manifest_path in manifest_candidates:
             if not manifest_path.is_file():
@@ -1995,8 +1987,6 @@ def _has_older_benchmark_eval_reports(
 
     for report_path in candidates:
         eval_dir = report_path.parent
-        if _PREDICTION_RUN in eval_dir.parts:
-            continue
         if _is_excluded_benchmark_artifact(eval_dir):
             continue
         timestamp_text = _resolve_eval_run_timestamp(eval_dir, golden_root)

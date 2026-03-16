@@ -398,3 +398,19 @@ Durable decision:
 
 Anti-loop note:
 - If a plan-only run is failing because downstream artifacts are missing, the bug is probably that execution continued too far, not that plan mode needs fake extraction artifacts.
+
+### 2026-03-15_22.08.20 CodexFarm-only prelabel provider ids
+
+Source:
+- `docs/understandings/2026-03-15_22.08.20-codexfarm-only-prelabel-provider-id.md`
+
+Problem captured:
+- Prelabel normalization and codex decision metadata still accepted the retired `codex-cli` provider id even though runtime execution had already become CodexFarm-only.
+
+Durable decisions:
+- Keep prelabel provider identity aligned on one backend model: `codex-farm`.
+- Remove `codex-cli` as an accepted provider id in both policy/classification and Label Studio normalization paths.
+- Keep underscore normalization only as a spelling-compatibility shim, not as a second backend family.
+
+Anti-loop note:
+- If provider ids drift again, fix policy metadata and runtime normalization together. Do not let one layer silently rewrite retired ids while another still emits them.

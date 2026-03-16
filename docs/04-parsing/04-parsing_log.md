@@ -1089,3 +1089,37 @@ Verification preserved:
 
 Anti-loop note:
 - If a table fix only touches `tables.py`, it is probably incomplete; the extractor and recipe-likeness gate are part of the same failure chain.
+
+### 2026-03-14_18.05.56 canonical line-role ingredient miss chain
+
+Source:
+- `docs/understandings/2026-03-14_18.05.56-canonical-line-role-ingredient-miss-chain.md`
+
+Problem captured:
+- Obvious ingredient lines in canonical benchmark output could still land as `OTHER` even with Codex enabled.
+
+Durable findings:
+- The canonical benchmark path does not call `parse_ingredient_line(...)`.
+- Candidate building comes from `recipe_block_atomizer.py`, and ingredient-like evidence depends on `_is_ingredient_line(...)` plus atomizer heuristics.
+- At the time of this audit, when heuristics missed a within-recipe line, candidate-label gating could collapse the row to `OTHER`, leaving Codex no recovery path.
+
+Anti-loop note:
+- For canonical line-role ingredient misses, inspect atomizer heuristics and benchmark candidate construction before debugging the main deterministic ingredient parser.
+
+### 2026-03-15_15.34.54 line-role OTHER shortlist distinction
+
+Source:
+- `docs/understandings/2026-03-15_15.34.54-line-role-other-shortlist-distinction.md`
+
+Problem captured:
+- Later investigation risked mixing two different problems:
+  - the old stale-span / shortlist bug,
+  - the still-current heuristic miss problem.
+
+Durable findings:
+- The stale-span bug is fixed: prediction runs rebuild line-role candidates after the recipe Codex update.
+- The candidate-label shortlist plumbing has been removed, so Codex now sees the full global label vocabulary.
+- The remaining issue is heuristic weakness in `recipe_block_atomizer.py`, not a hard prompt/parser constraint.
+
+Anti-loop note:
+- If current artifacts still mislabel recipe lines, do not revive the old shortlist theory unless you first prove the row is still carrying a narrowed allowlist.

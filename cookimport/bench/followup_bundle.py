@@ -334,8 +334,8 @@ class RunContext:
         if self._extracted_lines_by_index is None:
             rows: dict[int, dict[str, Any]] = {}
             candidates = [
-                self.run_dir / "prediction-run" / "line-role-pipeline" / "extracted_archive.json",
-                self.run_dir / "prediction-run" / "extracted_archive.json",
+                self.run_dir / "line-role-pipeline" / "extracted_archive.json",
+                self.run_dir / "extracted_archive.json",
             ]
             payload: Any = None
             for path in candidates:
@@ -361,7 +361,7 @@ class RunContext:
     @property
     def prompt_links_by_atomic_index(self) -> dict[int, PromptArtifactLink]:
         if self._prompt_links_by_atomic_index is None:
-            prompt_dir = self.run_dir / "prediction-run" / "line-role-pipeline" / "prompts"
+            prompt_dir = self.run_dir / "line-role-pipeline" / "prompts"
             rows: dict[int, PromptArtifactLink] = {}
             if prompt_dir.is_dir():
                 for parsed_path in sorted(prompt_dir.glob("parsed_*.json")):
@@ -393,7 +393,7 @@ class RunContext:
     @property
     def raw_llm_dir(self) -> Path | None:
         if self._raw_llm_dir is ...:
-            candidate_root = self.run_dir / "prediction-run" / "raw" / "llm"
+            candidate_root = self.run_dir / "raw" / "llm"
             resolved: Path | None = None
             if candidate_root.is_dir():
                 for child in sorted(candidate_root.iterdir()):
@@ -436,7 +436,7 @@ class RunContext:
             ("prompt_task4_txt", pass4_prompt_task),
             (
                 "prompt_budget_summary_json",
-                self.run_dir / "prediction-run" / "prompt_budget_summary.json",
+                self.run_dir / "prompt_budget_summary.json",
             ),
         ):
             if isinstance(path, Path) and path.is_file():
@@ -2017,7 +2017,7 @@ def write_case_export(
                     if key not in seen_manifest_keys:
                         seen_manifest_keys.add(key)
                         file_manifest_rows.append(row)
-            line_role_prompt_dir = codex_run.run_dir / "prediction-run" / "line-role-pipeline" / "prompts"
+            line_role_prompt_dir = codex_run.run_dir / "line-role-pipeline" / "prompts"
             if line_role_prompt_dir.is_dir():
                 for path in sorted(line_role_prompt_dir.glob("parsed_*.json")):
                     row = _file_manifest_row(context.repo_root, path, kind="line_role_parsed_prompt")

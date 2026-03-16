@@ -60,12 +60,6 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
             "processed_report_path": "",
             "timing": {"prediction_seconds": 0.4},
         }
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
     monkeypatch.setattr(cli, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
 
     def _fake_ensure_canonical_gold_artifacts(*, export_root: Path):
@@ -167,12 +161,6 @@ def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_fi
             sort_keys=True,
         ),
         encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
     )
     monkeypatch.setattr(
         cli,
@@ -328,12 +316,6 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
         ),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
     monkeypatch.setattr(
         cli,
         "generate_pred_run_artifacts",
@@ -441,12 +423,6 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             }
         ),
         encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
     )
     monkeypatch.setattr(
         cli,
@@ -628,11 +604,6 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
     monkeypatch.setenv("COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N", "5")
     monkeypatch.setattr(
         cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
-    monkeypatch.setattr(
-        cli,
         "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
@@ -757,12 +728,6 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
             }
         ),
         encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
     )
     monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
     monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])

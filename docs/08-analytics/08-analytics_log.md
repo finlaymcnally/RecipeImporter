@@ -3168,3 +3168,19 @@ Regression anchor:
 
 Anti-loop note:
 - If the tail flattens again, inspect edge-window math in the trend builder before changing chart rendering or data collection.
+
+### 2026-03-15_15.42.45 line-role-only run visible in Per-Label Breakdown but missing from Previous Runs
+
+Source:
+- `docs/understandings/2026-03-15_15.42.45-dashboard-line-role-only-previous-runs-filter-gap.md`
+
+Problem captured:
+- A benchmark root such as `2026-03-15_15.37.33/.../line_role_only` could appear in `Per-Label Breakdown` yet disappear from `Previous Runs`, which looked at first like a collector or history-write bug.
+
+Durable findings:
+- Data collection was fine; the mismatch came from frontend scope.
+- `Per-Label Breakdown` reads benchmark rows more directly.
+- `Previous Runs` applies quick filters first, and `Official benchmarks only` intentionally hides hybrid roots that are neither official `vanilla` nor official `codexfarm` paired runs.
+
+Anti-loop note:
+- If a run shows up in one dashboard panel but not another, inspect panel-specific filter paths before changing analytics ingestion.

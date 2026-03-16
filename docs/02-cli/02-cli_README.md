@@ -1912,3 +1912,15 @@ Current CLI/contracts reinforced:
 
 Anti-loop reminder:
 - Hiding a field in `run_settings_ui_specs()` is only the first step. If it still appears in Typer help, summaries, helper signatures, or paired benchmark variants, the surface cleanup is not finished.
+
+## 2026-03-15 merged understanding digest (prompt-export ownership cleanup)
+
+Merged source note:
+- `docs/understandings/2026-03-15_15.44.51-cli-prompt-export-dead-code-removal.md`
+
+Current CLI contract reinforced:
+- Prompt artifact generation is owned by `cookimport/llm/prompt_artifacts.py`; `cookimport/cli.py` should call that module directly.
+- Deleted CLI-private prompt-export wrappers are not compatibility surfaces. If prompt artifact behavior changes, update the LLM prompt-artifact module and its tests instead of recreating parallel helpers in the CLI file.
+
+Anti-loop reminder:
+- If prompt export logic appears to exist in both CLI and LLM code, treat the CLI copy as dead code until proven otherwise.

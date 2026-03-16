@@ -1711,8 +1711,10 @@ def generate_pred_run_artifacts(
     scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,
     progress_callback: Callable[[str], None] | None = None,
     run_manifest_kind: str = "bench_pred_run",
+    run_root_override: Path | str | None = None,
+    mirror_stage_artifacts_into_run_root: bool = True,
 ) -> dict[str, Any]:
-    """Generate prediction-run artifacts offline (no Label Studio credentials needed).
+    """Generate benchmark/import artifacts offline (no Label Studio credentials needed).
 
     Performs extraction, conversion, task generation and writes all artifacts to disk.
     Returns metadata dict with run_root, tasks_total, manifest_path, etc.
@@ -1733,7 +1735,10 @@ def generate_pred_run_artifacts(
     run_dt = dt.datetime.now()
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     book_slug = _slugify_name(path.stem)
-    run_root = output_dir / timestamp / "labelstudio" / book_slug
+    if run_root_override is None:
+        run_root = output_dir / timestamp / "labelstudio" / book_slug
+    else:
+        run_root = Path(run_root_override).expanduser()
     run_root.mkdir(parents=True, exist_ok=True)
     run_started = time.monotonic()
     _notify_scheduler_event_callback(
@@ -3124,7 +3129,10 @@ def generate_pred_run_artifacts(
         if len(stage_archive_candidates) == 1:
             stage_archive_source = stage_archive_candidates[0]
     if stage_archive_source is not None:
-        shutil.copy2(stage_archive_source, archive_path)
+        if mirror_stage_artifacts_into_run_root:
+            shutil.copy2(stage_archive_source, archive_path)
+        else:
+            archive_path = stage_archive_source
     else:
         archive_payload = prepared_archive_payload(prepared_archive)
         archive_path.write_text(
@@ -3157,11 +3165,14 @@ def generate_pred_run_artifacts(
         processed_stage_block_predictions_path is not None
         and processed_stage_block_predictions_path.exists()
     ):
-        local_stage_block_predictions_path = run_root / "stage_block_predictions.json"
-        shutil.copy2(
-            processed_stage_block_predictions_path,
-            local_stage_block_predictions_path,
-        )
+        if mirror_stage_artifacts_into_run_root:
+            local_stage_block_predictions_path = run_root / "stage_block_predictions.json"
+            shutil.copy2(
+                processed_stage_block_predictions_path,
+                local_stage_block_predictions_path,
+            )
+        else:
+            local_stage_block_predictions_path = processed_stage_block_predictions_path
     artifact_write_seconds = max(0.0, time.monotonic() - artifact_write_started)
 
     result_timing_payload = (
@@ -3374,7 +3385,7 @@ def generate_pred_run_artifacts(
         "tasks_jsonl_status": tasks_jsonl_status,
         "prediction_manifest_json": "manifest.json",
         "coverage_json": "coverage.json",
-        "extracted_archive_json": "extracted_archive.json",
+        "extracted_archive_json": _path_for_manifest(run_root, archive_path),
         "extracted_text": "extracted_text.txt",
     }
     tasks_manifest_path = _path_for_manifest(run_root, tasks_path)
@@ -3610,6 +3621,7 @@ def generate_pred_run_artifacts(
         "run_root": run_root,
         "processed_run_root": processed_run_root,
         "stage_run_root": processed_run_root,
+        "extracted_archive_path": archive_path,
         "processed_report_path": processed_report_path,
         "processed_stage_block_predictions_path": processed_stage_block_predictions_path,
         "stage_block_predictions_path": local_stage_block_predictions_path,
@@ -3791,6 +3803,8 @@ def run_labelstudio_import(
     auto_project_name_on_scope_mismatch: bool = False,
     allow_codex: bool = False,
     allow_labelstudio_write: bool = False,
+    run_root_override: Path | str | None = None,
+    mirror_stage_artifacts_into_run_root: bool = True,
 ) -> dict[str, Any]:
     def _notify(message: str) -> None:
         _notify_progress_callback(progress_callback, message)
@@ -3902,6 +3916,8 @@ def run_labelstudio_import(
         scheduler_event_callback=scheduler_event_callback,
         progress_callback=_notify,
         run_manifest_kind="labelstudio_import",
+        run_root_override=run_root_override,
+        mirror_stage_artifacts_into_run_root=mirror_stage_artifacts_into_run_root,
     )
 
     run_root = pred["run_root"]

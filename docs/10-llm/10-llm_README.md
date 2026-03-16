@@ -995,3 +995,51 @@ Current LLM contracts reinforced:
 
 Anti-loop reminder:
 - If “Spark usage” looks surprising, verify whether the evidence came from shared fake-test telemetry or this repo’s local `var/` telemetry before changing model defaults or approval policy.
+
+## 2026-03-14 merged understandings digest (merged-repair schema, fixed behavior, and trace boundaries)
+
+Merged source notes:
+- `docs/understandings/2026-03-14_16.39.32-codexfarm-invalid-json-schema.md`
+- `docs/understandings/2026-03-14_16.54.07-native-object-pack-contract.md`
+- `docs/understandings/2026-03-14_17.08.10-llm-orchestrator-fixed-behavior-test-drift.md`
+- `docs/understandings/2026-03-14_17.16.14-codex-mapping-schema-subset.md`
+- `docs/understandings/2026-03-14_17.32.33-prompt-sample-missing-thinking-traces.md`
+
+Current LLM contracts reinforced:
+- Codex structured outputs here require every top-level property to appear in `required`; nullable fields still need to be present and use `null` when they are intentionally empty.
+- Arbitrary-key objects are not a safe on-wire shape for Codex structured outputs. `ingredient_step_mapping` needs a strict entry-array schema on the wire, with runtime normalization back into the repo’s internal dictionary form and compatibility acceptance for older dict/string artifacts.
+- Native-object compatibility already existed in loader code. The remaining JSON-string wrapper seam lived in prompt/schema pack assets and the fake runner, so migration work belongs there rather than in another runtime shim.
+- Some recipe-pass knobs are fixed behavior from `Bucket1FixedBehavior`, not user-overridable runtime settings:
+  - pass1 hints
+  - pass2/pass3 pipeline ids
+  - pass3 skip behavior
+  - selective-retry attempt count
+  Tests that try to override those values should assert the fixed contract rather than expect the orchestrator to honor stale overrides.
+- Missing thinking traces in prompt sample markdown are usually upstream trace-classification/capture gaps, not a bug in the markdown sampler itself.
+
+Anti-loop reminder:
+- If a recipe Codex run fails before generation or prompt samples look odd, inspect schema validity, on-wire contract shape, and upstream trace capture before editing prompt prose.
+
+## 2026-03-15 merged understandings digest (prompt artifacts and Codex surface map)
+
+Merged source notes:
+- `docs/understandings/2026-03-15_12.01.37-codex-prompt-artifacts-stage-label-vs-raw-path.md`
+- `docs/understandings/2026-03-15_14.33.31-prompt-artifact-exporter-coupling-survey.md`
+- `docs/understandings/2026-03-15_15.17.39-codex-surface-backend-map.md`
+- `docs/understandings/2026-03-15_15.24.30-prompt-artifact-exporter-seam-map.md`
+- `docs/understandings/2026-03-15_15.39.50-prompt-artifact-discoverer-injection-seam.md`
+
+Current LLM contracts reinforced:
+- Reviewer-facing prompt artifacts can derive stage labels dynamically from observed stage metadata even while raw `raw/llm/...` folders still use legacy pass-slot names.
+- The stable downstream prompt artifact is `prompts/full_prompt_log.jsonl`; discovery of raw run layout should stay behind adapter/descriptors, and rendering should consume normalized descriptors rather than hardcoded `pass1/pass2/pass4` filesystem assumptions.
+- The current prompt-artifact seam in `cookimport/llm/prompt_artifacts.py` is:
+  - `discover_codexfarm_prompt_run_descriptors(...)` for current-layout discovery
+  - `render_prompt_artifacts_from_descriptors(...)` for topology-agnostic rendering
+  - `build_codex_farm_prompt_response_log(...)` as the compatibility wrapper used by current callers
+  - injected discovery via `discover_prompt_run_descriptors(...)` / `build_prompt_response_log(...)` when future non-CodexFarm layouts need to plug in
+- The repo has five Codex-backed surfaces:
+  - `recipe`, `knowledge`, and `tags` use CodexFarm
+  - `line_role` and `prelabel` use local `codex exec`
+
+Anti-loop reminder:
+- If prompt artifact work starts requiring renderer edits for every new run layout, the problem is discovery coupling. Push the change into descriptors/adapters before touching rendering again.

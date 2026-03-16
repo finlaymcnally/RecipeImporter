@@ -1022,3 +1022,25 @@ Current parsing contracts reinforced:
 
 Anti-loop reminder:
 - If EPUB tables go missing, inspect extractor structure and recipe-likeness gating before adding more salvage heuristics to `tables.py`.
+
+## 2026-03-14 to 2026-03-15 merged understandings digest (canonical line-role heuristic gaps)
+
+Merged source notes:
+- `docs/understandings/2026-03-14_18.05.56-canonical-line-role-ingredient-miss-chain.md`
+- `docs/understandings/2026-03-15_15.34.54-line-role-other-shortlist-distinction.md`
+
+Current parsing contracts reinforced:
+- Canonical line-role labeling is driven by `cookimport/parsing/recipe_block_atomizer.py` plus `cookimport/parsing/canonical_line_roles.py`, not by `ingredients.py::parse_ingredient_line` or `instruction_parser.py::parse_instruction`.
+- The old stale pre-LLM recipe-span / per-row shortlist issue is historical:
+  - prediction runs now rebuild candidates after the recipe Codex update,
+  - the old candidate-label shortlist plumbing is gone,
+  - current failures are heuristic misses, not hard LLM allowlist collapse.
+- The remaining debugging target is strong heuristic tagging inside `recipe_block_atomizer.py` even when `within_recipe_span=True`. Verified examples that still deserve attention:
+  - `1 large jalapeño, seeds and veins removed if desired, thinly sliced`
+  - `1-pound loaf day-old country or sourdough bread`
+  - `Shaved Carrot Salad with Ginger and Lime`
+  - `Toss the croutons with the olive oil to coat them evenly...`
+  - `Variations`
+
+Anti-loop reminder:
+- When canonical line-role misses obvious recipe lines, debug the atomizer heuristics and span ownership first. Do not assume the main ingredient/instruction parsers are in that path.

@@ -1827,3 +1827,19 @@ Durable decisions:
 
 Anti-loop note:
 - If warning dumps or unknown-key tolerance pressure return, inspect mixed-payload filtering and winner-cache boundaries first. Do not weaken `RunSettings.from_dict(...)` just to keep stale caches alive.
+
+### 2026-03-15_15.44.51 CLI prompt-export dead-code removal
+
+Source:
+- `docs/understandings/2026-03-15_15.44.51-cli-prompt-export-dead-code-removal.md`
+
+Problem captured:
+- `cookimport/cli.py` still carried legacy prompt-export compatibility wrappers even though real execution had already returned immediately into `cookimport/llm/prompt_artifacts.py`.
+
+Durable decisions:
+- Remove the dead CLI helper body and compatibility wrapper rather than maintaining a second false editing target.
+- Call `llm_prompt_artifacts.build_codex_farm_prompt_response_log(...)` directly from CLI callsites.
+- When tests need prompt-export coverage, point them at `cookimport/llm/prompt_artifacts.py` instead of resurrecting CLI-private helpers.
+
+Anti-loop note:
+- If prompt artifact behavior drifts, inspect `cookimport/llm/prompt_artifacts.py` first. Do not reintroduce CLI wrapper layers just to make the call graph look familiar.

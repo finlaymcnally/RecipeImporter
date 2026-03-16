@@ -575,7 +575,6 @@ def _load_manifest_fields(
     """Load (importer_name, source_file, recipe_count, run_config) from a config dir when available."""
     candidates = (
         config_dir / "manifest.json",
-        config_dir / "prediction-run" / "manifest.json",
     )
     for path in candidates:
         try:
@@ -14255,7 +14254,7 @@ _JS = """\
     const text = String(token || "").trim();
     if (!text) return false;
     const lower = text.toLowerCase();
-    if (lower === "eval" || lower === "eval_output" || lower === "prediction-run") return false;
+    if (lower === "eval" || lower === "eval_output") return false;
     if (lower.startsWith("config_") || lower.startsWith("repeat_")) return false;
     return true;
   }

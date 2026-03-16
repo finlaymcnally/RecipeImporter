@@ -480,3 +480,33 @@ Architecture-level docs hygiene contract:
 
 Anti-loop note:
 - Choose the folder that owns the durable maintenance contract, not every module the patch touched.
+
+## 2026-03-15 merged understandings digest (stage-backed benchmark architecture seam)
+
+Merged source notes:
+- `docs/understandings/2026-03-15_14.55.23-stage-vs-benchmark-divergence-map.md`
+- `docs/understandings/2026-03-15_15.03.18-stage-backed-benchmark-unification-seam.md`
+- `docs/understandings/2026-03-15_15.06.38-refactor-stage-reuse-map.md`
+- `docs/understandings/2026-03-15_22.14.09-refactor-stage-map-after-stage-backed-benchmark-unification.md`
+
+Current architecture contracts reinforced:
+- The durable direction is one shared stage/import session that owns conversion, optional recipe Codex work, knowledge, chunk/table generation, processed outputs, and stage-block predictions. Benchmark-only behavior should hang off that session instead of re-implementing a second primary prediction path.
+- Authoritative benchmark scoring should come from the same stage-backed `stage_block_predictions.json` plus extracted block text used by normal import outputs. Canonical line-role remains a benchmark-side diagnostic or experiment surface, not the main source of truth.
+- The strongest reuse seams for the long-range refactor already exist:
+  - Stage 0-1 extraction/importer adapters,
+  - Stage 2 canonical line-role labeling machinery,
+  - Stage 4 shaping/parsing helpers,
+  - Stage 5-6 Codex repair/orchestration,
+  - Stage 7 knowledge outputs,
+  - Stage 8 writers/debug artifacts.
+- The main greenfield work is the label-first backbone:
+  - one shared source-document contract,
+  - one segmented-block artifact,
+  - one primary Stage 2 label artifact in the main runtime,
+  - one Stage 3 grouping layer that consumes those labels directly.
+- The later stage-backed benchmark unification reduced downstream forked behavior in Stages 5, 7, and 8, but it did not remove the main refactor target:
+  - Stage 2 labels are still not the primary runtime truth,
+  - Stage 3 grouping is still heuristic-candidate-first rather than label-first.
+
+Anti-loop note:
+- If benchmark/import behavior diverges, inspect whether the same stage session is actually being reused before patching prompt packs, benchmark-only artifact writers, or score interpretation.

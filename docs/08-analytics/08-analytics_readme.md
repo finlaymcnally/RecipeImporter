@@ -884,3 +884,17 @@ Known bad / anti-loop reminders carried forward:
 - If a chart label leaks internal fallback copy like `All visible rows`, inspect builder/segment seams before changing the HTML shell.
 - If served dashboard data on disk looks right but the browser still hides rows, check both stale asset caching and stale localStorage state before touching collector logic.
 - If old benchmark trend points disappear after analytics changes, re-check path-based legacy classification fallback before redefining `codexfarm` semantics.
+
+## 2026-03-15 merged understanding digest (dashboard quick-filter mismatch)
+
+Merged source note:
+- `docs/understandings/2026-03-15_15.42.45-dashboard-line-role-only-previous-runs-filter-gap.md`
+
+Current analytics caveat reinforced:
+- `Per-Label Breakdown` and `Previous Runs` do not consume the exact same frontend filter chain.
+- `Per-Label Breakdown` reads `filteredBenchmarks()` directly and then picks the latest run-group with per-label data.
+- `Previous Runs` first applies quick filters through `currentPreviousRunsFilterResult()`.
+- Hybrid roots like `.../line_role_only` can therefore appear in `Per-Label Breakdown` while disappearing from `Previous Runs` whenever `Official benchmarks only` is enabled.
+
+Anti-loop reminder:
+- If one dashboard panel shows a benchmark row and another hides it, inspect UI quick-filter state before changing CSV collection, benchmark classification, or backend aggregation.

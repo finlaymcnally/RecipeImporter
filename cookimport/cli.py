@@ -3624,10 +3624,10 @@ def _load_single_offline_codex_farm_runtime(
     if isinstance(artifacts_payload, dict):
         prediction_run_dir = _resolve_artifact_path(
             eval_output_dir,
-            artifacts_payload.get("pred_run_dir"),
+            artifacts_payload.get("artifact_root_dir"),
         )
     if prediction_run_dir is None:
-        prediction_run_dir = eval_output_dir / "prediction-run"
+        prediction_run_dir = eval_output_dir
 
     llm_manifest = None
     if prediction_run_dir.exists() and prediction_run_dir.is_dir():
@@ -5472,7 +5472,7 @@ def _build_source_debug_artifact_status(
         candidate_prediction_run_dir = (
             prediction_run_dir
             if isinstance(prediction_run_dir, Path)
-            else eval_dir / "prediction-run"
+            else eval_dir
         )
         prediction_manifest = _load_json_dict(
             candidate_prediction_run_dir / "run_manifest.json"
@@ -5703,7 +5703,7 @@ def _infer_source_file_from_eval_report_and_manifest(
                     return source_file
 
     prediction_run_manifest = _load_json_dict(
-        eval_report_path.parent / "prediction-run" / "run_manifest.json"
+        eval_report_path.parent / "run_manifest.json"
     )
     if isinstance(prediction_run_manifest, dict):
         source_payload = prediction_run_manifest.get("source")
@@ -5756,11 +5756,11 @@ def _build_labelstudio_benchmark_context_from_eval_report(
         eval_run_artifacts = {}
     prediction_run_dir = _resolve_artifact_path(
         eval_report_path.parent,
-        eval_run_artifacts.get("pred_run_dir"),
+        eval_run_artifacts.get("artifact_root_dir"),
     )
     prediction_run_dir_is_inferred = prediction_run_dir is None
     if prediction_run_dir is None:
-        prediction_run_dir = eval_report_path.parent / "prediction-run"
+        prediction_run_dir = eval_report_path.parent
     prediction_run_manifest = _load_json_dict(prediction_run_dir / "run_manifest.json")
     prediction_run_artifacts = (
         prediction_run_manifest.get("artifacts")
@@ -10188,21 +10188,6 @@ def _infer_source_file_from_freeform_gold(gold_spans: Path) -> Path | None:
     return None
 
 
-def _co_locate_prediction_run_for_benchmark(pred_run: Path, eval_output_dir: Path) -> Path:
-    """Move benchmark prediction artifacts under the eval run directory."""
-    if not pred_run.exists() or not pred_run.is_dir():
-        _fail(f"Prediction run directory not found: {pred_run}")
-    original_parent = pred_run.parent
-    stop_exclusive = pred_run.parents[2] if len(pred_run.parents) > 2 else None
-    target = eval_output_dir / "prediction-run"
-    if target.exists():
-        shutil.rmtree(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(pred_run), str(target))
-    _prune_empty_dirs(original_parent, stop_exclusive=stop_exclusive)
-    return target
-
-
 def _load_total_recipes_from_report_path(
     report_path_value: Path | str | None,
 ) -> int | None:
@@ -11629,6 +11614,38 @@ def _resolve_stage_predictions_for_benchmark(
     return pred_run / "stage_block_predictions.json"
 
 
+def _resolve_extracted_archive_for_benchmark(
+    *,
+    import_result: dict[str, Any],
+    pred_run: Path,
+) -> Path:
+    archive_candidates: list[Path] = []
+    for value in (
+        import_result.get("extracted_archive_path"),
+        pred_run / "extracted_archive.json",
+    ):
+        if not value:
+            continue
+        archive_candidates.append(Path(str(value)))
+
+    processed_run_root_raw = import_result.get("processed_run_root")
+    if str(processed_run_root_raw or "").strip():
+        processed_run_root = Path(str(processed_run_root_raw)).expanduser()
+        stage_archive_candidates = sorted(processed_run_root.glob("raw/**/full_text.json"))
+        if len(stage_archive_candidates) == 1:
+            archive_candidates.append(stage_archive_candidates[0])
+
+    for candidate in archive_candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    _fail(
+        "This prediction run is missing extracted archive evidence. "
+        "Re-run benchmark after updating."
+    )
+    return pred_run / "extracted_archive.json"
+
+
 def _resolve_line_role_predictions_for_benchmark(
     *,
     import_result: dict[str, Any],
@@ -11736,22 +11753,20 @@ def _build_prediction_bundle_from_import_result(
     eval_output_dir: Path,
     prediction_phase_seconds: float,
 ) -> BenchmarkPredictionBundle:
-    pred_run = _co_locate_prediction_run_for_benchmark(
-        Path(import_result["run_root"]),
-        eval_output_dir,
-    )
+    _ = eval_output_dir
+    pred_run = Path(import_result["run_root"]).expanduser()
+    if not pred_run.exists() or not pred_run.is_dir():
+        _fail(f"Prediction artifact directory not found: {pred_run}")
     pred_context = _load_pred_run_recipe_context(pred_run)
     default_stage_predictions_path = _resolve_stage_predictions_for_benchmark(
         import_result=import_result,
         pred_context=pred_context,
         pred_run=pred_run,
     )
-    default_extracted_archive_path = pred_run / "extracted_archive.json"
-    if (
-        not default_extracted_archive_path.exists()
-        or not default_extracted_archive_path.is_file()
-    ):
-        _fail(f"Prediction run is missing extracted_archive.json: {pred_run}")
+    default_extracted_archive_path = _resolve_extracted_archive_for_benchmark(
+        import_result=import_result,
+        pred_run=pred_run,
+    )
     return BenchmarkPredictionBundle(
         import_result=import_result,
         pred_run=pred_run,
@@ -11770,6 +11785,9 @@ def _run_offline_benchmark_prediction_stage(
     suppress_spinner: bool = True,
     external_progress_callback: Callable[[str], None] | None = None,
 ) -> BenchmarkPredictionStageResult:
+    prediction_generation_kwargs = dict(prediction_generation_kwargs)
+    prediction_generation_kwargs.setdefault("run_root_override", eval_output_dir)
+    prediction_generation_kwargs.setdefault("mirror_stage_artifacts_into_run_root", False)
     selected_source = Path(prediction_generation_kwargs["path"]).expanduser()
     selected_epub_extractor = str(
         prediction_generation_kwargs.get("epub_extractor") or "unstructured"
@@ -11905,7 +11923,7 @@ def _run_offline_benchmark_prediction_stage(
         )
 
     prediction_stage_artifacts: dict[str, Any] = {
-        "pred_run_dir": _path_for_manifest(eval_output_dir, pred_run),
+        "artifact_root_dir": _path_for_manifest(eval_output_dir, pred_run),
         "stage_block_predictions_json": _path_for_manifest(
             eval_output_dir,
             prediction_bundle.stage_predictions_path,
@@ -12014,7 +12032,6 @@ def _prediction_record_meta_from_bundle(
         "run_config_summary": bundle.pred_context.run_config_summary,
         "recipes": bundle.pred_context.recipes,
         "timing": _json_safe(timing_payload),
-        "pred_run_dir": str(bundle.pred_run),
         "workbook_slug": str(workbook_slug or "").strip() or None,
     }
     # Keep JSON payload compact and stable by dropping null-valued metadata keys.
@@ -12117,33 +12134,6 @@ def predict_stage(
         )
 
 
-def _prediction_record_path_value(
-    *,
-    record: PredictionRecord,
-    field_name: str,
-) -> Path:
-    raw_value = record.prediction.get(field_name)
-    path_value = Path(str(raw_value or ""))
-    if not str(raw_value or "").strip():
-        _fail(f"Prediction record is missing required path field: {field_name}")
-    if not path_value.exists() or not path_value.is_file():
-        _fail(
-            f"Prediction record path for {field_name} does not exist: {path_value}"
-        )
-    return path_value
-
-
-def _prediction_record_is_legacy_pointer(record: PredictionRecord) -> bool:
-    required_fields = (
-        "stage_block_predictions_path",
-        "extracted_archive_path",
-    )
-    for field_name in required_fields:
-        if not str(record.prediction.get(field_name) or "").strip():
-            return False
-    return True
-
-
 def _prediction_record_stage_row(
     record: PredictionRecord,
 ) -> tuple[int, str, str, dict[str, Any]] | None:
@@ -12164,76 +12154,6 @@ def _prediction_record_stage_row(
     if not isinstance(block_features_payload, dict):
         block_features_payload = {}
     return block_index, pred_label, block_text, dict(block_features_payload)
-
-
-def _build_prediction_bundle_from_legacy_record(
-    *,
-    record: PredictionRecord,
-    predictions_in: Path | None = None,
-) -> BenchmarkPredictionBundle:
-    _ = predictions_in
-    stage_predictions_path = _prediction_record_path_value(
-        record=record,
-        field_name="stage_block_predictions_path",
-    )
-    extracted_archive_path = _prediction_record_path_value(
-        record=record,
-        field_name="extracted_archive_path",
-    )
-
-    pred_run_value = str(record.prediction.get("pred_run_dir") or "").strip()
-    pred_run = Path(pred_run_value) if pred_run_value else extracted_archive_path.parent
-    if not pred_run.exists() or not pred_run.is_dir():
-        pred_run = extracted_archive_path.parent
-
-    predict_meta = record.predict_meta
-    run_config_payload = predict_meta.get("run_config")
-    run_config = run_config_payload if isinstance(run_config_payload, dict) else None
-    timing_payload = predict_meta.get("timing")
-    import_result: dict[str, Any] = {
-        "run_root": str(pred_run),
-        "stage_block_predictions_path": str(stage_predictions_path),
-        "processed_report_path": str(predict_meta.get("processed_report_path") or ""),
-        "processed_run_root": str(predict_meta.get("processed_run_root") or ""),
-        "timing": timing_payload if isinstance(timing_payload, dict) else {},
-    }
-    prediction_phase_seconds = _report_optional_metric(
-        import_result["timing"].get("prediction_seconds")
-    )
-    if prediction_phase_seconds is None:
-        prediction_phase_seconds = _report_optional_metric(
-            import_result["timing"].get("total_seconds")
-        )
-    if prediction_phase_seconds is None:
-        prediction_phase_seconds = 0.0
-
-    pred_context = PredRunContext(
-        recipes=_coerce_int(predict_meta.get("recipes")),
-        processed_report_path=str(predict_meta.get("processed_report_path") or ""),
-        stage_block_predictions_path=str(stage_predictions_path),
-        line_role_stage_block_predictions_path="",
-        line_role_extracted_archive_path="",
-        source_file=str(predict_meta.get("source_file") or ""),
-        source_hash=str(predict_meta.get("source_hash") or "").strip() or None,
-        run_config=run_config,
-        run_config_hash=str(predict_meta.get("run_config_hash") or "").strip() or None,
-        run_config_summary=str(predict_meta.get("run_config_summary") or "").strip()
-        or None,
-        tokens_input=None,
-        tokens_cached_input=None,
-        tokens_output=None,
-        tokens_reasoning=None,
-        tokens_total=None,
-    )
-
-    return BenchmarkPredictionBundle(
-        import_result=import_result,
-        pred_run=pred_run,
-        pred_context=pred_context,
-        stage_predictions_path=stage_predictions_path,
-        extracted_archive_path=extracted_archive_path,
-        prediction_phase_seconds=max(0.0, prediction_phase_seconds),
-    )
 
 
 def _build_prediction_bundle_from_stage_records(
@@ -12349,10 +12269,7 @@ def _build_prediction_bundle_from_stage_records(
         encoding="utf-8",
     )
 
-    pred_run_value = str(first_meta.get("pred_run_dir") or "").strip()
-    pred_run = Path(pred_run_value) if pred_run_value else replay_output_dir
-    if not pred_run.exists() or not pred_run.is_dir():
-        pred_run = replay_output_dir
+    pred_run = replay_output_dir
     run_config_payload = first_meta.get("run_config")
     run_config = run_config_payload if isinstance(run_config_payload, dict) else None
     timing_payload = first_meta.get("timing")
@@ -12411,33 +12328,16 @@ def _build_prediction_bundle_from_records(
     if not prediction_records:
         raise ValueError(f"Prediction record file is empty: {predictions_in}")
 
-    legacy_record_candidates = [
-        record
-        for record in prediction_records
-        if _prediction_record_is_legacy_pointer(record)
-    ]
     stage_record_candidates: list[PredictionRecord] = []
     for record in prediction_records:
         stage_row = _prediction_record_stage_row(record)
         if stage_row is not None:
             stage_record_candidates.append(record)
 
-    if legacy_record_candidates and stage_record_candidates:
-        raise ValueError(
-            "Prediction record file mixes legacy run-pointer and per-block records."
-        )
-    if legacy_record_candidates:
-        if len(prediction_records) != 1:
-            raise ValueError(
-                "Legacy prediction record input must contain exactly one record."
-            )
-        return _build_prediction_bundle_from_legacy_record(
-            record=legacy_record_candidates[0],
-            predictions_in=predictions_in,
-        )
     if len(stage_record_candidates) != len(prediction_records):
         raise ValueError(
-            "Prediction record file contains unsupported record payload(s)."
+            "Prediction record file contains unsupported payload(s). "
+            "Only per-block stage records are accepted."
         )
     return _build_prediction_bundle_from_stage_records(
         prediction_records=stage_record_candidates,
@@ -15864,7 +15764,7 @@ def _run_all_method_prediction_once(
         checkpoints=prediction_checkpoints,
     )
 
-    pred_context = _load_pred_run_recipe_context(eval_output_dir / "prediction-run")
+    pred_context = _load_pred_run_recipe_context(eval_output_dir)
     row = {
         "config_index": config_index,
         "config_dir": config_dir_name,
@@ -28679,6 +28579,8 @@ def labelstudio_benchmark(
                 _emit_external_progress if external_progress_callback is not None else None
             ),
             run_manifest_kind="bench_pred_run",
+            run_root_override=eval_output_dir,
+            mirror_stage_artifacts_into_run_root=False,
         )
         plan_pred_run = Path(plan_prediction_result["run_root"])
         benchmark_plan_run_config = apply_bucket1_fixed_behavior_metadata(
@@ -28718,7 +28620,7 @@ def labelstudio_benchmark(
                 plan_prediction_result["run_config_summary"]
             )
         benchmark_plan_artifacts = {
-            "pred_run_dir": _path_for_manifest(eval_output_dir, plan_pred_run),
+            "artifact_root_dir": _path_for_manifest(eval_output_dir, plan_pred_run),
             "prediction_manifest_json": _path_for_manifest(
                 eval_output_dir,
                 plan_prediction_result.get("manifest_path"),
@@ -28990,6 +28892,8 @@ def labelstudio_benchmark(
                                 scheduler_event_callback=scheduler_event_callback,
                                 progress_callback=callback,
                                 run_manifest_kind="bench_pred_run",
+                                run_root_override=eval_output_dir,
+                                mirror_stage_artifacts_into_run_root=False,
                             )
                         return run_labelstudio_import(
                             path=selected_source,
@@ -29109,6 +29013,8 @@ def labelstudio_benchmark(
                             scheduler_event_callback=scheduler_event_callback,
                             auto_project_name_on_scope_mismatch=True,
                             allow_labelstudio_write=True,
+                            run_root_override=eval_output_dir,
+                            mirror_stage_artifacts_into_run_root=False,
                         )
 
                     def _run_prediction_stage_bundle() -> BenchmarkPredictionBundle:
@@ -29884,7 +29790,7 @@ def labelstudio_benchmark(
         benchmark_run_config["prediction_run_config_summary"] = pred_context.run_config_summary
 
     benchmark_artifacts: dict[str, Any] = {
-        "pred_run_dir": _path_for_manifest(eval_output_dir, pred_run),
+        "artifact_root_dir": _path_for_manifest(eval_output_dir, pred_run),
         "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
         "stage_block_predictions_json": _path_for_manifest(
             eval_output_dir,
@@ -30090,7 +29996,7 @@ def labelstudio_benchmark(
     if not suppress_summary:
         typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
         typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
-        typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
+        typer.secho(f"Benchmark artifact root: {pred_run}", fg=typer.colors.CYAN)
         if processed_run_root is not None:
             typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
         if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:

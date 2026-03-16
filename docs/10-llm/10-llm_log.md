@@ -2818,3 +2818,49 @@ Durable findings:
 
 Anti-loop note:
 - If a menu rename or pipeline label change implies pass4 moved or vanished, inspect `llm_knowledge_pipeline` wiring before touching pass4 prompts or benchmark docs.
+
+### 2026-03-14_16.39.32, 2026-03-14_16.54.07, 2026-03-14_17.08.10, 2026-03-14_17.16.14, and 2026-03-14_17.32.33 merged-repair schema and trace boundary
+
+Sources:
+- `docs/understandings/2026-03-14_16.39.32-codexfarm-invalid-json-schema.md`
+- `docs/understandings/2026-03-14_16.54.07-native-object-pack-contract.md`
+- `docs/understandings/2026-03-14_17.08.10-llm-orchestrator-fixed-behavior-test-drift.md`
+- `docs/understandings/2026-03-14_17.16.14-codex-mapping-schema-subset.md`
+- `docs/understandings/2026-03-14_17.32.33-prompt-sample-missing-thinking-traces.md`
+
+Problem captured:
+- The merged-repair benchmark path surfaced three distinct failure classes that were easy to blur together:
+  - invalid structured-output schema rules,
+  - stale wrapper/on-wire contract shape,
+  - prompt-sample trace symptoms that looked like exporter bugs.
+
+Durable findings:
+- `ingredient_step_mapping_reason` must stay nullable but still appear in the top-level `required` list.
+- Arbitrary-key mapping objects are not accepted by current Codex structured outputs; the durable wire format is an array of explicit mapping entries, normalized back into the repo’s internal dict form after validation.
+- Runtime loader support for native nested objects already existed. The remaining wrapper seam was the shipped pack plus fake runner, not the loader boundary.
+- Several orchestrator tests were stale because Bucket 1 now fixes pass1 hints, pass2/pass3 pipeline ids, pass3 skip behavior, and retry attempt count regardless of attempted test overrides.
+- Prompt sample missing-thinking markers were downstream of upstream trace classification/capture gaps, not the markdown sampler.
+
+Anti-loop note:
+- If a Codex run fails before useful output or a test looks “ignored,” inspect schema validity, fixed-behavior policy, and trace capture before rewriting prompts or weakening contracts.
+
+### 2026-03-15_12.01.37, 2026-03-15_14.33.31, 2026-03-15_15.17.39, 2026-03-15_15.24.30, and 2026-03-15_15.39.50 prompt artifact seams and Codex backend map
+
+Sources:
+- `docs/understandings/2026-03-15_12.01.37-codex-prompt-artifacts-stage-label-vs-raw-path.md`
+- `docs/understandings/2026-03-15_14.33.31-prompt-artifact-exporter-coupling-survey.md`
+- `docs/understandings/2026-03-15_15.17.39-codex-surface-backend-map.md`
+- `docs/understandings/2026-03-15_15.24.30-prompt-artifact-exporter-seam-map.md`
+- `docs/understandings/2026-03-15_15.39.50-prompt-artifact-discoverer-injection-seam.md`
+
+Problem captured:
+- Prompt artifact export was still discovery-coupled to current CodexFarm raw layout even after reviewer-facing stage labels became more accurate.
+
+Durable decisions:
+- Keep reviewer-facing stage labels derived from observed stage metadata even if raw folder names stay legacy-slot based.
+- Treat `full_prompt_log.jsonl` as the stable downstream contract.
+- Separate discovery, normalized descriptors, and rendering so future cookbook/stage topology changes become adapter work instead of exporter rewrites.
+- Keep the backend map explicit: recipe/knowledge/tags are CodexFarm surfaces; line-role and prelabel use direct `codex exec`.
+
+Anti-loop note:
+- If a prompt artifact refactor still needs hardcoded `pass1/pass2/pass4` path knowledge in rendering, the boundary is in the wrong place.

@@ -43,12 +43,6 @@ def test_labelstudio_benchmark_prunes_transient_artifacts_only_after_csv_append(
         ),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
     monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
     monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
     monkeypatch.setattr(
@@ -215,12 +209,6 @@ def test_labelstudio_benchmark_disables_prune_when_interactive_cli_active(
         ),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
     monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
     monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
     monkeypatch.setattr(
@@ -363,11 +351,6 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "unstructured")
     monkeypatch.setattr(
         cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
-    )
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
     )
     monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
     monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])

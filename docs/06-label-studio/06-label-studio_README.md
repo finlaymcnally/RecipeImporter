@@ -479,3 +479,16 @@ Current Label Studio benchmark compare contracts reinforced:
 
 Cross-domain note:
 - This same follow-up also fixed pass1 `toast` imperative detection in LLM eligibility scoring (documented in `docs/10-llm`).
+
+## 2026-03-15 merged understanding digest (prelabel provider identity cleanup)
+
+Merged source note:
+- `docs/understandings/2026-03-15_22.08.20-codexfarm-only-prelabel-provider-id.md`
+
+Current Label Studio contract reinforced:
+- Freeform prelabel execution is CodexFarm-only now.
+- Valid Codex-backed prelabel provider identity is `codex-farm` (with underscore normalization tolerated where existing normalization already applies).
+- The retired `codex-cli` alias should not survive in decision metadata, runtime validation, or emitted artifacts.
+
+Anti-loop reminder:
+- If prelabel metadata and runtime behavior disagree about the provider, remove legacy alias handling before adding new compatibility branches.

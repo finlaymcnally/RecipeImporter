@@ -379,3 +379,20 @@ Current testing contracts reinforced:
 
 Anti-loop reminder:
 - If a benchmark smoke test needs live CodexFarm work or Label Studio credentials to catch a single-offline regression, the smoke boundary has been set too wide.
+
+## 2026-03-15 merged understandings digest (plan-mode benchmark tests and strict fixture contracts)
+
+Merged source notes:
+- `docs/understandings/2026-03-15_16.08.34-benchmark-test-plan-mode-vs-live-codex-guardrail.md`
+- `docs/understandings/2026-03-15_17.15.45-strict-runsettings-fixtures-and-split-merge-status.md`
+
+Current testing contracts reinforced:
+- Benchmark/helper tests that only validate local artifact wiring should use `codex_execution_policy=plan` once agent environments block live benchmark Codex execution. Plan-mode assertions must check plan artifacts and plan-oriented manifest fields, not live-execution outputs such as `llm_manifest_json` or upload bundles.
+- Mixed payload fixtures must project to live `RunSettings` fields before calling `RunSettings.from_dict(...)`; retired compatibility keys should not linger in tests just because manifests persist broader `run_config_*` data.
+- Split-merge status assertions need two layers:
+  - merge-phase milestone messages
+  - plain forwarded session callback lines
+- `OutputStats` parity tests must keep one accumulator through split-merge so moved raw `full_text.json` artifacts remain counted.
+
+Anti-loop reminder:
+- If a test only needs wiring/manifest coverage, moving it to plan mode is usually the right fix. Do not fight the live Codex guardrail just to exercise local artifact plumbing.

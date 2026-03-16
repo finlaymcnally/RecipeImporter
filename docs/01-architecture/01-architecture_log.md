@@ -407,3 +407,23 @@ Durable decisions:
 
 Anti-loop note:
 - The right home is the folder that owns the durable maintenance contract, not the folder count implied by the git diff.
+
+### 2026-03-15_14.55.23, 2026-03-15_15.03.18, and 2026-03-15_15.06.38 stage-backed benchmark architecture seam
+
+Sources:
+- `docs/understandings/2026-03-15_14.55.23-stage-vs-benchmark-divergence-map.md`
+- `docs/understandings/2026-03-15_15.03.18-stage-backed-benchmark-unification-seam.md`
+- `docs/understandings/2026-03-15_15.06.38-refactor-stage-reuse-map.md`
+- `docs/understandings/2026-03-15_22.14.09-refactor-stage-map-after-stage-backed-benchmark-unification.md`
+
+Problem captured:
+- Benchmark prediction/eval work had drifted into a parallel architecture that duplicated most of the real stage/import flow, then layered benchmark-only mutations on top of that duplicated path.
+
+Durable findings:
+- The correct unification target is one shared stage session, not incremental patching of the old prediction-run fork.
+- Benchmark scoring should reflect the real import pipeline by reading the stage-backed `stage_block_predictions.json` plus the same extracted block text, with canonical line-role treated as diagnostics only.
+- The refactor is not greenfield everywhere. Reuse is strongest in extraction, line-role labeling, shaping, Codex repair, knowledge outputs, and writing. The biggest missing architecture piece is the label-first backbone that ties those stages together.
+- After stage-backed benchmark unification, downstream Stage 5/7/8 reuse is better than the original map suggested, but the core upstream gap is unchanged: Stage 2 labels are still not the main runtime truth, and Stage 3 grouping is still heuristic-candidate-first.
+
+Anti-loop note:
+- If a benchmark fix requires touching a second “almost-stage” path, check whether the architecture problem is duplicate session ownership before assuming the issue is prompt quality or one scoring helper.

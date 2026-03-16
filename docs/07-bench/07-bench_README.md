@@ -2212,3 +2212,41 @@ Current benchmark contracts reinforced:
 
 Anti-loop reminder:
 - If a benchmark helper fails at startup, inspect adapter/signature parity first. If a paired single-offline run fails before execution, inspect the projection boundary before relaxing `RunSettings` validation.
+
+## 2026-03-14 merged understandings digest (interactive toggles, merged-repair benchmark reading, and upload-bundle labels)
+
+Merged source notes:
+- `docs/understandings/2026-03-14_17.34.51-saltfatacidheat-single-offline-merged-pipeline-benchmark.md`
+- `docs/understandings/2026-03-14_18.01.37-upload-bundle-merged-repair-compat-labels.md`
+- `docs/understandings/2026-03-14_18.06.00-interactive-benchmark-codex-surface-mapping.md`
+
+Current benchmark contracts reinforced:
+- Interactive benchmark Codex toggles patch existing `RunSettings` surfaces only:
+  - recipe toggle -> `llm_recipe_pipeline`
+  - block-label toggle -> `line_role_pipeline` while keeping `atomic_block_splitter=atomic-v1`
+  - pass4 toggle -> `llm_knowledge_pipeline`
+- The `2026-03-14_17.21.15` Salt Fat Acid Heat merged-repair run mostly gained from outside-recipe `OTHER -> KNOWLEDGE` flips. The recipe merged-repair path itself was clean, but benchmark-visible uplift was capped because recipe-internal labels barely changed while pass4 consumed most of the added tokens.
+- Reviewer-facing upload bundles must treat `pass2_*` / `pass3_*` as compatibility field families, not literal stage-count promises. Observed recipe topology should drive labels and notes when merged repair or other nonstandard stage shapes run.
+
+Anti-loop reminder:
+- If a merged-repair benchmark looks underwhelming, split recipe-pass health from outside-span knowledge behavior before rewriting prompts or scoring logic.
+
+## 2026-03-15 merged understandings digest (stage-backed scoring, upload-bundle seams, and QualitySuite guards)
+
+Merged source notes:
+- `docs/understandings/2026-03-15_14.21.23-upload-bundle-flexibility-seams.md`
+- `docs/understandings/2026-03-15_14.45.19-line-role-candidates-stale-pre-llm-recipe-spans.md`
+- `docs/understandings/2026-03-15_15.09.12-upload-bundle-model-adapter-renderer-seam.md`
+- `docs/understandings/2026-03-15_15.20.28-stage-backed-line-role-diagnostics-only.md`
+- `docs/understandings/2026-03-15_15.59.03-pipelined-benchmark-line-role-preference-dead-seam.md`
+- `docs/understandings/2026-03-15_16.05.11-upload-bundle-recipe-context-model-seam.md`
+- `docs/understandings/2026-03-15_16.12.24-qualitysuite-runsettings-projection-and-codex-guard-order.md`
+
+Current benchmark contracts reinforced:
+- Authoritative benchmark score inputs come from the stage-backed run: `stage_block_predictions.json` plus the extracted archive. `prediction-run/line-role-pipeline/*` is diagnostic output, not the primary scoring lane.
+- The old stale pre-LLM candidate-span issue was a symptom of the old forked prediction path. After stage-session reuse, line-role should run after the shared stage session and must not rewrite authoritative stage outputs; `line_role_pipeline_recipe_projection` is now a diagnostic summary only.
+- `upload_bundle_v1` should stay topology-neutral through a normalized source model. Future stage/cookbook layout changes should be adapter problems, with both `recipe_pipeline_context` and stage-separated comparison rendered from shared model topology instead of being recomputed ad hoc inside the monolithic script.
+- QualitySuite must validate requested Codex-enabled settings before benchmark-baseline coercion, and mixed payloads must be projected through `project_run_config_payload(..., contract=RUN_SETTING_CONTRACT_FULL)` before strict `RunSettings.from_dict(...)` validation.
+
+Anti-loop reminder:
+- If a benchmark change needs line-role projection to become the scored truth again, or needs upload-bundle rendering to rediscover topology directly from paths, assume you are recreating an old fork rather than simplifying the system.

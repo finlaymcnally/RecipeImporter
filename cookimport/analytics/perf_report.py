@@ -1805,8 +1805,6 @@ def _collect_benchmark_backfill_context(run_dir: Path | None) -> _BenchmarkBackf
 
     contexts: list[_BenchmarkBackfillContext] = []
     for manifest_path in (
-        run_dir / "prediction-run" / "manifest.json",
-        run_dir / "prediction-run" / "run_manifest.json",
         run_dir / "manifest.json",
         run_dir / "run_manifest.json",
     ):

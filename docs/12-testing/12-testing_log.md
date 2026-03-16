@@ -589,3 +589,40 @@ Durable decisions:
 
 Anti-loop note:
 - If smoke coverage is missing single-offline regressions, widen only up to the real interactive single-offline flow. Do not jump straight to live benchmark execution.
+
+## 2026-03-15 migrated understanding ledger (plan-mode guardrail and strict fixture contracts)
+
+### 2026-03-15_16.08.34 benchmark helper plan mode versus live Codex guardrail
+
+Source:
+- `docs/understandings/2026-03-15_16.08.34-benchmark-test-plan-mode-vs-live-codex-guardrail.md`
+
+Problem captured:
+- Benchmark helper tests that only needed local artifact wiring were still trying to exercise live Codex-backed benchmark execution even after agent environments intentionally blocked those runs.
+
+Durable decisions:
+- Use `codex_execution_policy=plan` for helper tests that only need scratch paths, manifest wiring, or other local benchmark artifacts.
+- Once a test moves to plan mode, update expectations to the plan contract:
+  - no live `llm_manifest_json`
+  - no upload bundle
+  - plan artifact path present
+  - plan-oriented manifest metadata instead of execute-only outputs
+
+Anti-loop note:
+- If a helper test fails only because live benchmark Codex execution is blocked, change the test mode before weakening the runtime guardrail.
+
+### 2026-03-15_17.15.45 strict RunSettings fixtures and split-merge status
+
+Source:
+- `docs/understandings/2026-03-15_17.15.45-strict-runsettings-fixtures-and-split-merge-status.md`
+
+Problem captured:
+- Strict `RunSettings.from_dict(...)` validation and split-merge callback behavior made older loose fixtures and status assertions fail in confusing ways.
+
+Durable decisions:
+- Build test fixtures from live `RunSettings` model fields only, or project mixed payloads before `from_dict(...)`.
+- Keep split-merge status assertions split between top-level merge-phase milestones and plain forwarded session messages.
+- Preserve a single `OutputStats` accumulator through split merge so moved raw `full_text.json` artifacts stay counted in output stats parity checks.
+
+Anti-loop note:
+- If strict fixture failures or split-merge status mismatches reappear, debug payload projection and callback-shape assumptions before loosening validation or dropping assertions.

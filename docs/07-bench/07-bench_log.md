@@ -6895,3 +6895,59 @@ Durable decisions:
 
 Anti-loop note:
 - If an interactive benchmark launch is being blocked in an agent-run shell, inspect the interactivity marker boundary before weakening the non-interactive guardrail.
+
+### 2026-03-14_17.34.51, 2026-03-14_18.01.37, and 2026-03-14_18.06.00 merged-repair benchmark interpretation and compatibility labels
+
+Sources:
+- `docs/understandings/2026-03-14_17.34.51-saltfatacidheat-single-offline-merged-pipeline-benchmark.md`
+- `docs/understandings/2026-03-14_18.01.37-upload-bundle-merged-repair-compat-labels.md`
+- `docs/understandings/2026-03-14_18.06.00-interactive-benchmark-codex-surface-mapping.md`
+
+Problem captured:
+- The new merged-repair benchmark surface made it easy to misread interactive toggles, over-credit recipe-pass gains, and present upload-bundle stage names as literal pass2/pass3 reality even when the underlying recipe topology had changed.
+
+Durable decisions:
+- Interactive benchmark Codex controls should patch the existing recipe, line-role, and pass4 `RunSettings` surfaces instead of introducing new benchmark-only settings.
+- The notable March 14 uplift came mainly from outside-recipe `OTHER -> KNOWLEDGE` flips. That run did not prove large recipe-internal improvement just because merged repair ran cleanly.
+- Upload-bundle reviewer text should treat `pass2_*` and `pass3_*` as compatibility aliases and derive stage interpretation from observed recipe topology.
+
+Anti-loop note:
+- If a benchmark run shows small gains after a pipeline change, separate recipe quality, knowledge classification, and reviewer labeling before calling the new pipeline a failure.
+
+### 2026-03-15_14.21.23, 2026-03-15_14.45.19, 2026-03-15_15.09.12, 2026-03-15_15.20.28, 2026-03-15_15.59.03, and 2026-03-15_16.05.11 stage-backed benchmark and upload-bundle seam map
+
+Sources:
+- `docs/understandings/2026-03-15_14.21.23-upload-bundle-flexibility-seams.md`
+- `docs/understandings/2026-03-15_14.45.19-line-role-candidates-stale-pre-llm-recipe-spans.md`
+- `docs/understandings/2026-03-15_15.09.12-upload-bundle-model-adapter-renderer-seam.md`
+- `docs/understandings/2026-03-15_15.20.28-stage-backed-line-role-diagnostics-only.md`
+- `docs/understandings/2026-03-15_15.59.03-pipelined-benchmark-line-role-preference-dead-seam.md`
+- `docs/understandings/2026-03-15_16.05.11-upload-bundle-recipe-context-model-seam.md`
+
+Problem captured:
+- Benchmark generation duplicated too much of the real import path, built line-role candidates on stale recipe provenance, and kept upload-bundle reviewer semantics coupled directly to current run-layout details.
+
+Durable decisions:
+- Benchmark/import unification centers on one shared stage session.
+- Authoritative score inputs come from the stage-backed run, not line-role projection artifacts.
+- Canonical line-role survives as diagnostics only and runs after the shared stage session so it sees final recipe provenance.
+- The dead `prefer_line_role_projection` compatibility seam can stay removed.
+- `upload_bundle_v1` should route discovery through a normalized model, then render both stage-separated comparison and recipe pipeline context from that shared topology payload.
+
+Anti-loop note:
+- If a benchmark refactor needs a second primary prediction lane or path-derived reviewer topology again, you are reintroducing the fork these notes were trying to retire.
+
+### 2026-03-15_16.12.24 QualitySuite guard order and run-settings projection
+
+Source:
+- `docs/understandings/2026-03-15_16.12.24-qualitysuite-runsettings-projection-and-codex-guard-order.md`
+
+Problem captured:
+- QualitySuite could incorrectly accept Codex-enabled payloads after baseline coercion masked them, and strict `RunSettings.from_dict(...)` validation could fail on mixed payloads that still contained non-field settings or persistence metadata.
+
+Durable decisions:
+- Run Codex-disallow validation against the requested payload before applying benchmark-baseline coercion.
+- Project QualitySuite payloads through `project_run_config_payload(..., contract=RUN_SETTING_CONTRACT_FULL)` before `RunSettings.from_dict(...)` in both normal resolution and safety-guard rebuild paths.
+
+Anti-loop note:
+- If QualitySuite behavior looks inconsistent, debug validation order and payload projection before relaxing strict `RunSettings` loading.

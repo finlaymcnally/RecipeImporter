@@ -11,43 +11,6 @@ globals().update({
     and not (name.startswith("__") and name.endswith("__"))
 })
 
-
-def test_co_locate_prediction_run_for_benchmark_moves_into_eval_dir(tmp_path: Path) -> None:
-    timestamp_root = tmp_path / "output" / "2026-02-10_21:09:52"
-    pred_run = timestamp_root / "labelstudio" / "book"
-    pred_run.mkdir(parents=True, exist_ok=True)
-    marker = pred_run / "label_studio_tasks.jsonl"
-    marker.write_text("{}\n", encoding="utf-8")
-    eval_output_dir = tmp_path / "golden" / "sample" / "freeform" / "eval-vs-pipeline" / "2026-02-10_21:09:52"
-    eval_output_dir.mkdir(parents=True, exist_ok=True)
-
-    moved = cli._co_locate_prediction_run_for_benchmark(pred_run, eval_output_dir)
-
-    assert moved == eval_output_dir / "prediction-run"
-    assert moved.exists()
-    assert (moved / "label_studio_tasks.jsonl").exists()
-    assert not pred_run.exists()
-    assert not (timestamp_root / "labelstudio").exists()
-    assert not timestamp_root.exists()
-
-
-def test_co_locate_prediction_run_for_benchmark_overwrites_existing_target(tmp_path: Path) -> None:
-    pred_run = tmp_path / "output" / "2026-02-10_21:09:52" / "labelstudio" / "book"
-    pred_run.mkdir(parents=True, exist_ok=True)
-    (pred_run / "new.txt").write_text("new\n", encoding="utf-8")
-
-    eval_output_dir = tmp_path / "golden" / "sample" / "freeform" / "eval-vs-pipeline" / "2026-02-10_21:09:52"
-    existing_target = eval_output_dir / "prediction-run"
-    existing_target.mkdir(parents=True, exist_ok=True)
-    (existing_target / "old.txt").write_text("old\n", encoding="utf-8")
-
-    moved = cli._co_locate_prediction_run_for_benchmark(pred_run, eval_output_dir)
-
-    assert moved.exists()
-    assert (moved / "new.txt").exists()
-    assert not (moved / "old.txt").exists()
-
-
 def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     tmp_path: Path,
 ) -> None:

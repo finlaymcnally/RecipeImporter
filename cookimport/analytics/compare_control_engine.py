@@ -194,7 +194,7 @@ def _is_useful_source_token(token: str | None) -> bool:
     if not text:
         return False
     lower = text.lower()
-    if lower in {"eval", "eval_output", "prediction-run"}:
+    if lower in {"eval", "eval_output"}:
         return False
     if lower.startswith("config_") or lower.startswith("repeat_"):
         return False

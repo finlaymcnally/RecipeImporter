@@ -74,11 +74,6 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     monkeypatch.setattr(
         cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
     )
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
     monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
     monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
     monkeypatch.setattr(
@@ -270,11 +265,6 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("No-upload mode must not call run_labelstudio_import.")
         ),
-    )
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
     )
     monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
     monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
@@ -535,12 +525,6 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
         ),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
     monkeypatch.setattr(
         cli,
         "generate_pred_run_artifacts",
@@ -727,7 +711,7 @@ def test_labelstudio_benchmark_predictions_in_runs_evaluate_only(
     assert run_manifest["run_config"]["upload"] is False
     assert "prediction_record_input_jsonl" in run_manifest["artifacts"]
 
-def test_labelstudio_benchmark_predictions_in_supports_legacy_run_pointer_record(
+def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -812,17 +796,15 @@ def test_labelstudio_benchmark_predictions_in_supports_legacy_run_pointer_record
     )
 
     eval_root = tmp_path / "eval-legacy-record"
-    cli.labelstudio_benchmark(
-        gold_spans=gold_spans,
-        source_file=source_file,
-        output_dir=tmp_path / "golden",
-        processed_output_dir=tmp_path / "output",
-        eval_output_dir=eval_root,
-        predictions_in=predictions_in,
-    )
-
-    assert captured_eval["stage_predictions_json"] == stage_predictions_path
-    assert captured_eval["extracted_blocks_json"] == extracted_archive_path
+    with pytest.raises(cli.typer.Exit):
+        cli.labelstudio_benchmark(
+            gold_spans=gold_spans,
+            source_file=source_file,
+            output_dir=tmp_path / "golden",
+            processed_output_dir=tmp_path / "output",
+            eval_output_dir=eval_root,
+            predictions_in=predictions_in,
+        )
 
 def test_build_prediction_bundle_uses_stage_backed_predictions_even_with_line_role_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -887,12 +869,6 @@ def test_build_prediction_bundle_uses_stage_backed_predictions_even_with_line_ro
         ),
         encoding="utf-8",
     )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
-    )
     import_result = {"run_root": prediction_run}
 
     bundle = cli._build_prediction_bundle_from_import_result(
@@ -938,12 +914,6 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
             sort_keys=True,
         ),
         encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
     )
     monkeypatch.setattr(
         cli,
@@ -1043,12 +1013,6 @@ def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only
             sort_keys=True,
         ),
         encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "_co_locate_prediction_run_for_benchmark",
-        lambda _pred_run, _eval_dir: prediction_run,
     )
     monkeypatch.setattr(
         cli,
