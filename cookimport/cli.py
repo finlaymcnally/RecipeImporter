@@ -1331,7 +1331,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         current_knowledge_pipeline = str(
             current_settings.get("llm_knowledge_pipeline", "off") or "off"
         ).strip().lower()
-        if current_knowledge_pipeline not in {"off", "codex-farm-knowledge-v1"}:
+        if current_knowledge_pipeline not in {"off", KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}:
             current_knowledge_pipeline = "off"
         current_web_schema_extractor = str(
             current_settings.get("web_schema_extractor", "builtin_jsonld")
@@ -2135,8 +2135,8 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                         value="off",
                     ),
                     questionary.Choice(
-                        "codex-farm-single-correction-v1 - default to CodexFarm top-tier",
-                        value="codex-farm-single-correction-v1",
+                        f"{RECIPE_CODEX_FARM_PIPELINE_SHARD_V1} - default to CodexFarm top-tier",
+                        value=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
                     ),
                 ],
                 default=current_recipe_pipeline,
@@ -2157,8 +2157,8 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 choices=[
                     questionary.Choice("off", value="off"),
                     questionary.Choice(
-                        "codex-farm-knowledge-v1",
-                        value="codex-farm-knowledge-v1",
+                        KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+                        value=KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
                     ),
                 ],
                 default=current_knowledge_pipeline,
@@ -2535,9 +2535,9 @@ def _interactive_all_method_benchmark(
     }
     all_method_codex_defaults_payload.update(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "line_role_pipeline": "codex-line-role-v1",
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_recipe_pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+            "line_role_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
+            "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
             "atomic_block_splitter": "atomic-v1",
         }
     )
@@ -3542,7 +3542,7 @@ def _all_method_codex_surface_slug_parts(
     recipe_pipeline = codex_variant_settings.llm_recipe_pipeline.value
     if recipe_pipeline != "off":
         parts.append(f"llm_recipe_{_all_method_variant_token(recipe_pipeline)}")
-    if codex_variant_settings.line_role_pipeline.value == "codex-line-role-v1":
+    if codex_variant_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1:
         parts.append(
             f"line_role_{_all_method_variant_token(codex_variant_settings.line_role_pipeline.value)}"
         )
@@ -3562,7 +3562,7 @@ def _all_method_settings_enable_any_codex(
     return any(
         (
             codex_variant_settings.llm_recipe_pipeline.value != "off",
-            codex_variant_settings.line_role_pipeline.value == "codex-line-role-v1",
+            codex_variant_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1,
             codex_variant_settings.llm_knowledge_pipeline.value != "off",
         )
     )
@@ -5943,7 +5943,7 @@ def _resolve_codex_farm_mode_and_pipeline(
     ).strip()
     if not raw_pipeline:
         if raw_mode == CODEX_FARM_RECIPE_MODE_BENCHMARK:
-            raw_pipeline = "codex-farm-single-correction-v1"
+            raw_pipeline = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
         else:
             raw_pipeline = "off"
 
@@ -6523,7 +6523,7 @@ def _build_line_role_regression_gate_payload(
             _normalize_llm_recipe_pipeline(
                 str((row.get("_run_config") or {}).get("llm_recipe_pipeline") or "off")
             )
-            == "codex-farm-single-correction-v1"
+            == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
             and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
             and str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
         ),
@@ -6602,7 +6602,7 @@ def _build_line_role_regression_gate_payload(
     confusion_baseline_source = "missing"
     if isinstance(codex_foodlab_report, dict):
         confusion_baseline_report = codex_foodlab_report
-        confusion_baseline_source = "codex-farm-single-correction-v1"
+        confusion_baseline_source = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
     elif isinstance(vanilla_foodlab_report, dict):
         confusion_baseline_report = vanilla_foodlab_report
         confusion_baseline_source = "vanilla-off-fallback"
@@ -13358,16 +13358,16 @@ def _build_all_method_variants(
                     codex_slug_parts = [
                         "llm_recipe_"
                         + _all_method_variant_token(
-                            "codex-farm-single-correction-v1"
+                            RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
                         )
                     ]
                     codex_dimensions = dict(dimensions)
                     codex_dimensions["llm_recipe_pipeline"] = (
-                        "codex-farm-single-correction-v1"
+                        RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
                     )
-                    codex_dimensions["line_role_pipeline"] = "codex-line-role-v1"
+                    codex_dimensions["line_role_pipeline"] = LINE_ROLE_PIPELINE_SHARD_V1
                     codex_dimensions["llm_knowledge_pipeline"] = (
-                        "codex-farm-knowledge-v1"
+                        KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
                     )
                     codex_dimensions["atomic_block_splitter"] = "atomic-v1"
                 else:
@@ -13387,7 +13387,7 @@ def _build_all_method_variants(
                         )
                     if (
                         codex_variant_settings.line_role_pipeline.value
-                        == "codex-line-role-v1"
+                        == LINE_ROLE_PIPELINE_SHARD_V1
                     ):
                         codex_dimensions["line_role_pipeline"] = (
                             codex_variant_settings.line_role_pipeline.value
@@ -22663,13 +22663,13 @@ def stage(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-single-correction-v1."
+            f"Values: off or {RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}."
         ),
     ),
     llm_knowledge_pipeline: str = typer.Option(
         "off",
         "--llm-knowledge-pipeline",
-        help="Optional knowledge LLM pipeline: off or codex-farm-knowledge-v1.",
+        help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
     ),
     allow_codex: bool = typer.Option(
         False,
@@ -25575,7 +25575,7 @@ def labelstudio_import(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-single-correction-v1."
+            f"Values: off or {RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}."
         ),
     ),
     allow_codex: bool = typer.Option(
@@ -26790,12 +26790,12 @@ def labelstudio_benchmark(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-single-correction-v1."
+            f"Values: off or {RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}."
         ),
     )] = "off",
     llm_knowledge_pipeline: Annotated[str, typer.Option(
         "--llm-knowledge-pipeline",
-        help="Optional knowledge LLM pipeline: off or codex-farm-knowledge-v1.",
+        help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
     )] = "off",
     allow_codex: Annotated[bool, typer.Option(
         "--allow-codex/--no-allow-codex",
@@ -26830,13 +26830,13 @@ def labelstudio_benchmark(
         "--line-role-pipeline",
         help=(
             "Optional canonical line-role labeling pipeline for benchmark "
-            "experiments: off, deterministic-v1, or codex-line-role-v1."
+            f"experiments: off, deterministic-v1, or {LINE_ROLE_PIPELINE_SHARD_V1}."
         ),
     )] = "off",
     line_role_guardrail_mode: Annotated[str, typer.Option(
         "--line-role-guardrail-mode",
         hidden=True,
-        help="Line-role guardrail mode for codex-line-role-v1: off, preview, or enforce.",
+        help=f"Line-role guardrail mode for {LINE_ROLE_PIPELINE_SHARD_V1}: off, preview, or enforce.",
     )] = "enforce",
     line_role_gated: Annotated[bool, typer.Option(
         "--line-role-gated/--no-line-role-gated",

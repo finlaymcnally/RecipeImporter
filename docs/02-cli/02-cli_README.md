@@ -31,6 +31,7 @@ Behavior differences:
   - `build-followup`: answer that manifest into a new `followup_dataN/` folder that assumes the requester already has `upload_bundle_v1`.
   - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
   - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing processed run or benchmark run root.
+  - `preview-shard-sweep`: run several local worker/shard preview variants from one existing run root and compare them side by side.
   - knowledge follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-knowledge-source-key` or `--include-knowledge-output-subdir`, and `audit-knowledge` / `pack` / `build-followup` can emit `knowledge_audit.jsonl` plus knowledge artifact references.
 - `import` / `C3import`:
   - no args: runs `stage(path=data/input)` immediately (non-interactive)
@@ -127,23 +128,23 @@ Important split:
 
 Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - `Workflow for this run?`
-  - underlying values are still `off` and `codex-farm-single-correction-v1`, but the menu renders only the workflow families `Vanilla / deterministic only` and `CodexFarm`,
+  - underlying values are `off` and `codex-recipe-shard-v1`, but the menu still renders only the workflow families `Vanilla / deterministic only` and `CodexFarm`,
   - default is inferred from global `llm_recipe_pipeline`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
 - if interactive setup chooses CodexFarm, it then asks:
   - one shared Codex submenu implemented as a single list with aligned `[Yes]` / `[No]` columns
-  - the concrete Codex-backed ids live on those step rows (for example recipe correction shows `codex-farm-single-correction-v1`)
+  - the concrete Codex-backed ids live on those step rows (for example recipe correction shows `codex-recipe-shard-v1`)
   - up/down moves between rows while keeping the submenu on one screen
   - left/right arrows move the current row between `[Yes]` and `[No]` in place, and the active box is marked directly on that row
   - pressing Enter on a step row still flips that row's current value
   - `Continue` accepts the current per-row settings
 - for interactive `Import`, that submenu asks about:
-  - recipe correction (`codex-farm-single-correction-v1`)
-  - knowledge harvest (`codex-farm-knowledge-v1`)
+  - recipe correction (`codex-recipe-shard-v1`)
+  - knowledge harvest (`codex-knowledge-shard-v1`)
 - for interactive benchmark modes (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`), that submenu asks about:
-  - recipe correction (`codex-farm-single-correction-v1`)
-  - block labelling (`codex-line-role-v1`)
-  - knowledge harvest (`codex-farm-knowledge-v1`)
+  - recipe correction (`codex-recipe-shard-v1`)
+  - block labelling (`codex-line-role-shard-v1`)
+  - knowledge harvest (`codex-knowledge-shard-v1`)
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
   - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
@@ -161,9 +162,9 @@ Resolved profile families:
   - interactive loading reuses only real `RunSettings` model fields during harmonization, so persistence metadata such as `bucket1_fixed_behavior_version` should not replay warning dumps in the chooser,
   - stale winner caches are treated as disposable and ignored with one concise warning rather than being migrated forever,
   - otherwise use built-in codex top-tier baseline,
-  - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-farm-single-correction-v1`):
-    `llm_knowledge_pipeline=codex-farm-knowledge-v1`,
-    `line_role_pipeline=codex-line-role-v1`,
+  - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-recipe-shard-v1`):
+    `llm_knowledge_pipeline=codex-knowledge-shard-v1`,
+    `line_role_pipeline=codex-line-role-shard-v1`,
     `atomic_block_splitter=atomic-v1`,
     `epub_extractor=unstructured`,
     `epub_unstructured_html_parser_version=v1`,
@@ -258,8 +259,8 @@ What each setting affects:
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
-- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-farm-single-correction-v1`).
-- `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
+- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-recipe-shard-v1`).
+- `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-knowledge-shard-v1`) used by `stage` only.
 - recipe correction also emits raw selected tags, which are normalized into `recipe.tags` and JSON-LD `keywords` during stage/import runs.
 - `codex_farm_*`: codex-farm command/root/workspace/context behavior used by `stage`; pipeline-id/failure internals remain loadable from explicit settings payloads but are hidden from ordinary help/UI.
 
@@ -373,7 +374,7 @@ Interactive benchmark now has a mode submenu before execution:
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
-     - `single-offline-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-farm-single-correction-v1`),
+     - `single-offline-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-recipe-shard-v1`),
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
@@ -412,7 +413,7 @@ Interactive benchmark now has a mode submenu before execution:
      - when `llm_recipe_pipeline=off`, runs one `vanilla` variant per selected book under `single-profile-benchmark/<index_source_slug>/`,
      - when `llm_recipe_pipeline` is non-`off`, runs paired variants per selected book:
        - `single-profile-benchmark/<index_source_slug>/vanilla` first (`llm_recipe_pipeline=off`, deterministic-only),
-       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-v1` and `atomic_block_splitter=atomic-v1`),
+       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-shard-v1` and `atomic_block_splitter=atomic-v1`),
    - for paired codex+vanilla selected/all-matched runs, writes per-book comparison only when both variants succeed:
      - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
    - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
@@ -553,8 +554,8 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-single-correction-v1`.
-- `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-recipe-shard-v1`.
+- `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-knowledge-shard-v1`.
 - `--allow-codex / --no-allow-codex` (default disabled): required for execute-mode Codex-backed stage runs.
 - `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` writes a zero-token `codex_execution_plan.json` and returns before stage processing.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
@@ -808,7 +809,7 @@ Options:
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
 - `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-single-correction-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-recipe-shard-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used when `--llm-recipe-pipeline` is enabled.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -962,7 +963,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-single-correction-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-recipe-shard-v1`.
 - `--codex-farm-recipe-mode TEXT` (default `extract`): `extract|benchmark`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.

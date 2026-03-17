@@ -404,7 +404,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         codex_execution_policy="plan",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
@@ -421,7 +421,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     assert captured_generate["write_label_studio_tasks"] is False
     assert captured_generate["pdf_ocr_policy"] == "always"
     assert captured_generate["pdf_column_gap_ratio"] == 0.21
-    assert captured_generate["llm_recipe_pipeline"] == "codex-farm-single-correction-v1"
+    assert captured_generate["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
     assert captured_generate["allow_codex"] is False
     assert captured_generate["codex_execution_policy"] == "plan"
     assert captured_generate["codex_farm_model"] == "gpt-5.3-codex-spark"
@@ -435,7 +435,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
-    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-farm-single-correction-v1"
+    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
     assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "plan"
     assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "plan"
     assert run_manifest["run_config"]["codex_execution_plan_only"] is True

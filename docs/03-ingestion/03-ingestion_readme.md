@@ -96,7 +96,7 @@ OCR:
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
 - Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table export/chunking behavior, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
-- `RunSettings.from_dict(...)` validates recipe codex-farm parsing values against the current public surface (`off` and `codex-farm-single-correction-v1`) and rejects removed recipe-pipeline ids.
+- `RunSettings.from_dict(...)` validates recipe codex-farm parsing values against the current public surface (`off` and `codex-recipe-shard-v1`) and rejects removed recipe-pipeline ids.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with process-first worker fanout and fallback order `ProcessPoolExecutor -> subprocess-backed workers -> ThreadPoolExecutor -> serial`.
 - Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
@@ -501,7 +501,7 @@ Stage CLI options (key ones):
 - `--recipe-score-bronze-min`
 - `--recipe-score-min-ingredient-lines`
 - `--recipe-score-min-instruction-lines`
-- `--llm-recipe-pipeline` (`off|codex-farm-single-correction-v1`)
+- `--llm-recipe-pipeline` (`off|codex-recipe-shard-v1`)
 - `--llm-knowledge-pipeline`
 - `--llm-tags-pipeline`
 - `--multi-recipe-splitter`

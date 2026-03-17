@@ -225,9 +225,9 @@ def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
 def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled() -> None:
     base_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
-            "line_role_pipeline": "codex-line-role-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
             "atomic_block_splitter": "atomic-v1",
         },
         warn_context="test",
@@ -266,13 +266,13 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     } == {"atomic-v1"}
     assert {
         variant.run_settings.llm_recipe_pipeline.value for variant in codex_variants
-    } == {"codex-farm-single-correction-v1"}
+    } == {"codex-recipe-shard-v1"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in codex_variants
-    } == {"codex-line-role-v1"}
+    } == {"codex-line-role-shard-v1"}
     assert {
         variant.run_settings.llm_knowledge_pipeline.value for variant in codex_variants
-    } == {"codex-farm-knowledge-v1"}
+    } == {"codex-knowledge-shard-v1"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in codex_variants
     } == {"atomic-v1"}
@@ -289,9 +289,9 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
 def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() -> None:
     base_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
-            "line_role_pipeline": "codex-line-role-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
             "atomic_block_splitter": "atomic-v1",
         },
         warn_context="test",
@@ -330,7 +330,7 @@ def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
     )
     selected_codex_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "llm_knowledge_pipeline": "off",
             "line_role_pipeline": "deterministic-v1",
             "atomic_block_splitter": "atomic-v1",
@@ -359,7 +359,7 @@ def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
     assert len(baseline_variants) == 1
     assert len(codex_variants) == 1
     assert codex_variants[0].run_settings.llm_recipe_pipeline.value == (
-        "codex-farm-single-correction-v1"
+        "codex-recipe-shard-v1"
     )
     assert codex_variants[0].run_settings.line_role_pipeline.value == "deterministic-v1"
     assert codex_variants[0].run_settings.llm_knowledge_pipeline.value == "off"
@@ -418,7 +418,7 @@ def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
                 **kwargs["selected_settings"].model_dump(
                     mode="json", exclude_none=True
                 ),
-                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+                "llm_recipe_pipeline": "codex-recipe-shard-v1",
                 "llm_knowledge_pipeline": "off",
                 "line_role_pipeline": "deterministic-v1",
                 "atomic_block_splitter": "atomic-v1",

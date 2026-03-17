@@ -640,6 +640,7 @@ def _build_runtime_mode_audit(
     output_schema_path: str | None,
     runtime_audit_mode: str | None = None,
 ) -> dict[str, Any]:
+    configured_process_workers = _coerce_int(_option_value_from_tokens(command, "workers"))
     tool_affordances_requested = any(
         any(token == prefix or token.startswith(f"{prefix}=") for prefix in _RUNTIME_AGENTIC_FLAG_PREFIXES)
         for token in command
@@ -654,6 +655,8 @@ def _build_runtime_mode_audit(
         "status": "ok" if not reason_codes else "invalid",
         "output_schema_enforced": bool(str(output_schema_path or "").strip()),
         "tool_affordances_requested": tool_affordances_requested,
+        "codex_farm_process_workers": configured_process_workers,
+        "single_process_worker_enforced": configured_process_workers == 1,
         "reason_codes": reason_codes,
     }
 
@@ -1336,6 +1339,9 @@ class SubprocessCodexFarmRunner:
     ) -> CodexFarmPipelineRunResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         expected_schema_path: Path | None = None
+        requested_process_workers = (
+            1 if str(runtime_audit_mode or "").strip() == "structured_loop_agentic_v1" else None
+        )
         selected_recipe_mode = _normalize_codex_farm_recipe_mode(
             env.get(_CODEX_FARM_RECIPE_MODE_ENV)
         )
@@ -1361,6 +1367,8 @@ class SubprocessCodexFarmRunner:
             command.extend(["--output-schema", str(expected_schema_path)])
         if selected_recipe_mode is not None:
             command.extend(["--benchmark-mode", selected_recipe_mode])
+        if requested_process_workers is not None:
+            command.extend(["--workers", str(requested_process_workers)])
         command.append("--json")
         if self.progress_callback is not None:
             command.append("--progress-events")

@@ -4,13 +4,16 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import RecipeCandidate
 from cookimport.core.slug import slugify_name
 from cookimport.llm.canonical_line_role_prompt import build_canonical_line_role_prompt
 from cookimport.llm.codex_farm_contracts import (
+    RecipeCorrectionShardInput,
+    RecipeCorrectionShardRecipeInput,
     serialize_merged_recipe_repair_input,
+    serialize_recipe_correction_shard_input,
 )
 from cookimport.llm.codex_farm_orchestrator import (
     _RecipeState,
@@ -25,19 +28,29 @@ from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
     build_codex_farm_prompt_type_samples_markdown,
 )
-from cookimport.parsing.canonical_line_roles import (
-    LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
-)
+from cookimport.parsing.canonical_line_roles import LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
 
 _DEFAULT_RECIPE_PIPELINE_ID = "recipe.correction.compact.v1"
-_DEFAULT_RECIPE_SURFACE = "codex-farm-single-correction-v1"
+_DEFAULT_RECIPE_SURFACE = "codex-recipe-shard-v1"
 _DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
-_DEFAULT_KNOWLEDGE_SURFACE = "codex-farm-knowledge-v1"
+_DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-shard-v1"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
-_DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-v1"
+_DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
+_DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 3
+_DEFAULT_KNOWLEDGE_SHARD_TARGET_CHUNKS = 12
+
+
+@dataclass(frozen=True)
+class PreviewShardAssignment:
+    shard_id: str
+    worker_id: str
+    owned_ids: tuple[str, ...]
+    call_ids: tuple[str, ...]
+    prompt_chars: int
+    task_prompt_chars: int
 
 
 @dataclass(frozen=True)
@@ -70,6 +83,12 @@ def write_prompt_preview_for_existing_run(
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 0,
     atomic_block_splitter: str = "atomic-v1",
+    recipe_worker_count: int | None = None,
+    recipe_shard_target_recipes: int | None = None,
+    knowledge_worker_count: int | None = None,
+    knowledge_shard_target_chunks: int | None = None,
+    line_role_worker_count: int | None = None,
+    line_role_shard_target_lines: int | None = None,
 ) -> Path:
     context = _load_existing_run_preview_context(run_path=run_path)
     prompts_dir = out_dir / "prompts"
@@ -81,26 +100,39 @@ def write_prompt_preview_for_existing_run(
         else (repo_root / "llm_pipelines").resolve(strict=False)
     )
     rows: list[dict[str, Any]] = []
-    counts = {
-        "recipe_prompt_count": 0,
-        "knowledge_prompt_count": 0,
-        "line_role_prompt_count": 0,
-    }
+    stage_plans: dict[str, dict[str, Any]] = {}
+    counts: dict[str, int] = {}
 
     if str(llm_recipe_pipeline or "").strip().lower() != "off":
-        rows.extend(
-            _build_recipe_preview_rows(
-                context=context,
-                out_dir=out_dir,
+        recipe_rows = _build_recipe_preview_rows(
+            context=context,
+            out_dir=out_dir,
+            pipeline_root=pipeline_root,
+            surface_pipeline=llm_recipe_pipeline,
+            model_override=codex_farm_model,
+            reasoning_effort_override=codex_farm_reasoning_effort,
+        )
+        stage_plans["recipe_llm_correct_and_link"] = _build_recipe_phase_plan(
+            context=context,
+            rows=recipe_rows,
+            pipeline_assets=_load_pipeline_assets(
                 pipeline_root=pipeline_root,
-                surface_pipeline=llm_recipe_pipeline,
-                model_override=codex_farm_model,
-                reasoning_effort_override=codex_farm_reasoning_effort,
-            )
+                pipeline_id=_DEFAULT_RECIPE_PIPELINE_ID,
+            ),
+            surface_pipeline=llm_recipe_pipeline,
+            worker_count=recipe_worker_count
+            if recipe_worker_count is not None
+            else _coerce_int(context.run_config.get("recipe_worker_count")),
+            shard_target_recipes=recipe_shard_target_recipes
+            if recipe_shard_target_recipes is not None
+            else _coerce_int(context.run_config.get("recipe_shard_target_recipes")),
         )
-        counts["recipe_prompt_count"] = sum(
-            1 for row in rows if str(row.get("stage_key")) == "recipe_llm_correct_and_link"
+        _annotate_rows_from_phase_plan(
+            rows=recipe_rows,
+            phase_plan=stage_plans["recipe_llm_correct_and_link"],
         )
+        rows.extend(recipe_rows)
+        counts["recipe_interaction_count"] = len(recipe_rows)
 
     if str(llm_knowledge_pipeline or "").strip().lower() != "off":
         knowledge_rows = _build_knowledge_preview_rows(
@@ -111,9 +143,27 @@ def write_prompt_preview_for_existing_run(
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
             context_blocks=codex_farm_knowledge_context_blocks,
+            target_chunks_per_shard=knowledge_shard_target_chunks
+            if knowledge_shard_target_chunks is not None
+            else _coerce_int(context.run_config.get("knowledge_shard_target_chunks")),
+        )
+        stage_plans["extract_knowledge_optional"] = _build_direct_shard_phase_plan(
+            stage_key="extract_knowledge_optional",
+            stage_label="Knowledge Harvest",
+            stage_order=4,
+            surface_pipeline=llm_knowledge_pipeline,
+            runtime_pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
+            rows=knowledge_rows,
+            worker_count=knowledge_worker_count
+            if knowledge_worker_count is not None
+            else _coerce_int(context.run_config.get("knowledge_worker_count")),
+        )
+        _annotate_rows_from_phase_plan(
+            rows=knowledge_rows,
+            phase_plan=stage_plans["extract_knowledge_optional"],
         )
         rows.extend(knowledge_rows)
-        counts["knowledge_prompt_count"] = len(knowledge_rows)
+        counts["knowledge_interaction_count"] = len(knowledge_rows)
 
     if str(line_role_pipeline or "").strip().lower() != "off":
         line_role_rows = _build_line_role_preview_rows(
@@ -124,9 +174,25 @@ def write_prompt_preview_for_existing_run(
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
             atomic_block_splitter=atomic_block_splitter,
+            shard_target_lines=line_role_shard_target_lines,
+        )
+        stage_plans["line_role"] = _build_direct_shard_phase_plan(
+            stage_key="line_role",
+            stage_label="Line Role Labeling",
+            stage_order=2,
+            surface_pipeline=line_role_pipeline,
+            runtime_pipeline_id=_DEFAULT_LINE_ROLE_PIPELINE_ID,
+            rows=line_role_rows,
+            worker_count=line_role_worker_count
+            if line_role_worker_count is not None
+            else _coerce_int(context.run_config.get("line_role_worker_count")),
+        )
+        _annotate_rows_from_phase_plan(
+            rows=line_role_rows,
+            phase_plan=stage_plans["line_role"],
         )
         rows.extend(line_role_rows)
-        counts["line_role_prompt_count"] = len(line_role_rows)
+        counts["line_role_interaction_count"] = len(line_role_rows)
 
     full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
     full_prompt_log_path.write_text(
@@ -143,6 +209,7 @@ def write_prompt_preview_for_existing_run(
     budget_summary = build_prompt_preview_budget_summary(
         prompt_rows=rows,
         preview_dir=out_dir,
+        phase_plans=stage_plans,
     )
     budget_json_path, budget_md_path = write_prompt_preview_budget_summary(
         out_dir,
@@ -150,7 +217,7 @@ def write_prompt_preview_for_existing_run(
     )
 
     manifest = {
-        "schema_version": "codex_prompt_preview.v1",
+        "schema_version": "codex_prompt_preview.v2",
         "resolved_processed_run_dir": str(context.processed_run_dir),
         "source_file": context.source_file,
         "source_hash": context.source_hash,
@@ -166,7 +233,16 @@ def write_prompt_preview_for_existing_run(
         "codex_farm_context_blocks": int(codex_farm_context_blocks),
         "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
         "atomic_block_splitter": atomic_block_splitter,
+        "preview_settings": {
+            "recipe_worker_count": recipe_worker_count,
+            "recipe_shard_target_recipes": recipe_shard_target_recipes,
+            "knowledge_worker_count": knowledge_worker_count,
+            "knowledge_shard_target_chunks": knowledge_shard_target_chunks,
+            "line_role_worker_count": line_role_worker_count,
+            "line_role_shard_target_lines": line_role_shard_target_lines,
+        },
         "counts": counts,
+        "phase_plans": stage_plans,
         "warnings": budget_summary.get("warnings") or [],
         "artifacts": {
             "full_prompt_log_jsonl": "prompts/full_prompt_log.jsonl",
@@ -409,6 +485,7 @@ def _build_knowledge_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     context_blocks: int,
+    target_chunks_per_shard: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
@@ -474,6 +551,7 @@ def _build_knowledge_preview_rows(
         source_hash=context.source_hash,
         out_dir=in_dir,
         context_blocks=context_blocks,
+        target_chunks_per_shard=target_chunks_per_shard,
     )
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):
@@ -530,6 +608,7 @@ def _build_line_role_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     atomic_block_splitter: str,
+    shard_target_lines: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
@@ -552,8 +631,13 @@ def _build_line_role_preview_rows(
     escalation_reasons_by_atomic_index = _line_role_preview_escalation_reasons(
         labeled_line_rows=context.labeled_line_rows,
     )
+    effective_target_lines = (
+        max(1, int(shard_target_lines))
+        if shard_target_lines is not None
+        else LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
+    )
     for prompt_index, batch_candidates in enumerate(
-        _batch(candidates, size=LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT),
+        _batch(candidates, size=effective_target_lines),
         start=1,
     ):
         if not batch_candidates:
@@ -565,13 +649,39 @@ def _build_line_role_preview_rows(
         )
         input_path = in_dir / f"line_role_prompt_{prompt_index or len(rows) + 1:04d}.json"
         input_path.write_text(prompt_text, encoding="utf-8")
+        shard_payload = {
+            "shard_id": (
+                f"line-role-shard-{prompt_index:04d}-"
+                f"a{int(batch_candidates[0].atomic_index):06d}-"
+                f"a{int(batch_candidates[-1].atomic_index):06d}"
+            ),
+            "phase_key": "line_role",
+            "rows": [
+                {
+                    "atomic_index": int(candidate.atomic_index),
+                    "block_id": str(candidate.block_id),
+                    "block_index": int(candidate.block_index),
+                    "recipe_id": candidate.recipe_id,
+                    "within_recipe_span": bool(candidate.within_recipe_span),
+                    "text": str(candidate.text),
+                    "deterministic_label": deterministic_labels_by_atomic_index.get(
+                        int(candidate.atomic_index),
+                        "OTHER",
+                    ),
+                    "escalation_reasons": list(
+                        escalation_reasons_by_atomic_index.get(int(candidate.atomic_index), [])
+                    ),
+                }
+                for candidate in batch_candidates
+            ],
+        }
         rows.append(
             _prompt_row(
                 call_id=input_path.stem,
                 recipe_id=str(batch_candidates[0].recipe_id or input_path.stem),
                 source_file=context.source_file,
                 pipeline_assets=pipeline_assets,
-                input_payload={},
+                input_payload=shard_payload,
                 input_text=prompt_text,
                 input_path=input_path,
                 stage_key="line_role",
@@ -828,6 +938,7 @@ def _prompt_row(
         "request_input_text": serialized_input,
         "request_input_file": str(input_path),
         "task_prompt_text": task_prompt_text,
+        "runtime_phase_key": stage_key,
         "response_format": response_format,
         "decoding_params": {
             "temperature": None,
@@ -838,7 +949,280 @@ def _prompt_row(
         },
         "raw_response": {"output_text": None, "output_file": None},
         "parsed_response": None,
+        "request_telemetry": None,
         "thinking_trace": None,
+    }
+
+
+def _build_recipe_phase_plan(
+    *,
+    context: ExistingRunPreviewContext,
+    rows: Sequence[dict[str, Any]],
+    pipeline_assets: Mapping[str, Any],
+    surface_pipeline: str,
+    worker_count: int | None,
+    shard_target_recipes: int | None,
+) -> dict[str, Any]:
+    effective_target = max(
+        1,
+        int(shard_target_recipes or _DEFAULT_RECIPE_SHARD_TARGET_RECIPES),
+    )
+    shard_specs: list[dict[str, Any]] = []
+    for index, recipe_rows in enumerate(_batch(list(rows), size=effective_target), start=1):
+        if not recipe_rows:
+            continue
+        first_call_id = str(recipe_rows[0].get("call_id") or f"recipe-shard-{index:04d}")
+        shard_id = f"recipe-preview-shard-{index:04d}-{first_call_id}"
+        recipe_inputs: list[RecipeCorrectionShardRecipeInput] = []
+        owned_recipe_ids: list[str] = []
+        for row in recipe_rows:
+            payload = _coerce_dict(row.get("request_input_payload"))
+            recipe_id = str(row.get("recipe_id") or payload.get("recipe_id") or row.get("call_id") or "").strip()
+            owned_recipe_ids.append(recipe_id)
+            recipe_inputs.append(
+                RecipeCorrectionShardRecipeInput(
+                    recipe_id=recipe_id,
+                    canonical_text=str(payload.get("canonical_text") or ""),
+                    evidence_rows=[
+                        tuple(item)
+                        for item in payload.get("evidence_rows") or []
+                        if isinstance(item, (list, tuple)) and len(item) == 2
+                    ],
+                    recipe_candidate_hint=_coerce_dict(payload.get("recipe_candidate_hint")),
+                    warnings=[],
+                )
+            )
+        base_payload = _coerce_dict(recipe_rows[0].get("request_input_payload"))
+        shard_payload = serialize_recipe_correction_shard_input(
+            RecipeCorrectionShardInput(
+                shard_id=shard_id,
+                workbook_slug=context.workbook_slug,
+                source_hash=context.source_hash,
+                owned_recipe_ids=owned_recipe_ids,
+                recipes=recipe_inputs,
+                tagging_guide=_coerce_dict(base_payload.get("tagging_guide")),
+                authority_notes=[
+                    str(note).strip()
+                    for note in base_payload.get("authority_notes") or []
+                    if str(note).strip()
+                ],
+            )
+        )
+        rendered_prompt = _render_prompt_text(
+            template_text=str(pipeline_assets.get("prompt_template_text") or ""),
+            input_text=json.dumps(shard_payload, ensure_ascii=False, indent=2),
+            input_path=Path(f"<preview>/{shard_id}.json"),
+        )
+        shard_specs.append(
+            {
+                "shard_id": shard_id,
+                "owned_ids": owned_recipe_ids,
+                "call_ids": [str(row.get("call_id") or "") for row in recipe_rows],
+                "prompt_chars": len(rendered_prompt),
+                "task_prompt_chars": len(json.dumps(shard_payload, ensure_ascii=False, indent=2)),
+            }
+        )
+    return _finalize_phase_plan(
+        stage_key="recipe_llm_correct_and_link",
+        stage_label="Recipe Correction",
+        stage_order=1,
+        surface_pipeline=surface_pipeline,
+        runtime_pipeline_id=_DEFAULT_RECIPE_PIPELINE_ID,
+        worker_count=worker_count,
+        shard_specs=shard_specs,
+    )
+
+
+def _build_direct_shard_phase_plan(
+    *,
+    stage_key: str,
+    stage_label: str,
+    stage_order: int,
+    surface_pipeline: str,
+    runtime_pipeline_id: str,
+    rows: Sequence[dict[str, Any]],
+    worker_count: int | None,
+) -> dict[str, Any]:
+    shard_specs: list[dict[str, Any]] = []
+    for row in rows:
+        payload = _coerce_dict(row.get("request_input_payload"))
+        owned_ids = _preview_owned_ids_for_row(stage_key=stage_key, row=row)
+        shard_specs.append(
+            {
+                "shard_id": str(
+                    payload.get("shard_id")
+                    or payload.get("bundle_id")
+                    or row.get("call_id")
+                    or ""
+                ).strip()
+                or str(row.get("call_id") or ""),
+                "owned_ids": owned_ids,
+                "call_ids": [str(row.get("call_id") or "")],
+                "prompt_chars": len(str(row.get("rendered_prompt_text") or "")),
+                "task_prompt_chars": len(
+                    str(row.get("task_prompt_text") or row.get("request_input_text") or "")
+                ),
+            }
+        )
+    return _finalize_phase_plan(
+        stage_key=stage_key,
+        stage_label=stage_label,
+        stage_order=stage_order,
+        surface_pipeline=surface_pipeline,
+        runtime_pipeline_id=runtime_pipeline_id,
+        worker_count=worker_count,
+        shard_specs=shard_specs,
+    )
+
+
+def _finalize_phase_plan(
+    *,
+    stage_key: str,
+    stage_label: str,
+    stage_order: int,
+    surface_pipeline: str,
+    runtime_pipeline_id: str,
+    worker_count: int | None,
+    shard_specs: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    requested_workers = max(1, int(worker_count or 1))
+    normalized_shards: list[PreviewShardAssignment] = []
+    worker_ids = _assign_preview_workers(
+        requested_worker_count=requested_workers,
+        shard_count=len(shard_specs),
+    )
+    for index, shard in enumerate(shard_specs):
+        normalized_shards.append(
+            PreviewShardAssignment(
+                shard_id=str(shard.get("shard_id") or f"{stage_key}-shard-{index + 1:04d}"),
+                worker_id=worker_ids[index],
+                owned_ids=tuple(str(item) for item in shard.get("owned_ids") or [] if str(item)),
+                call_ids=tuple(str(item) for item in shard.get("call_ids") or [] if str(item)),
+                prompt_chars=max(0, int(shard.get("prompt_chars") or 0)),
+                task_prompt_chars=max(0, int(shard.get("task_prompt_chars") or 0)),
+            )
+        )
+    worker_count_effective = len({shard.worker_id for shard in normalized_shards}) or 0
+    return {
+        "schema_version": "prompt_preview_phase_plan.v1",
+        "stage_key": stage_key,
+        "stage_label": stage_label,
+        "stage_order": stage_order,
+        "surface_pipeline": surface_pipeline,
+        "runtime_pipeline_id": runtime_pipeline_id,
+        "worker_count_requested": requested_workers,
+        "worker_count": worker_count_effective,
+        "fresh_agent_count": worker_count_effective,
+        "interaction_count": sum(len(shard.call_ids) for shard in normalized_shards),
+        "shard_count": len(normalized_shards),
+        "owned_id_count": sum(len(shard.owned_ids) for shard in normalized_shards),
+        "shards_per_worker": _int_distribution(
+            [
+                sum(1 for shard in normalized_shards if shard.worker_id == worker_id)
+                for worker_id in sorted({shard.worker_id for shard in normalized_shards})
+            ]
+        ),
+        "owned_ids_per_shard": _int_distribution(
+            [len(shard.owned_ids) for shard in normalized_shards]
+        ),
+        "first_turn_payload_chars": _int_distribution(
+            [shard.prompt_chars for shard in normalized_shards]
+        ),
+        "task_payload_chars": _int_distribution(
+            [shard.task_prompt_chars for shard in normalized_shards]
+        ),
+        "workers": [
+            {
+                "worker_id": worker_id,
+                "shard_count": sum(1 for shard in normalized_shards if shard.worker_id == worker_id),
+                "shard_ids": [
+                    shard.shard_id
+                    for shard in normalized_shards
+                    if shard.worker_id == worker_id
+                ],
+            }
+            for worker_id in sorted({shard.worker_id for shard in normalized_shards})
+        ],
+        "shards": [
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": shard.worker_id,
+                "owned_ids": list(shard.owned_ids),
+                "call_ids": list(shard.call_ids),
+                "prompt_chars": shard.prompt_chars,
+                "task_prompt_chars": shard.task_prompt_chars,
+            }
+            for shard in normalized_shards
+        ],
+    }
+
+
+def _assign_preview_workers(*, requested_worker_count: int, shard_count: int) -> list[str]:
+    effective_workers = max(1, min(requested_worker_count, max(shard_count, 1)))
+    return [f"worker-{(index % effective_workers) + 1:03d}" for index in range(shard_count)]
+
+
+def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> list[str]:
+    payload = _coerce_dict(row.get("request_input_payload"))
+    if stage_key == "extract_knowledge_optional":
+        chunks = payload.get("chunks")
+        if isinstance(chunks, list):
+            return [
+                str(_coerce_dict(chunk).get("chunk_id") or "").strip()
+                for chunk in chunks
+                if str(_coerce_dict(chunk).get("chunk_id") or "").strip()
+            ]
+    if stage_key == "line_role":
+        rows = payload.get("rows")
+        if isinstance(rows, list):
+            owned_ids: list[str] = []
+            for entry in rows:
+                atomic_index = _coerce_dict(entry).get("atomic_index")
+                if atomic_index is None:
+                    continue
+                rendered = str(atomic_index).strip()
+                if rendered:
+                    owned_ids.append(rendered)
+            return owned_ids
+    recipe_id = str(row.get("recipe_id") or "").strip()
+    return [recipe_id] if recipe_id else []
+
+
+def _annotate_rows_from_phase_plan(
+    *,
+    rows: Sequence[dict[str, Any]],
+    phase_plan: Mapping[str, Any],
+) -> None:
+    shard_lookup: dict[str, dict[str, Any]] = {}
+    for shard in phase_plan.get("shards") or []:
+        if not isinstance(shard, dict):
+            continue
+        for call_id in shard.get("call_ids") or []:
+            shard_lookup[str(call_id)] = shard
+    for row in rows:
+        shard = shard_lookup.get(str(row.get("call_id") or ""))
+        if shard is None:
+            continue
+        row["runtime_shard_id"] = shard.get("shard_id")
+        row["runtime_worker_id"] = shard.get("worker_id")
+        row["runtime_owned_ids"] = list(shard.get("owned_ids") or [])
+        row["request_telemetry"] = {
+            "source": "prompt_preview_phase_plan",
+            "worker_id": shard.get("worker_id"),
+            "shard_id": shard.get("shard_id"),
+            "owned_ids": list(shard.get("owned_ids") or []),
+        }
+
+
+def _int_distribution(values: Sequence[int]) -> dict[str, int | float]:
+    normalized = [int(value) for value in values if int(value) >= 0]
+    if not normalized:
+        return {"count": 0, "min": 0, "max": 0, "avg": 0.0}
+    return {
+        "count": len(normalized),
+        "min": min(normalized),
+        "max": max(normalized),
+        "avg": round(sum(normalized) / len(normalized), 3),
     }
 
 

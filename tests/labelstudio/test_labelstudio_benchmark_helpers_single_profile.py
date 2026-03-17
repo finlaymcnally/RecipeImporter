@@ -345,8 +345,8 @@ def test_print_codex_decision_is_suppressed_inside_benchmark_summary_override(
     policy = cli.resolve_codex_execution_policy(
         "labelstudio_benchmark",
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "line_role_pipeline": "codex-line-role-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
         },
         allow_codex=True,
     )
@@ -396,7 +396,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "multi_recipe_splitter": "rules_v1",
             "pdf_ocr_policy": "auto",
             "epub_unstructured_html_parser_version": "v2",
@@ -430,11 +430,11 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     assert len(benchmark_calls) == 2
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-farm-single-correction-v1",
+        "codex-recipe-shard-v1",
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
         "deterministic-v1",
-        "codex-line-role-v1",
+        "codex-line-role-shard-v1",
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
         "atomic-v1",
@@ -834,7 +834,7 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_11.22.22"
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
         warn_context="test single-profile selected codex",
     )
 
@@ -864,7 +864,7 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
     assert [call["source_file"] for call in benchmark_calls] == [source_b, source_b]
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-farm-single-correction-v1",
+        "codex-recipe-shard-v1",
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "vanilla",
@@ -916,7 +916,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
     )
 
     def _fake_labelstudio_benchmark(**kwargs):
-        if kwargs.get("llm_recipe_pipeline") == "codex-farm-single-correction-v1":
+        if kwargs.get("llm_recipe_pipeline") == "codex-recipe-shard-v1":
             raise RuntimeError(failure_text)
         return None
 
@@ -933,7 +933,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
     benchmark_eval_output = tmp_path / "golden" / "2026-03-06_15.05.00"
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
         warn_context="test single-profile codex failure formatting",
     )
 

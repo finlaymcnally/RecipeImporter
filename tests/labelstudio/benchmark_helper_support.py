@@ -290,7 +290,7 @@ def _write_labelstudio_compare_source_row(
     )
 
     if (
-        llm_recipe_pipeline == "codex-farm-single-correction-v1"
+        llm_recipe_pipeline == "codex-recipe-shard-v1"
         and codex_farm_recipe_mode == "benchmark"
         and write_required_llm_debug
     ):
@@ -301,7 +301,7 @@ def _write_labelstudio_compare_source_row(
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "r0000.json").write_text("{}", encoding="utf-8")
         llm_manifest = {
-            "pipeline": "codex-farm-single-correction-v1",
+            "pipeline": "codex-recipe-shard-v1",
             "pipelines": {
                 "recipe_correction": "recipe.correction.compact.v1",
             },

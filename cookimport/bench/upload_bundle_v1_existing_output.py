@@ -3,12 +3,15 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
 from cookimport.config.run_settings import (
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+    normalize_line_role_pipeline_value,
+    normalize_llm_knowledge_pipeline_value,
     normalize_llm_recipe_pipeline_value,
 )
 from cookimport.runs.stage_observability import (
@@ -50,6 +53,20 @@ def normalize_recipe_pipeline_id(value: Any) -> str:
         return str(value or "").strip()
 
 
+def normalize_line_role_pipeline_id(value: Any) -> str:
+    try:
+        return normalize_line_role_pipeline_value(value)
+    except Exception:  # noqa: BLE001
+        return str(value or "").strip()
+
+
+def normalize_knowledge_pipeline_id(value: Any) -> str:
+    try:
+        return normalize_llm_knowledge_pipeline_value(value)
+    except Exception:  # noqa: BLE001
+        return str(value or "").strip()
+
+
 def _semantic_recipe_stages() -> list[dict[str, str]]:
     return [
         {
@@ -74,6 +91,125 @@ def _semantic_recipe_stage_call_counts(
         "recipe_llm_correct_and_link": correction_count,
         "build_final_recipe": final_build_count,
     }
+
+
+def _load_json_object(path: Path) -> dict[str, Any] | None:
+    payload = _load_json_value(path)
+    return payload if isinstance(payload, dict) else None
+
+
+def _load_json_value(path: Path) -> Any | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    return payload
+
+
+def _load_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            payload = json.loads(text)
+            if isinstance(payload, dict):
+                rows.append(payload)
+    except Exception:  # noqa: BLE001
+        return []
+    return rows
+
+
+def _resolve_stage_run_dir(run_dir: Path) -> Path:
+    candidate = run_dir.resolve(strict=False)
+    if (candidate / "raw" / "llm").is_dir() or (candidate / "line-role-pipeline").is_dir():
+        return candidate
+    manifest_payload = _load_json_object(candidate / "run_manifest.json") or {}
+    artifacts = manifest_payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return candidate
+    for key in ("stage_run_dir", "processed_output_run_dir"):
+        raw = str(artifacts.get(key) or "").strip()
+        if not raw:
+            continue
+        resolved = Path(raw).expanduser().resolve(strict=False)
+        if (resolved / "raw" / "llm").is_dir() or (resolved / "line-role-pipeline").is_dir():
+            return resolved
+    return candidate
+
+
+def _distribution(values: list[int]) -> dict[str, int | float]:
+    if not values:
+        return {"count": 0, "min": 0, "max": 0, "avg": 0.0}
+    return {
+        "count": len(values),
+        "min": min(values),
+        "max": max(values),
+        "avg": round(sum(values) / len(values), 3),
+    }
+
+
+def _load_runtime_stage_summary(stage_root: Path, *, stage_key: str) -> dict[str, Any] | None:
+    phase_manifest = _load_json_object(stage_root / "phase_manifest.json") or {}
+    if not phase_manifest:
+        return None
+    telemetry = _load_json_object(stage_root / "telemetry.json") or {}
+    assignments_payload = _load_json_value(stage_root / "worker_assignments.json")
+    assignments = assignments_payload if isinstance(assignments_payload, list) else []
+    shard_rows = _load_jsonl_rows(stage_root / "shard_manifest.jsonl")
+    return {
+        "stage_key": stage_key,
+        "pipeline_id": str(
+            phase_manifest.get("pipeline_id") or telemetry.get("pipeline_id") or ""
+        ),
+        "worker_count": int(
+            phase_manifest.get("worker_count") or telemetry.get("worker_count") or 0
+        ),
+        "fresh_agent_count": int(telemetry.get("fresh_agent_count") or 0),
+        "shard_count": int(
+            phase_manifest.get("shard_count") or telemetry.get("shard_count") or len(shard_rows)
+        ),
+        "owned_id_count": sum(len(row.get("owned_ids") or []) for row in shard_rows),
+        "shards_per_worker": _distribution(
+            [len(assignment.get("shard_ids") or []) for assignment in assignments if isinstance(assignment, dict)]
+        ),
+        "owned_ids_per_shard": _distribution(
+            [len(row.get("owned_ids") or []) for row in shard_rows]
+        ),
+    }
+
+
+def _summarize_runtime_stages_for_run(run_dir: Path) -> dict[str, Any]:
+    stage_run_dir = _resolve_stage_run_dir(run_dir)
+    runtime_rows: dict[str, Any] = {}
+    for recipe_root in sorted((stage_run_dir / "raw" / "llm").glob("*/recipe_phase_runtime")):
+        summary = _load_runtime_stage_summary(
+            recipe_root,
+            stage_key="recipe_llm_correct_and_link",
+        )
+        if summary is not None:
+            runtime_rows["recipe_llm_correct_and_link"] = summary
+            break
+    for knowledge_root in sorted((stage_run_dir / "raw" / "llm").glob("*/knowledge")):
+        summary = _load_runtime_stage_summary(
+            knowledge_root,
+            stage_key="extract_knowledge_optional",
+        )
+        if summary is not None:
+            runtime_rows["extract_knowledge_optional"] = summary
+            break
+    line_role_summary = _load_runtime_stage_summary(
+        stage_run_dir / "line-role-pipeline" / "runtime",
+        stage_key="line_role",
+    )
+    if line_role_summary is not None:
+        runtime_rows["line_role"] = line_role_summary
+    return runtime_rows
 
 
 def build_recipe_pipeline_topology_context(
@@ -122,7 +258,7 @@ def build_recipe_pipeline_topology_context(
         else {}
     )
     return {
-        "schema_version": "upload_bundle_recipe_pipeline_context.v3",
+        "schema_version": "upload_bundle_recipe_pipeline_context.v4",
         "codex_recipe_pipelines": normalized_pipelines,
         "recipe_topology_key": (
             "single_correction" if recipe_stages else ""
@@ -344,6 +480,16 @@ def build_upload_bundle_source_model_from_existing_root(
         run_row["source_file"] = source_file
         run_row["source_hash"] = source_hash or None
         run_row["source_key"] = source_key
+        run_row["llm_recipe_pipeline"] = normalize_recipe_pipeline_id(
+            run_row.get("llm_recipe_pipeline")
+        )
+        run_row["line_role_pipeline"] = normalize_line_role_pipeline_id(
+            run_row.get("line_role_pipeline")
+        )
+        if "llm_knowledge_pipeline" in run_row:
+            run_row["llm_knowledge_pipeline"] = normalize_knowledge_pipeline_id(
+                run_row.get("llm_knowledge_pipeline")
+            )
         effective_run_rows.append(run_row)
 
     effective_pairs = comparison_pairs_from_root if comparison_pairs_from_root else derived_pairs
@@ -381,6 +527,17 @@ def build_upload_bundle_source_model_from_existing_root(
         comparison_pairs=effective_pairs,
         recipe_triage_rows=effective_recipe_triage,
     )
+    topology["runtime_runs"] = [
+        {
+            "run_id": str(row.get("run_id") or ""),
+            "output_subdir": str(row.get("output_subdir") or ""),
+            "source_key": str(row.get("source_key") or ""),
+            "runtime_stages": _summarize_runtime_stages_for_run(run_dir),
+        }
+        for row in effective_run_rows
+        for run_dir in [run_dir_by_id.get(str(row.get("run_id") or "").strip())]
+        if isinstance(run_dir, Path)
+    ]
     diagnostic_families = {
         "line_role": "line_role",
         "recipe_correction": "correction_*",

@@ -93,28 +93,28 @@ def test_run_settings_rejects_unknown_keys() -> None:
         RunSettings.from_dict({"workers": 3, "unknown_new_field": "x"})
 
 
-def test_run_settings_normalizes_legacy_recipe_codex_farm_pipeline() -> None:
-    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
-
-    assert settings.llm_recipe_pipeline.value == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
-
-
-def test_run_settings_normalizes_legacy_merged_recipe_codex_farm_pipeline() -> None:
-    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
-
-    assert settings.llm_recipe_pipeline.value == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
+def test_run_settings_rejects_removed_recipe_codex_farm_pipeline_ids() -> None:
+    with pytest.raises(ValueError, match="Expected one of"):
+        RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
+    with pytest.raises(ValueError, match="Expected one of"):
+        RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
 
 
-def test_run_settings_normalizes_legacy_line_role_and_knowledge_pipeline_ids() -> None:
+def test_run_settings_accepts_only_current_line_role_and_knowledge_pipeline_ids() -> None:
     settings = RunSettings.from_dict(
         {
-            "line_role_pipeline": "codex-line-role-v1",
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
         }
     )
 
     assert settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1
     assert settings.llm_knowledge_pipeline.value == KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
+
+    with pytest.raises(ValueError, match="Invalid line_role_pipeline"):
+        RunSettings.from_dict({"line_role_pipeline": "codex-line-role-v1"})
+    with pytest.raises(ValueError, match="Invalid llm_knowledge_pipeline"):
+        RunSettings.from_dict({"llm_knowledge_pipeline": "codex-farm-knowledge-v1"})
 
 
 def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> None:
@@ -294,7 +294,7 @@ def test_operator_and_benchmark_lab_projections_split_public_surface() -> None:
     payload = {
         "workers": 3,
         "epub_extractor": "beautifulsoup",
-        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+        "llm_recipe_pipeline": "codex-recipe-shard-v1",
         "atomic_block_splitter": "atomic-v1",
         "line_role_pipeline": "deterministic-v1",
         "codex_farm_model": "gpt-5.3-codex-spark",

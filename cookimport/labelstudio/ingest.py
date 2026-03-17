@@ -23,12 +23,14 @@ from cookimport.epub_extractor_names import (
     normalize_epub_extractor_name,
 )
 from cookimport.config.run_settings import (
+    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
     RUN_SETTING_CONTRACT_FULL,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
+    normalize_llm_knowledge_pipeline_value,
     project_run_config_payload,
     summarize_run_config_payload,
 )
@@ -1894,11 +1896,13 @@ def generate_pred_run_artifacts(
         default=False,
     )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
-    selected_llm_knowledge_pipeline = str(llm_knowledge_pipeline or "").strip().lower()
-    if selected_llm_knowledge_pipeline not in {"off", "codex-farm-knowledge-v1"}:
+    selected_llm_knowledge_pipeline = normalize_llm_knowledge_pipeline_value(
+        llm_knowledge_pipeline
+    )
+    if selected_llm_knowledge_pipeline not in {"off", KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}:
         raise ValueError(
             "Invalid llm_knowledge_pipeline. Expected one of: off, "
-            "codex-farm-knowledge-v1."
+            f"{KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}."
         )
     fixed_bucket1_behavior = bucket1_fixed_behavior()
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(

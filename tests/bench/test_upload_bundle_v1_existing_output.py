@@ -133,7 +133,7 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
                 metric_practical_f1=0.60,
                 full_prompt_log_status="complete",
                 full_prompt_log_rows=3,
-                line_role_pipeline="codex-line-role-v1",
+                line_role_pipeline="codex-line-role-shard-v1",
                 llm_recipe_pipeline=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
             )
         return SimpleNamespace(
@@ -218,6 +218,20 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
             "stage_label": "Build Final Recipe",
         },
     ]
+    assert model.topology["runtime_runs"] == [
+        {
+            "output_subdir": "codexfarm",
+            "run_id": "codexfarm",
+            "runtime_stages": {},
+            "source_key": "book-hash",
+        },
+        {
+            "output_subdir": "vanilla",
+            "run_id": "vanilla",
+            "runtime_stages": {},
+            "source_key": "book-hash",
+        },
+    ]
 
 
 def test_stage_renderer_accepts_synthetic_alternate_topology_model() -> None:
@@ -259,6 +273,7 @@ def test_stage_renderer_accepts_synthetic_alternate_topology_model() -> None:
 
     assert recipe_pipeline_context["recipe_topology_key"] == "alternate_topology"
     assert recipe_pipeline_context["recipe_stages"][0]["stage_key"] == "extract_family"
+    assert recipe_pipeline_context["runtime_runs"] == []
     assert rendered["pair_count"] == 0
     assert rendered["recipe_topology_key"] == "alternate_topology"
     assert rendered["recipe_stages"][1]["stage_label"] == "Observed Repair Family"

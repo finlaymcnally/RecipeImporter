@@ -80,8 +80,8 @@ Current behavior notes:
 - `stage-blocks` forces `line_role_pipeline=off` and `atomic_block_splitter=off`
 - canonical-text runs can enable:
   - `atomic_block_splitter=atomic-v1`
-  - `line_role_pipeline=deterministic-v1|codex-line-role-v1`
-  - `llm_knowledge_pipeline=codex-farm-knowledge-v1`
+  - `line_role_pipeline=deterministic-v1|codex-line-role-shard-v1`
+  - `llm_knowledge_pipeline=codex-knowledge-shard-v1`
 - non-interactive live Codex-backed benchmark runs require:
   - `--allow-codex`
   - `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
@@ -252,6 +252,7 @@ Current generation seams:
 - `cookimport/bench/upload_bundle_v1_model.py`: normalized source/topology model
 - `cookimport/bench/upload_bundle_v1_existing_output.py`: adapts existing benchmark roots into that model
 - `cookimport/bench/upload_bundle_v1_render.py`: renders topology-tolerant bundle output
+- bundle recipe-pipeline context now also carries `runtime_runs[*].runtime_stages` so reviewer packets can show shard-worker counts without inventing a second upload format
 
 Current bundle rules:
 

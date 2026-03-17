@@ -219,11 +219,25 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"] == {
-        "knowledge_prompt_count": 0,
-        "line_role_prompt_count": 1,
-        "recipe_prompt_count": 1,
+        "knowledge_interaction_count": 0,
+        "line_role_interaction_count": 1,
+        "recipe_interaction_count": 1,
     }
     assert manifest["warnings"] == []
+    assert manifest["surfaces"] == {
+        "llm_recipe_pipeline": "codex-recipe-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "line_role_pipeline": "codex-line-role-shard-v1",
+    }
+    phase_plans = manifest["phase_plans"]
+    assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
+    assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
+    assert phase_plans["recipe_llm_correct_and_link"]["shards"][0]["owned_ids"] == [
+        "urn:recipe:test:r0"
+    ]
+    assert phase_plans["line_role"]["worker_count"] == 1
+    assert phase_plans["line_role"]["shard_count"] == 1
+    assert phase_plans["line_role"]["shards"][0]["owned_ids"] == ["0", "1", "2", "3"]
     artifacts = manifest["artifacts"]
     assert artifacts["prompt_preview_budget_summary_json"] == "prompt_preview_budget_summary.json"
     assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"
@@ -242,6 +256,9 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
     assert "BEGIN_INPUT_JSON" in recipe_row["rendered_prompt_text"]
     assert "urn:recipe:test:r0" in recipe_row["rendered_prompt_text"]
+    assert recipe_row["runtime_shard_id"] == "recipe-preview-shard-0001-r0"
+    assert recipe_row["runtime_worker_id"] == "worker-001"
+    assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
     recipe_input_payload = json.loads(
         (
             out_dir
@@ -268,8 +285,16 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert "deterministic_unresolved" in embedded_line_role_prompt
     assert "fallback_decision" in embedded_line_role_prompt
     assert "Advertisement copy." in embedded_line_role_prompt
-    assert line_role_row["request_input_payload"] == {}
+    assert line_role_row["request_input_payload"]["shard_id"].startswith("line-role-shard-0001")
+    assert [row["atomic_index"] for row in line_role_row["request_input_payload"]["rows"]] == [
+        0,
+        1,
+        2,
+        3,
+    ]
     assert line_role_row["request_input_text"] == embedded_line_role_prompt
+    assert line_role_row["runtime_worker_id"] == "worker-001"
+    assert line_role_row["runtime_owned_ids"] == ["0", "1", "2", "3"]
     assert (
         out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json"
     ).read_text(encoding="utf-8") == embedded_line_role_prompt
@@ -284,12 +309,15 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
     assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
     line_role_budget = budget_summary["by_stage"]["line_role"]
+    assert line_role_budget["worker_count"] == 1
+    assert line_role_budget["shard_count"] == 1
+    assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
     assert line_role_budget["task_prompt_chars_total"] < line_role_budget["prompt_chars_total"]
     assert line_role_budget["transport_overhead_chars_total"] > 0
     assert budget_summary["warnings"] == []
     budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
-    assert "Task prompt chars" in budget_summary_md
-    assert "Overhead Chars" in budget_summary_md
+    assert "Workers" in budget_summary_md
+    assert "Prompt Detail" in budget_summary_md
     assert (out_dir / "prompt_preview_budget_summary.md").is_file()
 
 
@@ -510,3 +538,54 @@ def test_cf_debug_preview_prompts_emits_budget_warning_to_stderr(tmp_path: Path)
     assert result.exit_code == 0
     assert result.stdout.strip() == str(out_dir / "prompt_preview_manifest.json")
     assert "EXTREME prompt budget:" in result.stderr
+
+
+def test_cf_debug_preview_shard_sweep_writes_experiment_summaries(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    experiment_file = tmp_path / "shard_sweep.json"
+    _write_json(
+        experiment_file,
+        {
+            "experiments": [
+                {
+                    "name": "narrow",
+                    "recipe_worker_count": 1,
+                    "recipe_shard_target_recipes": 1,
+                    "line_role_worker_count": 1,
+                    "line_role_shard_target_lines": 2,
+                },
+                {
+                    "name": "wider",
+                    "recipe_worker_count": 2,
+                    "recipe_shard_target_recipes": 1,
+                    "line_role_worker_count": 2,
+                    "line_role_shard_target_lines": 1,
+                },
+            ]
+        },
+    )
+
+    out_dir = tmp_path / "sweep"
+    result = runner.invoke(
+        app,
+        [
+            "preview-shard-sweep",
+            "--run",
+            str(run_dir),
+            "--experiment-file",
+            str(experiment_file),
+            "--out",
+            str(out_dir),
+            "--llm-knowledge-pipeline",
+            "off",
+        ],
+    )
+
+    assert result.exit_code == 0
+    manifest_path = Path(result.stdout.strip())
+    assert manifest_path == out_dir / "shard_sweep_manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert [row["name"] for row in payload["experiments"]] == ["narrow", "wider"]
+    assert payload["experiments"][0]["phases"][0]["stage_key"] == "recipe_llm_correct_and_link"
+    assert (out_dir / "shard_sweep_summary.md").is_file()
+    assert (out_dir / "experiments" / "narrow" / "prompt_preview_manifest.json").is_file()

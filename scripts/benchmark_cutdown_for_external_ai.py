@@ -106,7 +106,7 @@ RUN_CONFIG_KEYS_OF_INTEREST = (
     "workers",
     "predict_only",
 )
-PROJECT_CONTEXT_REL_PATH = Path("docs/AI_Context.md")
+PROJECT_CONTEXT_REL_PATH = Path("docs/AI_context.md")
 PROJECT_CONTEXT_FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 PROJECT_CONTEXT_HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 PROJECT_CONTEXT_DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
@@ -5761,7 +5761,7 @@ def _write_starter_pack_v1(
 
     selected_recipe_rows = _select_starter_pack_recipe_cases(sorted_recipe_triage_rows)
     default_recipe_stages = _upload_bundle_recipe_stages_for_row(
-        recipe_pipeline_id="codex-farm-single-correction-v1",
+        recipe_pipeline_id="codex-recipe-shard-v1",
         correction_call_id=None,
     )
     selected_packets = _build_selected_recipe_packets(
@@ -9520,7 +9520,7 @@ def _upload_bundle_build_regression_casebook(
         selected_recipe_rows=selected_rows,
         changed_line_rows=changed_line_rows,
         default_recipe_stages=_upload_bundle_recipe_stages_for_row(
-            recipe_pipeline_id="codex-farm-single-correction-v1",
+            recipe_pipeline_id="codex-recipe-shard-v1",
             correction_call_id=None,
         ),
     )

@@ -11,7 +11,7 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 
 def _settings(**kwargs) -> RunSettings:
-    return RunSettings(line_role_pipeline="codex-line-role-v1", **kwargs)
+    return RunSettings(line_role_pipeline="codex-line-role-shard-v1", **kwargs)
 
 
 def _candidate(atomic_index: int, *, text: str | None = None) -> AtomicLineCandidate:

@@ -374,8 +374,8 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "line_role_pipeline": "codex-line-role-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
             "atomic_block_splitter": "atomic-v1",
             "epub_extractor": "unstructured",
         },
@@ -445,7 +445,7 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
         warn_context="test expected codex top-tier settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
-    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
 
 
 def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_tier_contract(
@@ -490,7 +490,7 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_
         warn_context="test expected harmonized winner settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
-    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
 
 
 def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
@@ -501,8 +501,8 @@ def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "line_role_pipeline": "codex-line-role-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
             "atomic_block_splitter": "atomic-v1",
             "codex_farm_model": "gpt-5.3-codex",
         },
@@ -516,7 +516,7 @@ def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
 
     def _menu_select(message: str, **_kwargs):
         if message == "Workflow for this run:":
-            return "codex-farm-single-correction-v1"
+            return "codex-recipe-shard-v1"
         if message == "Codex Farm model override:":
             return "__pipeline_default__"
         if message == "Codex Farm reasoning effort override:":
@@ -552,8 +552,8 @@ def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
-            "line_role_pipeline": "codex-line-role-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
             "atomic_block_splitter": "atomic-v1",
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_preprocess_mode": "semantic_v1",
@@ -631,7 +631,7 @@ def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_ali
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
         warn_context="test global defaults",
     )
     monkeypatch.setattr(
@@ -644,7 +644,7 @@ def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_ali
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda message, *_args, **_kwargs: (
-            "codex-farm-single-correction-v1"
+            "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
             else pytest.fail(f"unexpected menu prompt: {message}")
         ),
@@ -656,10 +656,10 @@ def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_ali
     )
 
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
-    assert selected.line_role_pipeline.value == "codex-line-role-v1"
+    assert selected.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-shard-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
-    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
 
 
 def test_choose_run_settings_workflow_menu_uses_family_labels_only(
@@ -667,7 +667,7 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
         warn_context="test global defaults",
     )
     monkeypatch.setattr(
@@ -680,7 +680,7 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
     def _menu_select(message, *_args, **kwargs):
         if message == "Workflow for this run:":
             captured_titles.extend(str(choice.title) for choice in kwargs.get("choices", []))
-            return "codex-farm-single-correction-v1"
+            return "codex-recipe-shard-v1"
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -706,7 +706,7 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
         warn_context="test global defaults",
     )
     monkeypatch.setattr(
@@ -718,7 +718,7 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda message, *_args, **_kwargs: (
-            "codex-farm-single-correction-v1"
+            "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
             else pytest.fail(f"unexpected menu prompt: {message}")
         ),
@@ -733,7 +733,7 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     )
 
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
+    assert selected.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
     assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
     assert selected.llm_knowledge_pipeline.value == "off"
@@ -758,7 +758,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
 
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
-            return "codex-farm-single-correction-v1"
+            return "codex-recipe-shard-v1"
         if message == "Codex Farm model override:":
             seen_model_prompt["value"] = True
             return "__pipeline_default__"
@@ -784,7 +784,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected is not None
     assert seen_model_prompt["value"] is True
     assert selected.llm_recipe_pipeline.value == "off"
-    assert selected.line_role_pipeline.value == "codex-line-role-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-shard-v1"
     assert selected.llm_knowledge_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "atomic-v1"
 
@@ -794,7 +794,7 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
         warn_context="test global defaults",
     )
     monkeypatch.setattr(
@@ -805,7 +805,7 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
 
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
-            return "codex-farm-single-correction-v1"
+            return "codex-recipe-shard-v1"
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -823,7 +823,7 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
 
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "off"
-    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
     assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
 
@@ -838,8 +838,8 @@ def test_prompt_codex_surface_menu_uses_arrow_keys_to_toggle_without_leaving_scr
                 result["value"] = run_settings_flow._prompt_codex_surface_menu(
                     message="CodexFarm steps for this run:",
                     step_rows=[
-                        ("recipe", "Recipe correction (`codex-farm-single-correction-v1`)"),
-                        ("knowledge", "Knowledge harvest (`codex-farm-knowledge-v1`)"),
+                        ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
+                        ("knowledge", "Knowledge harvest (`codex-knowledge-shard-v1`)"),
                     ],
                     enabled_by_step={"recipe": True, "knowledge": True},
                     back_action="back",
@@ -871,8 +871,8 @@ def test_prompt_codex_surface_menu_allows_left_and_right_to_move_current_choice(
                 result["value"] = run_settings_flow._prompt_codex_surface_menu(
                     message="CodexFarm options for this run:",
                     step_rows=[
-                        ("recipe", "Recipe correction (`codex-farm-single-correction-v1`)"),
-                        ("knowledge", "Knowledge harvest (`codex-farm-knowledge-v1`)"),
+                        ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
+                        ("knowledge", "Knowledge harvest (`codex-knowledge-shard-v1`)"),
                     ],
                     enabled_by_step={"recipe": True, "knowledge": True},
                     back_action="back",
@@ -1104,7 +1104,7 @@ def test_load_qualitysuite_winner_run_settings_ignores_stale_payload(
                     "codex_farm_pipeline_pass3": "recipe.final.v1",
                     "instruction_step_segmentation_policy": "auto",
                     "instruction_step_segmenter": "heuristic_v1",
-                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+                    "llm_recipe_pipeline": "codex-recipe-shard-v1",
                     "multi_recipe_splitter": "rules_v1",
                     "section_detector_backend": "shared_v1",
                     "table_extraction": "off",
@@ -1135,7 +1135,7 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     selected_file.write_text("dummy", encoding="utf-8")
     selected_settings = cli.RunSettings.from_dict(
         {
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_knowledge_context_blocks": 37,
         },
         warn_context="test settings",
@@ -1172,7 +1172,7 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
         "knowledge",
     )
     assert captured["path"] == selected_file
-    assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
+    assert captured["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
 
@@ -1190,7 +1190,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
         "epub_unstructured_skip_headers_footers": True,
         "epub_unstructured_preprocess_mode": "semantic_v1",
         "llm_recipe_pipeline": "off",
-        "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
         "codex_farm_pipeline_knowledge": "recipe.knowledge.custom.v9",
         "codex_farm_knowledge_context_blocks": 42,
     }
@@ -1220,7 +1220,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_unstructured_html_parser_version"] == "v2"
     assert captured["epub_unstructured_skip_headers_footers"] is True
     assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"
-    assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
+    assert captured["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 42
 

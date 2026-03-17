@@ -144,7 +144,7 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner({0: "TIME_LINE"}),
         live_llm_allowed=True,
     )
@@ -170,14 +170,14 @@ def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtim
     ]
     blocked_predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner({0: "OTHER"}),
     )
     assert blocked_predictions[0].decided_by == "fallback"
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner({0: "OTHER"}),
         live_llm_allowed=True,
     )
@@ -668,7 +668,7 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient() -> None:
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner({1: "OTHER"}),
         live_llm_allowed=True,
     )
@@ -830,7 +830,7 @@ def test_title_like_line_stays_resolved_when_full_book_codex_reviews_it(tmp_path
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_runner=_line_role_runner({0: "OTHER"}),
         live_llm_allowed=True,
@@ -858,7 +858,7 @@ def test_codex_mode_accepts_global_label_not_present_in_old_shortlist() -> None:
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner({0: "RECIPE_TITLE"}),
         live_llm_allowed=True,
     )
@@ -983,7 +983,7 @@ def test_codex_mode_preserves_deterministic_recipe_title_without_score_escalatio
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner({0: "OTHER", 1: "INGREDIENT_LINE"}),
         live_llm_allowed=True,
     )
@@ -1041,7 +1041,7 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_runner=_line_role_runner(
             output_builder=lambda _payload: {"rows": [{"atomic_index": 999, "label": "OTHER"}]}
@@ -1230,7 +1230,7 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE", 2: "OTHER"}),
         live_llm_allowed=True,
@@ -1290,7 +1290,7 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE", 2: "OTHER"}),
         live_llm_allowed=True,
@@ -1317,7 +1317,7 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner({0: "OTHER"}),
         live_llm_allowed=True,
     )
@@ -1687,7 +1687,7 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
 
     plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         codex_batch_size=10,
     )
 
@@ -1722,7 +1722,7 @@ def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -
 
     plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
     )
 
     assert (
@@ -1739,7 +1739,7 @@ def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -
 
 
 def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
-    settings = _settings("codex-line-role-v1")
+    settings = _settings("codex-line-role-shard-v1")
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -1831,7 +1831,7 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_runner=_TelemetryRunner(
             output_builders={
@@ -1882,7 +1882,7 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
     runner = _line_role_runner({0: "OTHER"})
     first = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1", workers=1, codex_farm_cmd="codex-a"),
+        _settings("codex-line-role-shard-v1", workers=1, codex_farm_cmd="codex-a"),
         artifact_root=tmp_path / "artifacts",
         source_hash="source-hash-runtime",
         cache_root=tmp_path / "line-role-cache",
@@ -1893,7 +1893,7 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1", workers=9, codex_farm_cmd="codex-b"),
+        _settings("codex-line-role-shard-v1", workers=9, codex_farm_cmd="codex-b"),
         artifact_root=tmp_path / "artifacts",
         source_hash="source-hash-runtime",
         cache_root=tmp_path / "line-role-cache",
@@ -1929,7 +1929,7 @@ def test_line_role_cache_path_changes_when_line_role_pipeline_changes(tmp_path) 
     )
     codex_path = canonical_line_roles_module._resolve_line_role_cache_path(
         source_hash="source-hash-path",
-        settings=_settings("codex-line-role-v1"),
+        settings=_settings("codex-line-role-shard-v1"),
         ordered_candidates=candidates,
         artifact_root=tmp_path / "artifacts",
         cache_root=tmp_path / "line-role-cache",
@@ -1963,7 +1963,7 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER", 3: "OTHER"}),
@@ -2002,7 +2002,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_runner=_line_role_runner({0: "OTHER"}),
@@ -2048,7 +2048,7 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
     progress_messages: list[str] = []
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1", line_role_worker_count=2),
+        _settings("codex-line-role-shard-v1", line_role_worker_count=2),
         codex_batch_size=1,
         codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER"}),
         live_llm_allowed=True,
@@ -2090,7 +2090,7 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
     progress_messages: list[str] = []
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_max_inflight=3,

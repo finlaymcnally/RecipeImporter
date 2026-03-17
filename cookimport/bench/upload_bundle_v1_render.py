@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
+from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.runs.stage_observability import (
     recipe_stage_keys_for_pipeline,
     stage_label,
@@ -66,7 +67,7 @@ def _default_recipe_stages() -> list[dict[str, str]]:
             "stage_label": stage_label(stage_key),
         }
         for stage_key in recipe_stage_keys_for_pipeline(
-            "codex-farm-single-correction-v1"
+            RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
         )
     ]
 
@@ -316,7 +317,7 @@ def build_recipe_pipeline_context_from_model(
     topology = model.topology if isinstance(model.topology, dict) else {}
     return {
         "schema_version": str(
-            topology.get("schema_version") or "upload_bundle_recipe_pipeline_context.v2"
+            topology.get("schema_version") or "upload_bundle_recipe_pipeline_context.v4"
         ),
         "codex_recipe_pipelines": (
             list(topology.get("codex_recipe_pipelines"))
@@ -343,6 +344,11 @@ def build_recipe_pipeline_context_from_model(
         "observed_recipe_pipelines": (
             list(topology.get("observed_recipe_pipelines"))
             if isinstance(topology.get("observed_recipe_pipelines"), list)
+            else []
+        ),
+        "runtime_runs": (
+            list(topology.get("runtime_runs"))
+            if isinstance(topology.get("runtime_runs"), list)
             else []
         ),
     }

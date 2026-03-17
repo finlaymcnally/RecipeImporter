@@ -24,7 +24,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
 
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -159,7 +159,7 @@ def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Pat
 
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -228,7 +228,7 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
 
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -313,7 +313,7 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
 
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -434,7 +434,7 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
 
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -560,7 +560,7 @@ def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(
 
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",

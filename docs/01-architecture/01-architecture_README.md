@@ -76,7 +76,7 @@ Architecture priorities:
 
 ### Current recipe LLM contract
 
-- the canonical public recipe pipeline id is `codex-farm-single-correction-v1`.
+- the canonical public recipe pipeline id is `codex-recipe-shard-v1`.
 - the active recipe Codex path is one correction stage that updates an intermediate `RecipeCandidate`, returns `ingredient_step_mapping`, and rebuilds final cookbook drafts locally.
 - current semantic recipe-stage observability for new runs uses:
   - `build_intermediate_det`

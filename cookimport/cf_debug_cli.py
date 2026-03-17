@@ -18,6 +18,7 @@ from cookimport.bench.followup_bundle import (
     write_selector_manifest,
     write_uncertainty_export,
 )
+from cookimport.core.slug import slugify_name
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 
 
@@ -242,15 +243,15 @@ def preview_prompts(
     run: Path = typer.Option(..., "--run", exists=True, file_okay=True, dir_okay=True),
     out: Path = typer.Option(..., "--out"),
     llm_recipe_pipeline: str = typer.Option(
-        "codex-farm-single-correction-v1",
+        "codex-recipe-shard-v1",
         "--llm-recipe-pipeline",
     ),
     llm_knowledge_pipeline: str = typer.Option(
-        "codex-farm-knowledge-v1",
+        "codex-knowledge-shard-v1",
         "--llm-knowledge-pipeline",
     ),
     line_role_pipeline: str = typer.Option(
-        "codex-line-role-v1",
+        "codex-line-role-shard-v1",
         "--line-role-pipeline",
     ),
     codex_farm_root: Path | None = typer.Option(None, "--codex-farm-root"),
@@ -266,6 +267,24 @@ def preview_prompts(
         min=0,
     ),
     atomic_block_splitter: str = typer.Option("atomic-v1", "--atomic-block-splitter"),
+    recipe_worker_count: int | None = typer.Option(None, "--recipe-worker-count", min=1),
+    recipe_shard_target_recipes: int | None = typer.Option(
+        None,
+        "--recipe-shard-target-recipes",
+        min=1,
+    ),
+    knowledge_worker_count: int | None = typer.Option(None, "--knowledge-worker-count", min=1),
+    knowledge_shard_target_chunks: int | None = typer.Option(
+        None,
+        "--knowledge-shard-target-chunks",
+        min=1,
+    ),
+    line_role_worker_count: int | None = typer.Option(None, "--line-role-worker-count", min=1),
+    line_role_shard_target_lines: int | None = typer.Option(
+        None,
+        "--line-role-shard-target-lines",
+        min=1,
+    ),
 ) -> None:
     manifest_path = write_prompt_preview_for_existing_run(
         run_path=run,
@@ -280,6 +299,12 @@ def preview_prompts(
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         atomic_block_splitter=atomic_block_splitter,
+        recipe_worker_count=recipe_worker_count,
+        recipe_shard_target_recipes=recipe_shard_target_recipes,
+        knowledge_worker_count=knowledge_worker_count,
+        knowledge_shard_target_chunks=knowledge_shard_target_chunks,
+        line_role_worker_count=line_role_worker_count,
+        line_role_shard_target_lines=line_role_shard_target_lines,
     )
     try:
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -298,4 +323,217 @@ def preview_prompts(
             if severity == "danger":
                 color = typer.colors.RED
             typer.secho(message, fg=color, err=True)
+    typer.echo(str(manifest_path))
+
+
+def _load_shard_sweep_experiments(path: Path) -> list[dict[str, object]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        experiments = payload.get("experiments")
+        if isinstance(experiments, list):
+            return [entry for entry in experiments if isinstance(entry, dict)]
+    if isinstance(payload, list):
+        return [entry for entry in payload if isinstance(entry, dict)]
+    raise typer.BadParameter("Expected a JSON list or {'experiments': [...]} payload.")
+
+
+def _phase_plan_summary_row(phase_plan: dict[str, object]) -> dict[str, object]:
+    return {
+        "stage_key": str(phase_plan.get("stage_key") or ""),
+        "stage_label": str(phase_plan.get("stage_label") or ""),
+        "worker_count": int(phase_plan.get("worker_count") or 0),
+        "shard_count": int(phase_plan.get("shard_count") or 0),
+        "interaction_count": int(phase_plan.get("interaction_count") or 0),
+        "owned_ids_per_shard_avg": float(
+            ((phase_plan.get("owned_ids_per_shard") or {}) if isinstance(phase_plan.get("owned_ids_per_shard"), dict) else {}).get("avg")
+            or 0.0
+        ),
+        "first_turn_payload_chars_avg": float(
+            ((phase_plan.get("first_turn_payload_chars") or {}) if isinstance(phase_plan.get("first_turn_payload_chars"), dict) else {}).get("avg")
+            or 0.0
+        ),
+    }
+
+
+@app.command("preview-shard-sweep")
+def preview_shard_sweep(
+    run: Path = typer.Option(..., "--run", exists=True, file_okay=True, dir_okay=True),
+    experiment_file: Path = typer.Option(
+        ...,
+        "--experiment-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+    ),
+    out: Path = typer.Option(..., "--out"),
+    llm_recipe_pipeline: str = typer.Option(
+        "codex-recipe-shard-v1",
+        "--llm-recipe-pipeline",
+    ),
+    llm_knowledge_pipeline: str = typer.Option(
+        "codex-knowledge-shard-v1",
+        "--llm-knowledge-pipeline",
+    ),
+    line_role_pipeline: str = typer.Option(
+        "codex-line-role-shard-v1",
+        "--line-role-pipeline",
+    ),
+    codex_farm_root: Path | None = typer.Option(None, "--codex-farm-root"),
+    codex_farm_model: str | None = typer.Option(None, "--codex-farm-model"),
+    codex_farm_reasoning_effort: str | None = typer.Option(
+        None,
+        "--codex-farm-reasoning-effort",
+    ),
+    codex_farm_context_blocks: int = typer.Option(30, "--codex-farm-context-blocks", min=0),
+    codex_farm_knowledge_context_blocks: int = typer.Option(
+        0,
+        "--codex-farm-knowledge-context-blocks",
+        min=0,
+    ),
+    atomic_block_splitter: str = typer.Option("atomic-v1", "--atomic-block-splitter"),
+) -> None:
+    experiments = _load_shard_sweep_experiments(experiment_file)
+    if not experiments:
+        raise typer.BadParameter("Experiment file did not contain any experiment objects.")
+
+    out.mkdir(parents=True, exist_ok=True)
+    experiment_rows: list[dict[str, object]] = []
+    for index, experiment in enumerate(experiments, start=1):
+        raw_name = str(experiment.get("name") or f"experiment-{index:02d}").strip()
+        experiment_name = raw_name or f"experiment-{index:02d}"
+        experiment_slug = slugify_name(experiment_name) or f"experiment_{index:02d}"
+        experiment_out = out / "experiments" / experiment_slug
+        manifest_path = write_prompt_preview_for_existing_run(
+            run_path=run,
+            out_dir=experiment_out,
+            repo_root=Path(__file__).resolve().parents[1],
+            llm_recipe_pipeline=str(
+                experiment.get("llm_recipe_pipeline") or llm_recipe_pipeline
+            ),
+            llm_knowledge_pipeline=str(
+                experiment.get("llm_knowledge_pipeline") or llm_knowledge_pipeline
+            ),
+            line_role_pipeline=str(
+                experiment.get("line_role_pipeline") or line_role_pipeline
+            ),
+            codex_farm_root=codex_farm_root,
+            codex_farm_model=codex_farm_model,
+            codex_farm_reasoning_effort=codex_farm_reasoning_effort,
+            codex_farm_context_blocks=codex_farm_context_blocks,
+            codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
+            atomic_block_splitter=str(
+                experiment.get("atomic_block_splitter") or atomic_block_splitter
+            ),
+            recipe_worker_count=(
+                int(experiment["recipe_worker_count"])
+                if experiment.get("recipe_worker_count") is not None
+                else None
+            ),
+            recipe_shard_target_recipes=(
+                int(experiment["recipe_shard_target_recipes"])
+                if experiment.get("recipe_shard_target_recipes") is not None
+                else None
+            ),
+            knowledge_worker_count=(
+                int(experiment["knowledge_worker_count"])
+                if experiment.get("knowledge_worker_count") is not None
+                else None
+            ),
+            knowledge_shard_target_chunks=(
+                int(experiment["knowledge_shard_target_chunks"])
+                if experiment.get("knowledge_shard_target_chunks") is not None
+                else None
+            ),
+            line_role_worker_count=(
+                int(experiment["line_role_worker_count"])
+                if experiment.get("line_role_worker_count") is not None
+                else None
+            ),
+            line_role_shard_target_lines=(
+                int(experiment["line_role_shard_target_lines"])
+                if experiment.get("line_role_shard_target_lines") is not None
+                else None
+            ),
+        )
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        budget_payload = json.loads(
+            (experiment_out / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+        )
+        phase_plans = manifest_payload.get("phase_plans")
+        if not isinstance(phase_plans, dict):
+            phase_plans = {}
+        experiment_rows.append(
+            {
+                "name": experiment_name,
+                "slug": experiment_slug,
+                "manifest_path": str(manifest_path.relative_to(out)),
+                "preview_dir": str(experiment_out.relative_to(out)),
+                "estimated_total_tokens": int(
+                    ((budget_payload.get("totals") or {}) if isinstance(budget_payload.get("totals"), dict) else {}).get("estimated_total_tokens")
+                    or 0
+                ),
+                "warnings": manifest_payload.get("warnings") or [],
+                "phases": [
+                    _phase_plan_summary_row(phase_plan)
+                    for phase_plan in sorted(
+                        [value for value in phase_plans.values() if isinstance(value, dict)],
+                        key=lambda row: (int(row.get("stage_order") or 999), str(row.get("stage_key") or "")),
+                    )
+                ],
+                "experiment": dict(experiment),
+            }
+        )
+
+    sweep_manifest = {
+        "schema_version": "prompt_preview_shard_sweep.v1",
+        "run": str(run),
+        "experiment_file": str(experiment_file),
+        "experiments": experiment_rows,
+    }
+    manifest_path = out / "shard_sweep_manifest.json"
+    manifest_path.write_text(
+        json.dumps(sweep_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    lines = [
+        "# Shard Sweep Preview",
+        "",
+        f"- Run: `{run}`",
+        f"- Experiment file: `{experiment_file}`",
+        "",
+    ]
+    for experiment in experiment_rows:
+        lines.append(f"## {experiment['name']}")
+        lines.append("")
+        lines.append(f"- Preview dir: `{experiment['preview_dir']}`")
+        lines.append(f"- Estimated total tokens: `~{int(experiment['estimated_total_tokens']):,}`")
+        warnings = experiment.get("warnings")
+        if isinstance(warnings, list) and warnings:
+            lines.append("- Warnings:")
+            for warning in warnings:
+                if isinstance(warning, dict):
+                    lines.append(f"  - {str(warning.get('message') or '').strip()}")
+        phases = experiment.get("phases")
+        if isinstance(phases, list) and phases:
+            lines.append("")
+            lines.append("| Stage | Workers | Shards | Interactions | Owned IDs / Shard | First-Turn Chars / Shard |")
+            lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+            for phase in phases:
+                if not isinstance(phase, dict):
+                    continue
+                lines.append(
+                    "| "
+                    + f"{str(phase.get('stage_label') or phase.get('stage_key') or '')} | "
+                    + f"{int(phase.get('worker_count') or 0):,} | "
+                    + f"{int(phase.get('shard_count') or 0):,} | "
+                    + f"{int(phase.get('interaction_count') or 0):,} | "
+                    + f"{float(phase.get('owned_ids_per_shard_avg') or 0.0):.2f} | "
+                    + f"{float(phase.get('first_turn_payload_chars_avg') or 0.0):.1f} |"
+                )
+        lines.append("")
+    (out / "shard_sweep_summary.md").write_text(
+        "\n".join(lines).rstrip() + "\n",
+        encoding="utf-8",
+    )
     typer.echo(str(manifest_path))

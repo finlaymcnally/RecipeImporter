@@ -186,7 +186,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         json.dumps(
             {
                 "enabled": True,
-                "pipeline": "codex-farm-single-correction-v1",
+                "pipeline": "codex-recipe-shard-v1",
                 "codex_farm_model": "manifest-model",
                 "codex_farm_reasoning_effort": "medium",
                 "process_runs": {
@@ -439,7 +439,7 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
         json.dumps(
             {
                 "enabled": True,
-                "pipeline": "codex-farm-single-correction-v1",
+                "pipeline": "codex-recipe-shard-v1",
                 "process_runs": {
                     "recipe_correction": {
                         "run_id": "run-recipe-correction",
@@ -516,7 +516,7 @@ def test_build_codex_farm_prompt_response_log_follows_benchmark_stage_run_pointe
     (run_dir / "recipe_manifest.json").write_text(
         json.dumps(
             {
-                "pipeline": "codex-farm-single-correction-v1",
+                "pipeline": "codex-recipe-shard-v1",
                 "pipelines": {
                     "recipe_correction": "recipe.correction.compact.v1",
                 },
@@ -946,7 +946,7 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         output_root=output_root,
         requested_path=requested_path,
         run_dt=dt.datetime(2026, 3, 3, 12, 0, 0),
-        run_config={"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        run_config={"llm_recipe_pipeline": "codex-recipe-shard-v1"},
     )
 
     run_manifest_payload = json.loads(
@@ -1021,7 +1021,7 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
                 "source_hash": "source-hash",
                 "recipe_count": 7,
                 "run_config": {
-                    "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+                    "llm_recipe_pipeline": "codex-recipe-shard-v1",
                     "codex_farm_cmd": "codex-farm",
                     "workers": 1,
                 },

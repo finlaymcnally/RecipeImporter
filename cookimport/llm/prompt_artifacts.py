@@ -7,7 +7,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from cookimport.core.slug import slugify_name
 from cookimport.runs import (
@@ -172,6 +172,10 @@ def _files_in_dir(path: Path | None) -> list[Path]:
 def _clean_text(value: Any) -> str | None:
     cleaned = str(value or "").strip()
     return cleaned or None
+
+
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -1361,6 +1365,92 @@ def _load_prompt_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _load_json_sequence(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [row for row in payload if isinstance(row, dict)]
+
+
+def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
+    phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
+    if not phase_manifest:
+        return {}
+    worker_assignments = _load_json_sequence(stage_root / "worker_assignments.json")
+    shard_rows = _load_prompt_rows(stage_root / "shard_manifest.jsonl")
+    worker_by_shard_id: dict[str, str] = {}
+    for assignment in worker_assignments:
+        worker_id = _clean_text(assignment.get("worker_id"))
+        if worker_id is None:
+            continue
+        for shard_id in assignment.get("shard_ids") or []:
+            rendered_shard_id = _clean_text(shard_id)
+            if rendered_shard_id is not None:
+                worker_by_shard_id[rendered_shard_id] = worker_id
+    shard_by_id: dict[str, dict[str, Any]] = {}
+    shard_by_owned_id: dict[str, dict[str, Any]] = {}
+    shard_by_prompt_index: dict[int, dict[str, Any]] = {}
+    for row in shard_rows:
+        shard_id = _clean_text(row.get("shard_id"))
+        if shard_id is None:
+            continue
+        normalized = {
+            "shard_id": shard_id,
+            "owned_ids": [
+                str(item).strip()
+                for item in row.get("owned_ids") or []
+                if str(item).strip()
+            ],
+            "worker_id": worker_by_shard_id.get(shard_id),
+            "metadata": dict(row.get("metadata") or {})
+            if isinstance(row.get("metadata"), dict)
+            else {},
+        }
+        shard_by_id[shard_id] = normalized
+        for owned_id in normalized["owned_ids"]:
+            shard_by_owned_id[owned_id] = normalized
+        prompt_index = _coerce_int(normalized["metadata"].get("prompt_index"))
+        if prompt_index is not None:
+            shard_by_prompt_index[prompt_index] = normalized
+    return {
+        "pipeline_id": _clean_text(phase_manifest.get("pipeline_id")),
+        "shard_by_id": shard_by_id,
+        "shard_by_owned_id": shard_by_owned_id,
+        "shard_by_prompt_index": shard_by_prompt_index,
+    }
+
+
+def _resolve_runtime_context(
+    *,
+    runtime_index: Mapping[str, Any] | None,
+    shard_id: str | None = None,
+    owned_id: str | None = None,
+    prompt_index: int | None = None,
+) -> dict[str, Any]:
+    if not isinstance(runtime_index, Mapping):
+        return {}
+    shard_row = None
+    if shard_id:
+        shard_row = (runtime_index.get("shard_by_id") or {}).get(shard_id)
+    if shard_row is None and owned_id:
+        shard_row = (runtime_index.get("shard_by_owned_id") or {}).get(owned_id)
+    if shard_row is None and prompt_index is not None:
+        shard_row = (runtime_index.get("shard_by_prompt_index") or {}).get(prompt_index)
+    if not isinstance(shard_row, Mapping):
+        return {}
+    return {
+        "runtime_pipeline_id": runtime_index.get("pipeline_id"),
+        "runtime_shard_id": shard_row.get("shard_id"),
+        "runtime_worker_id": shard_row.get("worker_id"),
+        "runtime_owned_ids": list(shard_row.get("owned_ids") or []),
+    }
+
+
 def _prompt_row_sort_key(row: dict[str, Any]) -> tuple[int, str, str]:
     return (
         _coerce_int(row.get("stage_order")) or 999,
@@ -1460,6 +1550,9 @@ def _build_line_role_prompt_rows(
     prompts_dir.mkdir(parents=True, exist_ok=True)
     export_dir = prompts_dir / "line-role-pipeline"
     export_dir.mkdir(parents=True, exist_ok=True)
+    runtime_index = _load_phase_runtime_index(
+        stage_run_root / "line-role-pipeline" / "runtime"
+    )
 
     telemetry_summary_path = stage_run_root / "line-role-pipeline" / "telemetry_summary.json"
     telemetry_summary = _load_json_dict(telemetry_summary_path) or {}
@@ -1592,6 +1685,10 @@ def _build_line_role_prompt_rows(
         )
         call_id = f"line_role_prompt_{prompt_index:04d}"
         request_messages = [{"role": "user", "content": prompt_text}]
+        runtime_context = _resolve_runtime_context(
+            runtime_index=runtime_index,
+            prompt_index=prompt_index,
+        )
         row_payload = {
             "run_id": eval_output_dir.name,
             "schema_version": PROMPT_CALL_RECORD_SCHEMA_VERSION,
@@ -1696,7 +1793,13 @@ def _build_line_role_prompt_rows(
                 "trace_action_types": [],
                 "trace_reasoning_count": None,
                 "trace_reasoning_types": [],
+                "worker_id": runtime_context.get("runtime_worker_id"),
+                "shard_id": runtime_context.get("runtime_shard_id"),
+                "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
             },
+            "runtime_shard_id": runtime_context.get("runtime_shard_id"),
+            "runtime_worker_id": runtime_context.get("runtime_worker_id"),
+            "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
             "thinking_trace": None,
         }
         if parsed_file.exists():
@@ -1905,6 +2008,16 @@ def render_prompt_artifacts_from_descriptors(
                 category_key = stage.stage_key
                 category_lines.setdefault(category_key, [])
                 category_has_payload.setdefault(category_key, False)
+                runtime_stage_root = None
+                if stage.stage_key == "recipe_llm_correct_and_link":
+                    runtime_stage_root = run_dir / "recipe_phase_runtime"
+                elif stage.stage_key == "extract_knowledge_optional":
+                    runtime_stage_root = run_dir / "knowledge"
+                runtime_index = (
+                    _load_phase_runtime_index(runtime_stage_root)
+                    if isinstance(runtime_stage_root, Path)
+                    else {}
+                )
 
                 pass_assets = _load_run_assets_for_process_run(
                     process_run_payload=stage.process_run_payload,
@@ -2049,6 +2162,21 @@ def render_prompt_artifacts_from_descriptors(
                         parsed_input=parsed_input,
                         parsed_output=parsed_output,
                         fallback_name=file_name,
+                    )
+                    runtime_context = _resolve_runtime_context(
+                        runtime_index=runtime_index,
+                        shard_id=(
+                            _clean_text(_coerce_dict(parsed_input).get("bundle_id"))
+                            or _clean_text(_coerce_dict(parsed_input).get("shard_id"))
+                            or _clean_text(_coerce_dict(parsed_output).get("bundle_id"))
+                            or _clean_text(_coerce_dict(parsed_output).get("shard_id"))
+                            or (
+                                call_stem
+                                if stage.stage_key == "extract_knowledge_optional"
+                                else None
+                            )
+                        ),
+                        owned_id=recipe_id,
                     )
 
                     rendered_prompt_text = _render_prompt_text(
@@ -2279,6 +2407,9 @@ def render_prompt_artifacts_from_descriptors(
                             "trace_action_types": telemetry_trace_action_types,
                             "trace_reasoning_count": telemetry_trace_reasoning_count,
                             "trace_reasoning_types": telemetry_trace_reasoning_types,
+                            "worker_id": runtime_context.get("runtime_worker_id"),
+                            "shard_id": runtime_context.get("runtime_shard_id"),
+                            "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
                         }
 
                     row_payload = {
@@ -2333,6 +2464,9 @@ def render_prompt_artifacts_from_descriptors(
                         "parsed_response": parsed_output,
                         "request_input_file": str(input_file) if input_file is not None else None,
                         "request_telemetry": request_telemetry,
+                        "runtime_shard_id": runtime_context.get("runtime_shard_id"),
+                        "runtime_worker_id": runtime_context.get("runtime_worker_id"),
+                        "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
                         "thinking_trace": thinking_trace_payload,
                     }
                     full_prompt_log_handle.write(

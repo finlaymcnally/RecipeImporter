@@ -148,12 +148,6 @@ _SUMMARY_ORDER = (
 
 RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 RECIPE_CODEX_FARM_PIPELINE_SHARD_V1 = "codex-recipe-shard-v1"
-RECIPE_CODEX_FARM_PIPELINE_SINGLE_CORRECTION_V1 = "codex-farm-single-correction-v1"
-RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES = {
-    "codex-farm-single-correction-v1": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
-    "codex-farm-3pass-v1": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
-    "codex-farm-2stage-repair-v1": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
-}
 RECIPE_CODEX_FARM_ALLOWED_PIPELINES = (
     "off",
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
@@ -174,16 +168,7 @@ RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
 )
 
 LINE_ROLE_PIPELINE_SHARD_V1 = "codex-line-role-shard-v1"
-LINE_ROLE_PIPELINE_LEGACY_V1 = "codex-line-role-v1"
-LINE_ROLE_PIPELINE_ALIASES = {
-    "codex-line-role": LINE_ROLE_PIPELINE_SHARD_V1,
-    "codex-line-role-v1": LINE_ROLE_PIPELINE_SHARD_V1,
-}
 KNOWLEDGE_CODEX_PIPELINE_SHARD_V1 = "codex-knowledge-shard-v1"
-KNOWLEDGE_CODEX_PIPELINE_LEGACY_V1 = "codex-farm-knowledge-v1"
-KNOWLEDGE_CODEX_PIPELINE_ALIASES = {
-    "codex-farm-knowledge-v1": KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
-}
 
 
 class EpubExtractor(str, Enum):
@@ -376,7 +361,6 @@ class CodexReasoningEffort(str, Enum):
 def normalize_llm_recipe_pipeline_value(value: Any) -> str:
     normalized = str(getattr(value, "value", value) or "").strip().lower()
     normalized = normalized or LlmRecipePipeline.off.value
-    normalized = RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES.get(normalized, normalized)
     if normalized not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         raise ValueError(RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR)
     return normalized
@@ -388,7 +372,6 @@ def normalize_line_role_pipeline_value(value: Any) -> str:
         return LineRolePipeline.off.value
     if normalized in {"deterministic-v1", "deterministic"}:
         return LineRolePipeline.deterministic_v1.value
-    normalized = LINE_ROLE_PIPELINE_ALIASES.get(normalized, normalized)
     allowed = {
         LineRolePipeline.off.value,
         LineRolePipeline.deterministic_v1.value,
@@ -406,7 +389,6 @@ def normalize_line_role_pipeline_value(value: Any) -> str:
 def normalize_llm_knowledge_pipeline_value(value: Any) -> str:
     normalized = str(getattr(value, "value", value) or "").strip().lower()
     normalized = normalized or LlmKnowledgePipeline.off.value
-    normalized = KNOWLEDGE_CODEX_PIPELINE_ALIASES.get(normalized, normalized)
     allowed = {
         LlmKnowledgePipeline.off.value,
         KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,

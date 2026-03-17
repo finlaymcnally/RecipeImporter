@@ -30,7 +30,8 @@ The user-visible result is organizational rather than runtime behavior. A contri
 - [x] (2026-03-17_12.40.02) Completed the recipe cutover plan from `docs/plans/04-shard-runtime-recipe-phase-cutover.md`.
 - [x] (2026-03-17_12.41.48) Completed the line-role cutover plan from `docs/plans/03-shard-runtime-line-role-phase-cutover.md`.
 - [x] (2026-03-17_12.59.54) Tightened the landed knowledge slice by removing the dead direct `knowledge/out` ingest helper and aligning the docs with proposal-validated runtime authority.
-- [ ] Keep this master plan aligned as the observability/removal child plan lands.
+- [x] (2026-03-17_13.23.02) Completed the observability/removal child plan from `docs/plans/06-shard-runtime-observability-and-legacy-cutover.md`.
+- [x] (2026-03-17_13.39.45) Updated this master plan to reflect a full code-side shard-runtime cutover, including removal of the last legacy pipeline-id normalization seam on active run-setting inputs, with only the human-run live benchmark remaining outside the agent shell.
 
 ## Surprises & Discoveries
 
@@ -51,6 +52,9 @@ The user-visible result is organizational rather than runtime behavior. A contri
 
 - Observation: line-role needed the same separation, but with one extra twist: the shared runtime had to support raw prompt-text inputs while the old prompt artifact files stayed alive for reviewer/export tooling.
   Evidence: `docs/understandings/2026-03-17_12.41.48-line-role-shard-cutover-needs-raw-prompt-inputs-but-keeps-prompt-artifacts.md` records the added `input_text` seam in `ShardManifestEntryV1` plus the compatibility `line-role-pipeline/prompts/*` writes kept by `canonical_line_roles.py`.
+
+- Observation: the final observability pass did not need to delete prompt reviewer files to finish the cutover; it only needed to make those files honest about shard ownership.
+  Evidence: `docs/understandings/2026-03-17_13.23.02-preview-and-prompt-artifacts-can-stay-reviewer-friendly-while-shard-owned.md`.
 
 ## Decision Log
 
@@ -82,11 +86,15 @@ The user-visible result is organizational rather than runtime behavior. A contri
   Rationale: that keeps the runtime cutover narrow and replayable while deferring the broader prompt/export/upload-bundle cleanup to the explicit observability/removal plan.
   Date/Author: 2026-03-17 / Codex
 
+- Decision: treat the observability/removal plan as complete only once active run-setting inputs also reject the retired pipeline ids.
+  Rationale: burn-the-boats is an input-contract decision as well as a default/help/docs decision; accepting the old ids still teaches the obsolete runtime surface.
+  Date/Author: 2026-03-17 / Codex
+
 ## Outcomes & Retrospective
 
-The split is complete as documentation, and four implementation child plans are now complete enough to count as real progress: the shared runtime/config foundation, the knowledge cutover, the recipe cutover, and the line-role cutover.
+The split is complete as documentation and as code-side implementation. All five child plans have now landed: the shared runtime/config foundation, knowledge cutover, recipe cutover, line-role cutover, and the final observability/removal pass.
 
-The expected outcome remains better execution, not different product behavior. The current state continues to validate the decomposition: the runtime spine landed first, then knowledge, recipe, and line-role all moved execution onto explicit shard-worker runtime artifacts without forcing the prompt/export/upload-bundle cleanup into the same patch. The remaining retrospective question is whether the final observability/removal plan can now consume the stabilized runtime artifacts without churn.
+The decomposition proved correct. The runtime spine landed first, then knowledge, recipe, and line-role moved execution onto explicit shard-worker runtime artifacts, and the final cross-cutting pass finished preview, prompt exports, upload-bundle context, active CLI/default cleanup, and strict shard-v1-only run-setting inputs without another schema rewrite underneath them. Only the explicitly human-run live benchmark remains outside the agent shell.
 
 ## Context and Orientation
 
@@ -212,3 +220,5 @@ Revision note (2026-03-17_12.40.02): updated this master plan after the recipe c
 Revision note (2026-03-17_12.41.48): updated this master plan after the line-role cutover landed so the progress, discoveries, and retrospective now reflect all three completed phase migrations plus the shared runtime foundation.
 
 Revision note (2026-03-17_12.59.54): tightened the completed knowledge slice by deleting the dead direct `knowledge/out` ingest helper and aligning operator docs with proposal-validated runtime authority.
+
+Revision note (2026-03-17_13.23.02): marked the observability/removal child plan complete after landing worker/shard-centric preview, shard-sweep CLI support, shard-owned prompt export annotations, upload-bundle runtime summaries, active legacy-id cleanup, and focused validation.

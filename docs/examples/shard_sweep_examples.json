@@ -1,0 +1,22 @@
+{
+  "experiments": [
+    {
+      "name": "balanced-defaults",
+      "recipe_worker_count": 2,
+      "recipe_shard_target_recipes": 3,
+      "knowledge_worker_count": 1,
+      "knowledge_shard_target_chunks": 12,
+      "line_role_worker_count": 2,
+      "line_role_shard_target_lines": 150
+    },
+    {
+      "name": "wider-workers-smaller-shards",
+      "recipe_worker_count": 4,
+      "recipe_shard_target_recipes": 2,
+      "knowledge_worker_count": 2,
+      "knowledge_shard_target_chunks": 8,
+      "line_role_worker_count": 4,
+      "line_role_shard_target_lines": 80
+    }
+  ]
+}

@@ -288,7 +288,7 @@ def _write_knowledge_artifacts(
                 "llm_codex_farm": {
                     "knowledge": {
                         "enabled": True,
-                        "pipeline": "codex-farm-knowledge-v1",
+                        "pipeline": "codex-knowledge-shard-v1",
                         "pipeline_id": "recipe.knowledge.compact.v1",
                         "counts": {
                             "jobs_written": knowledge_call_count,
@@ -446,7 +446,7 @@ def _write_prediction_run_knowledge_stage_outputs(
             "llm_codex_farm": {
                 "knowledge": {
                     "enabled": True,
-                    "pipeline": "codex-farm-knowledge-v1",
+                    "pipeline": "codex-knowledge-shard-v1",
                     "pipeline_id": "recipe.knowledge.compact.v1",
                     "process_run": {
                         "run_id": "run-knowledge-reconstruct",
@@ -781,7 +781,7 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
         module,
         run_root=tmp_path,
         run_id="2026-03-02_10.00.00",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[
             {"line_index": 1, "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "pred_label": "KNOWLEDGE"},
@@ -830,7 +830,7 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
         module,
         run_root=tmp_path,
         run_id="2026-03-02_12.00.00",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -893,7 +893,7 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
         module,
         run_root=tmp_path,
         run_id="2026-03-02_11.00.00",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[
             {"line_index": 1, "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "pred_label": "KNOWLEDGE"},
@@ -964,7 +964,7 @@ def test_build_run_cutdown_writes_new_gzip_artifacts(tmp_path: Path) -> None:
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[
             {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "gold_label": "RECIPE_NOTES", "pred_label": "KNOWLEDGE"},
@@ -1023,7 +1023,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         module,
         run_root=run_root,
         run_id=missing_pred_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1049,7 +1049,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         module,
         run_root=run_root,
         run_id=missing_archive_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1080,7 +1080,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         module,
         run_root=run_root,
         run_id=missing_full_prompt_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
     )
@@ -1119,7 +1119,7 @@ def test_preprocess_trace_outside_span_does_not_borrow_fallback_prompt_row(
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 99, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1162,7 +1162,7 @@ def test_main_process_manifest_includes_new_nested_gzip_paths(tmp_path: Path) ->
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1199,7 +1199,7 @@ def test_main_upload_3_files_only_consolidates_and_preserves_artifacts(tmp_path:
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1275,7 +1275,7 @@ def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> No
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1318,11 +1318,11 @@ def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> No
     assert "- artifact_legend:" in readme
     assert "- sampling_caveat:" in readme
 
-    context_path = Path(__file__).resolve().parents[2] / "docs" / "AI_Context.md"
+    context_path = Path(__file__).resolve().parents[2] / "docs" / "AI_context.md"
     expected_hash = hashlib.sha256(context_path.read_bytes()).hexdigest()
 
     manifest = _read_json(output_dir / "process_manifest.json")
-    assert manifest["project_context_path"] == "docs/AI_Context.md"
+    assert manifest["project_context_path"] == "docs/AI_context.md"
     assert manifest["project_context_digest_included"] is True
     assert manifest["project_context_hash"] == expected_hash
     assert manifest["project_context_title"] != "missing"
@@ -1330,7 +1330,7 @@ def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> No
 
     comparison = _read_json(output_dir / "comparison_summary.json")
     project_context = comparison["project_context"]
-    assert project_context["project_context_path"] == "docs/AI_Context.md"
+    assert project_context["project_context_path"] == "docs/AI_context.md"
     assert project_context["project_context_hash"] == expected_hash
     assert project_context["project_context_title"] == manifest["project_context_title"]
     assert (
@@ -1349,7 +1349,7 @@ def test_main_flattened_summary_includes_project_context_digest(tmp_path: Path) 
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1386,7 +1386,7 @@ def test_main_project_context_metadata_fallback_when_context_missing(tmp_path: P
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1429,7 +1429,7 @@ def test_main_gzip_exports_are_byte_stable_across_repeated_runs(tmp_path: Path) 
         module,
         run_root=run_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
     )
@@ -1492,7 +1492,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[
             {"line_index": 1, "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "pred_label": "KNOWLEDGE"},
@@ -1670,7 +1670,7 @@ def test_main_starter_pack_omits_outside_trace_when_threshold_not_met(tmp_path: 
         module,
         run_root=run_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -1716,8 +1716,8 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
@@ -1766,8 +1766,8 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
@@ -1819,8 +1819,8 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
@@ -1972,9 +1972,9 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     )
     assert (
         codex_settings["llm_recipe_pipeline"]
-        == "codex-farm-single-correction-v1"
+        == "codex-recipe-shard-v1"
     )
-    assert codex_settings["line_role_pipeline"] == "codex-line-role-v1"
+    assert codex_settings["line_role_pipeline"] == "codex-line-role-shard-v1"
     assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
     assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
     assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
@@ -2099,8 +2099,8 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[
             {
                 "line_index": 1,
@@ -2183,7 +2183,7 @@ def test_build_upload_bundle_stage_separated_comparison_scores_recipe_correction
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -2264,7 +2264,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -2309,7 +2309,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     recipe_pipeline_context = index_payload["analysis"]["recipe_pipeline_context"]
     assert recipe_pipeline_context["recipe_topology_key"] == "single_correction"
     assert recipe_pipeline_context["codex_recipe_pipelines"] == [
-        "codex-farm-single-correction-v1"
+        "codex-recipe-shard-v1"
     ]
     assert recipe_pipeline_context["recipe_stages"] == [
         {
@@ -2355,7 +2355,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
         encoding="utf-8"
     )
     assert "## Recipe Pipeline Context" in overview_text
-    assert "codex-farm-single-correction-v1" in overview_text
+    assert "codex-recipe-shard-v1" in overview_text
     assert "Build Intermediate Recipe" in overview_text
     assert "Recipe LLM Correction" in overview_text
     assert "Build Final Recipe" in overview_text
@@ -2364,7 +2364,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     casebook = payload_rows[
         f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/07_casebook.md"
     ]["content_text"]
-    assert "recipe_pipeline_id: codex-farm-single-correction-v1" in str(casebook)
+    assert "recipe_pipeline_id: codex-recipe-shard-v1" in str(casebook)
     assert (
         "recipe_stages: Build Intermediate Recipe, Recipe LLM Correction, Build Final Recipe"
         in str(casebook)
@@ -2383,10 +2383,10 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
-        line_role_pipeline="codex-line-role-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
     )
     codex_run_dir = session_root / run_id
     _write_prediction_run(codex_run_dir, with_extracted_archive=True)
@@ -2435,10 +2435,10 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
-        line_role_pipeline="codex-line-role-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
     )
     codex_run_dir = session_root / run_id
     _write_prediction_run(codex_run_dir, with_extracted_archive=True)
@@ -2486,8 +2486,8 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -2553,8 +2553,8 @@ def test_build_upload_bundle_discovers_current_single_offline_knowledge_layout(
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[
             {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
         ],
@@ -2691,8 +2691,8 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
         module,
         run_root=tmp_path / "single-profile-benchmark" / "book_a",
         run_id="codexfarm",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[],
     )
@@ -2714,24 +2714,44 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
     assert row["stage_key"] == "extract_knowledge_optional"
     assert row["pipeline_id"] == "recipe.knowledge.compact.v1"
     assert row["process_run_id"] == "run-knowledge-reconstruct"
-    assert row["recipe_id"] == "knowledge:c0"
-    assert row["parsed_response"] == {
-        "bundle_version": "1",
-        "chunk_id": "knowledge:c0",
-        "is_useful": True,
-        "block_decisions": [
-            {"block_index": 1, "category": "knowledge"},
-            {"block_index": 2, "category": "other"},
-        ],
-        "snippets": [
-            {
-                "title": "Browning",
-                "body": "Roast until deeply browned.",
-                "tags": ["fixture"],
-                "evidence": [
-                    {"block_index": 1, "quote": "Roast until deeply browned."}
-                ],
+    assert row["recipe_id"] is None
+    assert row["request_input_payload"]["chunks"] == [
+        {
+            "chunk_id": "knowledge:c0",
+            "block_start_index": 1,
+            "block_end_index": 3,
+            "blocks": [
+                {"block_index": 1, "text": "Roast until deeply browned."},
+                {"block_index": 2, "text": "Let the pan stay hot for 2 minutes."},
+            ],
+            "heuristics": {
+                "suggested_lane": "knowledge",
+                "suggested_highlights": [],
             },
+        }
+    ]
+    assert row["parsed_response"] == {
+        "bundle_version": "2",
+        "bundle_id": "knowledge:bundle0",
+        "chunk_results": [
+            {
+                "chunk_id": "knowledge:c0",
+                "is_useful": True,
+                "block_decisions": [
+                    {"block_index": 1, "category": "knowledge"},
+                    {"block_index": 2, "category": "other"},
+                ],
+                "snippets": [
+                    {
+                        "title": "Browning",
+                        "body": "Roast until deeply browned.",
+                        "tags": ["fixture"],
+                        "evidence": [
+                            {"block_index": 1, "quote": "Roast until deeply browned."}
+                        ],
+                    },
+                ],
+            }
         ],
     }
 
@@ -2747,8 +2767,8 @@ def test_build_upload_bundle_high_level_includes_lightweight_knowledge_artifacts
         module,
         run_root=session_root,
         run_id=run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -2808,8 +2828,8 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
         module,
         run_root=single_root,
         run_id="2026-03-04_10.00.00",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=_make_wrong_rows(),
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -2829,8 +2849,8 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
             module,
             run_root=multi_root,
             run_id=f"2026-03-04_10.0{index}.00",
-            llm_recipe_pipeline="codex-farm-single-correction-v1",
-            line_role_pipeline="codex-line-role-v1",
+            llm_recipe_pipeline="codex-recipe-shard-v1",
+            line_role_pipeline="codex-line-role-shard-v1",
             wrong_label_rows=_make_wrong_rows(),
             full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         )
@@ -2966,8 +2986,8 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
             module,
             run_root=session_root,
             run_id=run_id,
-            llm_recipe_pipeline="codex-farm-single-correction-v1",
-            line_role_pipeline="codex-line-role-v1",
+            llm_recipe_pipeline="codex-recipe-shard-v1",
+            line_role_pipeline="codex-line-role-shard-v1",
             wrong_label_rows=[
                 {
                     "line_index": row_index,
@@ -3059,8 +3079,8 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
         module,
         run_root=session_root / "book_a",
         run_id="codexfarm",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_with_runtime(
             duration_values=(100, 200, 300),
@@ -3110,8 +3130,8 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
         module,
         run_root=session_root / "book_b",
         run_id="codexfarm",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
-        line_role_pipeline="codex-line-role-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_with_runtime(
             duration_values=(1000, 2000, 3000),
@@ -3238,7 +3258,7 @@ def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -3287,7 +3307,7 @@ def test_build_upload_bundle_critical_row_locator_coverage_gate(tmp_path: Path) 
         module,
         run_root=session_root,
         run_id=codex_run_id,
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )

@@ -297,7 +297,7 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         codex_execution_policy="plan",
     )
 
@@ -519,7 +519,7 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
         output_dir=output_dir,
         pipeline="fake",
         llm_recipe_pipeline="off",
-        llm_knowledge_pipeline="codex-farm-knowledge-v1",
+        llm_knowledge_pipeline="codex-knowledge-shard-v1",
         codex_execution_policy="plan",
     )
 
@@ -2595,7 +2595,7 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
             updated_conversion_result=updated_result.model_copy(deep=True),
             intermediate_overrides_by_recipe_id={},
             final_overrides_by_recipe_id={},
-            llm_report={"enabled": True, "pipeline": "codex-farm-single-correction-v1"},
+            llm_report={"enabled": True, "pipeline": "codex-recipe-shard-v1"},
         )
 
     authoritative_calls: list[int] = []
@@ -2661,7 +2661,7 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="deterministic-v1",
         allow_codex=True,
         write_label_studio_tasks=False,
@@ -2786,7 +2786,7 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
         path=source,
         output_dir=output_dir,
         pipeline="fake",
-        line_role_pipeline="codex-line-role-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         allow_codex=True,
         split_phase_slots=1,
         write_label_studio_tasks=False,

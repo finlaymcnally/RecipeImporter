@@ -78,7 +78,7 @@ Current semantic recipe stage keys are:
 
 The current public recipe pipeline id is:
 
-- `codex-farm-single-correction-v1`
+- `codex-recipe-shard-v1`
 
 Current recipe flow:
 
@@ -162,9 +162,9 @@ LLM usage is optional and all live Codex-backed surfaces run through CodexFarm.
 
 Current live surfaces:
 
-- `llm_recipe_pipeline`: `off` or `codex-farm-single-correction-v1`
-- `line_role_pipeline`: `off`, `deterministic-v1`, or `codex-line-role-v1`
-- `llm_knowledge_pipeline`: `off` or `codex-farm-knowledge-v1`
+- `llm_recipe_pipeline`: `off` or `codex-recipe-shard-v1`
+- `line_role_pipeline`: `off`, `deterministic-v1`, or `codex-line-role-shard-v1`
+- `llm_knowledge_pipeline`: `off` or `codex-knowledge-shard-v1`
 - freeform prelabel: CodexFarm pipeline `prelabel.freeform.v1`
 
 Default posture is safe/off:

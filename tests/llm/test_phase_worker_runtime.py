@@ -56,7 +56,7 @@ def test_phase_worker_runtime_writes_manifests_assignments_and_failures(
         worker_count=1,
         proposal_validator=_validator,
         settings={"llm_recipe_pipeline": "codex-recipe-shard-v1"},
-        runtime_metadata={"normalized_from": "codex-farm-single-correction-v1"},
+        runtime_metadata={"normalized_from": "codex-recipe-shard-v1"},
     )
 
     assert manifest.worker_count == 1
@@ -226,15 +226,19 @@ def test_phase_worker_runtime_routes_through_runner_workspace_and_codex_home(
     assert isinstance(process_env, dict)
     assert "--workspace-root" in process_command
     assert str(tmp_path / "runtime" / "workers" / "worker-001" / "sandbox") in process_command
+    assert "--workers" in process_command
+    assert process_command[process_command.index("--workers") + 1] == "1"
     assert process_env["CODEX_HOME"] == str(default_home)
     assert process_env["CODEX_FARM_CODEX_HOME_RECIPE"] == str(default_home)
     assert process_env["EXTRA_ENV"] == "1"
 
     assert manifest.worker_count == 1
     assert reports[0].runtime_mode_audit == {
+        "codex_farm_process_workers": 1,
         "mode": "structured_loop_agentic_v1",
         "output_schema_enforced": True,
         "reason_codes": [],
+        "single_process_worker_enforced": True,
         "status": "ok",
         "tool_affordances_requested": False,
     }

@@ -21,13 +21,14 @@ The visible behavior after this plan is complete is that an operator can run wor
 ## Progress
 
 - [x] (2026-03-17_11.55.05) Derived this child plan from the original shard-runtime ExecPlan while keeping the original untouched.
-- [ ] Confirm that the foundation, line-role, recipe, and knowledge child plans have landed or that their runtime artifact schemas are frozen.
-- [ ] Update `cookimport/llm/prompt_preview.py` and `cookimport/llm/prompt_budget.py` to describe worker-and-shard plans instead of prompt-centric bundles.
-- [ ] Add `cf-debug preview-shard-sweep` and its example config so local shard-setting sweeps are easy to run.
-- [ ] Update benchmark `prompts/` export code to preserve reviewer-facing artifacts under the new runtime semantics.
-- [ ] Update `upload_bundle_v1` adaptation and rendering so worker/shard telemetry and prompt/debug references stay coherent.
-- [ ] Remove old prompt-per-bundle runtime ids from active defaults, choices, and docs, leaving only immediate normalization shims where necessary.
-- [ ] Hand off the exact live benchmark commands for final validation outside the agent shell.
+- [x] (2026-03-17_13.23.02) Confirmed from code and tests that the foundation, line-role, recipe, and knowledge shard-runtime plans had already landed and frozen the runtime-artifact family consumed here.
+- [x] (2026-03-17_13.23.02) Reworked `cookimport/llm/prompt_preview.py` and `cookimport/llm/prompt_budget.py` so preview manifests/budget summaries now speak in workers, shards, owned IDs, and first-turn payload distributions while keeping prompt-level reviewer files.
+- [x] (2026-03-17_13.23.02) Added `cf-debug preview-shard-sweep` plus `docs/examples/shard_sweep_examples.json` so local shard-setting sweeps write one comparison manifest and per-experiment preview dirs.
+- [x] (2026-03-17_13.23.02) Updated benchmark `prompts/` export code to annotate prompt rows with `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids` for recipe, knowledge, and line-role surfaces.
+- [x] (2026-03-17_13.23.02) Updated `upload_bundle_v1` adaptation/rendering so normalized recipe-pipeline context now carries `runtime_runs[*].runtime_stages` shard-worker summaries from existing outputs.
+- [x] (2026-03-17_13.39.45) Removed old prompt-per-bundle runtime ids from active defaults/help/examples in CLI/debug surfaces and reviewer docs, then deleted the remaining `RunSettings` normalization aliases so active run-setting inputs are shard-v1-only.
+- [x] (2026-03-17_13.39.45) Ran focused validation plus domain suites: `tests/llm/test_prompt_preview.py`, `tests/bench/test_upload_bundle_v1_existing_output.py`, `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py`, `tests/cli/test_cli_llm_flags.py`, `./scripts/test-suite.sh domain llm`, `./scripts/test-suite.sh domain cli`, `./scripts/test-suite.sh domain labelstudio`, `./scripts/test-suite.sh domain bench`, and `./scripts/test-suite.sh domain analytics`.
+- [x] (2026-03-17_13.23.02) Prepared the exact live benchmark command template below for human-run final validation outside the agent shell.
 
 ## Surprises & Discoveries
 
@@ -36,6 +37,15 @@ The visible behavior after this plan is complete is that an operator can run wor
 
 - Observation: this final plan is cross-cutting by design and should not start too early.
   Evidence: preview, prompt exports, upload bundles, CLI defaults, and live validation all depend on stable runtime artifacts and telemetry from the three phase plans.
+
+- Observation: reviewer prompt files could stay intact through the cutover as long as each prompt row gained explicit shard ownership metadata.
+  Evidence: `prompts/full_prompt_log.jsonl`, `prompt_request_response_log.txt`, and sampled prompt views remained usable after adding `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids` instead of inventing a second reviewer format.
+
+- Observation: upload-bundle context did not need to inline full shard manifests to make runtime legible.
+  Evidence: a compact `runtime_runs[*].runtime_stages` summary on the normalized bundle model was enough to expose worker count, shard count, and owned-ID distributions while keeping the bundle contract stable.
+
+- Observation: the final compatibility seam after the observability pass was not in preview or upload-bundle code, but in `RunSettings` accepting retired pipeline ids.
+  Evidence: `docs/understandings/2026-03-17_13.39.45-burn-the-boats-cutover-needs-strict-pipeline-id-boundaries.md`.
 
 ## Decision Log
 
@@ -47,13 +57,23 @@ The visible behavior after this plan is complete is that an operator can run wor
   Rationale: external review and debugging still need those files; the fix is to make them more honest, not to delete them.
   Date/Author: 2026-03-17 / Codex
 
-- Decision: legacy ids may remain readable only as immediate normalization shims during migration.
-  Rationale: the end state is burn-the-boats. Old runtime ids must not survive as supported parallel branches.
+- Decision: active run-setting surfaces should reject retired recipe, knowledge, and line-role ids instead of normalizing them.
+  Rationale: burn-the-boats is not complete while current commands still accept the old names as valid input, even if they immediately rewrite them.
+  Date/Author: 2026-03-17 / Codex
+
+- Decision: keep prompt-level reviewer artifacts but annotate them with shard-worker ownership metadata instead of replacing them with a shard-only export family.
+  Rationale: reviewers still need the literal prompt/response files, but those files no longer need to pretend each prompt is an independent legacy task.
+  Date/Author: 2026-03-17 / Codex
+
+- Decision: expose upload-bundle shard-worker context as normalized runtime summaries per run instead of copying raw manifests into bundle analysis.
+  Rationale: the normalized model stays compact and reviewer-friendly while still showing the runtime shape honestly.
   Date/Author: 2026-03-17 / Codex
 
 ## Outcomes & Retrospective
 
-Implementation has not started yet. The expected outcome is a repo whose active product surfaces all agree about what the shard-worker runtime is. The final retrospective should record whether reviewers and operators found the worker/shard evidence easier to reason about than the old prompt-count proxies and whether any legacy compatibility shims proved unnecessary.
+This plan is now implemented in code. Preview now writes `phase_plans` and worker/shard-centric budget summaries, prompt exports retain reviewer-friendly files while annotating rows with shard ownership, upload-bundle topology exposes shard-worker summaries through `runtime_runs[*].runtime_stages`, and active CLI/debug/run-setting surfaces no longer accept or advertise the legacy ids.
+
+The remaining human-only step is the live benchmark run outside the agent shell. The code/documentation side of the cutover is complete; the final retrospective question is whether the chosen shard settings deliver the desired benchmark quality/time tradeoff on the motivating books.
 
 ## Context and Orientation
 
@@ -86,7 +106,7 @@ Acceptance for this milestone is a focused test showing those files still exist 
 
 ### Milestone 3: Update upload bundles and remove legacy runtime surfaces
 
-Update `upload_bundle_v1` adaptation and rendering so bundle-local prompt/debug references still resolve and worker/shard telemetry is visible through the normalized bundle model. Then remove old prompt-per-bundle runtime ids from active CLI choices, defaults, preview semantics, and docs, leaving only immediate normalization shims where a saved setting still needs to parse.
+Update `upload_bundle_v1` adaptation and rendering so bundle-local prompt/debug references still resolve and worker/shard telemetry is visible through the normalized bundle model. Then remove old prompt-per-bundle runtime ids from active CLI choices, defaults, preview semantics, docs, and run-setting input handling.
 
 Acceptance for this milestone is a focused test showing bundle-local evidence still resolves plus a code review of settings and CLI surfaces showing no old runtime ids remain as active first-class choices.
 
@@ -239,3 +259,5 @@ During migration, legacy ids may still parse, but they must normalize immediatel
 - `codex-knowledge-shard-v1`
 
 Revision note: this plan was created by splitting the original shard-runtime ExecPlan into a final cross-cutting cutover plan focused on observability, benchmark surfaces, legacy removal, and live validation.
+
+Revision note (2026-03-17_13.23.02): completed the observability/removal implementation pass by making preview worker/shard-centric, adding `preview-shard-sweep`, annotating prompt exports with shard ownership, surfacing runtime summaries in upload-bundle context, removing active legacy ids from CLI/debug surfaces, and recording the validation commands/results.

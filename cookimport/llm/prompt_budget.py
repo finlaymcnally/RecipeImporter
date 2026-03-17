@@ -112,6 +112,7 @@ def build_prompt_preview_budget_summary(
     *,
     prompt_rows: list[Mapping[str, Any]],
     preview_dir: Path,
+    phase_plans: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     by_stage: dict[str, dict[str, Any]] = {}
     for row in prompt_rows:
@@ -127,6 +128,15 @@ def build_prompt_preview_budget_summary(
                 "stage_label": _PREVIEW_STAGE_LABELS.get(stage_key, stage_key.replace("_", " ").title()),
                 "kind": "preview",
                 "call_count": 0,
+                "interaction_count": 0,
+                "worker_count": 0,
+                "fresh_agent_count": 0,
+                "shard_count": 0,
+                "owned_id_count": 0,
+                "shards_per_worker": {"count": 0, "min": 0, "max": 0, "avg": 0.0},
+                "owned_ids_per_shard": {"count": 0, "min": 0, "max": 0, "avg": 0.0},
+                "first_turn_payload_chars": {"count": 0, "min": 0, "max": 0, "avg": 0.0},
+                "task_payload_chars": {"count": 0, "min": 0, "max": 0, "avg": 0.0},
                 "task_prompt_chars_total": 0,
                 "task_prompt_chars_avg": 0,
                 "prompt_chars_total": 0,
@@ -175,6 +185,32 @@ def build_prompt_preview_budget_summary(
         payload["estimated_input_tokens"] = estimated_input_tokens
         payload["estimated_output_tokens"] = estimated_output_tokens
         payload["estimated_total_tokens"] = estimated_input_tokens + estimated_output_tokens
+        if isinstance(phase_plans, Mapping):
+            phase_plan = phase_plans.get(stage_key)
+            if isinstance(phase_plan, Mapping):
+                payload["interaction_count"] = _nonnegative_int(
+                    phase_plan.get("interaction_count")
+                ) or call_count
+                payload["worker_count"] = _nonnegative_int(phase_plan.get("worker_count")) or 0
+                payload["fresh_agent_count"] = (
+                    _nonnegative_int(phase_plan.get("fresh_agent_count")) or 0
+                )
+                payload["shard_count"] = _nonnegative_int(phase_plan.get("shard_count")) or call_count
+                payload["owned_id_count"] = _nonnegative_int(phase_plan.get("owned_id_count")) or 0
+                for key in (
+                    "shards_per_worker",
+                    "owned_ids_per_shard",
+                    "first_turn_payload_chars",
+                    "task_payload_chars",
+                ):
+                    distribution = phase_plan.get(key)
+                    if isinstance(distribution, Mapping):
+                        payload[key] = {
+                            "count": int(_nonnegative_int(distribution.get("count")) or 0),
+                            "min": int(_nonnegative_int(distribution.get("min")) or 0),
+                            "max": int(_nonnegative_int(distribution.get("max")) or 0),
+                            "avg": float(distribution.get("avg") or 0.0),
+                        }
         totals["call_count"] += call_count
         totals["task_prompt_chars_total"] += task_prompt_chars_total
         totals["prompt_chars_total"] += prompt_chars_total
@@ -196,7 +232,7 @@ def build_prompt_preview_budget_summary(
     )
 
     return {
-        "schema_version": "prompt_preview_budget_summary.v1",
+        "schema_version": "prompt_preview_budget_summary.v2",
         "preview_dir": str(preview_dir),
         "estimation_method": {
             "type": "heuristic_char_based",
@@ -504,11 +540,11 @@ def _build_prompt_preview_budget_warnings(
                     "severity": "danger" if recipe_calls >= 200 else "warning",
                     "code": "recipe_fanout_high",
                     "message": (
-                        f"Recipe correction fan-out is very high: {recipe_calls} prompts "
-                        f"({recipe_chars:,} rendered chars) before any model output."
-                    ),
-                }
-            )
+                    f"Recipe correction fan-out is very high: {recipe_calls} shard interactions "
+                    f"({recipe_chars:,} rendered chars) before any model output."
+                ),
+            }
+        )
 
     knowledge_stage = by_stage.get("extract_knowledge_optional")
     if isinstance(knowledge_stage, Mapping):
@@ -518,7 +554,7 @@ def _build_prompt_preview_budget_warnings(
                 {
                     "severity": "warning",
                     "code": "knowledge_fanout_high",
-                    "message": f"Knowledge extraction fan-out is high: {knowledge_calls} prompts.",
+                    "message": f"Knowledge extraction fan-out is high: {knowledge_calls} shard interactions.",
                 }
             )
     return warnings
@@ -536,7 +572,7 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
             f"- Estimated total tokens: `~{int(_nonnegative_int(totals.get('estimated_total_tokens')) or 0):,}` "
             "(heuristic)"
         ),
-        f"- Total calls: `{int(_nonnegative_int(totals.get('call_count')) or 0):,}`",
+        f"- Total interactions: `{int(_nonnegative_int(totals.get('call_count')) or 0):,}`",
         f"- Task prompt chars: `{int(_nonnegative_int(totals.get('task_prompt_chars_total')) or 0):,}`",
         f"- Rendered prompt chars: `{int(_nonnegative_int(totals.get('prompt_chars_total')) or 0):,}`",
         (
@@ -558,7 +594,7 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
     lines.append("## By Stage")
     lines.append("")
     lines.append(
-        "| Stage | Calls | Task Chars | Wrapped Chars | Overhead Chars | Est. Input Tokens | Est. Total Tokens |"
+        "| Stage | Workers | Shards | Interactions | Owned IDs / Shard | First-Turn Chars / Shard | Est. Total Tokens |"
     )
     lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
     by_stage = summary.get("by_stage")
@@ -566,15 +602,40 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
         for stage_key, payload in by_stage.items():
             if not isinstance(payload, Mapping):
                 continue
+            owned_ids_per_shard = payload.get("owned_ids_per_shard")
+            first_turn_chars = payload.get("first_turn_payload_chars")
+            if not isinstance(owned_ids_per_shard, Mapping):
+                owned_ids_per_shard = {}
+            if not isinstance(first_turn_chars, Mapping):
+                first_turn_chars = {}
             lines.append(
                 "| "
                 + f"{str(payload.get('stage_label') or stage_key)} | "
-                + f"{int(_nonnegative_int(payload.get('call_count')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('worker_count')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('shard_count')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('interaction_count')) or _nonnegative_int(payload.get('call_count')) or 0):,} | "
+                + f"{float(owned_ids_per_shard.get('avg') or 0.0):.2f} | "
+                + f"{float(first_turn_chars.get('avg') or 0.0):.1f} | "
+                + f"{int(_nonnegative_int(payload.get('estimated_total_tokens')) or 0):,} |"
+            )
+    lines.append("")
+    lines.append("## Prompt Detail")
+    lines.append("")
+    lines.append(
+        "| Stage | Task Chars | Wrapped Chars | Overhead Chars | Est. Input Tokens |"
+    )
+    lines.append("| --- | ---: | ---: | ---: | ---: |")
+    if isinstance(by_stage, Mapping):
+        for stage_key, payload in by_stage.items():
+            if not isinstance(payload, Mapping):
+                continue
+            lines.append(
+                "| "
+                + f"{str(payload.get('stage_label') or stage_key)} | "
                 + f"{int(_nonnegative_int(payload.get('task_prompt_chars_total')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('prompt_chars_total')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('transport_overhead_chars_total')) or 0):,} | "
-                + f"{int(_nonnegative_int(payload.get('estimated_input_tokens')) or 0):,} | "
-                + f"{int(_nonnegative_int(payload.get('estimated_total_tokens')) or 0):,} |"
+                + f"{int(_nonnegative_int(payload.get('estimated_input_tokens')) or 0):,} |"
             )
     lines.append("")
     lines.append(

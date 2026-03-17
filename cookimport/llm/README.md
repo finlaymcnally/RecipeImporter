@@ -4,6 +4,7 @@ Optional LLM integrations live here.
 
 Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with strict contracts in `codex_farm_contracts.py` and subprocess/fake runners in `codex_farm_runner.py` and `fake_codex_farm_runner.py`.
 The shared shard-runtime foundation now lives in `phase_worker_runtime.py`: it writes phase/shard manifests, round-robin worker assignments, per-worker sandboxes, per-shard proposed outputs, promotion summaries, and telemetry without promoting anything itself.
+When that shard runtime calls the subprocess runner in `structured_loop_agentic_v1` mode, RecipeImport now also forces `codex-farm process --workers 1` so each RecipeImport worker assignment maps to one CodexFarm process worker. That fixes misleading worker-count fan-out, but it is still not the same thing as true multi-shard Codex session reuse.
 
 Run settings now include shard-v1 pipeline ids plus optional shard worker/size/turn knobs, and they normalize legacy recipe/knowledge/line-role ids onto the shard-v1 names centrally.
 Run settings also include the optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.

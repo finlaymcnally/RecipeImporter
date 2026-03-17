@@ -95,9 +95,9 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
         if isinstance(rows, list) and rows:
             row = dict(rows[0])
             row["enabled"] = enabled
-            row["pipeline"] = "codex-farm-knowledge-v1"
+            row["pipeline"] = "codex-knowledge-shard-v1"
             row["pipeline_id"] = "recipe.knowledge.compact.v1"
-            row["llm_knowledge_pipeline"] = "codex-farm-knowledge-v1"
+            row["llm_knowledge_pipeline"] = "codex-knowledge-shard-v1"
             row["knowledge_call_count"] = 1
             row["knowledge_token_total"] = 1234
             row["prompt_knowledge_status"] = "written"

@@ -558,7 +558,7 @@ def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_
     golden_root = tmp_path / "golden"
     selected_benchmark_settings = cli.RunSettings.from_dict(
         {
-            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "codex_farm_model": "gpt-5.3-codex-spark",
             "codex_farm_reasoning_effort": "low",
         },
@@ -595,7 +595,7 @@ def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_
     assert len(helper_calls) == 1
     selected_settings = helper_calls[0]["selected_benchmark_settings"]
     assert isinstance(selected_settings, cli.RunSettings)
-    assert selected_settings.llm_recipe_pipeline.value == "codex-farm-single-correction-v1"
+    assert selected_settings.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
     assert str(selected_settings.codex_farm_model) == "gpt-5.3-codex-spark"
     assert selected_settings.codex_farm_reasoning_effort is not None
     assert selected_settings.codex_farm_reasoning_effort.value == "low"

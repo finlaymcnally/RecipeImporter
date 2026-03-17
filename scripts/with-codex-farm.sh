@@ -7,7 +7,7 @@ Usage: scripts/with-codex-farm.sh <command> [args...]
 
 Runs one command with COOKIMPORT_ALLOW_CODEX_FARM=1 for this process only.
 Example:
-  scripts/with-codex-farm.sh cookimport stage ./book.epub --llm-recipe-pipeline codex-farm-single-correction-v1
+  scripts/with-codex-farm.sh cookimport stage ./book.epub --llm-recipe-pipeline codex-recipe-shard-v1
 USAGE
   exit 2
 fi
