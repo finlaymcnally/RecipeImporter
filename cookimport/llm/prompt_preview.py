@@ -48,6 +48,7 @@ _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
 _DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 3
 _DEFAULT_KNOWLEDGE_SHARD_TARGET_CHUNKS = 12
+_DEFAULT_PREVIEW_ESTIMATION_MODE = "predictive"
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,7 @@ def write_prompt_preview_for_existing_run(
     line_role_worker_count: int | None = None,
     line_role_prompt_target_count: int | None = None,
     line_role_shard_target_lines: int | None = None,
+    estimation_mode: str = _DEFAULT_PREVIEW_ESTIMATION_MODE,
 ) -> Path:
     context = _load_existing_run_preview_context(run_path=run_path)
     prompts_dir = out_dir / "prompts"
@@ -239,13 +241,18 @@ def write_prompt_preview_for_existing_run(
         output_path=prompts_dir / "prompt_type_samples_from_full_prompt_log.md",
         examples_per_pass=3,
     )
+    normalized_estimation_mode = _normalize_preview_estimation_mode(estimation_mode)
     budget_summary = build_prompt_preview_budget_summary(
         prompt_rows=rows,
         preview_dir=out_dir,
         phase_plans=stage_plans,
-        live_stage_summaries=load_prompt_preview_live_stage_summaries(
-            processed_run_dir=context.processed_run_dir,
-            workbook_slug=context.workbook_slug,
+        live_stage_summaries=(
+            load_prompt_preview_live_stage_summaries(
+                processed_run_dir=context.processed_run_dir,
+                workbook_slug=context.workbook_slug,
+            )
+            if normalized_estimation_mode == "observed"
+            else {}
         ),
         stage_calibrations=(
             load_prompt_preview_stage_calibrations(repo_root=repo_root)
@@ -255,6 +262,7 @@ def write_prompt_preview_for_existing_run(
             )
             else {}
         ),
+        estimation_mode=normalized_estimation_mode,
     )
     budget_json_path, budget_md_path = write_prompt_preview_budget_summary(
         out_dir,
@@ -279,6 +287,7 @@ def write_prompt_preview_for_existing_run(
         "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
         "atomic_block_splitter": atomic_block_splitter,
         "preview_settings": {
+            "estimation_mode": normalized_estimation_mode,
             "recipe_worker_count": recipe_worker_count,
             "recipe_prompt_target_count": resolved_recipe_prompt_target_count,
             "recipe_shard_target_recipes": recipe_shard_target_recipes,
@@ -308,6 +317,15 @@ def write_prompt_preview_for_existing_run(
         encoding="utf-8",
     )
     return manifest_path
+
+
+def _normalize_preview_estimation_mode(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "predictive"}:
+        return "predictive"
+    if normalized in {"observed", "from-run", "live"}:
+        return "observed"
+    raise ValueError("preview estimation_mode must be 'predictive' or 'observed'")
 
 
 def _load_existing_run_preview_context(*, run_path: Path) -> ExistingRunPreviewContext:

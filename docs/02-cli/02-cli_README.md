@@ -30,7 +30,7 @@ Behavior differences:
   - `request-template`: create a manifest you can fill with the web AI's asks.
   - `build-followup`: answer that manifest into a new `followup_dataN/` folder that assumes the requester already has `upload_bundle_v1`.
   - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
-  - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing processed run or benchmark run root.
+  - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing processed run or benchmark run root. Budget mode defaults to predictive; use `--estimation-mode observed` only for retrospective cost recovery on an already-finished run.
   - `preview-shard-sweep`: run several local worker/shard preview variants from one existing run root and compare them side by side.
   - knowledge follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-knowledge-source-key` or `--include-knowledge-output-subdir`, and `audit-knowledge` / `pack` / `build-followup` can emit `knowledge_audit.jsonl` plus knowledge artifact references.
 - `import` / `C3import`:

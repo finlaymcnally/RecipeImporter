@@ -305,6 +305,11 @@ def preview_prompts(
         "--line-role-prompt-target-count",
         min=1,
     ),
+    estimation_mode: str = typer.Option(
+        "predictive",
+        "--estimation-mode",
+        help="Budget mode: predictive ignores exact live telemetry for the selected run; observed reuses it.",
+    ),
     line_role_shard_target_lines: int | None = typer.Option(
         None,
         "--line-role-shard-target-lines",
@@ -333,6 +338,7 @@ def preview_prompts(
         line_role_worker_count=line_role_worker_count,
         line_role_prompt_target_count=line_role_prompt_target_count,
         line_role_shard_target_lines=line_role_shard_target_lines,
+        estimation_mode=estimation_mode,
     )
     try:
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))

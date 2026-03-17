@@ -17,6 +17,41 @@ _PREVIEW_STAGE_LABELS = {
     "extract_knowledge_optional": "Knowledge Harvest",
     "line_role": "Line Role",
 }
+_PREDICTIVE_STAGE_MODELS: dict[str, dict[str, Any]] = {
+    "recipe_llm_correct_and_link": {
+        "stage": "recipe_llm_correct_and_link",
+        "source": "repo_calibrated_vanilla_to_codex_benchmark",
+        "benchmark_ref": "2026-03-17_16.06.55/single-offline-benchmark/saltfatacidheatcutdown",
+        "input_tokens_per_request_char": 1.056321,
+        "output_tokens_per_request_char": 0.171744,
+        "total_tokens_per_request_char": 1.228065,
+        "cached_input_share": 0.480193,
+        "total_tokens_per_request_char_low": 1.044,
+        "total_tokens_per_request_char_high": 1.412,
+    },
+    "extract_knowledge_optional": {
+        "stage": "extract_knowledge_optional",
+        "source": "repo_calibrated_vanilla_to_codex_benchmark",
+        "benchmark_ref": "2026-03-17_16.06.55/single-offline-benchmark/saltfatacidheatcutdown",
+        "input_tokens_per_request_char": 1.949124,
+        "output_tokens_per_request_char": 0.168638,
+        "total_tokens_per_request_char": 2.117762,
+        "cached_input_share": 0.722900,
+        "total_tokens_per_request_char_low": 1.800,
+        "total_tokens_per_request_char_high": 2.435,
+    },
+    "line_role": {
+        "stage": "line_role",
+        "source": "repo_calibrated_vanilla_to_codex_benchmark",
+        "benchmark_ref": "2026-03-17_16.06.55/single-offline-benchmark/saltfatacidheatcutdown",
+        "input_tokens_per_request_char": 4.027269,
+        "output_tokens_per_request_char": 0.145910,
+        "total_tokens_per_request_char": 4.173179,
+        "cached_input_share": 0.841418,
+        "total_tokens_per_request_char_low": 3.547,
+        "total_tokens_per_request_char_high": 4.799,
+    },
+}
 
 
 def build_prediction_run_prompt_budget_summary(
@@ -128,12 +163,14 @@ def build_prompt_preview_budget_summary(
     preview_dir: Path,
     phase_plans: Mapping[str, Mapping[str, Any]] | None = None,
     live_stage_summaries: Mapping[str, Mapping[str, Any]] | None = None,
-    stage_calibrations: Mapping[str, Mapping[str, Any]] | None = None,
+    predictive_stage_models: Mapping[str, Mapping[str, Any]] | None = None,
+    estimation_mode: str = "predictive",
 ) -> dict[str, Any]:
     by_stage: dict[str, dict[str, Any]] = {}
     live_telemetry_used = False
     historical_calibration_used = False
     unavailable_stage_count = 0
+    normalized_estimation_mode = str(estimation_mode or "predictive").strip().lower() or "predictive"
     for row in prompt_rows:
         stage_key = str(row.get("stage_key") or "").strip()
         if not stage_key:
@@ -213,7 +250,7 @@ def build_prompt_preview_budget_summary(
         payload["prompt_chars_avg"] = int(round(prompt_chars_total / call_count)) if call_count > 0 else 0
         live_stage = (
             live_stage_summaries.get(stage_key)
-            if isinstance(live_stage_summaries, Mapping)
+            if normalized_estimation_mode == "observed" and isinstance(live_stage_summaries, Mapping)
             else None
         )
         if isinstance(live_stage, Mapping):
@@ -250,8 +287,8 @@ def build_prompt_preview_budget_summary(
                 )
             else:
                 calibration = (
-                    stage_calibrations.get(stage_key)
-                    if isinstance(stage_calibrations, Mapping)
+                    predictive_stage_models.get(stage_key)
+                    if isinstance(predictive_stage_models, Mapping)
                     else None
                 )
                 if isinstance(calibration, Mapping):
@@ -316,8 +353,8 @@ def build_prompt_preview_budget_summary(
                         payload["estimation_basis"] = "unavailable"
         else:
             calibration = (
-                stage_calibrations.get(stage_key)
-                if isinstance(stage_calibrations, Mapping)
+                predictive_stage_models.get(stage_key)
+                if isinstance(predictive_stage_models, Mapping)
                 else None
             )
             if isinstance(calibration, Mapping):
@@ -453,25 +490,26 @@ def build_prompt_preview_budget_summary(
         "preview_dir": str(preview_dir),
         "estimation_method": {
             "type": (
-                "live_telemetry_or_historical_calibration"
-                if live_telemetry_used
-                else (
-                    "historical_calibration_only"
+                    "observed_live_telemetry"
+                    if live_telemetry_used
+                    else (
+                    "predictive_stage_model"
                     if historical_calibration_used
                     else "no_token_estimate_available"
                 )
             ),
+            "mode": normalized_estimation_mode,
             "unavailable_stage_count": unavailable_stage_count,
             "notes": [
                 (
-                    "When matching stage telemetry exists under the processed output run, preview prefers "
-                    "those observed stage token totals."
+                    "Observed mode can reuse exact stage telemetry from a completed processed run, "
+                    "but predictive mode intentionally ignores exact live telemetry."
                 ),
                 (
-                    "Without matching live telemetry, preview can calibrate stage estimates from prior "
-                    "Codex runtime rows found under local data/output artifacts."
+                    "Predictive estimates use repo-owned stage models calibrated from a paired vanilla-to-Codex benchmark, "
+                    "applied to the selected run's vanilla-shaped prompt payloads."
                 ),
-                "Stages without usable live telemetry or historical calibration are reported as unavailable instead of guessed from prompt text length.",
+                "Stages without usable calibration are reported as unavailable instead of guessed from prompt text length.",
                 "Warnings are intentionally blunt and also consider raw prompt chars plus call counts, not only token estimates.",
             ],
         },
@@ -851,6 +889,7 @@ def _build_prompt_preview_budget_warnings(
 
     total_calls = _nonnegative_int(totals.get("call_count")) or 0
     total_prompt_chars = _nonnegative_int(totals.get("prompt_chars_total")) or 0
+    total_request_chars = _nonnegative_int(totals.get("estimated_request_chars_total")) or 0
     total_estimated_tokens = _nonnegative_int(totals.get("estimated_total_tokens"))
     unavailable_stages = [
         str(payload.get("stage_label") or stage_key)
@@ -873,13 +912,19 @@ def _build_prompt_preview_budget_warnings(
         total_estimated_tokens_value = 0
     else:
         total_estimated_tokens_value = total_estimated_tokens
-    if total_calls >= 200 or total_prompt_chars >= 1_500_000 or total_estimated_tokens_value >= 500_000:
+    if (
+        total_calls >= 200
+        or total_prompt_chars >= 1_500_000
+        or total_request_chars >= 1_500_000
+        or total_estimated_tokens_value >= 500_000
+    ):
         warnings.append(
             {
                 "severity": "danger",
                 "code": "extreme_prompt_budget",
                 "message": (
                     f"EXTREME prompt budget: {total_calls} calls, {total_prompt_chars:,} rendered prompt chars, "
+                    f"{total_request_chars:,} estimated request chars, "
                     + (
                         f"~{total_estimated_tokens_value:,} estimated total tokens. "
                         if total_estimated_tokens is not None
@@ -889,13 +934,19 @@ def _build_prompt_preview_budget_warnings(
                 ),
             }
         )
-    elif total_calls >= 100 or total_prompt_chars >= 750_000 or total_estimated_tokens_value >= 250_000:
+    elif (
+        total_calls >= 100
+        or total_prompt_chars >= 750_000
+        or total_request_chars >= 750_000
+        or total_estimated_tokens_value >= 250_000
+    ):
         warnings.append(
             {
                 "severity": "warning",
                 "code": "high_prompt_budget",
                 "message": (
                     f"High prompt budget: {total_calls} calls, {total_prompt_chars:,} rendered prompt chars, "
+                    f"{total_request_chars:,} estimated request chars, "
                     + (
                         f"~{total_estimated_tokens_value:,} estimated total tokens."
                         if total_estimated_tokens is not None
@@ -944,11 +995,11 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
         estimation_method = {}
     estimation_type = str(estimation_method.get("type") or "no_token_estimate_available").strip()
     headline_suffix = (
-        "prefers live telemetry when available"
-        if estimation_type == "live_telemetry_or_historical_calibration"
+        "observed live telemetry"
+        if estimation_type == "observed_live_telemetry"
         else (
-            "uses historical calibration"
-            if estimation_type == "historical_calibration_only"
+            "predictive historical calibration"
+            if estimation_type == "predictive_historical_calibration"
             else "no estimate available"
         )
     )
@@ -1057,17 +1108,17 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
                 + " |"
             )
     lines.append("")
-    if estimation_type == "live_telemetry_or_historical_calibration":
+    if estimation_type == "observed_live_telemetry":
         lines.append(
-            "_Estimated tokens prefer live stage telemetry when that exact run already has Codex outputs on disk; stages without exact live telemetry may use stage-specific historical calibration._"
+            "_Estimated tokens reuse exact live stage telemetry from the completed processed run when available; this is retrospective, not predictive._"
         )
-    elif estimation_type == "historical_calibration_only":
+    elif estimation_type == "predictive_stage_model":
         lines.append(
-            "_Estimated tokens use stage-specific calibration from prior Codex runtime rows found under local `data/output` artifacts when available; the range column reflects the observed low/high spread of that calibration._"
+            "_Estimated tokens are predictive: they ignore exact live telemetry for the selected run, derive workload shape from the selected run's vanilla-style processed output, and apply repo-owned stage models calibrated from a paired vanilla-to-Codex benchmark; the range column reflects the baked-in uncertainty band for each stage model._"
         )
     else:
         lines.append(
-            "_No token estimate is shown because this preview had neither exact live telemetry nor historical stage calibration to ground the numbers._"
+            "_No predictive token estimate is shown because this preview had no usable stage calibration to ground the numbers._"
         )
     return "\n".join(lines) + "\n"
 
@@ -1104,138 +1155,10 @@ def load_prompt_preview_live_stage_summaries(
 
 
 def load_prompt_preview_stage_calibrations(*, repo_root: Path) -> dict[str, dict[str, Any]]:
-    output_root = repo_root / "data" / "output"
-    if not output_root.is_dir():
-        return {}
-
-    rows_by_stage: dict[str, list[dict[str, float | str]]] = {}
-    for status_path in sorted(output_root.glob("**/recipe_phase_runtime/workers/*/status.json")):
-        _collect_status_rows_for_calibration(
-            stage_key="recipe_llm_correct_and_link",
-            status_path=status_path,
-            rows_by_stage=rows_by_stage,
-        )
-    for status_path in sorted(output_root.glob("**/knowledge/workers/*/status.json")):
-        _collect_status_rows_for_calibration(
-            stage_key="extract_knowledge_optional",
-            status_path=status_path,
-            rows_by_stage=rows_by_stage,
-        )
-    for status_path in sorted(output_root.glob("**/line-role-pipeline/runtime/workers/*/status.json")):
-        _collect_status_rows_for_calibration(
-            stage_key="line_role",
-            status_path=status_path,
-            rows_by_stage=rows_by_stage,
-        )
-
-    calibrations: dict[str, dict[str, Any]] = {}
-    for stage_key, rows in rows_by_stage.items():
-        calibration = _build_stage_calibration(stage_key=stage_key, rows=rows)
-        if calibration is not None:
-            calibrations[stage_key] = calibration
-    return calibrations
-
-
-def _collect_status_rows_for_calibration(
-    *,
-    stage_key: str,
-    status_path: Path,
-    rows_by_stage: dict[str, list[dict[str, float | str]]],
-) -> None:
-    try:
-        payload = json.loads(status_path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return
-    telemetry = payload.get("telemetry")
-    if not isinstance(telemetry, Mapping):
-        return
-    rows = telemetry.get("rows")
-    if not isinstance(rows, list):
-        return
-    stage_rows = rows_by_stage.setdefault(stage_key, [])
-    run_key = str(status_path.parent.parent.parent.resolve(strict=False))
-    for row in rows:
-        if not isinstance(row, Mapping):
-            continue
-        prompt_chars = _nonnegative_int(row.get("prompt_chars"))
-        input_path_raw = str(row.get("input_path") or "").strip()
-        if prompt_chars is None or not input_path_raw:
-            continue
-        input_path = Path(input_path_raw)
-        if not input_path.is_file():
-            continue
-        try:
-            input_chars = len(input_path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            continue
-        request_chars = prompt_chars + input_chars
-        tokens_input = _nonnegative_int(row.get("tokens_input"))
-        tokens_cached_input = _nonnegative_int(row.get("tokens_cached_input"))
-        tokens_output = _nonnegative_int(row.get("tokens_output"))
-        tokens_total = _nonnegative_int(row.get("tokens_total"))
-        if request_chars <= 0 or tokens_input is None or tokens_total is None:
-            continue
-        stage_rows.append(
-            {
-                "run_key": run_key,
-                "request_chars": float(request_chars),
-                "tokens_input": float(tokens_input),
-                "tokens_cached_input": float(tokens_cached_input or 0),
-                "tokens_output": float(tokens_output or 0),
-                "tokens_total": float(tokens_total),
-            }
-        )
-
-
-def _build_stage_calibration(
-    *,
-    stage_key: str,
-    rows: list[dict[str, float | str]],
-) -> dict[str, Any] | None:
-    if not rows:
-        return None
-    request_chars_total = sum(float(row["request_chars"]) for row in rows)
-    if request_chars_total <= 0:
-        return None
-    input_tokens_total = sum(float(row["tokens_input"]) for row in rows)
-    output_tokens_total = sum(float(row["tokens_output"]) for row in rows)
-    cached_tokens_total = sum(float(row["tokens_cached_input"]) for row in rows)
-    total_tokens_total = sum(float(row["tokens_total"]) for row in rows)
-    totals_by_run: dict[str, dict[str, float]] = {}
-    for row in rows:
-        run_key = str(row.get("run_key") or "unknown")
-        payload = totals_by_run.setdefault(
-            run_key,
-            {
-                "request_chars": 0.0,
-                "tokens_total": 0.0,
-            },
-        )
-        payload["request_chars"] += float(row["request_chars"])
-        payload["tokens_total"] += float(row["tokens_total"])
-    total_ratios = [
-        payload["tokens_total"] / payload["request_chars"]
-        for payload in totals_by_run.values()
-        if payload["request_chars"] > 0
-    ]
-    if not total_ratios:
-        total_ratios = [
-            float(row["tokens_total"]) / float(row["request_chars"])
-            for row in rows
-            if float(row["request_chars"]) > 0
-        ]
+    del repo_root
     return {
-        "stage": stage_key,
-        "sample_count": len(rows),
-        "run_count": len(totals_by_run),
-        "input_tokens_per_request_char": input_tokens_total / request_chars_total,
-        "output_tokens_per_request_char": output_tokens_total / request_chars_total,
-        "total_tokens_per_request_char": total_tokens_total / request_chars_total,
-        "total_tokens_per_request_char_low": min(total_ratios),
-        "total_tokens_per_request_char_high": max(total_ratios),
-        "cached_input_share": (
-            cached_tokens_total / input_tokens_total if input_tokens_total > 0 else 0.0
-        ),
+        stage_key: dict(payload)
+        for stage_key, payload in _PREDICTIVE_STAGE_MODELS.items()
     }
 
 

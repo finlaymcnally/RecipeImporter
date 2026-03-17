@@ -208,15 +208,6 @@ _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
 _LINE_ROLE_CODEX_FARM_DEFAULT_CMD = "codex-farm"
 LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT = 240
-_SYNTAX_OWNED_LABELS = {
-    "RECIPE_TITLE",
-    "TIME_LINE",
-    "YIELD_LINE",
-    "RECIPE_NOTES",
-    "HOWTO_SECTION",
-    "INGREDIENT_LINE",
-}
-
 
 class CanonicalLineRolePrediction(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -288,8 +279,6 @@ def _apply_prediction_decision_metadata(
             and baseline_label != label
         ):
             reasons.append("codex_disagreed_with_rule")
-    if _prediction_has_reason_tag(prediction, "ownership_veto"):
-        reasons.append("ownership_veto")
     if _prediction_has_reason_tag(prediction, "sanitized_"):
         reasons.append("sanitized_label_adjustment")
 
@@ -443,12 +432,6 @@ def _label_atomic_lines_internal(
         )
         sanitized_current = _sanitize_prediction(
             prediction=current,
-            candidate=candidate,
-            by_atomic_index=by_atomic_index,
-        )
-        sanitized_current = _apply_label_ownership_arbitration(
-            prediction=sanitized_current,
-            baseline_prediction=sanitized_baseline,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
         )

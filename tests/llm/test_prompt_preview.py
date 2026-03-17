@@ -406,6 +406,7 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
         run_path=run_dir,
         out_dir=out_dir,
         repo_root=REPO_ROOT,
+        estimation_mode="observed",
     )
 
     copied_recipe_input = (
@@ -553,12 +554,14 @@ def test_prompt_preview_budget_prefers_live_stage_telemetry_when_available(
         run_path=run_dir,
         out_dir=out_dir,
         repo_root=REPO_ROOT,
+        estimation_mode="observed",
     )
 
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert budget_summary["estimation_method"]["type"] == "live_telemetry_or_historical_calibration"
+    assert budget_summary["estimation_method"]["type"] == "observed_live_telemetry"
+    assert budget_summary["estimation_method"]["mode"] == "observed"
     assert budget_summary["totals"]["estimated_cached_input_tokens"] == 95
     assert budget_summary["totals"]["estimated_input_tokens"] == 950
     assert budget_summary["totals"]["estimated_output_tokens"] == 135
@@ -586,7 +589,7 @@ def test_prompt_preview_budget_prefers_live_stage_telemetry_when_available(
     assert line_role_budget["estimated_total_tokens"] == 560
 
     budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
-    assert "prefers live telemetry when available" in budget_summary_md
+    assert "retrospective, not predictive" in budget_summary_md
     assert "live_telemetry" in budget_summary_md
 
 
@@ -617,7 +620,8 @@ def test_prompt_preview_budget_uses_historical_calibration_when_live_missing() -
         },
     )
 
-    assert summary["estimation_method"]["type"] == "historical_calibration_only"
+    assert summary["estimation_method"]["type"] == "predictive_historical_calibration"
+    assert summary["estimation_method"]["mode"] == "predictive"
     line_role = summary["by_stage"]["line_role"]
     assert line_role["estimation_basis"] == "historical_calibration"
     assert line_role["estimated_input_tokens"] == 4028
@@ -626,6 +630,45 @@ def test_prompt_preview_budget_uses_historical_calibration_when_live_missing() -
     assert line_role["estimated_total_tokens"] == 4229
     assert line_role["estimated_total_tokens_low"] == 3524
     assert line_role["estimated_total_tokens_high"] == 5136
+
+
+def test_prompt_preview_default_mode_ignores_exact_live_telemetry(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    workbook_slug = "fixturebook"
+
+    _write_worker_status(
+        run_dir
+        / "raw"
+        / "llm"
+        / workbook_slug
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "status.json",
+        {
+            "tokens_input": 250,
+            "tokens_cached_input": 25,
+            "tokens_output": 45,
+            "tokens_total": 295,
+        },
+    )
+
+    out_dir = tmp_path / "preview"
+    write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+        llm_knowledge_pipeline="off",
+        line_role_pipeline="off",
+    )
+
+    budget_summary = json.loads(
+        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    )
+    assert budget_summary["estimation_method"]["mode"] == "predictive"
+    recipe_budget = budget_summary["by_stage"]["recipe_llm_correct_and_link"]
+    assert recipe_budget["estimation_basis"] == "unavailable"
+    assert recipe_budget["estimated_total_tokens"] is None
 
 
 def test_prompt_preview_budget_reports_unavailable_without_live_or_calibration() -> None:
@@ -697,7 +740,7 @@ def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> 
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     warning_messages = [warning["message"] for warning in manifest["warnings"]]
-    assert any("EXTREME prompt budget:" in message for message in warning_messages)
+    assert any("Token estimate unavailable for:" in message for message in warning_messages)
 
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
@@ -705,9 +748,12 @@ def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> 
     assert budget_summary["totals"]["call_count"] == 5
     assert budget_summary["totals"]["estimated_request_chars_total"] > 1_500_000
     assert any(
+        warning["code"] == "token_estimate_unavailable" for warning in budget_summary["warnings"]
+    )
+    assert any(
         warning["code"] == "extreme_prompt_budget" for warning in budget_summary["warnings"]
     )
-    assert "multi-million-token danger zone" in (
+    assert "No predictive token estimate is shown" in (
         out_dir / "prompt_preview_budget_summary.md"
     ).read_text(encoding="utf-8")
 
@@ -788,7 +834,55 @@ def test_cf_debug_preview_prompts_emits_budget_warning_to_stderr(tmp_path: Path)
     )
     assert result.exit_code == 0
     assert result.stdout.strip() == str(out_dir / "prompt_preview_manifest.json")
-    assert "EXTREME prompt budget:" in result.stderr
+    assert "Token estimate unavailable for:" in result.stderr
+
+
+def test_cf_debug_preview_prompts_observed_mode_uses_live_telemetry(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    workbook_slug = "fixturebook"
+    _write_worker_status(
+        run_dir
+        / "raw"
+        / "llm"
+        / workbook_slug
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "status.json",
+        {
+            "tokens_input": 250,
+            "tokens_cached_input": 25,
+            "tokens_output": 45,
+            "tokens_total": 295,
+        },
+    )
+
+    out_dir = tmp_path / "preview"
+    result = runner.invoke(
+        app,
+        [
+            "preview-prompts",
+            "--run",
+            str(run_dir),
+            "--out",
+            str(out_dir),
+            "--llm-knowledge-pipeline",
+            "off",
+            "--line-role-pipeline",
+            "off",
+            "--estimation-mode",
+            "observed",
+        ],
+    )
+    assert result.exit_code == 0
+    budget_summary = json.loads(
+        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    )
+    assert budget_summary["estimation_method"]["mode"] == "observed"
+    assert budget_summary["estimation_method"]["type"] == "observed_live_telemetry"
+    recipe_budget = budget_summary["by_stage"]["recipe_llm_correct_and_link"]
+    assert recipe_budget["estimation_basis"] == "live_telemetry"
+    assert recipe_budget["estimated_total_tokens"] == 295
 
 
 def test_cf_debug_preview_shard_sweep_writes_experiment_summaries(tmp_path: Path) -> None:
