@@ -27,6 +27,27 @@ The runtime change is:
 
 **to:** a small number of bounded phase workers that process multiple explicit shards
 
+This is a burn-the-boats refactor for a solo project. Old prompt-per-bundle Codex paths are migration context only, not product features to preserve. The finished system should delete the legacy runtime paths rather than carrying compatibility branches for hypothetical other users.
+
+## Objectives
+
+- reduce repeated prompt and context setup cost across real cookbook runs
+- lower the number of fresh Codex executions required per book
+- reuse phase instructions and task framing inside bounded worker sessions
+- keep deterministic orchestration, label-first authority, and stage-backed outputs as the system of record
+- make failures, retries, and benchmarks line up with real shard work rather than prompt-count proxies
+
+## Current Model vs Target Model
+
+| Dimension | Current Model | Target Model |
+| --- | --- | --- |
+| Execution model | many fresh per-item or per-bundle Codex executions | a smaller number of bounded workers reused within each major phase |
+| Instruction loading | instructions are repeatedly restated | instructions are loaded once per worker session and amortized across a batch |
+| Workspace model | execution-oriented, with less emphasis on persistent task sandboxes | per-task isolated workspaces with local `.codex` state and phase resets |
+| Promotion model | LLM results can feel like direct stage output | workers write proposed artifacts that must pass deterministic validation before promotion |
+| Recovery model | retry often means another fresh execution | retry should operate at the shard or worker level with explicit manifests |
+| Observability | prompt counts can obscure real work | worker and shard telemetry reflect the actual workload |
+
 ## Operating Model
 
 The importer should keep its current high-level flow:
@@ -113,6 +134,21 @@ Workers should write structured proposed outputs rather than editing authoritati
 
 Promotion into stage outputs should happen only after deterministic validation.
 
+### Legacy compatibility is not a goal
+
+Do not preserve the old one-shot Codex runtimes as supported parallel paths.
+
+Allowed:
+
+- temporary read-compatibility shims for old saved settings during migration
+- immediate normalization from legacy ids to shard-v1 ids
+
+Not allowed as the end state:
+
+- old runtime branches kept alive "just in case"
+- old CLI/runtime choices kept visible for backward compatibility
+- extra maintenance burden to support users or integrations that do not exist
+
 ### Sandboxes are phase-local and task-local
 
 Each worker should run inside a clean sandbox that contains only:
@@ -192,6 +228,8 @@ The system should not treat knowledge as a separate whole-book mining architectu
 
 All three Codex-backed phases should use the same shared runtime pattern.
 
+This should be a CodexFarm-based harness for manifest-owned shard work, not a thin wrapper around repeated fresh prompts.
+
 The harness should:
 
 1. build a phase manifest from deterministic upstream artifacts
@@ -231,6 +269,23 @@ At minimum, the runtime should write:
 - per-worker logs or status files
 
 This keeps rollback simple, retries localized, and stage authority legible.
+
+## What Changes
+
+- the default Codex operating model moves from stateless per-item execution to bounded phase workers
+- CodexFarm becomes the harness for manifest-owned shard work
+- recipe correction is consolidated so one recipe-phase reasoning pass can correct intermediate structure and emit linkage data
+- knowledge work becomes smaller and more selective: label-driven, bounded, and optional
+- preview and benchmark reporting shift toward real worker and shard telemetry
+- legacy prompt-per-bundle execution paths are removed rather than kept as first-class fallbacks
+
+## What Stays Authoritative
+
+- the importer remains deterministic-first
+- label-first staging remains the authority boundary for recipe versus non-recipe ownership
+- intermediate recipe drafts remain a required debug artifact
+- final recipe objects remain deterministically assembled where possible
+- strict I/O schemas, validation before promotion, replayability, and staged artifacts remain part of the operating model
 
 ## Sizing And Tuning
 
@@ -299,7 +354,7 @@ Restrict knowledge refinement to bounded, label-driven shards where the extra ju
 
 ### 6. Retire legacy execution assumptions
 
-Remove stale prompt-count reporting, old bundle-centric language, and old active execution paths once the worker model is benchmarked and trusted.
+Remove stale prompt-count reporting, old bundle-centric language, and old active execution paths once the worker model is benchmarked and trusted. The goal is replacement, not coexistence.
 
 ## Success Criteria
 
@@ -315,6 +370,14 @@ The refactor is successful when:
 8. Knowledge refinement is label-driven and bounded rather than whole-book freeform mining.
 9. Preview and benchmark outputs describe workers and shards rather than pretending prompt count is the real workload.
 10. Failures are recoverable at shard or phase granularity without restarting the whole book unless necessary.
+11. The old one-shot Codex runtimes are no longer active product paths.
+
+## Out Of Scope
+
+- replacing the deterministic importers or staging model
+- turning the system into one long-lived autonomous agent
+- letting workers edit authoritative pipeline state in place without validation
+- reopening settled authority boundaries between staged artifacts and downstream tools
 
 ## Bottom Line
 
@@ -327,5 +390,7 @@ Replace the old high-fan-out Codex execution model with:
 - clean phase-local sandboxes
 - structured proposed outputs
 - deterministic validation and promotion
+
+Delete the old runtime paths when the replacement is ready. Do not keep compatibility branches for users or integrations that are not part of this project.
 
 That is the refactor.
