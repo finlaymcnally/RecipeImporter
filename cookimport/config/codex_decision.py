@@ -7,17 +7,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from cookimport.config.run_settings import RECIPE_CODEX_FARM_EXECUTION_PIPELINES
+from cookimport.config.run_settings import (
+    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+    LINE_ROLE_PIPELINE_SHARD_V1,
+    RECIPE_CODEX_FARM_EXECUTION_PIPELINES,
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+)
 
 TopTierProfileKind = Literal["codexfarm", "vanilla"]
 BenchmarkVariantKind = Literal["vanilla", "codexfarm"]
 CodexExecutionPolicyMode = Literal["execute", "plan"]
 
-RECIPE_CODEX_PIPELINE = "codex-farm-single-correction-v1"
+RECIPE_CODEX_PIPELINE = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 RECIPE_CODEX_PIPELINES = frozenset(RECIPE_CODEX_FARM_EXECUTION_PIPELINES)
-LINE_ROLE_CODEX_PIPELINE = "codex-line-role-v1"
+LINE_ROLE_CODEX_PIPELINE = LINE_ROLE_PIPELINE_SHARD_V1
 LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
-KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
+KNOWLEDGE_CODEX_PIPELINE = KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
 PRELABEL_CODEX_PROVIDER = "codex-farm"
 BUCKET1_FIXED_BEHAVIOR_VERSION = "bucket1-fixed-v1"
 SECTION_DETECTOR_SHARED_V1 = "shared_v1"

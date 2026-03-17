@@ -86,6 +86,7 @@ class CodexFarmRunner(Protocol):
         workspace_root: Path | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        runtime_audit_mode: str | None = None,
     ) -> CodexFarmPipelineRunResult | None:
         """Run a codex-farm pipeline over input/output directories."""
 
@@ -637,6 +638,7 @@ def _build_runtime_mode_audit(
     *,
     command: Sequence[str],
     output_schema_path: str | None,
+    runtime_audit_mode: str | None = None,
 ) -> dict[str, Any]:
     tool_affordances_requested = any(
         any(token == prefix or token.startswith(f"{prefix}=") for prefix in _RUNTIME_AGENTIC_FLAG_PREFIXES)
@@ -648,7 +650,7 @@ def _build_runtime_mode_audit(
     if tool_affordances_requested:
         reason_codes.append("runtime_agentic_flag_present")
     return {
-        "mode": "structured_output_non_agentic",
+        "mode": str(runtime_audit_mode or "structured_output_non_agentic"),
         "status": "ok" if not reason_codes else "invalid",
         "output_schema_enforced": bool(str(output_schema_path or "").strip()),
         "tool_affordances_requested": tool_affordances_requested,
@@ -1330,6 +1332,7 @@ class SubprocessCodexFarmRunner:
         workspace_root: Path | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        runtime_audit_mode: str | None = None,
     ) -> CodexFarmPipelineRunResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         expected_schema_path: Path | None = None
@@ -1601,6 +1604,7 @@ class SubprocessCodexFarmRunner:
         runtime_mode_audit = _build_runtime_mode_audit(
             command=command,
             output_schema_path=output_schema_path,
+            runtime_audit_mode=runtime_audit_mode,
         )
 
         return CodexFarmPipelineRunResult(

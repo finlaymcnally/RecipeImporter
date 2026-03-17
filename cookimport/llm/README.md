@@ -3,8 +3,10 @@
 Optional LLM integrations live here.
 
 Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with strict contracts in `codex_farm_contracts.py` and subprocess/fake runners in `codex_farm_runner.py` and `fake_codex_farm_runner.py`.
+The shared shard-runtime foundation now lives in `phase_worker_runtime.py`: it writes phase/shard manifests, round-robin worker assignments, per-worker sandboxes, per-shard proposed outputs, promotion summaries, and telemetry without promoting anything itself.
 
-Run settings now include the recipe pipeline toggle plus optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
+Run settings now include shard-v1 pipeline ids plus optional shard worker/size/turn knobs, and they normalize legacy recipe/knowledge/line-role ids onto the shard-v1 names centrally. The real phase cutovers still land in later plans; for now the foundation freezes the ids and the shared runtime seam.
+Run settings also include the optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
 RecipeImport now also forces its CodexFarm subprocesses onto the dedicated `~/.codex-recipe` home by default at the runner layer, so recipe/knowledge/line-role/prelabel/model-discovery calls do not silently fall back to the main `~/.codex` profile. Explicit subprocess env overrides can still replace that home when needed.
 See `RECIPE_CODEX_HOME.md` in this folder for the AI-coder explainer on how RecipeImport forces CodexFarm onto the dedicated recipe Codex home.
 
@@ -38,7 +40,7 @@ Knowledge harvest now reviews the seed Stage 7 non-recipe spans from `cookimport
 
 The compact knowledge contract is now bundle-shaped rather than one-chunk-per-prompt. `codex_farm_knowledge_jobs.py` packs contiguous surviving chunks into local bundles, keeps table-heavy chunks isolated, and emits one Codex result array per bundle with per-`chunk_id` outputs. A later prompt-cut pass also collapses standalone heading / bridge chunks before bundling, defaults knowledge context to `1` block on each side, and uses short output-schema keys (`v`, `bid`, `r`, `cid`, `u`, `d`, `s`, `i`, `c`, `t`, `b`, `g`, `e`, `q`) to reduce structured-output token overhead.
 
-The canonical recipe path is now `llm_recipe_pipeline=codex-farm-single-correction-v1`. It runs one compact correction stage (`recipe.correction.compact.v1`), updates the intermediate `RecipeCandidate`, and rebuilds final cookbook3 drafts locally from the corrected candidate plus `ingredient_step_mapping`.
+The canonical recipe setting id is now `llm_recipe_pipeline=codex-recipe-shard-v1`. During the foundation milestone, the live recipe implementation still runs the existing compact correction stage (`recipe.correction.compact.v1`) and rebuilds final cookbook3 drafts locally from the corrected candidate plus `ingredient_step_mapping`; the worker-runtime phase cutover lands later.
 
 Current recipe-object transport note: the correction loader uses native nested objects for `canonical_recipe`. Fake-runner outputs follow the same contract.
 

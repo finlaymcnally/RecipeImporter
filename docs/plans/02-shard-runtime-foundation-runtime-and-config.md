@@ -21,11 +21,11 @@ The user-visible behavior after this plan is complete is still mostly internal. 
 ## Progress
 
 - [x] (2026-03-17_11.55.01) Derived this child plan from the original shard-runtime ExecPlan while keeping the original file untouched.
-- [ ] Add shared runtime types and execution flow in `cookimport/llm/phase_worker_runtime.py`.
-- [ ] Extend `cookimport/llm/codex_farm_runner.py` with a real bounded-worker audit mode such as `structured_loop_agentic_v1`.
-- [ ] Add shard-runtime config knobs and migration normalization in `cookimport/config/run_settings.py` and related adapters.
-- [ ] Add synthetic runtime tests that prove manifests, worker assignment, sandbox rules, proposal collection, validation hooks, and Codex-home injection.
-- [ ] Freeze the shared interfaces that the three phase cutover plans will consume.
+- [x] (2026-03-17_12.18.01) Added shared runtime types and execution flow in `cookimport/llm/phase_worker_runtime.py`.
+- [x] (2026-03-17_12.18.01) Extended `cookimport/llm/codex_farm_runner.py` with a bounded-worker audit mode via `runtime_audit_mode="structured_loop_agentic_v1"`.
+- [x] (2026-03-17_12.18.01) Added shard-runtime config knobs and centralized legacy-id normalization in `cookimport/config/run_settings.py`, plus the small routing updates needed for normalized ids to keep working in current seams.
+- [x] (2026-03-17_12.18.01) Added synthetic runtime tests that prove manifests, worker assignment, sandbox rules, proposal collection, validation hooks, and Codex-home injection.
+- [x] (2026-03-17_12.18.01) Froze the shared interfaces that the three phase cutover plans will consume.
 
 ## Surprises & Discoveries
 
@@ -34,6 +34,9 @@ The user-visible behavior after this plan is complete is still mostly internal. 
 
 - Observation: Codex-home isolation is already solved at the runner layer and should not be reimplemented inside the new runtime.
   Evidence: `cookimport/llm/RECIPE_CODEX_HOME.md` and the original shard-runtime plan both describe runner-owned `CODEX_HOME` and `CODEX_FARM_CODEX_HOME_RECIPE` handling.
+
+- Observation: the repo still contains many old literal pipeline ids outside the immediate runtime spine, so the foundation milestone needed central normalization before the real cutovers could safely change every downstream wording/export surface.
+  Evidence: `docs/understandings/2026-03-17_12.18.01-foundation-needs-central-pipeline-id-normalization-before-phase-cutovers.md` captures the spread across CLI, observability, and review surfaces.
 
 ## Decision Log
 
@@ -49,9 +52,19 @@ The user-visible behavior after this plan is complete is still mostly internal. 
   Rationale: that is the cleanest split between shared infrastructure and phase-specific policy.
   Date/Author: 2026-03-17 / Codex
 
+- Decision: keep `run_settings_adapters.py` unchanged for the new worker/shard/turn knobs during the foundation milestone.
+  Rationale: the current stage and benchmark command surfaces do not consume those knobs yet, and forwarding unused kwargs now would create fake integration instead of a stable substrate. The later phase cutover plans should wire them where they become live inputs.
+  Date/Author: 2026-03-17 / Codex
+
+- Decision: normalize old recipe/knowledge/line-role pipeline ids centrally now, but leave the broader wording/export cleanup to the later observability/removal plan.
+  Rationale: that freezes the shared ids and unblocks later phase work without forcing a large cross-cutting copy/export rewrite before the runtime exists.
+  Date/Author: 2026-03-17 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation has not started yet. The expected outcome is that the line-role, recipe, and knowledge plans become smaller because they can assume a stable runtime instead of specifying it from scratch. The final retrospective should record whether the runtime abstraction stayed small and reusable or whether too much phase-specific behavior leaked into it.
+The foundation milestone is complete. The repo now has a shared `phase_worker_runtime.py` module, a runner audit path that can mark bounded-worker execution as `structured_loop_agentic_v1`, shard-v1 pipeline ids plus worker/shard/turn knobs in `RunSettings`, and focused tests that prove manifest writing, worker assignment, sandbox routing, proposal validation, and runner-owned Codex-home behavior.
+
+The intentionally deferred work is the real phase cutover and the broad observability/export wording cleanup. The line-role, recipe, and knowledge child plans can now treat the runtime contracts as frozen inputs instead of re-specifying them.
 
 ## Context and Orientation
 
@@ -95,7 +108,7 @@ Begin by creating `cookimport/llm/phase_worker_runtime.py` with plain dataclass-
 
 Once the runtime types exist, update `cookimport/llm/codex_farm_runner.py` to add a distinct audit mode for the bounded-worker path and to expose any helper seams the runtime needs. Preserve the existing environment merge logic so the dedicated RecipeImport Codex home is still applied in one place.
 
-Then update `cookimport/config/run_settings.py` and related adapters so the shared worker knobs exist once, with exact names the later phase plans can rely on. Keep the wiring additive and explicit. Temporary migration compatibility for legacy pipeline ids is acceptable only if the code normalizes them immediately to the shard-v1 ids and records that normalization in runtime metadata or logs.
+Then update `cookimport/config/run_settings.py` so the shared worker knobs exist once, with exact names the later phase plans can rely on. Keep the wiring additive and explicit. Temporary migration compatibility for legacy pipeline ids is acceptable only if the code normalizes them immediately to the shard-v1 ids and records that normalization in runtime metadata or logs. Do not force `run_settings_adapters.py` to pass these knobs through until a later phase plan actually consumes them.
 
 Finish with synthetic tests first. Add `tests/llm/test_phase_worker_runtime.py` and extend existing transport tests as needed. Use fake worker execution or a stubbed runner so the test proves manifests, assignments, sandbox shaping, proposal collection, validation hooks, and environment handling without needing real Codex execution.
 
@@ -115,7 +128,12 @@ Read the key context:
 Implement the shared runtime and run focused tests:
 
     source .venv/bin/activate
-    pytest tests/llm/test_codex_farm_orchestrator_runner_transport.py tests/llm/test_phase_worker_runtime.py -q
+    pytest tests/llm/test_codex_farm_orchestrator_runner_transport.py tests/llm/test_phase_worker_runtime.py tests/llm/test_run_settings.py -q
+
+Sanity-check the directly impacted pre-cutover seams:
+
+    source .venv/bin/activate
+    pytest tests/llm/test_codex_farm_orchestrator.py tests/llm/test_codex_farm_knowledge_orchestrator.py tests/parsing/test_canonical_line_roles.py -q
 
 The expected outcome is passing tests that demonstrate:
 
@@ -204,3 +222,5 @@ In `cookimport/llm/codex_farm_runner.py`, the audit payload for the new path mus
     }
 
 Revision note: this plan was created by splitting the original shard-runtime ExecPlan into smaller implementation plans. It owns only the shared runtime and config foundation so later phase plans can stay narrow.
+
+Revision note (2026-03-17_12.18.01): updated this plan after implementation to mark the foundation milestone complete, record the central pipeline-id normalization discovery, and note that the new worker/shard/turn knobs are frozen in `RunSettings` but not yet forwarded through stage/benchmark adapters until a real phase cutover consumes them.

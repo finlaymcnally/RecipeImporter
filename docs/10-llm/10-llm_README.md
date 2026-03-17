@@ -26,6 +26,10 @@ Primary entrypoints:
 - `cookimport/labelstudio/ingest.py` for prediction-run and Label Studio benchmark/import flows
 - `cookimport/entrypoint.py` for saved-settings import passthrough
 
+Shared shard-runtime foundation:
+
+- `cookimport/llm/phase_worker_runtime.py` writes phase/shard manifests, per-worker sandboxes, per-shard proposals, promotion summaries, and runtime telemetry for the later shard-v1 phase cutovers.
+
 Recipe CodexFarm path:
 
 - `cookimport/llm/codex_farm_orchestrator.py`
@@ -46,10 +50,15 @@ The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prel
 
 ## Current live surfaces
 
-- `llm_recipe_pipeline`: `off`, `codex-farm-single-correction-v1`
-- `llm_knowledge_pipeline`: `off`, `codex-farm-knowledge-v1`
-- `line_role_pipeline`: `off`, `deterministic-v1`, `codex-line-role-v1`
+- `llm_recipe_pipeline`: `off`, `codex-recipe-shard-v1`
+- `llm_knowledge_pipeline`: `off`, `codex-knowledge-shard-v1`
+- `line_role_pipeline`: `off`, `deterministic-v1`, `codex-line-role-shard-v1`
 - Prelabel is a separate Codex surface routed through CodexFarm pipeline `prelabel.freeform.v1`
+
+Migration note:
+
+- legacy ids such as `codex-farm-single-correction-v1`, `codex-farm-knowledge-v1`, and `codex-line-role-v1` still parse, but `RunSettings` normalizes them immediately to the shard-v1 ids above
+- this foundation plan freezes the ids and runtime contracts before any real phase cutover swaps the live recipe/knowledge/line-role implementations onto `phase_worker_runtime.py`
 
 `cookimport/llm/codex_exec.py` is a fail-closed retired transport and should not be treated as an active backend.
 
@@ -94,7 +103,7 @@ Recipe passes write under:
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction_audit/`
 
 Recipe runtime note:
-- the canonical recipe path is now one LLM correction call per authoritative recipe span
+- the current live recipe implementation is still one LLM correction call per authoritative recipe span
 - deterministic code builds the intermediate `RecipeCandidate`, Codex corrects it and emits `ingredient_step_mapping` plus raw `selected_tags`, then deterministic code rebuilds the final cookbook3 draft locally and normalizes tags before write-out
 - `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
 
@@ -168,6 +177,9 @@ Where prompt cuts should live:
 
 Run-level observability note:
 - `stage_observability.json` at the run root is the canonical stage index. The recipe and knowledge manifests above are stage-local detail, not a second naming system.
+
+Shard-runtime observability note:
+- `phase_worker_runtime.py` standardizes `phase_manifest.json`, `shard_manifest.jsonl`, `worker_assignments.json`, `promotion_report.json`, `telemetry.json`, `failures.json`, per-worker status files, and per-shard proposals as the runtime-artifact family that later cutovers will populate with real phase work
 
 ## Runner and contract notes
 

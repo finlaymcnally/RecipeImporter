@@ -19,7 +19,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from cookimport.config.prediction_identity import (
     build_line_role_cache_identity_payload,
 )
-from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings import (
+    LINE_ROLE_PIPELINE_SHARD_V1,
+    RunSettings,
+    normalize_line_role_pipeline_value,
+)
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
     FREEFORM_LABELS,
@@ -345,7 +349,7 @@ def _label_atomic_lines_internal(
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
     mode = _line_role_pipeline_name(settings)
     cache_path: Path | None = None
-    if mode == "codex-line-role-v1":
+    if mode == LINE_ROLE_PIPELINE_SHARD_V1:
         cache_path = _resolve_line_role_cache_path(
             source_hash=source_hash,
             settings=settings,
@@ -394,7 +398,7 @@ def _label_atomic_lines_internal(
             by_atomic_index=by_atomic_index,
         )
         deterministic_baseline[candidate.atomic_index] = baseline_prediction
-        if mode != "codex-line-role-v1":
+        if mode != LINE_ROLE_PIPELINE_SHARD_V1:
             predictions[candidate.atomic_index] = baseline_prediction
         if (
             candidate_index == deterministic_total
@@ -408,7 +412,7 @@ def _label_atomic_lines_internal(
 
     parse_error_count = 0
     telemetry_batches: list[dict[str, Any]] = []
-    codex_targets = ordered if mode == "codex-line-role-v1" else []
+    codex_targets = ordered if mode == LINE_ROLE_PIPELINE_SHARD_V1 else []
     if codex_targets:
         codex_farm_cmd = _resolve_line_role_codex_farm_cmd(
             settings=settings,
@@ -535,7 +539,7 @@ def _label_atomic_lines_internal(
         )
         sanitized_by_index[candidate.atomic_index] = sanitized_current
         sanitized_baseline_by_index[candidate.atomic_index] = sanitized_baseline
-    if mode == "codex-line-role-v1":
+    if mode == LINE_ROLE_PIPELINE_SHARD_V1:
         guardrail_mode = _line_role_guardrail_mode(settings)
         guardrail_diagnostics: dict[str, Any] | None = None
         guardrail_changed_rows: list[dict[str, Any]] = []
@@ -647,7 +651,7 @@ def build_line_role_codex_execution_plan(
 ) -> dict[str, Any]:
     ordered = list(candidates)
     mode = _line_role_pipeline_name(settings)
-    if mode != "codex-line-role-v1":
+    if mode != LINE_ROLE_PIPELINE_SHARD_V1:
         return {
             "enabled": False,
             "pipeline": mode,
@@ -1685,7 +1689,7 @@ def _write_line_role_telemetry_summary(
         json.dumps(
             {
                 "schema_version": 1,
-                "pipeline": "codex-line-role-v1",
+                "pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
                 "codex_backend": "codexfarm",
                 "codex_farm_pipeline_id": _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
                 "token_usage_enabled": True,
@@ -1942,9 +1946,7 @@ def _write_cached_predictions(
 
 def _line_role_pipeline_name(settings: RunSettings) -> str:
     value = getattr(settings, "line_role_pipeline", "off")
-    if hasattr(value, "value"):
-        return str(getattr(value, "value"))
-    return str(value or "off")
+    return normalize_line_role_pipeline_value(value)
 
 
 def _deterministic_label(

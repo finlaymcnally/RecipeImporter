@@ -73,11 +73,17 @@ from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import (
+    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+    LINE_ROLE_PIPELINE_SHARD_V1,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RUN_SETTING_CONTRACT_FULL,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
+    normalize_line_role_pipeline_value,
+    normalize_llm_knowledge_pipeline_value,
+    normalize_llm_recipe_pipeline_value,
     project_run_config_payload,
     summarize_run_config_payload,
 )
@@ -8734,16 +8740,16 @@ def _normalize_p6_yield_mode(value: str) -> str:
 
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
-        return normalized
-    _fail(
-        f"Invalid LLM recipe pipeline: {value!r}. "
-        "Expected one of: "
-        + ", ".join(RECIPE_CODEX_FARM_ALLOWED_PIPELINES)
-        + "."
-    )
-    return "off"
+    try:
+        return normalize_llm_recipe_pipeline_value(value)
+    except ValueError:
+        _fail(
+            f"Invalid LLM recipe pipeline: {value!r}. "
+            "Expected one of: "
+            + ", ".join(RECIPE_CODEX_FARM_ALLOWED_PIPELINES)
+            + "."
+        )
+        return "off"
 
 
 def _ensure_codex_farm_cmd_available(cmd: str) -> None:
@@ -8763,13 +8769,14 @@ def _ensure_codex_farm_cmd_available(cmd: str) -> None:
 
 
 def _normalize_llm_knowledge_pipeline(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"off", "codex-farm-knowledge-v1"}:
+    try:
+        return normalize_llm_knowledge_pipeline_value(value)
+    except ValueError:
         _fail(
             f"Invalid LLM knowledge pipeline: {value!r}. "
-            "Expected one of: off, codex-farm-knowledge-v1."
+            f"Expected one of: off, {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}."
         )
-    return normalized
+        return "off"
 
 
 def _normalize_codex_farm_failure_mode(value: str) -> str:
@@ -8864,18 +8871,14 @@ def _normalize_atomic_block_splitter(value: str) -> str:
 
 
 def _normalize_line_role_pipeline(value: str) -> str:
-    normalized = str(value or "").strip().lower().replace("_", "-")
-    if normalized in {"", "off", "none", "default"}:
+    try:
+        return normalize_line_role_pipeline_value(value)
+    except ValueError:
+        _fail(
+            f"Invalid line role pipeline: {value!r}. "
+            f"Expected one of: off, deterministic-v1, {LINE_ROLE_PIPELINE_SHARD_V1}."
+        )
         return "off"
-    if normalized in {"deterministic-v1", "deterministic"}:
-        return "deterministic-v1"
-    if normalized in {"codex-line-role-v1", "codex-line-role"}:
-        return "codex-line-role-v1"
-    _fail(
-        f"Invalid line role pipeline: {value!r}. "
-        "Expected one of: off, deterministic-v1, codex-line-role-v1."
-    )
-    return "off"
 
 
 def _normalize_line_role_guardrail_mode(value: str) -> str:

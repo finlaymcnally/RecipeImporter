@@ -24,8 +24,9 @@ The user-visible result is organizational rather than runtime behavior. A contri
 - [x] (2026-03-17_11.49.08) Wrote `docs/understandings/2026-03-17_11.49.08-shard-runtime-plan-splits-into-spine-phases-and-cutover.md` to capture the dependency graph discovered during review.
 - [x] (2026-03-17_11.55.00) Decided to keep `docs/plans/2026-03-16_21.26.21-replace-codex-prompts-with-shard-agents.md` untouched as the archival record.
 - [x] (2026-03-17_11.55.00) Added this master ExecPlan plus five child ExecPlans in `docs/plans/`.
-- [ ] Keep this master plan aligned with the actual status of the five child plans as implementation begins.
-- [ ] Update the child-plan statuses and dependency notes if the implementation order changes.
+- [x] (2026-03-17_12.18.01) Completed the foundation runtime/config milestone from `docs/plans/02-shard-runtime-foundation-runtime-and-config.md`.
+- [x] (2026-03-17_12.18.01) Updated this master plan to reflect that the three phase cutover plans are now unblocked on shared runtime contracts.
+- [ ] Keep this master plan aligned as the line-role, recipe, knowledge, and observability/removal child plans land.
 
 ## Surprises & Discoveries
 
@@ -34,6 +35,9 @@ The user-visible result is organizational rather than runtime behavior. A contri
 
 - Observation: only part of the work is safely parallelizable. The runtime and interface work is the dependency spine, while the downstream benchmark and review surfaces need stable telemetry and artifact schemas before they can be finished cleanly.
   Evidence: the original plan’s `Interfaces and Dependencies` section defines shared runtime types in `cookimport/llm/phase_worker_runtime.py` and shared telemetry seams in `cookimport/llm/prompt_preview.py`, `cookimport/llm/prompt_artifacts.py`, and `cookimport/bench/upload_bundle_v1_*`.
+
+- Observation: freezing shard-v1 ids in the foundation plan still required a central normalization pass because many current review/export surfaces were written against the old ids.
+  Evidence: `docs/understandings/2026-03-17_12.18.01-foundation-needs-central-pipeline-id-normalization-before-phase-cutovers.md`.
 
 ## Decision Log
 
@@ -53,11 +57,15 @@ The user-visible result is organizational rather than runtime behavior. A contri
   Rationale: line-role, recipe, and knowledge live in separate modules, but they all depend on the same manifest, worker-runtime, runner-audit, and promotion contracts.
   Date/Author: 2026-03-17 / Codex
 
+- Decision: treat the broader wording/export cleanup for old pipeline ids as part of the observability/removal plan, not the foundation milestone.
+  Rationale: the runtime spine is now stable, but cross-cutting preview/benchmark/review surfaces still need their own coordinated pass.
+  Date/Author: 2026-03-17 / Codex
+
 ## Outcomes & Retrospective
 
-This split is complete as documentation, but implementation has not started under the new child-plan structure yet.
+The split is complete as documentation, and the first implementation child plan is now complete: the shared runtime/config foundation has landed.
 
-The expected outcome is better execution, not different product behavior. If the split works well, contributors should stop treating the shard-runtime refactor as one indivisible mega-task and instead move through stable slices with fewer coordination mistakes. The final retrospective should record whether the split actually reduced implementation friction and whether any child plans had to be merged back together because the boundaries were too optimistic.
+The expected outcome remains better execution, not different product behavior. The current state validates the decomposition: the runtime spine landed without forcing the real line-role/recipe/knowledge cutovers into the same patch. The remaining retrospective question is whether the three phase plans stay genuinely independent now that they are unblocked.
 
 ## Context and Orientation
 
@@ -79,7 +87,7 @@ This master plan coordinates these six plan files:
 - knowledge plan: `docs/plans/05-shard-runtime-knowledge-phase-cutover.md`
 - observability/removal plan: `docs/plans/06-shard-runtime-observability-and-legacy-cutover.md`
 
-The dependency graph is simple. The foundation plan must land first or at least freeze its interfaces first. The line-role, recipe, and knowledge plans can then proceed largely independently. The final observability/removal plan should finish after the phase telemetry and runtime artifacts are stable enough that preview, prompt exports, and upload bundles will not churn underneath it.
+The dependency graph is simple. The foundation plan has now landed and frozen the shared interfaces. The line-role, recipe, and knowledge plans can now proceed largely independently. The final observability/removal plan should finish after the phase telemetry and runtime artifacts are stable enough that preview, prompt exports, and upload bundles will not churn underneath it.
 
 ## Milestones
 
@@ -173,3 +181,5 @@ The stable cross-plan dependencies that all child plans must agree on are:
 If any child plan needs to change one of these shared contracts, it must update this master plan and the other affected child plans in the same pass.
 
 Revision note: this file was created to split the original long shard-runtime ExecPlan into one master coordination plan and five implementation child plans while preserving the original file as the archival record.
+
+Revision note (2026-03-17_12.18.01): updated this master plan after the foundation milestone landed so the child-plan status now reflects a completed runtime spine and unblocked phase cutover plans.

@@ -22,10 +22,14 @@ from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import (
+    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+    LINE_ROLE_PIPELINE_SHARD_V1,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_EXECUTION_PIPELINES,
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RUN_SETTING_CONTRACT_FULL,
     RunSettings,
+    normalize_llm_recipe_pipeline_value,
     project_run_config_payload,
 )
 from cookimport.llm.codex_farm_runner import list_codex_farm_models
@@ -39,7 +43,7 @@ _WORKER_UTILIZATION_DEFAULT = 1.0
 _TOP_TIER_PROFILE_ENV = "COOKIMPORT_TOP_TIER_PROFILE"
 _INTERACTIVE_RECIPE_PIPELINE_LABELS: dict[str, str] = {
     "off": "Vanilla / deterministic only",
-    "codex-farm-single-correction-v1": "CodexFarm",
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1: "CodexFarm",
 }
 _CODEX_SURFACE_OPTION_LABELS: dict[str, str] = {
     "recipe": "recipe correction",
@@ -145,10 +149,10 @@ def _default_codex_recipe_pipeline(global_defaults: RunSettings) -> str:
 
 
 def _normalize_interactive_recipe_pipeline(value: Any) -> str | None:
-    raw = str(value or "").strip().lower()
-    if raw in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
-        return raw
-    return None
+    try:
+        return normalize_llm_recipe_pipeline_value(value)
+    except ValueError:
+        return None
 
 
 def _format_codex_surface_list(surface_options: tuple[str, ...] | None) -> str | None:
@@ -226,8 +230,8 @@ def _choose_interactive_recipe_pipeline(
                 value="off",
             ),
             questionary.Choice(
-                _INTERACTIVE_RECIPE_PIPELINE_LABELS["codex-farm-single-correction-v1"],
-                value="codex-farm-single-correction-v1",
+                _INTERACTIVE_RECIPE_PIPELINE_LABELS[RECIPE_CODEX_FARM_PIPELINE_SHARD_V1],
+                value=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
             ),
         ],
     )
@@ -429,17 +433,17 @@ def _choose_interactive_codex_surfaces(
     enabled_by_step: dict[str, bool] = {}
     if "recipe" in surface_options:
         step_rows.append(
-            ("recipe", "Recipe correction (`codex-farm-single-correction-v1`)")
+            ("recipe", f"Recipe correction (`{RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}`)")
         )
         enabled_by_step["recipe"] = selected_settings.llm_recipe_pipeline.value != "off"
     if "line_role" in surface_options:
-        step_rows.append(("line_role", "Block labelling (`codex-line-role-v1`)"))
+        step_rows.append(("line_role", f"Block labelling (`{LINE_ROLE_PIPELINE_SHARD_V1}`)"))
         enabled_by_step["line_role"] = (
-            selected_settings.line_role_pipeline.value == "codex-line-role-v1"
+            selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1
         )
     if "knowledge" in surface_options:
         step_rows.append(
-            ("knowledge", "Knowledge harvest (`codex-farm-knowledge-v1`)")
+            ("knowledge", f"Knowledge harvest (`{KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}`)")
         )
         enabled_by_step["knowledge"] = (
             selected_settings.llm_knowledge_pipeline.value != "off"
@@ -468,12 +472,12 @@ def _choose_interactive_codex_surfaces(
             resolved_recipe_pipeline if "recipe" in selected_step_ids else "off"
         ),
         line_role_pipeline=(
-            "codex-line-role-v1"
+            LINE_ROLE_PIPELINE_SHARD_V1
             if "line_role" in selected_step_ids
             else "deterministic-v1"
         ),
         llm_knowledge_pipeline=(
-            "codex-farm-knowledge-v1" if "knowledge" in selected_step_ids else "off"
+            KNOWLEDGE_CODEX_PIPELINE_SHARD_V1 if "knowledge" in selected_step_ids else "off"
         ),
         atomic_block_splitter="atomic-v1",
     )
@@ -500,7 +504,7 @@ def _selected_settings_enable_any_codex(selected_settings: RunSettings) -> bool:
     return any(
         (
             selected_settings.llm_recipe_pipeline.value != "off",
-            selected_settings.line_role_pipeline.value == "codex-line-role-v1",
+            selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1,
             selected_settings.llm_knowledge_pipeline.value != "off",
         )
     )

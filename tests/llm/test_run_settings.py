@@ -4,6 +4,9 @@ import pytest
 
 from cookimport.config.run_settings import (
     BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES,
+    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+    LINE_ROLE_PIPELINE_SHARD_V1,
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RunSettings,
     benchmark_lab_run_setting_names,
     build_run_settings,
@@ -90,14 +93,28 @@ def test_run_settings_rejects_unknown_keys() -> None:
         RunSettings.from_dict({"workers": 3, "unknown_new_field": "x"})
 
 
-def test_run_settings_rejects_legacy_recipe_codex_farm_pipeline() -> None:
-    with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
-        RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
+def test_run_settings_normalizes_legacy_recipe_codex_farm_pipeline() -> None:
+    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
+
+    assert settings.llm_recipe_pipeline.value == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 
 
-def test_run_settings_rejects_legacy_merged_recipe_codex_farm_pipeline() -> None:
-    with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
-        RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
+def test_run_settings_normalizes_legacy_merged_recipe_codex_farm_pipeline() -> None:
+    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
+
+    assert settings.llm_recipe_pipeline.value == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
+
+
+def test_run_settings_normalizes_legacy_line_role_and_knowledge_pipeline_ids() -> None:
+    settings = RunSettings.from_dict(
+        {
+            "line_role_pipeline": "codex-line-role-v1",
+            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+        }
+    )
+
+    assert settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1
+    assert settings.llm_knowledge_pipeline.value == KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
 
 
 def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> None:
@@ -150,7 +167,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
     assert llm_recipe_spec.choices == (
         "off",
-        "codex-farm-single-correction-v1",
+        RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     )
     atomic_block_splitter_spec = next(
         spec for spec in specs if spec.name == "atomic_block_splitter"
@@ -162,7 +179,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert line_role_pipeline_spec.choices == (
         "off",
         "deterministic-v1",
-        "codex-line-role-v1",
+        LINE_ROLE_PIPELINE_SHARD_V1,
     )
     codex_farm_recipe_mode_spec = next(
         spec for spec in specs if spec.name == "codex_farm_recipe_mode"
@@ -328,7 +345,7 @@ def test_run_settings_ui_specs_include_recipe_codex_farm_without_env_gate() -> N
 
     assert llm_recipe_spec.choices == (
         "off",
-        "codex-farm-single-correction-v1",
+        RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     )
 
 

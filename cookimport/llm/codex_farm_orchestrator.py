@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
 from cookimport.runs import RECIPE_MANIFEST_FILE_NAME, stage_artifact_stem
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
@@ -33,7 +34,7 @@ from .recipe_tagging_guide import build_recipe_tagging_guide
 
 logger = logging.getLogger(__name__)
 
-SINGLE_CORRECTION_RECIPE_PIPELINE_ID = "codex-farm-single-correction-v1"
+SINGLE_CORRECTION_RECIPE_PIPELINE_ID = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 SINGLE_CORRECTION_STAGE_PIPELINE_ID = "recipe.correction.compact.v1"
 _CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
 _ELIGIBILITY_INGREDIENT_LEAD_RE = re.compile(

@@ -122,10 +122,19 @@ _SUMMARY_ORDER = (
     "epub_spine_items_per_job",
     "warm_models",
     "llm_recipe_pipeline",
+    "recipe_worker_count",
+    "recipe_shard_target_recipes",
+    "recipe_shard_max_turns",
     "atomic_block_splitter",
     "line_role_pipeline",
+    "line_role_worker_count",
+    "line_role_shard_target_lines",
+    "line_role_shard_max_turns",
     "line_role_guardrail_mode",
     "llm_knowledge_pipeline",
+    "knowledge_worker_count",
+    "knowledge_shard_target_chunks",
+    "knowledge_shard_max_turns",
     "codex_farm_recipe_mode",
     "codex_farm_cmd",
     "codex_farm_model",
@@ -138,9 +147,16 @@ _SUMMARY_ORDER = (
 )
 
 RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
+RECIPE_CODEX_FARM_PIPELINE_SHARD_V1 = "codex-recipe-shard-v1"
+RECIPE_CODEX_FARM_PIPELINE_SINGLE_CORRECTION_V1 = "codex-farm-single-correction-v1"
+RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES = {
+    "codex-farm-single-correction-v1": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+    "codex-farm-3pass-v1": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+    "codex-farm-2stage-repair-v1": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+}
 RECIPE_CODEX_FARM_ALLOWED_PIPELINES = (
     "off",
-    "codex-farm-single-correction-v1",
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
 )
 RECIPE_CODEX_FARM_EXECUTION_PIPELINES = tuple(
     value for value in RECIPE_CODEX_FARM_ALLOWED_PIPELINES if value != "off"
@@ -148,7 +164,7 @@ RECIPE_CODEX_FARM_EXECUTION_PIPELINES = tuple(
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY = (
     "Recipe codex-farm parsing correction supports "
-    "'off' and 'codex-farm-single-correction-v1'."
+    f"'off' and {RECIPE_CODEX_FARM_PIPELINE_SHARD_V1!r}."
 )
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
@@ -156,6 +172,18 @@ RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
     + ", ".join(repr(value) for value in RECIPE_CODEX_FARM_ALLOWED_PIPELINES)
     + "."
 )
+
+LINE_ROLE_PIPELINE_SHARD_V1 = "codex-line-role-shard-v1"
+LINE_ROLE_PIPELINE_LEGACY_V1 = "codex-line-role-v1"
+LINE_ROLE_PIPELINE_ALIASES = {
+    "codex-line-role": LINE_ROLE_PIPELINE_SHARD_V1,
+    "codex-line-role-v1": LINE_ROLE_PIPELINE_SHARD_V1,
+}
+KNOWLEDGE_CODEX_PIPELINE_SHARD_V1 = "codex-knowledge-shard-v1"
+KNOWLEDGE_CODEX_PIPELINE_LEGACY_V1 = "codex-farm-knowledge-v1"
+KNOWLEDGE_CODEX_PIPELINE_ALIASES = {
+    "codex-farm-knowledge-v1": KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+}
 
 
 class EpubExtractor(str, Enum):
@@ -301,7 +329,7 @@ class P6YieldMode(str, Enum):
 
 class LlmRecipePipeline(str, Enum):
     off = "off"
-    codex_farm_single_correction_v1 = "codex-farm-single-correction-v1"
+    codex_recipe_shard_v1 = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 
 
 class AtomicBlockSplitter(str, Enum):
@@ -312,7 +340,7 @@ class AtomicBlockSplitter(str, Enum):
 class LineRolePipeline(str, Enum):
     off = "off"
     deterministic_v1 = "deterministic-v1"
-    codex_line_role_v1 = "codex-line-role-v1"
+    codex_line_role_shard_v1 = LINE_ROLE_PIPELINE_SHARD_V1
 
 
 class LineRoleGuardrailMode(str, Enum):
@@ -323,7 +351,7 @@ class LineRoleGuardrailMode(str, Enum):
 
 class LlmKnowledgePipeline(str, Enum):
     off = "off"
-    codex_farm_knowledge_v1 = "codex-farm-knowledge-v1"
+    codex_knowledge_shard_v1 = KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
 
 
 class CodexFarmFailureMode(str, Enum):
@@ -343,6 +371,52 @@ class CodexReasoningEffort(str, Enum):
     medium = "medium"
     high = "high"
     xhigh = "xhigh"
+
+
+def normalize_llm_recipe_pipeline_value(value: Any) -> str:
+    normalized = str(getattr(value, "value", value) or "").strip().lower()
+    normalized = normalized or LlmRecipePipeline.off.value
+    normalized = RECIPE_CODEX_FARM_LEGACY_PIPELINE_ALIASES.get(normalized, normalized)
+    if normalized not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
+        raise ValueError(RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR)
+    return normalized
+
+
+def normalize_line_role_pipeline_value(value: Any) -> str:
+    normalized = str(getattr(value, "value", value) or "").strip().lower().replace("_", "-")
+    if normalized in {"", "off", "none", "default"}:
+        return LineRolePipeline.off.value
+    if normalized in {"deterministic-v1", "deterministic"}:
+        return LineRolePipeline.deterministic_v1.value
+    normalized = LINE_ROLE_PIPELINE_ALIASES.get(normalized, normalized)
+    allowed = {
+        LineRolePipeline.off.value,
+        LineRolePipeline.deterministic_v1.value,
+        LINE_ROLE_PIPELINE_SHARD_V1,
+    }
+    if normalized not in allowed:
+        raise ValueError(
+            "Invalid line_role_pipeline. Expected one of: "
+            f"{LineRolePipeline.off.value}, {LineRolePipeline.deterministic_v1.value}, "
+            f"{LINE_ROLE_PIPELINE_SHARD_V1}."
+        )
+    return normalized
+
+
+def normalize_llm_knowledge_pipeline_value(value: Any) -> str:
+    normalized = str(getattr(value, "value", value) or "").strip().lower()
+    normalized = normalized or LlmKnowledgePipeline.off.value
+    normalized = KNOWLEDGE_CODEX_PIPELINE_ALIASES.get(normalized, normalized)
+    allowed = {
+        LlmKnowledgePipeline.off.value,
+        KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+    }
+    if normalized not in allowed:
+        raise ValueError(
+            "Invalid llm_knowledge_pipeline. Expected one of: "
+            f"{LlmKnowledgePipeline.off.value}, {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}."
+        )
+    return normalized
 
 
 def _bucket1_fixed_behavior():
@@ -925,6 +999,48 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    recipe_worker_count: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Recipe Worker Count",
+            order=110,
+            description="Optional bounded worker-count override for shard-v1 recipe runtime.",
+            step=1,
+            minimum=1,
+            maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    recipe_shard_target_recipes: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Recipe Shard Target",
+            order=110,
+            description="Optional target recipes per shard for shard-v1 recipe runtime.",
+            step=1,
+            minimum=1,
+            maximum=1024,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    recipe_shard_max_turns: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Recipe Shard Max Turns",
+            order=110,
+            description="Optional max-turn cap per recipe shard for shard-v1 runtime.",
+            step=1,
+            minimum=1,
+            maximum=128,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     atomic_block_splitter: AtomicBlockSplitter = Field(
         default=AtomicBlockSplitter.off,
         json_schema_extra=_ui_meta(
@@ -947,6 +1063,48 @@ class RunSettings(BaseModel):
                 "Optional canonical line-role labeling path used for benchmark-native "
                 "experiments. Off keeps deterministic behavior."
             ),
+        ),
+    )
+    line_role_worker_count: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Line Role Worker Count",
+            order=112,
+            description="Optional bounded worker-count override for shard-v1 line-role runtime.",
+            step=1,
+            minimum=1,
+            maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    line_role_shard_target_lines: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Line Role Shard Target",
+            order=112,
+            description="Optional target lines per shard for shard-v1 line-role runtime.",
+            step=1,
+            minimum=1,
+            maximum=20000,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    line_role_shard_max_turns: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Line Role Shard Max Turns",
+            order=112,
+            description="Optional max-turn cap per line-role shard for shard-v1 runtime.",
+            step=1,
+            minimum=1,
+            maximum=128,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     line_role_guardrail_mode: LineRoleGuardrailMode = Field(
@@ -973,6 +1131,48 @@ class RunSettings(BaseModel):
                 "Optional non-recipe knowledge harvesting pipeline. "
                 "Off keeps deterministic behavior."
             ),
+        ),
+    )
+    knowledge_worker_count: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Worker Count",
+            order=115,
+            description="Optional bounded worker-count override for shard-v1 knowledge runtime.",
+            step=1,
+            minimum=1,
+            maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    knowledge_shard_target_chunks: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Shard Target",
+            order=115,
+            description="Optional target chunks per shard for shard-v1 knowledge runtime.",
+            step=1,
+            minimum=1,
+            maximum=4096,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    knowledge_shard_max_turns: int | None = Field(
+        default=None,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Shard Max Turns",
+            order=115,
+            description="Optional max-turn cap per knowledge shard for shard-v1 runtime.",
+            step=1,
+            minimum=1,
+            maximum=128,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_recipe_mode: CodexFarmRecipeMode = Field(
@@ -1165,11 +1365,23 @@ class RunSettings(BaseModel):
         cls,
         value: Any,
     ) -> str | LlmRecipePipeline:
-        normalized = str(getattr(value, "value", value) or "").strip().lower()
-        normalized = normalized or LlmRecipePipeline.off.value
-        if normalized not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
-            raise ValueError(RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR)
-        return normalized
+        return normalize_llm_recipe_pipeline_value(value)
+
+    @field_validator("line_role_pipeline", mode="before")
+    @classmethod
+    def _normalize_line_role_pipeline(
+        cls,
+        value: Any,
+    ) -> str | LineRolePipeline:
+        return normalize_line_role_pipeline_value(value)
+
+    @field_validator("llm_knowledge_pipeline", mode="before")
+    @classmethod
+    def _normalize_llm_knowledge_pipeline(
+        cls,
+        value: Any,
+    ) -> str | LlmKnowledgePipeline:
+        return normalize_llm_knowledge_pipeline_value(value)
 
     @classmethod
     def from_dict(
@@ -1188,16 +1400,24 @@ class RunSettings(BaseModel):
             )
         llm_recipe_pipeline_raw = data.get("llm_recipe_pipeline")
         if llm_recipe_pipeline_raw is not None:
-            if isinstance(llm_recipe_pipeline_raw, Enum):
-                normalized_recipe_pipeline = str(llm_recipe_pipeline_raw.value).strip().lower()
-            else:
-                normalized_recipe_pipeline = str(llm_recipe_pipeline_raw).strip().lower()
-            if normalized_recipe_pipeline not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
+            try:
+                data["llm_recipe_pipeline"] = normalize_llm_recipe_pipeline_value(
+                    llm_recipe_pipeline_raw
+                )
+            except ValueError as exc:
                 raise ValueError(
                     "Invalid llm_recipe_pipeline in "
                     f"{warn_context}. Expected one of: "
                     + ", ".join(RECIPE_CODEX_FARM_ALLOWED_PIPELINES)
-                )
+                ) from exc
+        if "line_role_pipeline" in data:
+            data["line_role_pipeline"] = normalize_line_role_pipeline_value(
+                data.get("line_role_pipeline")
+            )
+        if "llm_knowledge_pipeline" in data:
+            data["llm_knowledge_pipeline"] = normalize_llm_knowledge_pipeline_value(
+                data.get("llm_knowledge_pipeline")
+            )
         return cls.model_validate(data)
 
     def to_run_config_dict(self) -> dict[str, object]:

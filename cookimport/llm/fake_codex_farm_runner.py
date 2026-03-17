@@ -29,6 +29,7 @@ class FakeCodexFarmRunner:
         workspace_root: Path | None = None,  # noqa: ARG002 - parity with subprocess runner
         model: str | None = None,  # noqa: ARG002 - parity with subprocess runner
         reasoning_effort: str | None = None,  # noqa: ARG002 - parity with subprocess runner
+        runtime_audit_mode: str | None = None,
     ) -> CodexFarmPipelineRunResult:
         self.calls.append(pipeline_id)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -51,7 +52,11 @@ class FakeCodexFarmRunner:
             telemetry_report=None,
             autotune_report=None,
             telemetry=None,
-            runtime_mode_audit=None,
+            runtime_mode_audit=(
+                {"mode": runtime_audit_mode, "status": "ok"}
+                if runtime_audit_mode
+                else None
+            ),
         )
 
 

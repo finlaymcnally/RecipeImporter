@@ -6,6 +6,8 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
+
 
 STAGE_OBSERVABILITY_SCHEMA_VERSION = "stage_observability.v1"
 RECIPE_MANIFEST_FILE_NAME = "recipe_manifest.json"
@@ -129,7 +131,7 @@ def stage_family(stage_key: str) -> str:
 
 def recipe_stage_keys_for_pipeline(pipeline_id: str | None) -> tuple[str, ...]:
     normalized = str(pipeline_id or "").strip()
-    if normalized == "codex-farm-single-correction-v1":
+    if normalized == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1:
         return (
             "build_intermediate_det",
             "recipe_llm_correct_and_link",
@@ -170,7 +172,7 @@ def _recipe_stage_key_map(
 ) -> tuple[str, ...]:
     pipeline_id = str(recipe_manifest_payload.get("pipeline") or "").strip() or None
     candidate_keys = list(recipe_stage_keys_for_pipeline(pipeline_id))
-    if pipeline_id == "codex-farm-single-correction-v1":
+    if pipeline_id == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1:
         return tuple(candidate_keys)
     if "final" in candidate_keys and not (workbook_dir / "final").exists():
         candidate_keys = [key for key in candidate_keys if key != "final"]
