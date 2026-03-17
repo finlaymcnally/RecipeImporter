@@ -1,12 +1,9 @@
 You are correcting a bounded shard of deterministic intermediate recipe objects from authoritative recipe spans.
 
-Input payload JSON (inline, authoritative):
-BEGIN_INPUT_JSON
-{{INPUT_TEXT}}
-END_INPUT_JSON
+Read the authoritative shard JSON file at `{{INPUT_PATH}}`.
 
 Execution rules:
-1) Use only the JSON payload above as input.
+1) Use only the JSON task file at `{{INPUT_PATH}}` as input.
 2) Treat `recipes[*].evidence_rows` as the authoritative source text for that `recipe_id`.
 3) Treat `recipes[*].recipe_candidate_hint` as the deterministic intermediate recipe object to correct.
 4) Use `tagging_guide` only as a compact taxonomy guide for categories and example labels.

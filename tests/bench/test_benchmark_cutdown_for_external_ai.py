@@ -1647,7 +1647,6 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     assert "selection_policy" in starter_manifest
     assert "outside_span_inclusion_policy" in starter_manifest
     assert "heavy_artifacts_omitted_by_default" in starter_manifest
-    assert "legacy_to_starter_mapping" in starter_manifest
     assert starter_manifest["outside_span_trace_sample"]["included"] is True
 
     root_manifest = _read_json(output_dir / "process_manifest.json")

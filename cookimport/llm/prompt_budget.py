@@ -121,6 +121,7 @@ def build_prompt_preview_budget_summary(
             stage_key = "unknown"
         rendered_prompt_text = str(row.get("rendered_prompt_text") or "")
         prompt_chars = len(rendered_prompt_text)
+        prompt_input_mode = str(row.get("prompt_input_mode") or "path").strip().lower()
         stage_payload = by_stage.setdefault(
             stage_key,
             {
@@ -141,6 +142,7 @@ def build_prompt_preview_budget_summary(
                 "task_prompt_chars_avg": 0,
                 "prompt_chars_total": 0,
                 "prompt_chars_avg": 0,
+                "estimated_request_chars_total": 0,
                 "transport_overhead_chars_total": 0,
                 "estimated_input_tokens": 0,
                 "estimated_output_tokens": 0,
@@ -152,6 +154,11 @@ def build_prompt_preview_budget_summary(
         stage_payload["call_count"] += 1
         stage_payload["task_prompt_chars_total"] += task_prompt_chars
         stage_payload["prompt_chars_total"] += prompt_chars
+        stage_payload["estimated_request_chars_total"] += (
+            prompt_chars + task_prompt_chars
+            if prompt_input_mode == "path"
+            else prompt_chars
+        )
         stage_payload["transport_overhead_chars_total"] += max(
             prompt_chars - task_prompt_chars,
             0,
@@ -163,6 +170,7 @@ def build_prompt_preview_budget_summary(
         "task_prompt_chars_avg": 0,
         "prompt_chars_total": 0,
         "prompt_chars_avg": 0,
+        "estimated_request_chars_total": 0,
         "transport_overhead_chars_total": 0,
         "estimated_input_tokens": 0,
         "estimated_output_tokens": 0,
@@ -172,7 +180,8 @@ def build_prompt_preview_budget_summary(
         call_count = int(payload.get("call_count") or 0)
         task_prompt_chars_total = int(payload.get("task_prompt_chars_total") or 0)
         prompt_chars_total = int(payload.get("prompt_chars_total") or 0)
-        estimated_input_tokens = _estimate_preview_input_tokens(prompt_chars_total)
+        estimated_request_chars_total = int(payload.get("estimated_request_chars_total") or 0)
+        estimated_input_tokens = _estimate_preview_input_tokens(estimated_request_chars_total)
         estimated_output_tokens = _estimate_preview_output_tokens(
             stage_key=stage_key,
             call_count=call_count,
@@ -214,6 +223,7 @@ def build_prompt_preview_budget_summary(
         totals["call_count"] += call_count
         totals["task_prompt_chars_total"] += task_prompt_chars_total
         totals["prompt_chars_total"] += prompt_chars_total
+        totals["estimated_request_chars_total"] += estimated_request_chars_total
         totals["transport_overhead_chars_total"] += int(
             payload.get("transport_overhead_chars_total") or 0
         )
@@ -235,13 +245,14 @@ def build_prompt_preview_budget_summary(
         "schema_version": "prompt_preview_budget_summary.v2",
         "preview_dir": str(preview_dir),
         "estimation_method": {
-            "type": "heuristic_char_based",
-            "estimated_input_chars_per_token": _PREVIEW_INPUT_CHARS_PER_TOKEN,
-            "notes": [
-                "Estimated tokens are derived from rendered prompt text length because preview runs do not have live tokenizer telemetry.",
-                "Warnings are intentionally blunt and also consider raw prompt chars plus call counts, not only token estimates.",
-            ],
-        },
+                "type": "heuristic_char_based",
+                "estimated_input_chars_per_token": _PREVIEW_INPUT_CHARS_PER_TOKEN,
+                "notes": [
+                    "Estimated tokens are derived from rendered prompt text length because preview runs do not have live tokenizer telemetry.",
+                    "For file-path prompt mode, estimated request chars add prompt wrapper text plus the deposited task-file content length.",
+                    "Warnings are intentionally blunt and also consider raw prompt chars plus call counts, not only token estimates.",
+                ],
+            },
         "by_stage": by_stage,
         "totals": totals,
         "warnings": warnings,
@@ -575,6 +586,7 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
         f"- Total interactions: `{int(_nonnegative_int(totals.get('call_count')) or 0):,}`",
         f"- Task prompt chars: `{int(_nonnegative_int(totals.get('task_prompt_chars_total')) or 0):,}`",
         f"- Rendered prompt chars: `{int(_nonnegative_int(totals.get('prompt_chars_total')) or 0):,}`",
+        f"- Estimated request chars: `{int(_nonnegative_int(totals.get('estimated_request_chars_total')) or 0):,}`",
         (
             f"- Transport overhead chars: "
             f"`{int(_nonnegative_int(totals.get('transport_overhead_chars_total')) or 0):,}`"
@@ -639,6 +651,6 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
             )
     lines.append("")
     lines.append(
-        "_Estimated tokens are derived from rendered prompt text length because preview runs do not have live tokenizer telemetry._"
+        "_Estimated tokens are derived from prompt wrapper text plus deposited task-file content when path-mode prompts are used, because preview runs do not have live tokenizer telemetry._"
     )
     return "\n".join(lines) + "\n"

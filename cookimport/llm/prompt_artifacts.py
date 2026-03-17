@@ -408,7 +408,7 @@ def _resolve_stage_in_out_dirs(
     }
     output_key_map = {
         "recipe_llm_correct_and_link": "recipe_correction_out",
-        "extract_knowledge_optional": "knowledge_out_dir",
+        "extract_knowledge_optional": "proposals_dir",
     }
 
     input_key = input_key_map.get(stage_key)
@@ -421,7 +421,10 @@ def _resolve_stage_in_out_dirs(
     if in_dir is None or not in_dir.exists():
         in_dir = run_dir / stage_dir_name / "in"
     if out_dir is None or not out_dir.exists():
-        out_dir = run_dir / stage_dir_name / "out"
+        if stage_key == "extract_knowledge_optional":
+            out_dir = run_dir / stage_dir_name / "proposals"
+        else:
+            out_dir = run_dir / stage_dir_name / "out"
     return in_dir, out_dir
 
 

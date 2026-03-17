@@ -302,7 +302,6 @@ BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 600
 KNOWN_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
 SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"freeform-spans"}
-ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 BENCH_CODEX_FARM_CONFIRMATION_TOKEN = "I_HAVE_EXPLICIT_USER_CONFIRMATION"
 QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
 SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
@@ -2548,6 +2547,7 @@ def _interactive_all_method_benchmark(
         ),
         back_action=BACK_ACTION,
         surface_options=("recipe", "line_role", "knowledge"),
+        prompt_text=_prompt_text,
     )
     if all_method_codex_settings is None:
         typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -3407,10 +3407,7 @@ def _interactive_single_profile_all_matched_benchmark(
                 f"External-AI group upload bundle: {group_upload_bundle_dir}",
                 fg=typer.colors.CYAN,
             )
-            _maybe_upload_benchmark_bundle_to_oracle(
-                bundle_dir=group_upload_bundle_dir,
-                scope="single_profile_group",
-            )
+            _print_manual_oracle_upload_hint(bundle_dir=group_upload_bundle_dir)
 
     if single_profile_dashboard is not None:
         history_csv_path = history_csv_for_output(
@@ -5211,6 +5208,17 @@ def _print_oracle_upload_summary(
             typer.echo(f"  {line}")
 
 
+def _print_manual_oracle_upload_hint(*, bundle_dir: Path) -> None:
+    typer.secho(
+        "Oracle upload not started automatically to avoid blocking benchmark wrap-up.",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+    typer.secho(
+        f"Upload later: cookimport bench oracle-upload {bundle_dir}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+
 def _maybe_upload_benchmark_bundle_to_oracle(
     *,
     bundle_dir: Path,
@@ -5632,10 +5640,7 @@ def _interactive_single_offline_benchmark(
                 f"External-AI upload bundle: {upload_bundle_dir}",
                 fg=typer.colors.CYAN,
             )
-            _maybe_upload_benchmark_bundle_to_oracle(
-                bundle_dir=upload_bundle_dir,
-                scope="single_offline",
-            )
+            _print_manual_oracle_upload_hint(bundle_dir=upload_bundle_dir)
 
     history_csv_path = history_csv_for_output(
         session_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
@@ -29124,7 +29129,6 @@ def bench_speed_run(
     )
     _print_codex_decision(speed_codex_decision)
     if include_codex_farm:
-        os.environ[ALL_METHOD_CODEX_FARM_UNLOCK_ENV] = "1"
         _ensure_codex_farm_cmd_available(run_settings.codex_farm_cmd)
         include_effective, warning = _resolve_all_method_codex_choice(True)
         if warning is not None:

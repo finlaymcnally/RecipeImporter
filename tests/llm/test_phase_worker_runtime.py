@@ -225,7 +225,7 @@ def test_phase_worker_runtime_routes_through_runner_workspace_and_codex_home(
     assert isinstance(process_command, list)
     assert isinstance(process_env, dict)
     assert "--workspace-root" in process_command
-    assert str(tmp_path / "runtime" / "workers" / "worker-001" / "sandbox") in process_command
+    assert str(tmp_path / "runtime" / "workers" / "worker-001") in process_command
     assert "--workers" in process_command
     assert process_command[process_command.index("--workers") + 1] == "1"
     assert process_env["CODEX_HOME"] == str(default_home)

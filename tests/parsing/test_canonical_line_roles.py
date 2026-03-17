@@ -1687,7 +1687,7 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
 
     plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
         candidates,
-        _settings("codex-line-role-shard-v1"),
+        _settings("codex-line-role-shard-v1", line_role_prompt_target_count=None),
         codex_batch_size=10,
     )
 
@@ -1722,7 +1722,7 @@ def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -
 
     plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
         candidates,
-        _settings("codex-line-role-shard-v1"),
+        _settings("codex-line-role-shard-v1", line_role_prompt_target_count=None),
     )
 
     assert (
@@ -1963,7 +1963,7 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-shard-v1"),
+        _settings("codex-line-role-shard-v1", line_role_prompt_target_count=None),
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER", 3: "OTHER"}),
@@ -2048,7 +2048,11 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
     progress_messages: list[str] = []
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-shard-v1", line_role_worker_count=2),
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_worker_count=2,
+            line_role_prompt_target_count=None,
+        ),
         codex_batch_size=1,
         codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER"}),
         live_llm_allowed=True,
@@ -2090,7 +2094,7 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
     progress_messages: list[str] = []
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-shard-v1"),
+        _settings("codex-line-role-shard-v1", line_role_prompt_target_count=None),
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_max_inflight=3,

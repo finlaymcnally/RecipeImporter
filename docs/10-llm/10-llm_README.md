@@ -57,13 +57,11 @@ The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prel
 
 Migration note:
 
-- legacy ids such as `codex-farm-single-correction-v1`, `codex-farm-knowledge-v1`, and `codex-line-role-v1` are no longer accepted on active run-setting surfaces; active defaults/help now only advertise the shard-v1 ids
+- removed pre-shard public pipeline ids are no longer accepted on active run-setting surfaces; active defaults/help now only advertise the shard-v1 ids
 - the shard-v1 work is a runtime refactor over the existing label-first staged importer, not a new pipeline
 - shards are ownership units and workers are bounded execution contexts; preview, prompt exports, and reviewer artifacts should describe both instead of pretending one prompt equals one independent task
 - the foundation plan froze the ids and runtime contracts first; recipe, knowledge, and line-role now all execute through the shard-worker runtime, and the preview/export cutover has landed on top of those runtime artifacts
 - current limitation: the repo-local shard runtime is structurally landed, but `SubprocessCodexFarmRunner` still shells out to CodexFarm `process`, so true multi-shard live session reuse is not yet guaranteed by the transport layer
-
-`cookimport/llm/codex_exec.py` is a fail-closed retired transport and should not be treated as an active backend.
 
 ## Policy boundary
 
@@ -78,7 +76,6 @@ Migration note:
 - plan mode is a planning stop, not a real shard-runtime rehearsal. If you need zero-token validation of worker sandboxes, in/out folders, proposal validation, or promotion wiring, redirect `SubprocessCodexFarmRunner` through a fake `codex-farm` executable via `--codex-farm-cmd` so the live subprocess path still runs.
 - `labelstudio-import --prelabel` is its own Codex surface; recipe settings do not implicitly approve it.
 - `COOKIMPORT_ALLOW_LLM` still blocks unapproved live Codex execution by default.
-- `COOKIMPORT_ALLOW_CODEX_FARM` is a retired transition gate and no longer acts as the approval gate.
 
 Benchmark split:
 
@@ -144,7 +141,7 @@ Knowledge runtime note:
 - `codex_farm_knowledge_jobs.py` now writes stable shard payload files plus shard-manifest metadata with owned `chunk_id`s and owned block indices
 - `phase_worker_runtime.py` executes those shard payloads under bounded workers and records runtime telemetry
 - `codex_farm_knowledge_ingest.py` validates exact owned `chunk_id` coverage and rejects any `block_decisions` or snippet evidence that point outside the shard's eligible block surface
-- only validated shard payloads are copied back into compatibility `knowledge/out/` files for older prompt/debug readers; invalid raw proposals stay in `knowledge/proposals/`
+- prompt/debug readers now pair `knowledge/in/*.json` with validated `knowledge/proposals/*.json`; there is no compatibility `knowledge/out/` mirror anymore
 - the runtime cutover did not require a brand-new pack immediately; `codex-knowledge-shard-v1` still reuses the compact knowledge pack underneath, and the important authority seam is shard ownership plus validation, not a new prompt asset family
 - prompt-cost control for this stage lives before worker execution:
   - `cookimport/parsing/chunks.py` routes obvious blurbs, navigation fragments, attribution-only text, and similar low-value prose to `noise`
@@ -203,9 +200,11 @@ Prompt cost notes worth keeping in mind:
 
 - the first 2026-03-16 prompt audit measured about `663k` live-like input tokens on an `~86k` token source book
 - after the current shared line-role and knowledge cuts, the same benchmark preview rebuild measures about `386k` live-like input tokens and `~449k` estimated total tokens
+- after the prompt-target + path-handoff update on 2026-03-17, the same `saltfatacidheatcutdown` preview rebuild measures `15` total prompts (`5` recipe, `5` line-role, `5` knowledge), about `188k` estimated input tokens, and about `224k` estimated total tokens
 - the biggest measured fan-out reductions came from shared builders, not preview-only tricks:
   - knowledge preview on `saltfatacidheatcutdown` moved from `324` prompts to `91`, then to `40`, after noise routing, local bundling, soft-gap packing, and low-signal pruning landed in the live knowledge job builder
   - line-role preview on the same run moved from `45` prompts to `15`, then to `8`, after raw-prompt transport, larger shared batch defaults, and compact row serialization landed in the live line-role path
+  - the next cut landed by changing the default control surface from shard size to per-phase prompt target, then removing the remaining knowledge bundle char-cap split when that prompt target is explicitly in force
 - the durable shape lessons are:
   - knowledge prompt count fell because contiguous chunks were packed across neighboring seed spans, not only within each individual seed span
   - after that, remaining knowledge prompt count was mostly gap-limited by hard breaks between chunk runs
@@ -219,6 +218,8 @@ Prompt cost notes worth keeping in mind:
   - bundle local knowledge chunks instead of writing one chunk per prompt
   - blank line-role neighbor context for outside-recipe rows
   - compact line-role rows into batch-level legends plus conditional local context only for escalated rows
+  - switch active shard-v1 packs to file-path prompt transport so prompt wrapper text only carries instructions plus `INPUT_PATH`, while the task payload already lives in the worker folder on disk
+  - default active shard-v1 phases to `*_prompt_target_count=5`, with older shard-size knobs retained only as explicit lower-level overrides
 
 Where prompt cuts should live:
 
@@ -247,17 +248,11 @@ Shard-runtime observability note:
   - `telemetry_report`
   - `autotune_report`
   - compact CSV `telemetry` slices
-- When callers provide progress callbacks, runner prefers `codex-farm process --progress-events --json` and retries once without that flag if the binary does not support it.
-- Runner still recognizes the older stderr progress shape (`run=... queued=... running=... done=...`) and treats those lines as progress/control output instead of surfacing them as stderr noise in interactive benchmark/status flows.
-- Current runners must emit structured progress events and JSON stdout when `--json` is requested; previous stderr-only progress lines are only a compatibility fallback and should not be the target contract for new codex-farm builds.
+- When callers provide progress callbacks, runner requires `codex-farm process --progress-events --json`.
+- Current runners must emit structured progress events plus JSON stdout when `--json` is requested; older stderr-only progress and missing-flag fallbacks are no longer supported.
 - Recoverable partial-output failures include `no last agent message` and `nonzero_exit_no_payload`.
 - In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing recipe-correction bundles.
 - Recipe pass block extraction falls back to `full_text.lines` when cached payloads are missing `full_text.blocks`.
-- most remaining legacy weight around the live LLM path is now read-side or compatibility-only:
-  - runner support for older codex-farm stderr progress / flag sets
-  - compatibility `knowledge/out/` copies for prompt/debug readers
-  - archived artifact readers in benchmark and analytics tooling
-  - retired local-LLM stub modules
 
 Compact/default contract:
 
@@ -272,15 +267,6 @@ Structured output contract:
 - Top-level properties must also appear in `required`.
 - Nullable fields must still be present and use `null` when empty.
 - `ingredient_step_mapping` is on-wire as an array of mapping-entry objects and is normalized back to the internal dict form after validation.
-
-## Inactive modules
-
-These files still exist, but they are not the current stage/prediction/tag runtime path:
-
-- `cookimport/llm/client.py`
-- `cookimport/llm/prompts.py`
-- `cookimport/llm/repair.py`
-- `cookimport/llm/codex_exec.py`
 
 ## Related docs
 

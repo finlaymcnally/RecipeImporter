@@ -63,9 +63,12 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "pdf_ocr_policy",
         "pdf_column_gap_ratio",
         "llm_recipe_pipeline",
+        "recipe_prompt_target_count",
         "atomic_block_splitter",
         "line_role_pipeline",
+        "line_role_prompt_target_count",
         "llm_knowledge_pipeline",
+        "knowledge_prompt_target_count",
         "codex_farm_recipe_mode",
         "codex_farm_cmd",
         "codex_farm_context_blocks",
@@ -122,6 +125,9 @@ def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> Non
 
     assert settings.codex_farm_pipeline_knowledge == "recipe.knowledge.compact.v1"
     assert settings.codex_farm_knowledge_context_blocks == 0
+    assert settings.recipe_prompt_target_count == 5
+    assert settings.line_role_prompt_target_count == 5
+    assert settings.knowledge_prompt_target_count == 5
 
 
 def test_build_run_settings_defaults_match_safe_run_settings_defaults() -> None:

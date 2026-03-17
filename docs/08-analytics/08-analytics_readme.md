@@ -133,7 +133,7 @@ Collector behavior (`collect_dashboard_data`):
 - Benchmark data is CSV-first.
 - Nested benchmark history CSVs under the output root are merged in as supplemental rows.
 - `eval_report.json` scanning is opt-in via `--scan-benchmark-reports`, with automatic fallback only when benchmark CSV rows are unavailable.
-- When CSV rows exist, older benchmark artifacts can still supplement missing historical rows, but CSV stays authoritative for overlapping artifact directories.
+- When CSV benchmark rows exist, they are authoritative. JSON benchmark scans happen only when `--scan-benchmark-reports` is explicitly requested or when no benchmark CSV rows exist.
 - Manifest enrichment backfills importer/runtime context, codex model/effort, recipe counts, and token usage when available.
 - Benchmark artifact paths classified as test/gate noise are excluded before rendering.
 - Timestamp sorting is parse-aware and tolerates both `YYYY-MM-DD_HH.MM.SS` folder-style timestamps and ISO timestamps.

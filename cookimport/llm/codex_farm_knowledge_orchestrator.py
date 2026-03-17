@@ -84,9 +84,7 @@ def run_codex_farm_knowledge_harvest(
 
     knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("extract_knowledge_optional")
     knowledge_in_dir = knowledge_stage_dir / "in"
-    knowledge_out_dir = knowledge_stage_dir / "out"
     knowledge_in_dir.mkdir(parents=True, exist_ok=True)
-    knowledge_out_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline_id = _non_empty(
         run_settings.codex_farm_pipeline_knowledge,
@@ -103,7 +101,6 @@ def run_codex_farm_knowledge_harvest(
             output_schema_path=None,
             manifest_path=manifest_path,
             knowledge_in_dir=knowledge_in_dir,
-            knowledge_out_dir=knowledge_out_dir,
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="no_nonrecipe_spans",
         )
@@ -160,6 +157,7 @@ def run_codex_farm_knowledge_harvest(
         source_hash=_resolve_source_hash(conversion_result),
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
+        target_prompt_count=run_settings.knowledge_prompt_target_count,
         target_chunks_per_shard=run_settings.knowledge_shard_target_chunks,
         overrides=overrides,
     )
@@ -171,7 +169,6 @@ def run_codex_farm_knowledge_harvest(
             output_schema_path=output_schema_path,
             manifest_path=manifest_path,
             knowledge_in_dir=knowledge_in_dir,
-            knowledge_out_dir=knowledge_out_dir,
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="all_chunks_skipped",
             skipped_chunk_count=build_report.skipped_chunk_count,
@@ -206,6 +203,7 @@ def run_codex_farm_knowledge_harvest(
             proposal_validator=validate_knowledge_shard_output,
             settings={
                 "llm_knowledge_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_worker_count": run_settings.knowledge_worker_count,
                 "knowledge_shard_target_chunks": run_settings.knowledge_shard_target_chunks,
                 "knowledge_shard_max_turns": run_settings.knowledge_shard_max_turns,
@@ -252,7 +250,6 @@ def run_codex_farm_knowledge_harvest(
             output_schema_path=output_schema_path,
             manifest_path=manifest_path,
             knowledge_in_dir=knowledge_in_dir,
-            knowledge_out_dir=knowledge_out_dir,
             knowledge_stage_dir=knowledge_stage_dir,
             build_report=build_report,
             elapsed_seconds=elapsed_seconds,
@@ -267,13 +264,7 @@ def run_codex_farm_knowledge_harvest(
             write_report=None,
         )
 
-    outputs, validated_payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(
-        knowledge_stage_dir / "proposals"
-    )
-    _materialize_validated_knowledge_outputs(
-        out_dir=knowledge_out_dir,
-        payloads_by_shard_id=validated_payloads_by_shard_id,
-    )
+    outputs, _ = read_validated_knowledge_outputs_from_proposals(knowledge_stage_dir / "proposals")
     missing_chunk_ids = sorted(set(build_report.chunk_ids) - set(outputs))
     (
         block_category_updates,
@@ -341,7 +332,6 @@ def run_codex_farm_knowledge_harvest(
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
             "knowledge_in_dir": str(knowledge_in_dir),
-            "knowledge_out_dir": str(knowledge_out_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
             "snippets_path": str(write_report.snippets_path),
             "preview_path": str(write_report.preview_path),
@@ -391,7 +381,6 @@ def _build_noop_knowledge_llm_report(
     output_schema_path: str | None,
     manifest_path: Path,
     knowledge_in_dir: Path,
-    knowledge_out_dir: Path,
     knowledge_stage_dir: Path,
     stage_status: str,
     skipped_chunk_count: int = 0,
@@ -428,7 +417,6 @@ def _build_noop_knowledge_llm_report(
         "timing": {"total_seconds": 0.0},
         "paths": {
             "knowledge_in_dir": str(knowledge_in_dir),
-            "knowledge_out_dir": str(knowledge_out_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
             "manifest_path": str(manifest_path),
             **_runtime_artifact_paths(knowledge_stage_dir),
@@ -453,7 +441,6 @@ def _build_runtime_failed_knowledge_llm_report(
     output_schema_path: str | None,
     manifest_path: Path,
     knowledge_in_dir: Path,
-    knowledge_out_dir: Path,
     knowledge_stage_dir: Path,
     build_report: Any,
     elapsed_seconds: float,
@@ -485,7 +472,6 @@ def _build_runtime_failed_knowledge_llm_report(
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
             "knowledge_in_dir": str(knowledge_in_dir),
-            "knowledge_out_dir": str(knowledge_out_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
             "manifest_path": str(manifest_path),
             **_runtime_artifact_paths(knowledge_stage_dir),
@@ -529,19 +515,6 @@ def _runtime_artifact_paths(knowledge_stage_dir: Path) -> dict[str, str]:
         "failures_path": str(knowledge_stage_dir / "failures.json"),
         "proposals_dir": str(knowledge_stage_dir / "proposals"),
     }
-
-
-def _materialize_validated_knowledge_outputs(
-    *,
-    out_dir: Path,
-    payloads_by_shard_id: Mapping[str, dict[str, Any]],
-) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for stale_path in sorted(out_dir.glob("*.json")):
-        stale_path.unlink()
-    for shard_id, payload in sorted(payloads_by_shard_id.items()):
-        _write_json(payload, out_dir / f"{shard_id}.json")
-
 
 def _extract_full_blocks(result: ConversionResult) -> list[dict[str, Any]]:
     by_index: dict[int, dict[str, Any]] = {}

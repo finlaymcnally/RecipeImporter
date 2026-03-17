@@ -214,7 +214,7 @@ def run_phase_workers_v1(
             out_dir,
             dict(env or {}),
             root_dir=root_dir,
-            workspace_root=sandbox_root,
+            workspace_root=worker_root,
             model=model,
             reasoning_effort=reasoning_effort,
             runtime_audit_mode="structured_loop_agentic_v1",

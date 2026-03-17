@@ -11,7 +11,7 @@ from typing import Callable
 ORACLE_BROWSER_CMD = "/home/mcnal/.nvm/versions/node/v20.19.6/bin/oracle"
 ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-nosandbox-xvfb"
 ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
-ORACLE_DEFAULT_MODEL = "gpt-5.2-pro"
+ORACLE_DEFAULT_MODEL = "gpt-5.2"
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
 ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
 ORACLE_DRY_RUN_BASE_COMMAND = (

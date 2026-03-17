@@ -254,8 +254,8 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         "recipe_llm_correct_and_link",
     }
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
-    assert "BEGIN_INPUT_JSON" in recipe_row["rendered_prompt_text"]
-    assert "urn:recipe:test:r0" in recipe_row["rendered_prompt_text"]
+    assert "Read the authoritative shard JSON file at" in recipe_row["rendered_prompt_text"]
+    assert "recipe-preview-shard-0001-r0.json" in recipe_row["rendered_prompt_text"]
     assert recipe_row["runtime_shard_id"] == "recipe-preview-shard-0001-r0"
     assert recipe_row["runtime_worker_id"] == "worker-001"
     assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
@@ -267,16 +267,17 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
             / "fixturebook"
             / "recipe_llm_correct_and_link"
             / "in"
-            / "r0.json"
+            / "recipe-preview-shard-0001-r0.json"
         ).read_text(encoding="utf-8")
     )
     assert "draft_hint" not in recipe_input_payload
-    assert "provenance" not in recipe_input_payload["recipe_candidate_hint"]
+    assert "provenance" not in recipe_input_payload["recipes"][0]["recipe_candidate_hint"]
     assert recipe_input_payload["tagging_guide"]["version"] == "recipe_tagging_guide.v1"
+    assert recipe_input_payload["owned_recipe_ids"] == ["urn:recipe:test:r0"]
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
-    assert "Execute the line-role labeling task below exactly." in line_role_row["rendered_prompt_text"]
-    assert "Ambiguous title-ish line" in line_role_row["rendered_prompt_text"]
+    assert "Execute the line-role labeling task exactly." in line_role_row["rendered_prompt_text"]
+    assert "line_role_prompt_0001.json" in line_role_row["rendered_prompt_text"]
     embedded_line_role_prompt = line_role_row["task_prompt_text"]
     assert "Compact input legends:" in embedded_line_role_prompt
     assert "Recipe atomic index ranges for this batch: 0-1" in embedded_line_role_prompt
@@ -299,7 +300,15 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json"
     ).read_text(encoding="utf-8") == embedded_line_role_prompt
 
-    assert (out_dir / "raw" / "llm" / "fixturebook" / "recipe_llm_correct_and_link" / "in" / "r0.json").is_file()
+    assert (
+        out_dir
+        / "raw"
+        / "llm"
+        / "fixturebook"
+        / "recipe_llm_correct_and_link"
+        / "in"
+        / "recipe-preview-shard-0001-r0.json"
+    ).is_file()
     assert (out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json").is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
     budget_summary = json.loads(
@@ -307,13 +316,14 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     )
     assert budget_summary["totals"]["call_count"] == 2
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
-    assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
+    assert budget_summary["totals"]["estimated_request_chars_total"] > budget_summary["totals"]["prompt_chars_total"]
+    assert budget_summary["totals"]["transport_overhead_chars_total"] == 0
     line_role_budget = budget_summary["by_stage"]["line_role"]
     assert line_role_budget["worker_count"] == 1
     assert line_role_budget["shard_count"] == 1
     assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
-    assert line_role_budget["task_prompt_chars_total"] < line_role_budget["prompt_chars_total"]
-    assert line_role_budget["transport_overhead_chars_total"] > 0
+    assert line_role_budget["task_prompt_chars_total"] > line_role_budget["prompt_chars_total"]
+    assert line_role_budget["transport_overhead_chars_total"] == 0
     assert budget_summary["warnings"] == []
     budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
     assert "Workers" in budget_summary_md
@@ -377,7 +387,7 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
         / workbook_slug
         / "recipe_llm_correct_and_link"
         / "in"
-        / "live_recipe.json"
+        / "recipe-preview-shard-0001-live_recipe.json"
     )
     copied_knowledge_input = (
         out_dir
@@ -388,7 +398,26 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
         / "in"
         / "live_knowledge.json"
     )
-    assert copied_recipe_input.read_text(encoding="utf-8") == live_recipe_input.read_text(encoding="utf-8")
+    copied_recipe_payload = json.loads(copied_recipe_input.read_text(encoding="utf-8"))
+    assert copied_recipe_payload["owned_recipe_ids"] == ["urn:recipe:test:live"]
+    assert copied_recipe_payload["recipes"] == [
+        {
+            "canonical_text": "LIVE canonical text",
+            "evidence_rows": [[42, "LIVE canonical text"]],
+            "recipe_candidate_hint": {
+                "description": None,
+                "identifier": "urn:recipe:test:live",
+                "name": "Live Recipe Name",
+                "recipeIngredient": ["2 tbsp butter"],
+                "recipeInstructions": ["Melt the butter."],
+                "recipeYield": None,
+            },
+            "recipe_id": "urn:recipe:test:live",
+            "warnings": [],
+        }
+    ]
+    assert copied_recipe_payload["tagging_guide"] == {"version": "custom-live-guide"}
+    assert copied_recipe_payload["authority_notes"] == ["live_artifact_reuse"]
     assert copied_knowledge_input.read_text(encoding="utf-8") == live_knowledge_input.read_text(encoding="utf-8")
 
     full_prompt_rows = [
@@ -400,11 +429,23 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
     ]
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
     knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "extract_knowledge_optional")
-    assert "Live Recipe Name" in recipe_row["rendered_prompt_text"]
-    assert "custom-live-guide" in recipe_row["rendered_prompt_text"]
+    assert "Read the authoritative shard JSON file at" in recipe_row["rendered_prompt_text"]
+    assert "LIVE canonical text" in recipe_row["request_input_text"]
     assert recipe_row["recipe_id"] == "urn:recipe:test:live"
-    assert "Live knowledge block." in knowledge_row["rendered_prompt_text"]
+    assert "Read the input JSON file at" in knowledge_row["rendered_prompt_text"]
+    assert knowledge_row["task_prompt_text"] == knowledge_row["request_input_text"]
+    assert "Live knowledge block." in knowledge_row["request_input_text"]
     assert knowledge_row["recipe_id"] == "fixturebook.c9999.nr"
+
+    budget_summary = json.loads(
+        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    )
+    knowledge_budget = budget_summary["by_stage"]["extract_knowledge_optional"]
+    assert knowledge_budget["task_prompt_chars_total"] > 0
+    assert (
+        knowledge_budget["estimated_request_chars_total"]
+        == knowledge_budget["task_prompt_chars_total"] + knowledge_budget["prompt_chars_total"]
+    )
 
 
 def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> None:
@@ -446,13 +487,12 @@ def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     warning_messages = [warning["message"] for warning in manifest["warnings"]]
     assert any("EXTREME prompt budget:" in message for message in warning_messages)
-    assert any("Recipe correction fan-out is very high:" in message for message in warning_messages)
 
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert budget_summary["totals"]["call_count"] == 120
-    assert budget_summary["totals"]["prompt_chars_total"] > 1_500_000
+    assert budget_summary["totals"]["call_count"] == 5
+    assert budget_summary["totals"]["estimated_request_chars_total"] > 1_500_000
     assert any(
         warning["code"] == "extreme_prompt_budget" for warning in budget_summary["warnings"]
     )

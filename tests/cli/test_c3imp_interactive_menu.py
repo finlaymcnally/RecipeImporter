@@ -739,6 +739,88 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     assert selected.llm_knowledge_pipeline.value == "off"
 
 
+def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    prompt_messages: list[str] = []
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda message, *_args, **_kwargs: (
+            "codex-recipe-shard-v1"
+            if message == "Workflow for this run:"
+            else pytest.fail(f"unexpected menu prompt: {message}")
+        ),
+        back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "recipe": True,
+            "line_role": False,
+            "knowledge": True,
+        },
+        prompt_text=lambda message, **_kwargs: (
+            prompt_messages.append(message)
+            or (
+                "3"
+                if message == "Recipe correction prompt target count for this run:"
+                else "6"
+            )
+        ),
+        prompt_recipe_pipeline_menu=True,
+        prompt_benchmark_llm_surface_toggles=True,
+    )
+
+    assert selected is not None
+    assert prompt_messages == [
+        "Recipe correction prompt target count for this run:",
+        "Knowledge harvest prompt target count for this run:",
+    ]
+    assert selected.recipe_prompt_target_count == 3
+    assert selected.knowledge_prompt_target_count == 6
+    assert selected.line_role_prompt_target_count == 5
+
+
+def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "codex-line-role-shard-v1",
+            "llm_knowledge_pipeline": "off",
+            "line_role_prompt_target_count": 5,
+        },
+        warn_context="test line-role-only prompt targets",
+    )
+    prompt_messages: list[str] = []
+
+    result = run_settings_flow.choose_interactive_codex_surfaces(
+        selected_settings=selected_settings,
+        back_action=object(),
+        surface_options=("recipe", "line_role", "knowledge"),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "recipe": False,
+            "line_role": True,
+            "knowledge": False,
+        },
+        prompt_text=lambda message, **_kwargs: prompt_messages.append(message) or "4",
+    )
+
+    assert result is not None
+    assert prompt_messages == ["Block labelling prompt target count for this run:"]
+    assert result.recipe_prompt_target_count == selected_settings.recipe_prompt_target_count
+    assert result.line_role_prompt_target_count == 4
+    assert result.knowledge_prompt_target_count == selected_settings.knowledge_prompt_target_count
+
+
 def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

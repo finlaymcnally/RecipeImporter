@@ -38,6 +38,7 @@ from cookimport.llm.phase_worker_runtime import (
     WorkerExecutionReportV1,
     run_phase_workers_v1,
 )
+from cookimport.llm.shard_prompt_targets import resolve_items_per_shard
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 _PROSE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
@@ -620,6 +621,7 @@ def build_line_role_codex_execution_plan(
         "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
             settings=settings,
             codex_batch_size=codex_batch_size,
+            total_candidates=len(ordered),
         ),
         "shards": planned_shards,
     }
@@ -691,6 +693,7 @@ def _build_line_role_shard_plans(
     shard_target_lines = _resolve_line_role_shard_target_lines(
         settings=settings,
         codex_batch_size=codex_batch_size,
+        total_candidates=len(ordered_candidates),
     )
     prompt_format = _resolve_line_role_prompt_format()
     plans: list[_LineRoleShardPlan] = []
@@ -764,7 +767,15 @@ def _resolve_line_role_shard_target_lines(
     *,
     settings: RunSettings,
     codex_batch_size: int,
+    total_candidates: int | None = None,
 ) -> int:
+    if total_candidates is not None and total_candidates > 0:
+        return resolve_items_per_shard(
+            total_items=total_candidates,
+            prompt_target_count=getattr(settings, "line_role_prompt_target_count", None),
+            items_per_shard=getattr(settings, "line_role_shard_target_lines", None),
+            default_items_per_shard=codex_batch_size,
+        )
     configured = getattr(settings, "line_role_shard_target_lines", None)
     resolved = getattr(configured, "value", configured)
     if resolved is not None:
@@ -911,6 +922,7 @@ def _run_line_role_shard_runtime(
             "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
                 settings=settings,
                 codex_batch_size=codex_batch_size,
+                total_candidates=len(ordered_candidates),
             ),
         },
     )

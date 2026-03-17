@@ -6014,22 +6014,6 @@ def _write_starter_pack_v1(
         encoding="utf-8",
     )
 
-    legacy_to_starter_mapping = {
-        "comparison_summary.json": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_COMPARISON_MIRROR_FILE_NAME}",
-        "per_recipe_or_per_span_breakdown.json": (
-            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}"
-        ),
-        "changed_lines.codex_vs_vanilla.jsonl": (
-            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}"
-        ),
-        "label_policy_adjudication_notes.md": (
-            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LABEL_POLICY_FILE_NAME}"
-        ),
-        "process_manifest.json": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}",
-        STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME: (
-            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_FILE_NAME}"
-        ),
-    }
     starter_pack_manifest = {
         "starter_pack_version": "v1",
         "selection_policy": dict(STARTER_PACK_SELECTION_POLICY),
@@ -6040,7 +6024,6 @@ def _write_starter_pack_v1(
         "heavy_artifacts_omitted_by_default": list(
             STARTER_PACK_HEAVY_ARTIFACTS_OMITTED_BY_DEFAULT
         ),
-        "legacy_to_starter_mapping": legacy_to_starter_mapping,
         "outside_span_trace_sample": outside_span_manifest,
         "triage_packet": {
             "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
@@ -10553,21 +10536,8 @@ def _upload_bundle_build_alias_metadata(
         )
     )
 
-    legacy_aliases: list[dict[str, Any]] = []
-    legacy_mapping = starter_manifest_payload.get("legacy_to_starter_mapping")
-    if isinstance(legacy_mapping, dict):
-        for legacy_path, canonical_path in sorted(legacy_mapping.items()):
-            if not isinstance(legacy_path, str) or not isinstance(canonical_path, str):
-                continue
-            legacy_aliases.append(
-                {
-                    "legacy_path": legacy_path,
-                    "canonical_path": canonical_path,
-                }
-            )
     return {
         "content_equivalent_groups": content_equivalent_groups,
-        "legacy_aliases": legacy_aliases,
     }
 
 
@@ -14003,10 +13973,6 @@ def main() -> int:
         "starter_pack_v1_heavy_artifacts_omitted_by_default": starter_pack_manifest.get(
             "heavy_artifacts_omitted_by_default",
             list(STARTER_PACK_HEAVY_ARTIFACTS_OMITTED_BY_DEFAULT),
-        ),
-        "starter_pack_v1_legacy_to_starter_mapping": starter_pack_manifest.get(
-            "legacy_to_starter_mapping",
-            {},
         ),
     }
 

@@ -622,11 +622,11 @@ def test_interactive_single_profile_uploads_only_group_oracle_bundle(
         "_write_benchmark_upload_bundle",
         _fake_write_benchmark_upload_bundle,
     )
-    oracle_calls: list[dict[str, object]] = []
+    hint_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         cli,
-        "_maybe_upload_benchmark_bundle_to_oracle",
-        lambda **kwargs: oracle_calls.append(dict(kwargs)),
+        "_print_manual_oracle_upload_hint",
+        lambda **kwargs: hint_calls.append(dict(kwargs)),
     )
 
     completed = cli._interactive_single_profile_all_matched_benchmark(
@@ -638,10 +638,9 @@ def test_interactive_single_profile_uploads_only_group_oracle_bundle(
     )
 
     assert completed is True
-    assert oracle_calls == [
+    assert hint_calls == [
         {
             "bundle_dir": group_bundle_dir,
-            "scope": "single_profile_group",
         }
     ]
 

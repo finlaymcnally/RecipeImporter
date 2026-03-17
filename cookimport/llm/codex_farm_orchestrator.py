@@ -35,6 +35,7 @@ from .codex_farm_runner import (
 )
 from .phase_worker_runtime import ShardManifestEntryV1, run_phase_workers_v1
 from .recipe_tagging_guide import build_recipe_tagging_guide
+from .shard_prompt_targets import resolve_items_per_shard
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +304,12 @@ def _build_recipe_shard_plans(
     workbook_slug: str,
     source_hash: str,
 ) -> list[_RecipeShardPlan]:
-    target_recipes = _shard_target_recipe_count(run_settings)
+    target_recipes = resolve_items_per_shard(
+        total_items=len(prepared_inputs),
+        prompt_target_count=run_settings.recipe_prompt_target_count,
+        items_per_shard=run_settings.recipe_shard_target_recipes,
+        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
+    )
     plans: list[_RecipeShardPlan] = []
     for shard_index in range(0, len(prepared_inputs), target_recipes):
         shard_prepared_inputs = tuple(prepared_inputs[shard_index : shard_index + target_recipes])
@@ -980,7 +986,12 @@ def _build_single_correction_execution_plan(
     workbook_slug: str,
 ) -> dict[str, Any]:
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
-    target_recipes = _shard_target_recipe_count(run_settings)
+    target_recipes = resolve_items_per_shard(
+        total_items=len(states),
+        prompt_target_count=run_settings.recipe_prompt_target_count,
+        items_per_shard=run_settings.recipe_shard_target_recipes,
+        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
+    )
     planned_tasks: list[dict[str, Any]] = []
     planned_shards: list[dict[str, Any]] = []
     shard_ids_by_recipe_id: dict[str, str] = {}
@@ -1025,6 +1036,7 @@ def _build_single_correction_execution_plan(
         "enabled": True,
         "pipeline": SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
         "recipe_count": len(states),
+        "recipe_prompt_target_count": run_settings.recipe_prompt_target_count,
         "recipe_shard_target_recipes": target_recipes,
         "worker_count": _recipe_worker_count(run_settings),
         "planned_shards": planned_shards,

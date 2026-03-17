@@ -58,6 +58,11 @@ _CODEX_REASONING_EFFORT_ORDER = (
     "high",
     "xhigh",
 )
+_CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
+    "recipe": ("recipe_prompt_target_count", "Recipe correction"),
+    "line_role": ("line_role_prompt_target_count", "Block labelling"),
+    "knowledge": ("knowledge_prompt_target_count", "Knowledge harvest"),
+}
 
 
 def _worker_utilization() -> float | None:
@@ -426,6 +431,7 @@ def _choose_interactive_codex_surfaces(
     *,
     selected_settings: RunSettings,
     prompt_codex_surface_menu: PromptCodexSurfaceMenu,
+    prompt_text: PromptText | None,
     back_action: Any,
     surface_options: tuple[str, ...],
 ) -> RunSettings | None:
@@ -465,7 +471,7 @@ def _choose_interactive_codex_surfaces(
         _normalize_interactive_recipe_pipeline(selected_settings.llm_recipe_pipeline.value)
         or RECIPE_CODEX_FARM_EXECUTION_PIPELINES[0]
     )
-    return _patch_interactive_settings(
+    selected_settings = _patch_interactive_settings(
         selected_settings,
         warn_context="interactive benchmark llm surface overrides",
         llm_recipe_pipeline=(
@@ -481,6 +487,78 @@ def _choose_interactive_codex_surfaces(
         ),
         atomic_block_splitter="atomic-v1",
     )
+    if prompt_text is None or not selected_step_ids:
+        return selected_settings
+    return _choose_interactive_codex_prompt_targets(
+        selected_settings=selected_settings,
+        prompt_text=prompt_text,
+        back_action=back_action,
+        selected_step_ids=selected_step_ids,
+    )
+
+
+def _prompt_codex_prompt_target_count(
+    *,
+    prompt_text: PromptText,
+    message: str,
+    default_value: int,
+    back_action: Any,
+) -> int | None:
+    raw_value = prompt_text(
+        message,
+        default=str(default_value),
+        instruction=(
+            "Approximate prompts for this task in this run. Use a whole number >= 1. "
+            "Press Esc to go back."
+        ),
+        validate=lambda text: (
+            True
+            if str(text or "").strip().isdigit() and int(str(text).strip()) >= 1
+            else "Enter a whole number >= 1."
+        ),
+    )
+    if raw_value in {None, back_action}:
+        return None
+    normalized = str(raw_value).strip()
+    if not normalized:
+        return int(default_value)
+    try:
+        parsed = int(normalized)
+    except ValueError:
+        return None
+    return parsed if parsed >= 1 else None
+
+
+def _choose_interactive_codex_prompt_targets(
+    *,
+    selected_settings: RunSettings,
+    prompt_text: PromptText,
+    back_action: Any,
+    selected_step_ids: set[str],
+) -> RunSettings | None:
+    patched_payload = project_run_config_payload(
+        selected_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
+    for step_id in ("recipe", "line_role", "knowledge"):
+        if step_id not in selected_step_ids:
+            continue
+        field_name, label = _CODEX_SURFACE_PROMPT_TARGET_FIELDS[step_id]
+        current_value = getattr(selected_settings, field_name, None)
+        resolved_default = int(current_value) if current_value is not None else 5
+        prompt_target_count = _prompt_codex_prompt_target_count(
+            prompt_text=prompt_text,
+            message=f"{label} prompt target count for this run:",
+            default_value=resolved_default,
+            back_action=back_action,
+        )
+        if prompt_target_count is None:
+            return None
+        patched_payload[field_name] = prompt_target_count
+    return RunSettings.from_dict(
+        patched_payload,
+        warn_context="interactive codex prompt targets",
+    )
 
 
 def choose_interactive_codex_surfaces(
@@ -489,12 +567,14 @@ def choose_interactive_codex_surfaces(
     back_action: Any,
     surface_options: tuple[str, ...],
     prompt_codex_surface_menu: PromptCodexSurfaceMenu | None = None,
+    prompt_text: PromptText | None = None,
 ) -> RunSettings | None:
     return _choose_interactive_codex_surfaces(
         selected_settings=selected_settings,
         prompt_codex_surface_menu=(
             prompt_codex_surface_menu or _prompt_codex_surface_menu
         ),
+        prompt_text=prompt_text,
         back_action=back_action,
         surface_options=surface_options,
     )
@@ -753,6 +833,7 @@ def choose_run_settings(
         selected_settings = choose_interactive_codex_surfaces(
             selected_settings=selected_settings,
             prompt_codex_surface_menu=prompt_codex_surface_menu,
+            prompt_text=prompt_text,
             back_action=back_action,
             surface_options=codex_surface_menu_options,
         )

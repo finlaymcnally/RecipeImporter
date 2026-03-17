@@ -320,13 +320,12 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     assert run_result.autotune_report["schema_version"] == 1
     assert run_result.telemetry is not None
     assert run_result.telemetry.get("row_count") == 0
-    assert run_result.runtime_mode_audit == {
-        "mode": "structured_output_non_agentic",
-        "output_schema_enforced": True,
-        "reason_codes": [],
-        "status": "ok",
-        "tool_affordances_requested": False,
-    }
+    assert run_result.runtime_mode_audit is not None
+    assert run_result.runtime_mode_audit["mode"] == "structured_output_non_agentic"
+    assert run_result.runtime_mode_audit["output_schema_enforced"] is True
+    assert run_result.runtime_mode_audit["reason_codes"] == []
+    assert run_result.runtime_mode_audit["status"] == "ok"
+    assert run_result.runtime_mode_audit["tool_affordances_requested"] is False
 
     command = calls[0]
     assert isinstance(command, list)
@@ -440,7 +439,7 @@ def test_subprocess_runner_appends_benchmark_mode_flag_from_env(
     assert process_command[mode_index + 1] == "benchmark"
 
 
-def test_subprocess_runner_retries_extract_without_benchmark_mode_flag_when_unsupported(
+def test_subprocess_runner_fails_when_extract_mode_benchmark_flag_is_unsupported(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -477,62 +476,30 @@ def test_subprocess_runner_retries_extract_without_benchmark_mode_flag_when_unsu
     )
 
     process_calls: list[list[str]] = []
-    process_attempt = {"count": 0}
 
     def _fake_run(command, **_kwargs):  # noqa: ANN001
         argv = list(command)
         if argv[1:3] == ["process", "--pipeline"]:
             process_calls.append(argv)
-            process_attempt["count"] += 1
-            if process_attempt["count"] == 1:
-                return SimpleNamespace(
-                    returncode=2,
-                    stdout="",
-                    stderr="error: unrecognized arguments: --benchmark-mode\n",
-                )
             return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "run_id": "run-extract-fallback",
-                        "status": "completed",
-                        "exit_code": 0,
-                        "output_schema_path": str(schema_path),
-                    }
-                ),
-                stderr="",
-            )
-        if argv[1:3] == ["run", "autotune"]:
-            return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "schema_version": 1,
-                        "run_id": "run-extract-fallback",
-                        "pipeline_id": "recipe.correction.compact.v1",
-                        "flag_overrides": [],
-                        "command_preview": "",
-                    }
-                ),
-                stderr="",
+                returncode=2,
+                stdout="",
+                stderr="error: unrecognized arguments: --benchmark-mode\n",
             )
         raise AssertionError(f"Unexpected command: {argv}")
 
     monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
-    run_result = runner.run_pipeline(
-        "recipe.correction.compact.v1",
-        in_dir,
-        out_dir,
-        {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "extract"},
-        root_dir=root_dir,
-    )
-
-    assert run_result.run_id == "run-extract-fallback"
-    assert len(process_calls) == 2
-    assert "--benchmark-mode" in process_calls[0]
-    assert "--benchmark-mode" not in process_calls[1]
+    with pytest.raises(CodexFarmRunnerError, match="does not support --benchmark-mode"):
+        runner.run_pipeline(
+            "recipe.correction.compact.v1",
+            in_dir,
+            out_dir,
+            {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "extract"},
+            root_dir=root_dir,
+        )
+    assert len(process_calls) == 1
 
 
 def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
@@ -782,111 +749,7 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
     assert any("active [r0001.json]" in message for message in progress_messages)
 
 
-def test_subprocess_runner_emits_progress_callback_from_legacy_stderr_progress_lines(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    in_dir = tmp_path / "in"
-    out_dir = tmp_path / "out"
-    root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "line-role.canonical.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "line-role.canonical.v1.json"
-    in_dir.mkdir(parents=True, exist_ok=True)
-    schema_path.parent.mkdir(parents=True, exist_ok=True)
-    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
-    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
-    schema_path.write_text(
-        json.dumps(
-            {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "type": "object",
-                "additionalProperties": False,
-                "required": [],
-                "properties": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-    pipeline_path.write_text(
-        json.dumps(
-            {
-                "pipeline_id": "line-role.canonical.v1",
-                "prompt_template_path": "prompts/line-role.canonical.v1.prompt.md",
-                "output_schema_path": "schemas/line-role.canonical.v1.output.schema.json",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    class _FakePopen:
-        def __init__(self, _command, **_kwargs):  # noqa: ANN001
-            self.returncode = 0
-            self.stdout = io.StringIO(
-                json.dumps(
-                    {
-                        "run_id": "run-legacy-progress-lines",
-                        "status": "done",
-                        "exit_code": 0,
-                        "output_schema_path": str(schema_path),
-                    }
-                )
-                + "\n"
-            )
-            self.stderr = io.StringIO(
-                "\n".join(
-                    [
-                        "run=aa286a7b52dd411888483a6c658643ce",
-                        "queued=1 running=0 done=0 error=0 canceled=0",
-                        "run=aa286a7b52dd411888483a6c658643ce queued=0 running=1 done=0 error=0 canceled=0",
-                        "run=aa286a7b52dd411888483a6c658643ce queued=0 running=0 done=1 error=0 canceled=0",
-                    ]
-                )
-                + "\n"
-            )
-
-        def wait(self):  # noqa: D401
-            return self.returncode
-
-    def _fake_run(command, **_kwargs):  # noqa: ANN001
-        argv = list(command)
-        if argv[1:3] == ["run", "autotune"]:
-            return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "schema_version": 1,
-                        "run_id": "run-legacy-progress-lines",
-                        "pipeline_id": "line-role.canonical.v1",
-                        "flag_overrides": [],
-                        "command_preview": "",
-                    }
-                ),
-                stderr="",
-            )
-        raise AssertionError(f"Unexpected command: {argv}")
-
-    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.Popen", _FakePopen)
-    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
-
-    progress_messages: list[str] = []
-    runner = SubprocessCodexFarmRunner(
-        cmd="codex-farm",
-        progress_callback=progress_messages.append,
-    )
-    run_result = runner.run_pipeline(
-        "line-role.canonical.v1",
-        in_dir,
-        out_dir,
-        {},
-        root_dir=root_dir,
-    )
-
-    assert run_result.run_id == "run-legacy-progress-lines"
-    assert any("task 0/1" in message for message in progress_messages)
-    assert any("task 1/1" in message for message in progress_messages)
-
-
-def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported(
+def test_subprocess_runner_fails_without_progress_events_support(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -923,8 +786,6 @@ def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported
     )
 
     popen_command: list[str] | None = None
-    run_calls: list[list[str]] = []
-
     class _UnsupportedProgressEventsPopen:
         def __init__(self, command, **_kwargs):  # noqa: ANN001
             nonlocal popen_command
@@ -938,27 +799,13 @@ def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported
 
     def _fake_run(command, **_kwargs):  # noqa: ANN001
         argv = list(command)
-        run_calls.append(argv)
-        if argv[1:3] == ["process", "--pipeline"]:
-            return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "run_id": "run-progress-events-fallback",
-                        "status": "done",
-                        "exit_code": 0,
-                        "output_schema_path": str(schema_path),
-                    }
-                ),
-                stderr="",
-            )
         if argv[1:3] == ["run", "autotune"]:
             return SimpleNamespace(
                 returncode=0,
                 stdout=json.dumps(
                     {
                         "schema_version": 1,
-                        "run_id": "run-progress-events-fallback",
+                        "run_id": "run-progress-events-failure",
                         "pipeline_id": "recipe.correction.compact.v1",
                         "flag_overrides": [],
                         "command_preview": "",
@@ -979,20 +826,17 @@ def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported
         cmd="codex-farm",
         progress_callback=progress_messages.append,
     )
-    run_result = runner.run_pipeline(
-        "recipe.correction.compact.v1",
-        in_dir,
-        out_dir,
-        {},
-        root_dir=root_dir,
-    )
-
-    assert run_result.run_id == "run-progress-events-fallback"
+    with pytest.raises(CodexFarmRunnerError, match="does not support --progress-events"):
+        runner.run_pipeline(
+            "recipe.correction.compact.v1",
+            in_dir,
+            out_dir,
+            {},
+            root_dir=root_dir,
+        )
     assert popen_command is not None
     assert "--progress-events" in popen_command
-    assert run_calls
-    assert "--progress-events" not in run_calls[0]
-    assert any("--progress-events" in message for message in progress_messages)
+    assert progress_messages == []
 
 
 def test_subprocess_runner_collects_codex_exec_activity_telemetry(

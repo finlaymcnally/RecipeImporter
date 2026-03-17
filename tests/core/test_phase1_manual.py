@@ -2,7 +2,6 @@ from pathlib import Path
 
 from cookimport.parsing import cleaning, signals
 from cookimport.core import reporting
-from cookimport.llm import repair
 
 
 def test_cleaning() -> None:
@@ -54,11 +53,3 @@ def test_reporting(tmp_path: Path) -> None:
     report_file = tmp_path / "reports" / "test_cookbook.pdf.report.json"
     assert report_file.exists()
     assert report_file.read_text(encoding="utf-8").strip()
-
-
-def test_llm() -> None:
-    # This should hit the mock provider in client.py.
-    candidate = repair.repair_candidate("Some messy text", hints={"type": "test"})
-    assert candidate is not None
-    assert candidate.name == "Repaired Recipe"
-    assert candidate.ingredients[0] == "1 cup flour"

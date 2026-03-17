@@ -35,9 +35,9 @@ To tune pass behavior, edit prompt text files in `prompts/`. The recipe path now
 Recipe correction schemas use native nested JSON objects for recipe payload fields (`canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
 
 Prompt input contract:
-- `prompt_input_mode` is set to `"inline"` for recipe pipelines.
-- Use `{{INPUT_TEXT}}` to inject the full JSON payload directly into the prompt.
-- Do not rely on path-read instructions for recipe pipeline prompts.
+- Active shard-v1 recipe, knowledge, and line-role pipelines now use `prompt_input_mode: "path"`.
+- Use `{{INPUT_PATH}}` and keep the prompt focused on instructions plus the deposited worker-file path.
+- RecipeImport’s worker runtime now deposits the shard files inside the worker workspace so Codex can read them from the pre-made folder structure instead of re-sending the full payload inline.
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).

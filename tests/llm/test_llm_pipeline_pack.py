@@ -23,7 +23,7 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
 
         payload = json.loads(pipeline_path.read_text(encoding="utf-8"))
         assert payload.get("pipeline_id") == pipeline_id
-        assert payload.get("prompt_input_mode") == "inline"
+        assert payload.get("prompt_input_mode") == "path"
 
         prompt_rel = payload.get("prompt_template_path")
         schema_rel = payload.get("output_schema_path")
@@ -36,4 +36,4 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
         assert schema_path.exists(), f"Missing output schema: {schema_path}"
 
         prompt_text = prompt_path.read_text(encoding="utf-8")
-        assert "{{INPUT_TEXT}}" in prompt_text
+        assert "{{INPUT_PATH}}" in prompt_text

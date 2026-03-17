@@ -13,6 +13,7 @@ from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_span,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
+from cookimport.llm.shard_prompt_targets import resolve_items_per_shard
 
 from .codex_farm_knowledge_contracts import (
     KnowledgeCompactBundleChunkPayloadV2,
@@ -68,6 +69,7 @@ def build_knowledge_jobs(
     source_hash: str,
     out_dir: Path,
     context_blocks: int = 2,
+    target_prompt_count: int | None = None,
     target_chunks_per_shard: int | None = None,
     overrides: ParsingOverrides | None = None,
     skip_suggested_lanes: Sequence[str] = ("noise",),
@@ -166,6 +168,7 @@ def build_knowledge_jobs(
             chunk_counter += 1
     for bundle_chunks in _bundle_prepared_chunks(
         sorted(all_prepared_chunks, key=lambda chunk: chunk.absolute_indices[0]),
+        target_bundle_count=target_prompt_count,
         max_chunks_per_bundle=target_chunks_per_shard,
     ):
         bundle_id = f"{workbook_slug}.ks{bundle_counter:04d}.nr"
@@ -366,16 +369,28 @@ def _build_bundle_job_payload(
 def _bundle_prepared_chunks(
     chunks: Sequence[_PreparedKnowledgeBundleChunk],
     *,
+    target_bundle_count: int | None = None,
     max_chunks_per_bundle: int | None = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
     max_bundle_chars: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS,
     max_gap_blocks: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS,
 ) -> list[list[_PreparedKnowledgeBundleChunk]]:
     if not chunks:
         return []
-    effective_max_chunks = max(
-        1,
-        int(max_chunks_per_bundle or _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS),
+    effective_max_chunks = resolve_items_per_shard(
+        total_items=len(chunks),
+        prompt_target_count=target_bundle_count,
+        items_per_shard=max_chunks_per_bundle,
+        default_items_per_shard=_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
     )
+    effective_max_bundle_chars = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS
+    effective_max_gap_blocks = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS
+    if target_bundle_count is not None:
+        total_chars = sum(chunk.char_count for chunk in chunks)
+        effective_max_bundle_chars = max(
+            _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS,
+            int(total_chars) + 1,
+        )
+        effective_max_gap_blocks = 10**9
 
     bundles: list[list[_PreparedKnowledgeBundleChunk]] = []
     current: list[_PreparedKnowledgeBundleChunk] = []
@@ -389,13 +404,16 @@ def _bundle_prepared_chunks(
             current_chars = 0
 
     for chunk in chunks:
-        chunk_is_isolated = chunk.has_table_content or chunk.char_count >= max_bundle_chars
+        chunk_is_isolated = chunk.has_table_content or chunk.char_count >= effective_max_bundle_chars
         would_exceed_chunk_cap = bool(current) and len(current) >= effective_max_chunks
-        would_exceed_char_cap = bool(current) and current_chars + chunk.char_count > max_bundle_chars
+        would_exceed_char_cap = (
+            bool(current)
+            and current_chars + chunk.char_count > effective_max_bundle_chars
+        )
         current_has_table = any(existing.has_table_content for existing in current)
         current_is_local = (
             not current
-            or _chunk_gap_size(current[-1], chunk) <= max(0, int(max_gap_blocks))
+            or _chunk_gap_size(current[-1], chunk) <= max(0, int(effective_max_gap_blocks))
         )
 
         if chunk_is_isolated:

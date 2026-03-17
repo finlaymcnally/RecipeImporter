@@ -104,8 +104,8 @@ Current interactive contracts:
   - `upload_bundle_v1/`
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
-- interactive single-offline auto-uploads its session bundle to Oracle
-- multi-book single-profile auto-uploads only the top-level group bundle to Oracle
+- interactive single-offline writes its session bundle and leaves Oracle upload as a separate manual step
+- multi-book single-profile writes the top-level group bundle and leaves Oracle upload as a separate manual step
 
 ### 2.3 `cf-debug`
 
@@ -285,6 +285,7 @@ Oracle upload contract:
 - the user-facing target can be a session root or an `upload_bundle_v1/` directory
 - the actual upload code targets the three concrete bundle files; browser uploads may temporarily shard oversized files into ordered `partNNN` attachments to get past Oracle's per-file cap without changing the on-disk bundle format
 - the browser upload path calls Oracle directly with the Linux off-screen Chromium launcher and `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`; it intentionally bypasses the local `oracle-browser-headless` wrapper because that wrapper drifted back onto the visible-browser / X-server path
+- the default browser upload model is `gpt-5.2`; pass `--model ...` manually if you want a different picker target
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
 - transport sharding is strictly upload-time glue for oversized text files such as `upload_bundle_payload.jsonl`; checked-in and local `upload_bundle_v1` artifacts should stay unmodified on disk
 

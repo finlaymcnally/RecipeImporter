@@ -342,6 +342,58 @@ def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
     assert len(payloads[0]["chunks"]) == 2
 
 
+def test_build_knowledge_jobs_target_prompt_count_overrides_char_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id=f"chunk-{index}",
+                lane=ChunkLane.KNOWLEDGE,
+                title=f"Topic {index}",
+                text="X" * 8000,
+                blockIds=[index],
+            )
+            for index in range(10)
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    in_dir = tmp_path / "prompt-target"
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": f"Block {index} " + ("X" * 8000)}
+            for index in range(10)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.knowledge.0.10",
+                category="knowledge",
+                block_start_index=0,
+                block_end_index=10,
+                block_indices=list(range(10)),
+                block_ids=[f"b{index}" for index in range(10)],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=in_dir,
+        context_blocks=0,
+        target_prompt_count=5,
+    )
+
+    payloads = _load_all_jobs(in_dir)
+    assert report.jobs_written == 5
+    assert len(payloads) == 5
+    assert all(len(payload["chunks"]) == 2 for payload in payloads)
+
+
 def test_build_knowledge_jobs_skips_noise_lane_chunks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

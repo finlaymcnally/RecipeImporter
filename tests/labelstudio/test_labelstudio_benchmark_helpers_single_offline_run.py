@@ -564,7 +564,7 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     assert "codex_vs_vanilla_comparison.json" in summary_text
     assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
 
-def test_interactive_single_offline_uploads_oracle_bundle_once(
+def test_interactive_single_offline_prints_manual_oracle_upload_hint(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -607,11 +607,11 @@ def test_interactive_single_offline_uploads_oracle_bundle_once(
         "_write_benchmark_upload_bundle",
         lambda **_kwargs: session_bundle_dir,
     )
-    oracle_calls: list[dict[str, object]] = []
+    hint_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         cli,
-        "_maybe_upload_benchmark_bundle_to_oracle",
-        lambda **kwargs: oracle_calls.append(dict(kwargs)),
+        "_print_manual_oracle_upload_hint",
+        lambda **kwargs: hint_calls.append(dict(kwargs)),
     )
 
     completed = cli._interactive_single_offline_benchmark(
@@ -621,10 +621,9 @@ def test_interactive_single_offline_uploads_oracle_bundle_once(
     )
 
     assert completed is True
-    assert oracle_calls == [
+    assert hint_calls == [
         {
             "bundle_dir": session_bundle_dir,
-            "scope": "single_offline",
         }
     ]
 

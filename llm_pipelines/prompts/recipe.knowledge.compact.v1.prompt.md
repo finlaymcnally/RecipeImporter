@@ -1,12 +1,9 @@
 Extract reusable cooking knowledge from non-recipe cookbook text.
 
-INPUT JSON:
-BEGIN_INPUT_JSON
-{{INPUT_TEXT}}
-END_INPUT_JSON
+Read the input JSON file at `{{INPUT_PATH}}`.
 
 Rules:
-- Use only the JSON above.
+- Use only the JSON file at `{{INPUT_PATH}}`.
 - Only `chunks[*].blocks` may supply evidence.
 - `context.*` is local hint only; never cite it.
 - `guardrails.context_recipe_block_indices` marks nearby recipe context. Do not let recipe content leak into outside-recipe decisions.

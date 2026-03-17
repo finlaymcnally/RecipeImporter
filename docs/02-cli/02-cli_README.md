@@ -148,6 +148,10 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
   - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
+- after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
+  - import asks only for the enabled recipe/knowledge counts
+  - benchmark and all-method Codex menus can ask for recipe, block-labelling, and knowledge counts
+  - these map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
 - interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes CodexFarm now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Farm permutations?` prompt
 - this difference is intentional:
   - import reuses the submenu with recipe + knowledge only because stage call adapters do not carry `line_role_pipeline` or `atomic_block_splitter`
@@ -392,7 +396,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `upload_bundle_payload.jsonl`
 3. Matched-set picker path:
    - matched-book selection rows reuse the same concise book label style as the single-offline gold picker instead of mixing source filename plus bracketed gold label text.
-     - after that bundle is written, interactive single-offline mode automatically sends it to Oracle via the same path used by `cookimport bench oracle-upload`
+     - after that bundle is written, interactive single-offline mode prints a manual `cookimport bench oracle-upload ...` command instead of blocking on Oracle
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
@@ -434,7 +438,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
      - group mode targets ~40MB and automatically lowers per-book sampled detail as selected-book count increases.
-     - when that group bundle is written, interactive multi-book single-profile mode automatically uploads only that top-level bundle to Oracle; per-book bundles are retained but not auto-uploaded
+     - when that group bundle is written, interactive multi-book single-profile mode prints a manual `cookimport bench oracle-upload ...` command for that top-level bundle; per-book bundles are retained but not auto-uploaded
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
 4. Returns to the main menu on completion.
 

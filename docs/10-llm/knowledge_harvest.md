@@ -52,9 +52,9 @@ Per staged workbook (`<workbook_slug>`):
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/telemetry.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/failures.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/proposals/*.json`
-- Compatibility prompt/debug IO:
+- Prompt/debug IO:
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
-  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/out/*.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/proposals/*.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
 - Canonical stage artifacts:
   - `data/output/<ts>/08_nonrecipe_spans.json`
@@ -71,7 +71,7 @@ Manifest/runtime note:
 - `knowledge_manifest.json` now advertises `input_mode = "stage7_seed_nonrecipe_spans"` and reports whether the stage changed final authority.
 - manifest `counts` now distinguish shard count (`shards_written`) from surviving chunk count (`chunks_written`), while `jobs_written` remains a compatibility alias for the same shard total.
 - If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero jobs.
-- Live execution reads validated proposals from `knowledge/proposals/*.json`; `knowledge/out/*.json` is now only a compatibility copy for prompt-preview and older prompt/debug readers.
+- Live execution and prompt/debug reconstruction both read validated proposal wrappers from `knowledge/proposals/*.json`; there is no `knowledge/out/*.json` compatibility copy anymore.
 
 ## Pipeline assets
 

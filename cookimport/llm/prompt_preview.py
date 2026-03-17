@@ -24,6 +24,10 @@ from cookimport.llm.prompt_budget import (
     build_prompt_preview_budget_summary,
     write_prompt_preview_budget_summary,
 )
+from cookimport.llm.shard_prompt_targets import (
+    DEFAULT_PHASE_PROMPT_TARGET_COUNT,
+    resolve_items_per_shard,
+)
 from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
     build_codex_farm_prompt_type_samples_markdown,
@@ -84,15 +88,39 @@ def write_prompt_preview_for_existing_run(
     codex_farm_knowledge_context_blocks: int = 0,
     atomic_block_splitter: str = "atomic-v1",
     recipe_worker_count: int | None = None,
+    recipe_prompt_target_count: int | None = None,
     recipe_shard_target_recipes: int | None = None,
     knowledge_worker_count: int | None = None,
+    knowledge_prompt_target_count: int | None = None,
     knowledge_shard_target_chunks: int | None = None,
     line_role_worker_count: int | None = None,
+    line_role_prompt_target_count: int | None = None,
     line_role_shard_target_lines: int | None = None,
 ) -> Path:
     context = _load_existing_run_preview_context(run_path=run_path)
     prompts_dir = out_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
+    resolved_recipe_prompt_target_count = (
+        recipe_prompt_target_count
+        if recipe_prompt_target_count is not None
+        else _coerce_int(context.run_config.get("recipe_prompt_target_count"))
+    )
+    if resolved_recipe_prompt_target_count is None:
+        resolved_recipe_prompt_target_count = DEFAULT_PHASE_PROMPT_TARGET_COUNT
+    resolved_knowledge_prompt_target_count = (
+        knowledge_prompt_target_count
+        if knowledge_prompt_target_count is not None
+        else _coerce_int(context.run_config.get("knowledge_prompt_target_count"))
+    )
+    if resolved_knowledge_prompt_target_count is None:
+        resolved_knowledge_prompt_target_count = DEFAULT_PHASE_PROMPT_TARGET_COUNT
+    resolved_line_role_prompt_target_count = (
+        line_role_prompt_target_count
+        if line_role_prompt_target_count is not None
+        else _coerce_int(context.run_config.get("line_role_prompt_target_count"))
+    )
+    if resolved_line_role_prompt_target_count is None:
+        resolved_line_role_prompt_target_count = DEFAULT_PHASE_PROMPT_TARGET_COUNT
 
     pipeline_root = (
         codex_farm_root.expanduser().resolve(strict=False)
@@ -111,21 +139,21 @@ def write_prompt_preview_for_existing_run(
             surface_pipeline=llm_recipe_pipeline,
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
-        )
-        stage_plans["recipe_llm_correct_and_link"] = _build_recipe_phase_plan(
-            context=context,
-            rows=recipe_rows,
-            pipeline_assets=_load_pipeline_assets(
-                pipeline_root=pipeline_root,
-                pipeline_id=_DEFAULT_RECIPE_PIPELINE_ID,
-            ),
-            surface_pipeline=llm_recipe_pipeline,
-            worker_count=recipe_worker_count
-            if recipe_worker_count is not None
-            else _coerce_int(context.run_config.get("recipe_worker_count")),
+            prompt_target_count=resolved_recipe_prompt_target_count,
             shard_target_recipes=recipe_shard_target_recipes
             if recipe_shard_target_recipes is not None
             else _coerce_int(context.run_config.get("recipe_shard_target_recipes")),
+        )
+        stage_plans["recipe_llm_correct_and_link"] = _build_direct_shard_phase_plan(
+            stage_key="recipe_llm_correct_and_link",
+            stage_label="Recipe Correction",
+            stage_order=1,
+            surface_pipeline=llm_recipe_pipeline,
+            runtime_pipeline_id=_DEFAULT_RECIPE_PIPELINE_ID,
+            rows=recipe_rows,
+            worker_count=recipe_worker_count
+            if recipe_worker_count is not None
+            else _coerce_int(context.run_config.get("recipe_worker_count")),
         )
         _annotate_rows_from_phase_plan(
             rows=recipe_rows,
@@ -143,6 +171,7 @@ def write_prompt_preview_for_existing_run(
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
             context_blocks=codex_farm_knowledge_context_blocks,
+            target_prompt_count=resolved_knowledge_prompt_target_count,
             target_chunks_per_shard=knowledge_shard_target_chunks
             if knowledge_shard_target_chunks is not None
             else _coerce_int(context.run_config.get("knowledge_shard_target_chunks")),
@@ -174,6 +203,7 @@ def write_prompt_preview_for_existing_run(
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
             atomic_block_splitter=atomic_block_splitter,
+            prompt_target_count=resolved_line_role_prompt_target_count,
             shard_target_lines=line_role_shard_target_lines,
         )
         stage_plans["line_role"] = _build_direct_shard_phase_plan(
@@ -235,10 +265,13 @@ def write_prompt_preview_for_existing_run(
         "atomic_block_splitter": atomic_block_splitter,
         "preview_settings": {
             "recipe_worker_count": recipe_worker_count,
+            "recipe_prompt_target_count": resolved_recipe_prompt_target_count,
             "recipe_shard_target_recipes": recipe_shard_target_recipes,
             "knowledge_worker_count": knowledge_worker_count,
+            "knowledge_prompt_target_count": resolved_knowledge_prompt_target_count,
             "knowledge_shard_target_chunks": knowledge_shard_target_chunks,
             "line_role_worker_count": line_role_worker_count,
+            "line_role_prompt_target_count": resolved_line_role_prompt_target_count,
             "line_role_shard_target_lines": line_role_shard_target_lines,
         },
         "counts": counts,
@@ -362,6 +395,8 @@ def _build_recipe_preview_rows(
     surface_pipeline: str,
     model_override: str | None,
     reasoning_effort_override: str | None,
+    prompt_target_count: int | None,
+    shard_target_recipes: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
@@ -384,39 +419,37 @@ def _build_recipe_preview_rows(
         / "recipe_correction"
         / "in"
     )
-    rows: list[dict[str, Any]] = []
+    recipe_inputs: list[dict[str, Any]] = []
     if existing_input_dir.is_dir():
         for existing_input_path in sorted(existing_input_dir.glob("*.json"), key=lambda path: path.name):
             serialized_input = existing_input_path.read_text(encoding="utf-8")
             input_payload = _read_json(existing_input_path)
-            input_path = in_dir / existing_input_path.name
-            input_path.write_text(serialized_input, encoding="utf-8")
             recipe_id = str(
                 input_payload.get("recipe_id")
                 or input_payload.get("identifier")
                 or existing_input_path.stem
             ).strip() or existing_input_path.stem
-            rows.append(
-                _prompt_row(
-                    call_id=input_path.stem,
-                    recipe_id=recipe_id,
-                    source_file=context.source_file,
-                    pipeline_assets=pipeline_assets,
-                    input_payload=input_payload,
-                    input_text=serialized_input,
-                    input_path=input_path,
-                    stage_key="recipe_llm_correct_and_link",
-                    stage_label="Recipe Correction",
-                    stage_order=1,
-                    stage_dir_name="recipe_llm_correct_and_link",
-                    stage_artifact_stem="recipe_correction",
-                    surface_pipeline=surface_pipeline,
-                    model_override=model_override,
-                    reasoning_effort_override=reasoning_effort_override,
-                )
+            recipe_inputs.append(
+                {
+                    "call_id": existing_input_path.stem,
+                    "recipe_id": recipe_id,
+                    "input_payload": input_payload,
+                    "input_text": serialized_input,
+                }
             )
-        if rows:
-            return rows
+        if recipe_inputs:
+            return _build_recipe_shard_preview_rows(
+                context=context,
+                source_file=context.source_file,
+                pipeline_assets=pipeline_assets,
+                in_dir=in_dir,
+                surface_pipeline=surface_pipeline,
+                model_override=model_override,
+                reasoning_effort_override=reasoning_effort_override,
+                prompt_target_count=prompt_target_count,
+                shard_target_recipes=shard_target_recipes,
+                recipe_inputs=recipe_inputs,
+            )
 
     for recipe_index, draft in enumerate(context.recipe_drafts):
         provenance = _coerce_dict(draft.get("recipeimport:provenance"))
@@ -450,18 +483,105 @@ def _build_recipe_preview_rows(
             included_blocks=included_blocks,
         )
         serialized_input = serialize_merged_recipe_repair_input(input_payload)
-        input_path = in_dir / f"r{recipe_index}.json"
-        input_path.write_text(
-            json.dumps(serialized_input, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        recipe_inputs.append(
+            {
+                "call_id": f"r{recipe_index}",
+                "recipe_id": recipe_id,
+                "input_payload": serialized_input,
+                "input_text": json.dumps(serialized_input, indent=2, sort_keys=True) + "\n",
+            }
         )
+    return _build_recipe_shard_preview_rows(
+        context=context,
+        source_file=context.source_file,
+        pipeline_assets=pipeline_assets,
+        in_dir=in_dir,
+        surface_pipeline=surface_pipeline,
+        model_override=model_override,
+        reasoning_effort_override=reasoning_effort_override,
+        prompt_target_count=prompt_target_count,
+        shard_target_recipes=shard_target_recipes,
+        recipe_inputs=recipe_inputs,
+    )
+
+
+def _build_recipe_shard_preview_rows(
+    *,
+    context: ExistingRunPreviewContext,
+    source_file: str,
+    pipeline_assets: Mapping[str, Any],
+    in_dir: Path,
+    surface_pipeline: str,
+    model_override: str | None,
+    reasoning_effort_override: str | None,
+    prompt_target_count: int | None,
+    shard_target_recipes: int | None,
+    recipe_inputs: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    effective_target = resolve_items_per_shard(
+        total_items=len(recipe_inputs),
+        prompt_target_count=prompt_target_count,
+        items_per_shard=shard_target_recipes,
+        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
+    )
+    rows: list[dict[str, Any]] = []
+    for index, shard_rows in enumerate(_batch(list(recipe_inputs), size=effective_target), start=1):
+        if not shard_rows:
+            continue
+        first_call_id = str(shard_rows[0].get("call_id") or f"recipe-shard-{index:04d}")
+        shard_id = f"recipe-preview-shard-{index:04d}-{first_call_id}"
+        shard_recipe_inputs: list[RecipeCorrectionShardRecipeInput] = []
+        owned_recipe_ids: list[str] = []
+        authority_notes: list[str] = []
+        tagging_guide: dict[str, Any] = {}
+        for row in shard_rows:
+            payload = _coerce_dict(row.get("input_payload"))
+            recipe_id = str(row.get("recipe_id") or payload.get("recipe_id") or "").strip()
+            if recipe_id:
+                owned_recipe_ids.append(recipe_id)
+            shard_recipe_inputs.append(
+                RecipeCorrectionShardRecipeInput(
+                    recipe_id=recipe_id,
+                    canonical_text=str(payload.get("canonical_text") or ""),
+                    evidence_rows=[
+                        tuple(item)
+                        for item in payload.get("evidence_rows") or []
+                        if isinstance(item, (list, tuple)) and len(item) == 2
+                    ],
+                    recipe_candidate_hint=_coerce_dict(payload.get("recipe_candidate_hint")),
+                    warnings=[],
+                )
+            )
+            if not tagging_guide:
+                tagging_guide = _coerce_dict(payload.get("tagging_guide"))
+            if not authority_notes:
+                authority_notes = [
+                    str(note).strip()
+                    for note in payload.get("authority_notes") or []
+                    if str(note).strip()
+                ]
+        shard_payload = serialize_recipe_correction_shard_input(
+            RecipeCorrectionShardInput(
+                shard_id=shard_id,
+                workbook_slug=context.workbook_slug,
+                source_hash=context.source_hash,
+                owned_recipe_ids=owned_recipe_ids,
+                recipes=shard_recipe_inputs,
+                tagging_guide=tagging_guide,
+                authority_notes=authority_notes,
+            )
+        )
+        input_path = in_dir / f"{shard_id}.json"
+        serialized_input = json.dumps(shard_payload, indent=2, sort_keys=True) + "\n"
+        input_path.write_text(serialized_input, encoding="utf-8")
         rows.append(
             _prompt_row(
                 call_id=input_path.stem,
-                recipe_id=recipe_id,
-                source_file=context.source_file,
-                pipeline_assets=pipeline_assets,
-                input_payload=serialized_input,
+                recipe_id=owned_recipe_ids[0] if owned_recipe_ids else input_path.stem,
+                source_file=source_file,
+                pipeline_assets=dict(pipeline_assets),
+                input_payload=shard_payload,
+                input_text=serialized_input,
                 input_path=input_path,
                 stage_key="recipe_llm_correct_and_link",
                 stage_label="Recipe Correction",
@@ -471,6 +591,7 @@ def _build_recipe_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
+                task_prompt_text=serialized_input,
             )
         )
     return rows
@@ -485,6 +606,7 @@ def _build_knowledge_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     context_blocks: int,
+    target_prompt_count: int | None,
     target_chunks_per_shard: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
@@ -530,6 +652,7 @@ def _build_knowledge_preview_rows(
                     surface_pipeline=surface_pipeline,
                     model_override=model_override,
                     reasoning_effort_override=reasoning_effort_override,
+                    task_prompt_text=serialized_input,
                 )
             )
         if rows:
@@ -551,10 +674,12 @@ def _build_knowledge_preview_rows(
         source_hash=context.source_hash,
         out_dir=in_dir,
         context_blocks=context_blocks,
+        target_prompt_count=target_prompt_count,
         target_chunks_per_shard=target_chunks_per_shard,
     )
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):
+        serialized_input = input_path.read_text(encoding="utf-8")
         input_payload = _read_json(input_path)
         chunk_id = _knowledge_preview_row_id(
             input_payload=input_payload,
@@ -567,6 +692,7 @@ def _build_knowledge_preview_rows(
                 source_file=context.source_file,
                 pipeline_assets=pipeline_assets,
                 input_payload=input_payload,
+                input_text=serialized_input,
                 input_path=input_path,
                 stage_key="extract_knowledge_optional",
                 stage_label="Knowledge Harvest",
@@ -576,6 +702,7 @@ def _build_knowledge_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
+                task_prompt_text=serialized_input,
             )
         )
     return rows
@@ -608,6 +735,7 @@ def _build_line_role_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     atomic_block_splitter: str,
+    prompt_target_count: int | None,
     shard_target_lines: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
@@ -632,8 +760,13 @@ def _build_line_role_preview_rows(
         labeled_line_rows=context.labeled_line_rows,
     )
     effective_target_lines = (
-        max(1, int(shard_target_lines))
-        if shard_target_lines is not None
+        resolve_items_per_shard(
+            total_items=len(candidates),
+            prompt_target_count=prompt_target_count,
+            items_per_shard=shard_target_lines,
+            default_items_per_shard=LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
+        )
+        if candidates
         else LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
     )
     for prompt_index, batch_candidates in enumerate(
@@ -918,6 +1051,7 @@ def _prompt_row(
             "INPUT_PATH": str(input_path),
             "INPUT_TEXT": serialized_input,
         },
+        "prompt_input_mode": str(effective_pipeline_payload.get("prompt_input_mode") or "path"),
         "request": {
             "messages": [{"role": "user", "content": rendered_prompt}],
             "tools": [],
@@ -961,11 +1095,14 @@ def _build_recipe_phase_plan(
     pipeline_assets: Mapping[str, Any],
     surface_pipeline: str,
     worker_count: int | None,
+    prompt_target_count: int | None,
     shard_target_recipes: int | None,
 ) -> dict[str, Any]:
-    effective_target = max(
-        1,
-        int(shard_target_recipes or _DEFAULT_RECIPE_SHARD_TARGET_RECIPES),
+    effective_target = resolve_items_per_shard(
+        total_items=len(rows),
+        prompt_target_count=prompt_target_count,
+        items_per_shard=shard_target_recipes,
+        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
     )
     shard_specs: list[dict[str, Any]] = []
     for index, recipe_rows in enumerate(_batch(list(rows), size=effective_target), start=1):
@@ -1164,6 +1301,10 @@ def _assign_preview_workers(*, requested_worker_count: int, shard_count: int) ->
 
 def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> list[str]:
     payload = _coerce_dict(row.get("request_input_payload"))
+    if stage_key == "recipe_llm_correct_and_link":
+        owned_recipe_ids = payload.get("owned_recipe_ids")
+        if isinstance(owned_recipe_ids, list):
+            return [str(item).strip() for item in owned_recipe_ids if str(item).strip()]
     if stage_key == "extract_knowledge_optional":
         chunks = payload.get("chunks")
         if isinstance(chunks, list):

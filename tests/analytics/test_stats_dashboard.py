@@ -35,6 +35,7 @@ from cookimport.analytics.perf_report import (
     history_path,
     _CSV_FIELDS,
 )
+from cookimport.paths import history_csv_for_output
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +248,7 @@ SAMPLE_EVAL_REPORT = {
 
 def _write_csv(tmp_path: Path) -> Path:
     """Create a small performance_history.csv fixture."""
-    history_dir = tmp_path / "output" / ".history"
+    history_dir = history_csv_for_output(tmp_path / "output").parent
     history_dir.mkdir(parents=True)
     csv_path = history_dir / "performance_history.csv"
     csv_path.write_text(
@@ -2050,7 +2051,7 @@ class TestCollectors:
         assert "epub_extractor=beautifulsoup" in str(r.run_config_summary)
 
     def test_csv_collector_stage_run_config_json(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         stage_row = {field: "" for field in _CSV_FIELDS}
@@ -2105,7 +2106,7 @@ class TestCollectors:
 
     def test_csv_collector_stage_run_config_fallback_from_report(self, tmp_path):
         report_path = _write_report_json(tmp_path)
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True, exist_ok=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -2145,7 +2146,7 @@ class TestCollectors:
         assert "epub_extractor=beautifulsoup" in str(data.stage_records[0].run_config_summary)
 
     def test_csv_collector_stage_run_config_warning_when_report_missing(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True, exist_ok=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -2318,7 +2319,7 @@ class TestCollectors:
         assert {r.run_timestamp for r in records} == {normalized_ts}
 
     def test_csv_collector_benchmark_run_config_columns(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -2648,7 +2649,7 @@ class TestCollectors:
         assert "codex_farm_reasoning_effort=high" in str(record.run_config_summary)
 
     def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         processed_report = (
@@ -2789,7 +2790,7 @@ class TestCollectors:
         assert data.summary.total_recipes == 70  # 20 + 50
 
     def test_mixed_timestamp_formats_sort_by_time_and_summary_latest(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -2835,7 +2836,7 @@ class TestCollectors:
         assert data.summary.latest_benchmark_timestamp == newer_ts
 
     def test_csv_benchmark_rows_skip_pytest_temp_eval_artifacts(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -5037,7 +5038,7 @@ class TestBenchmarkCsv:
 
     def test_csv_with_mixed_rows(self, tmp_path):
         """CSV with both stage and benchmark rows; collector produces both."""
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         csv_path.write_text(
@@ -5074,7 +5075,7 @@ class TestBenchmarkCsv:
         assert b.gold_recipe_headers == 11
 
     def test_csv_and_json_benchmark_rows_merge_by_artifact_dir(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-11_16.00.00"
         eval_dir.mkdir(parents=True)
@@ -5122,8 +5123,8 @@ class TestBenchmarkCsv:
         assert b.gold_recipe_headers == 11
         assert len(b.per_label) == 2
 
-    def test_csv_benchmark_rows_auto_supplement_older_json_history(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+    def test_csv_benchmark_rows_do_not_auto_supplement_older_json_history(self, tmp_path):
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         older_eval_dir = (
             tmp_path
@@ -5164,17 +5165,12 @@ class TestBenchmarkCsv:
             output_root=tmp_path / "output",
             golden_root=tmp_path / "golden",
         )
-        assert len(data.benchmark_records) == 2
-        assert {record.run_timestamp for record in data.benchmark_records} == {
-            "2026-02-10_12.00.00",
-            "2026-02-11T16:00:00",
-        }
-        assert {
-            str(record.artifact_dir) for record in data.benchmark_records
-        } == {str(older_eval_dir), str(newer_eval_dir)}
+        assert len(data.benchmark_records) == 1
+        assert data.benchmark_records[0].run_timestamp == "2026-02-11T16:00:00"
+        assert str(data.benchmark_records[0].artifact_dir) == str(newer_eval_dir)
 
     def test_csv_benchmark_rows_do_not_json_merge_without_opt_in_scan(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-11_16.00.00"
         eval_dir.mkdir(parents=True)

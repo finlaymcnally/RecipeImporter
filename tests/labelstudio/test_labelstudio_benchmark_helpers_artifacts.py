@@ -215,7 +215,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                 "pipeline_id": "recipe.knowledge.compact.v1",
                 "paths": {
                     "knowledge_in_dir": str(knowledge_in),
-                    "knowledge_out_dir": str(knowledge_out),
+                    "proposals_dir": str(knowledge_out),
                 },
                 "process_run": {
                     "run_id": "run-knowledge",

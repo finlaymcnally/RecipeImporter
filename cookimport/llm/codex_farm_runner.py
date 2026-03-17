@@ -313,15 +313,6 @@ def _normalize_codex_farm_recipe_mode(value: Any) -> str | None:
     )
 
 
-def _remove_benchmark_mode_option(command: Sequence[str]) -> list[str]:
-    tokens = list(command)
-    while "--benchmark-mode" in tokens:
-        index = tokens.index("--benchmark-mode")
-        delete_end = index + 2 if index + 1 < len(tokens) else index + 1
-        del tokens[index:delete_end]
-    return tokens
-
-
 def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
     line = str(stderr_line or "").strip()
     if not line.startswith(_CODEX_FARM_PROGRESS_PREFIX):
@@ -334,56 +325,6 @@ def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         return None
     return dict(payload) if isinstance(payload, dict) else None
-
-
-_LEGACY_PROGRESS_TOKEN_RE = re.compile(r"(?P<key>[a-z_]+)=(?P<value>\S+)")
-_LEGACY_PROGRESS_COUNT_KEYS = ("queued", "running", "done", "error", "canceled")
-
-
-def _parse_legacy_progress_line(stderr_line: str) -> dict[str, Any] | None:
-    line = str(stderr_line or "").strip()
-    if not line:
-        return None
-    pairs = {
-        str(match.group("key") or "").strip().lower(): str(match.group("value") or "").strip()
-        for match in _LEGACY_PROGRESS_TOKEN_RE.finditer(line)
-    }
-    if not pairs:
-        return None
-
-    run_id = _clean_text(pairs.get("run"))
-    counts: dict[str, int] = {}
-    for key in _LEGACY_PROGRESS_COUNT_KEYS:
-        raw_value = pairs.get(key)
-        if raw_value is None:
-            continue
-        try:
-            counts[key] = max(0, int(raw_value))
-        except ValueError:
-            return None
-
-    has_all_counts = all(key in counts for key in _LEGACY_PROGRESS_COUNT_KEYS)
-    if not has_all_counts:
-        if run_id:
-            return {"event": "run_started", "run_id": run_id}
-        return None
-
-    total = sum(counts[key] for key in _LEGACY_PROGRESS_COUNT_KEYS)
-    status = "done" if counts["running"] <= 0 and counts["queued"] <= 0 else "running"
-    payload: dict[str, Any] = {
-        "event": "run_progress",
-        "status": status,
-        "counts": {
-            **counts,
-            "total": total,
-        },
-        "progress": {
-            "completed": counts["done"] + counts["error"] + counts["canceled"],
-        },
-    }
-    if run_id:
-        payload["run_id"] = run_id
-    return payload
 
 
 _CODEX_FARM_CREATED_RUN_PATTERN = re.compile(
@@ -428,8 +369,6 @@ def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
         if not raw_line.strip():
             continue
         if _parse_progress_event(raw_line) is not None:
-            continue
-        if _parse_legacy_progress_line(raw_line) is not None:
             continue
         if _parse_created_run_line(raw_line) is not None:
             continue
@@ -1399,8 +1338,6 @@ class SubprocessCodexFarmRunner:
             def _handle_stderr_line(line: str) -> bool:
                 progress_payload = _parse_progress_event(line)
                 if progress_payload is None:
-                    progress_payload = _parse_legacy_progress_line(line)
-                if progress_payload is None:
                     created_payload = _parse_created_run_line(line)
                     if created_payload is not None:
                         _emit_progress(
@@ -1427,44 +1364,22 @@ class SubprocessCodexFarmRunner:
                     _emit_progress(message)
                 return True
 
-            completed_stream = _run_codex_farm_command_streaming(
+            return _run_codex_farm_command_streaming(
                 command_tokens,
                 env=env,
                 stderr_line_handler=_handle_stderr_line,
             )
-            if (
-                completed_stream.returncode != 0
-                and _progress_events_option_unsupported(completed_stream.stderr)
-            ):
-                _emit_progress(
-                    f"codex-farm {pipeline_id}: live progress events unavailable; retrying without --progress-events."
-                )
-                fallback_command = list(command_tokens)
-                if "--progress-events" in fallback_command:
-                    fallback_command.remove("--progress-events")
-                return _run_codex_farm_command(fallback_command, env=env)
-            return completed_stream
 
         completed = _run_process_command(command)
-        if (
-            completed.returncode != 0
-            and _benchmark_mode_option_unsupported(completed.stderr)
-            and selected_recipe_mode == _CODEX_FARM_RECIPE_MODE_EXTRACT
-        ):
-            _emit_progress(
-                "codex-farm benchmark-mode flag unavailable; retrying extract mode without --benchmark-mode."
-            )
-            fallback_command = _remove_benchmark_mode_option(command)
-            completed = _run_process_command(fallback_command)
-        elif (
-            completed.returncode != 0
-            and _benchmark_mode_option_unsupported(completed.stderr)
-            and selected_recipe_mode == _CODEX_FARM_RECIPE_MODE_BENCHMARK
-        ):
+        if completed.returncode != 0 and _progress_events_option_unsupported(completed.stderr):
             raise CodexFarmRunnerError(
-                "codex-farm benchmark mode requested but this codex-farm build does "
-                "not support --benchmark-mode. Upgrade codex-farm or use "
-                "codex_farm_recipe_mode=extract."
+                "codex-farm does not support --progress-events. "
+                "Upgrade codex-farm to a build that emits structured progress events."
+            )
+        if completed.returncode != 0 and _benchmark_mode_option_unsupported(completed.stderr):
+            raise CodexFarmRunnerError(
+                "codex-farm does not support --benchmark-mode. "
+                "Upgrade codex-farm to a build that supports current RecipeImport transport flags."
             )
 
         if completed.stdout.strip():

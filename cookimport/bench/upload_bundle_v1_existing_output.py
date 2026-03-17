@@ -8,12 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
-from cookimport.config.run_settings import (
-    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
-    normalize_line_role_pipeline_value,
-    normalize_llm_knowledge_pipeline_value,
-    normalize_llm_recipe_pipeline_value,
-)
+from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.runs.stage_observability import (
     recipe_stage_keys_for_pipeline,
     stage_label,
@@ -46,25 +41,8 @@ def _is_codex_pipeline_enabled(value: Any) -> bool:
     return normalized not in {"", "off", "none", "false", "0"}
 
 
-def normalize_recipe_pipeline_id(value: Any) -> str:
-    try:
-        return normalize_llm_recipe_pipeline_value(value)
-    except Exception:  # noqa: BLE001
-        return str(value or "").strip()
-
-
-def normalize_line_role_pipeline_id(value: Any) -> str:
-    try:
-        return normalize_line_role_pipeline_value(value)
-    except Exception:  # noqa: BLE001
-        return str(value or "").strip()
-
-
-def normalize_knowledge_pipeline_id(value: Any) -> str:
-    try:
-        return normalize_llm_knowledge_pipeline_value(value)
-    except Exception:  # noqa: BLE001
-        return str(value or "").strip()
+def _pipeline_id_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def _semantic_recipe_stages() -> list[dict[str, str]]:
@@ -229,9 +207,9 @@ def build_recipe_pipeline_topology_context(
     )
     normalized_pipelines = sorted(
         {
-            normalize_recipe_pipeline_id(pipeline)
+            _pipeline_id_text(pipeline)
             for pipeline in raw_pipelines
-            if normalize_recipe_pipeline_id(pipeline)
+            if _pipeline_id_text(pipeline)
         }
     )
     normalized_execution_modes = sorted(
@@ -480,14 +458,10 @@ def build_upload_bundle_source_model_from_existing_root(
         run_row["source_file"] = source_file
         run_row["source_hash"] = source_hash or None
         run_row["source_key"] = source_key
-        run_row["llm_recipe_pipeline"] = normalize_recipe_pipeline_id(
-            run_row.get("llm_recipe_pipeline")
-        )
-        run_row["line_role_pipeline"] = normalize_line_role_pipeline_id(
-            run_row.get("line_role_pipeline")
-        )
+        run_row["llm_recipe_pipeline"] = _pipeline_id_text(run_row.get("llm_recipe_pipeline"))
+        run_row["line_role_pipeline"] = _pipeline_id_text(run_row.get("line_role_pipeline"))
         if "llm_knowledge_pipeline" in run_row:
-            run_row["llm_knowledge_pipeline"] = normalize_knowledge_pipeline_id(
+            run_row["llm_knowledge_pipeline"] = _pipeline_id_text(
                 run_row.get("llm_knowledge_pipeline")
             )
         effective_run_rows.append(run_row)

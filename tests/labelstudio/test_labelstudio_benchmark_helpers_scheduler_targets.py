@@ -202,9 +202,7 @@ def test_resolve_all_method_codex_choice_when_requested() -> None:
     assert warning is None
 
 def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(cli.ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "1")
     base_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",

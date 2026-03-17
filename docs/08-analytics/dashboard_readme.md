@@ -66,7 +66,7 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 
 Collector mode:
 - benchmark rows are CSV-first by default
-- when CSV benchmark rows exist, collector auto-supplements only missing **older** benchmark rows from benchmark `eval_report.json` artifacts (migration backfill path), with CSV rows still winning for overlapping artifact dirs
+- when CSV benchmark rows exist, collector stays on CSV unless `--scan-benchmark-reports` is explicitly requested
 - benchmark CSV writes now persist Codex token usage columns (`tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`) when available from prediction manifests
 - CSV benchmark rows also backfill missing codex model/effort from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) so `AI Model` / `AI Effort` columns stay populated without full report scanning
 - recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)

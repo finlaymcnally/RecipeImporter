@@ -1,0 +1,17 @@
+[
+  {
+    "shard_ids": [
+      "line-role-shard-0001-a000000-a000000",
+      "line-role-shard-0003-a000002-a000002"
+    ],
+    "worker_id": "worker-001",
+    "workspace_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime/workers/worker-001"
+  },
+  {
+    "shard_ids": [
+      "line-role-shard-0002-a000001-a000001"
+    ],
+    "worker_id": "worker-002",
+    "workspace_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime/workers/worker-002"
+  }
+]

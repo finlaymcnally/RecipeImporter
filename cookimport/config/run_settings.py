@@ -122,16 +122,19 @@ _SUMMARY_ORDER = (
     "epub_spine_items_per_job",
     "warm_models",
     "llm_recipe_pipeline",
+    "recipe_prompt_target_count",
     "recipe_worker_count",
     "recipe_shard_target_recipes",
     "recipe_shard_max_turns",
     "atomic_block_splitter",
     "line_role_pipeline",
+    "line_role_prompt_target_count",
     "line_role_worker_count",
     "line_role_shard_target_lines",
     "line_role_shard_max_turns",
     "line_role_guardrail_mode",
     "llm_knowledge_pipeline",
+    "knowledge_prompt_target_count",
     "knowledge_worker_count",
     "knowledge_shard_target_chunks",
     "knowledge_shard_max_turns",
@@ -146,7 +149,6 @@ _SUMMARY_ORDER = (
     "overrides_path",
 )
 
-RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 RECIPE_CODEX_FARM_PIPELINE_SHARD_V1 = "codex-recipe-shard-v1"
 RECIPE_CODEX_FARM_ALLOWED_PIPELINES = (
     "off",
@@ -981,6 +983,23 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    recipe_prompt_target_count: int | None = Field(
+        default=5,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Recipe Prompt Count Target",
+            order=110,
+            description=(
+                "Approximate prompt-count target for shard-v1 recipe runtime. "
+                "The planner derives recipes per shard from this before lower-level shard sizing."
+            ),
+            step=1,
+            minimum=1,
+            maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     recipe_worker_count: int | None = Field(
         default=None,
         ge=1,
@@ -1045,6 +1064,23 @@ class RunSettings(BaseModel):
                 "Optional canonical line-role labeling path used for benchmark-native "
                 "experiments. Off keeps deterministic behavior."
             ),
+        ),
+    )
+    line_role_prompt_target_count: int | None = Field(
+        default=5,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Line Role Prompt Count Target",
+            order=112,
+            description=(
+                "Approximate prompt-count target for shard-v1 line-role runtime. "
+                "The planner derives rows per shard from this before lower-level shard sizing."
+            ),
+            step=1,
+            minimum=1,
+            maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     line_role_worker_count: int | None = Field(
@@ -1113,6 +1149,23 @@ class RunSettings(BaseModel):
                 "Optional non-recipe knowledge harvesting pipeline. "
                 "Off keeps deterministic behavior."
             ),
+        ),
+    )
+    knowledge_prompt_target_count: int | None = Field(
+        default=5,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Prompt Count Target",
+            order=115,
+            description=(
+                "Approximate prompt-count target for shard-v1 knowledge runtime. "
+                "The planner derives chunks per shard from this before lower-level shard sizing."
+            ),
+            step=1,
+            minimum=1,
+            maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     knowledge_worker_count: int | None = Field(
