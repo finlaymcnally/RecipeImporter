@@ -464,7 +464,10 @@ def _build_knowledge_preview_rows(
     )
     build_knowledge_jobs(
         full_blocks=context.full_blocks,
-        knowledge_spans=nonrecipe_stage_result.knowledge_spans,
+        candidate_spans=(
+            nonrecipe_stage_result.seed_nonrecipe_spans
+            or nonrecipe_stage_result.nonrecipe_spans
+        ),
         recipe_spans=context.recipe_spans,
         workbook_slug=context.workbook_slug,
         source_hash=context.source_hash,

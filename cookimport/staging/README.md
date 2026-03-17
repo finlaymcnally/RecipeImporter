@@ -12,8 +12,8 @@ Durable output-path and section/report contracts live in `cookimport/staging/CON
   - Priority 6 parsing/yield options are run-config aware (`p6_*` settings): step parsing can emit `temperature_items`, recipe-level `max_oven_temp_f`, strategy-based `cook_time_seconds` fallback, and centralized yield fields.
 - **Writer:** `writer.py` provides `write_intermediate_outputs()`, `write_draft_outputs()`, and `write_tip_outputs()` functions
   - `import_session.py` is the shared stage-backed post-conversion runner used by single-file stage, split-merge stage, and benchmark-backed processed outputs.
-  - `group_recipe_spans/<workbook_slug>/recipe_spans.json` now contains accepted spans only; `span_decisions.json` carries both accepted and rejected grouping decisions so titleless pseudo-recipes stay debuggable without becoming recipes.
-  - `nonrecipe_stage.py` is the deterministic Stage 7 classifier for all outside-recipe blocks; writer now emits `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` from that boundary.
+  - `group_recipe_spans/<workbook_slug>/recipe_spans.json` now contains accepted spans only; `span_decisions.json` carries both accepted and rejected grouping decisions so titleless pseudo-recipes and empty title-only shells stay debuggable without becoming recipes.
+  - `nonrecipe_stage.py` is the Stage 7 non-recipe authority seam: it records deterministic seed ownership, and the knowledge stage can refine the final `knowledge` versus `other` result before writer emits `08_nonrecipe_spans.json` and `09_knowledge_outputs.json`.
   - Outputs are flattened under the per-file folder as `r{index}.json[ld]` (no sheet subfolders).
   - When a candidate lacks `row_index` provenance (text/PDF/EPUB), `writer.py` falls back to `location.chunk_index` for stable IDs.
   - Writer helpers can optionally collect per-output file counts/bytes for inclusion in conversion reports (`outputStats`).
@@ -21,7 +21,7 @@ Durable output-path and section/report contracts live in `cookimport/staging/CON
   - Writer applies one shared effective instruction-shaping path for final draft, intermediate JSON-LD, and `sections` artifacts so step boundaries stay aligned across outputs.
   - Split-merge stage runs now finalize raw-artifact moves before report write so `outputStats` includes moved raw files and merged `raw/.../full_text.json`.
   - Stage writes deterministic benchmark evidence at `.bench/<workbook_slug>/stage_block_predictions.json` for block-level freeform scoring.
-  - Stage-block `KNOWLEDGE` ownership now comes from Stage 7 first; optional knowledge snippets only add evidence.
+  - Stage-block `KNOWLEDGE` ownership now comes from the final non-recipe authority; optional knowledge snippets stay as reviewer evidence, while knowledge-stage `block_decisions` can change the final scored ownership.
   - When `p6_emit_metadata_debug` is enabled, writer strips `_p6_debug` from final draft JSON and writes `.bench/<workbook_slug>/p6_metadata_debug.jsonl` for side-by-side parser/yield diagnostics.
 - **Tips:** `writer.py` writes `t{index}.json` for non-instruction tips/knowledge snippets under `tips/{workbook_slug}/`, plus `tips.md` listing tip text with their `t{index}` ids, anchor tags, and any detected topic headers for quick review.
   - Tips derived from recipes include `sourceRecipeId` and `sourceRecipeTitle` for quick lookup, plus `scope`, `standalone`, `generalityScore`, `sourceText`, and tag categories (`dishes`, ingredient groups, `techniques`, `cookingMethods`, `tools`) for filtering and traceability.

@@ -11,11 +11,16 @@ from cookimport.core.models import (
     RawArtifact,
     RecipeCandidate,
 )
+from cookimport.parsing.label_source_of_truth import (
+    AuthoritativeBlockLabel,
+    LabelFirstStageResult,
+)
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.staging.stage_block_predictions import (
     _is_howto_section_text,
     build_stage_block_predictions,
 )
+from cookimport.staging.writer import write_stage_block_predictions
 
 
 def _build_result(
@@ -162,6 +167,48 @@ def test_build_stage_block_predictions_marks_notes_from_description_only() -> No
 
     assert payload["block_labels"]["7"] == "RECIPE_NOTES"
     assert 7 in payload["label_blocks"]["RECIPE_NOTES"]
+
+
+def test_write_stage_block_predictions_prefers_final_nonrecipe_authority(
+    tmp_path: Path,
+) -> None:
+    result = _build_result()
+    archive_blocks = list(result.raw_artifacts[0].content["blocks"])
+    label_first_result = LabelFirstStageResult(
+        updated_conversion_result=result,
+        archive_blocks=archive_blocks,
+        source_hash="abc123",
+        block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id=f"b{index}",
+                source_block_index=index,
+                supporting_atomic_indices=[],
+                deterministic_label="OTHER",
+                final_label="OTHER",
+                decided_by="rule",
+                reason_tags=[],
+                escalation_reasons=[],
+            )
+            for index in range(9)
+        ],
+    )
+
+    output_path = write_stage_block_predictions(
+        results=result,
+        run_root=tmp_path,
+        workbook_slug="simple",
+        source_file="/tmp/simple.txt",
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[],
+            knowledge_spans=[],
+            other_spans=[],
+            block_category_by_index={8: "knowledge"},
+        ),
+        label_first_result=label_first_result,
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["block_labels"]["8"] == "KNOWLEDGE"
 
 
 def _build_sectioned_result() -> ConversionResult:

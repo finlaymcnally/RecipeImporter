@@ -345,6 +345,118 @@ def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans
     assert [row["index"] for row in result.non_recipe_blocks] == [0]
 
 
+def test_build_conversion_result_from_label_spans_keeps_title_plus_yield_stub() -> None:
+    archive_blocks = [
+        {
+            "index": 0,
+            "block_id": "block:0",
+            "text": "Tomato Vinaigrette",
+            "location": {"block_index": 0},
+        },
+        {
+            "index": 1,
+            "block_id": "block:1",
+            "text": "Makes about 1 cup",
+            "location": {"block_index": 1},
+        },
+    ]
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Tomato Vinaigrette",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="Makes about 1 cup",
+            deterministic_label="YIELD_LINE",
+            final_label="YIELD_LINE",
+            decided_by="rule",
+        ),
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[1],
+            deterministic_label="YIELD_LINE",
+            final_label="YIELD_LINE",
+            decided_by="rule",
+        ),
+    ]
+    recipe_spans = [
+        RecipeSpan(
+            span_id="recipe_span_0",
+            start_block_index=0,
+            end_block_index=1,
+            block_indices=[0, 1],
+            source_block_ids=["block:0", "block:1"],
+            start_atomic_index=0,
+            end_atomic_index=1,
+            atomic_indices=[0, 1],
+            title_block_index=0,
+            title_atomic_index=0,
+        )
+    ]
+    original_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path="/tmp/book.txt",
+    )
+
+    updated = build_conversion_result_from_label_spans(
+        source_file=Path("/tmp/book.txt"),
+        importer_name="text",
+        source_hash="hash-123",
+        original_result=original_result,
+        archive_blocks=archive_blocks,
+        labeled_lines=labeled_lines,
+        block_labels=block_labels,
+        recipe_spans=recipe_spans,
+        span_decisions=[
+            RecipeSpanDecision(
+                span_id="recipe_span_0",
+                decision="accepted_recipe_span",
+                start_block_index=0,
+                end_block_index=1,
+                block_indices=[0, 1],
+                source_block_ids=["block:0", "block:1"],
+                start_atomic_index=0,
+                end_atomic_index=1,
+                atomic_indices=[0, 1],
+                title_block_index=0,
+                title_atomic_index=0,
+            )
+        ],
+    )
+
+    result = updated.updated_conversion_result
+    assert [recipe.name for recipe in result.recipes] == ["Tomato Vinaigrette"]
+    assert result.recipes[0].recipe_yield == "Makes about 1 cup"
+    assert updated.recipe_spans[0].span_id == "recipe_span_0"
+    assert updated.span_decisions[0].decision == "accepted_recipe_span"
+
+
 def test_atomize_archive_blocks_marks_recipe_provenance_as_within_span() -> None:
     archive_blocks = [
         {"index": 0, "block_id": "block:0", "text": "Pancakes", "location": {"block_index": 0}},

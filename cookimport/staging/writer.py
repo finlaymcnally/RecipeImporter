@@ -26,7 +26,6 @@ from cookimport.core.models import (
 )
 from cookimport.parsing.label_source_of_truth import (
     LabelFirstStageResult,
-    build_authoritative_stage_block_predictions,
 )
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.parsing.tables import ExtractedTable
@@ -1152,23 +1151,18 @@ def write_stage_block_predictions(
     label_first_result: LabelFirstStageResult | None = None,
 ) -> Path:
     """Write deterministic block-level stage predictions for benchmark scoring."""
-    if label_first_result is not None:
-        payload = build_authoritative_stage_block_predictions(
-            block_labels=label_first_result.block_labels,
-            archive_blocks=label_first_result.archive_blocks,
-            source_file=source_file or "",
-            source_hash=source_hash or label_first_result.source_hash or "unknown",
-            workbook_slug=workbook_slug,
-        )
-    else:
-        payload = build_stage_block_predictions(
-            results,
-            workbook_slug,
-            source_file=source_file,
-            source_hash=source_hash,
-            archive_blocks=archive_blocks,
-            nonrecipe_stage_result=nonrecipe_stage_result,
-        )
+    payload = build_stage_block_predictions(
+        results,
+        workbook_slug,
+        source_file=source_file,
+        source_hash=source_hash or (label_first_result.source_hash if label_first_result is not None else None),
+        archive_blocks=archive_blocks or (
+            list(label_first_result.archive_blocks)
+            if label_first_result is not None
+            else None
+        ),
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
     out_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
     _write_json_payload(
         payload,
@@ -1186,8 +1180,12 @@ def write_nonrecipe_stage_outputs(
     output_stats: OutputStats | None = None,
 ) -> Path:
     path = output_dir / "08_nonrecipe_spans.json"
+    seed_nonrecipe_spans = list(stage_result.seed_nonrecipe_spans or [])
+    seed_knowledge_spans = list(stage_result.seed_knowledge_spans or [])
+    seed_other_spans = list(stage_result.seed_other_spans or [])
+    seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
     payload = {
-        "schema_version": "nonrecipe_spans.v1",
+        "schema_version": "nonrecipe_spans.v2",
         "counts": {
             "nonrecipe_spans": len(stage_result.nonrecipe_spans),
             "knowledge_spans": len(stage_result.knowledge_spans),
@@ -1202,10 +1200,27 @@ def write_nonrecipe_stage_outputs(
             ),
             "warnings": len(stage_result.warnings),
         },
+        "seed_counts": {
+            "nonrecipe_spans": len(seed_nonrecipe_spans),
+            "knowledge_spans": len(seed_knowledge_spans),
+            "other_spans": len(seed_other_spans),
+            "knowledge_blocks": sum(
+                1 for category in seed_block_category_by_index.values()
+                if category == "knowledge"
+            ),
+            "other_blocks": sum(
+                1 for category in seed_block_category_by_index.values()
+                if category == "other"
+            ),
+        },
         "warnings": list(stage_result.warnings),
         "block_category_by_index": {
             str(index): category
             for index, category in sorted(stage_result.block_category_by_index.items())
+        },
+        "seed_block_category_by_index": {
+            str(index): category
+            for index, category in sorted(seed_block_category_by_index.items())
         },
         "spans": [
             {
@@ -1218,6 +1233,18 @@ def write_nonrecipe_stage_outputs(
             }
             for span in stage_result.nonrecipe_spans
         ],
+        "seed_spans": [
+            {
+                "span_id": span.span_id,
+                "category": span.category,
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
+            for span in seed_nonrecipe_spans
+        ],
+        "refinement_report": dict(stage_result.refinement_report),
     }
     _write_json_payload(
         payload,
@@ -1245,9 +1272,13 @@ def write_knowledge_outputs_artifact(
                 for key in raw_counts
             }
     path = run_root / "09_knowledge_outputs.json"
+    seed_nonrecipe_spans = list(stage_result.seed_nonrecipe_spans or [])
+    seed_knowledge_spans = list(stage_result.seed_knowledge_spans or [])
+    seed_other_spans = list(stage_result.seed_other_spans or [])
+    seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
     payload = {
-        "schema_version": "knowledge_outputs.v1",
-        "input_mode": "stage7_knowledge_spans",
+        "schema_version": "knowledge_outputs.v2",
+        "input_mode": str((llm_report or {}).get("input_mode") or "stage7_seed_nonrecipe_spans"),
         "counts": {
             "nonrecipe_spans": len(stage_result.nonrecipe_spans),
             "knowledge_spans": len(stage_result.knowledge_spans),
@@ -1264,9 +1295,34 @@ def write_knowledge_outputs_artifact(
             "outputs_parsed": int(counts.get("outputs_parsed") or 0),
             "chunks_missing": int(counts.get("chunks_missing") or 0),
             "snippets_written": int(counts.get("snippets_written") or 0),
+            "decisions_applied": int(counts.get("decisions_applied") or 0),
+            "changed_blocks": int(counts.get("changed_blocks") or 0),
+        },
+        "seed_counts": {
+            "nonrecipe_spans": len(seed_nonrecipe_spans),
+            "knowledge_spans": len(seed_knowledge_spans),
+            "other_spans": len(seed_other_spans),
+            "knowledge_blocks": sum(
+                1 for category in seed_block_category_by_index.values()
+                if category == "knowledge"
+            ),
+            "other_blocks": sum(
+                1 for category in seed_block_category_by_index.values()
+                if category == "other"
+            ),
         },
         "pipeline": str((llm_report or {}).get("pipeline") or "off"),
         "enabled": bool((llm_report or {}).get("enabled")),
+        "authority_mode": str(
+            (llm_report or {}).get("authority_mode")
+            or stage_result.refinement_report.get("authority_mode")
+            or "deterministic_seed_only"
+        ),
+        "scored_effect": str(
+            (llm_report or {}).get("scored_effect")
+            or stage_result.refinement_report.get("scored_effect")
+            or "seed_only"
+        ),
         "knowledge_spans": [
             {
                 "span_id": span.span_id,
@@ -1277,9 +1333,20 @@ def write_knowledge_outputs_artifact(
             }
             for span in stage_result.knowledge_spans
         ],
+        "seed_knowledge_spans": [
+            {
+                "span_id": span.span_id,
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
+            for span in seed_knowledge_spans
+        ],
         "artifact_paths": dict((llm_report or {}).get("paths") or {}),
         "missing_chunk_ids": list((llm_report or {}).get("missing_chunk_ids") or []),
         "warnings": list(stage_result.warnings),
+        "refinement_report": dict(stage_result.refinement_report),
         "snippets": list(snippet_records or []),
     }
     _write_json_payload(

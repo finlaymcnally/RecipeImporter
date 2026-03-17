@@ -1,20 +1,20 @@
 ---
-summary: "How the optional codex-farm knowledge stage now runs on Stage 7 knowledge spans and where its artifacts live."
+summary: "How the optional codex-farm knowledge stage reviews seed non-recipe spans, refines final authority, and writes its artifacts."
 read_when:
   - "When enabling or debugging optional knowledge extraction outputs"
   - "When editing the compact knowledge-stage codex-farm pipeline prompt/schema assets"
 ---
 
-# Optional Knowledge Extraction (codex-farm)
+# Optional Knowledge Refinement And Extraction (codex-farm)
 
-The knowledge stage is an **optional** codex-farm pipeline that extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) only from Stage 7 blocks already classified as `knowledge`.
+The knowledge stage is an **optional** codex-farm pipeline that reviews seed Stage 7 non-recipe spans, can refine final `knowledge` versus `other` ownership, and extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) from the spans that remain knowledge.
 
 The deterministic classifier runs first and always writes:
 
 - `08_nonrecipe_spans.json`
 - `09_knowledge_outputs.json`
 
-Those files are the authoritative outside-recipe ownership boundary. The LLM stage no longer publishes `block_classifications.jsonl` and no longer decides `KNOWLEDGE` versus `OTHER` for downstream readers.
+Those files are the authoritative outside-recipe ownership boundary. They now preserve both the deterministic seed and the final post-knowledge authority. The LLM stage no longer publishes `block_classifications.jsonl`; instead it returns `block_decisions` that merge into the final authority recorded in those artifacts.
 
 It is **off by default** and does nothing unless explicitly enabled.
 
@@ -33,7 +33,7 @@ Optional knobs:
 - `--table-extraction on` (recommended for table-heavy books; compact knowledge bundles then include `chunk.blocks[*].table_hint`)
 
 Chunking note:
-- knowledge-stage inputs now come from Stage 7 `knowledge` spans first, then apply the existing adjacent-chunk consolidation logic inside those spans.
+- knowledge-stage inputs now come from seed Stage 7 non-recipe spans, then apply the existing adjacent-chunk consolidation logic inside each seed span.
 - table chunks are intentionally excluded from consolidation and remain isolated.
 
 ## Output locations
@@ -56,8 +56,8 @@ Run-level index (if any knowledge artifacts were written):
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
 Manifest/runtime note:
-- `knowledge_manifest.json` now advertises `input_mode = "stage7_knowledge_spans"`.
-- If Stage 7 finds zero `knowledge` spans, the manifest is still written as a successful no-op with zero jobs.
+- `knowledge_manifest.json` now advertises `input_mode = "stage7_seed_nonrecipe_spans"` and reports whether the stage changed final authority.
+- If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero jobs.
 
 ## Pipeline assets
 

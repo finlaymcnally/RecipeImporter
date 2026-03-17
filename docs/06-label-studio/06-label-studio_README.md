@@ -228,6 +228,7 @@ New eval manifests should record the prediction-run root under `artifacts.artifa
 - benchmark prediction-generation scratch stays inside the resolved `eval_output_dir` artifact root, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
 - when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_det`, `label_llm_correct`, `group_recipe_spans`) and mirror the resulting `stage_block_predictions.json` into the prediction run root
 - prediction generation no longer runs a second post-stage diagnostic `label_atomic_lines(...)` pass; freeform span projection reuses the authoritative labeled-line bundle from stage or builds the same bundle once in-memory for offline-only runs
+- canonical benchmark scoring follows the prediction manifest pointer pair; when authoritative line labels are projected, outside-recipe `KNOWLEDGE` versus `OTHER` still comes from the final non-recipe authority after knowledge refinement, and telemetry reports `mode=final_authority_projection`
 
 Execution modes:
 

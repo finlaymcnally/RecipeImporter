@@ -53,6 +53,12 @@ def build_prediction_run_prompt_budget_summary(
                     stage_payload=process_run,
                 )
                 if knowledge_summary is not None:
+                    authority_mode = str(knowledge_payload.get("authority_mode") or "").strip()
+                    scored_effect = str(knowledge_payload.get("scored_effect") or "").strip()
+                    if authority_mode:
+                        knowledge_summary["authority_mode"] = authority_mode
+                    if scored_effect:
+                        knowledge_summary["scored_effect"] = scored_effect
                     by_stage["knowledge"] = knowledge_summary
 
     line_role_summary = _build_line_role_stage_summary(

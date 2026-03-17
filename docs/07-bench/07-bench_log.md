@@ -463,4 +463,92 @@ The following removed benchmark workflows were intentionally pruned from this lo
 - line-role projection as the primary scored truth
 - fast canonical alignment production scoring
 
+## 19. 2026-03-16 Codex single-offline follow-through
+
+### 2026-03-16_18.20.49, 2026-03-16_19.01.54, and 2026-03-16_19.18.20 upload-bundle artifact discovery on current layouts
+
+Problem captured:
+- fresh single-offline benchmark runs were healthy on disk but `upload_bundle_v1` under-reported prompt and knowledge evidence because the existing-output builder no longer matched the refactored artifact layout
+
+Durable decisions:
+- existing-output discovery must search current run-local roots first:
+  - `<run>/prompts/full_prompt_log.jsonl`
+  - `<run>/prompt_budget_summary.json`
+  - processed-output `raw/llm/*/knowledge_manifest.json` when `pred_run_dir` is absent
+- per-run knowledge locators must not use loose basename fallback; null is safer than binding another run's artifact row
+- if a required knowledge manifest lives outside the session root, mirror it into `_upload_bundle_derived/runs/<run_id>/knowledge_manifest.json` so bundle-local locators still work
+- a missing prompt or knowledge row in `upload_bundle_v1` is often a discovery bug, not proof that the run failed
+
+Evidence worth keeping:
+- the inspected `saltfatacidheatcutdown` session had real Codex prompt and knowledge work on disk, including `56` knowledge calls in `prompt_budget_summary.json`, while the pre-fix bundle still reported `0`
+
+Anti-loop note:
+- when bundle analysis disagrees with the filesystem, debug artifact discovery roots before changing benchmark runtime generation
+
+### 2026-03-16_18.21.25 canonical-text regression seam is mostly `KNOWLEDGE`
+
+Problem captured:
+- post-refactor CodexFarm benchmark quality dropped sharply versus the older Codex run and it was easy to blame the whole recipe path
+
+Durable decisions:
+- the dominant benchmark delta is the disappearance of codex-driven outside-recipe `KNOWLEDGE` relabeling after Stage 7 became authoritative
+- recipe-path failures still matter, but they are a separate regression from the main score drop
+
+Evidence worth keeping:
+- 2026-03-14 CodexFarm: `strict_accuracy=0.6152796725784447`, `KNOWLEDGE precision/recall=0.6741 / 0.6118`, `pred_total=540`
+- 2026-03-16 CodexFarm: `strict_accuracy=0.5320600272851296`, `KNOWLEDGE precision/recall=0.8630 / 0.1059`, `pred_total=73`
+- the same 2026-03-16 run also had `52` `recipe_correction_error` rows rejected as `placeholder_steps_only`, but that was not the main explanation for the benchmark score collapse
+
+Anti-loop note:
+- if CodexFarm no longer beats vanilla on canonical-text, inspect Stage 7 authority changes before rewriting scorer math or prompt packs
+
+### 2026-03-16_18.56.30, 2026-03-16_19.16.07, and 2026-03-16_19.27.06 prompt export completeness
+
+Problem captured:
+- benchmark `codexfarm/prompts/` initially omitted line-role interactions and had no reviewer-facing trace summary surface
+
+Durable decisions:
+- benchmark prompt export must contain recipe, line-role, and knowledge interactions in one merged `full_prompt_log.jsonl`
+- line-role prompt artifacts should be copied from saved `line-role-pipeline/prompts` artifacts rather than reconstructed through a separate fake path
+- `thinking_trace_summary.jsonl` and `thinking_trace_summary.md` should be built from the merged prompt log so every exported row stays on one authoritative surface
+
+Evidence worth keeping:
+- the target backfill grew the exported prompt log from `231` rows to `233` rows: `175` recipe, `2` line-role, `56` knowledge
+
+Anti-loop note:
+- if a reviewer bundle has recipe and knowledge prompts but no line-role rows, treat it as export incompleteness, not proof that line-role did not run
+
+### 2026-03-16_20.02.00 title metrics versus import recipe counts
+
+Problem captured:
+- canonical-text benchmark title-label quality and import-level recipe totals were being read as if they were the same signal
+
+Durable decisions:
+- use `per_label.RECIPE_TITLE` when judging title labeling
+- use `recipe_counts.predicted_recipe_count` only as a downstream import sanity check
+
+Anti-loop note:
+- if title recall and imported recipe count disagree, that is expected until you prove the same surface is being measured
+
+### 2026-03-16_19.56.57 and 2026-03-16_19.58.11 whole-book intent versus projected final authority
+
+Problem captured:
+- single-offline benchmark behavior was easy to misread as "whole-book line-role Codex authority" when the scored artifact was actually a projection built from authoritative outputs and only a small escalated subset went through live Codex
+
+Durable decisions:
+- token spend and scored surface are different seams:
+  - live line-role Codex may only see escalated batches
+  - canonical scoring can still read a projected artifact built from final authority
+- final benchmark `KNOWLEDGE` / `OTHER` scoring should come from final non-recipe authority:
+  - deterministic Stage 7 seed authority first
+  - optional knowledge-stage block-decision merge second
+  - projected scored artifact last
+- helper renames alone are not enough; if the benchmark helper still cannot access returned final non-recipe authority from the stage session, it is still at risk of projecting the wrong seam
+
+Evidence worth keeping:
+- on `2026-03-16_18.10.25`, saved prompt artifacts showed only `2` line-role batches covering `42` rows total, which is why live line-role token spend was only about `25.5k`
+
+Anti-loop note:
+- if prompt spend and scored artifact size disagree, inspect projection mode and final-authority plumbing before assuming Codex line-role execution silently failed
+
 If an older artifact references one of those surfaces, treat it as historical context only, not current contract guidance.

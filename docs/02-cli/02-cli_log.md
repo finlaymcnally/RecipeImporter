@@ -164,3 +164,37 @@ Preserved finding:
 
 Current rule:
 - If a CLI surface has been removed from the current code, delete its README/log notes instead of archiving them forever in this file.
+
+### 2026-03-16_17.50.43 and 2026-03-16_18.26.12 shared CodexFarm submenu everywhere
+
+Preserved finding:
+- interactive CodexFarm process selection kept drifting into multiple prompt styles, especially for all-method benchmark flows
+
+Current rule:
+- use one shared single-screen submenu everywhere the interactive CLI exposes benchmark/import Codex choices
+- the submenu owns recipe / line-role / knowledge surface selection, plus the shared model/reasoning override flow
+- all-method benchmark should honor the exact selected Codex surfaces; the old "include codex permutations" wording is too vague because the builder already inherits the full benchmark Codex contract
+
+Anti-loop note:
+- if a benchmark path starts adding a separate yes/no Codex prompt again, it is probably bypassing the shared chooser instead of extending it
+
+### 2026-03-16_18.12.18 benchmark-only menu seams
+
+Preserved finding:
+- benchmark gold/source picking is easy to confuse with the shared run-settings chooser
+
+Current rule:
+- shared workflow/Codex choices belong in `choose_run_settings(...)`
+- benchmark-only source/gold selection belongs in benchmark helpers under `cookimport/cli.py`
+
+Anti-loop note:
+- if an interactive tweak should affect import and benchmark equally, it probably belongs in `run_settings_flow.py`, not in benchmark-only helpers
+
+### 2026-03-16_18.14.37 concise book labels across benchmark pickers
+
+Preserved finding:
+- benchmark menus were showing the same book identity in different formats, which made selected-matched flows harder to scan
+
+Current rule:
+- reuse one concise book label style across interactive benchmark pickers
+- keep picker-label cleanup scoped to operator-facing menus; do not mutate report payload fields or logging identity just to match menu wording

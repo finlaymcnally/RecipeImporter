@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Literal, Mapping, Sequence
 
 from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
@@ -16,10 +16,11 @@ _PROMPT_TEMPLATE_PATH = (
     / "canonical-line-role-v1.prompt.md"
 )
 
-_PROMPT_TEMPLATE_FALLBACK = """You are assigning canonical line-role labels to cookbook atomic lines.
+_PROMPT_TEMPLATE_FALLBACK = """You are reviewing deterministic canonical line-role labels for cookbook atomic lines.
 
 TASK BOUNDARY
-- This is line-role classification only.
+- This is line-role label correction only.
+- Treat `deterministic_label` as the first-pass label you are reviewing.
 - Never perform schema.org extraction.
 - Never invent lines or labels.
 
@@ -95,6 +96,8 @@ def build_canonical_line_role_prompt(
     *,
     allowed_labels: Sequence[str] | None = None,
     prompt_format: LineRolePromptFormat = "compact_v1",
+    deterministic_labels_by_atomic_index: Mapping[int, str] | None = None,
+    escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None = None,
 ) -> str:
     if not targets:
         raise ValueError("targets cannot be empty")
@@ -104,6 +107,8 @@ def build_canonical_line_role_prompt(
         targets,
         allowed_labels=resolved_allowed,
         prompt_format=resolved_format,
+        deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
+        escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
     )
 
     template = _load_prompt_template()
@@ -126,19 +131,35 @@ def serialize_line_role_targets(
     targets: Sequence[AtomicLineCandidate],
     *,
     allowed_labels: Sequence[str],
+    deterministic_labels_by_atomic_index: Mapping[int, str] | None = None,
+    escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None = None,
 ) -> str:
-    del allowed_labels
+    allowed_label_set = {str(label).strip() for label in allowed_labels}
     lines: list[str] = []
     for candidate in targets:
+        atomic_index = int(candidate.atomic_index)
+        deterministic_label = _prompt_deterministic_label(
+            deterministic_labels_by_atomic_index.get(atomic_index)
+            if deterministic_labels_by_atomic_index is not None
+            else None,
+            allowed_labels=allowed_label_set,
+        )
+        escalation_reasons = _prompt_escalation_reasons(
+            escalation_reasons_by_atomic_index.get(atomic_index)
+            if escalation_reasons_by_atomic_index is not None
+            else None
+        )
         lines.append(
             json.dumps(
-                [
-                    int(candidate.atomic_index),
-                    1 if bool(candidate.within_recipe_span) else 0,
-                    _neighbor_text(candidate, candidate.prev_text),
-                    str(candidate.text),
-                    _neighbor_text(candidate, candidate.next_text),
-                ],
+                {
+                    "atomic_index": atomic_index,
+                    "within_recipe_span": 1 if bool(candidate.within_recipe_span) else 0,
+                    "deterministic_label": deterministic_label,
+                    "escalation_reasons": escalation_reasons,
+                    "previous_line": _neighbor_text(candidate, candidate.prev_text),
+                    "current_line": str(candidate.text),
+                    "next_line": _neighbor_text(candidate, candidate.next_text),
+                },
                 ensure_ascii=False,
             )
         )
@@ -150,17 +171,25 @@ def _serialize_targets(
     *,
     allowed_labels: Sequence[str],
     prompt_format: LineRolePromptFormat,
+    deterministic_labels_by_atomic_index: Mapping[int, str] | None,
+    escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None,
 ) -> str:
     del prompt_format
-    return serialize_line_role_targets(targets, allowed_labels=allowed_labels)
+    return serialize_line_role_targets(
+        targets,
+        allowed_labels=allowed_labels,
+        deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
+        escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
+    )
 
 
 def _target_row_format_text(prompt_format: LineRolePromptFormat) -> str:
     del prompt_format
     return (
-        "One JSON array per line: "
-        "[atomic_index, within_recipe_span_1_or_0, previous_line, current_line, "
-        "next_line]"
+        "One JSON object per line: "
+        '{"atomic_index": <int>, "within_recipe_span": <0|1>, '
+        '"deterministic_label": "<LABEL>", "escalation_reasons": ["<REASON>", ...], '
+        '"previous_line": "<text>", "current_line": "<text>", "next_line": "<text>"}'
     )
 
 
@@ -173,6 +202,31 @@ def _neighbor_text(candidate: AtomicLineCandidate, value: str | None) -> str:
 def _normalize_prompt_format(value: str) -> LineRolePromptFormat:
     del value
     return "compact_v1"
+
+
+def _prompt_deterministic_label(
+    raw_label: str | None,
+    *,
+    allowed_labels: set[str],
+) -> str:
+    normalized = str(raw_label or "").strip().upper() or "OTHER"
+    if normalized not in allowed_labels:
+        return "OTHER"
+    return normalized
+
+
+def _prompt_escalation_reasons(
+    reasons: Sequence[str] | None,
+) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for reason in reasons or ():
+        rendered = str(reason or "").strip()
+        if not rendered or rendered in seen:
+            continue
+        seen.add(rendered)
+        output.append(rendered)
+    return output
 
 
 def _load_prompt_template() -> str:

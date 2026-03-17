@@ -104,7 +104,11 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     nonrecipe_payload = json.loads(nonrecipe_path.read_text(encoding="utf-8"))
     knowledge_payload = json.loads(knowledge_path.read_text(encoding="utf-8"))
 
+    assert nonrecipe_payload["schema_version"] == "nonrecipe_spans.v2"
     assert nonrecipe_payload["counts"]["knowledge_spans"] == 1
+    assert nonrecipe_payload["seed_counts"]["knowledge_spans"] == 1
     assert knowledge_payload["pipeline"] == "off"
+    assert knowledge_payload["schema_version"] == "knowledge_outputs.v2"
     assert knowledge_payload["counts"]["snippets_written"] == 0
     assert knowledge_payload["knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"
+    assert knowledge_payload["seed_knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"

@@ -487,6 +487,136 @@ def test_label_atomic_lines_heading_like_line_with_neighboring_structure_can_be_
     assert predictions[0].label == "RECIPE_TITLE"
 
 
+def test_label_atomic_lines_outside_recipe_long_mixed_case_title_with_yield_is_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:long:1",
+            "block_index": 1,
+            "text": "Pan-Roasted Filets Mignons with Asparagus and Garlic-Herb Butter",
+        },
+        {
+            "block_id": "block:title:long:2",
+            "block_index": 2,
+            "text": "serves 2",
+        },
+        {
+            "block_id": "block:title:long:3",
+            "block_index": 3,
+            "text": "total time: 45 minutes",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "RECIPE_TITLE"
+
+
+def test_label_atomic_lines_outside_recipe_all_caps_verb_heading_can_be_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:verb:1",
+            "block_index": 1,
+            "text": "ROAST GROUSE WITH BREAD SAUCE AND GAME CRUMBS",
+        },
+        {
+            "block_id": "block:title:verb:2",
+            "block_index": 2,
+            "text": "NOTE: Keep the birds cool before cooking.",
+        },
+        {
+            "block_id": "block:title:verb:3",
+            "block_index": 3,
+            "text": "serves 4",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "RECIPE_TITLE"
+
+
+def test_label_atomic_lines_outside_recipe_title_can_look_past_note_line() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:note:1",
+            "block_index": 1,
+            "text": "FOOLPROOF SOFT-BOILED EGGS",
+        },
+        {
+            "block_id": "block:title:note:2",
+            "block_index": 2,
+            "text": "NOTE: Practice once if needed.",
+        },
+        {
+            "block_id": "block:title:note:3",
+            "block_index": 3,
+            "text": "1 quart water",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "RECIPE_TITLE"
+
+
+def test_label_atomic_lines_outside_recipe_toc_heading_is_not_recipe_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:toc:1",
+            "block_index": 1,
+            "text": "THE BASIC PANTRY",
+        },
+        {
+            "block_id": "block:title:toc:2",
+            "block_index": 2,
+            "text": "1 EGGS, DAIRY, and the Science of Breakfast",
+        },
+        {
+            "block_id": "block:title:toc:3",
+            "block_index": 3,
+            "text": "2 SOUPS, STEWS, and the Science of Stock",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "OTHER"
+
+
+def test_label_atomic_lines_outside_recipe_how_to_heading_is_not_recipe_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:howto:1",
+            "block_index": 1,
+            "text": "How to Cut a Bell Pepper",
+        },
+        {
+            "block_id": "block:title:howto:2",
+            "block_index": 2,
+            "text": "There are two camps when it comes to cutting peppers.",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label != "RECIPE_TITLE"
+
+
 def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -650,7 +780,7 @@ def test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_
     assert predictions[0].label == "OTHER"
 
 
-def test_title_like_line_is_now_resolved_without_codex_shortlist_rescue(
+def test_title_like_line_stays_resolved_when_full_book_codex_reviews_it(
     monkeypatch,
 ) -> None:
     candidates = [
@@ -667,20 +797,31 @@ def test_title_like_line_is_now_resolved_without_codex_shortlist_rescue(
         )
     ]
 
-    def _codex_should_not_run(**_kwargs):
-        raise AssertionError("codex runner should not execute for deterministic title")
+    observed_prompts: list[str] = []
+
+    def _fake_codex_call(**kwargs):
+        observed_prompts.append(str(kwargs.get("prompt") or ""))
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
 
     monkeypatch.setattr(
         "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _codex_should_not_run,
+        _fake_codex_call,
     )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
     )
+    assert len(observed_prompts) == 1
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
-    assert predictions[0].decided_by == "rule"
+    assert predictions[0].decided_by in {"rule", "fallback"}
 
 
 def test_codex_mode_accepts_global_label_not_present_in_old_shortlist(monkeypatch) -> None:
@@ -941,8 +1082,9 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     assert "schema.org extraction" in prompt
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
-    assert '[0, 1, "", "SERVES 4", "2 tablespoons olive oil"]' in prompt
-    assert "candidate_labels" not in prompt
+    assert '"deterministic_label": "OTHER"' in prompt
+    assert '"current_line": "SERVES 4"' in prompt
+    assert '"next_line": "2 tablespoons olive oil"' in prompt
 
 
 def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
@@ -974,16 +1116,17 @@ def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
     prompt = build_canonical_line_role_prompt(candidates, prompt_format="compact_v1")
     assert "within_recipe_span_1_or_0" in prompt
     assert prompt.count("within_recipe_span_1_or_0") == 1
-    assert '[0, 1, "", "SERVES 4", "2 tablespoons olive oil"]' in prompt
-    assert '[1, 1, "SERVES 4", "2 tablespoons olive oil", "Whisk and serve."]' in prompt
+    assert '"atomic_index": 0' in prompt
+    assert '"current_line": "SERVES 4"' in prompt
+    assert '"current_line": "2 tablespoons olive oil"' in prompt
 
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
     )
     assert compact_rows.splitlines() == [
-        '[0, 1, "", "SERVES 4", "2 tablespoons olive oil"]',
-        '[1, 1, "SERVES 4", "2 tablespoons olive oil", "Whisk and serve."]',
+        '{"atomic_index": 0, "within_recipe_span": 1, "deterministic_label": "OTHER", "escalation_reasons": [], "previous_line": "", "current_line": "SERVES 4", "next_line": "2 tablespoons olive oil"}',
+        '{"atomic_index": 1, "within_recipe_span": 1, "deterministic_label": "OTHER", "escalation_reasons": [], "previous_line": "SERVES 4", "current_line": "2 tablespoons olive oil", "next_line": "Whisk and serve."}',
     ]
 
 
@@ -1019,10 +1162,26 @@ def test_canonical_line_role_prompt_blanks_neighbors_outside_recipe_rows() -> No
     ).splitlines()
 
     compact_outside = json.loads(compact_rows[0])
-    assert compact_outside == [0, 0, "", "Praise for SALT FAT ACID HEAT", ""]
+    assert compact_outside == {
+        "atomic_index": 0,
+        "within_recipe_span": 0,
+        "deterministic_label": "OTHER",
+        "escalation_reasons": [],
+        "previous_line": "",
+        "current_line": "Praise for SALT FAT ACID HEAT",
+        "next_line": "",
+    }
 
     compact_inside = json.loads(compact_rows[1])
-    assert compact_inside == [1, 1, "", "SERVES 4", "2 tablespoons olive oil"]
+    assert compact_inside == {
+        "atomic_index": 1,
+        "within_recipe_span": 1,
+        "deterministic_label": "OTHER",
+        "escalation_reasons": [],
+        "previous_line": "",
+        "current_line": "SERVES 4",
+        "next_line": "2 tablespoons olive oil",
+    }
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -1549,7 +1708,7 @@ def test_line_role_guardrail_off_report_disables_arbitration_artifacts(
     assert not (tmp_path / "line-role-pipeline" / "do_no_harm_diagnostics.json").exists()
 
 
-def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
+def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -1583,9 +1742,10 @@ def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
 
     assert plan["enabled"] is True
     assert plan["planned_batch_count"] == 1
-    assert plan["planned_candidate_count"] == 1
-    assert plan["batches"][0]["atomic_indices"] == [0]
-    assert "candidate_labels" not in plan["batches"][0]["rows"][0]
+    assert plan["planned_candidate_count"] == 2
+    assert plan["batches"][0]["atomic_indices"] == [0, 1]
+    assert plan["batches"][0]["rows"][0]["deterministic_label"] == "OTHER"
+    assert plan["batches"][0]["rows"][1]["deterministic_label"] == "INGREDIENT_LINE"
     assert plan["batches"][0]["rows"][0]["escalation_reasons"] == [
         "deterministic_unresolved",
         "fallback_decision",
@@ -2009,7 +2169,10 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         encoding="utf-8"
     )
     assert "within_recipe_span_1_or_0" in prompt_text
-    assert '[0, 1, "Before", "Ambiguous line 0", "After"]' in prompt_text
+    assert '"deterministic_label": "OTHER"' in prompt_text
+    assert '"previous_line": "Before"' in prompt_text
+    assert '"current_line": "Ambiguous line 0"' in prompt_text
+    assert '"next_line": "After"' in prompt_text
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(

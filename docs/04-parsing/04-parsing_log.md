@@ -327,3 +327,23 @@ Anti-loop note:
   1. `cookimport/parsing/*.py`
   2. repo call sites importing those modules
   3. the README module and call-site lists
+
+## 2026-03-16 titleless structured fragments, knowledge recall, and stub preservation
+
+Problem:
+- titleless pseudo-recipes were still surviving because outside-span structured lines could justify each other
+- deterministic outside-recipe `KNOWLEDGE` recall was too conservative on explanatory cooking prose
+- the first empty-shell veto over-corrected and dropped real title-plus-yield recipes
+
+What stuck:
+- outside-span `INGREDIENT_LINE` / `INSTRUCTION_LINE` must require anchor evidence, not just nearby structured neighbors
+- first-person prose should not become `RECIPE_NOTES` unless it also reads like advice/editorial note text
+- explanatory cooking-science prose and compact domain headings need a deterministic path into outside-recipe `KNOWLEDGE`
+- reject only title-only shells with no ingredients, no instructions, and no yield/time metadata; keep title-plus-yield/time stubs
+
+Evidence worth keeping:
+- on `saltfatacidheatcutdown`, the first broader veto dropped the run from `31` recipes to `25`; rejected true positives included `Torn Croutons` and `Tomato Vinaigrette`
+- on the same source, recipe-correction task inflation came from `175` grouped spans, including `140` with no title block and `104` single-block spans
+
+Anti-loop note:
+- if benchmark or import task counts explode, inspect grouping and outside-span label anchors before blaming Codex orchestration

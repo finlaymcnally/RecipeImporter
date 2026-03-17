@@ -24,6 +24,49 @@ _REPORT_TOTAL_FIELD_TO_ATTR: tuple[tuple[str, str], ...] = (
 )
 
 
+def build_authoritative_stage_report(
+    base_report: ConversionReport | None,
+) -> ConversionReport:
+    """Return a stage-owned report shell without inherited aggregate totals.
+
+    Processed stage runs should recompute aggregate counts from the final
+    authoritative `ConversionResult` instead of reusing importer-era totals.
+    """
+
+    if base_report is None:
+        return ConversionReport()
+
+    payload = base_report.model_dump(
+        mode="python",
+        exclude_unset=True,
+        exclude={
+            "run_timestamp",
+            "source_file",
+            "importer_name",
+            "average_confidence",
+            "category_confidence",
+            "total_recipes",
+            "total_tips",
+            "total_tip_candidates",
+            "total_topic_candidates",
+            "total_standalone_blocks",
+            "total_standalone_topic_blocks",
+            "standalone_topic_coverage",
+            "total_general_tips",
+            "total_recipe_specific_tips",
+            "total_not_tips",
+            "timing",
+            "output_stats",
+            "run_config",
+            "run_config_hash",
+            "run_config_summary",
+            "llm_codex_farm",
+        },
+        exclude_none=True,
+    )
+    return ConversionReport(**payload)
+
+
 def _report_counts_from_result(result: ConversionResult) -> dict[str, int]:
     tips = list(result.tips)
     tip_candidates = list(result.tip_candidates)
@@ -71,7 +114,7 @@ def finalize_report_totals(
     ]
 
     diagnostics_payload: dict[str, Any] | None = None
-    if mismatched_fields:
+    if prepopulated and mismatched_fields:
         diagnostics_payload = {
             "schema_version": "report_totals_mismatch.v1",
             "prepopulated": bool(prepopulated),
@@ -97,6 +140,13 @@ def finalize_report_totals(
 
     for field_alias, attr_name in _REPORT_TOTAL_FIELD_TO_ATTR:
         setattr(report, attr_name, int(expected[field_alias]))
+    standalone_blocks = expected["totalStandaloneBlocks"]
+    if standalone_blocks > 0:
+        report.standalone_topic_coverage = (
+            expected["totalStandaloneTopicBlocks"] / standalone_blocks
+        )
+    else:
+        report.standalone_topic_coverage = None
 
     return diagnostics_payload
 

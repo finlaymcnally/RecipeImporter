@@ -1188,6 +1188,22 @@ Precedence notes:
 - Benchmark sequence matcher is now fixed product behavior (`dmp`) rather than a user setting; manifests record `bucket1_fixed_behavior_version` instead of treating matcher choice as a normal knob.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
+## Interactive Seam Notes
+
+- Shared interactive run-settings UX lives in `cookimport/cli_ui/run_settings_flow.py`:
+  - top-tier workflow choice
+  - the single-screen CodexFarm per-surface submenu
+  - shared model / reasoning override prompts
+- Benchmark-only gold/source selection still lives in `cookimport/cli.py`, primarily `_resolve_benchmark_gold_and_source(...)`. Changes there affect benchmark picking flows only, not import/upload/export/dashboard menus.
+- The CodexFarm submenu is intentionally one screen with aligned `[Yes]` / `[No]` columns:
+  - up/down changes rows
+  - left/right changes the active row in place
+  - Enter can still flip the current row
+  - `Continue` commits the whole selection set
+- All interactive benchmark callers that expose CodexFarm should reuse that same shared submenu, including all-method benchmark flows.
+- All-method benchmark Codex variants inherit the full benchmark Codex contract, so a generic `Include Codex Farm permutations?` prompt is misleading. The correct surface is explicit recipe / line-role / knowledge selection.
+- Interactive benchmark pickers should reuse one concise book identity across flows. The matched-books picker should not drift back to `source filename + [gold label]` formatting noise.
+
 
 ## CLI History Log
 

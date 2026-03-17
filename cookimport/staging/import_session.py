@@ -8,7 +8,11 @@ from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
-from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
+from cookimport.core.reporting import (
+    build_authoritative_stage_report,
+    compute_file_hash,
+    enrich_report_with_stats,
+)
 from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
@@ -62,6 +66,7 @@ class StageImportSessionResult:
     timing: dict[str, Any]
     label_first_result: LabelFirstStageResult | None = None
     label_artifact_paths: dict[str, Path] | None = None
+    nonrecipe_stage_result: NonRecipeStageResult | None = None
 
 
 def _notify(progress_callback: Callable[[str], None] | None, message: str) -> None:
@@ -446,34 +451,6 @@ def execute_stage_import_session_from_result(
         recipe_spans=label_first_result.recipe_spans if label_first_result is not None else [],
         overrides=parsing_overrides,
     )
-    stage7_block_rows = block_rows_for_nonrecipe_stage(
-        full_blocks=archive_blocks,
-        stage_result=nonrecipe_stage_result,
-    )
-
-    extracted_tables = []
-    if stage7_block_rows:
-        _notify(progress_callback, "Extracting knowledge tables...")
-        extracted_tables = extract_and_annotate_tables(
-            stage7_block_rows,
-            source_hash=_resolve_source_hash(result, source_file),
-        )
-
-    _notify(progress_callback, "Generating knowledge chunks...")
-    if stage7_block_rows:
-        result.chunks = chunks_from_non_recipe_blocks(
-            stage7_block_rows,
-            overrides=parsing_overrides,
-        )
-    elif result.topic_candidates:
-        result.chunks = chunks_from_topic_candidates(
-            result.topic_candidates,
-            overrides=parsing_overrides,
-        )
-
-    # Mirror the Stage 7 rows onto ConversionResult so downstream consumers read
-    # the same current non-recipe view used for tables, chunking, and knowledge work.
-    result.non_recipe_blocks = stage7_block_rows
 
     knowledge_write_report = None
     if run_settings.llm_knowledge_pipeline.value != "off":
@@ -508,12 +485,41 @@ def execute_stage_import_session_from_result(
                 raise
         else:
             llm_report["knowledge"] = dict(knowledge_apply.llm_report)
+            nonrecipe_stage_result = knowledge_apply.refined_stage_result
             knowledge_write_report = knowledge_apply.write_report
+
+    nonrecipe_block_rows = block_rows_for_nonrecipe_stage(
+        full_blocks=archive_blocks,
+        stage_result=nonrecipe_stage_result,
+    )
+
+    extracted_tables = []
+    if nonrecipe_block_rows:
+        _notify(progress_callback, "Extracting knowledge tables...")
+        extracted_tables = extract_and_annotate_tables(
+            nonrecipe_block_rows,
+            source_hash=_resolve_source_hash(result, source_file),
+        )
+
+    _notify(progress_callback, "Generating knowledge chunks...")
+    if nonrecipe_block_rows:
+        result.chunks = chunks_from_non_recipe_blocks(
+            nonrecipe_block_rows,
+            overrides=parsing_overrides,
+        )
+    elif result.topic_candidates:
+        result.chunks = chunks_from_topic_candidates(
+            result.topic_candidates,
+            overrides=parsing_overrides,
+        )
+
+    # Mirror the current final non-recipe authority onto ConversionResult so
+    # downstream consumers read the same view used for scoring and staged outputs.
+    result.non_recipe_blocks = nonrecipe_block_rows
 
     tag_normalization_report = normalize_conversion_result_recipe_tags(result)
 
-    if result.report is None:
-        result.report = ConversionReport()
+    result.report = build_authoritative_stage_report(result.report)
     result.report.importer_name = importer_name
     if run_config is not None:
         result.report.run_config = dict(run_config)
@@ -650,4 +656,5 @@ def execute_stage_import_session_from_result(
         timing=stats.to_dict(),
         label_first_result=label_first_result,
         label_artifact_paths=label_artifact_paths,
+        nonrecipe_stage_result=nonrecipe_stage_result,
     )

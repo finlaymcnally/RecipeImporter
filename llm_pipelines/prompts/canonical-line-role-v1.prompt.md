@@ -1,7 +1,8 @@
-You are assigning canonical line-role labels to cookbook atomic lines.
+You are reviewing deterministic canonical line-role labels for cookbook atomic lines.
 
 TASK BOUNDARY
-- This is line-role classification only.
+- This is line-role label correction only.
+- Treat `deterministic_label` as the first-pass label you are reviewing.
 - Never perform schema.org extraction.
 - Never invent lines or labels.
 

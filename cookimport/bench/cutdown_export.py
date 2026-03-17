@@ -139,6 +139,7 @@ def write_prompt_eval_alignment_doc(
         "# Prompt ↔ Eval Alignment",
         "",
         "This run uses canonical line-label scoring.",
+        "The scorer reads the canonical pointer pair recorded in the prediction manifest, not an inferred default artifact path.",
         "",
         "## Prompt Families",
         "",
@@ -152,17 +153,19 @@ def write_prompt_eval_alignment_doc(
         ),
         (
             f"- Canonical line-role pipeline: `{line_role_pipeline}` "
-            "(direct one-label-per-line predictions)."
+            "(the requested prediction surface, not necessarily the final scored artifact mode)."
         ),
         "",
         "## Artifact Families",
         "",
         "- `eval_report.json` + `eval_report.md`: canonical benchmark metrics.",
         "- `wrong_label_lines.jsonl` + `aligned_prediction_blocks.jsonl`: evaluator diagnostics.",
-        "- `line-role-pipeline/line_role_predictions.jsonl`: direct canonical line-role outputs.",
+        "- `line-role-pipeline/line_role_predictions.jsonl`: canonical line-role rows reused for reviewer diagnostics.",
         "- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`: inferred baseline-vs-candidate deltas.",
         "- `line-role-pipeline/slice_metrics.json`: slice-level quality signals.",
         "- `line-role-pipeline/knowledge_budget.json`: `KNOWLEDGE` usage inside vs outside recipe spans.",
+        "- `line-role-pipeline/telemetry_summary.json`: the authoritative scoring-mode summary for projected line-role artifacts.",
+        "- `manifest.json`: the authoritative source of `stage_block_predictions_path` and `extracted_archive_path` used by the evaluator.",
     ]
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")

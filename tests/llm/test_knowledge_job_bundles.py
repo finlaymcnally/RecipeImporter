@@ -18,7 +18,7 @@ def _load_all_jobs(in_dir: Path) -> list[dict]:
     return payloads
 
 
-def test_build_knowledge_jobs_writes_only_stage7_knowledge_spans_and_is_idempotent(tmp_path: Path) -> None:
+def test_build_knowledge_jobs_writes_seed_nonrecipe_spans_and_is_idempotent(tmp_path: Path) -> None:
     full_blocks = [
         {"index": 0, "text": "Preface"},
         {"index": 1, "text": "A beautiful gorgeous stunning book."},
@@ -61,7 +61,7 @@ def test_build_knowledge_jobs_writes_only_stage7_knowledge_spans_and_is_idempote
 
     build_knowledge_jobs(
         full_blocks=full_blocks,
-        knowledge_spans=knowledge_spans,
+        candidate_spans=knowledge_spans,
         recipe_spans=[
             RecipeSpan(
                 span_id="recipe.0",
@@ -123,7 +123,7 @@ def test_build_knowledge_jobs_writes_only_stage7_knowledge_spans_and_is_idempote
     # Idempotence: rerun yields identical JSON bytes.
     build_knowledge_jobs(
         full_blocks=full_blocks,
-        knowledge_spans=knowledge_spans,
+        candidate_spans=knowledge_spans,
         recipe_spans=[
             RecipeSpan(
                 span_id="recipe.0",
@@ -179,7 +179,7 @@ def test_build_knowledge_jobs_writes_compact_bundle_shape(tmp_path: Path) -> Non
 
     build_knowledge_jobs(
         full_blocks=full_blocks,
-        knowledge_spans=knowledge_spans,
+        candidate_spans=knowledge_spans,
         recipe_spans=[
             RecipeSpan(
                 span_id="recipe.0",
@@ -234,7 +234,7 @@ def test_build_knowledge_jobs_skips_noise_lane_chunks(
         full_blocks=[
             {"index": 4, "text": "Advertisement copy."},
         ],
-        knowledge_spans=[
+        candidate_spans=[
             NonRecipeSpan(
                 span_id="nr.knowledge.4.5",
                 category="knowledge",

@@ -40,7 +40,7 @@ class KnowledgeJobBuildReport:
 def build_knowledge_jobs(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
-    knowledge_spans: Sequence[NonRecipeSpan],
+    candidate_spans: Sequence[NonRecipeSpan],
     recipe_spans: Sequence[RecipeSpan],
     workbook_slug: str,
     source_hash: str,
@@ -52,8 +52,8 @@ def build_knowledge_jobs(
     """Write knowledge-stage job bundles to out_dir and return a build report.
 
     Notes:
-    - Uses deterministic chunking/highlights as hints only within Stage 7 knowledge spans.
-    - Chunk blocks come only from Stage 7 knowledge spans; context may overlap recipes.
+    - Uses deterministic chunking/highlights as hints over seed Stage 7 non-recipe spans.
+    - Chunk blocks come only from seed non-recipe spans; context may overlap recipes.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
@@ -78,7 +78,7 @@ def build_knowledge_jobs(
     skipped_chunk_count = 0
     skipped_lane_counts: dict[str, int] = {}
 
-    for stage_span in knowledge_spans:
+    for stage_span in candidate_spans:
         sequence = block_rows_for_nonrecipe_span(
             full_blocks=full_blocks,
             span=stage_span,

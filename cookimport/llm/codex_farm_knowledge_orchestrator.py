@@ -11,7 +11,10 @@ from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, ParsingOverrides
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.runs import KNOWLEDGE_MANIFEST_FILE_NAME, stage_artifact_stem
-from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
+from cookimport.staging.nonrecipe_stage import (
+    NonRecipeStageResult,
+    refine_nonrecipe_stage_result,
+)
 
 from .codex_farm_ids import sanitize_for_filename
 from .codex_farm_knowledge_ingest import read_knowledge_outputs
@@ -48,6 +51,7 @@ class CodexFarmKnowledgeHarvestResult:
     llm_report: dict[str, Any]
     llm_raw_dir: Path
     manifest_path: Path
+    refined_stage_result: NonRecipeStageResult
     write_report: KnowledgeWriteReport | None = None
 
 
@@ -73,6 +77,7 @@ def run_codex_farm_knowledge_harvest(
             llm_report={"enabled": False, "pipeline": "off"},
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
+            refined_stage_result=nonrecipe_stage_result,
         )
 
     knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("extract_knowledge_optional")
@@ -85,18 +90,26 @@ def run_codex_farm_knowledge_harvest(
         run_settings.codex_farm_pipeline_knowledge,
         fallback=DEFAULT_KNOWLEDGE_PIPELINE_ID,
     )
-    if not nonrecipe_stage_result.knowledge_spans:
+    seed_candidate_spans = list(
+        nonrecipe_stage_result.seed_nonrecipe_spans
+        or nonrecipe_stage_result.nonrecipe_spans
+    )
+    if not seed_candidate_spans:
         llm_report = {
             "enabled": True,
             "pipeline": run_settings.llm_knowledge_pipeline.value,
             "pipeline_id": pipeline_id,
-            "input_mode": "stage7_knowledge_spans",
+            "input_mode": "stage7_seed_nonrecipe_spans",
+            "authority_mode": "knowledge_not_run_no_nonrecipe_spans",
+            "scored_effect": "seed_only",
             "counts": {
                 "jobs_written": 0,
                 "jobs_skipped": 0,
                 "outputs_parsed": 0,
                 "chunks_missing": 0,
                 "snippets_written": 0,
+                "decisions_applied": 0,
+                "changed_blocks": 0,
             },
             "timing": {"total_seconds": 0.0},
             "paths": {
@@ -105,13 +118,14 @@ def run_codex_farm_knowledge_harvest(
                 "manifest_path": str(manifest_path),
             },
             "missing_chunk_ids": [],
-            "stage_status": "no_knowledge_spans",
+            "stage_status": "no_nonrecipe_spans",
         }
         _write_json(llm_report, manifest_path)
         return CodexFarmKnowledgeHarvestResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
+            refined_stage_result=nonrecipe_stage_result,
             write_report=None,
         )
 
@@ -153,7 +167,7 @@ def run_codex_farm_knowledge_harvest(
     started = time.perf_counter()
     build_report = build_knowledge_jobs(
         full_blocks=full_blocks_payload,
-        knowledge_spans=nonrecipe_stage_result.knowledge_spans,
+        candidate_spans=seed_candidate_spans,
         recipe_spans=recipe_spans,
         workbook_slug=workbook_slug,
         source_hash=_resolve_source_hash(conversion_result),
@@ -167,7 +181,9 @@ def run_codex_farm_knowledge_harvest(
             "enabled": True,
             "pipeline": run_settings.llm_knowledge_pipeline.value,
             "pipeline_id": pipeline_id,
-            "input_mode": "stage7_knowledge_spans",
+            "input_mode": "stage7_seed_nonrecipe_spans",
+            "authority_mode": "knowledge_not_run_all_chunks_skipped",
+            "scored_effect": "seed_only",
             "output_schema_path": output_schema_path,
             "counts": {
                 "jobs_written": 0,
@@ -175,6 +191,8 @@ def run_codex_farm_knowledge_harvest(
                 "outputs_parsed": 0,
                 "chunks_missing": 0,
                 "snippets_written": 0,
+                "decisions_applied": 0,
+                "changed_blocks": 0,
             },
             "timing": {"total_seconds": 0.0},
             "paths": {
@@ -191,6 +209,7 @@ def run_codex_farm_knowledge_harvest(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
+            refined_stage_result=nonrecipe_stage_result,
             write_report=None,
         )
 
@@ -208,6 +227,26 @@ def run_codex_farm_knowledge_harvest(
 
     outputs = read_knowledge_outputs(knowledge_out_dir)
     missing_chunk_ids = sorted(set(build_report.chunk_ids) - set(outputs))
+    (
+        block_category_updates,
+        applied_chunk_ids_by_block,
+        conflicts,
+        ignored_block_indices,
+    ) = _collect_block_category_updates(
+        outputs=outputs,
+        allowed_block_indices=(
+            nonrecipe_stage_result.seed_block_category_by_index
+            or nonrecipe_stage_result.block_category_by_index
+        ),
+    )
+    refined_stage_result = refine_nonrecipe_stage_result(
+        stage_result=nonrecipe_stage_result,
+        full_blocks=full_blocks_payload,
+        block_category_updates=block_category_updates,
+        applied_chunk_ids_by_block=applied_chunk_ids_by_block,
+        conflicts=conflicts,
+        ignored_block_indices=ignored_block_indices,
+    )
 
     write_report = write_knowledge_artifacts(
         run_root=run_root,
@@ -222,7 +261,15 @@ def run_codex_farm_knowledge_harvest(
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
-        "input_mode": "stage7_knowledge_spans",
+        "input_mode": "stage7_seed_nonrecipe_spans",
+        "authority_mode": str(
+            refined_stage_result.refinement_report.get("authority_mode")
+            or "knowledge_reviewed_seed_kept"
+        ),
+        "scored_effect": str(
+            refined_stage_result.refinement_report.get("scored_effect")
+            or "seed_only"
+        ),
         "output_schema_path": output_schema_path,
         "counts": {
             "jobs_written": build_report.jobs_written,
@@ -230,6 +277,10 @@ def run_codex_farm_knowledge_harvest(
             "outputs_parsed": len(outputs),
             "chunks_missing": len(missing_chunk_ids),
             "snippets_written": write_report.snippets_written,
+            "decisions_applied": len(block_category_updates),
+            "changed_blocks": int(
+                refined_stage_result.refinement_report.get("changed_block_count") or 0
+            ),
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
@@ -241,6 +292,7 @@ def run_codex_farm_knowledge_harvest(
         },
         "missing_chunk_ids": missing_chunk_ids,
         "skipped_lane_counts": dict(build_report.skipped_lane_counts),
+        "refinement_report": dict(refined_stage_result.refinement_report),
         "process_run": process_run_payload,
     }
     _write_json(llm_report, manifest_path)
@@ -249,6 +301,7 @@ def run_codex_farm_knowledge_harvest(
         llm_report=llm_report,
         llm_raw_dir=llm_raw_dir,
         manifest_path=manifest_path,
+        refined_stage_result=refined_stage_result,
         write_report=write_report,
     )
 
@@ -353,3 +406,54 @@ def _coerce_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _collect_block_category_updates(
+    *,
+    outputs: Mapping[str, Any],
+    allowed_block_indices: Mapping[int, str],
+) -> tuple[dict[int, str], dict[int, list[str]], list[dict[str, Any]], list[int]]:
+    normalized_allowed = {
+        int(block_index): str(category or "other")
+        for block_index, category in allowed_block_indices.items()
+    }
+    decisions_by_block: dict[int, list[tuple[str, str]]] = {}
+    ignored_block_indices: list[int] = []
+    for chunk_id, output in outputs.items():
+        for decision in output.block_decisions:
+            block_index = int(decision.block_index)
+            if block_index not in normalized_allowed:
+                ignored_block_indices.append(block_index)
+                continue
+            decisions_by_block.setdefault(block_index, []).append(
+                (str(chunk_id), str(decision.category))
+            )
+
+    block_category_updates: dict[int, str] = {}
+    applied_chunk_ids_by_block: dict[int, list[str]] = {}
+    conflicts: list[dict[str, Any]] = []
+    for block_index, decision_rows in sorted(decisions_by_block.items()):
+        categories = {category for _, category in decision_rows}
+        if len(categories) > 1:
+            conflicts.append(
+                {
+                    "block_index": int(block_index),
+                    "seed_category": normalized_allowed.get(block_index),
+                    "decisions": [
+                        {"chunk_id": chunk_id, "category": category}
+                        for chunk_id, category in decision_rows
+                    ],
+                    "resolution": "kept_seed_category",
+                }
+            )
+            continue
+        block_category_updates[block_index] = next(iter(categories))
+        applied_chunk_ids_by_block[block_index] = [
+            chunk_id for chunk_id, _ in decision_rows
+        ]
+    return (
+        block_category_updates,
+        applied_chunk_ids_by_block,
+        conflicts,
+        ignored_block_indices,
+    )

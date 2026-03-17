@@ -770,12 +770,7 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
     )
 
     mismatch_path = run_root / "book.report_totals_mismatch_diagnostics.json"
-    assert mismatch_path.exists()
-    mismatch = json.loads(mismatch_path.read_text(encoding="utf-8"))
-    assert mismatch["schema_version"] == "report_totals_mismatch.v1"
-    assert "totalRecipes" in mismatch["mismatched_fields"]
-    assert mismatch["before"]["totalRecipes"] == 9
-    assert mismatch["expected"]["totalRecipes"] == 0
+    assert not mismatch_path.exists()
     authority_mismatch_path = (
         run_root / "group_recipe_spans" / "book" / "authority_mismatch.json"
     )
@@ -785,7 +780,7 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["totalRecipes"] == 0
     assert payload["totalTips"] == 0
-    assert any(
+    assert not any(
         "report_total_mismatch_detected" in warning
         for warning in payload.get("warnings", [])
     )
@@ -835,12 +830,7 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_ex
     )
 
     mismatch_path = run_root / "book.report_totals_mismatch_diagnostics.json"
-    assert mismatch_path.exists()
-    mismatch = json.loads(mismatch_path.read_text(encoding="utf-8"))
-    assert mismatch["schema_version"] == "report_totals_mismatch.v1"
-    assert mismatch["prepopulated"] is True
-    assert mismatch["before"]["totalRecipes"] == 0
-    assert mismatch["expected"]["totalRecipes"] == 0
+    assert not mismatch_path.exists()
 
 
 def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_implicit_defaults(
@@ -880,16 +870,11 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_im
     )
 
     mismatch_path = run_root / "book.report_totals_mismatch_diagnostics.json"
-    assert mismatch_path.exists()
-    mismatch = json.loads(mismatch_path.read_text(encoding="utf-8"))
-    assert mismatch["schema_version"] == "report_totals_mismatch.v1"
-    assert mismatch["prepopulated"] is False
-    assert mismatch["before"]["totalRecipes"] == 0
-    assert mismatch["expected"]["totalRecipes"] == 0
+    assert not mismatch_path.exists()
 
     report_path = run_root / "book.excel_import_report.json"
     payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert any(
+    assert not any(
         "report_total_mismatch_detected" in warning
         for warning in payload.get("warnings", [])
     )

@@ -102,6 +102,7 @@ Label-first recipe-span note:
 
 - `cookimport/parsing/recipe_span_grouping.py` now treats title-like anchoring as a hard acceptance boundary.
 - Titleless structured runs remain visible in staging diagnostics as rejected pseudo-recipes, but they are not emitted into `recipe_spans.json` or downstream recipe drafting.
+- Title-only shells with no ingredients, instructions, or yield/time metadata are also rejected after span-to-recipe conversion; title-plus-yield/time stubs still survive so short real recipes are not dropped.
 - Outside importer-held recipe spans, deterministic `INGREDIENT_LINE` and `INSTRUCTION_LINE` labels now require nearby recipe-anchor evidence instead of allowing a small structured cluster to self-justify.
 
 ## End-to-End Data Flow (Current)
@@ -670,3 +671,10 @@ Under a run output folder:
 - Tip scope drift: `cookimport/parsing/tips.py`
 - Lane drift and chunk boundary shifts: `cookimport/parsing/chunks.py`
 - Output formatting/selection confusion: `cookimport/staging/writer.py`
+
+## Recent Parsing Notes Worth Keeping
+
+- High recipe-correction task counts usually reflect grouped recipe-span count, not Codex retry fan-out. On `saltfatacidheatcutdown`, `group_recipe_spans` produced `175` spans, many of them titleless or single-block pseudo-recipes, so Codex correctly processed too many weak recipe candidates.
+- Outside-span structured lines must not self-anchor. A nearby ingredient-like or instruction-like line is not enough evidence by itself; title/yield/howto/variant anchors or importer-held recipe-span context are the safe boundary.
+- Outside-recipe `KNOWLEDGE` labeling is still benchmark-critical because authoritative Stage 2 labels are what canonical-text scoring consumes. Improving later knowledge extraction will not repair missed deterministic `KNOWLEDGE` labels.
+- Empty-shell rejection must stay narrower than "zero ingredients and zero instructions". Title-plus-yield/time stubs are still real recipes and should survive even when the grouped span body is short or split awkwardly.

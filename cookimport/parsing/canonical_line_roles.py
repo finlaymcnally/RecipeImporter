@@ -64,6 +64,21 @@ _INGREDIENT_FRAGMENT_STOPWORDS = {
     "to",
     "with",
 }
+_TITLE_CONNECTOR_WORDS = {
+    "a",
+    "an",
+    "and",
+    "for",
+    "from",
+    "in",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "with",
+}
+_HOW_TO_TITLE_PREFIX_RE = re.compile(r"^\s*how to\b", re.IGNORECASE)
 _TIME_PREFIX_RE = re.compile(
     r"^\s*(?:prep time|cook time|total time|active time|ready in)\b",
     re.IGNORECASE,
@@ -282,6 +297,7 @@ def _apply_prediction_decision_metadata(
 class _CodexBatchTask:
     prompt_index: int
     candidates: tuple[AtomicLineCandidate, ...]
+    baseline_predictions: tuple[CanonicalLineRolePrediction, ...]
     prompt_format: LineRolePromptFormat
 
 
@@ -347,7 +363,6 @@ def _label_atomic_lines_internal(
 
     predictions: dict[int, CanonicalLineRolePrediction] = {}
     deterministic_baseline: dict[int, CanonicalLineRolePrediction] = {}
-    unresolved: list[AtomicLineCandidate] = []
     for candidate_index, candidate in enumerate(ordered, start=1):
         label, tags = _deterministic_label(
             candidate,
@@ -377,20 +392,8 @@ def _label_atomic_lines_internal(
             by_atomic_index=by_atomic_index,
         )
         deterministic_baseline[candidate.atomic_index] = baseline_prediction
-        if label is None:
-            unresolved.append(candidate)
-        else:
-            if (
-                mode == "codex-line-role-v1"
-                and _should_escalate_candidate(
-                    candidate=candidate,
-                    deterministic_label=label,
-                    escalation_reasons=baseline_prediction.escalation_reasons,
-                )
-            ):
-                unresolved.append(candidate)
-            else:
-                predictions[candidate.atomic_index] = baseline_prediction
+        if mode != "codex-line-role-v1":
+            predictions[candidate.atomic_index] = baseline_prediction
         if (
             candidate_index == deterministic_total
             or candidate_index % deterministic_interval == 0
@@ -403,7 +406,8 @@ def _label_atomic_lines_internal(
 
     parse_error_count = 0
     telemetry_batches: list[dict[str, Any]] = []
-    if mode == "codex-line-role-v1" and unresolved:
+    codex_targets = ordered if mode == "codex-line-role-v1" else []
+    if codex_targets:
         codex_farm_cmd = _resolve_line_role_codex_farm_cmd(
             settings=settings,
             codex_cmd_override=codex_cmd,
@@ -419,11 +423,16 @@ def _label_atomic_lines_internal(
         log_state = _PromptLogState(artifact_root=artifact_root)
         batch_tasks: list[_CodexBatchTask] = []
         prompt_format = _resolve_line_role_prompt_format()
-        for batch in _batch(unresolved, max(1, int(codex_batch_size))):
+        for batch in _batch(codex_targets, max(1, int(codex_batch_size))):
+            baseline_batch = tuple(
+                deterministic_baseline[int(candidate.atomic_index)]
+                for candidate in batch
+            )
             batch_tasks.append(
                 _CodexBatchTask(
                     prompt_index=log_state.next_index(),
                     candidates=tuple(batch),
+                    baseline_predictions=baseline_batch,
                     prompt_format=prompt_format,
                 )
             )
@@ -484,13 +493,11 @@ def _label_atomic_lines_internal(
                 predictions[prediction.atomic_index] = prediction
         log_state.write_parse_error_summary(parse_error_count=parse_error_count)
 
-    for candidate in unresolved:
+    for candidate in ordered:
         if candidate.atomic_index not in predictions:
-            predictions[candidate.atomic_index] = _fallback_prediction(
-                candidate,
-                reason="deterministic_unresolved",
-                by_atomic_index=by_atomic_index,
-            )
+            predictions[candidate.atomic_index] = deterministic_baseline[
+                candidate.atomic_index
+            ]
 
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
     sanitized_baseline_by_index: dict[int, CanonicalLineRolePrediction] = {}
@@ -649,7 +656,6 @@ def build_line_role_codex_execution_plan(
         }
 
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
-    unresolved: list[AtomicLineCandidate] = []
     deterministic_metadata_by_atomic: dict[int, CanonicalLineRolePrediction] = {}
     for candidate in ordered:
         label, tags = _deterministic_label(
@@ -668,7 +674,6 @@ def build_line_role_codex_execution_plan(
                     by_atomic_index=by_atomic_index,
                 )
             )
-            unresolved.append(candidate)
             continue
         deterministic_prediction = _apply_prediction_decision_metadata(
             prediction=CanonicalLineRolePrediction(
@@ -686,16 +691,10 @@ def build_line_role_codex_execution_plan(
             by_atomic_index=by_atomic_index,
         )
         deterministic_metadata_by_atomic[int(candidate.atomic_index)] = deterministic_prediction
-        if _should_escalate_candidate(
-            candidate=candidate,
-            deterministic_label=label,
-            escalation_reasons=deterministic_prediction.escalation_reasons,
-        ):
-            unresolved.append(candidate)
 
     planned_batches: list[dict[str, Any]] = []
     for prompt_index, batch in enumerate(
-        _batch(unresolved, max(1, int(codex_batch_size))),
+        _batch(ordered, max(1, int(codex_batch_size))),
         start=1,
     ):
         rows: list[dict[str, Any]] = []
@@ -711,6 +710,11 @@ def build_line_role_codex_execution_plan(
                     "recipe_id": candidate.recipe_id,
                     "within_recipe_span": bool(candidate.within_recipe_span),
                     "text": str(candidate.text),
+                    "deterministic_label": (
+                        deterministic_prediction.label
+                        if deterministic_prediction is not None
+                        else "OTHER"
+                    ),
                     "escalation_reasons": (
                         list(deterministic_prediction.escalation_reasons)
                         if deterministic_prediction is not None
@@ -731,7 +735,7 @@ def build_line_role_codex_execution_plan(
         "enabled": True,
         "pipeline": mode,
         "candidate_count": len(ordered),
-        "planned_candidate_count": len(unresolved),
+        "planned_candidate_count": len(ordered),
         "planned_batch_count": len(planned_batches),
         "codex_batch_size": max(1, int(codex_batch_size)),
         "batches": planned_batches,
@@ -1159,9 +1163,21 @@ def _run_codex_batch(
     codex_runner: CodexFarmRunner | None,
 ) -> _CodexBatchResult:
     batch = list(task.candidates)
+    baseline_predictions = {
+        int(prediction.atomic_index): prediction
+        for prediction in task.baseline_predictions
+    }
     prompt_text = build_canonical_line_role_prompt(
         batch,
         prompt_format=task.prompt_format,
+        deterministic_labels_by_atomic_index={
+            atomic_index: prediction.label
+            for atomic_index, prediction in baseline_predictions.items()
+        },
+        escalation_reasons_by_atomic_index={
+            atomic_index: list(prediction.escalation_reasons)
+            for atomic_index, prediction in baseline_predictions.items()
+        },
     )
     prompt_path = log_state.prompt_path(task.prompt_index)
     if prompt_path is not None:
@@ -1203,11 +1219,7 @@ def _run_codex_batch(
     parsed_path = log_state.parsed_path(task.prompt_index)
     if codex_failure is not None:
         fallback_predictions = tuple(
-            _fallback_prediction(
-                candidate,
-                reason="codex_call_failed",
-                by_atomic_index=by_atomic_index,
-            )
+            baseline_predictions[int(candidate.atomic_index)]
             for candidate in batch
         )
         if parsed_path is not None:
@@ -1249,11 +1261,7 @@ def _run_codex_batch(
     )
     if error is not None:
         fallback_predictions = tuple(
-            _fallback_prediction(
-                candidate,
-                reason="codex_parse_error",
-                by_atomic_index=by_atomic_index,
-            )
+            baseline_predictions[int(candidate.atomic_index)]
             for candidate in batch
         )
         if parsed_path is not None:
@@ -1949,6 +1957,14 @@ def _deterministic_label(
     if "note_prefix" in tags or _looks_note_text(candidate.text):
         return "RECIPE_NOTES", ["note_prefix"]
     if "variant_heading" in tags or _looks_variant_heading_text(candidate.text):
+        if (
+            not candidate.within_recipe_span
+            and _outside_span_variant_should_be_recipe_title(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            return "RECIPE_TITLE", ["title_like", "variant_heading_title_override"]
         return "RECIPE_VARIANT", ["variant_heading"]
     if _looks_editorial_note(candidate.text):
         if candidate.within_recipe_span:
@@ -1989,6 +2005,14 @@ def _deterministic_label(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
+        if (
+            not candidate.within_recipe_span
+            and _looks_recipe_title_with_context(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            return "RECIPE_TITLE", ["title_like", "subsection_heading_title_override"]
         return "HOWTO_SECTION", ["subsection_heading_context"]
     if "note_like_prose" in tags:
         return "RECIPE_NOTES", ["note_like_prose"]
@@ -2002,6 +2026,14 @@ def _deterministic_label(
     if "instruction_with_time" in tags:
         return "INSTRUCTION_LINE", ["instruction_with_time"]
     if "instruction_like" in tags:
+        if (
+            not candidate.within_recipe_span
+            and _looks_recipe_title_with_context(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            return "RECIPE_TITLE", ["title_like", "instruction_heading_override"]
         return "INSTRUCTION_LINE", ["instruction_like"]
     if "time_metadata" in tags and _is_primary_time_line(candidate.text):
         return "TIME_LINE", ["time_metadata"]
@@ -2278,6 +2310,11 @@ def _outside_span_title_variant_allowed(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> bool:
+    if _looks_recipe_title_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return True
     if not _looks_compact_heading(candidate.text):
         return False
     return _outside_span_has_neighboring_recipe_evidence(
@@ -2539,21 +2576,37 @@ def _looks_recipe_title(text: str) -> bool:
         return False
     if _HOWTO_PREFIX_RE.match(stripped):
         return False
+    if _HOW_TO_TITLE_PREFIX_RE.match(stripped):
+        return False
     if _NUMBERED_STEP_RE.match(stripped):
         return False
     if _QUANTITY_LINE_RE.match(stripped):
-        return False
-    if _INSTRUCTION_VERB_RE.match(stripped):
         return False
     if _TIME_PREFIX_RE.search(stripped):
         return False
     if stripped[-1:] in {".", "!", "?"}:
         return False
     uppercase_words = sum(1 for word in words if word.upper() == word)
-    if uppercase_words >= max(2, len(words) // 2):
-        return True
     title_case_words = sum(1 for word in words if word[:1].isupper())
-    return title_case_words >= max(2, len(words) - 1)
+    lowercase_connector_words = sum(
+        1
+        for word in words
+        if word.islower() and word.lower() in _TITLE_CONNECTOR_WORDS
+    )
+    heading_like = uppercase_words >= max(2, len(words) // 2) or title_case_words >= max(
+        2, len(words) - 1
+    )
+    if not heading_like and title_case_words >= 2:
+        heading_like = (title_case_words + lowercase_connector_words) == len(words)
+    if not heading_like:
+        return False
+    if _INSTRUCTION_VERB_RE.match(stripped):
+        alpha_chars = sum(1 for ch in stripped if ch.isalpha())
+        uppercase_chars = sum(1 for ch in stripped if ch.isupper())
+        uppercase_ratio = (uppercase_chars / alpha_chars) if alpha_chars else 0.0
+        if len(words) < 4 and uppercase_ratio < 0.72:
+            return False
+    return True
 
 
 def _looks_recipe_title_with_context(
@@ -2565,29 +2618,28 @@ def _looks_recipe_title_with_context(
         return False
     if by_atomic_index is None:
         return _looks_compact_heading(candidate.text)
-    next_candidate = by_atomic_index.get(candidate.atomic_index + 1)
-    if next_candidate is None:
-        return _looks_compact_heading(candidate.text)
-    next_tags = {str(tag) for tag in next_candidate.rule_tags}
-    next_text = str(next_candidate.text or "")
-    if _looks_recipe_start_boundary(next_candidate):
+    saw_neighbor = False
+    for offset in range(1, 4):
+        next_candidate = by_atomic_index.get(candidate.atomic_index + offset)
+        if next_candidate is None:
+            break
+        saw_neighbor = True
+        if _supports_recipe_title_context(next_candidate):
+            return True
+        if _is_skippable_title_context_line(
+            next_candidate,
+            title_text=str(candidate.text or ""),
+        ):
+            continue
+        next_tags = {str(tag) for tag in next_candidate.rule_tags}
+        next_text = str(next_candidate.text or "")
+        if _looks_narrative_prose(next_text):
+            return False
+        if "outside_recipe_span" in next_tags and _looks_prose(next_text):
+            return False
+        break
+    if not saw_neighbor and candidate.within_recipe_span:
         return True
-    if _neighbor_is_ingredient_dominant(next_candidate):
-        return True
-    if _looks_instructional_neighbor(next_candidate):
-        return True
-    if {
-        "instruction_like",
-        "instruction_with_time",
-        "ingredient_like",
-        "yield_prefix",
-        "howto_heading",
-    } & next_tags:
-        return True
-    if _looks_narrative_prose(next_text):
-        return False
-    if "outside_recipe_span" in next_tags and _looks_prose(next_text):
-        return False
     return False
 
 
@@ -2616,6 +2668,87 @@ def _looks_subsection_heading_context(
         prev_candidate is not None and _looks_compact_heading(prev_candidate.text)
     )
     return next_instruction and (prev_flow or prev_heading)
+
+
+def _supports_recipe_title_context(candidate: AtomicLineCandidate) -> bool:
+    tags = {str(tag) for tag in candidate.rule_tags}
+    if _looks_recipe_start_boundary(candidate):
+        return True
+    if _neighbor_is_ingredient_dominant(candidate) and not _looks_table_of_contents_entry(
+        str(candidate.text or "")
+    ):
+        return True
+    if _looks_direct_instruction_start(candidate):
+        return True
+    return bool(
+        {
+            "yield_prefix",
+            "howto_heading",
+        }
+        & tags
+    )
+
+
+def _is_skippable_title_context_line(
+    candidate: AtomicLineCandidate,
+    *,
+    title_text: str,
+) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    if lowered == str(title_text or "").strip().lower():
+        return True
+    if _looks_note_text(text):
+        return True
+    if _looks_editorial_note(text):
+        return True
+    return _looks_recipe_note_prose(text)
+
+
+def _looks_direct_instruction_start(candidate: AtomicLineCandidate) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if _NUMBERED_STEP_RE.match(text):
+        return True
+    if _INSTRUCTION_VERB_RE.match(text):
+        return True
+    if _INSTRUCTION_LEADIN_RE.match(text) and _RECIPE_ACTION_CUE_RE.search(text):
+        return True
+    return False
+
+
+def _looks_table_of_contents_entry(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not re.match(r"^\d+\s+", stripped):
+        return False
+    lowered = stripped.lower()
+    if "science of" in lowered:
+        return True
+    words = _PROSE_WORD_RE.findall(stripped)
+    uppercase_words = sum(1 for word in words if word.upper() == word)
+    return len(words) >= 4 and uppercase_words >= 2
+
+
+def _outside_span_variant_should_be_recipe_title(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    if by_atomic_index is None:
+        return False
+    stripped = str(candidate.text or "").strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return False
+    if lowered in _VARIANT_EXPLICIT_HEADINGS or lowered.startswith("with "):
+        return False
+    return _looks_recipe_title_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
 
 
 def _looks_recipe_start_boundary(candidate: AtomicLineCandidate) -> bool:

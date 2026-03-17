@@ -40,7 +40,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Applies deterministic fallback instruction-step segmentation from run settings before section extraction/step parsing.
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 ownership for all outside-recipe blocks.
-  - Collapses final non-recipe labels into contiguous `knowledge` / `other` spans and feeds optional knowledge extraction.
+  - Builds a deterministic seed non-recipe authority and preserves the final refined authority when the optional knowledge stage changes `knowledge` versus `other`.
 - `cookimport/staging/writer.py`
   - Writes intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
@@ -94,7 +94,7 @@ Per workbook (slugified file stem):
 - `chunks/<workbook_slug>/c{index}.json` (if any)
 - `chunks/<workbook_slug>/chunks.md` (if any; skipped with `stage --no-write-markdown`)
 - `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
-- `knowledge/<workbook_slug>/snippets.jsonl` (if optional knowledge extraction is enabled and Stage 7 found `knowledge` spans)
+- `knowledge/<workbook_slug>/snippets.jsonl` (if optional knowledge extraction is enabled and wrote snippet outputs)
 - `knowledge/<workbook_slug>/knowledge.md` (same condition as `snippets.jsonl`)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
@@ -116,9 +116,11 @@ Label-first metadata note:
 - `label_det`, `label_llm_correct`, and `group_recipe_spans` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
 - `group_recipe_spans/<workbook_slug>/recipe_spans.json` is the accepted authoritative span list only.
 - `span_decisions.json` is the compact reviewer/debug rollup for both accepted recipe spans and rejected pseudo-recipe runs, including explicit `decision` and `rejection_reason` fields.
+- `build_conversion_result_from_label_spans(...)` can further demote an accepted grouped span to `rejected_missing_recipe_body` when it builds to a title-only shell with no ingredients, instructions, or yield/time metadata.
 
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).
+- `*.report_totals_mismatch_diagnostics.json` is no longer a routine stage artifact; it is written only when explicitly prepopulated report totals disagree with authoritative final stage counts.
 
 Outside run root (`.history/` for repo-local output roots):
 
@@ -138,8 +140,9 @@ Tags embedding note:
 - Those tags now come directly from recipe correction plus deterministic normalization.
 
 Stage-block `KNOWLEDGE` label contract:
-- `stage_block_predictions.json` now prefers deterministic Stage 7 `08_nonrecipe_spans.json` ownership when available.
-- Optional knowledge snippets can enrich notes, but they are no longer the primary `KNOWLEDGE` classifier.
+- `stage_block_predictions.json` now uses the final non-recipe authority recorded in `08_nonrecipe_spans.json`.
+- `08_nonrecipe_spans.json` carries both the deterministic seed and the final authority, plus a refinement report when Codex knowledge changes outside-recipe ownership.
+- Optional knowledge snippets are reviewer-facing evidence; Codex `block_decisions` are what can refine final `KNOWLEDGE` versus `OTHER`.
 - Chunk-lane fallback remains only for paths that do not have Stage 7 ownership wired through.
 
 Stage-block label resolution contract:

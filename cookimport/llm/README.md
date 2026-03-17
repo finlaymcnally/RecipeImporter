@@ -32,7 +32,7 @@ Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor b
 
 Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.correction.compact.v1` and `recipe.knowledge.compact.v1`), and those ids are now the default recipe-correction / knowledge-stage selections when CodexFarm recipe parsing or optional knowledge extraction is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
 
-Knowledge harvest now runs only over Stage 7 `knowledge` spans from `cookimport/staging/nonrecipe_stage.py`. The deterministic ownership artifacts are `08_nonrecipe_spans.json` and `09_knowledge_outputs.json`; the LLM side still writes raw `knowledge/{in,out}` plus optional reviewer artifacts `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md`.
+Knowledge harvest now reviews the seed Stage 7 non-recipe spans from `cookimport/staging/nonrecipe_stage.py`, merges `block_decisions` back into final `knowledge` versus `other` authority, and still writes reviewer artifacts under `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md`. `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` preserve both the seed and final authority plus the refinement report.
 
 The canonical recipe path is now `llm_recipe_pipeline=codex-farm-single-correction-v1`. It runs one compact correction stage (`recipe.correction.compact.v1`), updates the intermediate `RecipeCandidate`, and rebuilds final cookbook3 drafts locally from the corrected candidate plus `ingredient_step_mapping`.
 

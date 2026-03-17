@@ -79,7 +79,7 @@ Benchmark split:
 - Inline recipe tags are part of the recipe correction call and ride along with normal recipe processing.
 - Prediction-run generation can plan or execute:
   - recipe Codex passes
-  - optional knowledge extraction over Stage 7 `knowledge` spans
+  - optional knowledge refinement/extraction over seed Stage 7 non-recipe spans
   - canonical line-role Codex labeling
   - freeform prelabel
 - Prediction-run plan mode happens after deterministic conversion and archive preparation so the plan artifact can enumerate concrete recipe bundles, knowledge jobs, and line-role batches.
@@ -108,7 +108,7 @@ Knowledge-stage writes:
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
-`08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are now the machine-readable outside-span contract. `snippets.jsonl` remains reviewer-facing evidence only.
+`08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are now the machine-readable outside-span contract. They preserve deterministic seed authority, final authority, and the refinement report that explains any Codex changes. `snippets.jsonl` remains reviewer-facing evidence only.
 
 Inline recipe tagging writes through the normal recipe artifacts:
 
@@ -206,3 +206,12 @@ These files still exist, but they are not the current stage/prediction/tag runti
 
 - `docs/10-llm/10-llm_log.md`
 - `docs/10-llm/knowledge_harvest.md`
+
+## Recent Durable Notes
+
+- In single-offline benchmark runs, missing benchmark-level `prompts/` exports does not by itself mean CodexFarm did not run. The lower-level truth is the linked processed stage run under `data/output`, where raw recipe/knowledge inputs, outputs, and `.codex-farm-traces` live.
+- `prompt_budget_summary.json` must aggregate CodexFarm split tokens from both nested `process_payload.telemetry.rows` and the benchmark single-offline top-level `stage_payload.telemetry.rows` layout. Otherwise `tokens_input`, `tokens_cached_input`, and `tokens_output` can drop to null while per-call telemetry still exists.
+- Prompt-cost debugging should separate call-count inflation from prompt-size inflation:
+  - call-count inflation on `saltfatacidheatcutdown` came from `175` grouped recipe spans
+  - recipe prompt inflation also came from the constant `tagging_guide` payload plus `selected_tags` instructions
+- `gpt-5.3-codex-spark` plus reasoning effort does not guarantee reasoning-summary events in saved `.trace.json` files. A zero `reasoning_event_count` can be a legitimate upstream Codex CLI event-stream outcome, not an exporter bug.

@@ -193,12 +193,13 @@ Current line-role and knowledge behavior:
 
 - `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set canonical scorer pointers to these projection artifacts for that run
 - processed stage-backed artifacts still get written for the run; the regression fix was specifically to move the canonical scorer pointer pair to the projection artifacts instead of leaving scoring on the stage-backed pair
-- when authoritative Stage 2 labels are reused, the scored line-role artifact pair still has to stay in canonical atomic-span coordinates:
-  - `stage_block_predictions.json` should be serialized from canonical line-role projections, not copied from source blocks
-  - `extracted_archive.json` should carry the matching atomic line coordinates and `line_role_projection` metadata
+- when the benchmark reuses authoritative Stage 2 recipe-local labels, the scored line-role artifact pair still has to stay in canonical atomic-span coordinates:
+  - `stage_block_predictions.json` is serialized from canonical line-role projections, not copied from source blocks
+  - `extracted_archive.json` carries the matching atomic line coordinates and `line_role_projection` metadata
+  - outside-recipe `KNOWLEDGE` versus `OTHER` labels in that projection must come from the final non-recipe authority, not the pre-knowledge seed
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
-- `08_nonrecipe_spans.json` is the authoritative Stage 7 ownership artifact for the scored outside-span `KNOWLEDGE` vs `OTHER` seam
-- `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge extraction outputs
+- `08_nonrecipe_spans.json` is the authoritative scored outside-span contract; it contains both the deterministic seed and the final post-knowledge authority
+- `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge refinement plus snippet outputs
 - prompt preview and live knowledge harvest both rebuild from the same compact `build_knowledge_jobs(...)` inputs
 - prediction-run and eval diagnostics can emit:
   - `knowledge_manifest.json`
@@ -383,3 +384,16 @@ Primary benchmark modules:
 - `docs/07-bench/web-ai-followup-instructions.md`
 - `cookimport/bench/README.md`
 - `cookimport/bench/CONVENTIONS.md`
+
+## 10. Recent Durable Notes
+
+- In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
+- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. Stage 7 deterministic labels now own outside-recipe `KNOWLEDGE` vs `OTHER`, so optional knowledge harvest no longer relabels benchmark truth.
+- High Codex recipe task counts in single-offline runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
+- Tiny line-role token spend in a Codex single-offline run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.
+- Canonical benchmark scoring should project final non-recipe authority, not just deterministic seed labels. The current contract is seed deterministic authority plus optional knowledge-stage refinement merged into final scored `KNOWLEDGE` / `OTHER`.
+- Benchmark prompt export should include every CodexFarm interaction the reviewer cares about:
+  - recipe correction
+  - line-role prompt artifacts copied from `line-role-pipeline/prompts`
+  - knowledge harvest
+- Reviewer-facing trace summaries should be derived from the merged `prompts/full_prompt_log.jsonl`, not from a second raw-trace discovery path.

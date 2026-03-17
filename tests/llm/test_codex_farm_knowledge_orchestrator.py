@@ -129,7 +129,8 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.llm_report["process_run"]["pipeline_id"] == "recipe.knowledge.compact.v1"
     assert "telemetry_report" in apply_result.llm_report["process_run"]
     assert "autotune_report" in apply_result.llm_report["process_run"]
-    assert apply_result.llm_report["input_mode"] == "stage7_knowledge_spans"
+    assert apply_result.llm_report["input_mode"] == "stage7_seed_nonrecipe_spans"
+    assert apply_result.refined_stage_result.block_category_by_index[4] == "knowledge"
     assert apply_result.manifest_path.exists()
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["jobs_written"] > 0
@@ -139,7 +140,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert (knowledge_dir / "knowledge.md").exists()
 
 
-def test_knowledge_orchestrator_noops_when_no_stage7_knowledge_spans(tmp_path: Path) -> None:
+def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Path) -> None:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -182,7 +183,7 @@ def test_knowledge_orchestrator_noops_when_no_stage7_knowledge_spans(tmp_path: P
         full_blocks=[],
     )
 
-    assert apply_result.llm_report["stage_status"] == "no_knowledge_spans"
+    assert apply_result.llm_report["stage_status"] == "no_nonrecipe_spans"
     assert apply_result.llm_report["counts"]["jobs_written"] == 0
     assert apply_result.manifest_path.exists()
 
@@ -285,3 +286,106 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
     assert apply_result.llm_report["counts"]["jobs_written"] == 0
     assert apply_result.llm_report["counts"]["jobs_skipped"] == 1
     assert apply_result.llm_report["skipped_lane_counts"] == {"noise": 1}
+
+
+def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_failure_mode": "fail",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 8, "text": "Why this works: acid slows browning."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            "recipe.knowledge.compact.v1": lambda payload: {
+                "bundle_version": "1",
+                "chunk_id": payload["chunk"]["chunk_id"],
+                "is_useful": True,
+                "block_decisions": [
+                    {"block_index": 8, "category": "knowledge"},
+                ],
+                "snippets": [
+                    {
+                        "title": "Acid and browning",
+                        "body": "Acid slows browning.",
+                        "tags": ["science"],
+                        "evidence": [{"block_index": 8, "quote": "acid slows browning"}],
+                    }
+                ],
+            }
+        }
+    )
+
+    apply_result = run_codex_farm_knowledge_harvest(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.other.8.9",
+                    category="other",
+                    block_start_index=8,
+                    block_end_index=9,
+                    block_indices=[8],
+                    block_ids=["b8"],
+                )
+            ],
+            knowledge_spans=[],
+            other_spans=[
+                NonRecipeSpan(
+                    span_id="nr.other.8.9",
+                    category="other",
+                    block_start_index=8,
+                    block_end_index=9,
+                    block_indices=[8],
+                    block_ids=["b8"],
+                )
+            ],
+            block_category_by_index={8: "other"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert apply_result.refined_stage_result.seed_block_category_by_index == {8: "other"}
+    assert apply_result.refined_stage_result.block_category_by_index == {8: "knowledge"}
+    assert apply_result.refined_stage_result.refinement_report["changed_block_count"] == 1
+    assert apply_result.llm_report["authority_mode"] == "knowledge_refined_final"
+    assert apply_result.llm_report["scored_effect"] == "final_authority"

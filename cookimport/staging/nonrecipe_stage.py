@@ -39,6 +39,42 @@ class NonRecipeStageResult:
     other_spans: list[NonRecipeSpan]
     block_category_by_index: dict[int, str]
     warnings: list[str] = field(default_factory=list)
+    seed_nonrecipe_spans: list[NonRecipeSpan] | None = None
+    seed_knowledge_spans: list[NonRecipeSpan] | None = None
+    seed_other_spans: list[NonRecipeSpan] | None = None
+    seed_block_category_by_index: dict[int, str] | None = None
+    refinement_report: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.seed_nonrecipe_spans is None:
+            object.__setattr__(self, "seed_nonrecipe_spans", list(self.nonrecipe_spans))
+        if self.seed_knowledge_spans is None:
+            object.__setattr__(self, "seed_knowledge_spans", list(self.knowledge_spans))
+        if self.seed_other_spans is None:
+            object.__setattr__(self, "seed_other_spans", list(self.other_spans))
+        if self.seed_block_category_by_index is None:
+            object.__setattr__(
+                self,
+                "seed_block_category_by_index",
+                dict(self.block_category_by_index),
+            )
+        if not self.refinement_report:
+            object.__setattr__(
+                self,
+                "refinement_report",
+                {
+                    "enabled": False,
+                    "authority_mode": "deterministic_seed_only",
+                    "input_mode": "stage7_seed_nonrecipe_spans",
+                    "seed_nonrecipe_span_count": len(self.seed_nonrecipe_spans or []),
+                    "final_nonrecipe_span_count": len(self.nonrecipe_spans),
+                    "changed_block_count": 0,
+                    "changed_blocks": [],
+                    "conflicts": [],
+                    "ignored_block_indices": [],
+                    "scored_effect": "seed_only",
+                },
+            )
 
 
 def build_nonrecipe_stage_result(
@@ -63,26 +99,9 @@ def build_nonrecipe_stage_result(
 
     block_category_by_index: dict[int, str] = {}
     warnings: list[str] = []
-    spans: list[NonRecipeSpan] = []
-    current_indices: list[int] = []
-    current_block_ids: list[str] = []
-    current_category: str | None = None
-    previous_index: int | None = None
 
     for block_index in sorted(full_blocks_by_index):
         if block_index in recipe_block_indices:
-            if current_category is not None and current_indices:
-                spans.append(
-                    _build_span(
-                        category=current_category,
-                        block_indices=current_indices,
-                        block_ids=current_block_ids,
-                    )
-                )
-            current_indices = []
-            current_block_ids = []
-            current_category = None
-            previous_index = None
             continue
 
         category, warning = _normalize_stage7_category(labels_by_index.get(block_index))
@@ -90,48 +109,93 @@ def build_nonrecipe_stage_result(
             warnings.append(f"block {block_index}: {warning}")
         block_category_by_index[block_index] = category
 
-        block_id = str(full_blocks_by_index[block_index].get("block_id") or f"b{block_index}")
-        if (
-            current_category is None
-            or previous_index is None
-            or block_index != previous_index + 1
-            or category != current_category
-        ):
-            if current_category is not None and current_indices:
-                spans.append(
-                    _build_span(
-                        category=current_category,
-                        block_indices=current_indices,
-                        block_ids=current_block_ids,
-                    )
-                )
-            current_indices = [block_index]
-            current_block_ids = [block_id]
-            current_category = category
-            previous_index = block_index
-            continue
-
-        current_indices.append(block_index)
-        current_block_ids.append(block_id)
-        previous_index = block_index
-
-    if current_category is not None and current_indices:
-        spans.append(
-            _build_span(
-                category=current_category,
-                block_indices=current_indices,
-                block_ids=current_block_ids,
-            )
-        )
-
-    knowledge_spans = [span for span in spans if span.category == "knowledge"]
-    other_spans = [span for span in spans if span.category == "other"]
+    spans, knowledge_spans, other_spans = _build_spans_from_categories(
+        full_blocks_by_index=full_blocks_by_index,
+        block_category_by_index=block_category_by_index,
+    )
     return NonRecipeStageResult(
         nonrecipe_spans=spans,
         knowledge_spans=knowledge_spans,
         other_spans=other_spans,
         block_category_by_index=block_category_by_index,
         warnings=warnings,
+    )
+
+
+def refine_nonrecipe_stage_result(
+    *,
+    stage_result: NonRecipeStageResult,
+    full_blocks: Sequence[Mapping[str, Any]],
+    block_category_updates: Mapping[int, str],
+    applied_chunk_ids_by_block: Mapping[int, Sequence[str]] | None = None,
+    conflicts: Sequence[Mapping[str, Any]] | None = None,
+    ignored_block_indices: Sequence[int] | None = None,
+) -> NonRecipeStageResult:
+    full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
+    seed_block_category_by_index = dict(
+        stage_result.seed_block_category_by_index or stage_result.block_category_by_index
+    )
+    final_block_category_by_index = dict(seed_block_category_by_index)
+    changed_blocks: list[dict[str, Any]] = []
+    warnings = list(stage_result.warnings)
+
+    for block_index, raw_category in sorted(block_category_updates.items()):
+        normalized_category, warning = _normalize_stage7_category(str(raw_category))
+        if block_index not in final_block_category_by_index:
+            if warning is not None:
+                warnings.append(f"block {block_index}: {warning}")
+            continue
+        if warning is not None:
+            warnings.append(f"block {block_index}: {warning}")
+        seed_category = seed_block_category_by_index[block_index]
+        final_block_category_by_index[block_index] = normalized_category
+        if normalized_category == seed_category:
+            continue
+        changed_blocks.append(
+            {
+                "block_index": int(block_index),
+                "seed_category": seed_category,
+                "final_category": normalized_category,
+                "applied_chunk_ids": list(applied_chunk_ids_by_block.get(block_index) or [])
+                if applied_chunk_ids_by_block is not None
+                else [],
+            }
+        )
+
+    spans, knowledge_spans, other_spans = _build_spans_from_categories(
+        full_blocks_by_index=full_blocks_by_index,
+        block_category_by_index=final_block_category_by_index,
+    )
+    conflict_rows = [dict(row) for row in (conflicts or [])]
+    ignored_indices = sorted({int(index) for index in (ignored_block_indices or [])})
+    return NonRecipeStageResult(
+        nonrecipe_spans=spans,
+        knowledge_spans=knowledge_spans,
+        other_spans=other_spans,
+        block_category_by_index=final_block_category_by_index,
+        warnings=warnings,
+        seed_nonrecipe_spans=list(stage_result.seed_nonrecipe_spans or stage_result.nonrecipe_spans),
+        seed_knowledge_spans=list(stage_result.seed_knowledge_spans or stage_result.knowledge_spans),
+        seed_other_spans=list(stage_result.seed_other_spans or stage_result.other_spans),
+        seed_block_category_by_index=seed_block_category_by_index,
+        refinement_report={
+            "enabled": True,
+            "authority_mode": (
+                "knowledge_refined_final"
+                if changed_blocks
+                else "knowledge_reviewed_seed_kept"
+            ),
+            "input_mode": "stage7_seed_nonrecipe_spans",
+            "seed_nonrecipe_span_count": len(stage_result.seed_nonrecipe_spans or stage_result.nonrecipe_spans),
+            "final_nonrecipe_span_count": len(spans),
+            "seed_knowledge_span_count": len(stage_result.seed_knowledge_spans or stage_result.knowledge_spans),
+            "final_knowledge_span_count": len(knowledge_spans),
+            "changed_block_count": len(changed_blocks),
+            "changed_blocks": changed_blocks,
+            "conflicts": conflict_rows,
+            "ignored_block_indices": ignored_indices,
+            "scored_effect": "final_authority" if changed_blocks else "seed_only",
+        },
     )
 
 
@@ -219,3 +283,56 @@ def _build_span(
         block_indices=list(block_indices),
         block_ids=list(block_ids),
     )
+
+
+def _build_spans_from_categories(
+    *,
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+    block_category_by_index: Mapping[int, str],
+) -> tuple[list[NonRecipeSpan], list[NonRecipeSpan], list[NonRecipeSpan]]:
+    spans: list[NonRecipeSpan] = []
+    current_indices: list[int] = []
+    current_block_ids: list[str] = []
+    current_category: str | None = None
+    previous_index: int | None = None
+
+    for block_index in sorted(block_category_by_index):
+        category = str(block_category_by_index[block_index] or "other")
+        block_payload = full_blocks_by_index.get(int(block_index), {})
+        block_id = str(block_payload.get("block_id") or f"b{block_index}")
+        if (
+            current_category is None
+            or previous_index is None
+            or block_index != previous_index + 1
+            or category != current_category
+        ):
+            if current_category is not None and current_indices:
+                spans.append(
+                    _build_span(
+                        category=current_category,
+                        block_indices=current_indices,
+                        block_ids=current_block_ids,
+                    )
+                )
+            current_indices = [int(block_index)]
+            current_block_ids = [block_id]
+            current_category = category
+            previous_index = int(block_index)
+            continue
+
+        current_indices.append(int(block_index))
+        current_block_ids.append(block_id)
+        previous_index = int(block_index)
+
+    if current_category is not None and current_indices:
+        spans.append(
+            _build_span(
+                category=current_category,
+                block_indices=current_indices,
+                block_ids=current_block_ids,
+            )
+        )
+
+    knowledge_spans = [span for span in spans if span.category == "knowledge"]
+    other_spans = [span for span in spans if span.category == "other"]
+    return spans, knowledge_spans, other_spans

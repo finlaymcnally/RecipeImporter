@@ -212,3 +212,29 @@ Durable decisions:
 
 Anti-loop note:
 - If `KNOWLEDGE=0` appears with knowledge extraction off, debug wiring and run settings before changing prompt assets.
+
+## 2026-03-16 benchmark prompt/export and runner follow-through
+
+Problem captured:
+- benchmark single-offline runs exposed several easy-to-misread seams at once:
+  - older stderr progress lines looked like terminal corruption
+  - missing benchmark-level `prompts/` exports looked like Codex non-execution
+  - prompt budgets could lose split-token fields on the single-offline manifest shape
+  - reasoning models still produced zero reasoning-summary events in live traces
+
+Durable decisions:
+- `SubprocessCodexFarmRunner` should consume legacy stderr progress lines as compatibility progress/control output, not stderr noise
+- benchmark prompt/export truth stays split:
+  - raw execution truth lives under the linked processed stage run in `data/output`
+  - reviewer-facing merged prompt exports live under benchmark `prompts/` when the export step runs
+- prompt preview should reuse exact saved recipe/knowledge input payloads when available and only reconstruct locally as fallback
+- preview budget output should stay reviewer-blunt: emit a heuristic budget summary plus danger warnings when rendered prompt volume or call fan-out is obviously expensive
+- prompt-budget aggregation must support the single-offline top-level telemetry-row layout
+- missing reasoning-summary events in `.trace.json` files are usually upstream Codex CLI / CodexFarm transport behavior, not a local prompt-artifact regression
+
+Evidence worth keeping:
+- on the 2026-03-16 `saltfatacidheatcutdown` run, live spend was `231` first-pass calls (`175` recipe, `56` knowledge)
+- the recipe token spike was not a retry storm; grouped span count and recipe payload inflation were the dominant drivers
+
+Anti-loop note:
+- if a benchmark run "looks missing" at the prompt layer, verify the raw processed-output artifacts before changing runner or orchestrator code

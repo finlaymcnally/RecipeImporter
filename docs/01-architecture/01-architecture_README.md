@@ -334,6 +334,18 @@ Current architecture is still deterministic-first:
 - rule/heuristic extraction + deterministic serialization is the default behavior
 - LLM module exists (`cookimport/llm/`) but not as a required stage path
 
+## Current Onboarding Shorthand
+
+When you need the shortest accurate mental model, describe the repo this way:
+
+- The current runtime is a label-first staging system, not an importer-candidates-first writer pipeline.
+- `cookimport/staging/import_session.py` writes authoritative label artifacts first (`label_det`, optional `label_llm_correct`, `group_recipe_spans`) and only then builds recipe drafts.
+- If importer candidates existed but authoritative regrouping finds zero recipes, the run stays on the label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json`.
+- `08_nonrecipe_spans.json` is the machine-readable authority for outside-recipe `knowledge` vs `other`.
+- Stage 7 now has an explicit seed-vs-final authority seam: deterministic non-recipe labels seed the decision, optional knowledge harvest can merge block decisions into the final non-recipe authority, and scored benchmark artifacts should project that final authority rather than the seed view.
+- `stage_observability.json` is the run-level semantic stage index and should be the naming backbone for docs, prompt exports, and reviewer tooling.
+- Inline recipe tags are part of recipe correction plus deterministic normalization; there is no separate live tagging runtime package anymore.
+
 ## Cross-cutting Conventions
 
 - The import tooling is the Python package `cookimport/`, with CLI entrypoint exposed as `cookimport` via `pyproject.toml`.
@@ -351,6 +363,10 @@ Current architecture is still deterministic-first:
   - `tests/CONVENTIONS.md`
 - When adding a new durable rule, document it in the nearest code-local `CONVENTIONS.md` first; only add pointers in docs when discoverability needs to change.
 - Discovery-note convention: keep notes focused to one discovery, use timestamped filenames, and merge durable outcomes into the owning stage README to avoid split sources of truth.
+- Repo-hygiene convention after the 2026-03-16 purge:
+  - current operator-facing docs should describe only the current architecture
+  - compatibility readers should stay narrow and read-side only
+  - removed runtimes, deleted test domains, and archival migration docs should not stay alive in normal browse paths just to preserve history
 
 ## Change Checklist (safe architecture edits)
 

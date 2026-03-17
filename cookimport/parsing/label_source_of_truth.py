@@ -535,9 +535,11 @@ def _build_recipe_candidate_from_span(
 
 
 def _recipe_candidate_rejection_reason(recipe: RecipeCandidate) -> str | None:
-    ingredients = list(recipe.recipeIngredient or [])
-    instructions = list(recipe.recipeInstructions or [])
+    ingredients = list(recipe.ingredients or [])
+    instructions = list(recipe.instructions or [])
     if ingredients or instructions:
+        return None
+    if recipe.recipe_yield or recipe.prep_time or recipe.cook_time or recipe.total_time:
         return None
     return "rejected_missing_recipe_body"
 

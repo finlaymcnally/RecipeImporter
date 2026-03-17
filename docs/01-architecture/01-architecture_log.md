@@ -318,3 +318,34 @@ Durable decisions:
 
 Anti-loop note:
 - if a cleanup proposal starts by patching analytics readers or archived docs before deleting the remaining live seam, it is starting at the wrong end
+
+### 2026-03-16_16.34.56 burn-the-boats final repo purge
+
+Problem captured:
+- after the refactor, the repo still taught two worlds because stale helper fallbacks, checked-in cache junk, dead test domains, and archival docs were still first-class in searches and directory listings
+
+Durable decisions:
+- treat the remaining old-world cleanup as destructive, not as another compatibility-preservation pass
+- remove dormant runtime fallbacks and stale helper aliases instead of preserving them "just in case"
+- remove dead test scaffolding and tracked bytecode when they make deleted domains look alive
+- keep current docs focused on current contracts; historical context belongs in logs/plans/history, not in operator-facing READMEs
+- analytics metrics such as `precision`, `recall`, and `practical_f1` remain live reporting fields; the safe cleanup was removing stale fallback readers around them, not deleting the live metrics themselves
+
+Anti-loop note:
+- if the repo feels legacy-heavy again, prove whether the problem is active code, fixtures, or documentation drift before reviving compatibility branches
+
+### 2026-03-16_19.54.19 refactor drift can still be authority drift, not surface drift
+
+Problem captured:
+- a post-refactor benchmark can show all the new stage-named artifacts and still diverge from the intended architecture if the authoritative decision seams did not actually move
+
+Durable decisions:
+- do not treat the existence of `label_det`, `label_llm_correct`, `group_recipe_spans`, `08_nonrecipe_spans.json`, and `09_knowledge_outputs.json` as proof that the refactor landed in substance
+- verify the authority seams directly:
+  - whether Stage 2 correction actually mutates labels
+  - whether Stage 3 grouping still over-accepts titleless spans
+  - whether benchmark scoring projects final production authority or only a diagnostics-oriented reuse artifact
+- `stage_observability.json` being empty is a meaningful warning sign during refactor verification, not cosmetic metadata drift
+
+Anti-loop note:
+- if a refactor review says "the new folders exist so the architecture is done," verify who actually owns final authority before accepting that conclusion

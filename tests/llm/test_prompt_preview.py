@@ -219,7 +219,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"] == {
-        "knowledge_prompt_count": 1,
+        "knowledge_prompt_count": 2,
         "line_role_prompt_count": 1,
         "recipe_prompt_count": 1,
     }
@@ -269,7 +269,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert budget_summary["totals"]["call_count"] == 3
+    assert budget_summary["totals"]["call_count"] == 4
     assert budget_summary["warnings"] == []
     assert (out_dir / "prompt_preview_budget_summary.md").is_file()
 

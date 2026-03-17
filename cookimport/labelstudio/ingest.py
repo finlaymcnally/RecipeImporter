@@ -1165,6 +1165,7 @@ def _write_authoritative_line_role_artifacts(
     source_hash: str,
     workbook_slug: str,
     label_first_result: LabelFirstStageResult,
+    nonrecipe_stage_result: NonRecipeStageResult | None = None,
 ) -> tuple[dict[str, Path], dict[str, Any]]:
     pipeline_dir = run_root / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
@@ -1173,13 +1174,23 @@ def _write_authoritative_line_role_artifacts(
         label_first_result.labeled_lines,
         label_first_result.recipe_spans,
     )
+    predictions, nonrecipe_projection_summary = _apply_nonrecipe_authority_to_predictions(
+        predictions=predictions,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
     projected_spans = project_line_roles_to_freeform_spans(predictions)
     stage_payload = build_line_role_stage_prediction_payload(
         projected_spans,
         source_file=source_file,
         source_hash=source_hash,
         workbook_slug=workbook_slug,
-        notes=["Prediction-run projection reused authoritative Stage 2 labels."],
+        notes=[
+            "Prediction-run projection reused authoritative Stage 2 labels for recipe-local lines.",
+            "Outside-recipe KNOWLEDGE/OTHER labels were projected from final non-recipe authority.",
+            *([
+                f"Knowledge refinement changed {nonrecipe_projection_summary['changed_block_count']} outside-recipe blocks before scoring."
+            ] if nonrecipe_projection_summary["changed_block_count"] else []),
+        ],
     )
     archive_payload = build_line_role_extracted_archive_payload(projected_spans)
 
@@ -1216,10 +1227,11 @@ def _write_authoritative_line_role_artifacts(
     telemetry_summary_path.write_text(
         json.dumps(
             {
-                "schema_version": "line_role_authoritative_reuse.v1",
-                "mode": "authoritative_reuse",
+                "schema_version": "line_role_final_authority_projection.v1",
+                "mode": "final_authority_projection",
                 "labeled_line_count": len(label_first_result.labeled_lines),
                 "recipe_span_count": len(label_first_result.recipe_spans),
+                **nonrecipe_projection_summary,
             },
             indent=2,
             sort_keys=True,
@@ -1237,10 +1249,72 @@ def _write_authoritative_line_role_artifacts(
         {
             "recipes_applied": len(label_first_result.recipe_spans),
             "span_count": len(projected_spans),
-            "authoritative_stage_outputs_mutated": False,
-            "mode": "authoritative_reuse",
+            "authoritative_stage_outputs_mutated": bool(
+                nonrecipe_projection_summary["changed_block_count"]
+            ),
+            "mode": "final_authority_projection",
+            **nonrecipe_projection_summary,
         },
     )
+
+
+def _apply_nonrecipe_authority_to_predictions(
+    *,
+    predictions: list[Any],
+    nonrecipe_stage_result: NonRecipeStageResult | None,
+) -> tuple[list[Any], dict[str, Any]]:
+    if nonrecipe_stage_result is None:
+        return predictions, {
+            "authority_mode": "missing_nonrecipe_stage_result",
+            "scored_effect": "seed_only",
+            "changed_block_count": 0,
+            "changed_block_indices": [],
+        }
+
+    final_categories = dict(nonrecipe_stage_result.block_category_by_index)
+    changed_block_indices = sorted(
+        int(row.get("block_index"))
+        for row in (nonrecipe_stage_result.refinement_report.get("changed_blocks") or [])
+        if isinstance(row, dict) and row.get("block_index") is not None
+    )
+    changed_index_set = set(changed_block_indices)
+    adjusted_predictions: list[Any] = []
+    for prediction in predictions:
+        block_index = getattr(prediction, "block_index", None)
+        if getattr(prediction, "within_recipe_span", False) or block_index is None:
+            adjusted_predictions.append(prediction)
+            continue
+        category = final_categories.get(int(block_index))
+        if category not in {"knowledge", "other"}:
+            adjusted_predictions.append(prediction)
+            continue
+        target_label = "KNOWLEDGE" if category == "knowledge" else "OTHER"
+        if str(prediction.label or "").upper() == target_label:
+            adjusted_predictions.append(prediction)
+            continue
+        reason_tags = list(getattr(prediction, "reason_tags", []) or [])
+        reason_tags.append(f"nonrecipe_authority:{category}")
+        adjusted_predictions.append(
+            prediction.model_copy(
+                update={
+                    "label": target_label,
+                    "decided_by": "codex" if int(block_index) in changed_index_set else prediction.decided_by,
+                    "reason_tags": reason_tags,
+                }
+            )
+        )
+    return adjusted_predictions, {
+        "authority_mode": str(
+            nonrecipe_stage_result.refinement_report.get("authority_mode")
+            or "deterministic_seed_only"
+        ),
+        "scored_effect": str(
+            nonrecipe_stage_result.refinement_report.get("scored_effect")
+            or "seed_only"
+        ),
+        "changed_block_count": len(changed_block_indices),
+        "changed_block_indices": changed_block_indices,
+    }
 
 
 def _llm_selective_retry_run_config_summary(
@@ -2337,6 +2411,7 @@ def generate_pred_run_artifacts(
     )
     archive = list(prepared_archive.blocks)
     book_id = result.workbook or path.stem
+    imported_result = result
     authoritative_label_result: LabelFirstStageResult | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     stage7_block_rows: list[dict[str, Any]] = []
@@ -2380,8 +2455,13 @@ def generate_pred_run_artifacts(
             }
         }
         if run_settings.llm_recipe_pipeline.value != "off":
+            recipe_plan_result = (
+                imported_result
+                if not result.recipes and imported_result.recipes
+                else result
+            )
             planned_work["recipe_codex_farm"] = build_codex_farm_recipe_execution_plan(
-                conversion_result=result,
+                conversion_result=recipe_plan_result,
                 run_settings=run_settings,
                 workbook_slug=book_slug,
             )
@@ -2544,8 +2624,13 @@ def generate_pred_run_artifacts(
     result.report.llm_codex_farm = llm_report
 
     if processed_output_root is None:
-        if stage7_block_rows:
-            result.chunks = chunks_from_non_recipe_blocks(stage7_block_rows)
+        if nonrecipe_stage_result is not None:
+            result.non_recipe_blocks = block_rows_for_nonrecipe_stage(
+                full_blocks=authoritative_label_result.archive_blocks,
+                stage_result=nonrecipe_stage_result,
+            )
+        if result.non_recipe_blocks:
+            result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
         elif result.topic_candidates:
             result.chunks = chunks_from_topic_candidates(result.topic_candidates)
 
@@ -2590,7 +2675,16 @@ def generate_pred_run_artifacts(
                 raise
         else:
             llm_report["knowledge"] = dict(knowledge_apply.llm_report)
+            nonrecipe_stage_result = knowledge_apply.refined_stage_result
         result.report.llm_codex_farm = llm_report
+
+    if processed_output_root is None and nonrecipe_stage_result is not None:
+        result.non_recipe_blocks = block_rows_for_nonrecipe_stage(
+            full_blocks=authoritative_label_result.archive_blocks,
+            stage_result=nonrecipe_stage_result,
+        )
+        if result.non_recipe_blocks:
+            result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
 
     if processed_output_root is not None:
         _notify("Writing processed cookbook outputs...")
@@ -2617,6 +2711,7 @@ def generate_pred_run_artifacts(
         )
         result = stage_session.conversion_result
         authoritative_label_result = stage_session.label_first_result
+        nonrecipe_stage_result = stage_session.nonrecipe_stage_result
         llm_report = dict(stage_session.llm_report)
         result.report.llm_codex_farm = llm_report
         processed_report_path = stage_session.report_path
@@ -2641,6 +2736,7 @@ def generate_pred_run_artifacts(
             source_hash=file_hash,
             workbook_slug=path.stem,
             label_first_result=authoritative_label_result,
+            nonrecipe_stage_result=nonrecipe_stage_result,
         )
 
     run_config.update(_llm_selective_retry_run_config_summary(llm_report))
