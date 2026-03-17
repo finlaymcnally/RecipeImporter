@@ -160,6 +160,16 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
             if first_line:
                 break
     recipe_name = first_line or str(payload.get("recipe_id") or "Untitled Recipe")
+    recipe_lines = [line.strip() for line in canonical_text.splitlines() if line.strip()]
+    if len(recipe_lines) <= 1 and isinstance(evidence_rows, list):
+        recipe_lines = [
+            str(row[1] or "").strip()
+            for row in evidence_rows
+            if isinstance(row, list | tuple) and len(row) >= 2 and str(row[1] or "").strip()
+        ]
+    body_lines = recipe_lines[1:] if len(recipe_lines) > 1 else recipe_lines[:]
+    ingredients = body_lines[:1]
+    steps = body_lines[1:] if len(body_lines) > 1 else body_lines[:1]
     selected_tags = _select_recipe_tags(payload)
     return {
         "bundle_version": "1",
@@ -167,9 +177,9 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
         "canonical_recipe": {
             "title": recipe_name,
             "description": None,
-            "recipe_yield": None,
-            "ingredients": [],
-            "steps": [],
+            "recipeYield": None,
+            "ingredients": ingredients,
+            "steps": steps,
         },
         "ingredient_step_mapping": [],
         "ingredient_step_mapping_reason": "unclear_alignment",

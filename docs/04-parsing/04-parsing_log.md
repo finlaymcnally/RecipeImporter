@@ -344,6 +344,12 @@ What stuck:
 Evidence worth keeping:
 - on `saltfatacidheatcutdown`, the first broader veto dropped the run from `31` recipes to `25`; rejected true positives included `Torn Croutons` and `Tomato Vinaigrette`
 - on the same source, recipe-correction task inflation came from `175` grouped spans, including `140` with no title block and `104` single-block spans
+- the later deterministic title pass improved the worst-book canonical title metrics without reopening the pseudo-recipe explosion:
+  - `thefoodlabcutdown`: `0.387 / 0.197 / 0.261` -> `0.600 / 0.295 / 0.396`
+  - `roastchickenandotherstoriescutdown`: `1.000 / 0.149 / 0.260` -> `1.000 / 0.224 / 0.366`
+  - `dinnerfor2cutdown`: `1.000 / 0.167 / 0.286` -> `1.000 / 0.200 / 0.333`
+  - `amatteroftastecutdown`: `0.842 / 0.525 / 0.647` -> `0.826 / 0.623 / 0.710`
 
 Anti-loop note:
 - if benchmark or import task counts explode, inspect grouping and outside-span label anchors before blaming Codex orchestration
+- if title recall work starts promoting TOC rows, generic technique headings, or `How to ...` headings again, the bug is usually that outside-span title support was widened too far, not that grouping got stricter

@@ -551,4 +551,53 @@ Evidence worth keeping:
 Anti-loop note:
 - if prompt spend and scored artifact size disagree, inspect projection mode and final-authority plumbing before assuming Codex line-role execution silently failed
 
+### 2026-03-16_19.35.12 final non-recipe authority must be the scored benchmark truth
+
+Problem captured:
+- Codex-enabled benchmark runs could spend large knowledge-stage token budgets while the scored artifact still reflected deterministic seed authority or `authoritative_reuse`
+
+Durable decisions:
+- canonical benchmark scoring must follow the final non-recipe authority after optional knowledge refinement, not the deterministic seed alone
+- prediction-run helpers must keep the scorer on the canonical projection artifact pair with atomic coordinates; moving back to stage-backed source-block coordinates or stale scorer pointers recreates the regression
+- benchmark reporting should make scored-effect truth obvious. If a run spends knowledge tokens but the scored artifact cannot reflect those changes, treat that as a seam bug rather than a model-quality result
+
+Evidence worth keeping:
+- the motivating March 16 run spent `424,619` knowledge-stage tokens while telemetry still said `mode=authoritative_reuse`
+- after the final-authority projection fixes, canonical scoring again followed the processed import result instead of the seed shortcut
+
+Anti-loop note:
+- if a Codex benchmark looks "flat," first prove whether the scored artifact is final-authority projection or a deterministic shortcut before retuning prompts or evaluation code
+
+### 2026-03-16_20.52.23 oversized Oracle payload browser sharding
+
+Problem captured:
+- `cookimport bench oracle-upload` could fail in browser mode when one bundle file exceeded Oracle CLI's per-file input cap, even though the bundle itself was otherwise valid
+
+Durable decisions:
+- keep `upload_bundle_v1` unchanged on disk; oversized files are split into ordered temporary transport parts only for browser upload
+- dry-run stays zero-cost and should fall back to a local preview instead of pretending Oracle accepted an oversized inline payload
+- the fix belongs in this repo's upload wrapper, not in benchmark bundle generation or reviewer packet shape
+
+Evidence worth keeping:
+- focused regression coverage now verifies that oversized browser uploads use ordered shard attachments and that dry-run still reports the local-preview fallback path
+
+Anti-loop note:
+- if browser upload breaks on a large bundle again, inspect the transport shim before redesigning `upload_bundle_v1`
+
+### 2026-03-17_14.30.55 Oracle browser headless wrapper drift
+
+Problem captured:
+- the local `oracle-browser-headless` wrapper was no longer the old off-screen Linux `xvfb` path, so browser uploads could start stealing focus or failing with `Missing X server or $DISPLAY` again after payload sharding had already succeeded
+
+Durable decisions:
+- benchmark upload should bypass the visible-browser wrapper and call Oracle directly
+- force `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1` so Oracle does not chase the WSL nameserver host for DevTools
+- pass the Linux off-screen Chromium launcher explicitly instead of trusting the drifted wrapper script
+
+Evidence worth keeping:
+- the wrapper had drifted to visible-browser/manual-login settings and `chromium-nosandbox`, which led to Chromium child logs showing `Missing X server or $DISPLAY` and later `ECONNREFUSED 127.0.0.1:9222`
+
+Anti-loop note:
+- if browser upload starts failing after payload sharding succeeds, inspect the Chromium launcher / wrapper path before debugging bundle generation or Oracle attachment splitting
+
 If an older artifact references one of those surfaces, treat it as historical context only, not current contract guidance.

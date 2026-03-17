@@ -66,6 +66,61 @@ Durable decisions:
 Anti-loop note:
 - if preview token counts drop but live runs do not, the optimization probably landed in a preview-only seam
 
+## 2026-03-16 knowledge bundle and low-noise prompt cut
+
+Problem captured:
+- the knowledge stage was writing one tiny Codex prompt per chunk, so wrapper overhead and repeated instructions dominated cost on large non-recipe books
+
+Durable decisions:
+- prompt-count cuts must stay in the live knowledge builder:
+  - deterministic junk suppression belongs in `cookimport/parsing/chunks.py`
+  - bundling belongs in `build_knowledge_jobs(...)`
+- surviving chunks should be packed into local bundled jobs in block order instead of one-chunk-per-prompt, while table-heavy chunks stay isolated
+- later low-risk trims tightened the shared defaults again: knowledge context `2 -> 0`, soft-gap packing across nearby spans, and pruning of tiny low-signal chunks without heading/highlight/table evidence
+
+Evidence worth keeping:
+- on the motivating `saltfatacidheatcutdown` preview:
+  - knowledge prompts dropped `324 -> 91 -> 41 -> 40`
+  - total estimated tokens dropped `~1,422,285 -> ~703,122 -> ~578,563 -> ~449,484`
+
+Anti-loop note:
+- if a prompt-cost fix proposal wants to change preview output without changing `build_knowledge_jobs(...)`, it is probably solving the wrong seam
+
+## 2026-03-16 line-role transport compaction and batch widening
+
+Problem captured:
+- line-role prompt cost was inflated twice: transport wrapped saved prompt JSON back into another prompt, and the default batch shape repeated too much row-local structure
+
+Durable decisions:
+- the live line-role path now writes raw prompt text into CodexFarm instead of `{\"prompt\": ...}` envelopes
+- compact line-role serialization belongs in the shared prompt builder and keeps the response schema stable:
+  - batch-level label/reason legends
+  - batch-level recipe-span metadata
+  - compact row arrays
+  - neighbor text only for rows that actually need escalation context
+- shared batch defaults were widened in the live path (`40 -> 120 -> 240`) rather than only in preview reconstruction
+
+Evidence worth keeping:
+- on the same benchmark root, line-role prompts dropped `45 -> 15 -> 8`
+- wrapper overhead fell from `970,123` chars to near-zero (`4,440` chars) after the raw-prompt transport fix
+- line-role estimated total tokens fell from about `683k` to `~291k`, then to `~175k`
+
+Anti-loop note:
+- if line-role cost spikes again, inspect transport wrapping and per-row prompt shape before narrowing the output schema or blaming the scorer
+
+## 2026-03-16 runner-owned Codex home default
+
+Problem captured:
+- RecipeImport CodexFarm subprocesses could silently fall back to the generic `~/.codex` home unless each caller remembered to override the environment manually
+
+Durable decisions:
+- `cookimport/llm/codex_farm_runner.py` is the one place that should inject the RecipeImport default Codex home
+- RecipeImport-owned subprocesses now default to `~/.codex-recipe` via `CODEX_HOME` and `CODEX_FARM_CODEX_HOME_RECIPE`
+- explicit per-call env overrides still win; the fix is a central default, not a hard lock
+
+Anti-loop note:
+- if a CodexFarm subprocess uses the wrong home again, fix the runner transport env injection instead of adding more CLI flags or shell-profile assumptions
+
 ## 2026-03-16 prompt preview tags boundary
 
 Problem captured:
@@ -238,3 +293,119 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if a benchmark run "looks missing" at the prompt layer, verify the raw processed-output artifacts before changing runner or orchestrator code
+
+## 2026-03-16 line-role whole-book parity and preview alignment
+
+Problem captured:
+- canonical line-role had drifted into two mental models at once: "whole-book correction" in architecture language, but unresolved-only preview and prompt-volume assumptions in some tooling
+- outside-span title rescue rules that helped true recipe spans could also upgrade TOC headings, pantry headings, and `How to ...` technique rows into false recipe titles
+
+Durable decisions:
+- live line-role correction and zero-token preview must both rebuild the same full ordered candidate set
+- Codex line-role remains deterministic-first whole-book correction in bounded local batches or shards, not unresolved-only fanout
+- outside-span title rescue must be stricter than inside-span title retention:
+  - require nearby recipe-start evidence
+  - ignore duplicate-title echoes and explicit note lines while scanning support
+  - do not count TOC-like rows, `How to ...` headings, or generic action-heavy prose as title support
+- benchmark projection may reuse recipe-local line-role labels, but outside-recipe `KNOWLEDGE` versus `OTHER` must still come from final non-recipe authority before scoring
+
+Evidence worth keeping:
+- the first broader title-rescue pass improved one book's recall but collapsed precision by promoting non-recipe headings to `RECIPE_TITLE`
+- restoring separate inside-span note-prose support recovered true positives without reopening the outside-span false positives
+
+Anti-loop note:
+- if line-role token counts look suspiciously tiny or title recall shifts mostly on headings, inspect full-candidate batching and outside-span support rules before retuning Codex or scorer code
+
+## 2026-03-16 knowledge packing and prompt-cost discoveries
+
+Problem captured:
+- knowledge preview fanout looked like a prompt-preview problem, but most of the inflation was really coming from deterministic chunking, per-span packing, and row/contract overhead
+
+Durable decisions:
+- preview and live knowledge harvest must both use the same `build_knowledge_jobs(...)` seam
+- bundle contiguous chunks across neighboring seed non-recipe spans, not only within each individual seed span
+- after cross-span bundling lands, remaining prompt count is mostly gap-limited by hard breaks between chunk runs, not by the bundle chunk or char caps
+- deterministic chunk-count suppression matters as much as bundle size:
+  - collapse tiny heading or bridge fragments before bundling
+  - keep deterministic noise suppression strict
+  - shorten structured-output key surfaces when they are pure transport overhead
+
+Evidence worth keeping:
+- the first cross-span bundle change dropped one preview from `324` knowledge prompts to `91`
+- later chunk collapse plus tighter context plus shorter keys dropped that shape again to `41` prompts
+
+Anti-loop note:
+- if knowledge prompt counts stay high after bundling, inspect chunk fragmentation and gap breaks before chasing another bundle-cap tweak
+
+## 2026-03-16 remaining prompt-cost boundary and runner-owned Codex home
+
+Problem captured:
+- once wrapper duplication was removed, it was easy to keep blaming transport for costs that were really in the shared row/payload shape
+- RecipeImport subprocesses could still drift onto the wrong Codex home if the runner did not enforce it
+
+Durable decisions:
+- after the transport fix, line-role cost was mainly repeated per-row keys and always-on neighbor text; compact the shared row contract rather than only editing wrapper text
+- after the biggest cuts, the remaining prompt budget is mostly real task payload, so future cost work should target recipe fixed overhead or stricter deterministic knowledge admission before another wrapper pass
+- `cookimport/llm/codex_farm_runner.py` is the enforcement point for RecipeImport `CODEX_HOME`; do not rely on shell docs or local pack metadata to keep subprocesses on `~/.codex-recipe`
+
+Anti-loop note:
+- if prompt-preview numbers improve but live costs do not, the change probably landed in a preview-only seam or outside the shared runner/serializer boundary
+
+## 2026-03-16 to 2026-03-17 shard-runtime model, cutover shape, and remaining runner debt
+
+Problem captured:
+- older refactor notes kept drifting toward "bigger prompt bundles" or "brand-new pipeline" language instead of the actual runtime refactor
+- it was also easy to half-migrate only the live runtime and leave preview, prompt exports, upload-bundle context, or legacy-id handling on stale assumptions
+- the repo-local shard runtime shape could be mistaken for proof of true reused multi-shard live sessions even though the underlying transport still shells through CodexFarm `process`
+
+Durable decisions:
+- shard-v1 is a runtime refactor over the existing label-first staged importer, not a new pipeline
+- shards are ownership units and workers are bounded execution contexts; keep those concepts separate in docs, manifests, and review surfaces
+- the implementation split that worked was:
+  - shared runtime/config spine first
+  - phase cutovers for line-role, recipe, and knowledge next
+  - preview/export/upload-bundle and legacy-id cleanup as the final coordinated cutover
+- keep runtime truth separate from compatibility artifacts during cutover:
+  - recipe runtime artifacts live under `recipe_phase_runtime/` while per-recipe compatibility files stay under `recipe_correction/{in,out}/`
+  - knowledge runtime lives in manifests, proposals, and validation, while `knowledge/{in,out}` remains a compatibility bridge for older prompt/debug readers
+  - line-role runtime may need raw prompt-text worker inputs, but reviewer/export surfaces can still keep `line-role-pipeline/prompts/*`
+- reviewer-friendly prompt files should stay prompt-level, but they must annotate `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids`
+- active run-setting surfaces should reject retired pipeline ids instead of silently normalizing them
+- current code landed shard ownership, validation, promotion, and worker/shard observability, but the transport still rides CodexFarm `process`, so true multi-shard live session reuse remains incomplete
+
+Anti-loop note:
+- if a future change claims shard agents are "done," verify whether it changed only RecipeImport-side runtime structure or the underlying CodexFarm runner semantics too
+
+## 2026-03-17 remaining legacy weight after shard-v1 cutover
+
+Problem captured:
+- once active pipeline ids and live shard-worker paths were cleaned up, "legacy" still looked larger than it really was because read-side helpers and retired modules were mixed together with live runtime code
+
+Durable decisions:
+- active run-setting surfaces are already strict; old recipe, knowledge, and line-role ids now fail instead of silently normalizing
+- the main remaining compatibility seams are:
+  - runner support for older codex-farm stderr progress lines and flag sets
+  - compatibility `knowledge/out/` copies for prompt/debug readers
+  - archived artifact readers in benchmark / analytics / external-review tooling
+- the clearest dead weight is still the retired local-LLM stack:
+  - `cookimport/llm/client.py`
+  - `cookimport/llm/prompts.py`
+  - `cookimport/llm/repair.py`
+  - `cookimport/llm/codex_exec.py`
+
+Anti-loop note:
+- if a cleanup sweep needs to choose what to delete next, distinguish read-side historical readers from dead runtime modules instead of treating every `legacy`-shaped file as equally coupled to the live pipeline
+
+## 2026-03-17 benchmark-root shard preview and zero-token runtime rehearsal
+
+Problem captured:
+- `cf-debug preview-prompts` on benchmark roots could be misread as limited to the original run settings, even when the real goal was projecting shard-v1 costs over saved staged outputs
+- `--codex-execution-policy plan` looked like a possible zero-token runtime test, but it exits before the real worker sandbox / runner / proposal-promotion choreography runs
+
+Durable decisions:
+- benchmark-root preview should resolve `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it finds the processed stage run with the staged outputs it needs
+- preview remains a heuristic planning surface: it can project shard-v1 worker/shard budgets over deterministic-only benchmark outputs because it defaults to the shard-v1 surfaces unless explicitly overridden
+- plan mode is not a true runtime rehearsal; if you need zero-token validation of live shard-runtime handoffs, redirect `SubprocessCodexFarmRunner` through a fake `codex-farm` executable via `--codex-farm-cmd` and run the execute path
+
+Anti-loop note:
+- if someone wants to test worker sandboxes, per-shard in/out folders, or proposal promotion without spending tokens, do not point them at plan mode alone; use a fake subprocess on the real runner seam

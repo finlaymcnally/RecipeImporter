@@ -121,6 +121,8 @@ Label-first metadata note:
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).
 - `*.report_totals_mismatch_diagnostics.json` is no longer a routine stage artifact; it is written only when explicitly prepopulated report totals disagree with authoritative final stage counts.
+- When that mismatch artifact fires on processed-output or stage-session paths, the common failure mode is authority drift rather than arithmetic error: importer-populated `ConversionReport` totals are being compared against stage-owned final totals after enrichment.
+- The durable fix direction is to compare authoritative-with-authoritative only: start stage sessions from a fresh `ConversionReport`, or preserve inherited importer totals under a separate legacy/debug namespace instead of mixing them into the final report contract.
 
 Outside run root (`.history/` for repo-local output roots):
 

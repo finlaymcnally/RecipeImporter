@@ -284,7 +284,9 @@ Oracle upload contract:
 
 - the user-facing target can be a session root or an `upload_bundle_v1/` directory
 - the actual upload code targets the three concrete bundle files; browser uploads may temporarily shard oversized files into ordered `partNNN` attachments to get past Oracle's per-file cap without changing the on-disk bundle format
+- the browser upload path calls Oracle directly with the Linux off-screen Chromium launcher and `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`; it intentionally bypasses the local `oracle-browser-headless` wrapper because that wrapper drifted back onto the visible-browser / X-server path
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
+- transport sharding is strictly upload-time glue for oversized text files such as `upload_bundle_payload.jsonl`; checked-in and local `upload_bundle_v1` artifacts should stay unmodified on disk
 
 ## 5. Speed And Quality Suite Notes
 

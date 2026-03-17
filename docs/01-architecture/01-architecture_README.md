@@ -83,6 +83,14 @@ Architecture priorities:
   - `recipe_llm_correct_and_link`
   - `build_final_recipe`
 
+### March 2026 refactor phase map
+
+- Phase 1 established `stage_observability.json` as the one semantic stage index for new runs. Summaries, manifests, prompt exports, and reviewer tooling should read that contract instead of reconstructing stage truth from pass-slot names or raw folder guesses.
+- Phase 2 moved stage-backed flows to label-first authority. `label_det`, optional `label_llm_correct`, and `group_recipe_spans` are written before drafting, and zero-recipe regrouping now writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of restoring importer candidates.
+- Phase 3 collapsed the recipe LLM surface into deterministic build -> one correction/link stage -> deterministic final rebuild. The later shard-runtime cutover changed the execution plumbing and public pipeline id, but it did not change that authority shape.
+- Phase 4 made Stage 7 the outside-recipe ownership seam. `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are the run-level contract, and optional knowledge extraction/refinement is scoped to Stage 7 spans instead of whole-residue mining.
+- These phases were destructive migrations, not dual-backbone rollouts. Historical ids and pass-slot names may still appear in logs, plans, or archived fixtures, but new writes should stay on semantic stage rows and current manifests only.
+
 ### Known current debt
 
 - historical benchmark/follow-up read-side normalization should stay narrow (`knowledge_manifest.json`, archived prompt sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
@@ -114,6 +122,12 @@ Use this mapping when updating architecture-adjacent docs so current contracts s
 - perf report + dashboard + metrics history surfaces -> `docs/08-analytics/`
 - inline recipe tagging and tag-normalization contracts -> `docs/09-tagging/`
 - schemas/inventories/reference artifacts -> `docs/11-reference/`
+
+When collapsing temporary task/spec docs into the long-lived tree, route them by durable ownership instead of by the one run that exposed the issue:
+- cross-cutting March refactor phase docs and authority-boundary notes -> `docs/01-architecture/`
+- title/span behavior and parser-owned chunking/title-recall notes -> `docs/04-parsing/`
+- benchmark scoring, upload-bundle, and reviewer-packet seams -> `docs/07-bench/`
+- runner defaults, prompt-cost work, and CodexFarm transport/runtime notes -> `docs/10-llm/`
 
 Reason this exists:
 - New work should start from the relevant stage folder README, not from ad-hoc discovery-note folders.

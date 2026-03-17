@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Callable
 
 
-ORACLE_BROWSER_CMD = "/home/mcnal/.local/bin/oracle-browser-headless"
+ORACLE_BROWSER_CMD = "/home/mcnal/.nvm/versions/node/v20.19.6/bin/oracle"
+ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-nosandbox-xvfb"
+ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
 ORACLE_DEFAULT_MODEL = "gpt-5.2-pro"
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
 ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
@@ -264,6 +266,16 @@ def _oracle_command(
     if normalized_mode == "browser":
         command = [
             ORACLE_BROWSER_CMD,
+            "--engine",
+            "browser",
+            "--browser-manual-login",
+            "--browser-chrome-path",
+            ORACLE_BROWSER_CHROME_PATH,
+            "--browser-input-timeout",
+            "90s",
+            "--browser-attachments",
+            "always",
+            "--browser-bundle-files",
             "--model",
             model,
             "-p",
@@ -284,6 +296,12 @@ def _oracle_command(
             command.extend(["--file", file_argument])
         return command
     raise ValueError(f"Unsupported Oracle upload mode: {mode}")
+
+
+def _oracle_browser_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env.setdefault("ORACLE_BROWSER_REMOTE_DEBUG_HOST", ORACLE_BROWSER_REMOTE_DEBUG_HOST)
+    return env
 
 
 def run_oracle_benchmark_upload(
@@ -341,6 +359,7 @@ def run_oracle_benchmark_upload(
                 check=False,
                 capture_output=True,
                 text=True,
+                env=_oracle_browser_env(),
             )
         stdout = completed.stdout or ""
         if prepared.note:

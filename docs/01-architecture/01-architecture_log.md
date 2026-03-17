@@ -200,6 +200,21 @@ Durable decisions:
 Anti-loop note:
 - if the repo still feels "full of legacy," prove whether you are looking at live code or docs/fixtures first
 
+### 2026-03-17_14.23.40 docs/task routing after the shard-runtime merge
+
+Problem captured:
+- completed task docs were easy to misfile because many of them touched several folders during implementation but only one long-lived section owned the resulting contract
+
+Durable decisions:
+- merge completed task docs by durable ownership, not by the specific fix branch:
+  - refactor-phase and authority-boundary docs belong in architecture
+  - title/span behavior belongs in parsing
+  - benchmark scoring and reviewer-packet transport belong in bench
+  - runner/prompt-cost/runtime notes belong in llm
+
+Anti-loop note:
+- if a temporary task/spec doc mostly answers "which long-lived section owns this now?", merge it into that owning section instead of keeping a second parallel archive
+
 ## 2026-03-15 to 2026-03-16 refactor closure notes
 
 ### 2026-03-15_23.40.19 phase1 observability cutover surface
@@ -210,8 +225,9 @@ Problem captured:
 
 Durable decisions:
 - run-level semantic stage observability is the shared contract for prompt export and bundle/render surfaces
+- `stage_observability.json` is the canonical run-level answer to "what stages existed here and what did they own?"
 - new reviewer-facing and doc-facing stage descriptions should come from semantic stage rows, not pass-slot labels or local path guessing
-- old pass-slot or raw-path naming may survive only as narrow historical read transition
+- old pass-slot or raw-path naming may survive only as narrow historical read transition; new runs should not write those names as truth anywhere user-facing
 
 ### 2026-03-16_00.08.23 and 2026-03-16_10.40.00 label-first authority hard cut
 
@@ -224,6 +240,7 @@ Durable decisions:
 - that mismatch now writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently restoring candidate-first ownership
 - Stage 7 rows are the live source for non-recipe tables, chunks, knowledge counts, and benchmark evidence
 - `ConversionResult.non_recipe_blocks` remains transition cache data only after Stage 7 work is complete
+- the finished Phase 2 contract is label-first only; any proposal that restores importer-owned recipe or non-recipe authority is reverting the refactor, not extending it
 
 Anti-loop note:
 - if a fix proposal needs candidate-first fallback or `non_recipe_blocks` as a live decision boundary, it is undoing the refactor
@@ -237,6 +254,18 @@ Durable decisions:
 - public write-time recipe pipeline id is `codex-farm-single-correction-v1`
 - the recipe Codex path is one correction stage plus deterministic final draft rebuild from explicit ingredient-step mappings
 - older ids remain read-time aliases only; new user-facing docs and reviewer surfaces should not present them as primary values
+- later shard-runtime cutover renamed the active public id to `codex-recipe-shard-v1`, but the durable architecture stayed the same: one correction/link stage plus deterministic final assembly
+
+### 2026-03-16_01.13.12 Stage 7 non-recipe authority cutover
+
+Problem captured:
+- the first Stage 7 rollout had the right files but still left too much real authority in residue-era helpers and later readers
+
+Durable decisions:
+- `08_nonrecipe_spans.json` is the machine-readable outside-recipe authority seam and keeps both deterministic seed and final authority
+- `09_knowledge_outputs.json` is the companion run-level summary for optional knowledge refinement and snippet evidence
+- Stage 7 ownership must drive downstream tables, chunks, Label Studio knowledge counts, and benchmark evidence; knowledge extraction is scoped to Stage 7 spans rather than whole-residue mining
+- later shard-runtime work may change worker/runtime artifacts, but it should not move non-recipe authority back out of the Stage 7 seam
 
 Anti-loop note:
 - if a new doc or UI change reintroduces `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1` as live options, treat that as naming drift, not product complexity

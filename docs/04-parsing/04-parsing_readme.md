@@ -79,6 +79,7 @@ Canonical line-role prompt seam note:
 - `codex-line-role-shard-v1` now plans contiguous local shards in `canonical_line_roles.py`, writes shard/runtime artifacts under `line-role-pipeline/runtime/`, and still preserves legacy prompt artifact files under `line-role-pipeline/prompts/` for reviewer/export surfaces.
 - each line-role shard still uses the compact canonical prompt text, but worker execution now goes through `phase_worker_runtime.py` with raw prompt-text shard inputs plus JSON shard manifests, so one worker can process multiple shards in sequence.
 - outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose and compact domain headings can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
+- low-risk knowledge prompt suppression belongs in parser-owned chunking, not preview-only code. `chunks.py` is the place to route obvious blurbs, navigation, attribution-only fragments, and similar junk to `noise` so live harvest and prompt preview skip the same material.
 
 Parsing-adjacent module (not in the default stage recipe-path runtime):
 
@@ -106,6 +107,8 @@ Label-first recipe-span note:
 - Titleless structured runs remain visible in staging diagnostics as rejected pseudo-recipes, but they are not emitted into `recipe_spans.json` or downstream recipe drafting.
 - Title-only shells with no ingredients, instructions, or yield/time metadata are also rejected after span-to-recipe conversion; title-plus-yield/time stubs still survive so short real recipes are not dropped.
 - Outside importer-held recipe spans, deterministic `INGREDIENT_LINE` and `INSTRUCTION_LINE` labels now require nearby recipe-anchor evidence instead of allowing a small structured cluster to self-justify.
+- Deterministic title recall is intentionally broader than it was before March 2026: long mixed-case titles containing `with`, all-caps verb-led headings, and `TITLE -> NOTE: -> recipe body` starts can stay `RECIPE_TITLE` when nearby recipe-start evidence exists.
+- Outside-span title rescue and in-span title retention are intentionally different seams. The outside-span path stays strict to avoid TOC/how-to false positives; once a span is already accepted, immediate note prose should not eject a real title.
 
 ## End-to-End Data Flow (Current)
 

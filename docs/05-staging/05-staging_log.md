@@ -261,3 +261,16 @@ Durable findings:
 
 Anti-loop note:
 - If a section header becomes the final recipe title, trace `canonical_line_roles.py -> apply_line_role_spans_to_recipes(...)` before changing stage-block heuristics.
+
+### 2026-03-16_20.01.25 report totals mismatch is usually importer-vs-stage authority drift
+
+Problem captured:
+- `*.report_totals_mismatch_diagnostics.json` looked like an arithmetic-bug detector, but processed-output runs were mostly firing because stage sessions inherited importer-era `ConversionReport` totals and then compared them against final stage-owned counts
+
+Durable decisions:
+- treat this mismatch artifact as an authority-seam warning first, not proof that the final stage counts are wrong
+- `execute_stage_import_session_from_result(...)` and `enrich_report_with_stats(...)` should not pretend inherited importer totals and final stage totals are the same contract
+- the clean long-term fix is to start stage-owned totals from a fresh `ConversionReport`, or to keep inherited importer counts under a separate legacy/debug namespace so `finalize_report_totals(...)` compares authoritative-with-authoritative
+
+Anti-loop note:
+- if report totals mismatch appears mainly on processed-output reruns, inspect inherited `result.report` usage before debugging the final counting math

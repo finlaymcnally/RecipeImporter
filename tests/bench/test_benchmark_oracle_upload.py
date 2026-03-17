@@ -74,11 +74,23 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
     assert result.bundle_dir == bundle_dir
     command = captured["command"]
     assert isinstance(command, list)
-    assert command[:3] == [
+    assert command[:8] == [
         oracle_upload.ORACLE_BROWSER_CMD,
-        "--model",
-        oracle_upload.ORACLE_DEFAULT_MODEL,
+        "--engine",
+        "browser",
+        "--browser-manual-login",
+        "--browser-chrome-path",
+        oracle_upload.ORACLE_BROWSER_CHROME_PATH,
+        "--browser-input-timeout",
+        "90s",
     ]
+    assert command[8:12] == [
+        "--browser-attachments",
+        "always",
+        "--browser-bundle-files",
+        "--model",
+    ]
+    assert oracle_upload.ORACLE_DEFAULT_MODEL in command
     assert command.count("--file") == 3
     for file_argument in oracle_upload._oracle_file_arguments(
         [bundle_dir / file_name for file_name in oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES]
@@ -86,7 +98,12 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         assert file_argument in command
     assert "-p" in command
     kwargs = captured["kwargs"]
-    assert kwargs == {"check": False, "capture_output": True, "text": True}
+    assert kwargs["check"] is False
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    env = kwargs["env"]
+    assert isinstance(env, dict)
+    assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
 
 
 def test_run_oracle_benchmark_upload_assembles_dry_run_command(tmp_path: Path) -> None:
@@ -149,10 +166,21 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
     assert result.returncode == 0
     assert "Local dry-run preview only" in result.stdout
     assert "upload_bundle_payload.jsonl" in result.stdout
-    assert result.command[:3] == [
+    assert result.command[:8] == [
         oracle_upload.ORACLE_BROWSER_CMD,
+        "--engine",
+        "browser",
+        "--browser-manual-login",
+        "--browser-chrome-path",
+        oracle_upload.ORACLE_BROWSER_CHROME_PATH,
+        "--browser-input-timeout",
+        "90s",
+    ]
+    assert result.command[8:12] == [
+        "--browser-attachments",
+        "always",
+        "--browser-bundle-files",
         "--model",
-        oracle_upload.ORACLE_DEFAULT_MODEL,
     ]
 
 
@@ -216,7 +244,12 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     assert any(name.startswith("upload_bundle_payload.part") for name in file_names)
     assert len(file_args) > 3
     kwargs = captured["kwargs"]
-    assert kwargs == {"check": False, "capture_output": True, "text": True}
+    assert kwargs["check"] is False
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    env = kwargs["env"]
+    assert isinstance(env, dict)
+    assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
 
 
 def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
