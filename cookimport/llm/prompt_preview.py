@@ -20,8 +20,11 @@ from cookimport.llm.codex_farm_orchestrator import (
     _build_recipe_correction_input,
 )
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
+from cookimport.llm.phase_worker_runtime import resolve_phase_worker_count
 from cookimport.llm.prompt_budget import (
     build_prompt_preview_budget_summary,
+    load_prompt_preview_live_stage_summaries,
+    load_prompt_preview_stage_calibrations,
     write_prompt_preview_budget_summary,
 )
 from cookimport.llm.shard_prompt_targets import (
@@ -240,6 +243,18 @@ def write_prompt_preview_for_existing_run(
         prompt_rows=rows,
         preview_dir=out_dir,
         phase_plans=stage_plans,
+        live_stage_summaries=load_prompt_preview_live_stage_summaries(
+            processed_run_dir=context.processed_run_dir,
+            workbook_slug=context.workbook_slug,
+        ),
+        stage_calibrations=(
+            load_prompt_preview_stage_calibrations(repo_root=repo_root)
+            if _path_is_within_repo_data_root(
+                path=context.processed_run_dir,
+                repo_root=repo_root,
+            )
+            else {}
+        ),
     )
     budget_json_path, budget_md_path = write_prompt_preview_budget_summary(
         out_dir,
@@ -1222,7 +1237,10 @@ def _finalize_phase_plan(
     worker_count: int | None,
     shard_specs: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    requested_workers = max(1, int(worker_count or 1))
+    requested_workers = resolve_phase_worker_count(
+        requested_worker_count=worker_count,
+        shard_count=len(shard_specs),
+    )
     normalized_shards: list[PreviewShardAssignment] = []
     worker_ids = _assign_preview_workers(
         requested_worker_count=requested_workers,
@@ -1395,6 +1413,14 @@ def _candidate_manifest_paths(*, root: Path) -> list[Path]:
         for pattern in ("**/run_manifest.json", "**/manifest.json"):
             rows.extend(sorted(root.glob(pattern)))
     return rows
+
+
+def _path_is_within_repo_data_root(*, path: Path, repo_root: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to((repo_root / "data").resolve(strict=False))
+    except ValueError:
+        return False
+    return True
 
 
 def _load_pipeline_assets(*, pipeline_root: Path, pipeline_id: str) -> dict[str, Any]:

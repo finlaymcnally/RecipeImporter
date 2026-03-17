@@ -1,8 +1,7 @@
 [
   {
     "shard_ids": [
-      "line-role-shard-0001-a000000-a000000",
-      "line-role-shard-0003-a000002-a000002"
+      "line-role-shard-0001-a000000-a000000"
     ],
     "worker_id": "worker-001",
     "workspace_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime/workers/worker-001"
@@ -13,5 +12,26 @@
     ],
     "worker_id": "worker-002",
     "workspace_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime/workers/worker-002"
+  },
+  {
+    "shard_ids": [
+      "line-role-shard-0003-a000002-a000002"
+    ],
+    "worker_id": "worker-003",
+    "workspace_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime/workers/worker-003"
+  },
+  {
+    "shard_ids": [
+      "line-role-shard-0004-a000003-a000003"
+    ],
+    "worker_id": "worker-004",
+    "workspace_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime/workers/worker-004"
+  },
+  {
+    "shard_ids": [
+      "line-role-shard-0005-a000004-a000004"
+    ],
+    "worker_id": "worker-005",
+    "workspace_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime/workers/worker-005"
   }
 ]

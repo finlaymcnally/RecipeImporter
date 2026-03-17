@@ -48,6 +48,13 @@ Active commands:
 - `bench pin` / `bench unpin`: add or remove GC keep sentinels
 - `bench oracle-upload`: upload an existing `upload_bundle_v1` to Oracle without rerunning the benchmark
 
+Interactive benchmark wrap-up behavior:
+
+- Single-offline benchmark runs now auto-start Oracle in the background after writing `upload_bundle_v1`, then return immediately instead of waiting on Oracle.
+- Multi-book single-profile benchmark runs do the same for the top-level group `upload_bundle_v1`; per-book bundles are still written but are not auto-uploaded.
+- Detached Oracle runs write `oracle_upload.log` and `oracle_upload.json` under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`. The actual Oracle response, if the run succeeds, is in `oracle_upload.log`.
+- `cookimport bench oracle-upload <session root or upload_bundle_v1>` remains the manual retry/replay path.
+
 Important current constraints:
 
 - `bench quality-run` is deterministic-only. It rejects `--include-codex-farm`, Codex CLI overrides, and requested settings that enable live Codex recipe or knowledge surfaces.
@@ -104,7 +111,7 @@ Current interactive contracts:
   - `upload_bundle_v1/`
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
-- interactive single-offline writes its session bundle and leaves Oracle upload as a separate manual step
+- interactive single-offline writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
 - multi-book single-profile writes the top-level group bundle and leaves Oracle upload as a separate manual step
 
 ### 2.3 `cf-debug`
@@ -114,6 +121,7 @@ Current interactive contracts:
 Active use cases:
 
 - build a request template for external reviewers
+- export one bundle-wide structure-vs-nonrecipe score split
 - select/export concrete cases from the base bundle
 - audit line-role joins and prompt links
 - audit knowledge-stage evidence
@@ -125,6 +133,12 @@ Knowledge extraction is now a first-class follow-up seam:
 - `audit-knowledge` emits run-level knowledge evidence
 - follow-up packets can include `knowledge_audit.jsonl`
 - uncertainty/follow-up exports now center on explicit escalation reasons; current reviewer packets do not carry scalar trust/confidence fields
+
+Structure-only triage is now a first-class follow-up seam:
+
+- `structure-report` writes one bundle-wide `structure_report.json`
+- the report separates `structure_core` labels (`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`) from `nonrecipe_core` (`KNOWLEDGE`, `OTHER`)
+- it also includes boundary exactness so reviewers can tell whether a low score is mostly a segmentation problem or a label-semantics problem
 
 ## 3. Scoring And Artifact Contracts
 
@@ -284,8 +298,9 @@ Oracle upload contract:
 
 - the user-facing target can be a session root or an `upload_bundle_v1/` directory
 - the actual upload code targets the three concrete bundle files; browser uploads may temporarily shard oversized files into ordered `partNNN` attachments to get past Oracle's per-file cap without changing the on-disk bundle format
-- the browser upload path calls Oracle directly with the Linux off-screen Chromium launcher and `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`; it intentionally bypasses the local `oracle-browser-headless` wrapper because that wrapper drifted back onto the visible-browser / X-server path
-- the default browser upload model is `gpt-5.2`; pass `--model ...` manually if you want a different picker target
+- the browser upload path calls Oracle directly with the visible Linux Chromium launcher, `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`, and the canonical Oracle browser profile at `~/.local/share/oracle/browser-profile`; the legacy `~/.oracle/browser-profile` path is now only a compatibility symlink to that same directory
+- browser uploads now pass `--browser-model-strategy ignore`, so Oracle stops failing on stale picker labels and leaves the visible browser on the current/manual model instead of trying to auto-switch it
+- browser `--model ...` still appears in the launch metadata, but the visible browser's active/manual model is what actually matters while picker-ignore mode is enabled
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
 - transport sharding is strictly upload-time glue for oversized text files such as `upload_bundle_payload.jsonl`; checked-in and local `upload_bundle_v1` artifacts should stay unmodified on disk
 

@@ -138,7 +138,8 @@ def _run_process(args: argparse.Namespace) -> int:
         workspace_root=workspace_root,
         model=args.model,
         reasoning_effort=args.reasoning_effort,
-        runtime_audit_mode="structured_loop_agentic_v1" if args.workers == "1" else None,
+        runtime_mode=str(args.runtime_mode or "").strip() or None,
+        process_worker_count=int(args.workers) if str(args.workers or "").isdigit() else None,
     )
 
     payload = {
@@ -151,6 +152,7 @@ def _run_process(args: argparse.Namespace) -> int:
             "schema_version": 1,
             "provider": "fake-codex-farm",
             "input_file_count": len(file_names),
+            "runtime_mode": str(args.runtime_mode or "").strip() or None,
             "workers_requested": int(args.workers) if str(args.workers or "").isdigit() else None,
             "workspace_root": str(workspace_root) if workspace_root is not None else None,
         },
@@ -205,7 +207,9 @@ def _build_parser() -> argparse.ArgumentParser:
     process.add_argument("--workspace-root")
     process.add_argument("--model")
     process.add_argument("--reasoning-effort")
-    process.add_argument("--benchmark-mode")
+    process.add_argument("--runtime-mode")
+    process.add_argument("--recipeimport-benchmark-mode")
+    process.add_argument("--recipeimport-benchmark-debug", action="store_true")
     process.add_argument("--progress-events", action="store_true")
     process.add_argument("--workers", default="1")
 

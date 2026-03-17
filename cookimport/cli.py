@@ -150,10 +150,12 @@ from cookimport.bench.cutdown_export import (
 )
 from cookimport.bench.oracle_upload import (
     ORACLE_DEFAULT_MODEL,
+    OracleBackgroundUploadLaunch,
     OracleBenchmarkBundleTarget,
     OracleUploadResult,
     resolve_oracle_benchmark_bundle,
     run_oracle_benchmark_upload,
+    start_oracle_benchmark_upload_background,
 )
 from cookimport.bench.pairwise_flips import build_line_role_flips_vs_baseline
 from cookimport.bench.slice_metrics import (
@@ -3407,7 +3409,10 @@ def _interactive_single_profile_all_matched_benchmark(
                 f"External-AI group upload bundle: {group_upload_bundle_dir}",
                 fg=typer.colors.CYAN,
             )
-            _print_manual_oracle_upload_hint(bundle_dir=group_upload_bundle_dir)
+            _start_benchmark_bundle_oracle_upload_background(
+                bundle_dir=group_upload_bundle_dir,
+                scope="single_profile_group",
+            )
 
     if single_profile_dashboard is not None:
         history_csv_path = history_csv_for_output(
@@ -5208,15 +5213,73 @@ def _print_oracle_upload_summary(
             typer.echo(f"  {line}")
 
 
-def _print_manual_oracle_upload_hint(*, bundle_dir: Path) -> None:
+def _print_background_oracle_upload_summary(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    launch: OracleBackgroundUploadLaunch,
+) -> None:
     typer.secho(
-        "Oracle upload not started automatically to avoid blocking benchmark wrap-up.",
+        f"Oracle benchmark upload started in background for {target.scope}.",
+        fg=typer.colors.GREEN,
+    )
+    typer.secho(f"Oracle benchmark bundle: {target.bundle_dir}", fg=typer.colors.CYAN)
+    typer.secho(f"Oracle mode: {launch.mode}", fg=typer.colors.CYAN)
+    typer.secho("Oracle browser window: visible", fg=typer.colors.BRIGHT_BLACK)
+    if launch.browser_profile_dir is not None:
+        typer.secho(
+            f"Oracle browser profile: {launch.browser_profile_dir}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    if launch.note:
+        typer.secho(
+            "Oracle transport: oversized bundle files were sharded for upload.",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    typer.secho(f"Oracle PID: {launch.pid}", fg=typer.colors.BRIGHT_BLACK)
+    typer.secho(
+        f"Oracle response/log: {launch.log_path}",
         fg=typer.colors.BRIGHT_BLACK,
     )
     typer.secho(
-        f"Upload later: cookimport bench oracle-upload {bundle_dir}",
+        f"Watch live: tail -f {launch.log_path}",
         fg=typer.colors.BRIGHT_BLACK,
     )
+    typer.secho(
+        "When Oracle finishes, open that log file to read the response.",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+    typer.secho(
+        f"Retry manually: cookimport bench oracle-upload {target.bundle_dir}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+
+def _start_benchmark_bundle_oracle_upload_background(
+    *,
+    bundle_dir: Path,
+    scope: str,
+    mode: str = "browser",
+    model: str = ORACLE_DEFAULT_MODEL,
+) -> None:
+    try:
+        target = resolve_oracle_benchmark_bundle(bundle_dir)
+        target = replace(target, scope=scope)
+        launch = start_oracle_benchmark_upload_background(
+            target=target,
+            mode=mode,
+            model=model,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Oracle benchmark upload not started for {bundle_dir}: {exc}",
+            fg=typer.colors.YELLOW,
+        )
+        typer.secho(
+            f"Retry manually: cookimport bench oracle-upload {bundle_dir}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+        return
+    _print_background_oracle_upload_summary(target=target, launch=launch)
 
 
 def _maybe_upload_benchmark_bundle_to_oracle(
@@ -5640,7 +5703,10 @@ def _interactive_single_offline_benchmark(
                 f"External-AI upload bundle: {upload_bundle_dir}",
                 fg=typer.colors.CYAN,
             )
-            _print_manual_oracle_upload_hint(bundle_dir=upload_bundle_dir)
+            _start_benchmark_bundle_oracle_upload_background(
+                bundle_dir=upload_bundle_dir,
+                scope="single_offline",
+            )
 
     history_csv_path = history_csv_for_output(
         session_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
@@ -10202,6 +10268,16 @@ def _run_with_progress_status(
         cleaned = msg.strip()
         is_worker_activity = parse_worker_activity(cleaned) is not None
         counter = None
+        generic_counter = (
+            _extract_progress_counter(cleaned)
+            if not is_worker_activity
+            else None
+        )
+        generic_running_workers = (
+            _extract_running_workers(cleaned)
+            if generic_counter is not None
+            else None
+        )
         is_codex_progress = _CODEX_FARM_PROGRESS_LINE_RE.search(cleaned) is not None
         if is_codex_progress:
             running_workers = _extract_running_workers(cleaned)
@@ -10216,7 +10292,7 @@ def _run_with_progress_status(
             cleaned = summarized
             latest_codex_stage_label = codex_stage_label
         elif not is_worker_activity:
-            latest_running_workers = None
+            latest_running_workers = generic_running_workers
             latest_active_tasks = None
             latest_codex_stage_label = None
         # Route every callback through the shared adapter so callback+worker

@@ -7,7 +7,7 @@
   "process_payload": null,
   "run_id": null,
   "runtime_mode_audit": {
-    "mode": "structured_loop_agentic_v1",
+    "mode": "classic_task_farm_v1",
     "status": "ok"
   },
   "subprocess_exit_code": 0,

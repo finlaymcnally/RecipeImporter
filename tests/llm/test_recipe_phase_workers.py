@@ -164,3 +164,68 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     assert len(list(correction_out_dir.glob("*.json"))) == 3
     assert len(apply_result.intermediate_overrides_by_recipe_id) == 3
     assert len(apply_result.final_overrides_by_recipe_id) == 3
+
+
+def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_shard_target_recipes": 2,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            "recipe.correction.compact.v1": lambda payload: {
+                "bundle_version": "1",
+                "shard_id": payload.get("shard_id"),
+                "recipes": [
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": recipe_payload["recipe_id"],
+                        "canonical_recipe": {
+                            "title": recipe_payload["recipe_candidate_hint"]["name"],
+                            "ingredients": recipe_payload["recipe_candidate_hint"].get(
+                                "recipeIngredient", []
+                            ),
+                            "steps": recipe_payload["recipe_candidate_hint"].get(
+                                "recipeInstructions", []
+                            ),
+                            "description": None,
+                            "recipeYield": None,
+                        },
+                        "ingredient_step_mapping": [],
+                        "ingredient_step_mapping_reason": "not_needed_single_step",
+                        "selected_tags": [],
+                        "warnings": [],
+                    }
+                    for recipe_payload in payload.get("recipes") or []
+                ],
+            }
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    phase_manifest = json.loads(
+        (
+            apply_result.llm_raw_dir / "recipe_phase_runtime" / "phase_manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert phase_manifest["shard_count"] == 2
+    assert phase_manifest["worker_count"] == 2

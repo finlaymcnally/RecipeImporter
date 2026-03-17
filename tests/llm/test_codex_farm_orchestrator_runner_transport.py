@@ -7,6 +7,7 @@ import tests.llm.test_codex_farm_orchestrator as _base
 from cookimport.llm.codex_farm_runner import (
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    _extract_non_progress_stderr_lines,
     ensure_codex_farm_pipelines_exist,
     list_codex_farm_models,
 )
@@ -434,12 +435,12 @@ def test_subprocess_runner_appends_benchmark_mode_flag_from_env(
 
     assert run_result.run_id == "run-benchmark-mode-flag"
     process_command = calls[0]
-    assert "--benchmark-mode" in process_command
-    mode_index = process_command.index("--benchmark-mode")
-    assert process_command[mode_index + 1] == "benchmark"
+    assert "--recipeimport-benchmark-mode" in process_command
+    mode_index = process_command.index("--recipeimport-benchmark-mode")
+    assert process_command[mode_index + 1] == "line_label_v1"
 
 
-def test_subprocess_runner_fails_when_extract_mode_benchmark_flag_is_unsupported(
+def test_subprocess_runner_does_not_send_benchmark_flag_for_extract_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -482,24 +483,47 @@ def test_subprocess_runner_fails_when_extract_mode_benchmark_flag_is_unsupported
         if argv[1:3] == ["process", "--pipeline"]:
             process_calls.append(argv)
             return SimpleNamespace(
-                returncode=2,
-                stdout="",
-                stderr="error: unrecognized arguments: --benchmark-mode\n",
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-extract-mode",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-extract-mode",
+                        "pipeline_id": "recipe.correction.compact.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
             )
         raise AssertionError(f"Unexpected command: {argv}")
 
     monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
-    with pytest.raises(CodexFarmRunnerError, match="does not support --benchmark-mode"):
-        runner.run_pipeline(
-            "recipe.correction.compact.v1",
-            in_dir,
-            out_dir,
-            {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "extract"},
-            root_dir=root_dir,
-        )
+    run_result = runner.run_pipeline(
+        "recipe.correction.compact.v1",
+        in_dir,
+        out_dir,
+        {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "extract"},
+        root_dir=root_dir,
+    )
     assert len(process_calls) == 1
+    assert run_result.run_id == "run-extract-mode"
+    assert "--recipeimport-benchmark-mode" not in process_calls[0]
+    assert "--benchmark-mode" not in process_calls[0]
 
 
 def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
@@ -547,14 +571,17 @@ def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
             return SimpleNamespace(
                 returncode=2,
                 stdout="",
-                stderr="error: unrecognized arguments: --benchmark-mode\n",
+                stderr="error: unrecognized arguments: --recipeimport-benchmark-mode\n",
             )
         raise AssertionError(f"Unexpected command: {argv}")
 
     monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
 
     runner = SubprocessCodexFarmRunner(cmd="codex-farm")
-    with pytest.raises(CodexFarmRunnerError, match="does not support --benchmark-mode"):
+    with pytest.raises(
+        CodexFarmRunnerError,
+        match="does not support --recipeimport-benchmark-mode",
+    ):
         runner.run_pipeline(
             "recipe.correction.compact.v1",
             in_dir,
@@ -837,6 +864,18 @@ def test_subprocess_runner_fails_without_progress_events_support(
     assert popen_command is not None
     assert "--progress-events" in popen_command
     assert progress_messages == []
+
+
+def test_extract_non_progress_stderr_lines_ignores_legacy_run_progress() -> None:
+    stderr_text = "\n".join(
+        [
+            "run=f8e77792288a416e9506d94940b366cd queued=2 running=0 done=0 error=0 canceled=0",
+            "run=f8e77792288a416e9506d94940b366cd queued=1 running=1 done=0 error=0 canceled=0",
+            "real stderr line",
+        ]
+    )
+
+    assert _extract_non_progress_stderr_lines(stderr_text) == ["real stderr line"]
 
 
 def test_subprocess_runner_collects_codex_exec_activity_telemetry(

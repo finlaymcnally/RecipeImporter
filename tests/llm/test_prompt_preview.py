@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from cookimport.cf_debug_cli import app
+from cookimport.llm.prompt_budget import build_prompt_preview_budget_summary
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 
 
@@ -205,6 +206,26 @@ def _build_existing_run(tmp_path: Path) -> Path:
     return run_dir
 
 
+def _write_worker_status(path: Path, row: dict[str, int]) -> None:
+    _write_json(
+        path,
+        {
+            "telemetry": {
+                "rows": [row],
+            },
+            "telemetry_report": {
+                "summary": {
+                    "call_count": 1,
+                    "tokens_input": row.get("tokens_input"),
+                    "tokens_cached_input": row.get("tokens_cached_input"),
+                    "tokens_output": row.get("tokens_output"),
+                    "tokens_total": row.get("tokens_total"),
+                }
+            },
+        },
+    )
+
+
 def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     tmp_path: Path,
 ) -> None:
@@ -223,7 +244,10 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         "line_role_interaction_count": 1,
         "recipe_interaction_count": 1,
     }
-    assert manifest["warnings"] == []
+    assert any(
+        warning["code"] == "token_estimate_unavailable"
+        for warning in manifest["warnings"]
+    )
     assert manifest["surfaces"] == {
         "llm_recipe_pipeline": "codex-recipe-shard-v1",
         "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
@@ -324,10 +348,14 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
     assert line_role_budget["task_prompt_chars_total"] > line_role_budget["prompt_chars_total"]
     assert line_role_budget["transport_overhead_chars_total"] == 0
-    assert budget_summary["warnings"] == []
+    assert any(
+        warning["code"] == "token_estimate_unavailable"
+        for warning in budget_summary["warnings"]
+    )
     budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
     assert "Workers" in budget_summary_md
     assert "Prompt Detail" in budget_summary_md
+    assert "unavailable" in budget_summary_md
     assert (out_dir / "prompt_preview_budget_summary.md").is_file()
 
 
@@ -445,6 +473,189 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
     assert (
         knowledge_budget["estimated_request_chars_total"]
         == knowledge_budget["task_prompt_chars_total"] + knowledge_budget["prompt_chars_total"]
+    )
+
+
+def test_prompt_preview_budget_prefers_live_stage_telemetry_when_available(
+    tmp_path: Path,
+) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    workbook_slug = "fixturebook"
+
+    live_knowledge_input = run_dir / "raw" / "llm" / workbook_slug / "knowledge" / "in" / "live_knowledge.json"
+    _write_json(
+        live_knowledge_input,
+        {
+            "bundle_version": "2",
+            "bundle_id": "fixturebook.kb0001.nr",
+            "chunks": [
+                {
+                    "chunk_id": "fixturebook.c0001.nr",
+                    "block_start_index": 7,
+                    "block_end_index": 8,
+                    "blocks": [{"block_index": 7, "text": "Live knowledge block."}],
+                    "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
+                }
+            ],
+            "context": {"blocks_before": [], "blocks_after": []},
+            "guardrails": {"context_recipe_block_indices": []},
+        },
+    )
+
+    _write_worker_status(
+        run_dir
+        / "raw"
+        / "llm"
+        / workbook_slug
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "status.json",
+        {
+            "tokens_input": 250,
+            "tokens_cached_input": 25,
+            "tokens_output": 45,
+            "tokens_total": 295,
+        },
+    )
+    _write_worker_status(
+        run_dir
+        / "raw"
+        / "llm"
+        / workbook_slug
+        / "knowledge"
+        / "workers"
+        / "worker-001"
+        / "status.json",
+        {
+            "tokens_input": 200,
+            "tokens_cached_input": 20,
+            "tokens_output": 30,
+            "tokens_total": 230,
+        },
+    )
+    _write_json(
+        run_dir / "line-role-pipeline" / "telemetry_summary.json",
+        {
+            "summary": {
+                "batch_count": 1,
+                "attempt_count": 1,
+                "tokens_input": 500,
+                "tokens_cached_input": 50,
+                "tokens_output": 60,
+                "tokens_total": 560,
+            }
+        },
+    )
+
+    out_dir = tmp_path / "preview"
+    write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+    )
+
+    budget_summary = json.loads(
+        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    )
+    assert budget_summary["estimation_method"]["type"] == "live_telemetry_or_historical_calibration"
+    assert budget_summary["totals"]["estimated_cached_input_tokens"] == 95
+    assert budget_summary["totals"]["estimated_input_tokens"] == 950
+    assert budget_summary["totals"]["estimated_output_tokens"] == 135
+    assert budget_summary["totals"]["estimated_total_tokens"] == 1085
+
+    recipe_budget = budget_summary["by_stage"]["recipe_llm_correct_and_link"]
+    assert recipe_budget["estimation_basis"] == "live_telemetry"
+    assert recipe_budget["estimated_input_tokens"] == 250
+    assert recipe_budget["estimated_cached_input_tokens"] == 25
+    assert recipe_budget["estimated_output_tokens"] == 45
+    assert recipe_budget["estimated_total_tokens"] == 295
+
+    knowledge_budget = budget_summary["by_stage"]["extract_knowledge_optional"]
+    assert knowledge_budget["estimation_basis"] == "live_telemetry"
+    assert knowledge_budget["estimated_input_tokens"] == 200
+    assert knowledge_budget["estimated_cached_input_tokens"] == 20
+    assert knowledge_budget["estimated_output_tokens"] == 30
+    assert knowledge_budget["estimated_total_tokens"] == 230
+
+    line_role_budget = budget_summary["by_stage"]["line_role"]
+    assert line_role_budget["estimation_basis"] == "live_telemetry"
+    assert line_role_budget["estimated_input_tokens"] == 500
+    assert line_role_budget["estimated_cached_input_tokens"] == 50
+    assert line_role_budget["estimated_output_tokens"] == 60
+    assert line_role_budget["estimated_total_tokens"] == 560
+
+    budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
+    assert "prefers live telemetry when available" in budget_summary_md
+    assert "live_telemetry" in budget_summary_md
+
+
+def test_prompt_preview_budget_uses_historical_calibration_when_live_missing() -> None:
+    summary = build_prompt_preview_budget_summary(
+        prompt_rows=[
+            {
+                "stage_key": "line_role",
+                "rendered_prompt_text": "wrapper",
+                "prompt_input_mode": "path",
+                "task_prompt_text": "x" * 1000,
+            }
+        ],
+        preview_dir=Path("/tmp/preview"),
+        phase_plans=None,
+        live_stage_summaries={},
+        stage_calibrations={
+            "line_role": {
+                "stage": "line_role",
+                "sample_count": 2,
+                "input_tokens_per_request_char": 4.0,
+                "output_tokens_per_request_char": 0.2,
+                "total_tokens_per_request_char": 4.2,
+                "total_tokens_per_request_char_low": 3.5,
+                "total_tokens_per_request_char_high": 5.1,
+                "cached_input_share": 0.7,
+            }
+        },
+    )
+
+    assert summary["estimation_method"]["type"] == "historical_calibration_only"
+    line_role = summary["by_stage"]["line_role"]
+    assert line_role["estimation_basis"] == "historical_calibration"
+    assert line_role["estimated_input_tokens"] == 4028
+    assert line_role["estimated_cached_input_tokens"] == 2820
+    assert line_role["estimated_output_tokens"] == 201
+    assert line_role["estimated_total_tokens"] == 4229
+    assert line_role["estimated_total_tokens_low"] == 3524
+    assert line_role["estimated_total_tokens_high"] == 5136
+
+
+def test_prompt_preview_budget_reports_unavailable_without_live_or_calibration() -> None:
+    summary = build_prompt_preview_budget_summary(
+        prompt_rows=[
+            {
+                "stage_key": "line_role",
+                "rendered_prompt_text": "wrapper",
+                "prompt_input_mode": "path",
+                "task_prompt_text": "x" * 1000,
+            }
+        ],
+        preview_dir=Path("/tmp/preview"),
+        phase_plans=None,
+        live_stage_summaries={},
+        stage_calibrations={},
+    )
+
+    assert summary["estimation_method"]["type"] == "no_token_estimate_available"
+    assert summary["totals"]["estimated_input_tokens"] is None
+    assert summary["totals"]["estimated_output_tokens"] is None
+    assert summary["totals"]["estimated_total_tokens"] is None
+    line_role = summary["by_stage"]["line_role"]
+    assert line_role["estimation_basis"] == "unavailable"
+    assert line_role["estimated_input_tokens"] is None
+    assert line_role["estimated_output_tokens"] is None
+    assert line_role["estimated_total_tokens"] is None
+    assert any(
+        warning["code"] == "token_estimate_unavailable"
+        for warning in summary["warnings"]
     )
 
 

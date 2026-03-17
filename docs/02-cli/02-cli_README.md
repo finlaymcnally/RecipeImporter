@@ -396,13 +396,16 @@ Interactive benchmark now has a mode submenu before execution:
      - `upload_bundle_payload.jsonl`
 3. Matched-set picker path:
    - matched-book selection rows reuse the same concise book label style as the single-offline gold picker instead of mixing source filename plus bracketed gold label text.
-     - after that bundle is written, interactive single-offline mode prints a manual `cookimport bench oracle-upload ...` command instead of blocking on Oracle
+     - after that bundle is written, interactive single-offline mode starts Oracle automatically in the background instead of blocking benchmark wrap-up
+     - the Oracle browser window is intentionally visible so you can watch login/model selection and keep an eye on the run
+     - the wrap-up prints the detached Oracle PID, the chosen browser-profile path, and one explicit `oracle_upload.log` response/log path under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`; full command/shard detail stays in the log/metadata files instead of spamming the terminal
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
    - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
      (set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` to disable summaries, and `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=1` to keep task JSONL).
    - keeps spinner/status visible for both prediction generation and evaluation phases,
+   - benchmark status panels now treat generic phase messages shaped like `task X/Y | running N` the same way as codex-farm progress, so canonical line-role stages also render worker rows instead of only a single status line,
    - split conversion progress uses the shared counter format from the first update (`Running split conversion... task 0/N`), with `(workers=N)` suffix when split jobs run in parallel,
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/<variant>/`.
@@ -438,7 +441,9 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
      - group mode targets ~40MB and automatically lowers per-book sampled detail as selected-book count increases.
-     - when that group bundle is written, interactive multi-book single-profile mode prints a manual `cookimport bench oracle-upload ...` command for that top-level bundle; per-book bundles are retained but not auto-uploaded
+     - when that group bundle is written, interactive multi-book single-profile mode starts Oracle automatically in the background for that top-level bundle; per-book bundles are retained but not auto-uploaded
+     - the Oracle browser window is intentionally visible so you can watch login/model selection and keep an eye on the run
+     - the wrap-up prints the detached Oracle PID, the chosen browser-profile path, and one explicit `oracle_upload.log` response/log path under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`; full command/shard detail stays in the log/metadata files instead of spamming the terminal
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
 4. Returns to the main menu on completion.
 

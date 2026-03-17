@@ -4,5 +4,5 @@
   "phase_key": "line_role",
   "pipeline_id": "line-role.canonical.v1",
   "schema_version": "phase_worker_runtime.promotion_report.v1",
-  "validated_shards": 3
+  "validated_shards": 5
 }

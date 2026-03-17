@@ -80,6 +80,8 @@ The most important fields in `upload_bundle_index.json` are:
 
 Treat `row_locators` as the canonical bridge from the index into `upload_bundle_payload.jsonl`.
 
+If the question is "is recipe structure mostly solved, and are the remaining losses coming from non-recipe labels instead?", start with `analysis.structure_label_report` before looking at raw changed lines.
+
 ## The Most Useful Logical Artifacts
 
 When present, these are the highest-value things to reason from before asking for more data:
@@ -87,6 +89,7 @@ When present, these are the highest-value things to reason from before asking fo
 - `analysis.triage_packet`: JSONL-first per-case triage rows
 - `analysis.net_error_blame_summary`: where net regressions seem to originate
 - `analysis.config_version_metadata`: whether comparisons are config-compatible
+- `analysis.structure_label_report`
 - `analysis.per_label_metrics`
 - `analysis.per_recipe_breakdown`
 - `analysis.stage_separated_comparison`
@@ -152,6 +155,34 @@ Output:
 
 Use this when you know which cases or ranges you want, or when you want the top regressions/wins chosen deterministically.
 For knowledge-specific asks, prefer `--stage knowledge` plus either `--include-knowledge-source-key` or `--include-knowledge-output-subdir`.
+
+### `cf-debug structure-report`
+
+Purpose: emit one bundle-wide summary that separates core recipe-structure labels from non-recipe labels and includes boundary exactness.
+
+Input:
+
+- `--bundle <upload_bundle_v1 dir>`
+- `--out <json file>`
+
+Output:
+
+- `structure_report.json`
+
+Use this when you need to answer questions like:
+
+- is the benchmark still failing on segmentation/boundaries?
+- are titles / ingredient lines / instruction lines already mostly solved?
+- are `KNOWLEDGE` and `OTHER` dominating the remaining score loss?
+
+This is the fastest artifact for the "structure should be near 100 percent" discussion because it puts:
+
+- `structure_core` labels (`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`)
+- `recipe_context_auxiliary` labels (`RECIPE_NOTES`, `RECIPE_VARIANT`)
+- `nonrecipe_core` labels (`KNOWLEDGE`, `OTHER`)
+- boundary exact-match ratios
+
+into one summary instead of requiring manual reconstruction from `per_label_metrics`, `stage_separated_comparison`, and raw `eval_report.json` files.
 
 ### `cf-debug export-cases`
 
@@ -227,6 +258,7 @@ Purpose: create one compact all-in-one follow-up evidence pack from a selector m
 
 Output directory contents:
 
+- `structure_report.json`
 - `index.json`
 - `selectors.json`
 - `case_export/`

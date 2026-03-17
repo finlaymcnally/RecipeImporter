@@ -1273,3 +1273,225 @@ def test_prompt_budget_summary_reads_top_level_codex_farm_telemetry_rows(
     assert summary["totals"]["tokens_cached_input"] == 55
     assert summary["totals"]["tokens_output"] == 33
     assert summary["totals"]["tokens_total"] == 383
+
+
+def test_prompt_budget_summary_recovers_current_shard_runtime_recipe_and_processed_line_role(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "benchmark-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    benchmark_line_role_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    benchmark_line_role_path.parent.mkdir(parents=True, exist_ok=True)
+    benchmark_line_role_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "line_role_projection.summary.v1",
+                "mode": "canonical_projection",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    processed_run_root = tmp_path / "processed-output"
+    processed_line_role_path = processed_run_root / "line-role-pipeline" / "telemetry_summary.json"
+    processed_line_role_path.parent.mkdir(parents=True, exist_ok=True)
+    processed_line_role_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "batch_count": 2,
+                    "attempt_count": 2,
+                    "tokens_input": 500,
+                    "tokens_cached_input": 50,
+                    "tokens_output": 60,
+                    "tokens_reasoning": 0,
+                    "tokens_total": 560,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pred_manifest = {
+        "processed_run_root": str(processed_run_root),
+        "line_role_pipeline_telemetry_path": str(benchmark_line_role_path),
+        "llm_codex_farm": {
+            "process_runs": {
+                "recipe_correction": {
+                    "telemetry_report": {
+                        "phase_key": "recipe_llm_correct_and_link",
+                        "worker_count": 1,
+                        "shard_count": 2,
+                    },
+                    "worker_runs": [
+                        {
+                            "telemetry": {
+                                "rows": [
+                                    {
+                                        "duration_ms": 1000,
+                                        "tokens_input": 100,
+                                        "tokens_cached_input": 10,
+                                        "tokens_output": 20,
+                                        "tokens_reasoning": 0,
+                                        "tokens_total": 120,
+                                    },
+                                    {
+                                        "duration_ms": 1200,
+                                        "tokens_input": 150,
+                                        "tokens_cached_input": 15,
+                                        "tokens_output": 25,
+                                        "tokens_reasoning": 0,
+                                        "tokens_total": 175,
+                                    },
+                                ]
+                            },
+                            "telemetry_report": {
+                                "summary": {
+                                    "call_count": 2,
+                                    "duration_total_ms": 2200,
+                                    "tokens_input": 250,
+                                    "tokens_cached_input": 25,
+                                    "tokens_output": 45,
+                                    "tokens_reasoning": 0,
+                                    "tokens_total": 295,
+                                }
+                            },
+                        }
+                    ],
+                }
+            },
+            "knowledge": {
+                "authority_mode": "knowledge_refined_final",
+                "scored_effect": "final_authority",
+                "process_run": {
+                    "telemetry": {
+                        "rows": [
+                            {
+                                "duration_ms": 900,
+                                "tokens_input": 200,
+                                "tokens_cached_input": 20,
+                                "tokens_output": 30,
+                                "tokens_reasoning": 0,
+                                "tokens_total": 230,
+                            }
+                        ]
+                    },
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 1,
+                            "duration_total_ms": 900,
+                            "tokens_input": 200,
+                            "tokens_cached_input": 20,
+                            "tokens_output": 30,
+                            "tokens_reasoning": 0,
+                            "tokens_total": 230,
+                        }
+                    },
+                },
+            },
+        },
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    assert summary["by_stage"]["recipe_correction"]["call_count"] == 2
+    assert summary["by_stage"]["recipe_correction"]["duration_total_ms"] == 2200
+    assert summary["by_stage"]["recipe_correction"]["tokens_input"] == 250
+    assert summary["by_stage"]["recipe_correction"]["tokens_cached_input"] == 25
+    assert summary["by_stage"]["recipe_correction"]["tokens_output"] == 45
+    assert summary["by_stage"]["recipe_correction"]["tokens_total"] == 295
+
+    assert summary["by_stage"]["knowledge"]["call_count"] == 1
+    assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
+    assert summary["by_stage"]["knowledge"]["authority_mode"] == "knowledge_refined_final"
+    assert summary["by_stage"]["knowledge"]["scored_effect"] == "final_authority"
+
+    assert summary["by_stage"]["line_role"]["call_count"] == 2
+    assert summary["by_stage"]["line_role"]["attempt_count"] == 2
+    assert summary["by_stage"]["line_role"]["tokens_input"] == 500
+    assert summary["by_stage"]["line_role"]["tokens_total"] == 560
+
+    assert summary["totals"]["call_count"] == 5
+    assert summary["totals"]["tokens_input"] == 950
+    assert summary["totals"]["tokens_cached_input"] == 95
+    assert summary["totals"]["tokens_output"] == 135
+    assert summary["totals"]["tokens_total"] == 1085
+
+
+def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    pred_manifest = {
+        "llm_codex_farm": {
+            "process_runs": {
+                "recipe_correction": {
+                    "telemetry_report": {
+                        "phase_key": "recipe_llm_correct_and_link",
+                        "worker_count": 2,
+                        "shard_count": 2,
+                    },
+                    "worker_runs": [
+                        {
+                            "telemetry": {
+                                "rows": [
+                                    {
+                                        "duration_ms": 1100,
+                                        "tokens_input": 100,
+                                        "tokens_cached_input": 10,
+                                        "tokens_output": 20,
+                                        "tokens_total": 120,
+                                    }
+                                ]
+                            },
+                            "telemetry_report": {
+                                "summary": {
+                                    "call_count": 1,
+                                    "duration_total_ms": 1100,
+                                    "tokens_input": 100,
+                                    "tokens_cached_input": 10,
+                                    "tokens_output": 20,
+                                    "tokens_total": 120,
+                                }
+                            },
+                        },
+                        {
+                            "telemetry": {
+                                "rows": [
+                                    {
+                                        "duration_ms": 1300,
+                                        "tokens_input": 150,
+                                        "tokens_cached_input": 15,
+                                        "tokens_output": 25,
+                                        "tokens_total": 175,
+                                    }
+                                ]
+                            },
+                            "telemetry_report": {
+                                "summary": {
+                                    "call_count": 1,
+                                    "duration_total_ms": 1300,
+                                    "tokens_input": 150,
+                                    "tokens_cached_input": 15,
+                                    "tokens_output": 25,
+                                    "tokens_total": 175,
+                                }
+                            },
+                        },
+                    ],
+                }
+            }
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    assert summary["by_stage"]["recipe_correction"]["call_count"] == 2
+    assert summary["by_stage"]["recipe_correction"]["duration_total_ms"] == 2400
+    assert summary["by_stage"]["recipe_correction"]["tokens_input"] == 250
+    assert summary["by_stage"]["recipe_correction"]["tokens_cached_input"] == 25
+    assert summary["by_stage"]["recipe_correction"]["tokens_output"] == 45
+    assert summary["by_stage"]["recipe_correction"]["tokens_total"] == 295

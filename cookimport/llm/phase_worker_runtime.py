@@ -5,7 +5,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .codex_farm_runner import CodexFarmRunner, as_pipeline_run_result_payload
+from .codex_farm_runner import (
+    CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1,
+    CodexFarmRunner,
+    as_pipeline_run_result_payload,
+)
+
+DEFAULT_PHASE_WORKER_CAP = 20
 
 
 @dataclass(frozen=True)
@@ -17,6 +23,7 @@ class PhaseManifestV1:
     worker_count: int
     shard_count: int
     assignment_strategy: str
+    runtime_mode: str | None = None
     max_turns_per_shard: int | None = None
     settings: dict[str, Any] = field(default_factory=dict)
     artifact_paths: dict[str, str] = field(default_factory=dict)
@@ -68,6 +75,28 @@ ProposalValidatorV1 = Callable[
     [ShardManifestEntryV1, dict[str, Any]],
     tuple[bool, Sequence[str], Mapping[str, Any] | None],
 ]
+
+
+def resolve_phase_worker_count(
+    *,
+    requested_worker_count: Any,
+    shard_count: int,
+    default_cap: int = DEFAULT_PHASE_WORKER_CAP,
+) -> int:
+    normalized_shard_count = max(0, int(shard_count or 0))
+    if normalized_shard_count <= 0:
+        return 0
+    try:
+        normalized_cap = max(1, int(default_cap or 1))
+    except (TypeError, ValueError):
+        normalized_cap = DEFAULT_PHASE_WORKER_CAP
+    if requested_worker_count is None or requested_worker_count == "":
+        return min(normalized_shard_count, normalized_cap)
+    try:
+        parsed = int(requested_worker_count)
+    except (TypeError, ValueError):
+        parsed = 1
+    return max(1, min(parsed, normalized_shard_count))
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -125,7 +154,10 @@ def _assign_workers(
     shards: Sequence[ShardManifestEntryV1],
     worker_count: int,
 ) -> list[WorkerAssignmentV1]:
-    effective_workers = max(1, min(int(worker_count or 1), max(len(shards), 1)))
+    effective_workers = resolve_phase_worker_count(
+        requested_worker_count=worker_count,
+        shard_count=len(shards),
+    )
     buckets: list[list[str]] = [[] for _ in range(effective_workers)]
     for index, shard in enumerate(shards):
         buckets[index % effective_workers].append(shard.shard_id)
@@ -151,6 +183,8 @@ def run_phase_workers_v1(
     env: Mapping[str, str] | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    runtime_mode: str = CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1,
+    process_worker_count: int | None = 1,
     max_turns_per_shard: int | None = None,
     proposal_validator: ProposalValidatorV1 | None = None,
     settings: Mapping[str, Any] | None = None,
@@ -217,7 +251,8 @@ def run_phase_workers_v1(
             workspace_root=worker_root,
             model=model,
             reasoning_effort=reasoning_effort,
-            runtime_audit_mode="structured_loop_agentic_v1",
+            runtime_mode=runtime_mode,
+            process_worker_count=process_worker_count,
         )
         runner_payload = as_pipeline_run_result_payload(runner_result)
         _write_json(worker_root / "status.json", runner_payload or {})
@@ -320,6 +355,7 @@ def run_phase_workers_v1(
         "schema_version": "phase_worker_runtime.telemetry.v1",
         "phase_key": phase_key,
         "pipeline_id": pipeline_id,
+        "runtime_mode": runtime_mode,
         "worker_count": len(assignments),
         "shard_count": len(shards),
         "proposal_count": sum(report.proposal_count for report in worker_reports),
@@ -335,10 +371,13 @@ def run_phase_workers_v1(
         phase_key=phase_key,
         pipeline_id=pipeline_id,
         run_root=str(run_root),
+        runtime_mode=runtime_mode,
         worker_count=len(assignments),
         shard_count=len(shards),
         assignment_strategy="round_robin_v1",
-        max_turns_per_shard=max_turns_per_shard,
+        max_turns_per_shard=(
+            1 if runtime_mode == CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1 else max_turns_per_shard
+        ),
         settings=dict(settings or {}),
         artifact_paths=dict(artifacts),
         runtime_metadata=dict(runtime_metadata or {}),

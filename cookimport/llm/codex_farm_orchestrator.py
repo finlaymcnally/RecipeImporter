@@ -33,7 +33,11 @@ from .codex_farm_runner import (
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
-from .phase_worker_runtime import ShardManifestEntryV1, run_phase_workers_v1
+from .phase_worker_runtime import (
+    ShardManifestEntryV1,
+    resolve_phase_worker_count,
+    run_phase_workers_v1,
+)
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import resolve_items_per_shard
 
@@ -289,12 +293,15 @@ def _shard_target_recipe_count(run_settings: RunSettings) -> int:
     return max(1, value)
 
 
-def _recipe_worker_count(run_settings: RunSettings) -> int:
-    try:
-        value = int(run_settings.recipe_worker_count or 1)
-    except (TypeError, ValueError):
-        value = 1
-    return max(1, value)
+def _recipe_worker_count(
+    run_settings: RunSettings,
+    *,
+    shard_count: int,
+) -> int:
+    return resolve_phase_worker_count(
+        requested_worker_count=run_settings.recipe_worker_count,
+        shard_count=shard_count,
+    )
 
 
 def _build_recipe_shard_plans(
@@ -760,7 +767,10 @@ def _run_single_correction_recipe_pipeline(
                 for plan in recipe_shards
             ],
             runner=codex_runner,
-            worker_count=_recipe_worker_count(run_settings),
+            worker_count=_recipe_worker_count(
+                run_settings,
+                shard_count=len(recipe_shards),
+            ),
             root_dir=pipeline_root,
             env=env,
             model=codex_model,
@@ -1038,7 +1048,10 @@ def _build_single_correction_execution_plan(
         "recipe_count": len(states),
         "recipe_prompt_target_count": run_settings.recipe_prompt_target_count,
         "recipe_shard_target_recipes": target_recipes,
-        "worker_count": _recipe_worker_count(run_settings),
+        "worker_count": _recipe_worker_count(
+            run_settings,
+            shard_count=len(planned_shards),
+        ),
         "planned_shards": planned_shards,
         "pipelines": {"recipe_correction": SINGLE_CORRECTION_STAGE_PIPELINE_ID},
         "codex_farm_model": run_settings.codex_farm_model,

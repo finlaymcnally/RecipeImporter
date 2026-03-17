@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.structure_label_report import build_structure_label_report
 from cookimport.llm.codex_farm_ids import sanitize_for_filename
 
 CHANGED_LINES_PAYLOAD_PATH = "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl"
@@ -747,6 +748,47 @@ def load_followup_bundle_context(bundle_dir: Path) -> FollowupBundleContext:
     return FollowupBundleContext(repo_root=repo_root, bundle_dir=bundle_dir)
 
 
+def _structure_report_pair_rows(context: FollowupBundleContext) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    source_keys = sorted({run.source_key for run in context.runs if run.source_key})
+    for source_key in source_keys:
+        codex_run = context.codex_run_for_source(source_key)
+        baseline_run = context.baseline_run_for_source(source_key)
+        if codex_run is None or baseline_run is None:
+            continue
+        rows.append(
+            {
+                "source_key": source_key,
+                "codex_run_id": codex_run.run_id,
+                "baseline_run_id": baseline_run.run_id,
+            }
+        )
+    return rows
+
+
+def write_structure_report(
+    *,
+    bundle_dir: Path,
+    out_path: Path,
+) -> dict[str, Any]:
+    context = load_followup_bundle_context(bundle_dir)
+    analysis = context.index.get("analysis")
+    analysis = analysis if isinstance(analysis, dict) else {}
+    existing = analysis.get("structure_label_report")
+    if isinstance(existing, dict):
+        payload = existing
+    else:
+        per_label_metrics = analysis.get("per_label_metrics")
+        per_label_metrics = per_label_metrics if isinstance(per_label_metrics, list) else []
+        payload = build_structure_label_report(
+            per_label_metrics=[row for row in per_label_metrics if isinstance(row, dict)],
+            pair_rows=_structure_report_pair_rows(context),
+            run_dir_by_id={run.run_id: run.run_dir for run in context.runs},
+        )
+    _write_json(out_path, payload)
+    return payload
+
+
 def _build_outside_span_candidates(
     context: FollowupBundleContext,
 ) -> dict[str, dict[str, Any]]:
@@ -1306,6 +1348,7 @@ def _normalize_requested_outputs(value: Any) -> list[str]:
         if normalized == "all":
             expanded.extend(
                 [
+                    "structure_report",
                     "case_export",
                     "line_role_audit",
                     "prompt_link_audit",
@@ -1317,6 +1360,7 @@ def _normalize_requested_outputs(value: Any) -> list[str]:
             continue
         expanded.append(normalized)
     allowed = {
+        "structure_report",
         "case_export",
         "line_role_audit",
         "prompt_link_audit",
@@ -1440,6 +1484,12 @@ def write_followup_request_packet(
         _write_json(selectors_path, selectors_payload)
 
         files: dict[str, str] = {"selectors_json": "selectors.json"}
+        if "structure_report" in requested_outputs:
+            write_structure_report(
+                bundle_dir=bundle_dir,
+                out_path=ask_dir / "structure_report.json",
+            )
+            files["structure_report_json"] = "structure_report.json"
         if "case_export" in requested_outputs:
             write_case_export(bundle_dir=bundle_dir, selectors_path=selectors_path, out_dir=ask_dir / "case_export")
             files["case_export_dir"] = "case_export"
@@ -2147,6 +2197,10 @@ def write_followup_pack(
     selectors = _load_selectors(selectors_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     case_export_dir = out_dir / "case_export"
+    write_structure_report(
+        bundle_dir=bundle_dir,
+        out_path=out_dir / "structure_report.json",
+    )
     write_case_export(bundle_dir=bundle_dir, selectors_path=selectors_path, out_dir=case_export_dir)
     line_role_rows = write_line_role_audit(
         bundle_dir=bundle_dir,
@@ -2190,6 +2244,7 @@ def write_followup_pack(
         "uncertainty_rows": len(uncertainty_rows),
         "files": {
             "selectors_json": "selectors.json",
+            "structure_report_json": "structure_report.json",
             "case_export_dir": "case_export",
             "line_role_audit_jsonl": "line_role_audit.jsonl",
             "prompt_link_audit_jsonl": "prompt_link_audit.jsonl",
@@ -2206,6 +2261,7 @@ def write_followup_pack(
             f"- bundle: `{context.bundle_dir}`",
             f"- bundle_sha256: `{context.bundle_sha256}`",
             f"- selector_count: `{len(selectors)}`",
+            "- structure_report_json: `structure_report.json`",
             f"- line_role_audit_rows: `{len(line_role_rows)}`",
             f"- prompt_link_audit_rows: `{len(prompt_rows)}`",
             f"- knowledge_audit_rows: `{len(knowledge_rows)}`",

@@ -12,12 +12,6 @@ _TOKEN_KEYS = (
     "tokens_total",
 )
 
-_PREVIEW_INPUT_CHARS_PER_TOKEN = 3.2
-_PREVIEW_STAGE_OUTPUT_RATIO = {
-    "recipe_llm_correct_and_link": 0.18,
-    "extract_knowledge_optional": 0.12,
-    "line_role": 0.20,
-}
 _PREVIEW_STAGE_LABELS = {
     "recipe_llm_correct_and_link": "Recipe Correction",
     "extract_knowledge_optional": "Knowledge Harvest",
@@ -44,6 +38,13 @@ def build_prediction_run_prompt_budget_summary(
                 )
                 if stage_summary is not None:
                     by_stage[str(stage_name)] = stage_summary
+        if "recipe_correction" not in by_stage:
+            recipe_summary = _build_codex_farm_stage_summary(
+                stage_name="recipe_correction",
+                stage_payload=llm_payload,
+            )
+            if recipe_summary is not None:
+                by_stage["recipe_correction"] = recipe_summary
         knowledge_payload = llm_payload.get("knowledge")
         if isinstance(knowledge_payload, Mapping):
             process_run = knowledge_payload.get("process_run")
@@ -51,6 +52,19 @@ def build_prediction_run_prompt_budget_summary(
                 knowledge_summary = _build_codex_farm_stage_summary(
                     stage_name="knowledge",
                     stage_payload=process_run,
+                )
+                if knowledge_summary is not None:
+                    authority_mode = str(knowledge_payload.get("authority_mode") or "").strip()
+                    scored_effect = str(knowledge_payload.get("scored_effect") or "").strip()
+                    if authority_mode:
+                        knowledge_summary["authority_mode"] = authority_mode
+                    if scored_effect:
+                        knowledge_summary["scored_effect"] = scored_effect
+                    by_stage["knowledge"] = knowledge_summary
+            if "knowledge" not in by_stage:
+                knowledge_summary = _build_codex_farm_stage_summary(
+                    stage_name="knowledge",
+                    stage_payload=knowledge_payload,
                 )
                 if knowledge_summary is not None:
                     authority_mode = str(knowledge_payload.get("authority_mode") or "").strip()
@@ -113,8 +127,13 @@ def build_prompt_preview_budget_summary(
     prompt_rows: list[Mapping[str, Any]],
     preview_dir: Path,
     phase_plans: Mapping[str, Mapping[str, Any]] | None = None,
+    live_stage_summaries: Mapping[str, Mapping[str, Any]] | None = None,
+    stage_calibrations: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     by_stage: dict[str, dict[str, Any]] = {}
+    live_telemetry_used = False
+    historical_calibration_used = False
+    unavailable_stage_count = 0
     for row in prompt_rows:
         stage_key = str(row.get("stage_key") or "").strip()
         if not stage_key:
@@ -144,9 +163,11 @@ def build_prompt_preview_budget_summary(
                 "prompt_chars_avg": 0,
                 "estimated_request_chars_total": 0,
                 "transport_overhead_chars_total": 0,
-                "estimated_input_tokens": 0,
-                "estimated_output_tokens": 0,
-                "estimated_total_tokens": 0,
+                "estimated_input_tokens": None,
+                "estimated_cached_input_tokens": None,
+                "estimated_output_tokens": None,
+                "estimated_total_tokens": None,
+                "estimation_basis": "unavailable",
             },
         )
         task_prompt_text = str(row.get("task_prompt_text") or rendered_prompt_text)
@@ -172,28 +193,201 @@ def build_prompt_preview_budget_summary(
         "prompt_chars_avg": 0,
         "estimated_request_chars_total": 0,
         "transport_overhead_chars_total": 0,
-        "estimated_input_tokens": 0,
-        "estimated_output_tokens": 0,
-        "estimated_total_tokens": 0,
+        "estimated_input_tokens": None,
+        "estimated_cached_input_tokens": None,
+        "estimated_output_tokens": None,
+        "estimated_total_tokens": None,
     }
     for stage_key, payload in by_stage.items():
         call_count = int(payload.get("call_count") or 0)
         task_prompt_chars_total = int(payload.get("task_prompt_chars_total") or 0)
         prompt_chars_total = int(payload.get("prompt_chars_total") or 0)
         estimated_request_chars_total = int(payload.get("estimated_request_chars_total") or 0)
-        estimated_input_tokens = _estimate_preview_input_tokens(estimated_request_chars_total)
-        estimated_output_tokens = _estimate_preview_output_tokens(
-            stage_key=stage_key,
-            call_count=call_count,
-            estimated_input_tokens=estimated_input_tokens,
-        )
+        estimated_input_tokens: int | None = None
+        estimated_output_tokens: int | None = None
+        estimated_cached_input_tokens: int | None = None
+        estimated_total_tokens: int | None = None
         payload["task_prompt_chars_avg"] = (
             int(round(task_prompt_chars_total / call_count)) if call_count > 0 else 0
         )
         payload["prompt_chars_avg"] = int(round(prompt_chars_total / call_count)) if call_count > 0 else 0
+        live_stage = (
+            live_stage_summaries.get(stage_key)
+            if isinstance(live_stage_summaries, Mapping)
+            else None
+        )
+        if isinstance(live_stage, Mapping):
+            live_input_tokens = _nonnegative_int(live_stage.get("tokens_input"))
+            live_cached_input_tokens = _nonnegative_int(live_stage.get("tokens_cached_input"))
+            live_output_tokens = _nonnegative_int(live_stage.get("tokens_output"))
+            live_total_tokens = _nonnegative_int(live_stage.get("tokens_total"))
+            if any(
+                value is not None
+                for value in (
+                    live_input_tokens,
+                    live_cached_input_tokens,
+                    live_output_tokens,
+                    live_total_tokens,
+                )
+            ):
+                live_telemetry_used = True
+                payload["estimation_basis"] = "live_telemetry"
+                payload["live_telemetry"] = {
+                    "call_count": _nonnegative_int(live_stage.get("call_count")),
+                    "duration_total_ms": _nonnegative_int(live_stage.get("duration_total_ms")),
+                    "tokens_input": live_input_tokens,
+                    "tokens_cached_input": live_cached_input_tokens,
+                    "tokens_output": live_output_tokens,
+                    "tokens_total": live_total_tokens,
+                }
+                estimated_input_tokens = live_input_tokens or 0
+                estimated_output_tokens = live_output_tokens or 0
+                estimated_cached_input_tokens = live_cached_input_tokens or 0
+                estimated_total_tokens = (
+                    live_total_tokens
+                    if live_total_tokens is not None
+                    else estimated_input_tokens + estimated_output_tokens
+                )
+            else:
+                calibration = (
+                    stage_calibrations.get(stage_key)
+                    if isinstance(stage_calibrations, Mapping)
+                    else None
+                )
+                if isinstance(calibration, Mapping):
+                    calibrated_input_ratio = _nonnegative_float(
+                        calibration.get("input_tokens_per_request_char")
+                    )
+                    calibrated_output_ratio = _nonnegative_float(
+                        calibration.get("output_tokens_per_request_char")
+                    )
+                    calibrated_total_ratio = _nonnegative_float(
+                        calibration.get("total_tokens_per_request_char")
+                    )
+                    calibrated_cached_share = _nonnegative_float(
+                        calibration.get("cached_input_share")
+                    )
+                    if (
+                        estimated_request_chars_total > 0
+                        and calibrated_input_ratio is not None
+                        and calibrated_total_ratio is not None
+                    ):
+                        historical_calibration_used = True
+                        payload["estimation_basis"] = "historical_calibration"
+                        payload["historical_calibration"] = dict(calibration)
+                        estimated_input_tokens = int(
+                            round(estimated_request_chars_total * calibrated_input_ratio)
+                        )
+                        if calibrated_output_ratio is not None:
+                            estimated_output_tokens = int(
+                                round(estimated_request_chars_total * calibrated_output_ratio)
+                            )
+                        else:
+                            estimated_output_tokens = max(
+                                int(round(estimated_request_chars_total * calibrated_total_ratio))
+                                - estimated_input_tokens,
+                                0,
+                            )
+                        estimated_cached_input_tokens = int(
+                            round(estimated_input_tokens * calibrated_cached_share)
+                        ) if calibrated_cached_share is not None else 0
+                        estimated_total_tokens = int(
+                            round(estimated_request_chars_total * calibrated_total_ratio)
+                        )
+                        payload["estimated_total_tokens_low"] = int(
+                            round(
+                                estimated_request_chars_total
+                                * float(
+                                    calibration.get("total_tokens_per_request_char_low")
+                                    or calibrated_total_ratio
+                                )
+                            )
+                        )
+                        payload["estimated_total_tokens_high"] = int(
+                            round(
+                                estimated_request_chars_total
+                                * float(
+                                    calibration.get("total_tokens_per_request_char_high")
+                                    or calibrated_total_ratio
+                                )
+                            )
+                        )
+                    else:
+                        payload["estimation_basis"] = "unavailable"
+        else:
+            calibration = (
+                stage_calibrations.get(stage_key)
+                if isinstance(stage_calibrations, Mapping)
+                else None
+            )
+            if isinstance(calibration, Mapping):
+                calibrated_input_ratio = _nonnegative_float(
+                    calibration.get("input_tokens_per_request_char")
+                )
+                calibrated_output_ratio = _nonnegative_float(
+                    calibration.get("output_tokens_per_request_char")
+                )
+                calibrated_total_ratio = _nonnegative_float(
+                    calibration.get("total_tokens_per_request_char")
+                )
+                calibrated_cached_share = _nonnegative_float(
+                    calibration.get("cached_input_share")
+                )
+                if (
+                    estimated_request_chars_total > 0
+                    and calibrated_input_ratio is not None
+                    and calibrated_total_ratio is not None
+                ):
+                    historical_calibration_used = True
+                    payload["estimation_basis"] = "historical_calibration"
+                    payload["historical_calibration"] = dict(calibration)
+                    estimated_input_tokens = int(
+                        round(estimated_request_chars_total * calibrated_input_ratio)
+                    )
+                    if calibrated_output_ratio is not None:
+                        estimated_output_tokens = int(
+                            round(estimated_request_chars_total * calibrated_output_ratio)
+                        )
+                    else:
+                        estimated_output_tokens = max(
+                            int(round(estimated_request_chars_total * calibrated_total_ratio))
+                            - estimated_input_tokens,
+                            0,
+                        )
+                    estimated_cached_input_tokens = int(
+                        round(estimated_input_tokens * calibrated_cached_share)
+                    ) if calibrated_cached_share is not None else 0
+                    estimated_total_tokens = int(
+                        round(estimated_request_chars_total * calibrated_total_ratio)
+                    )
+                    payload["estimated_total_tokens_low"] = int(
+                        round(
+                            estimated_request_chars_total
+                            * float(
+                                calibration.get("total_tokens_per_request_char_low")
+                                or calibrated_total_ratio
+                            )
+                        )
+                    )
+                    payload["estimated_total_tokens_high"] = int(
+                        round(
+                            estimated_request_chars_total
+                            * float(
+                                calibration.get("total_tokens_per_request_char_high")
+                                or calibrated_total_ratio
+                            )
+                        )
+                    )
+                else:
+                    payload["estimation_basis"] = "unavailable"
+            else:
+                payload["estimation_basis"] = "unavailable"
         payload["estimated_input_tokens"] = estimated_input_tokens
+        payload["estimated_cached_input_tokens"] = estimated_cached_input_tokens
         payload["estimated_output_tokens"] = estimated_output_tokens
-        payload["estimated_total_tokens"] = estimated_input_tokens + estimated_output_tokens
+        payload["estimated_total_tokens"] = estimated_total_tokens
+        if estimated_total_tokens is None:
+            unavailable_stage_count += 1
         if isinstance(phase_plans, Mapping):
             phase_plan = phase_plans.get(stage_key)
             if isinstance(phase_plan, Mapping):
@@ -227,9 +421,22 @@ def build_prompt_preview_budget_summary(
         totals["transport_overhead_chars_total"] += int(
             payload.get("transport_overhead_chars_total") or 0
         )
-        totals["estimated_input_tokens"] += estimated_input_tokens
-        totals["estimated_output_tokens"] += estimated_output_tokens
-        totals["estimated_total_tokens"] += estimated_input_tokens + estimated_output_tokens
+        totals["estimated_input_tokens"] = _sum_optional_ints(
+            totals.get("estimated_input_tokens"),
+            estimated_input_tokens,
+        )
+        totals["estimated_cached_input_tokens"] = _sum_optional_ints(
+            totals.get("estimated_cached_input_tokens"),
+            estimated_cached_input_tokens,
+        )
+        totals["estimated_output_tokens"] = _sum_optional_ints(
+            totals.get("estimated_output_tokens"),
+            estimated_output_tokens,
+        )
+        totals["estimated_total_tokens"] = _sum_optional_ints(
+            totals.get("estimated_total_tokens"),
+            estimated_total_tokens,
+        )
     if totals["call_count"] > 0:
         totals["task_prompt_chars_avg"] = int(
             round(totals["task_prompt_chars_total"] / totals["call_count"])
@@ -242,17 +449,32 @@ def build_prompt_preview_budget_summary(
     )
 
     return {
-        "schema_version": "prompt_preview_budget_summary.v2",
+        "schema_version": "prompt_preview_budget_summary.v4",
         "preview_dir": str(preview_dir),
         "estimation_method": {
-                "type": "heuristic_char_based",
-                "estimated_input_chars_per_token": _PREVIEW_INPUT_CHARS_PER_TOKEN,
-                "notes": [
-                    "Estimated tokens are derived from rendered prompt text length because preview runs do not have live tokenizer telemetry.",
-                    "For file-path prompt mode, estimated request chars add prompt wrapper text plus the deposited task-file content length.",
-                    "Warnings are intentionally blunt and also consider raw prompt chars plus call counts, not only token estimates.",
-                ],
-            },
+            "type": (
+                "live_telemetry_or_historical_calibration"
+                if live_telemetry_used
+                else (
+                    "historical_calibration_only"
+                    if historical_calibration_used
+                    else "no_token_estimate_available"
+                )
+            ),
+            "unavailable_stage_count": unavailable_stage_count,
+            "notes": [
+                (
+                    "When matching stage telemetry exists under the processed output run, preview prefers "
+                    "those observed stage token totals."
+                ),
+                (
+                    "Without matching live telemetry, preview can calibrate stage estimates from prior "
+                    "Codex runtime rows found under local data/output artifacts."
+                ),
+                "Stages without usable live telemetry or historical calibration are reported as unavailable instead of guessed from prompt text length.",
+                "Warnings are intentionally blunt and also consider raw prompt chars plus call counts, not only token estimates.",
+            ],
+        },
         "by_stage": by_stage,
         "totals": totals,
         "warnings": warnings,
@@ -310,13 +532,15 @@ def _build_codex_farm_stage_summary(
         if isinstance(summary_payload, Mapping)
         else None
     )
-    if call_count is None and row_count > 0:
+    if row_count > 0:
         call_count = row_count
     duration_total_ms = (
         _extract_duration_total_ms(summary_payload, call_count=call_count)
         if isinstance(summary_payload, Mapping)
         else None
     )
+    if isinstance(telemetry_rows, list):
+        duration_total_ms = _extract_duration_total_ms_from_rows(telemetry_rows)
 
     if (
         call_count is None
@@ -335,15 +559,9 @@ def _build_codex_farm_stage_summary(
 
 
 def _extract_telemetry_rows(*, stage_payload: Mapping[str, Any]) -> list[Any] | None:
-    process_payload = stage_payload.get("process_payload")
-    if isinstance(process_payload, Mapping):
-        telemetry = process_payload.get("telemetry")
-        if isinstance(telemetry, Mapping) and isinstance(telemetry.get("rows"), list):
-            return telemetry.get("rows")
-    telemetry = stage_payload.get("telemetry")
-    if isinstance(telemetry, Mapping) and isinstance(telemetry.get("rows"), list):
-        return telemetry.get("rows")
-    return None
+    rows: list[Any] = []
+    _collect_telemetry_rows_from_payload(stage_payload, rows)
+    return rows or None
 
 
 def _build_line_role_stage_summary(
@@ -351,54 +569,57 @@ def _build_line_role_stage_summary(
     pred_manifest: Mapping[str, Any],
     pred_run_dir: Path,
 ) -> dict[str, Any] | None:
-    telemetry_path = _resolve_line_role_telemetry_path(
+    for telemetry_path in _iter_line_role_telemetry_paths(
         pred_manifest=pred_manifest,
         pred_run_dir=pred_run_dir,
-    )
-    if telemetry_path is None:
-        return None
-    try:
-        payload = json.loads(telemetry_path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return None
-    if not isinstance(payload, Mapping):
-        return None
-    summary = payload.get("summary")
-    if not isinstance(summary, Mapping):
-        return None
-
-    call_count = _nonnegative_int(summary.get("call_count"))
-    batch_count = _nonnegative_int(summary.get("batch_count"))
-    if call_count is None:
-        call_count = batch_count
-
-    token_totals = {
-        key: _nonnegative_int(summary.get(key))
-        for key in _TOKEN_KEYS
-    }
-    if (
-        call_count is None
-        and _nonnegative_int(summary.get("duration_total_ms")) is None
-        and all(value is None for value in token_totals.values())
     ):
-        return None
+        try:
+            payload = json.loads(telemetry_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        summary = payload.get("summary")
+        if not isinstance(summary, Mapping):
+            if _looks_like_summary_payload(payload):
+                summary = payload
+            else:
+                continue
 
-    return {
-        "stage": "line_role",
-        "kind": "line_role",
-        "call_count": call_count,
-        "batch_count": batch_count,
-        "attempt_count": _nonnegative_int(summary.get("attempt_count")),
-        "duration_total_ms": _nonnegative_int(summary.get("duration_total_ms")),
-        **token_totals,
-    }
+        call_count = _nonnegative_int(summary.get("call_count"))
+        batch_count = _nonnegative_int(summary.get("batch_count"))
+        if call_count is None:
+            call_count = batch_count
+
+        token_totals = {
+            key: _nonnegative_int(summary.get(key))
+            for key in _TOKEN_KEYS
+        }
+        duration_total_ms = _nonnegative_int(summary.get("duration_total_ms"))
+        if (
+            call_count is None
+            and duration_total_ms is None
+            and all(value is None for value in token_totals.values())
+        ):
+            continue
+
+        return {
+            "stage": "line_role",
+            "kind": "line_role",
+            "call_count": call_count,
+            "batch_count": batch_count,
+            "attempt_count": _nonnegative_int(summary.get("attempt_count")),
+            "duration_total_ms": duration_total_ms,
+            **token_totals,
+        }
+    return None
 
 
-def _resolve_line_role_telemetry_path(
+def _iter_line_role_telemetry_paths(
     *,
     pred_manifest: Mapping[str, Any],
     pred_run_dir: Path,
-) -> Path | None:
+) -> list[Path]:
     raw_path = str(pred_manifest.get("line_role_pipeline_telemetry_path") or "").strip()
     candidates: list[Path] = []
     if raw_path:
@@ -407,26 +628,29 @@ def _resolve_line_role_telemetry_path(
             candidate = pred_run_dir / candidate
         candidates.append(candidate)
     candidates.append(pred_run_dir / "line-role-pipeline" / "telemetry_summary.json")
+    for manifest_key in ("processed_run_root", "stage_run_root"):
+        raw_root = str(pred_manifest.get(manifest_key) or "").strip()
+        if not raw_root:
+            continue
+        candidates.append(Path(raw_root) / "line-role-pipeline" / "telemetry_summary.json")
+
+    resolved: list[Path] = []
+    seen: set[Path] = set()
     for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
         if candidate.is_file():
-            return candidate
-    return None
+            resolved.append(candidate)
+    return resolved
 
 
 def _extract_summary_payload(*, stage_payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    process_payload = stage_payload.get("process_payload")
-    if isinstance(process_payload, Mapping):
-        telemetry_report = process_payload.get("telemetry_report")
-        if isinstance(telemetry_report, Mapping) and isinstance(
-            telemetry_report.get("summary"), Mapping
-        ):
-            return telemetry_report.get("summary")
-    telemetry_report = stage_payload.get("telemetry_report")
-    if isinstance(telemetry_report, Mapping) and isinstance(
-        telemetry_report.get("summary"), Mapping
-    ):
-        return telemetry_report.get("summary")
-    return None
+    candidates: list[Mapping[str, Any]] = []
+    _collect_summary_payloads(stage_payload, candidates)
+    if not candidates:
+        return None
+    return max(candidates, key=_summary_payload_score)
 
 
 def _extract_call_count(summary: Mapping[str, Any]) -> int | None:
@@ -462,6 +686,134 @@ def _extract_duration_total_ms(
     return None
 
 
+def _extract_duration_total_ms_from_rows(rows: list[Any]) -> int | None:
+    duration_total_ms: int | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        duration_total_ms = _sum_optional_ints(
+            duration_total_ms,
+            _nonnegative_int(row.get("duration_ms")),
+        )
+    return duration_total_ms
+
+
+def _collect_telemetry_rows_from_payload(payload: Mapping[str, Any], rows: list[Any]) -> None:
+    process_payload = payload.get("process_payload")
+    if isinstance(process_payload, Mapping):
+        _collect_telemetry_rows_from_payload(process_payload, rows)
+
+    process_run = payload.get("process_run")
+    if isinstance(process_run, Mapping):
+        _collect_telemetry_rows_from_payload(process_run, rows)
+
+    telemetry = payload.get("telemetry")
+    if isinstance(telemetry, Mapping) and isinstance(telemetry.get("rows"), list):
+        rows.extend(telemetry.get("rows") or [])
+
+    worker_runs = payload.get("worker_runs")
+    if isinstance(worker_runs, list):
+        for worker_run in worker_runs:
+            if isinstance(worker_run, Mapping):
+                _collect_telemetry_rows_from_payload(worker_run, rows)
+
+    for runtime_key in ("phase_runtime", "phase_worker_runtime"):
+        runtime_payload = payload.get(runtime_key)
+        if not isinstance(runtime_payload, Mapping):
+            continue
+        worker_reports = runtime_payload.get("worker_reports")
+        if not isinstance(worker_reports, list):
+            continue
+        for report in worker_reports:
+            if not isinstance(report, Mapping):
+                continue
+            runner_result = report.get("runner_result")
+            if isinstance(runner_result, Mapping):
+                _collect_telemetry_rows_from_payload(runner_result, rows)
+
+
+def _collect_summary_payloads(
+    payload: Mapping[str, Any],
+    summaries: list[Mapping[str, Any]],
+) -> None:
+    process_payload = payload.get("process_payload")
+    if isinstance(process_payload, Mapping):
+        _collect_summary_payloads(process_payload, summaries)
+
+    process_run = payload.get("process_run")
+    if isinstance(process_run, Mapping):
+        _collect_summary_payloads(process_run, summaries)
+
+    telemetry_report = payload.get("telemetry_report")
+    if isinstance(telemetry_report, Mapping):
+        if isinstance(telemetry_report.get("summary"), Mapping):
+            summaries.append(telemetry_report.get("summary"))
+        elif _looks_like_summary_payload(telemetry_report):
+            summaries.append(telemetry_report)
+
+    telemetry = payload.get("telemetry")
+    if isinstance(telemetry, Mapping) and isinstance(telemetry.get("summary"), Mapping):
+        summaries.append(telemetry.get("summary"))
+
+    worker_runs = payload.get("worker_runs")
+    if isinstance(worker_runs, list):
+        for worker_run in worker_runs:
+            if isinstance(worker_run, Mapping):
+                _collect_summary_payloads(worker_run, summaries)
+
+    for runtime_key in ("phase_runtime", "phase_worker_runtime"):
+        runtime_payload = payload.get(runtime_key)
+        if not isinstance(runtime_payload, Mapping):
+            continue
+        telemetry_payload = runtime_payload.get("telemetry")
+        if isinstance(telemetry_payload, Mapping) and _looks_like_summary_payload(telemetry_payload):
+            summaries.append(telemetry_payload)
+        worker_reports = runtime_payload.get("worker_reports")
+        if not isinstance(worker_reports, list):
+            continue
+        for report in worker_reports:
+            if not isinstance(report, Mapping):
+                continue
+            runner_result = report.get("runner_result")
+            if isinstance(runner_result, Mapping):
+                _collect_summary_payloads(runner_result, summaries)
+
+
+def _looks_like_summary_payload(payload: Mapping[str, Any]) -> bool:
+    if any(_nonnegative_int(payload.get(key)) is not None for key in _TOKEN_KEYS):
+        return True
+    return any(
+        key in payload
+        for key in (
+            "call_count",
+            "duration_total_ms",
+            "duration_avg_ms",
+            "attempt_count",
+            "batch_count",
+            "matched_rows",
+            "status_counts",
+        )
+    )
+
+
+def _summary_payload_score(payload: Mapping[str, Any]) -> tuple[int, int]:
+    token_hits = sum(1 for key in _TOKEN_KEYS if _nonnegative_int(payload.get(key)) is not None)
+    aux_hits = sum(
+        1
+        for key in (
+            "call_count",
+            "duration_total_ms",
+            "duration_avg_ms",
+            "attempt_count",
+            "batch_count",
+            "matched_rows",
+            "status_counts",
+        )
+        if payload.get(key) is not None
+    )
+    return (token_hits, aux_hits)
+
+
 def _nonnegative_int(value: Any) -> int | None:
     if value is None or value == "":
         return None
@@ -490,24 +842,6 @@ def _sum_optional_ints(left: int | None, right: int | None) -> int | None:
     return left + right
 
 
-def _estimate_preview_input_tokens(prompt_chars_total: int) -> int:
-    if prompt_chars_total <= 0:
-        return 0
-    return int(round(prompt_chars_total / _PREVIEW_INPUT_CHARS_PER_TOKEN))
-
-
-def _estimate_preview_output_tokens(
-    *,
-    stage_key: str,
-    call_count: int,
-    estimated_input_tokens: int,
-) -> int:
-    if call_count <= 0 or estimated_input_tokens <= 0:
-        return 0
-    ratio = _PREVIEW_STAGE_OUTPUT_RATIO.get(stage_key, 0.10)
-    return int(round(estimated_input_tokens * ratio))
-
-
 def _build_prompt_preview_budget_warnings(
     *,
     by_stage: Mapping[str, Mapping[str, Any]],
@@ -517,26 +851,56 @@ def _build_prompt_preview_budget_warnings(
 
     total_calls = _nonnegative_int(totals.get("call_count")) or 0
     total_prompt_chars = _nonnegative_int(totals.get("prompt_chars_total")) or 0
-    total_estimated_tokens = _nonnegative_int(totals.get("estimated_total_tokens")) or 0
-    if total_calls >= 200 or total_prompt_chars >= 1_500_000 or total_estimated_tokens >= 500_000:
+    total_estimated_tokens = _nonnegative_int(totals.get("estimated_total_tokens"))
+    unavailable_stages = [
+        str(payload.get("stage_label") or stage_key)
+        for stage_key, payload in by_stage.items()
+        if isinstance(payload, Mapping) and str(payload.get("estimation_basis") or "") == "unavailable"
+    ]
+    if unavailable_stages:
+        warnings.append(
+            {
+                "severity": "warning",
+                "code": "token_estimate_unavailable",
+                "message": (
+                    "Token estimate unavailable for: "
+                    + ", ".join(unavailable_stages)
+                    + ". Preview only reports tokens when live telemetry or historical calibration is available."
+                ),
+            }
+        )
+    if total_estimated_tokens is None:
+        total_estimated_tokens_value = 0
+    else:
+        total_estimated_tokens_value = total_estimated_tokens
+    if total_calls >= 200 or total_prompt_chars >= 1_500_000 or total_estimated_tokens_value >= 500_000:
         warnings.append(
             {
                 "severity": "danger",
                 "code": "extreme_prompt_budget",
                 "message": (
                     f"EXTREME prompt budget: {total_calls} calls, {total_prompt_chars:,} rendered prompt chars, "
-                    f"~{total_estimated_tokens:,} estimated total tokens. Treat this as a multi-million-token danger zone."
+                    + (
+                        f"~{total_estimated_tokens_value:,} estimated total tokens. "
+                        if total_estimated_tokens is not None
+                        else "token estimate unavailable. "
+                    )
+                    + "Treat this as a multi-million-token danger zone."
                 ),
             }
         )
-    elif total_calls >= 100 or total_prompt_chars >= 750_000 or total_estimated_tokens >= 250_000:
+    elif total_calls >= 100 or total_prompt_chars >= 750_000 or total_estimated_tokens_value >= 250_000:
         warnings.append(
             {
                 "severity": "warning",
                 "code": "high_prompt_budget",
                 "message": (
                     f"High prompt budget: {total_calls} calls, {total_prompt_chars:,} rendered prompt chars, "
-                    f"~{total_estimated_tokens:,} estimated total tokens."
+                    + (
+                        f"~{total_estimated_tokens_value:,} estimated total tokens."
+                        if total_estimated_tokens is not None
+                        else "token estimate unavailable."
+                    )
                 ),
             }
         )
@@ -575,13 +939,32 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
     totals = summary.get("totals")
     if not isinstance(totals, Mapping):
         totals = {}
+    estimation_method = summary.get("estimation_method")
+    if not isinstance(estimation_method, Mapping):
+        estimation_method = {}
+    estimation_type = str(estimation_method.get("type") or "no_token_estimate_available").strip()
+    headline_suffix = (
+        "prefers live telemetry when available"
+        if estimation_type == "live_telemetry_or_historical_calibration"
+        else (
+            "uses historical calibration"
+            if estimation_type == "historical_calibration_only"
+            else "no estimate available"
+        )
+    )
+    estimated_total_tokens = _nonnegative_int(totals.get("estimated_total_tokens"))
+    estimated_total_tokens_text = (
+        f"`~{int(estimated_total_tokens):,}`"
+        if estimated_total_tokens is not None
+        else "`unavailable`"
+    )
     lines = [
         "# Prompt Preview Budget Summary",
         "",
         f"- Preview dir: `{summary.get('preview_dir')}`",
         (
-            f"- Estimated total tokens: `~{int(_nonnegative_int(totals.get('estimated_total_tokens')) or 0):,}` "
-            "(heuristic)"
+            f"- Estimated total tokens: {estimated_total_tokens_text} "
+            f"({headline_suffix})"
         ),
         f"- Total interactions: `{int(_nonnegative_int(totals.get('call_count')) or 0):,}`",
         f"- Task prompt chars: `{int(_nonnegative_int(totals.get('task_prompt_chars_total')) or 0):,}`",
@@ -593,6 +976,10 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
         ),
         "",
     ]
+    cached_input_tokens = _nonnegative_int(totals.get("estimated_cached_input_tokens"))
+    if cached_input_tokens is not None and cached_input_tokens > 0:
+        lines.append(f"- Cached input tokens observed: `{cached_input_tokens:,}`")
+        lines.append("")
     warnings = summary.get("warnings")
     if isinstance(warnings, list) and warnings:
         lines.append("## Warnings")
@@ -606,9 +993,9 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
     lines.append("## By Stage")
     lines.append("")
     lines.append(
-        "| Stage | Workers | Shards | Interactions | Owned IDs / Shard | First-Turn Chars / Shard | Est. Total Tokens |"
+        "| Stage | Basis | Workers | Shards | Interactions | Owned IDs / Shard | First-Turn Chars / Shard | Est. Total Tokens | Range |"
     )
-    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     by_stage = summary.get("by_stage")
     if isinstance(by_stage, Mapping):
         for stage_key, payload in by_stage.items():
@@ -623,20 +1010,34 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
             lines.append(
                 "| "
                 + f"{str(payload.get('stage_label') or stage_key)} | "
+                + f"{str(payload.get('estimation_basis') or 'unavailable')} | "
                 + f"{int(_nonnegative_int(payload.get('worker_count')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('shard_count')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('interaction_count')) or _nonnegative_int(payload.get('call_count')) or 0):,} | "
                 + f"{float(owned_ids_per_shard.get('avg') or 0.0):.2f} | "
                 + f"{float(first_turn_chars.get('avg') or 0.0):.1f} | "
-                + f"{int(_nonnegative_int(payload.get('estimated_total_tokens')) or 0):,} |"
+                + (
+                    f"{int(_nonnegative_int(payload.get('estimated_total_tokens'))):,}"
+                    if _nonnegative_int(payload.get('estimated_total_tokens')) is not None
+                    else "unavailable"
+                )
+                + " |"
+                + (
+                    (
+                        f" {int(_nonnegative_int(payload.get('estimated_total_tokens_low')) or _nonnegative_int(payload.get('estimated_total_tokens'))):,}"
+                        f"-{int(_nonnegative_int(payload.get('estimated_total_tokens_high')) or _nonnegative_int(payload.get('estimated_total_tokens'))):,} |"
+                    )
+                    if _nonnegative_int(payload.get('estimated_total_tokens')) is not None
+                    else " unavailable |"
+                )
             )
     lines.append("")
     lines.append("## Prompt Detail")
     lines.append("")
     lines.append(
-        "| Stage | Task Chars | Wrapped Chars | Overhead Chars | Est. Input Tokens |"
+        "| Stage | Basis | Task Chars | Wrapped Chars | Overhead Chars | Est. Input Tokens |"
     )
-    lines.append("| --- | ---: | ---: | ---: | ---: |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: |")
     if isinstance(by_stage, Mapping):
         for stage_key, payload in by_stage.items():
             if not isinstance(payload, Mapping):
@@ -644,13 +1045,244 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
             lines.append(
                 "| "
                 + f"{str(payload.get('stage_label') or stage_key)} | "
+                + f"{str(payload.get('estimation_basis') or 'unavailable')} | "
                 + f"{int(_nonnegative_int(payload.get('task_prompt_chars_total')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('prompt_chars_total')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('transport_overhead_chars_total')) or 0):,} | "
-                + f"{int(_nonnegative_int(payload.get('estimated_input_tokens')) or 0):,} |"
+                + (
+                    f"{int(_nonnegative_int(payload.get('estimated_input_tokens'))):,}"
+                    if _nonnegative_int(payload.get('estimated_input_tokens')) is not None
+                    else "unavailable"
+                )
+                + " |"
             )
     lines.append("")
-    lines.append(
-        "_Estimated tokens are derived from prompt wrapper text plus deposited task-file content when path-mode prompts are used, because preview runs do not have live tokenizer telemetry._"
-    )
+    if estimation_type == "live_telemetry_or_historical_calibration":
+        lines.append(
+            "_Estimated tokens prefer live stage telemetry when that exact run already has Codex outputs on disk; stages without exact live telemetry may use stage-specific historical calibration._"
+        )
+    elif estimation_type == "historical_calibration_only":
+        lines.append(
+            "_Estimated tokens use stage-specific calibration from prior Codex runtime rows found under local `data/output` artifacts when available; the range column reflects the observed low/high spread of that calibration._"
+        )
+    else:
+        lines.append(
+            "_No token estimate is shown because this preview had neither exact live telemetry nor historical stage calibration to ground the numbers._"
+        )
     return "\n".join(lines) + "\n"
+
+
+def load_prompt_preview_live_stage_summaries(
+    *,
+    processed_run_dir: Path,
+    workbook_slug: str,
+) -> dict[str, dict[str, Any]]:
+    by_stage: dict[str, dict[str, Any]] = {}
+
+    recipe_summary = _build_phase_worker_status_stage_summary(
+        stage_name="recipe_llm_correct_and_link",
+        runtime_root=processed_run_dir / "raw" / "llm" / workbook_slug / "recipe_phase_runtime",
+    )
+    if recipe_summary is not None:
+        by_stage["recipe_llm_correct_and_link"] = recipe_summary
+
+    knowledge_summary = _build_phase_worker_status_stage_summary(
+        stage_name="extract_knowledge_optional",
+        runtime_root=processed_run_dir / "raw" / "llm" / workbook_slug / "knowledge",
+    )
+    if knowledge_summary is not None:
+        by_stage["extract_knowledge_optional"] = knowledge_summary
+
+    line_role_summary = _build_line_role_stage_summary(
+        pred_manifest={},
+        pred_run_dir=processed_run_dir,
+    )
+    if line_role_summary is not None:
+        by_stage["line_role"] = line_role_summary
+
+    return by_stage
+
+
+def load_prompt_preview_stage_calibrations(*, repo_root: Path) -> dict[str, dict[str, Any]]:
+    output_root = repo_root / "data" / "output"
+    if not output_root.is_dir():
+        return {}
+
+    rows_by_stage: dict[str, list[dict[str, float | str]]] = {}
+    for status_path in sorted(output_root.glob("**/recipe_phase_runtime/workers/*/status.json")):
+        _collect_status_rows_for_calibration(
+            stage_key="recipe_llm_correct_and_link",
+            status_path=status_path,
+            rows_by_stage=rows_by_stage,
+        )
+    for status_path in sorted(output_root.glob("**/knowledge/workers/*/status.json")):
+        _collect_status_rows_for_calibration(
+            stage_key="extract_knowledge_optional",
+            status_path=status_path,
+            rows_by_stage=rows_by_stage,
+        )
+    for status_path in sorted(output_root.glob("**/line-role-pipeline/runtime/workers/*/status.json")):
+        _collect_status_rows_for_calibration(
+            stage_key="line_role",
+            status_path=status_path,
+            rows_by_stage=rows_by_stage,
+        )
+
+    calibrations: dict[str, dict[str, Any]] = {}
+    for stage_key, rows in rows_by_stage.items():
+        calibration = _build_stage_calibration(stage_key=stage_key, rows=rows)
+        if calibration is not None:
+            calibrations[stage_key] = calibration
+    return calibrations
+
+
+def _collect_status_rows_for_calibration(
+    *,
+    stage_key: str,
+    status_path: Path,
+    rows_by_stage: dict[str, list[dict[str, float | str]]],
+) -> None:
+    try:
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return
+    telemetry = payload.get("telemetry")
+    if not isinstance(telemetry, Mapping):
+        return
+    rows = telemetry.get("rows")
+    if not isinstance(rows, list):
+        return
+    stage_rows = rows_by_stage.setdefault(stage_key, [])
+    run_key = str(status_path.parent.parent.parent.resolve(strict=False))
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        prompt_chars = _nonnegative_int(row.get("prompt_chars"))
+        input_path_raw = str(row.get("input_path") or "").strip()
+        if prompt_chars is None or not input_path_raw:
+            continue
+        input_path = Path(input_path_raw)
+        if not input_path.is_file():
+            continue
+        try:
+            input_chars = len(input_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        request_chars = prompt_chars + input_chars
+        tokens_input = _nonnegative_int(row.get("tokens_input"))
+        tokens_cached_input = _nonnegative_int(row.get("tokens_cached_input"))
+        tokens_output = _nonnegative_int(row.get("tokens_output"))
+        tokens_total = _nonnegative_int(row.get("tokens_total"))
+        if request_chars <= 0 or tokens_input is None or tokens_total is None:
+            continue
+        stage_rows.append(
+            {
+                "run_key": run_key,
+                "request_chars": float(request_chars),
+                "tokens_input": float(tokens_input),
+                "tokens_cached_input": float(tokens_cached_input or 0),
+                "tokens_output": float(tokens_output or 0),
+                "tokens_total": float(tokens_total),
+            }
+        )
+
+
+def _build_stage_calibration(
+    *,
+    stage_key: str,
+    rows: list[dict[str, float | str]],
+) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    request_chars_total = sum(float(row["request_chars"]) for row in rows)
+    if request_chars_total <= 0:
+        return None
+    input_tokens_total = sum(float(row["tokens_input"]) for row in rows)
+    output_tokens_total = sum(float(row["tokens_output"]) for row in rows)
+    cached_tokens_total = sum(float(row["tokens_cached_input"]) for row in rows)
+    total_tokens_total = sum(float(row["tokens_total"]) for row in rows)
+    totals_by_run: dict[str, dict[str, float]] = {}
+    for row in rows:
+        run_key = str(row.get("run_key") or "unknown")
+        payload = totals_by_run.setdefault(
+            run_key,
+            {
+                "request_chars": 0.0,
+                "tokens_total": 0.0,
+            },
+        )
+        payload["request_chars"] += float(row["request_chars"])
+        payload["tokens_total"] += float(row["tokens_total"])
+    total_ratios = [
+        payload["tokens_total"] / payload["request_chars"]
+        for payload in totals_by_run.values()
+        if payload["request_chars"] > 0
+    ]
+    if not total_ratios:
+        total_ratios = [
+            float(row["tokens_total"]) / float(row["request_chars"])
+            for row in rows
+            if float(row["request_chars"]) > 0
+        ]
+    return {
+        "stage": stage_key,
+        "sample_count": len(rows),
+        "run_count": len(totals_by_run),
+        "input_tokens_per_request_char": input_tokens_total / request_chars_total,
+        "output_tokens_per_request_char": output_tokens_total / request_chars_total,
+        "total_tokens_per_request_char": total_tokens_total / request_chars_total,
+        "total_tokens_per_request_char_low": min(total_ratios),
+        "total_tokens_per_request_char_high": max(total_ratios),
+        "cached_input_share": (
+            cached_tokens_total / input_tokens_total if input_tokens_total > 0 else 0.0
+        ),
+    }
+
+
+def _build_phase_worker_status_stage_summary(
+    *,
+    stage_name: str,
+    runtime_root: Path,
+) -> dict[str, Any] | None:
+    workers_root = runtime_root / "workers"
+    if not workers_root.is_dir():
+        return None
+
+    aggregated: dict[str, int | None] = {
+        "call_count": None,
+        "duration_total_ms": None,
+        **{key: None for key in _TOKEN_KEYS},
+    }
+    found = False
+    for status_path in sorted(workers_root.glob("*/status.json")):
+        try:
+            payload = json.loads(status_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        summary = _build_codex_farm_stage_summary(stage_name=stage_name, stage_payload=payload)
+        if summary is None:
+            continue
+        found = True
+        aggregated["call_count"] = _sum_optional_ints(
+            aggregated.get("call_count"),
+            _nonnegative_int(summary.get("call_count")),
+        )
+        aggregated["duration_total_ms"] = _sum_optional_ints(
+            aggregated.get("duration_total_ms"),
+            _nonnegative_int(summary.get("duration_total_ms")),
+        )
+        for key in _TOKEN_KEYS:
+            aggregated[key] = _sum_optional_ints(
+                aggregated.get(key),
+                _nonnegative_int(summary.get(key)),
+            )
+    if not found:
+        return None
+
+    return {
+        "stage": stage_name,
+        "kind": "live_telemetry",
+        **aggregated,
+    }

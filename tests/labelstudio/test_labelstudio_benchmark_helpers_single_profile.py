@@ -622,11 +622,11 @@ def test_interactive_single_profile_uploads_only_group_oracle_bundle(
         "_write_benchmark_upload_bundle",
         _fake_write_benchmark_upload_bundle,
     )
-    hint_calls: list[dict[str, object]] = []
+    launch_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         cli,
-        "_print_manual_oracle_upload_hint",
-        lambda **kwargs: hint_calls.append(dict(kwargs)),
+        "_start_benchmark_bundle_oracle_upload_background",
+        lambda **kwargs: launch_calls.append(dict(kwargs)),
     )
 
     completed = cli._interactive_single_profile_all_matched_benchmark(
@@ -638,9 +638,10 @@ def test_interactive_single_profile_uploads_only_group_oracle_bundle(
     )
 
     assert completed is True
-    assert hint_calls == [
+    assert launch_calls == [
         {
             "bundle_dir": group_bundle_dir,
+            "scope": "single_profile_group",
         }
     ]
 
@@ -902,7 +903,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
     )
     monkeypatch.setattr(
         cli,
-        "_maybe_upload_benchmark_bundle_to_oracle",
+        "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
 

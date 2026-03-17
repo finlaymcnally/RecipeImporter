@@ -1,0 +1,37 @@
+[
+  {
+    "evidence_refs": [
+      "block:default-workers:4"
+    ],
+    "input_payload": {
+      "phase_key": "line_role",
+      "rows": [
+        {
+          "atomic_index": 4,
+          "block_id": "block:default-workers:4",
+          "block_index": 4,
+          "deterministic_label": "OTHER",
+          "escalation_reasons": [
+            "deterministic_unresolved",
+            "fallback_decision"
+          ],
+          "recipe_id": "recipe:0",
+          "text": "Ambiguous line 4",
+          "within_recipe_span": true
+        }
+      ],
+      "shard_id": "line-role-shard-0005-a000004-a000004"
+    },
+    "input_text": "You are reviewing deterministic canonical line-role labels for cookbook atomic lines.\n\nTASK BOUNDARY\n- This is line-role label correction only.\n- Treat `deterministic_label` as the first-pass label you are reviewing.\n- Never perform schema.org extraction.\n- Never invent lines or labels.\n\nAllowed labels (global):\nRECIPE_TITLE, INGREDIENT_LINE, INSTRUCTION_LINE, HOWTO_SECTION, YIELD_LINE, TIME_LINE, RECIPE_NOTES, RECIPE_VARIANT, KNOWLEDGE, OTHER\n\nCompact input legends:\n- Label codes: L0=RECIPE_TITLE, L1=INGREDIENT_LINE, L2=INSTRUCTION_LINE, L3=HOWTO_SECTION, L4=YIELD_LINE, L5=TIME_LINE, L6=RECIPE_NOTES, L7=RECIPE_VARIANT, L8=KNOWLEDGE, L9=OTHER\n- Escalation reason codes: R0=deterministic_unresolved, R1=fallback_decision\n- Recipe atomic index ranges for this batch: 4\n- Any atomic index outside those ranges is outside recipe.\n\nTie-break precedence (highest to lowest):\nRECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION > INGREDIENT_LINE > INSTRUCTION_LINE > TIME_LINE > RECIPE_NOTES > KNOWLEDGE > OTHER\n\nNegative rules (must-not-do):\n- Never label a quantity/unit ingredient line as `KNOWLEDGE`.\n- Never label an imperative instruction sentence as `KNOWLEDGE`.\n- Inside recipe spans, `KNOWLEDGE` is last resort and should be used only when the line is explicit prose.\n- If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.\n\nFew-shot examples:\n1) Context: inside recipe, heading line\n   Line: `FOR THE MALT COOKIES`\n   Label: `HOWTO_SECTION`\n\n2) Context: adjacent lines are ingredients\n   Line: `Grapeseed oil`\n   Label: `INGREDIENT_LINE`\n\n3) Context: inside recipe\n   Line: `SERVES 4`\n   Label: `YIELD_LINE`\n\n4) Context: recipe method\n   Line: `Whisk in the cream and simmer for 2 to 3 minutes.`\n   Label: `INSTRUCTION_LINE`\n\n5) Context: inside recipe\n   Line: `NOTE: Cooled hollandaise can break if reheated too fast.`\n   Label: `RECIPE_NOTES`\n\n6) Context: outside recipe span, narrative paragraph\n   Line: `Copper pans conduct heat quickly and evenly, so temperature changes show up fast.`\n   Label: `KNOWLEDGE`\n\n7) Context: inside recipe, ingredient range\n   Line: `4 to 6 chicken leg quarters`\n   Label: `INGREDIENT_LINE`\n\n8) Context: inside recipe, all-caps variant header\n   Line: `DINER-STYLE MUSHROOM, PEPPER, AND ONION OMELET`\n   Label: `RECIPE_VARIANT`\n\n9) Context: inside recipe, primary recipe heading\n   Line: `A PORRIDGE OF LOVAGE STEMS`\n   Label: `RECIPE_TITLE`\n\nRETURN FORMAT (STRICT JSON ONLY)\nReturn exactly a JSON array with one object per target line:\n[{\"atomic_index\": <int>, \"label\": \"<LABEL>\"}]\n\nHard output rules:\n1) Return each requested `atomic_index` exactly once.\n2) Keep output order identical to input target order.\n3) Each `label` must be one of the allowed global labels listed above.\n4) No markdown, no commentary, no extra keys.\n\nTarget row format:\nOne JSON array per line. Base shape: [atomic_index, label_code, reason_codes, current_line]. Optional local-context shape: [atomic_index, label_code, reason_codes, current_line, [previous_line, next_line]]. Use \"-\" for empty reason_codes.\n\nTargets:\n[4, \"L9\", \"R0,R1\", \"Ambiguous line 4\"]\n",
+    "metadata": {
+      "first_atomic_index": 4,
+      "last_atomic_index": 4,
+      "owned_row_count": 1,
+      "prompt_index": 5
+    },
+    "owned_ids": [
+      "4"
+    ],
+    "shard_id": "line-role-shard-0005-a000004-a000004"
+  }
+]

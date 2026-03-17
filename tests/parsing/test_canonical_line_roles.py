@@ -2116,6 +2116,48 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
     assert phase_manifest["worker_count"] == 3
 
 
+def test_label_atomic_lines_defaults_workers_to_shard_count_when_unspecified() -> None:
+    candidates: list[AtomicLineCandidate] = []
+    for atomic_index in range(5):
+        candidates.append(
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id=f"block:default-workers:{atomic_index}",
+                block_index=atomic_index,
+                atomic_index=atomic_index,
+                text=f"Ambiguous line {atomic_index}",
+                within_recipe_span=True,
+                prev_text=None,
+                next_text=None,
+                rule_tags=["recipe_span_fallback"],
+            )
+        )
+
+    progress_messages: list[str] = []
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1", line_role_prompt_target_count=None),
+        codex_batch_size=1,
+        codex_runner=_line_role_runner(
+            {
+                0: "OTHER",
+                1: "OTHER",
+                2: "OTHER",
+                3: "OTHER",
+                4: "OTHER",
+            }
+        ),
+        live_llm_allowed=True,
+        progress_callback=progress_messages.append,
+    )
+
+    assert [row.atomic_index for row in predictions] == [0, 1, 2, 3, 4]
+    assert (
+        "Running canonical line-role pipeline... task 0/5 | running 5"
+        in progress_messages
+    )
+
+
 def test_label_atomic_lines_deterministic_progress_callback_reports_task_counts() -> None:
     blocks = [
         {

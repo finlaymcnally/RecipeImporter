@@ -293,6 +293,7 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
     assert pack_index["schema_version"] == "cf.followup_pack.v1"
     assert pack_index["selector_count"] == 1
     assert (pack_dir / "README.md").is_file()
+    assert (pack_dir / "structure_report.json").is_file()
     assert (pack_dir / "case_export" / "case_export.jsonl").is_file()
     assert (pack_dir / "line_role_audit.jsonl").is_file()
     assert (pack_dir / "prompt_link_audit.jsonl").is_file()
@@ -311,6 +312,35 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
 
     uncertainty_rows = _read_jsonl(pack_dir / "uncertainty.jsonl")
     assert uncertainty_rows == []
+
+
+def test_structure_report_writes_bundle_wide_structure_split(tmp_path: Path) -> None:
+    out_path = tmp_path / "structure_report.json"
+    result = runner.invoke(
+        app,
+        [
+            "structure-report",
+            "--bundle",
+            str(SAMPLE_BUNDLE),
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    payload = _read_json(out_path)
+    assert payload["schema_version"] == "benchmark_structure_label_report.v1"
+    assert payload["label_groups"]["structure_core"] == [
+        "RECIPE_TITLE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "HOWTO_SECTION",
+        "YIELD_LINE",
+        "TIME_LINE",
+    ]
+    assert isinstance(payload["slices"]["structure_core"], dict)
+    assert isinstance(payload["slices"]["nonrecipe_core"], dict)
+    assert isinstance(payload["boundary"], dict)
 
 
 def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None:
@@ -411,6 +441,58 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
 
     selectors_payload = _read_json(ask2_dir / "selectors.json")
     assert selectors_payload["selectors"][0]["case_id"] == "line_range_628_657"
+
+
+def test_build_followup_can_write_structure_report_without_case_exports(tmp_path: Path) -> None:
+    request_path = tmp_path / "structure_followup_request.json"
+    request_payload = {
+        "schema_version": "cf.followup_request.v1",
+        "bundle_dir": str(SAMPLE_BUNDLE),
+        "request_id": "followup_structure_request",
+        "request_summary": "Write the bundle-wide structure split only.",
+        "requester_context": {
+            "already_has_upload_bundle_v1": True,
+        },
+        "default_stage_filters": ["line_role"],
+        "asks": [
+            {
+                "ask_id": "ask_structure",
+                "question": "Write the bundle-wide structure vs nonrecipe summary.",
+                "outputs": ["structure_report"],
+                "selectors": {
+                    "include_case_ids": [],
+                    "include_recipe_ids": [],
+                    "include_line_ranges": [],
+                    "top_neg": 0,
+                    "top_pos": 0,
+                    "outside_span": 0,
+                    "stage_filters": [],
+                },
+            }
+        ],
+    }
+    request_path.write_text(json.dumps(request_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    out_dir = tmp_path / "followup_structure"
+    result = runner.invoke(
+        app,
+        [
+            "build-followup",
+            "--bundle",
+            str(SAMPLE_BUNDLE),
+            "--request",
+            str(request_path),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0
+
+    ask_dir = out_dir / "asks" / "ask_structure"
+    ask_index = _read_json(ask_dir / "index.json")
+    assert ask_index["requested_outputs"] == ["structure_report"]
+    assert (ask_dir / "structure_report.json").is_file()
+    assert not (ask_dir / "case_export").exists()
 
 
 def test_request_template_includes_knowledge_example_when_bundle_has_knowledge(

@@ -1,10 +1,11 @@
 {
   "failure_count": 0,
-  "fresh_agent_count": 2,
+  "fresh_agent_count": 5,
   "phase_key": "line_role",
   "pipeline_id": "line-role.canonical.v1",
-  "proposal_count": 3,
+  "proposal_count": 5,
+  "runtime_mode": "classic_task_farm_v1",
   "schema_version": "phase_worker_runtime.telemetry.v1",
-  "shard_count": 3,
-  "worker_count": 2
+  "shard_count": 5,
+  "worker_count": 5
 }

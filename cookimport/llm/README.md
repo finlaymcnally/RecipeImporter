@@ -4,9 +4,11 @@ Optional LLM integrations live here.
 
 Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with strict contracts in `codex_farm_contracts.py` and subprocess/fake runners in `codex_farm_runner.py` and `fake_codex_farm_runner.py`.
 The shared shard-runtime foundation now lives in `phase_worker_runtime.py`: it writes phase/shard manifests, round-robin worker assignments, per-worker sandboxes, per-shard proposed outputs, promotion summaries, and telemetry without promoting anything itself.
-When that shard runtime calls the subprocess runner in `structured_loop_agentic_v1` mode, RecipeImport now also forces `codex-farm process --workers 1` so each RecipeImport worker assignment maps to one CodexFarm process worker. That fixes misleading worker-count fan-out, but it is still not the same thing as true multi-shard Codex session reuse.
+Shard-v1 recipe, knowledge, and line-role work now calls CodexFarm in explicit classic one-shot mode: `codex-farm process --runtime-mode classic_task_farm_v1 --workers 1`. That keeps one RecipeImport worker assignment mapped to one CodexFarm process worker and makes prompt-target counts track real shard-call count much more closely than the old session-style transport label did.
+When shard-v1 worker counts are left unset, recipe, knowledge, and line-role now default to the planned shard/job count for that book+phase, capped at `20`; explicit `*_worker_count` overrides still win.
 Shard-v1 recipe, knowledge, and line-role planning now also expose per-phase prompt-count targets (`*_prompt_target_count`) and default them to `5`. The lower-level shard-size knobs still exist as explicit overrides, but the default operator mental model is now “prompts per phase,” not “items per shard.”
 Active shard-v1 pipeline packs now use path-mode prompt transport. RecipeImport points Codex at the full `workers/<id>/` folder as the workspace root, and the prompt tells Codex to read the deposited shard file from that prewritten worker folder instead of embedding the full payload inline.
+`cf-debug preview-prompts` now prefers live stage telemetry from an existing processed run when those artifacts exist. If not, it tries stage-specific calibration from prior Codex runtime rows under local `data/output`; when neither source exists it reports token estimates as unavailable instead of guessing from prompt text.
 
 Run settings now include shard-v1 pipeline ids plus optional shard worker/size/turn knobs, and they reject removed recipe/knowledge/line-role ids instead of normalizing them.
 Run settings also include the optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
@@ -23,6 +25,7 @@ Runner process metadata now surfaces CodexFarm `process --json.telemetry_report`
 For zero-token runtime rehearsal, point `--codex-farm-cmd` at `scripts/fake-codex-farm.py` and still run execute mode with `--allow-codex`. That path exercises the real shard-runtime input/output folder choreography through the subprocess runner without calling a live model.
 
 When a caller provides a progress callback, `SubprocessCodexFarmRunner` requires `codex-farm process --progress-events --json`, parses `__codex_farm_progress__` stderr JSON events, and forwards spinner-friendly `task X/Y` status messages through the existing callback channel used by stage + benchmark flows.
+The runner also suppresses legacy `run=... queued=... running=...` stderr snapshots when they are just redundant progress noise beside the structured progress channel.
 
 Canonical line-role fallback support now lives in `canonical_line_role_prompt.py` plus CodexFarm-backed adapters in `parsing/canonical_line_roles.py` (`line-role.canonical.v1`) and `labelstudio/prelabel.py` (`prelabel.freeform.v1`).
 

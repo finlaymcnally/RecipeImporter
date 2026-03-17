@@ -301,6 +301,121 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
     assert apply_result.llm_report["skipped_lane_counts"] == {"noise": 1}
 
 
+def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-0",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Sauce Basics",
+                text="Always whisk constantly when adding butter.",
+                blockIds=[0],
+            ),
+            KnowledgeChunk(
+                id="chunk-1",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Seasoning",
+                text="Salt in layers for better control.",
+                blockIds=[1],
+            ),
+            KnowledgeChunk(
+                id="chunk-2",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Storage",
+                text="Cool leftovers quickly before refrigeration.",
+                blockIds=[2],
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 2,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_failure_mode": "fail",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Always whisk constantly when adding butter."},
+                        {"index": 1, "text": "Salt in layers for better control."},
+                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+
+    apply_result = run_codex_farm_knowledge_harvest(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.3",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=3,
+                    block_indices=[0, 1, 2],
+                    block_ids=["b0", "b1", "b2"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.3",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=3,
+                    block_indices=[0, 1, 2],
+                    block_ids=["b0", "b1", "b2"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=FakeCodexFarmRunner(),
+    )
+
+    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 2
+    assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
+
+
 def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
     tmp_path: Path,
 ) -> None:

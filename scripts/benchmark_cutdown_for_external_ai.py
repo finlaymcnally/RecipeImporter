@@ -53,6 +53,7 @@ from cookimport.bench.upload_bundle_v1_render import (
     build_recipe_pipeline_context_from_model,
     write_upload_bundle_v1,
 )
+from cookimport.bench.structure_label_report import build_structure_label_report
 from cookimport.runs.stage_observability import stage_artifact_stem, stage_label
 
 
@@ -12656,6 +12657,11 @@ def _write_upload_bundle_three_files(
             str(row.get("source_key") or ""),
         )
     )
+    structure_label_report = build_structure_label_report(
+        per_label_metrics=per_label_metrics,
+        pair_rows=pair_inventory,
+        run_dir_by_id=run_dir_by_id,
+    )
 
     default_initial_views = [
         "topline",
@@ -12664,6 +12670,7 @@ def _write_upload_bundle_three_files(
         "analysis.net_error_blame_summary",
         "analysis.config_version_metadata",
         "analysis.recipe_pipeline_context",
+        "analysis.structure_label_report",
         "analysis.knowledge",
         "analysis.per_label_metrics",
         "analysis.per_recipe_breakdown",
@@ -12787,6 +12794,7 @@ def _write_upload_bundle_three_files(
             "net_error_blame_summary": net_error_blame_summary,
             "config_version_metadata": config_version_metadata,
             "recipe_pipeline_context": recipe_pipeline_context,
+            "structure_label_report": structure_label_report,
             "knowledge": knowledge_summary,
             "group_high_level": group_high_level_packet_summary,
             "per_label_metrics": per_label_metrics,

@@ -32,7 +32,7 @@ from .codex_farm_runner import (
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
-from .phase_worker_runtime import run_phase_workers_v1
+from .phase_worker_runtime import resolve_phase_worker_count, run_phase_workers_v1
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,10 @@ def run_codex_farm_knowledge_harvest(
             write_report=None,
         )
 
-    worker_count = max(1, int(run_settings.knowledge_worker_count or 1))
+    worker_count = resolve_phase_worker_count(
+        requested_worker_count=run_settings.knowledge_worker_count,
+        shard_count=len(build_report.shard_entries),
+    )
     phase_manifest = None
     worker_reports: list[dict[str, Any]] = []
     process_run_payload: dict[str, Any] | None = None

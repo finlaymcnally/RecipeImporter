@@ -342,6 +342,7 @@ def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(
         {
             "line_role_pipeline": "codex-line-role-shard-v1",
             "line_role_worker_count": 1,
+            "line_role_prompt_target_count": None,
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
         }

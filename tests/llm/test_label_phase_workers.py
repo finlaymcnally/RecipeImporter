@@ -61,7 +61,7 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
 
     predictions = label_atomic_lines(
         [_candidate(0), _candidate(1), _candidate(2)],
-        _settings(line_role_worker_count=1),
+        _settings(line_role_worker_count=1, line_role_prompt_target_count=None),
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_runner=runner,

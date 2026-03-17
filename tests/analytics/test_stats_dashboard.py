@@ -2356,7 +2356,7 @@ class TestCollectors:
         self, tmp_path
     ):
         output_root = tmp_path / "output"
-        history_dir = output_root / ".history"
+        history_dir = history_csv_for_output(output_root).parent
         history_dir.mkdir(parents=True)
         primary_csv_path = history_dir / "performance_history.csv"
 
@@ -2437,7 +2437,7 @@ class TestCollectors:
         self, tmp_path
     ):
         output_root = tmp_path / "output"
-        history_dir = output_root / ".history"
+        history_dir = history_csv_for_output(output_root).parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -2517,7 +2517,7 @@ class TestCollectors:
         self, tmp_path
     ):
         output_root = tmp_path / "output"
-        history_dir = output_root / ".history"
+        history_dir = history_csv_for_output(output_root).parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -2593,7 +2593,7 @@ class TestCollectors:
 
     def test_csv_collector_keeps_backfilled_ai_effort_rows(self, tmp_path):
         output_root = tmp_path / "output"
-        history_dir = output_root / ".history"
+        history_dir = history_csv_for_output(output_root).parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -5205,7 +5205,7 @@ class TestBenchmarkCsv:
         assert record.gold_recipe_headers is None
 
     def test_benchmark_csv_per_label_json_roundtrip(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True, exist_ok=True)
         csv_path = history_dir / "performance_history.csv"
         append_benchmark_csv(
@@ -5274,7 +5274,7 @@ class TestBenchmarkCsv:
         assert float(rows[1]["precision"]) == pytest.approx(0.05)
 
     def test_backfill_benchmark_csv_from_manifest(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
@@ -5325,7 +5325,7 @@ class TestBenchmarkCsv:
         assert row["file_name"] == "book.epub"
 
     def test_backfill_benchmark_csv_sums_bench_suite_item_recipes(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         run_dir = tmp_path / "golden" / "bench" / "runs" / "2026-02-16_14.20.00"
@@ -5374,7 +5374,7 @@ class TestBenchmarkCsv:
         assert row["report_path"] == ""
 
     def test_backfill_benchmark_csv_fills_line_role_tokens_from_manifest(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.30.00"
@@ -5434,7 +5434,7 @@ class TestBenchmarkCsv:
     def test_backfill_benchmark_csv_fills_line_role_tokens_from_run_manifest_artifact(
         self, tmp_path
     ):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.35.00"
@@ -5493,7 +5493,7 @@ class TestBenchmarkCsv:
         assert row["tokens_total"] == "17"
 
     def test_dashboard_collector_sums_codex_farm_and_line_role_manifest_tokens(self, tmp_path):
-        history_dir = tmp_path / "output" / ".history"
+        history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.40.00"

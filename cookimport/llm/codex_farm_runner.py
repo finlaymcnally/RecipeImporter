@@ -22,6 +22,8 @@ _CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
 _CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
 _BENCHMARK_RECOVERABLE_PARTIAL_MAX_MISSING_OUTPUTS = 3
 _BENCHMARK_RECOVERABLE_PARTIAL_MIN_SUCCESS_RATIO = 0.8
+CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1 = "classic_task_farm_v1"
+CODEX_FARM_RUNTIME_MODE_STRUCTURED_LOOP_AGENTIC_V1 = "structured_loop_agentic_v1"
 _RUNTIME_AGENTIC_FLAG_PREFIXES = (
     "--approval",
     "--sandbox",
@@ -86,7 +88,8 @@ class CodexFarmRunner(Protocol):
         workspace_root: Path | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
-        runtime_audit_mode: str | None = None,
+        runtime_mode: str | None = None,
+        process_worker_count: int | None = None,
     ) -> CodexFarmPipelineRunResult | None:
         """Run a codex-farm pipeline over input/output directories."""
 
@@ -284,7 +287,10 @@ def _progress_events_option_unsupported(stderr_text: str) -> bool:
 
 def _benchmark_mode_option_unsupported(stderr_text: str) -> bool:
     lowered = str(stderr_text or "").strip().lower()
-    if not lowered or "--benchmark-mode" not in lowered:
+    if not lowered or (
+        "--recipeimport-benchmark-mode" not in lowered
+        and "--benchmark-mode" not in lowered
+    ):
         return False
     return any(
         marker in lowered
@@ -330,6 +336,14 @@ def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
 _CODEX_FARM_CREATED_RUN_PATTERN = re.compile(
     r"^Created run (?P<run_id>\S+) with (?P<total_tasks>-?\d+) tasks$"
 )
+_CODEX_FARM_LEGACY_RUN_PROGRESS_PATTERN = re.compile(
+    r"^run=(?P<run_id>\S+)\s+"
+    r"queued=(?P<queued>-?\d+)\s+"
+    r"running=(?P<running>-?\d+)\s+"
+    r"done=(?P<done>-?\d+)\s+"
+    r"error=(?P<error>-?\d+)\s+"
+    r"canceled=(?P<canceled>-?\d+)$"
+)
 
 
 def _parse_created_run_line(stderr_line: str) -> dict[str, int | str] | None:
@@ -345,6 +359,27 @@ def _parse_created_run_line(stderr_line: str) -> dict[str, int | str] | None:
     except (TypeError, ValueError):
         return None
     return {"run_id": run_id, "total_tasks": total_tasks}
+
+
+def _parse_legacy_run_progress_line(stderr_line: str) -> dict[str, Any] | None:
+    line = str(stderr_line or "").strip()
+    match = _CODEX_FARM_LEGACY_RUN_PROGRESS_PATTERN.match(line)
+    if match is None:
+        return None
+    run_id = str(match.group("run_id") or "").strip()
+    if not run_id:
+        return None
+    try:
+        counts = {
+            "queued": int(match.group("queued")),
+            "running": int(match.group("running")),
+            "done": int(match.group("done")),
+            "error": int(match.group("error")),
+            "canceled": int(match.group("canceled")),
+        }
+    except (TypeError, ValueError):
+        return None
+    return {"run_id": run_id, "counts": counts}
 
 
 def _format_created_run_progress_message(
@@ -371,6 +406,8 @@ def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
         if _parse_progress_event(raw_line) is not None:
             continue
         if _parse_created_run_line(raw_line) is not None:
+            continue
+        if _parse_legacy_run_progress_line(raw_line) is not None:
             continue
         lines.append(raw_line.rstrip("\r\n"))
     return lines
@@ -577,9 +614,12 @@ def _build_runtime_mode_audit(
     *,
     command: Sequence[str],
     output_schema_path: str | None,
-    runtime_audit_mode: str | None = None,
+    runtime_mode: str | None = None,
 ) -> dict[str, Any]:
     configured_process_workers = _coerce_int(_option_value_from_tokens(command, "workers"))
+    configured_runtime_mode = _clean_text(
+        _option_value_from_tokens(command, "runtime-mode") or runtime_mode
+    )
     tool_affordances_requested = any(
         any(token == prefix or token.startswith(f"{prefix}=") for prefix in _RUNTIME_AGENTIC_FLAG_PREFIXES)
         for token in command
@@ -590,7 +630,7 @@ def _build_runtime_mode_audit(
     if tool_affordances_requested:
         reason_codes.append("runtime_agentic_flag_present")
     return {
-        "mode": str(runtime_audit_mode or "structured_output_non_agentic"),
+        "mode": configured_runtime_mode or "structured_output_non_agentic",
         "status": "ok" if not reason_codes else "invalid",
         "output_schema_enforced": bool(str(output_schema_path or "").strip()),
         "tool_affordances_requested": tool_affordances_requested,
@@ -1274,13 +1314,13 @@ class SubprocessCodexFarmRunner:
         workspace_root: Path | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
-        runtime_audit_mode: str | None = None,
+        runtime_mode: str | None = None,
+        process_worker_count: int | None = None,
     ) -> CodexFarmPipelineRunResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         expected_schema_path: Path | None = None
-        requested_process_workers = (
-            1 if str(runtime_audit_mode or "").strip() == "structured_loop_agentic_v1" else None
-        )
+        cleaned_runtime_mode = _clean_text(runtime_mode) or None
+        requested_process_workers = _coerce_int(process_worker_count)
         selected_recipe_mode = _normalize_codex_farm_recipe_mode(
             env.get(_CODEX_FARM_RECIPE_MODE_ENV)
         )
@@ -1298,14 +1338,16 @@ class SubprocessCodexFarmRunner:
             command.extend(["--model", str(model)])
         if reasoning_effort:
             command.extend(["--reasoning-effort", str(reasoning_effort)])
+        if cleaned_runtime_mode:
+            command.extend(["--runtime-mode", cleaned_runtime_mode])
         if root_dir is not None:
             expected_schema_path = resolve_codex_farm_output_schema_path(
                 root_dir=root_dir,
                 pipeline_id=pipeline_id,
             )
             command.extend(["--output-schema", str(expected_schema_path)])
-        if selected_recipe_mode is not None:
-            command.extend(["--benchmark-mode", selected_recipe_mode])
+        if selected_recipe_mode == _CODEX_FARM_RECIPE_MODE_BENCHMARK:
+            command.extend(["--recipeimport-benchmark-mode", "line_label_v1"])
         if requested_process_workers is not None:
             command.extend(["--workers", str(requested_process_workers)])
         command.append("--json")
@@ -1347,6 +1389,8 @@ class SubprocessCodexFarmRunner:
                             )
                         )
                         return True
+                    if _parse_legacy_run_progress_line(line) is not None:
+                        return True
                     return False
                 if progress_payload.get("event") == "run_started" and progress_payload.get("run_id"):
                     _emit_progress(
@@ -1378,7 +1422,7 @@ class SubprocessCodexFarmRunner:
             )
         if completed.returncode != 0 and _benchmark_mode_option_unsupported(completed.stderr):
             raise CodexFarmRunnerError(
-                "codex-farm does not support --benchmark-mode. "
+                "codex-farm does not support --recipeimport-benchmark-mode. "
                 "Upgrade codex-farm to a build that supports current RecipeImport transport flags."
             )
 
@@ -1527,7 +1571,7 @@ class SubprocessCodexFarmRunner:
         runtime_mode_audit = _build_runtime_mode_audit(
             command=command,
             output_schema_path=output_schema_path,
-            runtime_audit_mode=runtime_audit_mode,
+            runtime_mode=cleaned_runtime_mode,
         )
 
         return CodexFarmPipelineRunResult(

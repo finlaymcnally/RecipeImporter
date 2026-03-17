@@ -1,0 +1,18 @@
+{
+  "payload": {
+    "rows": [
+      {
+        "atomic_index": 4,
+        "label": "OTHER"
+      }
+    ]
+  },
+  "shard_id": "line-role-shard-0005-a000004-a000004",
+  "validation_errors": [],
+  "validation_metadata": {
+    "owned_row_count": 1,
+    "returned_row_count": 1,
+    "validated_row_count": 1
+  },
+  "worker_id": "worker-005"
+}

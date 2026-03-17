@@ -9,17 +9,18 @@
     "worker_assignments": "worker_assignments.json"
   },
   "assignment_strategy": "round_robin_v1",
-  "max_turns_per_shard": null,
+  "max_turns_per_shard": 1,
   "phase_key": "line_role",
   "pipeline_id": "line-role.canonical.v1",
   "run_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime",
   "runtime_metadata": {},
+  "runtime_mode": "classic_task_farm_v1",
   "schema_version": "phase_worker_runtime.phase_manifest.v1",
   "settings": {
     "codex_timeout_seconds": 600,
     "line_role_pipeline": "codex-line-role-shard-v1",
     "line_role_shard_target_lines": 1
   },
-  "shard_count": 3,
-  "worker_count": 2
+  "shard_count": 5,
+  "worker_count": 5
 }

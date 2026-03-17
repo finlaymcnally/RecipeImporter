@@ -58,7 +58,7 @@ def _patch_single_offline_smoke_runtime(
     )
     monkeypatch.setattr(
         cli_module,
-        "_maybe_upload_benchmark_bundle_to_oracle",
+        "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
     monkeypatch.setattr(

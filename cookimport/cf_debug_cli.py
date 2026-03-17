@@ -11,6 +11,7 @@ from cookimport.bench.followup_bundle import (
     write_followup_pack,
     write_followup_request_packet,
     write_followup_request_template,
+    write_structure_report,
     write_line_role_audit,
     write_page_context,
     write_knowledge_audit,
@@ -156,6 +157,15 @@ def export_cases(
     out: Path = typer.Option(..., "--out"),
 ) -> None:
     write_case_export(bundle_dir=bundle, selectors_path=selectors, out_dir=out)
+    typer.echo(str(out))
+
+
+@app.command("structure-report")
+def structure_report(
+    bundle: Path = typer.Option(..., "--bundle", exists=True, file_okay=False, dir_okay=True),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    write_structure_report(bundle_dir=bundle, out_path=out)
     typer.echo(str(out))
 
 
@@ -501,9 +511,8 @@ def preview_shard_sweep(
                 "slug": experiment_slug,
                 "manifest_path": str(manifest_path.relative_to(out)),
                 "preview_dir": str(experiment_out.relative_to(out)),
-                "estimated_total_tokens": int(
+                "estimated_total_tokens": (
                     ((budget_payload.get("totals") or {}) if isinstance(budget_payload.get("totals"), dict) else {}).get("estimated_total_tokens")
-                    or 0
                 ),
                 "warnings": manifest_payload.get("warnings") or [],
                 "phases": [
@@ -540,7 +549,11 @@ def preview_shard_sweep(
         lines.append(f"## {experiment['name']}")
         lines.append("")
         lines.append(f"- Preview dir: `{experiment['preview_dir']}`")
-        lines.append(f"- Estimated total tokens: `~{int(experiment['estimated_total_tokens']):,}`")
+        estimated_total_tokens = experiment.get("estimated_total_tokens")
+        if estimated_total_tokens is None:
+            lines.append("- Estimated total tokens: `unavailable`")
+        else:
+            lines.append(f"- Estimated total tokens: `~{int(estimated_total_tokens):,}`")
         warnings = experiment.get("warnings")
         if isinstance(warnings, list) and warnings:
             lines.append("- Warnings:")

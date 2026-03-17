@@ -174,12 +174,13 @@ Prompt/debug artifacts:
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
 - `prompts/thinking_trace_summary.jsonl` and `prompts/thinking_trace_summary.md` summarize trace-path coverage, availability, and reasoning-event presence from the merged prompt log
 - `prediction-run/prompt_budget_summary.json` merges recipe/knowledge telemetry with line-role telemetry when present and now publishes semantic `by_stage` totals instead of an old pass-slot grouping container
+- `prediction-run/prompt_budget_summary.json` now also falls back to current shard-runtime worker telemetry plus the linked processed-run `line-role-pipeline/telemetry_summary.json` when a benchmark/prediction manifest only carries lightweight phase summaries or a metadata-only benchmark copy
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - when `--run` points at a benchmark root, preview follows `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it reaches the processed stage run with the real staged outputs
 - preview manifests now carry `phase_plans` keyed by stage, with worker count, shard count, owned-ID distributions, and first-turn payload distributions; prompt rows also carry `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids`
 - `cf-debug preview-shard-sweep --run ... --experiment-file docs/examples/shard_sweep_examples.json --out ...` runs several local worker/shard planning variants and writes one sweep manifest plus per-experiment preview dirs
 - when a processed run already has live CodexFarm input files under `raw/llm/<workbook_slug>/{recipe_correction,knowledge}/in/`, preview export reuses those exact payloads before falling back to local reconstruction
-- preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`, with heuristic token estimates plus blunt warnings, but the main table is now worker/shard-centric instead of prompt-count-centric
+- preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`; when the referenced processed run already has stage telemetry on disk, preview prefers those observed token totals, otherwise it tries stage-specific historical calibration from local `data/output` Codex runtime rows, and if neither source exists it reports token estimates as unavailable instead of guessing
 - reviewer-facing prompt files stay prompt-level on purpose; the durable cutover is to annotate them with runtime ownership metadata (`runtime_shard_id`, `runtime_worker_id`, `runtime_owned_ids`), not to invent a second legacy export family just for shard workers
 - preview defaults to the shard-v1 surfaces unless explicitly overridden, so it can project post-refactor worker/shard budgets over saved deterministic-only benchmark outputs too
 - preview reconstruction is local-only and composed from three seams:
@@ -239,9 +240,11 @@ Shard-runtime observability note:
 
 - `SubprocessCodexFarmRunner` validates configured pipeline IDs via `codex-farm pipelines list --root ... --json`.
 - `SubprocessCodexFarmRunner` now forces RecipeImport-owned CodexFarm subprocesses onto `~/.codex-recipe` by default by injecting `CODEX_HOME` plus `CODEX_FARM_CODEX_HOME_RECIPE` at the transport layer; explicit subprocess env overrides still win.
+- `SubprocessCodexFarmRunner` now maps RecipeImport benchmark mode to CodexFarm's `--recipeimport-benchmark-mode line_label_v1`; ordinary `extract` mode sends no benchmark-only process flag.
 - For zero-token handoff rehearsal, point `--codex-farm-cmd` at `scripts/fake-codex-farm.py` and still run execute mode with `--allow-codex`; RecipeImport will exercise the real shard-runtime folders through the subprocess runner without live model calls.
-- shard-runtime worker assignments now also force `codex-farm process --workers 1` for `structured_loop_agentic_v1`, so one RecipeImport worker assignment no longer fans back out into several CodexFarm process workers
-- that improves worker-count honesty, but it is still not true multi-shard Codex session reuse: the runner still shells out through `codex-farm process`, and `max_turns_per_shard` remains a repo-side planning/manifest field rather than a transport-enforced limit
+- shard-v1 recipe, knowledge, and line-role workers now explicitly run `codex-farm process --runtime-mode classic_task_farm_v1 --workers 1`, so each RecipeImport worker assignment stays one classic one-shot CodexFarm worker and one shard still maps to one task call
+- when `recipe_worker_count`, `knowledge_worker_count`, or `line_role_worker_count` are unset, shard-v1 now defaults live and preview worker planning to the planned shard/job count for that one book+phase, capped at `20`
+- RecipeImport no longer labels shard-v1 work as `structured_loop_agentic_v1`; the classic runtime choice is intentional so prompt-target counts describe real shard-call count instead of hidden extra session turns. True multi-shard session reuse would be a future transport change, not the current default.
 - Runner resolves each pipeline's `output_schema_path` and passes it explicitly as `--output-schema`.
 - `process --json` metadata is persisted as the semantic recipe-correction `process_run`.
 - Persisted process metadata includes:

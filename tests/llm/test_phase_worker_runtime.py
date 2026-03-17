@@ -6,10 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from cookimport.llm.codex_farm_runner import SubprocessCodexFarmRunner
+from cookimport.llm.codex_farm_runner import (
+    CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1,
+    SubprocessCodexFarmRunner,
+)
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
 from cookimport.llm.phase_worker_runtime import (
     ShardManifestEntryV1,
+    resolve_phase_worker_count,
     run_phase_workers_v1,
 )
 
@@ -61,10 +65,11 @@ def test_phase_worker_runtime_writes_manifests_assignments_and_failures(
 
     assert manifest.worker_count == 1
     assert manifest.shard_count == 2
+    assert manifest.runtime_mode == CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1
     assert manifest.assignment_strategy == "round_robin_v1"
     assert reports[0].shard_ids == ("shard-001", "shard-002")
     assert reports[0].runtime_mode_audit == {
-        "mode": "structured_loop_agentic_v1",
+        "mode": CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1,
         "status": "ok",
     }
     assert reports[0].failure_count == 1
@@ -84,6 +89,8 @@ def test_phase_worker_runtime_writes_manifests_assignments_and_failures(
     )
 
     assert phase_manifest["artifact_paths"]["shard_manifest"] == "shard_manifest.jsonl"
+    assert phase_manifest["runtime_mode"] == CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1
+    assert phase_manifest["max_turns_per_shard"] == 1
     assert assignments == [
         {
             "shard_ids": ["shard-001", "shard-002"],
@@ -94,6 +101,7 @@ def test_phase_worker_runtime_writes_manifests_assignments_and_failures(
     assert promotion_report["validated_shards"] == 1
     assert promotion_report["invalid_shards"] == 1
     assert promotion_report["missing_output_shards"] == 0
+    assert telemetry["runtime_mode"] == CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1
     assert telemetry["fresh_agent_count"] == 1
     assert telemetry["shard_count"] == 2
     assert failures == [
@@ -226,6 +234,11 @@ def test_phase_worker_runtime_routes_through_runner_workspace_and_codex_home(
     assert isinstance(process_env, dict)
     assert "--workspace-root" in process_command
     assert str(tmp_path / "runtime" / "workers" / "worker-001") in process_command
+    assert "--runtime-mode" in process_command
+    assert (
+        process_command[process_command.index("--runtime-mode") + 1]
+        == CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1
+    )
     assert "--workers" in process_command
     assert process_command[process_command.index("--workers") + 1] == "1"
     assert process_env["CODEX_HOME"] == str(default_home)
@@ -233,12 +246,24 @@ def test_phase_worker_runtime_routes_through_runner_workspace_and_codex_home(
     assert process_env["EXTRA_ENV"] == "1"
 
     assert manifest.worker_count == 1
+    assert manifest.runtime_mode == CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1
     assert reports[0].runtime_mode_audit == {
         "codex_farm_process_workers": 1,
-        "mode": "structured_loop_agentic_v1",
+        "mode": CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1,
         "output_schema_enforced": True,
         "reason_codes": [],
         "single_process_worker_enforced": True,
         "status": "ok",
         "tool_affordances_requested": False,
     }
+
+
+def test_resolve_phase_worker_count_defaults_to_shard_count_capped_at_20() -> None:
+    assert resolve_phase_worker_count(requested_worker_count=None, shard_count=0) == 0
+    assert resolve_phase_worker_count(requested_worker_count=None, shard_count=5) == 5
+    assert resolve_phase_worker_count(requested_worker_count=None, shard_count=25) == 20
+
+
+def test_resolve_phase_worker_count_honors_explicit_override() -> None:
+    assert resolve_phase_worker_count(requested_worker_count=7, shard_count=5) == 5
+    assert resolve_phase_worker_count(requested_worker_count=3, shard_count=5) == 3

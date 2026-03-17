@@ -685,7 +685,7 @@ def test_run_with_progress_status_clears_codex_worker_state_for_new_phase(
     phase_messages = [
         message
         for message in capture.messages
-        if "canonical line-role" in message.lower()
+        if "canonical" in message.lower() and "line-role" in message.lower()
     ]
     assert phase_messages
     assert all("active workers: 0" not in message for message in phase_messages)
@@ -782,6 +782,55 @@ def test_run_with_progress_status_shows_eta_for_canonical_line_role_progress(
         and "avg " in message
         for message in capture.messages
     )
+
+
+def test_run_with_progress_status_shows_worker_rows_for_generic_running_task_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Running canonical line-role pipeline... task 1/4 | running 4")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    phase_messages = [
+        message
+        for message in capture.messages
+        if "canonical" in message.lower() and "line-role" in message.lower()
+    ]
+    assert phase_messages
+    assert any("active workers: 4" in message for message in phase_messages)
+    assert any("worker 01: running" in message for message in phase_messages)
 
 
 def test_run_with_progress_status_clamps_live_box_width_to_terminal(

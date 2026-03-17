@@ -1,14 +1,14 @@
 [
   {
     "evidence_refs": [
-      "block:progress:1"
+      "block:default-workers:1"
     ],
     "input_payload": {
       "phase_key": "line_role",
       "rows": [
         {
           "atomic_index": 1,
-          "block_id": "block:progress:1",
+          "block_id": "block:default-workers:1",
           "block_index": 1,
           "deterministic_label": "OTHER",
           "escalation_reasons": [

@@ -36,6 +36,7 @@ from cookimport.llm.codex_farm_runner import (
 from cookimport.llm.phase_worker_runtime import (
     ShardManifestEntryV1,
     WorkerExecutionReportV1,
+    resolve_phase_worker_count,
     run_phase_workers_v1,
 )
 from cookimport.llm.shard_prompt_targets import resolve_items_per_shard
@@ -790,17 +791,35 @@ def _resolve_line_role_worker_count(
     *,
     settings: RunSettings,
     codex_max_inflight: int | None,
+    shard_count: int,
 ) -> int:
     if codex_max_inflight is not None:
-        return _normalize_line_role_codex_max_inflight_value(codex_max_inflight)
+        return resolve_phase_worker_count(
+            requested_worker_count=_normalize_line_role_codex_max_inflight_value(
+                codex_max_inflight
+            ),
+            shard_count=shard_count,
+        )
     configured = getattr(settings, "line_role_worker_count", None)
     resolved = getattr(configured, "value", configured)
     if resolved is not None:
         try:
-            return max(1, min(int(resolved), 256))
+            return resolve_phase_worker_count(
+                requested_worker_count=max(1, min(int(resolved), 256)),
+                shard_count=shard_count,
+            )
         except (TypeError, ValueError):
             pass
-    return _resolve_line_role_codex_max_inflight()
+    raw_env = str(os.getenv(_LINE_ROLE_CODEX_MAX_INFLIGHT_ENV) or "").strip()
+    if raw_env:
+        return resolve_phase_worker_count(
+            requested_worker_count=_normalize_line_role_codex_max_inflight_value(raw_env),
+            shard_count=shard_count,
+        )
+    return resolve_phase_worker_count(
+        requested_worker_count=None,
+        shard_count=shard_count,
+    )
 
 
 def _resolve_line_role_shard_max_turns(*, settings: RunSettings) -> int | None:
@@ -883,11 +902,12 @@ def _run_line_role_shard_runtime(
     else:
         runner = codex_runner
 
+    total_shards = len(shard_plans)
     worker_count = _resolve_line_role_worker_count(
         settings=settings,
         codex_max_inflight=codex_max_inflight,
+        shard_count=total_shards,
     )
-    total_shards = len(shard_plans)
     _notify_line_role_progress(
         progress_callback=progress_callback,
         completed_tasks=0,

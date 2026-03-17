@@ -1975,6 +1975,11 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     )
     assert codex_settings["line_role_pipeline"] == "codex-line-role-shard-v1"
     assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
+    structure_report = index_payload["analysis"].get("structure_label_report")
+    assert isinstance(structure_report, dict)
+    assert structure_report.get("schema_version") == "benchmark_structure_label_report.v1"
+    assert isinstance(structure_report.get("slices"), dict)
+    assert isinstance(structure_report.get("boundary"), dict)
     assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
     assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
     escalation_packet = index_payload["analysis"].get("explicit_escalation_changed_lines_packet")
@@ -2025,6 +2030,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert "analysis.triage_packet" in default_views
     assert "analysis.explicit_escalation_changed_lines_packet" in default_views
     assert "analysis.recipe_pipeline_context" in default_views
+    assert "analysis.structure_label_report" in default_views
     row_locators = navigation_payload.get("row_locators")
     assert isinstance(row_locators, dict)
     root_locators = row_locators.get("root_files")
