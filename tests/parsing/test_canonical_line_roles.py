@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-import time
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_prompt,
     serialize_line_role_targets,
 )
+from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
@@ -22,6 +22,40 @@ def _load_fixture(name: str) -> dict[str, object]:
 
 def _settings(mode: str = "deterministic-v1", **kwargs):
     return RunSettings(line_role_pipeline=mode, **kwargs)
+
+
+def _line_role_runner(
+    label_by_atomic_index: dict[int, str] | None = None,
+    *,
+    output_builder=None,
+):
+    def _default_builder(payload):
+        prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
+        atomic_indices = [
+            int(value)
+            for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
+        ]
+        if not atomic_indices:
+            atomic_indices = [
+                int(value) for value in re.findall(r"(?m)^\[(\d+),", prompt_text)
+            ]
+        return {
+            "rows": [
+                {
+                    "atomic_index": atomic_index,
+                    "label": (label_by_atomic_index or {}).get(atomic_index, "OTHER"),
+                }
+                for atomic_index in atomic_indices
+            ]
+        }
+
+    return FakeCodexFarmRunner(
+        output_builders={
+            canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID: (
+                output_builder or _default_builder
+            )
+        }
+    )
 
 
 def test_label_atomic_lines_hollandaise_note_and_howto_rules() -> None:
@@ -93,7 +127,6 @@ def test_label_atomic_lines_instruction_with_time_stays_instruction() -> None:
 
 
 def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time(
-    monkeypatch,
 ) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -109,30 +142,19 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
         )
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "TIME_LINE"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        codex_runner=_line_role_runner({0: "TIME_LINE"}),
+        live_llm_allowed=True,
     )
-    predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
     assert len(predictions) == 1
     assert predictions[0].label == "INSTRUCTION_LINE"
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_time_to_instruction" in predictions[0].reason_tags
 
 
-def test_label_atomic_lines_passes_explicit_live_llm_approval_to_codex_calls(
-    monkeypatch,
-) -> None:
+def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtime() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -146,29 +168,19 @@ def test_label_atomic_lines_passes_explicit_live_llm_approval_to_codex_calls(
             rule_tags=["recipe_span_fallback"],
         )
     ]
-    observed_allow_llm: list[bool] = []
-
-    def _fake_codex_call(**kwargs):
-        observed_allow_llm.append(bool(kwargs.get("allow_llm")))
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
+    blocked_predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        codex_runner=_line_role_runner({0: "OTHER"}),
     )
+    assert blocked_predictions[0].decided_by == "fallback"
+
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
+        codex_runner=_line_role_runner({0: "OTHER"}),
         live_llm_allowed=True,
     )
-    assert observed_allow_llm == [True]
     assert predictions[0].decided_by == "codex"
 
 
@@ -617,7 +629,7 @@ def test_label_atomic_lines_outside_recipe_how_to_heading_is_not_recipe_title() 
     assert predictions[0].label != "RECIPE_TITLE"
 
 
-def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -> None:
+def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -654,21 +666,12 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -
         ),
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps([{"atomic_index": 1, "label": "OTHER"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        codex_runner=_line_role_runner({1: "OTHER"}),
+        live_llm_allowed=True,
     )
-    predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
     by_index = {row.atomic_index: row for row in predictions}
     assert by_index[1].label == "INGREDIENT_LINE"
     assert by_index[1].decided_by == "fallback"
@@ -810,9 +813,7 @@ def test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_
     assert predictions[0].label == "OTHER"
 
 
-def test_title_like_line_stays_resolved_when_full_book_codex_reviews_it(
-    monkeypatch,
-) -> None:
+def test_title_like_line_stays_resolved_when_full_book_codex_reviews_it(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -827,34 +828,20 @@ def test_title_like_line_stays_resolved_when_full_book_codex_reviews_it(
         )
     ]
 
-    observed_prompts: list[str] = []
-
-    def _fake_codex_call(**kwargs):
-        observed_prompts.append(str(kwargs.get("prompt") or ""))
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "OTHER"}),
+        live_llm_allowed=True,
     )
-    assert len(observed_prompts) == 1
+    assert (tmp_path / "line-role-pipeline" / "prompts" / "prompt_0001.txt").exists()
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by in {"rule", "fallback"}
 
 
-def test_codex_mode_accepts_global_label_not_present_in_old_shortlist(monkeypatch) -> None:
+def test_codex_mode_accepts_global_label_not_present_in_old_shortlist() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -869,23 +856,11 @@ def test_codex_mode_accepts_global_label_not_present_in_old_shortlist(monkeypatc
         )
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "RECIPE_TITLE"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
+        codex_runner=_line_role_runner({0: "RECIPE_TITLE"}),
+        live_llm_allowed=True,
     )
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
@@ -980,7 +955,7 @@ def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence()
     assert "ownership_veto_time_line_needs_strong_evidence" in accepted.reason_tags
 
 
-def test_codex_mode_preserves_deterministic_recipe_title_without_score_escalation(monkeypatch) -> None:
+def test_codex_mode_preserves_deterministic_recipe_title_without_score_escalation() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -1006,21 +981,20 @@ def test_codex_mode_preserves_deterministic_recipe_title_without_score_escalatio
         )
     ]
 
-    def _codex_should_not_run(**_kwargs):
-        raise AssertionError("codex runner should not execute for deterministic title hold")
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _codex_should_not_run,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
+        codex_runner=_line_role_runner({0: "OTHER", 1: "INGREDIENT_LINE"}),
+        live_llm_allowed=True,
     )
     assert len(predictions) == 2
     assert predictions[0].label == "RECIPE_TITLE"
-    assert predictions[0].decided_by == "rule"
-    assert predictions[0].escalation_reasons == ["outside_span_structured_label"]
+    assert predictions[0].decided_by == "fallback"
+    assert predictions[0].escalation_reasons == [
+        "fallback_decision",
+        "outside_span_structured_label",
+        "ownership_veto",
+    ]
 
 
 def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
@@ -1046,7 +1020,6 @@ def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
 
 
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
-    monkeypatch,
     tmp_path,
 ) -> None:
     candidates = [
@@ -1066,24 +1039,14 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         )
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": "not-json",
-            "returncode": 0,
-            "stdout": "not-json",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
         artifact_root=tmp_path,
+        codex_runner=_line_role_runner(
+            output_builder=lambda _payload: {"rows": [{"atomic_index": 999, "label": "OTHER"}]}
+        ),
+        live_llm_allowed=True,
     )
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
@@ -1218,7 +1181,6 @@ def test_canonical_line_role_prompt_blanks_neighbors_outside_recipe_rows() -> No
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
-    monkeypatch,
     tmp_path,
 ) -> None:
     candidates = [
@@ -1266,30 +1228,12 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
         ),
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps(
-                [
-                    {"atomic_index": 0, "label": "OTHER"},
-                    {"atomic_index": 1, "label": "KNOWLEDGE"},
-                    {"atomic_index": 2, "label": "OTHER"},
-                ]
-            ),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
         artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE", 2: "OTHER"}),
+        live_llm_allowed=True,
     )
     by_index = {row.atomic_index: row for row in predictions}
     assert by_index[1].label == "KNOWLEDGE"
@@ -1297,7 +1241,6 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
 
 
 def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
-    monkeypatch,
     tmp_path,
 ) -> None:
     candidates = [
@@ -1345,39 +1288,19 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
         ),
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps(
-                [
-                    {"atomic_index": 0, "label": "OTHER"},
-                    {"atomic_index": 1, "label": "KNOWLEDGE"},
-                    {"atomic_index": 2, "label": "OTHER"},
-                ]
-            ),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
         artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE", 2: "OTHER"}),
+        live_llm_allowed=True,
     )
     by_index = {row.atomic_index: row for row in predictions}
     assert by_index[1].label == "OTHER"
     assert by_index[1].decided_by == "fallback"
 
 
-def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_reasons(
-    monkeypatch,
-) -> None:
+def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_reasons() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -1392,20 +1315,15 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
         )
     ]
 
-    def _should_not_call_codex(**_kwargs):
-        raise AssertionError("outside-span score-based escalation should be gone")
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _should_not_call_codex,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
+        codex_runner=_line_role_runner({0: "OTHER"}),
+        live_llm_allowed=True,
     )
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by in {"rule", "fallback"}
+    assert predictions[0].decided_by == "codex"
     assert predictions[0].escalation_reasons == []
 
 
@@ -1774,12 +1692,13 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
     )
 
     assert plan["enabled"] is True
-    assert plan["planned_batch_count"] == 1
+    assert plan["planned_shard_count"] == 1
     assert plan["planned_candidate_count"] == 2
-    assert plan["batches"][0]["atomic_indices"] == [0, 1]
-    assert plan["batches"][0]["rows"][0]["deterministic_label"] == "OTHER"
-    assert plan["batches"][0]["rows"][1]["deterministic_label"] == "INGREDIENT_LINE"
-    assert plan["batches"][0]["rows"][0]["escalation_reasons"] == [
+    assert plan["line_role_shard_target_lines"] == 10
+    assert plan["shards"][0]["atomic_indices"] == [0, 1]
+    assert plan["shards"][0]["rows"][0]["deterministic_label"] == "OTHER"
+    assert plan["shards"][0]["rows"][1]["deterministic_label"] == "INGREDIENT_LINE"
+    assert plan["shards"][0]["rows"][0]["escalation_reasons"] == [
         "deterministic_unresolved",
         "fallback_decision",
     ]
@@ -1806,73 +1725,20 @@ def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -
         _settings("codex-line-role-v1"),
     )
 
-    assert plan["codex_batch_size"] == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
+    assert (
+        plan["line_role_shard_target_lines"]
+        == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
+    )
     assert plan["planned_candidate_count"] == len(candidates)
-    assert plan["planned_batch_count"] == 2
-    assert plan["batches"][0]["candidate_count"] == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
-    assert plan["batches"][1]["candidate_count"] == 1
-
-
-def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:
-    candidates = [
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:retry:0",
-            block_index=0,
-            atomic_index=0,
-            text="Ambiguous context sentence",
-            within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
-            rule_tags=["recipe_span_fallback"],
-        )
-    ]
-    call_count = {"value": 0}
-    observed_sleeps: list[float] = []
-
-    def _fake_sleep(seconds: float) -> None:
-        observed_sleeps.append(float(seconds))
-
-    def _fake_codex_call(**_kwargs):
-        call_count["value"] += 1
-        if call_count["value"] < 3:
-            return {
-                "response": "",
-                "returncode": 1,
-                "stdout": "",
-                "stderr": "temporary service unavailable",
-                "usage": None,
-                "turn_failed_message": "transient",
-            }
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.time.sleep",
-        _fake_sleep,
+    assert plan["planned_shard_count"] == 2
+    assert (
+        plan["shards"][0]["candidate_count"]
+        == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
     )
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
-    predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
-    assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "codex"
-    assert call_count["value"] == 3
-    assert observed_sleeps == [1.5, 3.0]
+    assert plan["shards"][1]["candidate_count"] == 1
 
 
-def test_label_atomic_lines_codex_cache_hit_skips_runner(
-    monkeypatch,
-    tmp_path,
-) -> None:
+def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
     settings = _settings("codex-line-role-v1")
     candidates = [
         AtomicLineCandidate(
@@ -1887,46 +1753,26 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(
             rule_tags=["recipe_span_fallback"],
         )
     ]
-    call_count = {"value": 0}
-
-    def _fake_codex_call(**_kwargs):
-        call_count["value"] += 1
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
+    runner = _line_role_runner({0: "OTHER"})
     first = label_atomic_lines(
         candidates,
         settings,
         artifact_root=tmp_path / "artifacts",
         source_hash="source-hash-1",
         cache_root=tmp_path / "line-role-cache",
+        codex_runner=runner,
+        live_llm_allowed=True,
     )
-    assert call_count["value"] == 1
+    assert runner.calls == [canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID]
     assert first[0].decided_by == "codex"
-
-    def _runner_should_not_execute(**_kwargs):
-        raise AssertionError("cache hit should skip codex call")
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _runner_should_not_execute,
-    )
     second = label_atomic_lines(
         candidates,
         settings,
         artifact_root=tmp_path / "artifacts",
         source_hash="source-hash-1",
         cache_root=tmp_path / "line-role-cache",
+        codex_runner=_line_role_runner({0: "RECIPE_TITLE"}),
+        live_llm_allowed=True,
     )
     assert second[0].label == first[0].label
     assert second[0].decided_by == first[0].decided_by
@@ -1934,8 +1780,7 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(
     assert cache_files
 
 
-def test_label_atomic_lines_writes_line_role_telemetry_summary_with_retry_usage(
-    monkeypatch,
+def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows(
     tmp_path,
 ) -> None:
     candidates = [
@@ -1951,46 +1796,53 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_with_retry_usage(
             rule_tags=["recipe_span_fallback"],
         )
     ]
-    responses = iter(
-        [
-            {
-                "response": "",
-                "returncode": 1,
-                "stdout": "",
-                "stderr": "transient",
-                "usage": {
-                    "input_tokens": 10,
-                    "cached_input_tokens": 2,
-                    "output_tokens": 3,
-                    "reasoning_tokens": 1,
-                },
-                "turn_failed_message": "retry me",
-            },
-            {
-                "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
-                "returncode": 0,
-                "stdout": "",
-                "stderr": "",
-                "usage": {
-                    "input_tokens": 20,
-                    "cached_input_tokens": 4,
-                    "output_tokens": 5,
-                    "reasoning_tokens": 2,
-                },
-                "turn_failed_message": None,
-            },
-        ]
-    )
 
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        lambda **_kwargs: next(responses),
-    )
+    class _TelemetryRunner(FakeCodexFarmRunner):
+        def run_pipeline(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_pipeline(*args, **kwargs)
+            return result.__class__(
+                pipeline_id=result.pipeline_id,
+                run_id=result.run_id,
+                subprocess_exit_code=result.subprocess_exit_code,
+                process_exit_code=result.process_exit_code,
+                output_schema_path=result.output_schema_path,
+                process_payload=result.process_payload,
+                telemetry_report=result.telemetry_report,
+                autotune_report=result.autotune_report,
+                telemetry={
+                    "rows": [
+                        {
+                            "tokens_input": 20,
+                            "tokens_cached_input": 4,
+                            "tokens_output": 5,
+                            "tokens_reasoning": 2,
+                        }
+                    ],
+                    "summary": {
+                        "tokens_input": 20,
+                        "tokens_cached_input": 4,
+                        "tokens_output": 5,
+                        "tokens_reasoning": 2,
+                    },
+                },
+                runtime_mode_audit=result.runtime_mode_audit,
+                error_summary=result.error_summary,
+            )
 
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
         artifact_root=tmp_path,
+        codex_runner=_TelemetryRunner(
+            output_builders={
+                canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID: (
+                    lambda payload: _line_role_runner({0: "OTHER"}).output_builders[
+                        canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID
+                    ](payload)
+                )
+            }
+        ),
+        live_llm_allowed=True,
     )
 
     assert len(predictions) == 1
@@ -2001,18 +1853,17 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_with_retry_usage(
         )
     )
     assert telemetry_payload["summary"]["batch_count"] == 1
-    assert telemetry_payload["summary"]["attempt_count"] == 2
-    assert telemetry_payload["summary"]["attempts_with_usage"] == 2
-    assert telemetry_payload["summary"]["tokens_input"] == 30
-    assert telemetry_payload["summary"]["tokens_cached_input"] == 6
-    assert telemetry_payload["summary"]["tokens_output"] == 8
-    assert telemetry_payload["summary"]["tokens_reasoning"] == 3
-    assert telemetry_payload["summary"]["tokens_total"] == 38
-    assert telemetry_payload["batches"][0]["attempt_count"] == 2
+    assert telemetry_payload["summary"]["attempt_count"] == 1
+    assert telemetry_payload["summary"]["attempts_with_usage"] == 1
+    assert telemetry_payload["summary"]["tokens_input"] == 20
+    assert telemetry_payload["summary"]["tokens_cached_input"] == 4
+    assert telemetry_payload["summary"]["tokens_output"] == 5
+    assert telemetry_payload["summary"]["tokens_reasoning"] == 2
+    assert telemetry_payload["summary"]["tokens_total"] == 25
+    assert telemetry_payload["batches"][0]["shard_id"].startswith("line-role-shard-")
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
-    monkeypatch,
     tmp_path,
 ) -> None:
     candidates = [
@@ -2028,46 +1879,26 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
             rule_tags=["recipe_span_fallback"],
         )
     ]
-    call_count = {"value": 0}
-
-    def _fake_codex_call(**_kwargs):
-        call_count["value"] += 1
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
+    runner = _line_role_runner({0: "OTHER"})
     first = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1", workers=1, codex_farm_cmd="codex-a"),
         artifact_root=tmp_path / "artifacts",
         source_hash="source-hash-runtime",
         cache_root=tmp_path / "line-role-cache",
+        codex_runner=runner,
+        live_llm_allowed=True,
     )
-    assert call_count["value"] == 1
+    assert runner.calls == [canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID]
     assert first[0].decided_by == "codex"
-
-    def _runner_should_not_execute(**_kwargs):
-        raise AssertionError("cache hit should skip codex call")
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _runner_should_not_execute,
-    )
     second = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1", workers=9, codex_farm_cmd="codex-b"),
         artifact_root=tmp_path / "artifacts",
         source_hash="source-hash-runtime",
         cache_root=tmp_path / "line-role-cache",
+        codex_runner=_line_role_runner({0: "RECIPE_TITLE"}),
+        live_llm_allowed=True,
     )
     assert second[0].label == first[0].label
 
@@ -2111,8 +1942,7 @@ def test_line_role_cache_path_changes_when_line_role_pipeline_changes(tmp_path) 
     assert off_path != codex_path
 
 
-def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(
-    monkeypatch,
+def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
     tmp_path,
 ) -> None:
     candidates: list[AtomicLineCandidate] = []
@@ -2131,48 +1961,14 @@ def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(
             )
         )
 
-    delay_by_atomic_index = {
-        0: 0.20,
-        1: 0.05,
-        2: 0.15,
-        3: 0.01,
-    }
-    call_order: list[int] = []
-
-    def _fake_codex_call(**kwargs):
-        prompt_text = str(kwargs.get("prompt") or "")
-        match = re.search(r'"atomic_index"\\s*:\\s*(\\d+)', prompt_text)
-        assert match is not None
-        atomic_index = int(match.group(1))
-        time.sleep(delay_by_atomic_index.get(atomic_index, 0.0))
-        call_order.append(atomic_index)
-        return {
-            "response": json.dumps(
-                [{"atomic_index": atomic_index, "label": "OTHER"}]
-            ),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
-    monkeypatch.setattr(
-        canonical_line_roles_module,
-        "_resolve_line_role_codex_max_inflight",
-        lambda: 4,
-    )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
         artifact_root=tmp_path,
         codex_batch_size=1,
+        codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER", 3: "OTHER"}),
+        live_llm_allowed=True,
     )
-    assert call_order != [0, 1, 2, 3]
     assert [row.atomic_index for row in predictions] == [0, 1, 2, 3]
     assert all(row.label == "OTHER" for row in predictions)
 
@@ -2202,27 +1998,15 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         )
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
     monkeypatch.setenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", "compact_v1")
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
 
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
         artifact_root=tmp_path,
         codex_batch_size=1,
+        codex_runner=_line_role_runner({0: "OTHER"}),
+        live_llm_allowed=True,
     )
 
     assert predictions[0].label == "OTHER"
@@ -2244,9 +2028,7 @@ def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
     assert canonical_line_roles_module._resolve_line_role_prompt_format() == "compact_v1"
 
 
-def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(
-    monkeypatch,
-) -> None:
+def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_and_finish() -> None:
     candidates: list[AtomicLineCandidate] = []
     for atomic_index in range(3):
         candidates.append(
@@ -2263,36 +2045,13 @@ def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(
             )
         )
 
-    def _fake_codex_call(**kwargs):
-        prompt_text = str(kwargs.get("prompt") or "")
-        match = re.search(r'"atomic_index"\\s*:\\s*(\\d+)', prompt_text)
-        assert match is not None
-        atomic_index = int(match.group(1))
-        return {
-            "response": json.dumps(
-                [{"atomic_index": atomic_index, "label": "OTHER"}]
-            ),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
-    monkeypatch.setattr(
-        canonical_line_roles_module,
-        "_resolve_line_role_codex_max_inflight",
-        lambda: 2,
-    )
     progress_messages: list[str] = []
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-v1"),
+        _settings("codex-line-role-v1", line_role_worker_count=2),
         codex_batch_size=1,
+        codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER"}),
+        live_llm_allowed=True,
         progress_callback=progress_messages.append,
     )
 
@@ -2301,21 +2060,16 @@ def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(
         "Running canonical line-role pipeline... task 0/3"
     )
     assert (
-        "Running canonical line-role pipeline... task 3/3" in progress_messages
-    )
-    assert (
         "Running canonical line-role pipeline... task 0/3 | running 2"
         in progress_messages
     )
     assert progress_messages[-1] == (
         "Running canonical line-role pipeline... task 3/3 | running 0"
     )
-    assert any("task 1/3 | running 2" in message for message in progress_messages)
-    assert any("task 2/3 | running 1" in message for message in progress_messages)
 
 
 def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
-    monkeypatch,
+    tmp_path,
 ) -> None:
     candidates: list[AtomicLineCandidate] = []
     for atomic_index in range(3):
@@ -2333,37 +2087,15 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
             )
         )
 
-    def _fake_codex_call(**kwargs):
-        prompt_text = str(kwargs.get("prompt") or "")
-        match = re.search(r'"atomic_index"\\s*:\\s*(\\d+)', prompt_text)
-        assert match is not None
-        atomic_index = int(match.group(1))
-        return {
-            "response": json.dumps(
-                [{"atomic_index": atomic_index, "label": "OTHER"}]
-            ),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
-
-    monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
-    )
-    monkeypatch.setattr(
-        canonical_line_roles_module,
-        "_resolve_line_role_codex_max_inflight",
-        lambda: 1,
-    )
     progress_messages: list[str] = []
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
+        artifact_root=tmp_path,
         codex_batch_size=1,
         codex_max_inflight=3,
+        codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER"}),
+        live_llm_allowed=True,
         progress_callback=progress_messages.append,
     )
 
@@ -2372,6 +2104,12 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
         "Running canonical line-role pipeline... task 0/3 | running 3"
         in progress_messages
     )
+    phase_manifest = json.loads(
+        (
+            tmp_path / "line-role-pipeline" / "runtime" / "phase_manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert phase_manifest["worker_count"] == 3
 
 
 def test_label_atomic_lines_deterministic_progress_callback_reports_task_counts() -> None:

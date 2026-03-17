@@ -5,75 +5,103 @@ from pathlib import Path
 
 import pytest
 
-from cookimport.llm.codex_farm_knowledge_ingest import read_knowledge_outputs
+from cookimport.llm.codex_farm_knowledge_ingest import (
+    read_validated_knowledge_outputs_from_proposals,
+    validate_knowledge_shard_output,
+)
+from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 
 
-def test_read_knowledge_outputs_parses_known_good_fixture(tmp_path: Path) -> None:
-    out_dir = tmp_path / "out"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "job.json").write_text(
+def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0000.nr",
+            owned_ids=("book.c0000.nr", "book.c0001.nr"),
+            metadata={"owned_block_indices": [4, 5]},
+        ),
+        {
+            "bundle_version": "2",
+            "bundle_id": "book.ks0000.nr",
+            "chunk_results": [
+                {
+                    "chunk_id": "book.c0000.nr",
+                    "is_useful": True,
+                    "block_decisions": [{"block_index": 4, "category": "knowledge"}],
+                    "snippets": [
+                        {
+                            "title": None,
+                            "body": "Keep whisking.",
+                            "tags": [],
+                            "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert valid is False
+    assert errors == ("missing_owned_chunk_results",)
+    assert metadata["missing_owned_chunk_ids"] == ["book.c0001.nr"]
+
+
+def test_read_validated_knowledge_outputs_from_proposals_skips_invalid_rows(
+    tmp_path: Path,
+) -> None:
+    proposals_dir = tmp_path / "proposals"
+    proposals_dir.mkdir(parents=True, exist_ok=True)
+    (proposals_dir / "valid.json").write_text(
         json.dumps(
             {
-                "bundle_version": "2",
-                "bundle_id": "book.kb0000.nr",
-                "chunk_results": [
-                    {
-                        "chunk_id": "book.c0000.nr",
-                        "is_useful": True,
-                        "block_decisions": [
-                            {"block_index": 4, "category": "knowledge"},
-                            {"block_index": 5, "category": "other"},
-                        ],
-                        "snippets": [
-                            {
-                                "title": "Prevent curdling",
-                                "body": "Whisk constantly and use low heat.",
-                                "tags": ["technique"],
-                                "evidence": [{"block_index": 4, "quote": "whisk constantly"}],
-                            }
-                        ],
-                    }
-                ],
+                "shard_id": "book.ks0000.nr",
+                "worker_id": "worker-001",
+                "validation_errors": [],
+                "payload": {
+                    "bundle_version": "2",
+                    "bundle_id": "book.ks0000.nr",
+                    "chunk_results": [
+                        {
+                            "chunk_id": "book.c0000.nr",
+                            "is_useful": True,
+                            "block_decisions": [
+                                {"block_index": 4, "category": "knowledge"},
+                            ],
+                            "snippets": [
+                                {
+                                    "title": None,
+                                    "body": "Keep whisking.",
+                                    "tags": [],
+                                    "evidence": [
+                                        {"block_index": 4, "quote": "Keep whisking"}
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (proposals_dir / "invalid.json").write_text(
+        json.dumps(
+            {
+                "shard_id": "book.ks0001.nr",
+                "worker_id": "worker-001",
+                "validation_errors": ["block_decision_out_of_surface"],
+                "payload": {
+                    "bundle_version": "2",
+                    "bundle_id": "book.ks0001.nr",
+                    "chunk_results": [],
+                },
             }
         ),
         encoding="utf-8",
     )
 
-    outputs = read_knowledge_outputs(out_dir)
+    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(
+        proposals_dir
+    )
+
     assert set(outputs) == {"book.c0000.nr"}
-    assert outputs["book.c0000.nr"].block_decisions[0].category == "knowledge"
-    assert outputs["book.c0000.nr"].snippets[0].evidence[0].block_index == 4
-
-
-def test_read_knowledge_outputs_rejects_missing_evidence_with_filename_context(tmp_path: Path) -> None:
-    out_dir = tmp_path / "out"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    bad_path = out_dir / "bad.json"
-    bad_path.write_text(
-        json.dumps(
-            {
-                "bundle_version": "2",
-                "bundle_id": "book.kb0001.nr",
-                "chunk_results": [
-                    {
-                        "chunk_id": "book.c0001.nr",
-                        "is_useful": True,
-                        "block_decisions": [],
-                        "snippets": [
-                            {
-                                "title": None,
-                                "body": "Whisk constantly.",
-                                "tags": [],
-                                "evidence": [],
-                            }
-                        ],
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        read_knowledge_outputs(out_dir)
-    assert "bad.json" in str(excinfo.value)
+    assert set(payloads_by_shard_id) == {"book.ks0000.nr"}

@@ -310,6 +310,65 @@ def serialize_merged_recipe_repair_input(
     return serialized
 
 
+class RecipeCorrectionShardRecipeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recipe_id: str
+    canonical_text: str
+    evidence_rows: list[tuple[int, str]] = Field(default_factory=list)
+    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("canonical_text", mode="before")
+    @classmethod
+    def _normalize_canonical_text(cls, value: Any) -> str:
+        return _sanitize_text_fragment(value)
+
+    @field_validator("recipe_candidate_hint", mode="before")
+    @classmethod
+    def _coerce_hint_objects(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value or {}, "recipe_candidate_hint")
+
+    @field_validator("warnings", mode="before")
+    @classmethod
+    def _normalize_warnings(cls, value: Any) -> list[str]:
+        return _sanitize_text_list_field(value, "warnings")
+
+
+class RecipeCorrectionShardInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_version: Literal["1"] = _BUNDLE_VERSION
+    shard_id: str
+    workbook_slug: str
+    source_hash: str
+    owned_recipe_ids: list[str] = Field(default_factory=list)
+    recipes: list[RecipeCorrectionShardRecipeInput] = Field(default_factory=list)
+    tagging_guide: dict[str, Any] = Field(default_factory=dict)
+    authority_notes: list[str] = Field(default_factory=list)
+
+    @field_validator("owned_recipe_ids", mode="before")
+    @classmethod
+    def _normalize_owned_recipe_ids(cls, value: Any) -> list[str]:
+        return _sanitize_text_list_field(value, "owned_recipe_ids")
+
+    @field_validator("tagging_guide", mode="before")
+    @classmethod
+    def _coerce_tagging_guide(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value or {}, "tagging_guide")
+
+    @field_validator("authority_notes", mode="before")
+    @classmethod
+    def _normalize_authority_notes(cls, value: Any) -> list[str]:
+        return _sanitize_text_list_field(value, "authority_notes")
+
+
+def serialize_recipe_correction_shard_input(
+    payload: "RecipeCorrectionShardInput",
+) -> dict[str, Any]:
+    return payload.model_dump(mode="json", by_alias=True)
+
+
 class MergedRecipeRepairOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -330,6 +389,14 @@ class MergedRecipeRepairOutput(BaseModel):
     @classmethod
     def _coerce_ingredient_step_mapping(cls, value: Any) -> dict[str, Any]:
         return _coerce_ingredient_step_mapping_field(value, "ingredient_step_mapping")
+
+
+class RecipeCorrectionShardOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_version: Literal["1"] = _BUNDLE_VERSION
+    shard_id: str
+    recipes: list[MergedRecipeRepairOutput] = Field(default_factory=list)
 
 
 class RecipeSelectedTag(BaseModel):

@@ -40,7 +40,7 @@ Recipe CodexFarm path:
 Other active Codex-backed surfaces:
 
 - Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`
-- Canonical line-role: `cookimport/parsing/canonical_line_roles.py`, `cookimport/llm/canonical_line_role_prompt.py`
+- Canonical line-role: `cookimport/parsing/canonical_line_roles.py`, `cookimport/llm/canonical_line_role_prompt.py`, `cookimport/llm/phase_worker_runtime.py`
 - Freeform prelabel: `cookimport/labelstudio/prelabel.py`
 - Prompt/debug artifact export: `cookimport/llm/prompt_artifacts.py`
 
@@ -58,7 +58,7 @@ The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prel
 Migration note:
 
 - legacy ids such as `codex-farm-single-correction-v1`, `codex-farm-knowledge-v1`, and `codex-line-role-v1` still parse, but `RunSettings` normalizes them immediately to the shard-v1 ids above
-- this foundation plan freezes the ids and runtime contracts before any real phase cutover swaps the live recipe/knowledge/line-role implementations onto `phase_worker_runtime.py`
+- the foundation plan froze the ids and runtime contracts first; recipe, knowledge, and line-role now all execute through the shard-worker runtime, while preview/export cleanup remains a later coordinated cutover
 
 `cookimport/llm/codex_exec.py` is a fail-closed retired transport and should not be treated as an active backend.
 
@@ -101,10 +101,18 @@ Recipe passes write under:
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction_audit/`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/phase_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/shard_manifest.jsonl`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/worker_assignments.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/promotion_report.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/telemetry.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/failures.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/proposals/*.json`
 
 Recipe runtime note:
-- the current live recipe implementation is still one LLM correction call per authoritative recipe span
-- deterministic code builds the intermediate `RecipeCandidate`, Codex corrects it and emits `ingredient_step_mapping` plus raw `selected_tags`, then deterministic code rebuilds the final cookbook3 draft locally and normalizes tags before write-out
+- the live recipe implementation now groups nearby recipes into explicit shard payloads, executes them through `phase_worker_runtime.py`, validates exact owned `recipe_id` coverage, and promotes only validated per-recipe outputs
+- deterministic code still builds the intermediate `RecipeCandidate`, Codex still emits `ingredient_step_mapping` plus raw `selected_tags`, and deterministic code still rebuilds the final cookbook3 draft locally and normalizes tags before write-out
+- runtime artifacts now live under `recipe_phase_runtime/`, while compatibility per-recipe artifacts for prompt/debug readers still bridge through `recipe_correction/{in,out}/`
 - `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
 
 Knowledge-stage writes:
@@ -113,11 +121,26 @@ Knowledge-stage writes:
 - `data/output/<ts>/09_knowledge_outputs.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/shard_manifest.jsonl`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/worker_assignments.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/promotion_report.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/telemetry.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/failures.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/proposals/*.json`
 - `data/output/<ts>/knowledge/<workbook_slug>/snippets.jsonl`
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
 `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are now the machine-readable outside-span contract. They preserve deterministic seed authority, final authority, and the refinement report that explains any Codex changes. `snippets.jsonl` remains reviewer-facing evidence only.
+
+Knowledge runtime note:
+- the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
+- deterministic chunking still decides eligibility, pruning, and local grouping
+- `codex_farm_knowledge_jobs.py` now writes stable shard payload files plus shard-manifest metadata with owned `chunk_id`s and owned block indices
+- `phase_worker_runtime.py` executes those shard payloads under bounded workers and records runtime telemetry
+- `codex_farm_knowledge_ingest.py` validates exact owned `chunk_id` coverage and rejects any `block_decisions` or snippet evidence that point outside the shard's eligible block surface
+- only validated shard payloads are copied back into compatibility `knowledge/out/` files for older prompt/debug readers; invalid raw proposals stay in `knowledge/proposals/`
 
 Inline recipe tagging writes through the normal recipe artifacts:
 
@@ -129,6 +152,10 @@ Line-role prediction artifacts live under:
 - `prediction-run/line-role-pipeline/telemetry_summary.json`
 - `prediction-run/line-role-pipeline/guardrail_report.json`
 - `prediction-run/line-role-pipeline/guardrail_changed_rows.jsonl`
+- `prediction-run/line-role-pipeline/runtime/phase_manifest.json`
+- `prediction-run/line-role-pipeline/runtime/shard_manifest.jsonl`
+- `prediction-run/line-role-pipeline/runtime/worker_assignments.json`
+- `prediction-run/line-role-pipeline/runtime/proposals/*.json`
 - alternate reviewer copies:
   - `prediction-run/line-role-pipeline/do_no_harm_diagnostics.json`
   - `prediction-run/line-role-pipeline/do_no_harm_changed_rows.jsonl`
@@ -145,11 +172,12 @@ Prompt/debug artifacts:
 - preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`, with heuristic token estimates plus blunt warnings when prompt call count or rendered prompt volume crosses dangerous thresholds
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
-  - knowledge prompt inputs from the compact-only `codex_farm_knowledge_jobs`
+  - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live knowledge harvest and preview reconstruction
   - line-role prompt text from `build_canonical_line_role_prompt`
 - knowledge preview now follows the live bundle contract exactly: prompt counts come from contiguous bundled `chunks[*]` payloads, not one chunk per prompt
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
+- live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, writes raw prompt-text shard inputs for `line-role.canonical.v1`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.

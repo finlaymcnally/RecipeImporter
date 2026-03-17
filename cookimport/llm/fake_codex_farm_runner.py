@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -8,7 +9,7 @@ from typing import Any, Callable, Mapping
 from .codex_farm_runner import CodexFarmPipelineRunResult
 from .recipe_tagging_guide import build_recipe_tagging_guide
 
-OutputBuilder = Callable[[dict[str, Any]], dict[str, Any]]
+OutputBuilder = Callable[[dict[str, Any] | str], dict[str, Any]]
 
 
 @dataclass
@@ -35,7 +36,11 @@ class FakeCodexFarmRunner:
         out_dir.mkdir(parents=True, exist_ok=True)
         builder = (self.output_builders or {}).get(pipeline_id)
         for in_path in sorted(in_dir.glob("*.json")):
-            payload = json.loads(in_path.read_text(encoding="utf-8"))
+            raw_text = in_path.read_text(encoding="utf-8")
+            try:
+                payload = json.loads(raw_text)
+            except json.JSONDecodeError:
+                payload = raw_text
             output = builder(payload) if builder is not None else _default_output(pipeline_id, payload)
             out_path = out_dir / in_path.name
             out_path.write_text(
@@ -60,36 +65,24 @@ class FakeCodexFarmRunner:
         )
 
 
-def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str, Any]:
     if pipeline_id == "recipe.correction.compact.v1":
-        canonical_text = str(payload.get("canonical_text") or "").strip()
-        evidence_rows = payload.get("evidence_rows")
-        first_line = canonical_text.splitlines()[0].strip() if canonical_text else ""
-        if not first_line and isinstance(evidence_rows, list):
-            for row in evidence_rows:
-                if not isinstance(row, list | tuple) or len(row) < 2:
-                    continue
-                first_line = str(row[1] or "").strip()
-                if first_line:
-                    break
-        recipe_name = first_line or str(payload.get("recipe_id") or "Untitled Recipe")
-        selected_tags = _select_recipe_tags(payload)
-        return {
-            "bundle_version": "1",
-            "recipe_id": payload.get("recipe_id"),
-            "canonical_recipe": {
-                "title": recipe_name,
-                "description": None,
-                "recipe_yield": None,
-                "ingredients": [],
-                "steps": [],
-            },
-            "ingredient_step_mapping": [],
-            "ingredient_step_mapping_reason": "unclear_alignment",
-            "selected_tags": selected_tags,
-            "warnings": [],
-        }
+        if not isinstance(payload, dict):
+            raise ValueError("recipe correction fake payload must be a JSON object")
+        if isinstance(payload.get("recipes"), list):
+            return {
+                "bundle_version": "1",
+                "shard_id": payload.get("shard_id"),
+                "recipes": [
+                    _default_recipe_correction_output(recipe_payload)
+                    for recipe_payload in payload.get("recipes") or []
+                    if isinstance(recipe_payload, dict)
+                ],
+            }
+        return _default_recipe_correction_output(payload)
     if pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1"}:
+        if not isinstance(payload, dict):
+            raise ValueError("knowledge fake payload must be a JSON object")
         chunks = payload.get("chunks") or []
         chunk_results = []
         for chunk in chunks:
@@ -135,7 +128,54 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             "bid": payload.get("bundle_id"),
             "r": chunk_results,
         }
+    if pipeline_id == "line-role.canonical.v1":
+        prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
+        atomic_indices = [
+            int(value)
+            for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
+        ]
+        if not atomic_indices:
+            atomic_indices = [
+                int(value)
+                for value in re.findall(r"(?m)^\[(\d+),", prompt_text)
+            ]
+        return {
+            "rows": [
+                {"atomic_index": atomic_index, "label": "OTHER"}
+                for atomic_index in atomic_indices
+            ]
+        }
     raise ValueError(f"Unsupported fake pipeline id: {pipeline_id}")
+
+
+def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]:
+    canonical_text = str(payload.get("canonical_text") or "").strip()
+    evidence_rows = payload.get("evidence_rows")
+    first_line = canonical_text.splitlines()[0].strip() if canonical_text else ""
+    if not first_line and isinstance(evidence_rows, list):
+        for row in evidence_rows:
+            if not isinstance(row, list | tuple) or len(row) < 2:
+                continue
+            first_line = str(row[1] or "").strip()
+            if first_line:
+                break
+    recipe_name = first_line or str(payload.get("recipe_id") or "Untitled Recipe")
+    selected_tags = _select_recipe_tags(payload)
+    return {
+        "bundle_version": "1",
+        "recipe_id": payload.get("recipe_id"),
+        "canonical_recipe": {
+            "title": recipe_name,
+            "description": None,
+            "recipe_yield": None,
+            "ingredients": [],
+            "steps": [],
+        },
+        "ingredient_step_mapping": [],
+        "ingredient_step_mapping_reason": "unclear_alignment",
+        "selected_tags": selected_tags,
+        "warnings": [],
+    }
 
 
 def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:

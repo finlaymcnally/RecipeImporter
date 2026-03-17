@@ -76,7 +76,8 @@ Unstructured adapter note:
 
 Canonical line-role prompt seam note:
 - prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
-- `codex-line-role-v1` now uses a shared default batch size of 240 atomic rows, sends raw task prompt text through the Codex-farm transport wrapper instead of embedding the whole prompt inside a second JSON envelope, and compacts each batch with label/reason legends plus array-shaped rows so recipe-span metadata and neighbor context are not repeated on every line; preview budget summaries now separate task chars from wrapper overhead.
+- `codex-line-role-shard-v1` now plans contiguous local shards in `canonical_line_roles.py`, writes shard/runtime artifacts under `line-role-pipeline/runtime/`, and still preserves legacy prompt artifact files under `line-role-pipeline/prompts/` for reviewer/export surfaces.
+- each line-role shard still uses the compact canonical prompt text, but worker execution now goes through `phase_worker_runtime.py` with raw prompt-text shard inputs plus JSON shard manifests, so one worker can process multiple shards in sequence.
 - outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose and compact domain headings can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
 
 Parsing-adjacent module (not in the default stage recipe-path runtime):
@@ -476,7 +477,7 @@ Gates include:
 ### What it does
 
 - Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
-- Supports optional Codex correction over the full ordered candidate set when `line_role_pipeline=codex-line-role-v1`; each prompt row carries the deterministic first-pass label plus any escalation reasons so Codex reviews local windows instead of inventing labels from scratch.
+- Supports optional shard-worker correction over the full ordered candidate set when `line_role_pipeline=codex-line-role-shard-v1`; each shard row carries the deterministic first-pass label plus any escalation reasons so Codex reviews local windows instead of inventing labels from scratch.
 - Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`), reason tags, and explicit `escalation_reasons`.
 - Prediction rows also carry `within_recipe_span` context (from atomized candidates), which benchmark Milestone-5 diagnostics reuse for slice metrics and knowledge-budget reporting.
 
@@ -494,7 +495,7 @@ Gates include:
 - Outside recipe spans, `INSTRUCTION_LINE`/`INGREDIENT_LINE` now require local recipe evidence (±2 lines) and are downgraded when evidence is missing.
 - `RECIPE_TITLE` now requires supportive near-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion; inside accepted recipe spans, immediate note prose is enough to retain the title.
 - Short ingredient fragments (for example split quantity/name rows) now get neighbor-aware rescue to `INGREDIENT_LINE` when adjacent ingredient-dominant context supports it.
-- Codex fallback uses strict JSON validation with the full global line-role label set available on every row; parse failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
+- Shard proposals use strict ownership validation with the full global line-role label set available on every row; invalid or missing shard outputs fall back to deterministic labels, with fallback counts still summarized in `line-role-pipeline/prompts/parse_errors.json`.
 - Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
 - Strong deterministic `RECIPE_TITLE` outcomes are held on the rule path without any score-based fallback pressure.
 - Outside-recipe-span score-based escalation is gone; codex escalation now remains inside-span-first and reason-driven.
@@ -512,7 +513,7 @@ Gates include:
 - Prompt logging internals are thread-safe for concurrent codex batch workers (`prompt_*.txt`, `response_*.txt`, `parsed_*.json`, and dedup log writes).
 - Codex call failures now use bounded retry/backoff before fallback (`3` attempts, exponential backoff base `1.5s`).
 - Canonical line-role predictions are cached on disk by source hash + run-settings hash + candidate fingerprint; reruns can reuse cache and skip codex calls (`COOKIMPORT_LINE_ROLE_CACHE_ROOT` overrides cache location).
-- Codex canonical line-role batches now emit progress callbacks as `task X/Y | running N`, so benchmark/import spinners can display ETA during this stage.
+- The shard runtime emits progress callbacks for deterministic prep plus shard-worker start/finish states as `task X/Y | running N`, so benchmark/import spinners still get legible line-role stage progress.
 - Canonical line-role deterministic labeling now also emits `task X/Y` progress callbacks, so ETA appears in this stage even before/without codex batch escalation.
 
 ### Related modules

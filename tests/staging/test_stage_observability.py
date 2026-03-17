@@ -4,6 +4,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
+from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.runs import (
     RECIPE_MANIFEST_FILE_NAME,
     KNOWLEDGE_MANIFEST_FILE_NAME,
@@ -44,7 +45,7 @@ def test_build_stage_observability_report_for_single_correction_recipe_run(tmp_p
     _write_json(
         llm_root / RECIPE_MANIFEST_FILE_NAME,
         {
-            "pipeline": "codex-farm-single-correction-v1",
+            "pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
             "process_runs": {"recipe_correction": {}},
         },
     )

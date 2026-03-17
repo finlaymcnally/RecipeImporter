@@ -14,7 +14,7 @@ EXPECTED_PIPELINES = {
         "pipeline_file": "recipe.correction.compact.v1.json",
         "prompt_path": "prompts/recipe.correction.compact.v1.prompt.md",
         "schema_path": "schemas/recipe.correction.v1.output.schema.json",
-        "required_keys": {"bundle_version", "recipe_id", "selected_tags"},
+        "required_keys": {"bundle_version", "shard_id", "recipes"},
     },
     "recipe.knowledge.compact.v1": {
         "pipeline_file": "recipe.knowledge.compact.v1.json",
@@ -77,7 +77,9 @@ def test_recipe_output_schemas_use_native_nested_objects_for_recipe_payloads() -
     correction_schema = _load_json(PACK_ROOT / "schemas/recipe.correction.v1.output.schema.json")
 
     correction_properties = correction_schema["properties"]
-    assert correction_properties["canonical_recipe"]["type"] == "object"
-    assert correction_properties["ingredient_step_mapping"]["type"] == "array"
-    assert correction_properties["ingredient_step_mapping"]["items"]["type"] == "object"
-    assert correction_properties["selected_tags"]["type"] == "array"
+    assert correction_properties["recipes"]["type"] == "array"
+    recipe_item_properties = correction_properties["recipes"]["items"]["properties"]
+    assert recipe_item_properties["canonical_recipe"]["type"] == "object"
+    assert recipe_item_properties["ingredient_step_mapping"]["type"] == "array"
+    assert recipe_item_properties["ingredient_step_mapping"]["items"]["type"] == "object"
+    assert recipe_item_properties["selected_tags"]["type"] == "array"

@@ -21,11 +21,11 @@ The visible behavior after this plan is complete is that line-role correction st
 ## Progress
 
 - [x] (2026-03-17_11.55.02) Derived this child plan from the original shard-runtime ExecPlan while keeping the original untouched.
-- [ ] Confirm that the foundation plan has landed or that its runtime interfaces are frozen.
-- [ ] Replace the current prompt-batch execution path in `cookimport/parsing/canonical_line_roles.py` with shard planning and shared-runtime execution.
-- [ ] Enforce exact-once row ownership, no edits outside owned rows, and inspectable diffs between deterministic and corrected labels.
-- [ ] Preserve the existing `label_llm_correct` promoted artifact shape so downstream deterministic stages remain unchanged.
-- [ ] Add focused tests for label shard planning, worker assignment, promotion, and scorer compatibility.
+- [x] (2026-03-17_12.18.01) Confirmed the foundation plan had landed and frozen the runtime/config interfaces before touching the real line-role path.
+- [x] (2026-03-17_12.41.48) Replaced the old prompt-batch executor in `cookimport/parsing/canonical_line_roles.py` with shard planning plus `run_phase_workers_v1(...)`.
+- [x] (2026-03-17_12.41.48) Enforced exact owned-row validation for shard proposals and deterministic fallback when a shard returns unowned, duplicate, missing, or invalid labels.
+- [x] (2026-03-17_12.41.48) Preserved the existing `label_llm_correct` promoted artifact shape while adding runtime artifacts under `line-role-pipeline/runtime/`.
+- [x] (2026-03-17_12.41.48) Added focused tests in `tests/parsing/test_canonical_line_roles.py` and `tests/llm/test_label_phase_workers.py` for shard planning, runtime artifacts, invalid-shard fallback, cache behavior, and scorer-compatible promotion.
 
 ## Surprises & Discoveries
 
@@ -34,6 +34,9 @@ The visible behavior after this plan is complete is that line-role correction st
 
 - Observation: line-role is the safest first real phase cutover after the foundation plan because its ownership unit is simpler than recipe and knowledge output structures.
   Evidence: each owned row only needs one final label plus optional ambiguity or change flags, while recipe and knowledge both return richer structured payloads.
+
+- Observation: the shared runtime needed one extra seam for line-role because the live CodexFarm pack still consumes raw prompt text, while the manifest/review surfaces still need JSON-readable shard payloads.
+  Evidence: `docs/understandings/2026-03-17_12.41.48-line-role-shard-cutover-needs-raw-prompt-inputs-but-keeps-prompt-artifacts.md`.
 
 ## Decision Log
 
@@ -51,19 +54,22 @@ The visible behavior after this plan is complete is that line-role correction st
 
 ## Outcomes & Retrospective
 
-Implementation has not started yet. The expected outcome is that line-role becomes the first real proof that the shared runtime can preserve stage semantics while changing the execution model. The final retrospective should record whether shard sizing by lines or blocks produced the cleanest local ownership and whether retry behavior stayed legible in practice.
+The line-role cutover is complete. `canonical_line_roles.py` now plans contiguous local shards, writes prompt artifacts plus runtime manifests, executes those shards through `phase_worker_runtime.py`, validates owned-row coverage, and promotes accepted labels back into the unchanged `label_llm_correct` stage contract.
+
+The result matches the purpose of the plan: the execution model changed, but downstream line-role consumers did not. The notable design lesson was that line-role needed raw prompt-text shard inputs plus compatibility prompt artifacts even after the one-shot executor was deleted, because benchmark/reviewer surfaces still read `line-role-pipeline/prompts/*`.
 
 ## Context and Orientation
 
 The line-role phase lives primarily in `cookimport/parsing/canonical_line_roles.py`. Upstream, `label_det` still produces deterministic labels, reason tags, uncertainty markers, and structural hints. Downstream, `group_recipe_spans` and the rest of the stage pipeline still consume the promoted corrected label artifact. This plan changes only the optional Codex-backed correction step in between.
 
-This plan assumes the shared runtime from `cookimport/llm/phase_worker_runtime.py` already exists, along with the relevant settings in `cookimport/config/run_settings.py` and the bounded-worker audit mode in `cookimport/llm/codex_farm_runner.py`. If those interfaces are not stable yet, stop and finish the foundation plan first.
+This plan now depends on the landed shared runtime from `cookimport/llm/phase_worker_runtime.py`, the shard-v1 line-role settings in `cookimport/config/run_settings.py`, and the bounded-worker audit mode in `cookimport/llm/codex_farm_runner.py`.
 
 For this phase, a shard is a contiguous local review window with explicit owned row IDs or block IDs, a bounded neighborhood view, deterministic labels, uncertainty hints, and a strict output schema. A worker is one bounded line-role correction session that may process multiple such shards in sequence.
 
 The main files for this plan are:
 
 - `cookimport/parsing/canonical_line_roles.py`
+- `cookimport/llm/phase_worker_runtime.py`
 - any line-role prompt or schema assets used by that module
 - `tests/parsing/test_canonical_line_roles.py`
 - `tests/llm/test_label_phase_workers.py`
@@ -111,7 +117,7 @@ Read the relevant context:
 Implement the cutover and run focused tests:
 
     source .venv/bin/activate
-    pytest tests/parsing/test_canonical_line_roles.py tests/llm/test_label_phase_workers.py tests/llm/test_prompt_preview.py -q
+    pytest tests/parsing/test_canonical_line_roles.py tests/llm/test_label_phase_workers.py tests/llm/test_phase_worker_runtime.py tests/llm/test_prompt_preview.py -q
 
 The expected outcome is passing tests that demonstrate:
 
@@ -133,7 +139,7 @@ The shard planner should derive stable shard IDs from stable input order so repl
 
 ## Artifacts and Notes
 
-This plan should preserve the existing authoritative promoted label artifacts while adding inspectable runtime artifacts for the line-role phase. The most important proof points are:
+This plan preserves the existing authoritative promoted label artifacts while adding inspectable runtime artifacts for the line-role phase. The most important proof points are:
 
 - stable label shard ownership
 - worker reports showing multiple shard assignments
@@ -153,3 +159,5 @@ This plan depends on the shared interfaces from the foundation plan and should c
 At the end of this plan, `cookimport/parsing/canonical_line_roles.py` must route the line-role Codex-backed branch through `codex-line-role-shard-v1` and still promote one corrected label result per owned row into the existing stage artifact contract.
 
 Revision note: this plan was created by splitting the original shard-runtime ExecPlan into a narrower line-role implementation plan that can run independently after the shared runtime foundation is stable.
+
+Revision note (2026-03-17_12.41.48): updated the plan after implementation landed so the progress, discoveries, outcomes, and validation steps now describe the shipped shard-worker line-role runtime instead of the pre-cutover batch design.

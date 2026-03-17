@@ -26,7 +26,11 @@ The user-visible result is organizational rather than runtime behavior. A contri
 - [x] (2026-03-17_11.55.00) Added this master ExecPlan plus five child ExecPlans in `docs/plans/`.
 - [x] (2026-03-17_12.18.01) Completed the foundation runtime/config milestone from `docs/plans/02-shard-runtime-foundation-runtime-and-config.md`.
 - [x] (2026-03-17_12.18.01) Updated this master plan to reflect that the three phase cutover plans are now unblocked on shared runtime contracts.
-- [ ] Keep this master plan aligned as the line-role, recipe, knowledge, and observability/removal child plans land.
+- [x] (2026-03-17_12.38.37) Completed the knowledge cutover plan from `docs/plans/05-shard-runtime-knowledge-phase-cutover.md`.
+- [x] (2026-03-17_12.40.02) Completed the recipe cutover plan from `docs/plans/04-shard-runtime-recipe-phase-cutover.md`.
+- [x] (2026-03-17_12.41.48) Completed the line-role cutover plan from `docs/plans/03-shard-runtime-line-role-phase-cutover.md`.
+- [x] (2026-03-17_12.59.54) Tightened the landed knowledge slice by removing the dead direct `knowledge/out` ingest helper and aligning the docs with proposal-validated runtime authority.
+- [ ] Keep this master plan aligned as the observability/removal child plan lands.
 
 ## Surprises & Discoveries
 
@@ -38,6 +42,15 @@ The user-visible result is organizational rather than runtime behavior. A contri
 
 - Observation: freezing shard-v1 ids in the foundation plan still required a central normalization pass because many current review/export surfaces were written against the old ids.
   Evidence: `docs/understandings/2026-03-17_12.18.01-foundation-needs-central-pipeline-id-normalization-before-phase-cutovers.md`.
+
+- Observation: the knowledge slice did not need a brand-new Codex pack id underneath the public shard-v1 setting in order to land the real runtime cutover.
+  Evidence: `docs/understandings/2026-03-17_12.38.37-knowledge-shard-cutover-can-keep-compact-pack-under-runtime.md` records that the live runtime now owns shard manifests, worker execution, proposal validation, and promotion while older prompt/debug readers still bridge through compatibility `knowledge/{in,out}` files.
+
+- Observation: the recipe slice followed the same durable pattern as knowledge: runtime truth can move to shard-worker execution without forcing every older per-item read surface to become the runtime authority in the same patch.
+  Evidence: `docs/understandings/2026-03-17_12.40.02-recipe-shard-cutover-needs-separate-runtime-and-promoted-artifacts.md` records that the recipe cutover now writes shard manifests, worker telemetry, and proposals under `recipe_phase_runtime/` while keeping promoted per-recipe compatibility artifacts under `recipe_correction/{in,out}` and `recipe_correction_audit/`.
+
+- Observation: line-role needed the same separation, but with one extra twist: the shared runtime had to support raw prompt-text inputs while the old prompt artifact files stayed alive for reviewer/export tooling.
+  Evidence: `docs/understandings/2026-03-17_12.41.48-line-role-shard-cutover-needs-raw-prompt-inputs-but-keeps-prompt-artifacts.md` records the added `input_text` seam in `ShardManifestEntryV1` plus the compatibility `line-role-pipeline/prompts/*` writes kept by `canonical_line_roles.py`.
 
 ## Decision Log
 
@@ -61,11 +74,19 @@ The user-visible result is organizational rather than runtime behavior. A contri
   Rationale: the runtime spine is now stable, but cross-cutting preview/benchmark/review surfaces still need their own coordinated pass.
   Date/Author: 2026-03-17 / Codex
 
+- Decision: allow a child phase plan to keep the current compact pack id underneath a shard-v1 public setting when that preserves a stable bridge to the later observability pass.
+  Rationale: the architectural goal is bounded shard ownership and replayable runtime artifacts, not a second unnecessary pack rewrite in the same patch. The knowledge cutover proved that runtime truth and read-side cleanup can be sequenced cleanly.
+  Date/Author: 2026-03-17 / Codex
+
+- Decision: allow the recipe phase to preserve promoted per-recipe compatibility artifacts even after live execution moves to shard-worker runtime artifacts.
+  Rationale: that keeps the runtime cutover narrow and replayable while deferring the broader prompt/export/upload-bundle cleanup to the explicit observability/removal plan.
+  Date/Author: 2026-03-17 / Codex
+
 ## Outcomes & Retrospective
 
-The split is complete as documentation, and the first implementation child plan is now complete: the shared runtime/config foundation has landed.
+The split is complete as documentation, and four implementation child plans are now complete enough to count as real progress: the shared runtime/config foundation, the knowledge cutover, the recipe cutover, and the line-role cutover.
 
-The expected outcome remains better execution, not different product behavior. The current state validates the decomposition: the runtime spine landed without forcing the real line-role/recipe/knowledge cutovers into the same patch. The remaining retrospective question is whether the three phase plans stay genuinely independent now that they are unblocked.
+The expected outcome remains better execution, not different product behavior. The current state continues to validate the decomposition: the runtime spine landed first, then knowledge, recipe, and line-role all moved execution onto explicit shard-worker runtime artifacts without forcing the prompt/export/upload-bundle cleanup into the same patch. The remaining retrospective question is whether the final observability/removal plan can now consume the stabilized runtime artifacts without churn.
 
 ## Context and Orientation
 
@@ -87,7 +108,7 @@ This master plan coordinates these six plan files:
 - knowledge plan: `docs/plans/05-shard-runtime-knowledge-phase-cutover.md`
 - observability/removal plan: `docs/plans/06-shard-runtime-observability-and-legacy-cutover.md`
 
-The dependency graph is simple. The foundation plan has now landed and frozen the shared interfaces. The line-role, recipe, and knowledge plans can now proceed largely independently. The final observability/removal plan should finish after the phase telemetry and runtime artifacts are stable enough that preview, prompt exports, and upload bundles will not churn underneath it.
+The dependency graph is simple. The foundation plan has landed and frozen the shared interfaces. The line-role, recipe, and knowledge plans have all landed. The final observability/removal plan should now finish after consuming the stabilized phase telemetry and runtime artifacts without introducing another round of schema churn underneath preview, prompt exports, or upload bundles.
 
 ## Milestones
 
@@ -183,3 +204,11 @@ If any child plan needs to change one of these shared contracts, it must update 
 Revision note: this file was created to split the original long shard-runtime ExecPlan into one master coordination plan and five implementation child plans while preserving the original file as the archival record.
 
 Revision note (2026-03-17_12.18.01): updated this master plan after the foundation milestone landed so the child-plan status now reflects a completed runtime spine and unblocked phase cutover plans.
+
+Revision note (2026-03-17_12.38.37): updated this master plan after the knowledge cutover landed so the progress, discoveries, and retrospective now reflect one completed phase migration in addition to the shared runtime foundation.
+
+Revision note (2026-03-17_12.40.02): updated this master plan after the recipe cutover landed so the progress, discoveries, decisions, and retrospective now reflect two completed phase migrations plus the shared runtime foundation.
+
+Revision note (2026-03-17_12.41.48): updated this master plan after the line-role cutover landed so the progress, discoveries, and retrospective now reflect all three completed phase migrations plus the shared runtime foundation.
+
+Revision note (2026-03-17_12.59.54): tightened the completed knowledge slice by deleting the dead direct `knowledge/out` ingest helper and aligning operator docs with proposal-validated runtime authority.

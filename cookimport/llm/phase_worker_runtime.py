@@ -28,7 +28,8 @@ class ShardManifestEntryV1:
     shard_id: str
     owned_ids: tuple[str, ...]
     evidence_refs: tuple[str, ...] = ()
-    input_payload: dict[str, Any] = field(default_factory=dict)
+    input_payload: Any = field(default_factory=dict)
+    input_text: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -83,6 +84,20 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         for row in rows:
             handle.write(json.dumps(dict(row), sort_keys=True))
             handle.write("\n")
+
+
+def _write_worker_input(path: Path, *, payload: Any, input_text: str | None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if input_text is not None:
+        path.write_text(str(input_text), encoding="utf-8")
+        return
+    if isinstance(payload, str):
+        path.write_text(payload, encoding="utf-8")
+        return
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _relative_path(base: Path, path: Path) -> str:
@@ -187,7 +202,11 @@ def run_phase_workers_v1(
             [asdict(shard) for shard in assigned_shards],
         )
         for shard in assigned_shards:
-            _write_json(in_dir / f"{shard.shard_id}.json", shard.input_payload)
+            _write_worker_input(
+                in_dir / f"{shard.shard_id}.json",
+                payload=shard.input_payload,
+                input_text=shard.input_text,
+            )
 
         runner_result = runner.run_pipeline(
             pipeline_id,

@@ -1,6 +1,6 @@
 {
   "pipeline_id": "recipe.correction.compact.v1",
-  "description": "Correct one deterministic intermediate recipe candidate from authoritative recipe-span rows and emit an ingredient-to-step linkage payload for deterministic final assembly.",
+  "description": "Correct one bounded shard of deterministic intermediate recipe candidates from authoritative recipe-span rows and emit per-recipe linkage payloads for deterministic final assembly.",
   "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
   "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
   "input_glob_default": "**/*.json",

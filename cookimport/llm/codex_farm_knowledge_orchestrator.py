@@ -17,7 +17,10 @@ from cookimport.staging.nonrecipe_stage import (
 )
 
 from .codex_farm_ids import sanitize_for_filename
-from .codex_farm_knowledge_ingest import read_knowledge_outputs
+from .codex_farm_knowledge_ingest import (
+    read_validated_knowledge_outputs_from_proposals,
+    validate_knowledge_shard_output,
+)
 from .codex_farm_knowledge_jobs import (
     build_knowledge_jobs,
 )
@@ -26,14 +29,13 @@ from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
-    as_pipeline_run_result_payload,
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
+from .phase_worker_runtime import run_phase_workers_v1
 
 logger = logging.getLogger(__name__)
 
-LEGACY_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.v1"
 COMPACT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
 DEFAULT_KNOWLEDGE_PIPELINE_ID = COMPACT_KNOWLEDGE_PIPELINE_ID
 
@@ -95,32 +97,16 @@ def run_codex_farm_knowledge_harvest(
         or nonrecipe_stage_result.nonrecipe_spans
     )
     if not seed_candidate_spans:
-        llm_report = {
-            "enabled": True,
-            "pipeline": run_settings.llm_knowledge_pipeline.value,
-            "pipeline_id": pipeline_id,
-            "input_mode": "stage7_seed_nonrecipe_spans",
-            "authority_mode": "knowledge_not_run_no_nonrecipe_spans",
-            "scored_effect": "seed_only",
-            "counts": {
-                "jobs_written": 0,
-                "chunks_written": 0,
-                "jobs_skipped": 0,
-                "outputs_parsed": 0,
-                "chunks_missing": 0,
-                "snippets_written": 0,
-                "decisions_applied": 0,
-                "changed_blocks": 0,
-            },
-            "timing": {"total_seconds": 0.0},
-            "paths": {
-                "knowledge_in_dir": str(knowledge_in_dir),
-                "knowledge_out_dir": str(knowledge_out_dir),
-                "manifest_path": str(manifest_path),
-            },
-            "missing_chunk_ids": [],
-            "stage_status": "no_nonrecipe_spans",
-        }
+        llm_report = _build_noop_knowledge_llm_report(
+            run_settings=run_settings,
+            pipeline_id=pipeline_id,
+            output_schema_path=None,
+            manifest_path=manifest_path,
+            knowledge_in_dir=knowledge_in_dir,
+            knowledge_out_dir=knowledge_out_dir,
+            knowledge_stage_dir=knowledge_stage_dir,
+            stage_status="no_nonrecipe_spans",
+        )
         _write_json(llm_report, manifest_path)
         return CodexFarmKnowledgeHarvestResult(
             llm_report=llm_report,
@@ -174,38 +160,23 @@ def run_codex_farm_knowledge_harvest(
         source_hash=_resolve_source_hash(conversion_result),
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
+        target_chunks_per_shard=run_settings.knowledge_shard_target_chunks,
         overrides=overrides,
     )
 
-    if build_report.jobs_written == 0:
-        llm_report = {
-            "enabled": True,
-            "pipeline": run_settings.llm_knowledge_pipeline.value,
-            "pipeline_id": pipeline_id,
-            "input_mode": "stage7_seed_nonrecipe_spans",
-            "authority_mode": "knowledge_not_run_all_chunks_skipped",
-            "scored_effect": "seed_only",
-            "output_schema_path": output_schema_path,
-            "counts": {
-                "jobs_written": 0,
-                "chunks_written": 0,
-                "jobs_skipped": build_report.skipped_chunk_count,
-                "outputs_parsed": 0,
-                "chunks_missing": 0,
-                "snippets_written": 0,
-                "decisions_applied": 0,
-                "changed_blocks": 0,
-            },
-            "timing": {"total_seconds": 0.0},
-            "paths": {
-                "knowledge_in_dir": str(knowledge_in_dir),
-                "knowledge_out_dir": str(knowledge_out_dir),
-                "manifest_path": str(manifest_path),
-            },
-            "missing_chunk_ids": [],
-            "skipped_lane_counts": dict(build_report.skipped_lane_counts),
-            "stage_status": "all_chunks_skipped",
-        }
+    if build_report.shards_written == 0:
+        llm_report = _build_noop_knowledge_llm_report(
+            run_settings=run_settings,
+            pipeline_id=pipeline_id,
+            output_schema_path=output_schema_path,
+            manifest_path=manifest_path,
+            knowledge_in_dir=knowledge_in_dir,
+            knowledge_out_dir=knowledge_out_dir,
+            knowledge_stage_dir=knowledge_stage_dir,
+            stage_status="all_chunks_skipped",
+            skipped_chunk_count=build_report.skipped_chunk_count,
+            skipped_lane_counts=dict(build_report.skipped_lane_counts),
+        )
         _write_json(llm_report, manifest_path)
         return CodexFarmKnowledgeHarvestResult(
             llm_report=llm_report,
@@ -215,19 +186,94 @@ def run_codex_farm_knowledge_harvest(
             write_report=None,
         )
 
-    process_run = codex_runner.run_pipeline(
-        pipeline_id,
-        knowledge_in_dir,
-        knowledge_out_dir,
-        env,
-        root_dir=pipeline_root,
-        workspace_root=workspace_root,
-        model=codex_model,
-        reasoning_effort=codex_reasoning_effort,
-    )
-    process_run_payload = as_pipeline_run_result_payload(process_run)
+    worker_count = max(1, int(run_settings.knowledge_worker_count or 1))
+    phase_manifest = None
+    worker_reports: list[dict[str, Any]] = []
+    process_run_payload: dict[str, Any] | None = None
+    try:
+        phase_manifest, phase_worker_reports = run_phase_workers_v1(
+            phase_key="extract_knowledge_optional",
+            pipeline_id=pipeline_id,
+            run_root=knowledge_stage_dir,
+            shards=build_report.shard_entries,
+            runner=codex_runner,
+            worker_count=worker_count,
+            root_dir=pipeline_root,
+            env=env,
+            model=codex_model,
+            reasoning_effort=codex_reasoning_effort,
+            max_turns_per_shard=run_settings.knowledge_shard_max_turns,
+            proposal_validator=validate_knowledge_shard_output,
+            settings={
+                "llm_knowledge_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "knowledge_worker_count": run_settings.knowledge_worker_count,
+                "knowledge_shard_target_chunks": run_settings.knowledge_shard_target_chunks,
+                "knowledge_shard_max_turns": run_settings.knowledge_shard_max_turns,
+                "codex_farm_pipeline_knowledge": pipeline_id,
+            },
+            runtime_metadata={
+                "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "input_mode": "stage7_seed_nonrecipe_spans",
+                "workspace_root": str(workspace_root) if workspace_root is not None else None,
+            },
+        )
+        worker_reports = [
+            {
+                "worker_id": report.worker_id,
+                "shard_ids": list(report.shard_ids),
+                "status": report.status,
+                "proposal_count": report.proposal_count,
+                "failure_count": report.failure_count,
+                "runtime_mode_audit": dict(report.runtime_mode_audit or {}),
+                "workspace_root": report.workspace_root,
+                "metadata": dict(report.metadata),
+            }
+            for report in phase_worker_reports
+        ]
+        process_payloads = [
+            dict(report.runner_result or {})
+            for report in phase_worker_reports
+            if isinstance(report.runner_result, Mapping)
+        ]
+        if len(process_payloads) == 1:
+            process_run_payload = process_payloads[0]
+        elif process_payloads:
+            process_run_payload = {
+                "runtime_mode": "phase_worker_runtime_v1",
+                "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "pipeline_id": pipeline_id,
+                "worker_runs": process_payloads,
+            }
+    except CodexFarmRunnerError as exc:
+        elapsed_seconds = round(time.perf_counter() - started, 3)
+        llm_report = _build_runtime_failed_knowledge_llm_report(
+            run_settings=run_settings,
+            pipeline_id=pipeline_id,
+            output_schema_path=output_schema_path,
+            manifest_path=manifest_path,
+            knowledge_in_dir=knowledge_in_dir,
+            knowledge_out_dir=knowledge_out_dir,
+            knowledge_stage_dir=knowledge_stage_dir,
+            build_report=build_report,
+            elapsed_seconds=elapsed_seconds,
+            error=str(exc),
+        )
+        _write_json(llm_report, manifest_path)
+        return CodexFarmKnowledgeHarvestResult(
+            llm_report=llm_report,
+            llm_raw_dir=llm_raw_dir,
+            manifest_path=manifest_path,
+            refined_stage_result=nonrecipe_stage_result,
+            write_report=None,
+        )
 
-    outputs = read_knowledge_outputs(knowledge_out_dir)
+    outputs, validated_payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(
+        knowledge_stage_dir / "proposals"
+    )
+    _materialize_validated_knowledge_outputs(
+        out_dir=knowledge_out_dir,
+        payloads_by_shard_id=validated_payloads_by_shard_id,
+    )
     missing_chunk_ids = sorted(set(build_report.chunk_ids) - set(outputs))
     (
         block_category_updates,
@@ -259,6 +305,8 @@ def run_codex_farm_knowledge_harvest(
     )
 
     elapsed_seconds = round(time.perf_counter() - started, 3)
+    promotion_report = _load_json_dict(knowledge_stage_dir / "promotion_report.json")
+    telemetry = _load_json_dict(knowledge_stage_dir / "telemetry.json")
     llm_report = {
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
@@ -273,30 +321,57 @@ def run_codex_farm_knowledge_harvest(
             or "seed_only"
         ),
         "output_schema_path": output_schema_path,
-            "counts": {
-                "jobs_written": build_report.jobs_written,
-                "chunks_written": build_report.chunks_written,
-                "jobs_skipped": build_report.skipped_chunk_count,
-                "outputs_parsed": len(outputs),
-                "chunks_missing": len(missing_chunk_ids),
-                "snippets_written": write_report.snippets_written,
-                "decisions_applied": len(block_category_updates),
+        "counts": {
+            "jobs_written": build_report.jobs_written,
+            "shards_written": build_report.shards_written,
+            "chunks_written": build_report.chunks_written,
+            "jobs_skipped": build_report.skipped_chunk_count,
+            "outputs_parsed": len(outputs),
+            "chunks_missing": len(missing_chunk_ids),
+            "snippets_written": write_report.snippets_written,
+            "decisions_applied": len(block_category_updates),
             "changed_blocks": int(
                 refined_stage_result.refinement_report.get("changed_block_count") or 0
             ),
+            "worker_count": int(phase_manifest.worker_count) if phase_manifest is not None else worker_count,
+            "validated_shards": int(promotion_report.get("validated_shards") or 0),
+            "invalid_shards": int(promotion_report.get("invalid_shards") or 0),
+            "missing_output_shards": int(promotion_report.get("missing_output_shards") or 0),
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
             "knowledge_in_dir": str(knowledge_in_dir),
             "knowledge_out_dir": str(knowledge_out_dir),
+            "knowledge_phase_dir": str(knowledge_stage_dir),
             "snippets_path": str(write_report.snippets_path),
             "preview_path": str(write_report.preview_path),
             "manifest_path": str(manifest_path),
+            **_runtime_artifact_paths(knowledge_stage_dir),
         },
         "missing_chunk_ids": missing_chunk_ids,
         "skipped_lane_counts": dict(build_report.skipped_lane_counts),
         "refinement_report": dict(refined_stage_result.refinement_report),
         "process_run": process_run_payload,
+        "phase_worker_runtime": {
+            "phase_key": "extract_knowledge_optional",
+            "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
+            "worker_count": int(phase_manifest.worker_count) if phase_manifest is not None else worker_count,
+            "shard_count": int(phase_manifest.shard_count) if phase_manifest is not None else build_report.shards_written,
+            "assignment_strategy": (
+                str(phase_manifest.assignment_strategy)
+                if phase_manifest is not None
+                else "round_robin_v1"
+            ),
+            "telemetry": telemetry,
+            "promotion_report": promotion_report,
+            "worker_reports": worker_reports,
+        },
+        "stage_status": (
+            "completed_with_failures"
+            if int(promotion_report.get("invalid_shards") or 0) > 0
+            or int(promotion_report.get("missing_output_shards") or 0) > 0
+            else "completed"
+        ),
     }
     _write_json(llm_report, manifest_path)
 
@@ -309,12 +384,163 @@ def run_codex_farm_knowledge_harvest(
     )
 
 
+def _build_noop_knowledge_llm_report(
+    *,
+    run_settings: RunSettings,
+    pipeline_id: str,
+    output_schema_path: str | None,
+    manifest_path: Path,
+    knowledge_in_dir: Path,
+    knowledge_out_dir: Path,
+    knowledge_stage_dir: Path,
+    stage_status: str,
+    skipped_chunk_count: int = 0,
+    skipped_lane_counts: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    authority_mode = (
+        "knowledge_not_run_no_nonrecipe_spans"
+        if stage_status == "no_nonrecipe_spans"
+        else "knowledge_not_run_all_chunks_skipped"
+    )
+    return {
+        "enabled": True,
+        "pipeline": run_settings.llm_knowledge_pipeline.value,
+        "pipeline_id": pipeline_id,
+        "input_mode": "stage7_seed_nonrecipe_spans",
+        "authority_mode": authority_mode,
+        "scored_effect": "seed_only",
+        "output_schema_path": output_schema_path,
+        "counts": {
+            "jobs_written": 0,
+            "shards_written": 0,
+            "chunks_written": 0,
+            "jobs_skipped": int(skipped_chunk_count),
+            "outputs_parsed": 0,
+            "chunks_missing": 0,
+            "snippets_written": 0,
+            "decisions_applied": 0,
+            "changed_blocks": 0,
+            "worker_count": 0,
+            "validated_shards": 0,
+            "invalid_shards": 0,
+            "missing_output_shards": 0,
+        },
+        "timing": {"total_seconds": 0.0},
+        "paths": {
+            "knowledge_in_dir": str(knowledge_in_dir),
+            "knowledge_out_dir": str(knowledge_out_dir),
+            "knowledge_phase_dir": str(knowledge_stage_dir),
+            "manifest_path": str(manifest_path),
+            **_runtime_artifact_paths(knowledge_stage_dir),
+        },
+        "missing_chunk_ids": [],
+        "skipped_lane_counts": dict(skipped_lane_counts or {}),
+        "stage_status": stage_status,
+        "phase_worker_runtime": {
+            "phase_key": "extract_knowledge_optional",
+            "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
+            "worker_count": 0,
+            "shard_count": 0,
+            "worker_reports": [],
+        },
+    }
+
+
+def _build_runtime_failed_knowledge_llm_report(
+    *,
+    run_settings: RunSettings,
+    pipeline_id: str,
+    output_schema_path: str | None,
+    manifest_path: Path,
+    knowledge_in_dir: Path,
+    knowledge_out_dir: Path,
+    knowledge_stage_dir: Path,
+    build_report: Any,
+    elapsed_seconds: float,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "pipeline": run_settings.llm_knowledge_pipeline.value,
+        "pipeline_id": pipeline_id,
+        "input_mode": "stage7_seed_nonrecipe_spans",
+        "authority_mode": "knowledge_not_run_runtime_failed",
+        "scored_effect": "seed_only",
+        "output_schema_path": output_schema_path,
+        "counts": {
+            "jobs_written": int(build_report.jobs_written),
+            "shards_written": int(build_report.shards_written),
+            "chunks_written": int(build_report.chunks_written),
+            "jobs_skipped": int(build_report.skipped_chunk_count),
+            "outputs_parsed": 0,
+            "chunks_missing": int(build_report.chunks_written),
+            "snippets_written": 0,
+            "decisions_applied": 0,
+            "changed_blocks": 0,
+            "worker_count": 0,
+            "validated_shards": 0,
+            "invalid_shards": 0,
+            "missing_output_shards": int(build_report.shards_written),
+        },
+        "timing": {"total_seconds": elapsed_seconds},
+        "paths": {
+            "knowledge_in_dir": str(knowledge_in_dir),
+            "knowledge_out_dir": str(knowledge_out_dir),
+            "knowledge_phase_dir": str(knowledge_stage_dir),
+            "manifest_path": str(manifest_path),
+            **_runtime_artifact_paths(knowledge_stage_dir),
+        },
+        "missing_chunk_ids": list(build_report.chunk_ids),
+        "skipped_lane_counts": dict(build_report.skipped_lane_counts),
+        "stage_status": "runtime_failed",
+        "error": error,
+        "phase_worker_runtime": {
+            "phase_key": "extract_knowledge_optional",
+            "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
+            "worker_count": 0,
+            "shard_count": int(build_report.shards_written),
+            "worker_reports": [],
+        },
+    }
+
+
 def _write_json(payload: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _load_json_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _runtime_artifact_paths(knowledge_stage_dir: Path) -> dict[str, str]:
+    return {
+        "phase_manifest_path": str(knowledge_stage_dir / "phase_manifest.json"),
+        "shard_manifest_path": str(knowledge_stage_dir / "shard_manifest.jsonl"),
+        "worker_assignments_path": str(knowledge_stage_dir / "worker_assignments.json"),
+        "promotion_report_path": str(knowledge_stage_dir / "promotion_report.json"),
+        "telemetry_path": str(knowledge_stage_dir / "telemetry.json"),
+        "failures_path": str(knowledge_stage_dir / "failures.json"),
+        "proposals_dir": str(knowledge_stage_dir / "proposals"),
+    }
+
+
+def _materialize_validated_knowledge_outputs(
+    *,
+    out_dir: Path,
+    payloads_by_shard_id: Mapping[str, dict[str, Any]],
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stale_path in sorted(out_dir.glob("*.json")):
+        stale_path.unlink()
+    for shard_id, payload in sorted(payloads_by_shard_id.items()):
+        _write_json(payload, out_dir / f"{shard_id}.json")
 
 
 def _extract_full_blocks(result: ConversionResult) -> list[dict[str, Any]]:

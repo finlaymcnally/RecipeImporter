@@ -1,13 +1,13 @@
 ---
-summary: "How the optional codex-farm knowledge stage reviews seed non-recipe spans, refines final authority, and writes its artifacts."
+summary: "How the optional shard-runtime knowledge stage reviews seed non-recipe spans, refines final authority, and writes its artifacts."
 read_when:
   - "When enabling or debugging optional knowledge extraction outputs"
   - "When editing the compact knowledge-stage codex-farm pipeline prompt/schema assets"
 ---
 
-# Optional Knowledge Refinement And Extraction (codex-farm)
+# Optional Knowledge Refinement And Extraction
 
-The knowledge stage is an **optional** codex-farm pipeline that reviews seed Stage 7 non-recipe spans, can refine final `knowledge` versus `other` ownership, and extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) from the spans that remain knowledge.
+The knowledge stage is an **optional** shard-worker CodexFarm phase that reviews seed Stage 7 non-recipe spans, can refine final `knowledge` versus `other` ownership, and extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) from the spans that remain knowledge.
 
 The deterministic classifier runs first and always writes:
 
@@ -23,7 +23,7 @@ It is **off by default** and does nothing unless explicitly enabled.
 From repo root:
 
     source .venv/bin/activate
-    cookimport stage <path> --llm-knowledge-pipeline codex-farm-knowledge-v1
+    cookimport stage <path> --llm-knowledge-pipeline codex-knowledge-shard-v1
 
 Optional knobs:
 
@@ -44,7 +44,15 @@ Chunking note:
 
 Per staged workbook (`<workbook_slug>`):
 
-- Raw codex-farm IO:
+- Runtime artifacts:
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/shard_manifest.jsonl`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/worker_assignments.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/promotion_report.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/telemetry.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/failures.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/proposals/*.json`
+- Compatibility prompt/debug IO:
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/out/*.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
@@ -61,8 +69,9 @@ Run-level index (if any knowledge artifacts were written):
 
 Manifest/runtime note:
 - `knowledge_manifest.json` now advertises `input_mode = "stage7_seed_nonrecipe_spans"` and reports whether the stage changed final authority.
-- manifest `counts` now distinguish bundle count (`jobs_written`) from surviving chunk count (`chunks_written`).
+- manifest `counts` now distinguish shard count (`shards_written`) from surviving chunk count (`chunks_written`), while `jobs_written` remains a compatibility alias for the same shard total.
 - If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero jobs.
+- Live execution reads validated proposals from `knowledge/proposals/*.json`; `knowledge/out/*.json` is now only a compatibility copy for prompt-preview and older prompt/debug readers.
 
 ## Pipeline assets
 
@@ -77,5 +86,5 @@ Local default pack files:
 - Evidence still must quote verbatim from `chunk.blocks[*].text`.
 
 Bundle contract note:
-- compact knowledge input is now `bundle_version = "2"` with `bundle_id`, shared local context, and `chunks[*]`.
+- shard-owned compact knowledge input is now `bundle_version = "2"` with `bundle_id`, shared local context, and `chunks[*]`.
 - compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead.

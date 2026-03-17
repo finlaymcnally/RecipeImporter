@@ -12,6 +12,7 @@ from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
     block_rows_for_nonrecipe_span,
 )
+from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 
 from .codex_farm_knowledge_contracts import (
     KnowledgeCompactBundleChunkPayloadV2,
@@ -36,12 +37,17 @@ _LOW_SIGNAL_SKIP_KEY = "low_signal"
 
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
-    jobs_written: int
+    shards_written: int
     chunks_written: int
     chunk_ids: list[str]
     chunk_lane_by_id: dict[str, str | None]
     skipped_chunk_count: int
     skipped_lane_counts: dict[str, int]
+    shard_entries: list[ShardManifestEntryV1]
+
+    @property
+    def jobs_written(self) -> int:
+        return self.shards_written
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +56,7 @@ class _PreparedKnowledgeBundleChunk:
     absolute_indices: list[int]
     char_count: int
     has_table_content: bool
+    source_span_id: str
 
 
 def build_knowledge_jobs(
@@ -61,6 +68,7 @@ def build_knowledge_jobs(
     source_hash: str,
     out_dir: Path,
     context_blocks: int = 2,
+    target_chunks_per_shard: int | None = None,
     overrides: ParsingOverrides | None = None,
     skip_suggested_lanes: Sequence[str] = ("noise",),
 ) -> KnowledgeJobBuildReport:
@@ -71,6 +79,8 @@ def build_knowledge_jobs(
     - Chunk blocks come only from seed non-recipe spans; context may overlap recipes.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    for stale_path in sorted(out_dir.glob("*.json")):
+        stale_path.unlink()
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
@@ -94,6 +104,7 @@ def build_knowledge_jobs(
     skipped_chunk_count = 0
     skipped_lane_counts: dict[str, int] = {}
     all_prepared_chunks: list[_PreparedKnowledgeBundleChunk] = []
+    shard_entries: list[ShardManifestEntryV1] = []
 
     for stage_span in candidate_spans:
         sequence = block_rows_for_nonrecipe_span(
@@ -145,6 +156,7 @@ def build_knowledge_jobs(
                     absolute_indices=absolute_indices,
                     char_count=sum(len(block.text) for block in payload.blocks),
                     has_table_content=any(block.table_hint is not None for block in payload.blocks),
+                    source_span_id=stage_span.span_id,
                 )
             )
             chunk_ids.append(chunk_id)
@@ -154,8 +166,9 @@ def build_knowledge_jobs(
             chunk_counter += 1
     for bundle_chunks in _bundle_prepared_chunks(
         sorted(all_prepared_chunks, key=lambda chunk: chunk.absolute_indices[0]),
+        max_chunks_per_bundle=target_chunks_per_shard,
     ):
-        bundle_id = f"{workbook_slug}.kb{bundle_counter:04d}.nr"
+        bundle_id = f"{workbook_slug}.ks{bundle_counter:04d}.nr"
         bundle_payload = _build_bundle_job_payload(
             bundle_id=bundle_id,
             workbook_slug=workbook_slug,
@@ -165,23 +178,60 @@ def build_knowledge_jobs(
             recipe_spans_payload=recipe_spans_payload,
             context_blocks=context_blocks,
         )
+        bundle_payload_json = bundle_payload.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
         _write_json(
-            bundle_payload.model_dump(
-                mode="json",
-                by_alias=True,
-                exclude_none=True,
-            ),
+            bundle_payload_json,
             out_dir / f"{bundle_id}.json",
+        )
+        owned_chunk_ids = tuple(chunk.payload.chunk_id for chunk in bundle_chunks)
+        owned_block_indices = tuple(
+            sorted(
+                {
+                    int(index)
+                    for chunk in bundle_chunks
+                    for index in chunk.absolute_indices
+                }
+            )
+        )
+        source_span_ids = tuple(
+            sorted(
+                {
+                    str(chunk.source_span_id).strip()
+                    for chunk in bundle_chunks
+                    if str(chunk.source_span_id).strip()
+                }
+            )
+        )
+        shard_entries.append(
+            ShardManifestEntryV1(
+                shard_id=bundle_id,
+                owned_ids=owned_chunk_ids,
+                evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
+                input_payload=bundle_payload_json,
+                metadata={
+                    "owned_block_indices": list(owned_block_indices),
+                    "source_span_ids": list(source_span_ids),
+                    "chunk_count": len(owned_chunk_ids),
+                    "char_count": sum(chunk.char_count for chunk in bundle_chunks),
+                    "table_heavy": any(chunk.has_table_content for chunk in bundle_chunks),
+                    "context_blocks": max(0, int(context_blocks)),
+                },
+            )
         )
         bundle_counter += 1
 
     return KnowledgeJobBuildReport(
-        jobs_written=bundle_counter,
+        shards_written=bundle_counter,
         chunks_written=len(chunk_ids),
         chunk_ids=chunk_ids,
         chunk_lane_by_id=chunk_lane_by_id,
         skipped_chunk_count=skipped_chunk_count,
         skipped_lane_counts=skipped_lane_counts,
+        shard_entries=shard_entries,
     )
 
 
@@ -316,12 +366,16 @@ def _build_bundle_job_payload(
 def _bundle_prepared_chunks(
     chunks: Sequence[_PreparedKnowledgeBundleChunk],
     *,
-    max_chunks_per_bundle: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
+    max_chunks_per_bundle: int | None = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
     max_bundle_chars: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS,
     max_gap_blocks: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS,
 ) -> list[list[_PreparedKnowledgeBundleChunk]]:
     if not chunks:
         return []
+    effective_max_chunks = max(
+        1,
+        int(max_chunks_per_bundle or _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS),
+    )
 
     bundles: list[list[_PreparedKnowledgeBundleChunk]] = []
     current: list[_PreparedKnowledgeBundleChunk] = []
@@ -336,7 +390,7 @@ def _bundle_prepared_chunks(
 
     for chunk in chunks:
         chunk_is_isolated = chunk.has_table_content or chunk.char_count >= max_bundle_chars
-        would_exceed_chunk_cap = bool(current) and len(current) >= max_chunks_per_bundle
+        would_exceed_chunk_cap = bool(current) and len(current) >= effective_max_chunks
         would_exceed_char_cap = bool(current) and current_chars + chunk.char_count > max_bundle_chars
         current_has_table = any(existing.has_table_content for existing in current)
         current_is_local = (

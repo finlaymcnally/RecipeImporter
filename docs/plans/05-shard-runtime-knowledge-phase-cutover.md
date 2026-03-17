@@ -21,11 +21,12 @@ The visible behavior after this plan is complete is that knowledge remains optio
 ## Progress
 
 - [x] (2026-03-17_11.55.04) Derived this child plan from the original shard-runtime ExecPlan while keeping the original untouched.
-- [ ] Confirm that the foundation plan has landed or that its runtime interfaces are frozen.
-- [ ] Replace the current bundle-execution path in `cookimport/llm/codex_farm_knowledge_orchestrator.py` and related knowledge job modules with shard planning and shared-runtime execution.
-- [ ] Preserve deterministic non-recipe eligibility, pruning, and exclusion of obvious noise.
-- [ ] Enforce exact-once ownership for eligible chunk or span IDs and reject off-surface edits.
-- [ ] Add focused tests for knowledge shard planning, promotion, and failure fallback behavior.
+- [x] (2026-03-17_12.38.37) Confirmed the foundation plan had landed and used its frozen `phase_worker_runtime.py` interfaces without changing the shared runtime contract.
+- [x] (2026-03-17_12.38.37) Replaced the direct bundle-execution path in `cookimport/llm/codex_farm_knowledge_orchestrator.py` with shard planning plus `run_phase_workers_v1(...)`.
+- [x] (2026-03-17_12.38.37) Preserved deterministic non-recipe eligibility, pruning, and obvious-noise exclusion in `cookimport/llm/codex_farm_knowledge_jobs.py`.
+- [x] (2026-03-17_12.38.37) Enforced exact-once owned `chunk_id` coverage plus shard-surface validation for block decisions and snippet evidence in `cookimport/llm/codex_farm_knowledge_ingest.py`.
+- [x] (2026-03-17_12.38.37) Added focused tests for shard planning, proposal validation, promotion, prompt-preview compatibility, and runtime failure fallback.
+- [x] (2026-03-17_12.59.54) Removed the last direct `knowledge/out` ingest helper and updated knowledge-stage docs so proposal validation is the only live ingest authority.
 
 ## Surprises & Discoveries
 
@@ -34,6 +35,9 @@ The visible behavior after this plan is complete is that knowledge remains optio
 
 - Observation: this phase is especially sensitive to obvious-noise suppression because execution reuse could otherwise make it cheaper to process junk, not smarter to avoid it.
   Evidence: the original plan calls out hard deterministic exclusion of navigation, legal boilerplate, endorsements, marketing copy, signup prompts, and similar noise.
+
+- Observation: the cutover still needs compatibility `knowledge/{in,out}` files for now even though execution has moved to runtime manifests and per-shard proposals.
+  Evidence: `prompt_preview.py` and prompt/debug artifact discovery still reuse saved compact knowledge payload files under `raw/llm/<workbook_slug>/knowledge/{in,out}` until the later observability/removal plan updates those human-facing surfaces together.
 
 ## Decision Log
 
@@ -49,9 +53,15 @@ The visible behavior after this plan is complete is that knowledge remains optio
   Rationale: knowledge is optional, and failure recovery should degrade gracefully without corrupting stage-backed authority.
   Date/Author: 2026-03-17 / Codex
 
+- Decision: keep `recipe.knowledge.compact.v1` as the underlying pack id for now while moving execution, validation, and promotion onto the shard runtime.
+  Rationale: the real cutover is shard ownership plus worker/runtime behavior. Rewriting preview/export/read-side surfaces to a brand-new pack shape belongs in the later observability/removal pass, not in the same patch as the live runtime migration.
+  Date/Author: 2026-03-17 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation has not started yet. The expected outcome is a knowledge phase that still respects deterministic ownership and noise exclusion while replacing one-shot bundle execution with replayable worker/shard boundaries. The final retrospective should record whether contiguous non-recipe regions or grouped region clusters gave the cleanest ownership without regressing quality.
+Implementation is complete for the knowledge slice. `extract_knowledge_optional` now plans stable shard entries with owned `chunk_id`s and owned block indices, executes them through `phase_worker_runtime.py`, validates exact ownership plus in-surface evidence, and promotes only validated shard payloads back into the existing stage-backed knowledge contract.
+
+The important lesson from the landed cutover is that the repo did not need a second simultaneous prompt/export rewrite to make the runtime honest. The durable boundary is runtime manifests plus proposal validation; compatibility `knowledge/{in,out}` files can remain as a bridge until the observability/removal plan rewires preview, prompt exports, and upload bundles.
 
 ## Context and Orientation
 
@@ -158,3 +168,7 @@ This plan depends on the shared interfaces from the foundation plan and should c
 At the end of this plan, `cookimport/llm/codex_farm_knowledge_orchestrator.py` and related knowledge job modules must route optional knowledge refinement through `codex-knowledge-shard-v1` and still promote one valid result per owned eligible ID into the existing stage-backed contract.
 
 Revision note: this plan was created by splitting the original shard-runtime ExecPlan into a narrower knowledge implementation plan that can run independently after the shared runtime foundation is stable.
+
+Revision note (2026-03-17_12.38.37): updated this plan after implementation to mark the knowledge cutover complete, record the compatibility `knowledge/{in,out}` bridge, and document that validation now rejects off-surface block decisions and snippet evidence before promotion.
+
+Revision note (2026-03-17_12.59.54): removed the dead direct `knowledge/out` ingest helper and clarified the docs so validated proposal files remain the only live source for promotion.

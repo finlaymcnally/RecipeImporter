@@ -5,125 +5,147 @@
   "additionalProperties": false,
   "required": [
     "bundle_version",
-    "recipe_id",
-    "canonical_recipe",
-    "ingredient_step_mapping",
-    "ingredient_step_mapping_reason",
-    "selected_tags",
-    "warnings"
+    "shard_id",
+    "recipes"
   ],
   "properties": {
     "bundle_version": {
       "type": "string",
       "const": "1"
     },
-    "recipe_id": {
+    "shard_id": {
       "type": "string",
       "minLength": 1
     },
-    "canonical_recipe": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "title",
-        "ingredients",
-        "steps",
-        "description",
-        "recipeYield"
-      ],
-      "properties": {
-        "title": {
-          "type": "string",
-          "minLength": 1
-        },
-        "ingredients": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "steps": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "description": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "recipeYield": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "ingredient_step_mapping": {
+    "recipes": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "ingredient_index",
-          "step_indexes"
+          "bundle_version",
+          "recipe_id",
+          "canonical_recipe",
+          "ingredient_step_mapping",
+          "ingredient_step_mapping_reason",
+          "selected_tags",
+          "warnings"
         ],
         "properties": {
-          "ingredient_index": {
-            "type": "integer",
-            "minimum": 0
+          "bundle_version": {
+            "type": "string",
+            "const": "1"
           },
-          "step_indexes": {
+          "recipe_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "canonical_recipe": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "ingredients",
+              "steps",
+              "description",
+              "recipeYield"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ingredients": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recipeYield": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "ingredient_step_mapping": {
             "type": "array",
             "items": {
-              "type": "integer",
-              "minimum": 0
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ingredient_index",
+                "step_indexes"
+              ],
+              "properties": {
+                "ingredient_index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "step_indexes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "ingredient_step_mapping_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selected_tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "label",
+                "confidence"
+              ],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "confidence": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         }
-      }
-    },
-    "ingredient_step_mapping_reason": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "selected_tags": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "category",
-          "label",
-          "confidence"
-        ],
-        "properties": {
-          "category": {
-            "type": "string",
-            "minLength": 1
-          },
-          "label": {
-            "type": "string",
-            "minLength": 1
-          },
-          "confidence": {
-            "type": [
-              "number",
-              "null"
-            ]
-          }
-        }
-      }
-    },
-    "warnings": {
-      "type": "array",
-      "items": {
-        "type": "string"
       }
     }
   }

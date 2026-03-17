@@ -99,30 +99,44 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         output_builders={
             SINGLE_CORRECTION_STAGE_PIPELINE_ID: lambda payload: {
                 "bundle_version": "1",
-                "recipe_id": payload.get("recipe_id"),
-                "canonical_recipe": {
-                    "title": "Toast",
-                    "ingredients": [
-                        "1 slice bread",
-                        "1 tablespoon butter",
-                    ],
-                    "steps": [
-                        "Toast the bread until golden.",
-                        "Spread with butter and serve hot.",
-                    ],
-                    "description": None,
-                    "recipeYield": None,
-                },
-                "ingredient_step_mapping": [
-                    {"ingredient_index": 0, "step_indexes": [0]},
-                    {"ingredient_index": 1, "step_indexes": [1]},
+                "shard_id": payload.get("shard_id"),
+                "recipes": [
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": payload["recipes"][0]["recipe_id"],
+                        "canonical_recipe": {
+                            "title": "Toast",
+                            "ingredients": [
+                                "1 slice bread",
+                                "1 tablespoon butter",
+                            ],
+                            "steps": [
+                                "Toast the bread until golden.",
+                                "Spread with butter and serve hot.",
+                            ],
+                            "description": None,
+                            "recipeYield": None,
+                        },
+                        "ingredient_step_mapping": [
+                            {"ingredient_index": 0, "step_indexes": [0]},
+                            {"ingredient_index": 1, "step_indexes": [1]},
+                        ],
+                        "ingredient_step_mapping_reason": None,
+                        "selected_tags": [
+                            {
+                                "category": "meal",
+                                "label": "breakfast",
+                                "confidence": 0.83,
+                            },
+                            {
+                                "category": "method",
+                                "label": "toasted",
+                                "confidence": 0.79,
+                            },
+                        ],
+                        "warnings": [],
+                    }
                 ],
-                "ingredient_step_mapping_reason": None,
-                "selected_tags": [
-                    {"category": "meal", "label": "breakfast", "confidence": 0.83},
-                    {"category": "method", "label": "toasted", "confidence": 0.79},
-                ],
-                "warnings": [],
             }
         }
     )
@@ -136,7 +150,9 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     )
 
     assert runner.calls == [SINGLE_CORRECTION_STAGE_PIPELINE_ID]
-    assert apply_result.intermediate_overrides_by_recipe_id == {}
+    assert set(apply_result.intermediate_overrides_by_recipe_id) == {
+        "urn:recipe:test:toast"
+    }
     assert apply_result.final_overrides_by_recipe_id
     final_payload = apply_result.final_overrides_by_recipe_id["urn:recipe:test:toast"]
     assert [line["raw_text"] for line in final_payload["steps"][0]["ingredient_lines"]] == [
@@ -153,6 +169,8 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     assert manifest["pipelines"] == {
         "recipe_correction": SINGLE_CORRECTION_STAGE_PIPELINE_ID
     }
+    assert manifest["counts"]["recipe_shards_total"] == 1
+    assert manifest["counts"]["recipe_workers_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 1
     assert sorted(manifest["process_runs"].keys()) == ["recipe_correction"]
@@ -170,6 +188,8 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         "breakfast",
         "toasted",
     ]
+    assert apply_result.intermediate_overrides_by_recipe_id["urn:recipe:test:toast"]["name"] == "Toast"
+    assert (apply_result.llm_raw_dir / "recipe_phase_runtime" / "phase_manifest.json").is_file()
 
 
 def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -> None:
@@ -188,6 +208,8 @@ def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -
     )
 
     assert plan["pipeline"] == SINGLE_CORRECTION_RECIPE_PIPELINE_ID
+    assert plan["recipe_shard_target_recipes"] >= 1
+    assert len(plan["planned_shards"]) == 1
     stages = plan["planned_tasks"][0]["planned_stages"]
     assert [stage["stage_key"] for stage in stages] == [
         "build_intermediate_det",

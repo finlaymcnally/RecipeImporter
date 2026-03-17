@@ -12,6 +12,7 @@ from cookimport.bench.upload_bundle_v1_render import (
     build_recipe_pipeline_context_from_model,
     build_stage_separated_comparison_from_model,
 )
+from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 
 
 def _coerce_int(value: object) -> int | None:
@@ -44,7 +45,7 @@ def test_existing_output_adapter_prefers_root_summaries(tmp_path: Path) -> None:
                         "source_file": "book.epub",
                         "source_hash": "book-hash",
                         "source_key": "book-hash",
-                        "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+                        "llm_recipe_pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
                     }
                 ]
             }
@@ -133,7 +134,7 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
                 full_prompt_log_status="complete",
                 full_prompt_log_rows=3,
                 line_role_pipeline="codex-line-role-v1",
-                llm_recipe_pipeline="codex-farm-single-correction-v1",
+                llm_recipe_pipeline=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
             )
         return SimpleNamespace(
             run_timestamp=None,
@@ -195,7 +196,7 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
     assert model.adapter_metadata["uses_root_run_rows"] is False
     assert model.adapter_metadata["discovered_run_count"] == 2
     assert model.topology["codex_recipe_pipelines"] == [
-        "codex-farm-single-correction-v1"
+        RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
     ]
     assert model.topology["recipe_topology_key"] == "single_correction"
     assert model.topology["observed_recipe_stage_call_counts"] == {

@@ -21,11 +21,11 @@ The visible behavior after this plan is complete is that the staged recipe pipel
 ## Progress
 
 - [x] (2026-03-17_11.55.03) Derived this child plan from the original shard-runtime ExecPlan while keeping the original untouched.
-- [ ] Confirm that the foundation plan has landed or that its runtime interfaces are frozen.
-- [ ] Replace the one-recipe-per-call execution path in `cookimport/llm/codex_farm_orchestrator.py` with recipe shard planning and shared-runtime execution.
-- [ ] Preserve deterministic `group_recipe_spans` and `build_intermediate_det` authority boundaries.
-- [ ] Enforce exact-once `recipe_id` ownership, provenance preservation, linkage integrity, and schema-valid corrected structures.
-- [ ] Add focused tests for recipe shard planning, promotion, and deterministic final-assembly compatibility.
+- [x] (2026-03-17_12.18.01) Confirmed that the foundation plan had already landed and that the shared runtime plus shard-v1 run-setting interfaces were frozen.
+- [x] (2026-03-17_12.40.02) Replaced the one-recipe-per-call execution path in `cookimport/llm/codex_farm_orchestrator.py` with contiguous multi-recipe shard planning and shared-runtime execution.
+- [x] (2026-03-17_12.40.02) Preserved deterministic `group_recipe_spans`, `build_intermediate_det`, and deterministic final assembly as the authority boundaries around the recipe worker runtime.
+- [x] (2026-03-17_12.40.02) Enforced exact-once `recipe_id` ownership through shard-output validation and promoted schema-valid per-recipe corrected structures plus linkage payloads back into the existing stage contract.
+- [x] (2026-03-17_12.40.02) Added focused tests for recipe shard planning, promotion, runtime artifacts, pipeline-pack assets, and deterministic final-assembly compatibility.
 
 ## Surprises & Discoveries
 
@@ -34,6 +34,9 @@ The visible behavior after this plan is complete is that the staged recipe pipel
 
 - Observation: the recipe phase is more constrained than line-role because it must preserve provenance and linkage data for deterministic final assembly.
   Evidence: `build_final_recipe` remains deterministic and therefore depends on stable corrected intermediate structures plus linkage payloads, not free-form direct mutation by the worker.
+
+- Observation: the clean cutover shape is to keep shard-worker runtime artifacts separate from the promoted per-recipe artifacts that older readers still consume.
+  Evidence: `docs/understandings/2026-03-17_12.40.02-recipe-shard-cutover-needs-separate-runtime-and-promoted-artifacts.md` records that `recipe_phase_runtime/` can hold shard manifests, worker telemetry, and proposals while `recipe_correction/{in,out}` and `recipe_correction_audit/` keep the per-recipe promoted/debug bridge stable.
 
 ## Decision Log
 
@@ -49,9 +52,27 @@ The visible behavior after this plan is complete is that the staged recipe pipel
   Rationale: re-splitting tagging into a separate subsystem would expand the scope and undo the current product shape.
   Date/Author: 2026-03-17 / Codex
 
+- Decision: keep the compact pack id `recipe.correction.compact.v1` under the shard-worker runtime rather than inventing a second recipe pack in the same patch.
+  Rationale: the runtime cutover required explicit shard ownership, worker reuse, validation, and promotion. Reusing the compact pack kept the prompt/schema migration bounded while the orchestrator moved to the new runtime.
+  Date/Author: 2026-03-17 / Codex
+
+- Decision: preserve compatibility per-recipe `recipe_correction/{in,out}` artifacts and `recipe_correction_audit/` outputs even though live execution is now shard-based.
+  Rationale: those artifacts are promoted reviewer/debug surfaces, not the runtime authority. Keeping them lets deterministic final assembly and older read-side tooling keep working while shard-worker manifests, telemetry, and proposals move to `recipe_phase_runtime/`.
+  Date/Author: 2026-03-17 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation has not started yet. The expected outcome is a recipe phase that keeps the current staged architecture intact while replacing the expensive one-recipe execution model with bounded workers over explicit shards. The final retrospective should record which shard sizing rules produced good local ownership without making per-worker payloads too large.
+Implementation is complete for this slice. The recipe phase now keeps the current staged architecture intact while replacing the one-recipe execution model with bounded workers over explicit shards.
+
+The live result is:
+
+- deterministic preparation still owns recipe boundaries and intermediate objects
+- contiguous multi-recipe shards are validated through `phase_worker_runtime.py`
+- promotion now writes corrected intermediate overrides plus final draft overrides per `recipe_id`
+- runtime manifests, assignments, telemetry, failures, and shard proposals live under `recipe_phase_runtime/`
+- compatibility per-recipe inputs, outputs, and audits still land under `recipe_correction/{in,out}` plus `recipe_correction_audit/`
+
+The remaining work for the broader refactor is outside this plan: line-role still needs its own cutover, and the final observability/removal pass still needs to rewire prompt-preview, prompt exports, and upload-bundle surfaces around the stabilized runtime artifacts.
 
 ## Context and Orientation
 
@@ -155,3 +176,5 @@ This plan depends on the shared interfaces from the foundation plan and should c
 At the end of this plan, `cookimport/llm/codex_farm_orchestrator.py` must route recipe correction through `codex-recipe-shard-v1` and still promote one corrected recipe result plus one linkage payload per `recipe_id` into the existing stage artifact contract.
 
 Revision note: this plan was created by splitting the original shard-runtime ExecPlan into a narrower recipe implementation plan that can run independently after the shared runtime foundation is stable.
+
+Revision note (2026-03-17_12.40.02): updated this plan after implementation to mark the recipe cutover complete, record the separate runtime-vs-promoted-artifacts discovery, and document that the live recipe phase now executes bounded multi-recipe shards through `phase_worker_runtime.py` while preserving the deterministic final-assembly contract.

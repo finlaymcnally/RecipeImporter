@@ -68,20 +68,30 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
         output_builders={
             SINGLE_CORRECTION_STAGE_PIPELINE_ID: lambda payload: {
                 "bundle_version": "1",
-                "recipe_id": payload.get("recipe_id"),
-                "canonical_recipe": {
-                    "title": "Toast",
-                    "ingredients": ["1 slice bread"],
-                    "steps": ["Toast the bread."],
-                    "description": None,
-                    "recipeYield": None,
-                },
-                "ingredient_step_mapping": [],
-                "ingredient_step_mapping_reason": "not_needed_single_step",
-                "selected_tags": [
-                    {"category": "meal", "label": "breakfast", "confidence": 0.8}
+                "shard_id": payload.get("shard_id"),
+                "recipes": [
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": payload["recipes"][0]["recipe_id"],
+                        "canonical_recipe": {
+                            "title": "Toast",
+                            "ingredients": ["1 slice bread"],
+                            "steps": ["Toast the bread."],
+                            "description": None,
+                            "recipeYield": None,
+                        },
+                        "ingredient_step_mapping": [],
+                        "ingredient_step_mapping_reason": "not_needed_single_step",
+                        "selected_tags": [
+                            {
+                                "category": "meal",
+                                "label": "breakfast",
+                                "confidence": 0.8,
+                            }
+                        ],
+                        "warnings": [],
+                    }
                 ],
-                "warnings": [],
             }
         }
     )
@@ -97,5 +107,6 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
     manifest = json.loads(
         (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
     )
+    assert manifest["counts"]["recipe_shards_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 1

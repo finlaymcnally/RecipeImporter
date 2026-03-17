@@ -7,12 +7,16 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
+from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+    normalize_llm_recipe_pipeline_value,
+)
 from cookimport.runs.stage_observability import (
     recipe_stage_keys_for_pipeline,
     stage_label,
 )
 
-CANONICAL_SINGLE_CORRECTION_RECIPE_PIPELINE_ID = "codex-farm-single-correction-v1"
+CANONICAL_SINGLE_CORRECTION_RECIPE_PIPELINE_ID = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 
 
 @dataclass(frozen=True)
@@ -40,7 +44,10 @@ def _is_codex_pipeline_enabled(value: Any) -> bool:
 
 
 def normalize_recipe_pipeline_id(value: Any) -> str:
-    return str(value or "").strip()
+    try:
+        return normalize_llm_recipe_pipeline_value(value)
+    except Exception:  # noqa: BLE001
+        return str(value or "").strip()
 
 
 def _semantic_recipe_stages() -> list[dict[str, str]]:
