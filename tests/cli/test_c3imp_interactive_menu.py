@@ -245,7 +245,7 @@ def test_load_settings_includes_expanded_operator_defaults(
     assert settings["llm_knowledge_pipeline"] == "off"
     assert settings["codex_farm_cmd"] == "codex-farm"
     assert settings["codex_farm_context_blocks"] == 30
-    assert settings["codex_farm_knowledge_context_blocks"] == 2
+    assert settings["codex_farm_knowledge_context_blocks"] == 0
     assert settings["label_studio_url"] == ""
     assert settings["label_studio_api_key"] == ""
 

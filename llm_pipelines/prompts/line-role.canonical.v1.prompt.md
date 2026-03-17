@@ -1,8 +1,4 @@
-You are a strict transport wrapper for canonical line-role labeling.
-
-You will receive one full task prompt as JSON in `{{INPUT_TEXT}}` under key `prompt`.
-- Execute the task exactly as instructed by that embedded prompt.
-- Do not add or remove target rows.
+Execute the line-role labeling task below exactly.
 
 Return strict JSON with this exact shape:
 {"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}
@@ -10,7 +6,7 @@ Return strict JSON with this exact shape:
 Rules:
 - Output only JSON.
 - Use only the keys `rows`, `atomic_index`, and `label`.
-- Keep row order exactly as requested by the embedded prompt.
+- Keep row order exactly as requested by the task.
 
-Embedded prompt payload:
+Task:
 {{INPUT_TEXT}}

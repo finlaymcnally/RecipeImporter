@@ -229,7 +229,7 @@ The post-Bucket-2 product contract now has two public layers:
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
 - `codex_farm_context_blocks` (default `30`)
-- `codex_farm_knowledge_context_blocks` (default `12`)
+- `codex_farm_knowledge_context_blocks` (default `0`)
 
 Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus transition-only keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge`. `table_extraction` is retired entirely; new runs always extract tables.
 

@@ -14,19 +14,24 @@ def test_read_knowledge_outputs_parses_known_good_fixture(tmp_path: Path) -> Non
     (out_dir / "job.json").write_text(
         json.dumps(
             {
-                "bundle_version": "1",
-                "chunk_id": "book.c0000.nr",
-                "is_useful": True,
-                "block_decisions": [
-                    {"block_index": 4, "category": "knowledge"},
-                    {"block_index": 5, "category": "other"},
-                ],
-                "snippets": [
+                "bundle_version": "2",
+                "bundle_id": "book.kb0000.nr",
+                "chunk_results": [
                     {
-                        "title": "Prevent curdling",
-                        "body": "Whisk constantly and use low heat.",
-                        "tags": ["technique"],
-                        "evidence": [{"block_index": 4, "quote": "whisk constantly"}],
+                        "chunk_id": "book.c0000.nr",
+                        "is_useful": True,
+                        "block_decisions": [
+                            {"block_index": 4, "category": "knowledge"},
+                            {"block_index": 5, "category": "other"},
+                        ],
+                        "snippets": [
+                            {
+                                "title": "Prevent curdling",
+                                "body": "Whisk constantly and use low heat.",
+                                "tags": ["technique"],
+                                "evidence": [{"block_index": 4, "quote": "whisk constantly"}],
+                            }
+                        ],
                     }
                 ],
             }
@@ -47,16 +52,21 @@ def test_read_knowledge_outputs_rejects_missing_evidence_with_filename_context(t
     bad_path.write_text(
         json.dumps(
             {
-                "bundle_version": "1",
-                "chunk_id": "book.c0001.nr",
-                "is_useful": True,
-                "block_decisions": [],
-                "snippets": [
+                "bundle_version": "2",
+                "bundle_id": "book.kb0001.nr",
+                "chunk_results": [
                     {
-                        "title": None,
-                        "body": "Whisk constantly.",
-                        "tags": [],
-                        "evidence": [],
+                        "chunk_id": "book.c0001.nr",
+                        "is_useful": True,
+                        "block_decisions": [],
+                        "snippets": [
+                            {
+                                "title": None,
+                                "body": "Whisk constantly.",
+                                "tags": [],
+                                "evidence": [],
+                            }
+                        ],
                     }
                 ],
             }

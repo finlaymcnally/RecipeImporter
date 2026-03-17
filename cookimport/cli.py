@@ -1002,7 +1002,7 @@ def _load_settings() -> Dict[str, Any]:
         "codex_farm_model": None,
         "codex_farm_reasoning_effort": None,
         "codex_farm_context_blocks": 30,
-        "codex_farm_knowledge_context_blocks": 2,
+        "codex_farm_knowledge_context_blocks": 0,
         "label_studio_url": "",
         "label_studio_api_key": "",
         "ocr_device": "auto",
@@ -1647,7 +1647,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 questionary.Choice(
                     (
                         "Codex Farm Knowledge Context Blocks: "
-                        f"{current_settings.get('codex_farm_knowledge_context_blocks', 12)}"
+                        f"{current_settings.get('codex_farm_knowledge_context_blocks', 0)}"
                     ),
                     value="codex_farm_knowledge_context_blocks",
                 ),
@@ -2247,7 +2247,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             val = _prompt_text(
                 "Enter Codex Farm knowledge context blocks:",
                 default=str(
-                    current_settings.get("codex_farm_knowledge_context_blocks", 12)
+                    current_settings.get("codex_farm_knowledge_context_blocks", 1)
                 ),
             )
             parsed = _coerce_positive_int(val)
@@ -22511,7 +22511,7 @@ def stage(
         help="Minimum schema confidence required before schema candidates are accepted.",
     ),
     web_schema_min_ingredients: int = typer.Option(
-        2,
+        1,
         "--web-schema-min-ingredients",
         min=0,
         hidden=True,
@@ -26665,7 +26665,7 @@ def labelstudio_benchmark(
         "--web-schema-min-ingredients",
         min=0,
         help="Minimum ingredient lines used in schema confidence scoring.",
-    )] = 2,
+    )] = 1,
     web_schema_min_instruction_steps: Annotated[int, typer.Option(
         "--web-schema-min-instruction-steps",
         min=0,

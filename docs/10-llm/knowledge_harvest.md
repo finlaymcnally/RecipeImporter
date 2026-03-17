@@ -28,13 +28,17 @@ From repo root:
 Optional knobs:
 
 - `--codex-farm-pipeline-knowledge recipe.knowledge.compact.v1`
-- `--codex-farm-knowledge-context-blocks 12`
+- `--codex-farm-knowledge-context-blocks 0`
 - `--codex-farm-root <pack_root>` and `--codex-farm-workspace-root <dir>`
 - `--table-extraction on` (recommended for table-heavy books; compact knowledge bundles then include `chunk.blocks[*].table_hint`)
 
 Chunking note:
 - knowledge-stage inputs now come from seed Stage 7 non-recipe spans, then apply the existing adjacent-chunk consolidation logic inside each seed span.
+- compact knowledge jobs now bundle surviving chunks across neighboring seed spans when they stay local, including small bridged gaps up to 10 blocks, so prompt count tracks broader outside-recipe regions instead of one chunk per prompt.
+- standalone heading fragments and tiny bridge chunks are collapsed before bundling so decorative section seams do not become their own Codex jobs.
 - table chunks are intentionally excluded from consolidation and remain isolated.
+- deterministic `noise` routing is intentionally stricter for obvious junk such as blurbs, navigation fragments, attribution-only lines, and ad copy; explanatory cooking prose should still survive into bundled review.
+- a second deterministic savings pass now drops tiny low-signal knowledge chunks (`<=240` chars with no heading context, no highlights, and no table content) before Codex job writing.
 
 ## Output locations
 
@@ -57,6 +61,7 @@ Run-level index (if any knowledge artifacts were written):
 
 Manifest/runtime note:
 - `knowledge_manifest.json` now advertises `input_mode = "stage7_seed_nonrecipe_spans"` and reports whether the stage changed final authority.
+- manifest `counts` now distinguish bundle count (`jobs_written`) from surviving chunk count (`chunks_written`).
 - If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero jobs.
 
 ## Pipeline assets
@@ -70,3 +75,7 @@ Local default pack files:
 `table_hint` contract note:
 - When table extraction is enabled, compact knowledge input can include `chunk.blocks[*].table_hint` (`table_id`, `caption`, `row_index_in_table`) to help structural interpretation.
 - Evidence still must quote verbatim from `chunk.blocks[*].text`.
+
+Bundle contract note:
+- compact knowledge input is now `bundle_version = "2"` with `bundle_id`, shared local context, and `chunks[*]`.
+- compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead.

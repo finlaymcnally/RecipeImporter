@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .codex_farm_knowledge_models import KnowledgeOutputV1
+from .codex_farm_knowledge_models import KnowledgeChunkResultV2
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +20,7 @@ def write_knowledge_artifacts(
     *,
     run_root: Path,
     workbook_slug: str,
-    outputs: Mapping[str, KnowledgeOutputV1],
+    outputs: Mapping[str, KnowledgeChunkResultV2],
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     chunk_lane_by_id: Mapping[str, str | None] | None = None,
 ) -> KnowledgeWriteReport:

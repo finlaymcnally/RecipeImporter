@@ -304,7 +304,7 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/guardrail_changed_rows.jsonl`
 - `line-role-pipeline/do_no_harm_diagnostics.json`
 - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
-Prediction-generation now reuses authoritative line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` evidence comes from Stage 7 non-recipe artifacts instead of a knowledge-stage merge step.
+Prediction-generation now reuses authoritative recipe-local line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` versus `OTHER` comes from the final non-recipe authority that import produced after any enabled refinement step.
 Those authoritative and projected line-role rows now carry `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone from this seam.
 Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.
 Canonical line-role codex inflight is now resolved inside `canonical_line_roles.py`; `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the explicit override.

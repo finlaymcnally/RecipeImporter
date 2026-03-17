@@ -282,7 +282,7 @@ Current bundle rules:
 Oracle upload contract:
 
 - the user-facing target can be a session root or an `upload_bundle_v1/` directory
-- the actual upload code attaches the three concrete bundle files
+- the actual upload code targets the three concrete bundle files; browser uploads may temporarily shard oversized files into ordered `partNNN` attachments to get past Oracle's per-file cap without changing the on-disk bundle format
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
 
 ## 5. Speed And Quality Suite Notes

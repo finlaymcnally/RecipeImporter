@@ -473,6 +473,84 @@ def merge_small_chunks(
     return result
 
 
+def collapse_heading_bridge_chunks(
+    chunks: list[KnowledgeChunk],
+    *,
+    max_bridge_chars: int = 120,
+) -> list[KnowledgeChunk]:
+    """Merge tiny heading/bridge chunks into adjacent neighbors.
+
+    This reduces prompt fragmentation from standalone headings, short
+    transitional fragments, and similar decorative chunk seams.
+    """
+    if not chunks:
+        return []
+
+    collapsed: list[KnowledgeChunk] = []
+    pending = chunks[0]
+    for chunk in chunks[1:]:
+        if _should_merge_into_next_chunk(pending, chunk, max_bridge_chars=max_bridge_chars):
+            pending = _merge_adjacent_chunk_pair(pending, chunk)
+            continue
+        collapsed.append(pending)
+        pending = chunk
+    collapsed.append(pending)
+    _renumber_chunk_ids(collapsed)
+    return collapsed
+
+
+def _should_merge_into_next_chunk(
+    left: KnowledgeChunk,
+    right: KnowledgeChunk,
+    *,
+    max_bridge_chars: int,
+) -> bool:
+    if _chunk_has_table_content(left) or _chunk_has_table_content(right):
+        return False
+    left_range = chunk_abs_range(left)
+    right_range = chunk_abs_range(right)
+    if left_range is None or right_range is None:
+        return False
+    if left_range[1] + 1 != right_range[0]:
+        return False
+    if _looks_standalone_heading_chunk(left):
+        return True
+    if _looks_tiny_bridge_chunk(left, max_bridge_chars=max_bridge_chars):
+        return True
+    return False
+
+
+def _looks_standalone_heading_chunk(chunk: KnowledgeChunk) -> bool:
+    text = chunk.text.strip()
+    if not text:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) != 1:
+        return False
+    line = lines[0]
+    if len(line) > 80:
+        return False
+    if len(line.split()) > 8:
+        return False
+    if line.endswith((".", "!", "?")):
+        return False
+    return bool(_detect_heading_level(Block(text=line, type=BlockType.TEXT), ChunkingProfile()))
+
+
+def _looks_tiny_bridge_chunk(chunk: KnowledgeChunk, *, max_bridge_chars: int) -> bool:
+    text = chunk.text.strip()
+    if not text or len(text) > max_bridge_chars:
+        return False
+    if len(chunk.block_ids) > 2:
+        return False
+    if _KNOWLEDGE_TEMP_TIME_RE.search(text):
+        return False
+    if _KNOWLEDGE_IMPERATIVE_RE.search(text) and len(text) > 80:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return len(lines) <= 2
+
+
 def _shared_section_prefix(path1: list[str], path2: list[str]) -> list[str]:
     """Return the shared prefix of two section paths."""
     shared = []
@@ -680,9 +758,32 @@ _NOISE_ENDORSEMENT_RE = re.compile(
     r"\b(—|--|by\s+[A-Z][a-z]+\s+[A-Z][a-z]+|"
     r"author of|editor of|founder of|chef at|from the)\b",
 )
+_NOISE_NAVIGATION_RE = re.compile(
+    r"\b(table of contents|contents|chapter\s+\d+|part\s+\d+|page\s+\d+|see also)\b",
+    re.IGNORECASE,
+)
+_NOISE_MARKETING_RE = re.compile(
+    r"\b(sign up|newsletter|follow us|visit (our|the)|website|order now|buy now|"
+    r"available wherever books are sold|download|e-?book|subscribe)\b",
+    re.IGNORECASE,
+)
+_NOISE_AD_COPY_RE = re.compile(
+    r"\b(advertisement|advertising|ad copy|promotional copy|sponsored)\b",
+    re.IGNORECASE,
+)
+_NOISE_ATTRIBUTION_LINE_RE = re.compile(
+    r"^(by|photographs? by|photography by|illustrations? by|recipes? by|"
+    r"adapted from|text by)\b",
+    re.IGNORECASE,
+)
 _NOISE_INTRO_PHRASES = frozenset({
     "introduction", "foreword", "preface", "about this book",
     "how to use this book", "a note from the author",
+})
+_NOISE_NAVIGATION_TITLES = frozenset({
+    "contents", "table of contents", "about the author", "about the authors",
+    "copyright", "credits", "acknowledgments", "acknowledgements",
+    "dedication", "author's note", "authors' note",
 })
 
 
@@ -816,10 +917,14 @@ def _narrative_score(text: str) -> float:
 def _noise_score(text: str, title: str) -> float:
     """Score text for noise/blurb content indicators."""
     score = 0.0
+    normalized_text = text.strip()
+    lines = [line.strip() for line in normalized_text.split("\n") if line.strip()]
 
     # Check title for intro/noise sections
     if title in _NOISE_INTRO_PHRASES:
         score += 0.3
+    if title in _NOISE_NAVIGATION_TITLES:
+        score += 0.4
 
     # Praise adjectives
     praise_matches = len(_NOISE_PRAISE_RE.findall(text))
@@ -828,9 +933,21 @@ def _noise_score(text: str, title: str) -> float:
     # Book/marketing language
     book_matches = len(_NOISE_BOOK_RE.findall(text))
     score += min(0.3, book_matches * 0.1)
+    if _NOISE_MARKETING_RE.search(text):
+        score += 0.45
+    if _NOISE_AD_COPY_RE.search(text):
+        score += 0.6
+
+    if _looks_navigation_fragment(lines, title):
+        score += 0.45
+
+    if _looks_attribution_fragment(lines):
+        score += 0.65
+
+    if _looks_dedication_fragment(lines, title):
+        score += 0.35
 
     # Quote-only content
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
     quote_lines = sum(1 for l in lines if _NOISE_QUOTE_RE.match(l))
     if lines and quote_lines / len(lines) > 0.5:
         score += 0.3
@@ -844,6 +961,45 @@ def _noise_score(text: str, title: str) -> float:
         score += 0.2
 
     return max(0.0, min(1.0, score))
+
+
+def _looks_navigation_fragment(lines: Sequence[str], title: str) -> bool:
+    if title in _NOISE_NAVIGATION_TITLES:
+        return True
+    if not lines:
+        return False
+    if any(_NOISE_NAVIGATION_RE.search(line) for line in lines):
+        return True
+    short_lines = [line for line in lines if len(line.split()) <= 6]
+    numbered_or_dotted = [
+        line for line in short_lines
+        if re.search(r"\.{2,}\s*\d+$", line) or re.match(r"^\d+\.?\s+[A-Z]", line)
+    ]
+    return len(lines) >= 3 and len(numbered_or_dotted) >= max(2, len(lines) // 2)
+
+
+def _looks_attribution_fragment(lines: Sequence[str]) -> bool:
+    if not lines:
+        return False
+    combined = " ".join(lines)
+    if len(combined) > 180:
+        return False
+    return all(_NOISE_ATTRIBUTION_LINE_RE.match(line) for line in lines)
+
+
+def _looks_dedication_fragment(lines: Sequence[str], title: str) -> bool:
+    if title == "dedication":
+        return True
+    if not lines:
+        return False
+    combined = " ".join(lines).strip()
+    if len(combined) > 140:
+        return False
+    word_count = len(combined.split())
+    if word_count == 0 or word_count > 18:
+        return False
+    lower = combined.lower()
+    return lower.startswith(("for ", "to ")) and not _KNOWLEDGE_IMPERATIVE_RE.search(combined)
 
 
 # --------------------------------------------------------------------------
@@ -1231,13 +1387,16 @@ def process_blocks_to_chunks(
     # Step 2: Merge small chunks
     chunks = merge_small_chunks(chunks, min_chars=min_merge_chars)
 
-    # Step 3: Assign lanes (knowledge/noise)
+    # Step 3: Collapse heading-only and tiny bridge chunks into neighbors.
+    chunks = collapse_heading_bridge_chunks(chunks)
+
+    # Step 4: Assign lanes (knowledge/noise)
     chunks = assign_lanes(chunks)
 
-    # Step 4: Extract highlights from knowledge chunks
+    # Step 5: Extract highlights from knowledge chunks
     chunks = extract_highlights(chunks, overrides=overrides)
 
-    # Step 5: Consolidate adjacent same-topic knowledge chunks (can be disabled).
+    # Step 6: Consolidate adjacent same-topic knowledge chunks (can be disabled).
     if _consolidate_adjacent_knowledge_chunks_enabled():
         chunks = consolidate_adjacent_knowledge_chunks(
             chunks,

@@ -204,7 +204,9 @@ _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
 _LINE_ROLE_CODEX_FARM_DEFAULT_CMD = "codex-farm"
+LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT = 240
 _SYNTAX_OWNED_LABELS = {
+    "RECIPE_TITLE",
     "TIME_LINE",
     "YIELD_LINE",
     "RECIPE_NOTES",
@@ -324,7 +326,7 @@ def _label_atomic_lines_internal(
     live_llm_allowed: bool = False,
     cache_root: Path | None = None,
     codex_timeout_seconds: int = 600,
-    codex_batch_size: int = 40,
+    codex_batch_size: int = LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
     codex_max_inflight: int | None = None,
     codex_cmd: str | None = None,
     codex_runner: CodexFarmRunner | None = None,
@@ -583,7 +585,7 @@ def label_atomic_lines(
     live_llm_allowed: bool = False,
     cache_root: Path | None = None,
     codex_timeout_seconds: int = 600,
-    codex_batch_size: int = 40,
+    codex_batch_size: int = LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
     codex_max_inflight: int | None = None,
     codex_cmd: str | None = None,
     codex_runner: CodexFarmRunner | None = None,
@@ -615,7 +617,7 @@ def label_atomic_lines_with_baseline(
     live_llm_allowed: bool = False,
     cache_root: Path | None = None,
     codex_timeout_seconds: int = 600,
-    codex_batch_size: int = 40,
+    codex_batch_size: int = LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
     codex_max_inflight: int | None = None,
     codex_cmd: str | None = None,
     codex_runner: CodexFarmRunner | None = None,
@@ -641,7 +643,7 @@ def build_line_role_codex_execution_plan(
     candidates: Sequence[AtomicLineCandidate],
     settings: RunSettings,
     *,
-    codex_batch_size: int = 40,
+    codex_batch_size: int = LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
 ) -> dict[str, Any]:
     ordered = list(candidates)
     mode = _line_role_pipeline_name(settings)
@@ -1514,10 +1516,7 @@ def _run_line_role_prompt_via_codex_farm(
         in_dir.mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)
         input_path = in_dir / "line_role_prompt.json"
-        input_path.write_text(
-            json.dumps({"prompt": prompt}, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        input_path.write_text(prompt, encoding="utf-8")
         process_run = codex_runner.run_pipeline(
             _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
             in_dir,
@@ -2235,6 +2234,11 @@ def _has_strong_syntax_label_evidence(
             candidate,
             by_atomic_index=by_atomic_index,
         )
+    if label == "RECIPE_TITLE":
+        return _looks_recipe_title_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
     if label == "INGREDIENT_LINE":
         return _looks_obvious_ingredient(candidate) and not _looks_instructional_neighbor(
             candidate
@@ -2626,6 +2630,8 @@ def _looks_recipe_title_with_context(
         saw_neighbor = True
         if _supports_recipe_title_context(next_candidate):
             return True
+        if candidate.within_recipe_span and _is_recipe_note_context_line(next_candidate):
+            return True
         if _is_skippable_title_context_line(
             next_candidate,
             title_text=str(candidate.text or ""),
@@ -2705,6 +2711,20 @@ def _is_skippable_title_context_line(
     if _looks_editorial_note(text):
         return True
     return _looks_recipe_note_prose(text)
+
+
+def _is_recipe_note_context_line(candidate: AtomicLineCandidate) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    tags = {str(tag) for tag in candidate.rule_tags}
+    if "note_like_prose" in tags:
+        return True
+    return (
+        _looks_note_text(text)
+        or _looks_editorial_note(text)
+        or _looks_recipe_note_prose(text)
+    )
 
 
 def _looks_direct_instruction_start(candidate: AtomicLineCandidate) -> bool:

@@ -38,6 +38,7 @@ from cookimport.parsing.label_source_of_truth import (
     RecipeSpan,
 )
 from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
+from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.staging.import_session import StageImportSessionResult
 
@@ -2131,6 +2132,299 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
     assert archive_payload[1]["location"]["features"]["line_role_projection"] is True
     assert archive_payload[1]["location"]["block_index"] == 0
     assert summary["span_count"] == 3
+
+
+def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    processed_root = tmp_path / "processed"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[
+            RawArtifact(
+                importer="fake",
+                sourceHash="hash-123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Pancakes"},
+                        {"index": 1, "text": "1 cup flour"},
+                        {"index": 2, "text": "Salt strengthens flavor."},
+                    ]
+                },
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    label_first_result = _make_label_first_result(
+        source=source,
+        raw_artifacts=fake_result.raw_artifacts,
+    ).model_copy(deep=True)
+    label_first_result.labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Pancakes",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="1 cup flour",
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:2",
+            source_block_index=2,
+            atomic_index=2,
+            text="Salt strengthens flavor.",
+            deterministic_label="OTHER",
+            final_label="OTHER",
+            decided_by="rule",
+        ),
+    ]
+    label_first_result.block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[1],
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:2",
+            source_block_index=2,
+            supporting_atomic_indices=[2],
+            deterministic_label="OTHER",
+            final_label="OTHER",
+            decided_by="rule",
+        ),
+    ]
+    label_first_result.archive_blocks = [
+        {
+            "index": 0,
+            "block_id": "block:0",
+            "text": "Pancakes",
+            "location": {"block_index": 0},
+        },
+        {
+            "index": 1,
+            "block_id": "block:1",
+            "text": "1 cup flour",
+            "location": {"block_index": 1},
+        },
+        {
+            "index": 2,
+            "block_id": "block:2",
+            "text": "Salt strengthens flavor.",
+            "location": {"block_index": 2},
+        },
+    ]
+    label_first_result.recipe_spans = [
+        RecipeSpan(
+            span_id="recipe_span_0",
+            start_block_index=0,
+            end_block_index=1,
+            block_indices=[0, 1],
+            source_block_ids=["block:0", "block:1"],
+            start_atomic_index=0,
+            end_atomic_index=1,
+            atomic_indices=[0, 1],
+            title_block_index=0,
+            title_atomic_index=0,
+        )
+    ]
+
+    final_nonrecipe_stage_result = NonRecipeStageResult(
+        nonrecipe_spans=[],
+        knowledge_spans=[],
+        other_spans=[],
+        block_category_by_index={2: "knowledge"},
+        seed_block_category_by_index={2: "other"},
+        refinement_report={
+            "enabled": True,
+            "authority_mode": "knowledge_refined_final_authority",
+            "input_mode": "stage7_seed_nonrecipe_spans",
+            "seed_nonrecipe_span_count": 1,
+            "final_nonrecipe_span_count": 1,
+            "changed_block_count": 1,
+            "changed_blocks": [
+                {
+                    "block_index": 2,
+                    "seed_category": "other",
+                    "final_category": "knowledge",
+                }
+            ],
+            "conflicts": [],
+            "ignored_block_indices": [],
+            "scored_effect": "mutated",
+        },
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    def _fake_execute_stage_import_session_from_result(**kwargs):
+        run_root = kwargs["run_root"]
+        run_root.mkdir(parents=True, exist_ok=True)
+        stage_predictions_path = run_root / ".bench" / "book" / "stage_block_predictions.json"
+        stage_predictions_path.parent.mkdir(parents=True, exist_ok=True)
+        stage_predictions_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "stage_block_predictions.v1",
+                    "block_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE", "2": "KNOWLEDGE"},
+                    "label_blocks": {
+                        "RECIPE_TITLE": [0],
+                        "INGREDIENT_LINE": [1],
+                        "KNOWLEDGE": [2],
+                    },
+                    "workbook_slug": "book",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        full_text_path = run_root / "raw" / "fake" / "hash-123" / "full_text.json"
+        full_text_path.parent.mkdir(parents=True, exist_ok=True)
+        full_text_path.write_text("[]", encoding="utf-8")
+        report_path = run_root / "book.excel_import_report.json"
+        report_path.write_text("{}", encoding="utf-8")
+        result = kwargs["result"]
+        return StageImportSessionResult(
+            run_root=run_root,
+            workbook_slug="book",
+            source_file=source,
+            source_hash="hash-123",
+            importer_name="fake",
+            conversion_result=result,
+            report_path=report_path,
+            stage_block_predictions_path=stage_predictions_path,
+            run_config={"write_markdown": kwargs.get("write_markdown")},
+            run_config_hash=None,
+            run_config_summary=None,
+            llm_report={"enabled": False, "pipeline": "off"},
+            timing={},
+            label_first_result=label_first_result,
+            nonrecipe_stage_result=final_nonrecipe_stage_result,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash-123",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Pancakes",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            ),
+            ArchiveBlock(
+                index=1,
+                text="1 cup flour",
+                location={"block_index": 1, "line_index": 0},
+                source_kind="raw",
+            ),
+            ArchiveBlock(
+                index=2,
+                text="Salt strengthens flavor.",
+                location={"block_index": 2, "line_index": 0},
+                source_kind="raw",
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.execute_stage_import_session_from_result",
+        _fake_execute_stage_import_session_from_result,
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        processed_output_root=processed_root,
+        line_role_pipeline="deterministic-v1",
+        write_label_studio_tasks=False,
+        write_markdown=False,
+    )
+
+    stage_payload = json.loads(
+        Path(result["stage_block_predictions_path"]).read_text(encoding="utf-8")
+    )
+    telemetry_payload = json.loads(
+        (
+            Path(result["line_role_pipeline_projected_spans_path"]).parent
+            / "telemetry_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert stage_payload["block_labels"]["2"] == "KNOWLEDGE"
+    assert result["line_role_pipeline_recipe_projection"][
+        "authoritative_stage_outputs_mutated"
+    ] is True
+    assert result["line_role_pipeline_recipe_projection"]["mode"] == (
+        "final_authority_projection"
+    )
+    assert telemetry_payload["mode"] == "final_authority_projection"
+    assert telemetry_payload["changed_block_indices"] == [2]
 
 
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(

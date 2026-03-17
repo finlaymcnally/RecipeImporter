@@ -127,26 +127,40 @@ def build_prompt_preview_budget_summary(
                 "stage_label": _PREVIEW_STAGE_LABELS.get(stage_key, stage_key.replace("_", " ").title()),
                 "kind": "preview",
                 "call_count": 0,
+                "task_prompt_chars_total": 0,
+                "task_prompt_chars_avg": 0,
                 "prompt_chars_total": 0,
                 "prompt_chars_avg": 0,
+                "transport_overhead_chars_total": 0,
                 "estimated_input_tokens": 0,
                 "estimated_output_tokens": 0,
                 "estimated_total_tokens": 0,
             },
         )
+        task_prompt_text = str(row.get("task_prompt_text") or rendered_prompt_text)
+        task_prompt_chars = len(task_prompt_text)
         stage_payload["call_count"] += 1
+        stage_payload["task_prompt_chars_total"] += task_prompt_chars
         stage_payload["prompt_chars_total"] += prompt_chars
+        stage_payload["transport_overhead_chars_total"] += max(
+            prompt_chars - task_prompt_chars,
+            0,
+        )
 
     totals = {
         "call_count": 0,
+        "task_prompt_chars_total": 0,
+        "task_prompt_chars_avg": 0,
         "prompt_chars_total": 0,
         "prompt_chars_avg": 0,
+        "transport_overhead_chars_total": 0,
         "estimated_input_tokens": 0,
         "estimated_output_tokens": 0,
         "estimated_total_tokens": 0,
     }
     for stage_key, payload in by_stage.items():
         call_count = int(payload.get("call_count") or 0)
+        task_prompt_chars_total = int(payload.get("task_prompt_chars_total") or 0)
         prompt_chars_total = int(payload.get("prompt_chars_total") or 0)
         estimated_input_tokens = _estimate_preview_input_tokens(prompt_chars_total)
         estimated_output_tokens = _estimate_preview_output_tokens(
@@ -154,16 +168,26 @@ def build_prompt_preview_budget_summary(
             call_count=call_count,
             estimated_input_tokens=estimated_input_tokens,
         )
+        payload["task_prompt_chars_avg"] = (
+            int(round(task_prompt_chars_total / call_count)) if call_count > 0 else 0
+        )
         payload["prompt_chars_avg"] = int(round(prompt_chars_total / call_count)) if call_count > 0 else 0
         payload["estimated_input_tokens"] = estimated_input_tokens
         payload["estimated_output_tokens"] = estimated_output_tokens
         payload["estimated_total_tokens"] = estimated_input_tokens + estimated_output_tokens
         totals["call_count"] += call_count
+        totals["task_prompt_chars_total"] += task_prompt_chars_total
         totals["prompt_chars_total"] += prompt_chars_total
+        totals["transport_overhead_chars_total"] += int(
+            payload.get("transport_overhead_chars_total") or 0
+        )
         totals["estimated_input_tokens"] += estimated_input_tokens
         totals["estimated_output_tokens"] += estimated_output_tokens
         totals["estimated_total_tokens"] += estimated_input_tokens + estimated_output_tokens
     if totals["call_count"] > 0:
+        totals["task_prompt_chars_avg"] = int(
+            round(totals["task_prompt_chars_total"] / totals["call_count"])
+        )
         totals["prompt_chars_avg"] = int(round(totals["prompt_chars_total"] / totals["call_count"]))
 
     warnings = _build_prompt_preview_budget_warnings(
@@ -513,7 +537,12 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
             "(heuristic)"
         ),
         f"- Total calls: `{int(_nonnegative_int(totals.get('call_count')) or 0):,}`",
+        f"- Task prompt chars: `{int(_nonnegative_int(totals.get('task_prompt_chars_total')) or 0):,}`",
         f"- Rendered prompt chars: `{int(_nonnegative_int(totals.get('prompt_chars_total')) or 0):,}`",
+        (
+            f"- Transport overhead chars: "
+            f"`{int(_nonnegative_int(totals.get('transport_overhead_chars_total')) or 0):,}`"
+        ),
         "",
     ]
     warnings = summary.get("warnings")
@@ -528,8 +557,10 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
 
     lines.append("## By Stage")
     lines.append("")
-    lines.append("| Stage | Calls | Prompt Chars | Est. Input Tokens | Est. Total Tokens |")
-    lines.append("| --- | ---: | ---: | ---: | ---: |")
+    lines.append(
+        "| Stage | Calls | Task Chars | Wrapped Chars | Overhead Chars | Est. Input Tokens | Est. Total Tokens |"
+    )
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
     by_stage = summary.get("by_stage")
     if isinstance(by_stage, Mapping):
         for stage_key, payload in by_stage.items():
@@ -539,7 +570,9 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
                 "| "
                 + f"{str(payload.get('stage_label') or stage_key)} | "
                 + f"{int(_nonnegative_int(payload.get('call_count')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('task_prompt_chars_total')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('prompt_chars_total')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('transport_overhead_chars_total')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('estimated_input_tokens')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('estimated_total_tokens')) or 0):,} |"
             )

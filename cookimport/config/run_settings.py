@@ -1054,7 +1054,7 @@ class RunSettings(BaseModel):
         ),
     )
     codex_farm_knowledge_context_blocks: int = Field(
-        default=2,
+        default=0,
         ge=0,
         le=500,
         json_schema_extra=_ui_meta(
@@ -1645,7 +1645,7 @@ def build_run_settings(
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_context_blocks: int = 30,
-    codex_farm_knowledge_context_blocks: int = 2,
+    codex_farm_knowledge_context_blocks: int = 0,
     codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
     mapping_path: Path | None = None,
     overrides_path: Path | None = None,

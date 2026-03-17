@@ -76,6 +76,7 @@ Unstructured adapter note:
 
 Canonical line-role prompt seam note:
 - prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
+- `codex-line-role-v1` now uses a shared default batch size of 240 atomic rows, sends raw task prompt text through the Codex-farm transport wrapper instead of embedding the whole prompt inside a second JSON envelope, and compacts each batch with label/reason legends plus array-shaped rows so recipe-span metadata and neighbor context are not repeated on every line; preview budget summaries now separate task chars from wrapper overhead.
 - outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose and compact domain headings can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
 
 Parsing-adjacent module (not in the default stage recipe-path runtime):
@@ -475,7 +476,7 @@ Gates include:
 ### What it does
 
 - Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
-- Supports optional Codex fallback for unresolved or explicitly escalated candidates when `line_role_pipeline=codex-line-role-v1`.
+- Supports optional Codex correction over the full ordered candidate set when `line_role_pipeline=codex-line-role-v1`; each prompt row carries the deterministic first-pass label plus any escalation reasons so Codex reviews local windows instead of inventing labels from scratch.
 - Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`), reason tags, and explicit `escalation_reasons`.
 - Prediction rows also carry `within_recipe_span` context (from atomized candidates), which benchmark Milestone-5 diagnostics reuse for slice metrics and knowledge-budget reporting.
 
@@ -487,11 +488,11 @@ Gates include:
 - `TIME_LINE` is only used for primary time metadata; non-primary `TIME_LINE` predictions are sanitized to `INSTRUCTION_LINE` (or `OTHER` outside recipe spans).
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
 - Outside recipe spans, prose now defaults to `OTHER`; `KNOWLEDGE` is used only when explicit knowledge cues are present.
-- When knowledge extraction is enabled, its block-classification artifact can further arbitrate outside-span `KNOWLEDGE` versus `OTHER` after line-role projection; this seam is binary only and does not override recipe-structural labels.
+- Final non-recipe authority can still arbitrate outside-span `KNOWLEDGE` versus `OTHER` after recipe-local projection; this seam stays binary only and does not override recipe-structural labels.
 - Outside recipe spans, `HOWTO_SECTION` is hard-denied in the v1 safety policy.
-- Outside recipe spans, `RECIPE_TITLE`/`RECIPE_VARIANT` now require compact-heading shape plus neighboring (±2 lines) structural evidence; otherwise they are downgraded to `OTHER`/`KNOWLEDGE`.
+- Outside recipe spans, `RECIPE_TITLE`/`RECIPE_VARIANT` now require heading shape plus nearby recipe-start evidence; duplicate-title echoes and explicit `NOTE:` lines can be skipped, but TOC-like rows, `How to ...` headings, and generic knowledge headings do not count as support.
 - Outside recipe spans, `INSTRUCTION_LINE`/`INGREDIENT_LINE` now require local recipe evidence (±2 lines) and are downgraded when evidence is missing.
-- `RECIPE_TITLE` now requires supportive next-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion.
+- `RECIPE_TITLE` now requires supportive near-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion; inside accepted recipe spans, immediate note prose is enough to retain the title.
 - Short ingredient fragments (for example split quantity/name rows) now get neighbor-aware rescue to `INGREDIENT_LINE` when adjacent ingredient-dominant context supports it.
 - Codex fallback uses strict JSON validation with the full global line-role label set available on every row; parse failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
 - Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
@@ -676,5 +677,5 @@ Under a run output folder:
 
 - High recipe-correction task counts usually reflect grouped recipe-span count, not Codex retry fan-out. On `saltfatacidheatcutdown`, `group_recipe_spans` produced `175` spans, many of them titleless or single-block pseudo-recipes, so Codex correctly processed too many weak recipe candidates.
 - Outside-span structured lines must not self-anchor. A nearby ingredient-like or instruction-like line is not enough evidence by itself; title/yield/howto/variant anchors or importer-held recipe-span context are the safe boundary.
-- Outside-recipe `KNOWLEDGE` labeling is still benchmark-critical because authoritative Stage 2 labels are what canonical-text scoring consumes. Improving later knowledge extraction will not repair missed deterministic `KNOWLEDGE` labels.
+- Outside-recipe `KNOWLEDGE` labeling is still benchmark-critical, but canonical benchmark scoring now projects recipe-local Stage 2 labels together with the final non-recipe authority. Missed deterministic `KNOWLEDGE` labels are no longer guaranteed to survive unchanged if later refinement changes outside-recipe ownership.
 - Empty-shell rejection must stay narrower than "zero ingredients and zero instructions". Title-plus-yield/time stubs are still real recipes and should survive even when the grouped span body is short or split awkwardly.

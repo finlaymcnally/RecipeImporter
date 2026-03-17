@@ -80,7 +80,9 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         oracle_upload.ORACLE_DEFAULT_MODEL,
     ]
     assert command.count("--file") == 3
-    for file_argument in oracle_upload._oracle_file_arguments(bundle_dir):
+    for file_argument in oracle_upload._oracle_file_arguments(
+        [bundle_dir / file_name for file_name in oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES]
+    ):
         assert file_argument in command
     assert "-p" in command
     kwargs = captured["kwargs"]
@@ -119,7 +121,9 @@ def test_run_oracle_benchmark_upload_assembles_dry_run_command(tmp_path: Path) -
     assert "--model" in command
     assert oracle_upload.ORACLE_DEFAULT_MODEL in command
     assert command.count("--file") == 3
-    for file_argument in oracle_upload._oracle_file_arguments(bundle_dir):
+    for file_argument in oracle_upload._oracle_file_arguments(
+        [bundle_dir / file_name for file_name in oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES]
+    ):
         assert file_argument in command
 
 
@@ -150,6 +154,69 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
         "--model",
         oracle_upload.ORACLE_DEFAULT_MODEL,
     ]
+
+
+def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    payload_rows = []
+    while len("".join(payload_rows).encode("utf-8")) <= (
+        oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES + 50_000
+    ):
+        payload_rows.append('{"path":"row","payload":"' + ("x" * 2000) + '"}\n')
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
+        "".join(payload_rows),
+        encoding="utf-8",
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    captured: dict[str, object] = {}
+
+    def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        file_args = [
+            Path(command[index + 1])
+            for index, arg in enumerate(command)
+            if arg == "--file"
+        ]
+        captured["file_args"] = file_args
+        for path in file_args:
+            assert path.is_file()
+            assert path.stat().st_size <= oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES
+        prompt = command[command.index("-p") + 1]
+        assert "split into ordered shards" in prompt
+        assert "upload_bundle_payload.part001.jsonl" in prompt
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="browser ok\n",
+            stderr="",
+        )
+
+    result = oracle_upload.run_oracle_benchmark_upload(
+        target=target,
+        mode="browser",
+        runner=fake_runner,
+    )
+
+    assert result.success is True
+    assert "Prepared sharded Oracle browser upload" in result.stdout
+    command = captured["command"]
+    assert isinstance(command, list)
+    file_args = captured["file_args"]
+    assert isinstance(file_args, list)
+    file_names = sorted(path.name for path in file_args)
+    assert "upload_bundle_overview.md" in file_names
+    assert "upload_bundle_index.json" in file_names
+    assert "upload_bundle_payload.jsonl" not in file_names
+    assert any(name.startswith("upload_bundle_payload.part") for name in file_names)
+    assert len(file_args) > 3
+    kwargs = captured["kwargs"]
+    assert kwargs == {"check": False, "capture_output": True, "text": True}
 
 
 def test_bench_oracle_upload_command_resolves_existing_single_profile_root(

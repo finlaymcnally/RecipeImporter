@@ -16,6 +16,8 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 logger = logging.getLogger(__name__)
 _CODEX_FARM_PROGRESS_PREFIX = "__codex_farm_progress__ "
 _CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
+_COOKIMPORT_CODEX_FARM_CODEX_HOME_ENV = "COOKIMPORT_CODEX_FARM_CODEX_HOME"
+_CODEX_FARM_RECIPE_HOME_PROFILE_ENV = "CODEX_FARM_CODEX_HOME_RECIPE"
 _CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
 _CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
 _BENCHMARK_RECOVERABLE_PARTIAL_MAX_MISSING_OUTPUTS = 3
@@ -98,11 +100,47 @@ def as_pipeline_run_result_payload(value: object) -> dict[str, Any] | None:
 
 def _merge_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     merged = os.environ.copy()
-    if not env:
-        return merged
-    for key, value in env.items():
-        merged[str(key)] = str(value)
+    explicit_env: dict[str, str] = {}
+    if env:
+        for key, value in env.items():
+            explicit_env[str(key)] = str(value)
+            merged[str(key)] = str(value)
+    resolved_codex_home = _resolve_recipeimport_codex_home(explicit_env=explicit_env)
+    if resolved_codex_home is not None:
+        merged["CODEX_HOME"] = resolved_codex_home
+        merged[_CODEX_FARM_RECIPE_HOME_PROFILE_ENV] = resolved_codex_home
     return merged
+
+
+def _resolve_recipeimport_codex_home(
+    *,
+    explicit_env: Mapping[str, str] | None = None,
+) -> str | None:
+    if explicit_env:
+        explicit_code_home = str(explicit_env.get("CODEX_HOME") or "").strip()
+        if explicit_code_home:
+            return str(Path(explicit_code_home).expanduser())
+        explicit_profile_home = str(
+            explicit_env.get(_CODEX_FARM_RECIPE_HOME_PROFILE_ENV) or ""
+        ).strip()
+        if explicit_profile_home:
+            return str(Path(explicit_profile_home).expanduser())
+        explicit_override = str(
+            explicit_env.get(_COOKIMPORT_CODEX_FARM_CODEX_HOME_ENV) or ""
+        ).strip()
+        if explicit_override:
+            return str(Path(explicit_override).expanduser())
+    configured_override = str(
+        os.environ.get(_COOKIMPORT_CODEX_FARM_CODEX_HOME_ENV) or ""
+    ).strip()
+    if configured_override:
+        return str(Path(configured_override).expanduser())
+    configured_profile_home = str(
+        os.environ.get(_CODEX_FARM_RECIPE_HOME_PROFILE_ENV) or ""
+    ).strip()
+    if configured_profile_home:
+        return str(Path(configured_profile_home).expanduser())
+    return str((Path.home() / ".codex-recipe").expanduser())
 
 
 def _command_prefix(cmd: str) -> list[str]:

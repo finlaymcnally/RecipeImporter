@@ -14,27 +14,42 @@ from cookimport.staging.nonrecipe_stage import (
 )
 
 from .codex_farm_knowledge_contracts import (
+    KnowledgeCompactBundleChunkPayloadV2,
+    KnowledgeCompactBundleJobInputV2,
     KnowledgeCompactChunkBlockV1,
-    KnowledgeCompactChunkPayloadV1,
     KnowledgeCompactContextBlockV1,
     KnowledgeCompactContextPayloadV1,
     KnowledgeCompactGuardrailsPayloadV1,
     KnowledgeCompactTableHintV1,
     KnowledgeHeuristicsPayloadV1,
     KnowledgeJobSourceV1,
-    KnowledgeCompactJobInputV1,
     KnowledgeTableHintV1,
     SpanV1,
 )
+
+_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS = 12
+_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS = 14000
+_DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS = 10
+_DEFAULT_KNOWLEDGE_LOW_SIGNAL_MAX_CHARS = 240
+_LOW_SIGNAL_SKIP_KEY = "low_signal"
 
 
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
     jobs_written: int
+    chunks_written: int
     chunk_ids: list[str]
     chunk_lane_by_id: dict[str, str | None]
     skipped_chunk_count: int
     skipped_lane_counts: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedKnowledgeBundleChunk:
+    payload: KnowledgeCompactBundleChunkPayloadV2
+    absolute_indices: list[int]
+    char_count: int
+    has_table_content: bool
 
 
 def build_knowledge_jobs(
@@ -70,6 +85,7 @@ def build_knowledge_jobs(
     chunk_ids: list[str] = []
     chunk_lane_by_id: dict[str, str | None] = {}
     chunk_counter = 0
+    bundle_counter = 0
     normalized_skip_lanes = {
         str(value or "").strip().lower()
         for value in skip_suggested_lanes
@@ -77,6 +93,7 @@ def build_knowledge_jobs(
     }
     skipped_chunk_count = 0
     skipped_lane_counts: dict[str, int] = {}
+    all_prepared_chunks: list[_PreparedKnowledgeBundleChunk] = []
 
     for stage_span in candidate_spans:
         sequence = block_rows_for_nonrecipe_span(
@@ -102,34 +119,65 @@ def build_knowledge_jobs(
                 )
                 chunk_counter += 1
                 continue
-            payload = _build_job_payload(
-                chunk_id=chunk_id,
-                workbook_slug=workbook_slug,
-                source_hash=source_hash,
-                chunk=chunk,
-                sequence=sequence,
+            absolute_indices = _absolute_indices_for_chunk(chunk, sequence=sequence)
+            if _should_skip_low_signal_knowledge_chunk(
+                chunk,
+                absolute_indices=absolute_indices,
                 full_blocks_by_index=full_blocks_by_index,
                 table_hints_by_index=table_hints_by_index,
-                recipe_spans_payload=recipe_spans_payload,
-                context_blocks=context_blocks,
+            ):
+                skipped_chunk_count += 1
+                skipped_lane_counts[_LOW_SIGNAL_SKIP_KEY] = (
+                    int(skipped_lane_counts.get(_LOW_SIGNAL_SKIP_KEY) or 0) + 1
+                )
+                chunk_counter += 1
+                continue
+            payload, absolute_indices = _build_chunk_payload(
+                chunk_id=chunk_id,
+                chunk=chunk,
+                absolute_indices=absolute_indices,
+                full_blocks_by_index=full_blocks_by_index,
+                table_hints_by_index=table_hints_by_index,
             )
-            _write_json(
-                payload.model_dump(
-                    mode="json",
-                    by_alias=True,
-                    exclude_defaults=True,
-                    exclude_none=True,
-                ),
-                out_dir / f"{chunk_id}.json",
+            all_prepared_chunks.append(
+                _PreparedKnowledgeBundleChunk(
+                    payload=payload,
+                    absolute_indices=absolute_indices,
+                    char_count=sum(len(block.text) for block in payload.blocks),
+                    has_table_content=any(block.table_hint is not None for block in payload.blocks),
+                )
             )
             chunk_ids.append(chunk_id)
             chunk_lane_by_id[chunk_id] = (
                 str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else suggested_lane
             )
             chunk_counter += 1
+    for bundle_chunks in _bundle_prepared_chunks(
+        sorted(all_prepared_chunks, key=lambda chunk: chunk.absolute_indices[0]),
+    ):
+        bundle_id = f"{workbook_slug}.kb{bundle_counter:04d}.nr"
+        bundle_payload = _build_bundle_job_payload(
+            bundle_id=bundle_id,
+            workbook_slug=workbook_slug,
+            source_hash=source_hash,
+            prepared_chunks=bundle_chunks,
+            full_blocks_by_index=full_blocks_by_index,
+            recipe_spans_payload=recipe_spans_payload,
+            context_blocks=context_blocks,
+        )
+        _write_json(
+            bundle_payload.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            ),
+            out_dir / f"{bundle_id}.json",
+        )
+        bundle_counter += 1
 
     return KnowledgeJobBuildReport(
-        jobs_written=len(chunk_ids),
+        jobs_written=bundle_counter,
+        chunks_written=len(chunk_ids),
         chunk_ids=chunk_ids,
         chunk_lane_by_id=chunk_lane_by_id,
         skipped_chunk_count=skipped_chunk_count,
@@ -157,32 +205,19 @@ def _prepare_full_blocks_by_index(
     return by_index
 
 
-def _build_job_payload(
+def _build_chunk_payload(
     *,
     chunk_id: str,
-    workbook_slug: str,
-    source_hash: str,
     chunk: KnowledgeChunk,
-    sequence: Sequence[dict[str, Any]],
+    absolute_indices: Sequence[int],
     full_blocks_by_index: dict[int, dict[str, Any]],
     table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
-    recipe_spans_payload: list[SpanV1],
-    context_blocks: int,
-) -> KnowledgeCompactJobInputV1:
+) -> tuple[KnowledgeCompactBundleChunkPayloadV2, list[int]]:
     if not chunk.block_ids:
         raise ValueError(f"Chunk {chunk_id} has no block_ids; cannot build job bundle.")
 
-    absolute_indices = _absolute_indices_for_chunk(chunk, sequence=sequence)
     block_start_index = absolute_indices[0]
     block_end_index = absolute_indices[-1] + 1
-
-    before_indices = range(max(0, block_start_index - context_blocks), block_start_index)
-    after_indices = range(block_end_index, block_end_index + max(0, int(context_blocks)))
-    context_recipe_block_indices = sorted(
-        idx
-        for idx in [*before_indices, *after_indices]
-        if _index_in_recipe_spans(idx, recipe_spans_payload)
-    )
 
     suggested_lane: str | None
     if isinstance(chunk.lane, ChunkLane):
@@ -208,6 +243,44 @@ def _build_job_payload(
         )
         for idx in absolute_indices
     ]
+    return (
+        KnowledgeCompactBundleChunkPayloadV2(
+            chunk_id=chunk_id,
+            block_start_index=int(block_start_index),
+            block_end_index=int(block_end_index),
+            blocks=chunk_blocks_payload,
+            heuristics=KnowledgeHeuristicsPayloadV1(
+                suggested_lane=suggested_lane,
+                suggested_highlights=suggested_highlights[:6],
+                suggested_skip_reason=suggested_skip_reason,
+            ),
+        ),
+        absolute_indices,
+    )
+
+
+def _build_bundle_job_payload(
+    *,
+    bundle_id: str,
+    workbook_slug: str,
+    source_hash: str,
+    prepared_chunks: Sequence[_PreparedKnowledgeBundleChunk],
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+    recipe_spans_payload: list[SpanV1],
+    context_blocks: int,
+) -> KnowledgeCompactBundleJobInputV2:
+    if not prepared_chunks:
+        raise ValueError(f"Bundle {bundle_id} has no prepared chunks.")
+
+    bundle_start_index = min(chunk.absolute_indices[0] for chunk in prepared_chunks)
+    bundle_end_index = max(chunk.absolute_indices[-1] for chunk in prepared_chunks) + 1
+    before_indices = range(max(0, bundle_start_index - context_blocks), bundle_start_index)
+    after_indices = range(bundle_end_index, bundle_end_index + max(0, int(context_blocks)))
+    context_recipe_block_indices = sorted(
+        idx
+        for idx in [*before_indices, *after_indices]
+        if _index_in_recipe_spans(idx, recipe_spans_payload)
+    )
     blocks_before = [
         _to_knowledge_compact_context_block(
             full_blocks_by_index[idx],
@@ -224,28 +297,137 @@ def _build_job_payload(
         for idx in after_indices
         if idx in full_blocks_by_index
     ]
-    return KnowledgeCompactJobInputV1(
+
+    return KnowledgeCompactBundleJobInputV2(
         source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
-        chunk=KnowledgeCompactChunkPayloadV1(
-            chunk_id=chunk_id,
-            block_start_index=int(block_start_index),
-            block_end_index=int(block_end_index),
-            blocks=chunk_blocks_payload,
-        ),
+        bundle_id=bundle_id,
+        chunks=[chunk.payload for chunk in prepared_chunks],
         context=KnowledgeCompactContextPayloadV1(
             blocks_before=blocks_before,
             blocks_after=blocks_after,
-        ),
-        heuristics=KnowledgeHeuristicsPayloadV1(
-            suggested_lane=suggested_lane,
-            suggested_highlights=suggested_highlights[:6],
-            suggested_skip_reason=suggested_skip_reason,
         ),
         guardrails=KnowledgeCompactGuardrailsPayloadV1(
             context_recipe_block_indices=context_recipe_block_indices,
             must_use_evidence=True,
         ),
     )
+
+
+def _bundle_prepared_chunks(
+    chunks: Sequence[_PreparedKnowledgeBundleChunk],
+    *,
+    max_chunks_per_bundle: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
+    max_bundle_chars: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS,
+    max_gap_blocks: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS,
+) -> list[list[_PreparedKnowledgeBundleChunk]]:
+    if not chunks:
+        return []
+
+    bundles: list[list[_PreparedKnowledgeBundleChunk]] = []
+    current: list[_PreparedKnowledgeBundleChunk] = []
+    current_chars = 0
+
+    def flush() -> None:
+        nonlocal current, current_chars
+        if current:
+            bundles.append(current)
+            current = []
+            current_chars = 0
+
+    for chunk in chunks:
+        chunk_is_isolated = chunk.has_table_content or chunk.char_count >= max_bundle_chars
+        would_exceed_chunk_cap = bool(current) and len(current) >= max_chunks_per_bundle
+        would_exceed_char_cap = bool(current) and current_chars + chunk.char_count > max_bundle_chars
+        current_has_table = any(existing.has_table_content for existing in current)
+        current_is_local = (
+            not current
+            or _chunk_gap_size(current[-1], chunk) <= max(0, int(max_gap_blocks))
+        )
+
+        if chunk_is_isolated:
+            flush()
+            bundles.append([chunk])
+            continue
+
+        if (
+            would_exceed_chunk_cap
+            or would_exceed_char_cap
+            or current_has_table
+            or not current_is_local
+        ):
+            flush()
+
+        current.append(chunk)
+        current_chars += chunk.char_count
+
+    flush()
+    return bundles
+
+
+def _chunk_gap_size(
+    left: _PreparedKnowledgeBundleChunk,
+    right: _PreparedKnowledgeBundleChunk,
+) -> int:
+    return max(0, int(right.absolute_indices[0]) - int(left.absolute_indices[-1]) - 1)
+
+
+def _should_skip_low_signal_knowledge_chunk(
+    chunk: KnowledgeChunk,
+    *,
+    absolute_indices: Sequence[int],
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+    table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
+) -> bool:
+    lane = chunk.lane.value if isinstance(chunk.lane, ChunkLane) else str(chunk.lane or "")
+    if str(lane).strip().lower() != ChunkLane.KNOWLEDGE.value:
+        return False
+    if _chunk_has_table_content(
+        chunk,
+        absolute_indices=absolute_indices,
+        table_hints_by_index=table_hints_by_index,
+    ):
+        return False
+    if _chunk_has_heading_context(
+        chunk,
+        absolute_indices=absolute_indices,
+        full_blocks_by_index=full_blocks_by_index,
+    ):
+        return False
+    if (chunk.highlight_count or 0) > 0 or bool(chunk.highlights):
+        return False
+    text = str(chunk.text or "").strip()
+    if not text or len(text) > _DEFAULT_KNOWLEDGE_LOW_SIGNAL_MAX_CHARS:
+        return False
+    return True
+
+
+def _chunk_has_heading_context(
+    chunk: KnowledgeChunk,
+    *,
+    absolute_indices: Sequence[int],
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+) -> bool:
+    if str(chunk.title or "").strip():
+        return True
+    if any(str(part or "").strip() for part in (chunk.section_path or [])):
+        return True
+    return any(
+        _resolve_heading_level(full_blocks_by_index.get(int(index)) or {}) is not None
+        for index in absolute_indices
+    )
+
+
+def _chunk_has_table_content(
+    chunk: KnowledgeChunk,
+    *,
+    absolute_indices: Sequence[int],
+    table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
+) -> bool:
+    if any(int(index) in table_hints_by_index for index in absolute_indices):
+        return True
+    provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
+    table_ids = provenance.get("table_ids")
+    return isinstance(table_ids, list) and any(str(value or "").strip() for value in table_ids)
 
 
 def _absolute_indices_for_chunk(

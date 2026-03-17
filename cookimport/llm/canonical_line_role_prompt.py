@@ -27,6 +27,12 @@ TASK BOUNDARY
 Allowed labels (global):
 {{ALLOWED_LABELS}}
 
+Compact input legends:
+- Label codes: {{LABEL_CODE_LEGEND}}
+- Escalation reason codes: {{REASON_CODE_LEGEND}}
+- Recipe atomic index ranges for this batch: {{RECIPE_ATOMIC_RANGES}}
+- Any atomic index outside those ranges is outside recipe.
+
 Tie-break precedence (highest to lowest):
 {{PRECEDENCE_ORDER}}
 
@@ -103,16 +109,34 @@ def build_canonical_line_role_prompt(
         raise ValueError("targets cannot be empty")
     resolved_allowed = [str(label) for label in (allowed_labels or FREEFORM_LABELS)]
     resolved_format = _normalize_prompt_format(prompt_format)
+    label_code_by_label = _build_label_code_by_label(resolved_allowed)
+    reason_code_by_reason = _build_reason_code_by_reason(
+        escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
+    )
     rendered_targets = _serialize_targets(
         targets,
         allowed_labels=resolved_allowed,
         prompt_format=resolved_format,
         deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
         escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
+        label_code_by_label=label_code_by_label,
+        reason_code_by_reason=reason_code_by_reason,
     )
 
     template = _load_prompt_template()
     rendered = template.replace("{{ALLOWED_LABELS}}", ", ".join(resolved_allowed))
+    rendered = rendered.replace(
+        "{{LABEL_CODE_LEGEND}}",
+        _render_label_code_legend(label_code_by_label),
+    )
+    rendered = rendered.replace(
+        "{{REASON_CODE_LEGEND}}",
+        _render_reason_code_legend(reason_code_by_reason),
+    )
+    rendered = rendered.replace(
+        "{{RECIPE_ATOMIC_RANGES}}",
+        _render_recipe_atomic_ranges(targets),
+    )
     rendered = rendered.replace(
         "{{PRECEDENCE_ORDER}}",
         "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION > "
@@ -133,8 +157,22 @@ def serialize_line_role_targets(
     allowed_labels: Sequence[str],
     deterministic_labels_by_atomic_index: Mapping[int, str] | None = None,
     escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None = None,
+    label_code_by_label: Mapping[str, str] | None = None,
+    reason_code_by_reason: Mapping[str, str] | None = None,
 ) -> str:
     allowed_label_set = {str(label).strip() for label in allowed_labels}
+    resolved_label_codes = (
+        dict(label_code_by_label)
+        if label_code_by_label is not None
+        else _build_label_code_by_label(allowed_labels)
+    )
+    resolved_reason_codes = (
+        dict(reason_code_by_reason)
+        if reason_code_by_reason is not None
+        else _build_reason_code_by_reason(
+            escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
+        )
+    )
     lines: list[str] = []
     for candidate in targets:
         atomic_index = int(candidate.atomic_index)
@@ -149,19 +187,25 @@ def serialize_line_role_targets(
             if escalation_reasons_by_atomic_index is not None
             else None
         )
+        reason_codes = ",".join(
+            resolved_reason_codes[reason]
+            for reason in escalation_reasons
+            if reason in resolved_reason_codes
+        ) or "-"
+        row: list[object] = [
+            atomic_index,
+            resolved_label_codes.get(
+                deterministic_label,
+                resolved_label_codes.get("OTHER", "L0"),
+            ),
+            reason_codes,
+            str(candidate.text),
+        ]
+        local_context = _local_context(candidate, escalation_reasons=escalation_reasons)
+        if local_context is not None:
+            row.append(local_context)
         lines.append(
-            json.dumps(
-                {
-                    "atomic_index": atomic_index,
-                    "within_recipe_span": 1 if bool(candidate.within_recipe_span) else 0,
-                    "deterministic_label": deterministic_label,
-                    "escalation_reasons": escalation_reasons,
-                    "previous_line": _neighbor_text(candidate, candidate.prev_text),
-                    "current_line": str(candidate.text),
-                    "next_line": _neighbor_text(candidate, candidate.next_text),
-                },
-                ensure_ascii=False,
-            )
+            json.dumps(row, ensure_ascii=False)
         )
     return "\n".join(lines)
 
@@ -173,6 +217,8 @@ def _serialize_targets(
     prompt_format: LineRolePromptFormat,
     deterministic_labels_by_atomic_index: Mapping[int, str] | None,
     escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None,
+    label_code_by_label: Mapping[str, str],
+    reason_code_by_reason: Mapping[str, str],
 ) -> str:
     del prompt_format
     return serialize_line_role_targets(
@@ -180,23 +226,93 @@ def _serialize_targets(
         allowed_labels=allowed_labels,
         deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
         escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
+        label_code_by_label=label_code_by_label,
+        reason_code_by_reason=reason_code_by_reason,
     )
 
 
 def _target_row_format_text(prompt_format: LineRolePromptFormat) -> str:
     del prompt_format
     return (
-        "One JSON object per line: "
-        '{"atomic_index": <int>, "within_recipe_span": <0|1>, '
-        '"deterministic_label": "<LABEL>", "escalation_reasons": ["<REASON>", ...], '
-        '"previous_line": "<text>", "current_line": "<text>", "next_line": "<text>"}'
+        "One JSON array per line. Base shape: "
+        '[atomic_index, label_code, reason_codes, current_line]. '
+        "Optional local-context shape: "
+        '[atomic_index, label_code, reason_codes, current_line, [previous_line, next_line]]. '
+        'Use "-" for empty reason_codes.'
     )
 
 
-def _neighbor_text(candidate: AtomicLineCandidate, value: str | None) -> str:
-    if not bool(candidate.within_recipe_span):
-        return ""
-    return str(value or "")
+def _build_label_code_by_label(labels: Sequence[str]) -> dict[str, str]:
+    output: dict[str, str] = {}
+    for raw_label in labels:
+        normalized = str(raw_label or "").strip().upper()
+        if not normalized or normalized in output:
+            continue
+        output[normalized] = f"L{len(output)}"
+    if "OTHER" not in output:
+        output["OTHER"] = f"L{len(output)}"
+    return output
+
+
+def _build_reason_code_by_reason(
+    *,
+    escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None,
+) -> dict[str, str]:
+    output: dict[str, str] = {}
+    if escalation_reasons_by_atomic_index is None:
+        return output
+    for atomic_index in sorted(int(value) for value in escalation_reasons_by_atomic_index):
+        reasons = _prompt_escalation_reasons(
+            escalation_reasons_by_atomic_index.get(atomic_index)
+        )
+        for reason in reasons:
+            if reason in output:
+                continue
+            output[reason] = f"R{len(output)}"
+    return output
+
+
+def _render_label_code_legend(code_by_label: Mapping[str, str]) -> str:
+    return ", ".join(f"{code}={label}" for label, code in code_by_label.items())
+
+
+def _render_reason_code_legend(code_by_reason: Mapping[str, str]) -> str:
+    if not code_by_reason:
+        return "none"
+    return ", ".join(f"{code}={reason}" for reason, code in code_by_reason.items())
+
+
+def _render_recipe_atomic_ranges(targets: Sequence[AtomicLineCandidate]) -> str:
+    recipe_indices = sorted(
+        int(candidate.atomic_index) for candidate in targets if bool(candidate.within_recipe_span)
+    )
+    if not recipe_indices:
+        return "none"
+    ranges: list[str] = []
+    start = recipe_indices[0]
+    end = recipe_indices[0]
+    for atomic_index in recipe_indices[1:]:
+        if atomic_index == end + 1:
+            end = atomic_index
+            continue
+        ranges.append(f"{start}-{end}" if start != end else str(start))
+        start = end = atomic_index
+    ranges.append(f"{start}-{end}" if start != end else str(start))
+    return ", ".join(ranges)
+
+
+def _local_context(
+    candidate: AtomicLineCandidate,
+    *,
+    escalation_reasons: Sequence[str],
+) -> list[str] | None:
+    if not escalation_reasons or not bool(candidate.within_recipe_span):
+        return None
+    previous_line = str(candidate.prev_text or "")
+    next_line = str(candidate.next_text or "")
+    if not previous_line and not next_line:
+        return None
+    return [previous_line, next_line]
 
 
 def _normalize_prompt_format(value: str) -> LineRolePromptFormat:

@@ -3,95 +3,86 @@
   "title": "recipe.knowledge.v1 output",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "bundle_version",
-    "chunk_id",
-    "is_useful",
-    "block_decisions",
-    "snippets"
-  ],
+  "required": ["v", "bid", "r"],
   "properties": {
-    "bundle_version": {
+    "v": {
       "type": "string",
-      "const": "1"
+      "const": "2"
     },
-    "chunk_id": {
+    "bid": {
       "type": "string",
       "minLength": 1
     },
-    "is_useful": {
-      "type": "boolean"
-    },
-    "block_decisions": {
+    "r": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "block_index",
-          "category"
-        ],
+        "required": ["cid", "u", "d", "s"],
         "properties": {
-          "block_index": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "category": {
-            "type": "string",
-            "enum": [
-              "knowledge",
-              "other"
-            ]
-          }
-        }
-      }
-    },
-    "snippets": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "title",
-          "body",
-          "tags",
-          "evidence"
-        ],
-        "properties": {
-          "title": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "body": {
+          "cid": {
             "type": "string",
             "minLength": 1
           },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "u": {
+            "type": "boolean"
           },
-          "evidence": {
+          "d": {
             "type": "array",
-            "minItems": 1,
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "block_index",
-                "quote"
-              ],
+              "required": ["i", "c"],
               "properties": {
-                "block_index": {
+                "i": {
                   "type": "integer",
                   "minimum": 0
                 },
-                "quote": {
+                "c": {
+                  "type": "string",
+                  "enum": ["knowledge", "other"]
+                }
+              }
+            }
+          },
+          "s": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["t", "b", "g", "e"],
+              "properties": {
+                "t": {
+                  "type": ["string", "null"]
+                },
+                "b": {
                   "type": "string",
                   "minLength": 1
+                },
+                "g": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "e": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["i", "q"],
+                    "properties": {
+                      "i": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "q": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
                 }
               }
             }

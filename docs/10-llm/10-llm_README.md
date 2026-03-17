@@ -138,6 +138,9 @@ Prompt/debug artifacts:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
   - knowledge prompt inputs from the compact-only `codex_farm_knowledge_jobs`
   - line-role prompt text from `build_canonical_line_role_prompt`
+- knowledge preview now follows the live bundle contract exactly: prompt counts come from contiguous bundled `chunks[*]` payloads, not one chunk per prompt
+- the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
+- line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
@@ -147,7 +150,7 @@ Prompt/debug artifacts:
 Prompt cost notes worth keeping in mind:
 
 - the first 2026-03-16 prompt audit measured about `663k` live-like input tokens on an `~86k` token source book
-- after the first two cut bundles now implemented in shared builders, the same benchmark preview rebuild measures about `365k` live-like input tokens
+- after the current shared line-role and knowledge cuts, the same benchmark preview rebuild measures about `386k` live-like input tokens and `~449k` estimated total tokens
 - the implemented low-risk trims are:
   - drop empty recipe `draft_hint`
   - remove recipe hint provenance from correction payloads
@@ -159,6 +162,8 @@ Where prompt cuts should live:
 
 - recipe prompt body reductions should usually happen in the shared `MergedRecipeRepairInput` serializer so live recipe runs and preview reconstruction stay aligned
 - knowledge prompt count reductions should usually happen in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
+- obvious junk suppression for knowledge cost should also live in `chunks.py` lane scoring so live harvest and preview both skip the same blurbs / navigation / attribution fragments
+- chunk-count suppression should also live in `chunks.py`: collapsing standalone heading/bridge chunks before bundling is cheaper and safer than trying to fix that fragmentation in the prompt layer
 - when `build_knowledge_jobs(...)` skips every chunk, `run_codex_farm_knowledge_harvest(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
 
 Run-level observability note:
@@ -167,6 +172,7 @@ Run-level observability note:
 ## Runner and contract notes
 
 - `SubprocessCodexFarmRunner` validates configured pipeline IDs via `codex-farm pipelines list --root ... --json`.
+- `SubprocessCodexFarmRunner` now forces RecipeImport-owned CodexFarm subprocesses onto `~/.codex-recipe` by default by injecting `CODEX_HOME` plus `CODEX_FARM_CODEX_HOME_RECIPE` at the transport layer; explicit subprocess env overrides still win.
 - Runner resolves each pipeline's `output_schema_path` and passes it explicitly as `--output-schema`.
 - `process --json` metadata is persisted as the semantic recipe-correction `process_run`.
 - Persisted process metadata includes:

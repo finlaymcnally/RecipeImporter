@@ -31,6 +31,192 @@ def test_subprocess_runner_reports_missing_binary(tmp_path: Path) -> None:
         runner.run_pipeline("recipe.correction.compact.v1", in_dir, out_dir, {})
 
 
+def test_subprocess_runner_defaults_to_recipe_codex_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
+    default_home = tmp_path / ".codex-recipe"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    default_home.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", raising=False)
+    monkeypatch.delenv("CODEX_FARM_CODEX_HOME_RECIPE", raising=False)
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.Path.home", lambda: tmp_path)
+
+    captured_envs: list[dict[str, str]] = []
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        argv = list(command)
+        env = kwargs.get("env")
+        if isinstance(env, dict):
+            captured_envs.append(dict(env))
+        if argv[1:3] == ["process", "--pipeline"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-test-defaults-to-recipe-codex-home",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-test-defaults-to-recipe-codex-home",
+                        "pipeline_id": "recipe.correction.compact.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    runner.run_pipeline(
+        "recipe.correction.compact.v1",
+        in_dir,
+        out_dir,
+        {},
+        root_dir=root_dir,
+    )
+
+    process_env = captured_envs[0]
+    assert process_env["CODEX_HOME"] == str(default_home)
+    assert process_env["CODEX_FARM_CODEX_HOME_RECIPE"] == str(default_home)
+
+
+def test_subprocess_runner_env_override_beats_default_recipe_codex_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
+    override_home = tmp_path / "override-codex-home"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    override_home.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", raising=False)
+    monkeypatch.delenv("CODEX_FARM_CODEX_HOME_RECIPE", raising=False)
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.Path.home", lambda: tmp_path)
+
+    captured_envs: list[dict[str, str]] = []
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        argv = list(command)
+        env = kwargs.get("env")
+        if isinstance(env, dict):
+            captured_envs.append(dict(env))
+        if argv[1:3] == ["process", "--pipeline"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-test-env-override-codex-home",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-test-env-override-codex-home",
+                        "pipeline_id": "recipe.correction.compact.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    runner.run_pipeline(
+        "recipe.correction.compact.v1",
+        in_dir,
+        out_dir,
+        {"CODEX_HOME": str(override_home)},
+        root_dir=root_dir,
+    )
+
+    process_env = captured_envs[0]
+    assert process_env["CODEX_HOME"] == str(override_home)
+    assert process_env["CODEX_FARM_CODEX_HOME_RECIPE"] == str(override_home)
+
+
 def test_subprocess_runner_passes_root_and_workspace_flags(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1188,6 +1374,38 @@ def test_list_codex_farm_models_uses_json_cli_contract(
     assert kwargs.get("text") is True
     assert kwargs.get("capture_output") is True
     assert kwargs.get("check") is False
+
+
+def test_list_codex_farm_models_defaults_to_recipe_codex_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    default_home = tmp_path / ".codex-recipe"
+    default_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.delenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", raising=False)
+    monkeypatch.delenv("CODEX_FARM_CODEX_HOME_RECIPE", raising=False)
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.Path.home", lambda: tmp_path)
+
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        captured["command"] = list(command)
+        captured["env"] = kwargs.get("env")
+        return SimpleNamespace(
+            returncode=0,
+            stdout="[]",
+            stderr="",
+        )
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    rows = list_codex_farm_models(cmd="/tmp/codex-farm")
+
+    assert rows == []
+    env = captured.get("env")
+    assert isinstance(env, dict)
+    assert env["CODEX_HOME"] == str(default_home)
+    assert env["CODEX_FARM_CODEX_HOME_RECIPE"] == str(default_home)
 
 
 def test_subprocess_runner_uses_run_errors_followup_on_failure(

@@ -395,32 +395,48 @@ def _write_prediction_run_knowledge_stage_outputs(
     _write_json(
         llm_run_dir / "knowledge" / "in" / "r0000.json",
         {
-            "chunk_id": chunk_id,
-            "blocks": [
-                {"index": 1, "text": "Roast until deeply browned."},
-                {"index": 2, "text": "Let the pan stay hot for 2 minutes."},
+            "bundle_version": "2",
+            "bundle_id": "knowledge:bundle0",
+            "chunks": [
+                {
+                    "chunk_id": chunk_id,
+                    "block_start_index": 1,
+                    "block_end_index": 3,
+                    "blocks": [
+                        {"block_index": 1, "text": "Roast until deeply browned."},
+                        {"block_index": 2, "text": "Let the pan stay hot for 2 minutes."},
+                    ],
+                    "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
+                }
             ],
+            "context": {"blocks_before": [], "blocks_after": []},
+            "guardrails": {"context_recipe_block_indices": []},
         },
     )
     _write_json(
         llm_run_dir / "knowledge" / "out" / "r0000.json",
         {
-            "bundle_version": "1",
-            "chunk_id": chunk_id,
-            "is_useful": True,
-            "block_decisions": [
-                {"block_index": 1, "category": "knowledge"},
-                {"block_index": 2, "category": "other"},
-            ],
-            "snippets": [
+            "bundle_version": "2",
+            "bundle_id": "knowledge:bundle0",
+            "chunk_results": [
                 {
-                    "title": "Browning",
-                    "body": "Roast until deeply browned.",
-                    "tags": ["fixture"],
-                    "evidence": [
-                        {"block_index": 1, "quote": "Roast until deeply browned."}
+                    "chunk_id": chunk_id,
+                    "is_useful": True,
+                    "block_decisions": [
+                        {"block_index": 1, "category": "knowledge"},
+                        {"block_index": 2, "category": "other"},
                     ],
-                },
+                    "snippets": [
+                        {
+                            "title": "Browning",
+                            "body": "Roast until deeply browned.",
+                            "tags": ["fixture"],
+                            "evidence": [
+                                {"block_index": 1, "quote": "Roast until deeply browned."}
+                            ],
+                        }
+                    ],
+                }
             ],
         },
     )

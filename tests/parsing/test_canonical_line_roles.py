@@ -735,6 +735,36 @@ def test_label_atomic_lines_recipe_title_with_immediate_yield_stays_recipe_title
     assert predictions[0].label == "RECIPE_TITLE"
 
 
+def test_label_atomic_lines_recipe_title_with_immediate_note_prose_stays_recipe_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:note-prose:1",
+            "block_index": 1,
+            "text": "LEEKS VINAIGRETTE",
+        },
+        {
+            "block_id": "block:title:note-prose:2",
+            "block_index": 2,
+            "text": (
+                "I like this best when the leeks are barely warm and the dressing "
+                "has had a minute to soak in."
+            ),
+        },
+        {
+            "block_id": "block:title:note-prose:3",
+            "block_index": 3,
+            "text": "2 large leeks",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "RECIPE_TITLE"
+
+
 def test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction() -> None:
     blocks = [
         {
@@ -1078,16 +1108,21 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
         next_text="2 tablespoons olive oil",
         rule_tags=["yield_prefix"],
     )
-    prompt = build_canonical_line_role_prompt([candidate])
+    prompt = build_canonical_line_role_prompt(
+        [candidate],
+        allowed_labels=["OTHER", "YIELD_LINE", "INGREDIENT_LINE"],
+        escalation_reasons_by_atomic_index={0: ["deterministic_unresolved"]},
+    )
     assert "schema.org extraction" in prompt
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
-    assert '"deterministic_label": "OTHER"' in prompt
-    assert '"current_line": "SERVES 4"' in prompt
-    assert '"next_line": "2 tablespoons olive oil"' in prompt
+    assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
+    assert "Escalation reason codes: R0=deterministic_unresolved" in prompt
+    assert "Recipe atomic index ranges for this batch: 0" in prompt
+    assert '[0, "L0", "R0", "SERVES 4", ["", "2 tablespoons olive oil"]]' in prompt
 
 
-def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
+def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="r1",
@@ -1113,20 +1148,24 @@ def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
         ),
     ]
 
-    prompt = build_canonical_line_role_prompt(candidates, prompt_format="compact_v1")
-    assert "within_recipe_span_1_or_0" in prompt
-    assert prompt.count("within_recipe_span_1_or_0") == 1
-    assert '"atomic_index": 0' in prompt
-    assert '"current_line": "SERVES 4"' in prompt
-    assert '"current_line": "2 tablespoons olive oil"' in prompt
+    prompt = build_canonical_line_role_prompt(
+        candidates,
+        prompt_format="compact_v1",
+        allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+    )
+    assert "[atomic_index, label_code, reason_codes, current_line]" in prompt
+    assert prompt.count("[atomic_index, label_code, reason_codes, current_line]") == 1
+    assert "Recipe atomic index ranges for this batch: 0-1" in prompt
+    assert '[0, "L1", "-", "SERVES 4"]' in prompt
+    assert '[1, "L1", "-", "2 tablespoons olive oil"]' in prompt
 
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
     )
     assert compact_rows.splitlines() == [
-        '{"atomic_index": 0, "within_recipe_span": 1, "deterministic_label": "OTHER", "escalation_reasons": [], "previous_line": "", "current_line": "SERVES 4", "next_line": "2 tablespoons olive oil"}',
-        '{"atomic_index": 1, "within_recipe_span": 1, "deterministic_label": "OTHER", "escalation_reasons": [], "previous_line": "SERVES 4", "current_line": "2 tablespoons olive oil", "next_line": "Whisk and serve."}',
+        '[0, "L1", "-", "SERVES 4"]',
+        '[1, "L1", "-", "2 tablespoons olive oil"]',
     ]
 
 
@@ -1159,29 +1198,23 @@ def test_canonical_line_role_prompt_blanks_neighbors_outside_recipe_rows() -> No
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+        escalation_reasons_by_atomic_index={
+            0: ["outside_span_structured_label"],
+            1: ["deterministic_unresolved"],
+        },
     ).splitlines()
 
     compact_outside = json.loads(compact_rows[0])
-    assert compact_outside == {
-        "atomic_index": 0,
-        "within_recipe_span": 0,
-        "deterministic_label": "OTHER",
-        "escalation_reasons": [],
-        "previous_line": "",
-        "current_line": "Praise for SALT FAT ACID HEAT",
-        "next_line": "",
-    }
+    assert compact_outside == [0, "L1", "R0", "Praise for SALT FAT ACID HEAT"]
 
     compact_inside = json.loads(compact_rows[1])
-    assert compact_inside == {
-        "atomic_index": 1,
-        "within_recipe_span": 1,
-        "deterministic_label": "OTHER",
-        "escalation_reasons": [],
-        "previous_line": "",
-        "current_line": "SERVES 4",
-        "next_line": "2 tablespoons olive oil",
-    }
+    assert compact_inside == [
+        1,
+        "L1",
+        "R1",
+        "SERVES 4",
+        ["", "2 tablespoons olive oil"],
+    ]
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -1752,6 +1785,34 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
     ]
 
 
+def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Line {index}",
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        )
+        for index in range(canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT + 1)
+    ]
+
+    plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
+        candidates,
+        _settings("codex-line-role-v1"),
+    )
+
+    assert plan["codex_batch_size"] == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
+    assert plan["planned_candidate_count"] == len(candidates)
+    assert plan["planned_batch_count"] == 2
+    assert plan["batches"][0]["candidate_count"] == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
+    assert plan["batches"][1]["candidate_count"] == 1
+
+
 def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -2168,11 +2229,11 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     prompt_text = (tmp_path / "line-role-pipeline" / "prompts" / "prompt_0001.txt").read_text(
         encoding="utf-8"
     )
-    assert "within_recipe_span_1_or_0" in prompt_text
-    assert '"deterministic_label": "OTHER"' in prompt_text
-    assert '"previous_line": "Before"' in prompt_text
-    assert '"current_line": "Ambiguous line 0"' in prompt_text
-    assert '"next_line": "After"' in prompt_text
+    assert "[atomic_index, label_code, reason_codes, current_line]" in prompt_text
+    assert "Label codes:" in prompt_text
+    assert "Recipe atomic index ranges for this batch: 0" in prompt_text
+    assert '["Before", "After"]' in prompt_text
+    assert "Ambiguous line 0" in prompt_text
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(

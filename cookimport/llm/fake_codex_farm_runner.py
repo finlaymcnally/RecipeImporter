@@ -85,38 +85,50 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             "warnings": [],
         }
     if pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1"}:
-        chunk = payload.get("chunk") or {}
-        chunk_id = chunk.get("chunk_id")
-        chunk_blocks = chunk.get("blocks") or []
-        first_block = chunk_blocks[0] if isinstance(chunk_blocks, list) and chunk_blocks else {}
-        block_index = first_block.get("block_index", 0)
-        block_text = str(first_block.get("text") or "").strip()
-        quote = block_text[:80].strip() or "evidence"
-        return {
-            "bundle_version": "1",
-            "chunk_id": chunk_id,
-            "is_useful": True,
-            "block_decisions": [
+        chunks = payload.get("chunks") or []
+        chunk_results = []
+        for chunk in chunks:
+            if not isinstance(chunk, dict):
+                continue
+            chunk_id = chunk.get("chunk_id")
+            chunk_blocks = chunk.get("blocks") or []
+            first_block = (
+                chunk_blocks[0] if isinstance(chunk_blocks, list) and chunk_blocks else {}
+            )
+            block_index = first_block.get("block_index", 0)
+            block_text = str(first_block.get("text") or "").strip()
+            quote = block_text[:80].strip() or "evidence"
+            chunk_results.append(
                 {
-                    "block_index": int(block.get("block_index", 0)),
-                    "category": "knowledge",
-                }
-                for block in chunk_blocks
-                if isinstance(block, dict)
-            ],
-            "snippets": [
-                {
-                    "title": None,
-                    "body": "Fake knowledge snippet.",
-                    "tags": ["fake-runner"],
-                    "evidence": [
+                    "cid": chunk_id,
+                    "u": True,
+                    "d": [
                         {
-                            "block_index": block_index,
-                            "quote": quote,
+                            "i": int(block.get("block_index", 0)),
+                            "c": "knowledge",
+                        }
+                        for block in chunk_blocks
+                        if isinstance(block, dict)
+                    ],
+                    "s": [
+                        {
+                            "t": None,
+                            "b": "Fake knowledge snippet.",
+                            "g": ["fake-runner"],
+                            "e": [
+                                {
+                                    "i": block_index,
+                                    "q": quote,
+                                }
+                            ],
                         }
                     ],
                 }
-            ],
+            )
+        return {
+            "v": "2",
+            "bid": payload.get("bundle_id"),
+            "r": chunk_results,
         }
     raise ValueError(f"Unsupported fake pipeline id: {pipeline_id}")
 

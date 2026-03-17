@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -10,6 +11,7 @@ from typing import Callable
 ORACLE_BROWSER_CMD = "/home/mcnal/.local/bin/oracle-browser-headless"
 ORACLE_DEFAULT_MODEL = "gpt-5.2-pro"
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
+ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
 ORACLE_DRY_RUN_BASE_COMMAND = (
     "npx",
     "-y",
@@ -43,6 +45,13 @@ class OracleUploadResult:
     returncode: int
     stdout: str
     stderr: str
+
+
+@dataclass(frozen=True)
+class PreparedOracleUploadInputs:
+    prompt: str
+    file_paths: list[Path]
+    note: str = ""
 
 
 def _infer_bundle_scope(source_root: Path) -> str:
@@ -111,11 +120,8 @@ def _oracle_file_argument(path: Path) -> str:
         return str(path)
 
 
-def _oracle_file_arguments(bundle_dir: Path) -> list[str]:
-    return [
-        _oracle_file_argument(bundle_dir / file_name)
-        for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
-    ]
+def _oracle_file_arguments(file_paths: list[Path]) -> list[str]:
+    return [_oracle_file_argument(path) for path in file_paths]
 
 
 def _oversized_bundle_files(bundle_dir: Path) -> list[tuple[str, int]]:
@@ -131,15 +137,130 @@ def _oversized_bundle_files(bundle_dir: Path) -> list[tuple[str, int]]:
     return oversized
 
 
-def _oracle_command(
+def _split_text_to_byte_sized_chunks(text: str, *, max_bytes: int) -> list[str]:
+    if not text:
+        return [""]
+    chunks: list[str] = []
+    current_parts: list[str] = []
+    current_bytes = 0
+
+    def flush() -> None:
+        nonlocal current_parts, current_bytes
+        if not current_parts:
+            return
+        chunks.append("".join(current_parts))
+        current_parts = []
+        current_bytes = 0
+
+    def append_piece(piece: str) -> None:
+        nonlocal current_bytes
+        piece_bytes = len(piece.encode("utf-8"))
+        if current_parts and current_bytes + piece_bytes > max_bytes:
+            flush()
+        if piece_bytes <= max_bytes:
+            current_parts.append(piece)
+            current_bytes += piece_bytes
+            return
+        oversized_chars: list[str] = []
+        oversized_bytes = 0
+        for char in piece:
+            char_bytes = len(char.encode("utf-8"))
+            if oversized_chars and oversized_bytes + char_bytes > max_bytes:
+                chunks.append("".join(oversized_chars))
+                oversized_chars = []
+                oversized_bytes = 0
+            oversized_chars.append(char)
+            oversized_bytes += char_bytes
+        if oversized_chars:
+            chunks.append("".join(oversized_chars))
+
+    for line in text.splitlines(keepends=True):
+        append_piece(line)
+    flush()
+    return chunks or [text]
+
+
+def _copy_or_shard_browser_upload_files(
+    *,
+    bundle_dir: Path,
+    staging_dir: Path,
+) -> tuple[list[Path], list[str]]:
+    staged_paths: list[Path] = []
+    shard_notes: list[str] = []
+    for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
+        source_path = bundle_dir / file_name
+        size_bytes = source_path.stat().st_size
+        if size_bytes <= ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES:
+            staged_path = staging_dir / file_name
+            staged_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+            staged_paths.append(staged_path)
+            continue
+
+        shard_chunks = _split_text_to_byte_sized_chunks(
+            source_path.read_text(encoding="utf-8"),
+            max_bytes=ORACLE_BROWSER_SHARD_TARGET_BYTES,
+        )
+        shard_names: list[str] = []
+        for index, chunk in enumerate(shard_chunks, start=1):
+            shard_name = f"{source_path.stem}.part{index:03d}{source_path.suffix}"
+            shard_path = staging_dir / shard_name
+            shard_path.write_text(chunk, encoding="utf-8")
+            staged_paths.append(shard_path)
+            shard_names.append(shard_name)
+        shard_notes.append(
+            f"`{file_name}` was split into {len(shard_names)} ordered shards: "
+            + ", ".join(f"`{name}`" for name in shard_names)
+            + "."
+        )
+    return staged_paths, shard_notes
+
+
+def _prepare_browser_upload_inputs(
     *,
     target: OracleBenchmarkBundleTarget,
+    staging_dir: Path,
+) -> PreparedOracleUploadInputs:
+    prompt = build_oracle_benchmark_prompt(target=target)
+    oversized_files = _oversized_bundle_files(target.bundle_dir)
+    if not oversized_files:
+        return PreparedOracleUploadInputs(
+            prompt=prompt,
+            file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
+        )
+
+    staged_paths, shard_notes = _copy_or_shard_browser_upload_files(
+        bundle_dir=target.bundle_dir,
+        staging_dir=staging_dir,
+    )
+    oversized_text = ", ".join(f"{name} ({size_bytes} bytes)" for name, size_bytes in oversized_files)
+    prompt_lines = [
+        prompt,
+        "",
+        "Oracle transport note: some attached bundle files were split into ordered shards to satisfy Oracle's per-file input limit before browser upload.",
+        "Treat any `*.partNNN.*` attachments as the logical contents of the original file concatenated in lexical filename order.",
+        *shard_notes,
+        "Read `upload_bundle_overview.md` first, then `upload_bundle_index.json`, and consult payload shard rows only as needed.",
+    ]
+    note = (
+        "Prepared sharded Oracle browser upload for oversized bundle files: "
+        f"{oversized_text}."
+    )
+    return PreparedOracleUploadInputs(
+        prompt="\n".join(prompt_lines),
+        file_paths=staged_paths,
+        note=note,
+    )
+
+
+def _oracle_command(
+    *,
     mode: str,
     model: str,
+    prompt: str,
+    file_paths: list[Path],
 ) -> list[str]:
     normalized_mode = mode.strip().lower()
-    prompt = build_oracle_benchmark_prompt(target=target)
-    file_arguments = _oracle_file_arguments(target.bundle_dir)
+    file_arguments = _oracle_file_arguments(file_paths)
     if normalized_mode == "browser":
         command = [
             ORACLE_BROWSER_CMD,
@@ -179,7 +300,12 @@ def run_oracle_benchmark_upload(
         else []
     )
     if oversized_files:
-        browser_command = _oracle_command(target=target, mode="browser", model=model)
+        browser_command = _oracle_command(
+            mode="browser",
+            model=model,
+            prompt=build_oracle_benchmark_prompt(target=target),
+            file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
+        )
         oversized_text = ", ".join(
             f"{name} ({size_bytes} bytes)" for name, size_bytes in oversized_files
         )
@@ -198,7 +324,43 @@ def run_oracle_benchmark_upload(
             stderr="",
         )
 
-    command = _oracle_command(target=target, mode=normalized_mode, model=model)
+    if normalized_mode == "browser":
+        with tempfile.TemporaryDirectory(prefix="oracle-benchmark-upload-") as staging_dir_str:
+            prepared = _prepare_browser_upload_inputs(
+                target=target,
+                staging_dir=Path(staging_dir_str),
+            )
+            command = _oracle_command(
+                mode=normalized_mode,
+                model=model,
+                prompt=prepared.prompt,
+                file_paths=prepared.file_paths,
+            )
+            completed = runner(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        stdout = completed.stdout or ""
+        if prepared.note:
+            stdout = f"{prepared.note}\n{stdout}" if stdout else prepared.note
+        return OracleUploadResult(
+            success=completed.returncode == 0,
+            mode=normalized_mode,
+            command=command,
+            bundle_dir=target.bundle_dir,
+            returncode=int(completed.returncode),
+            stdout=stdout,
+            stderr=completed.stderr or "",
+        )
+
+    command = _oracle_command(
+        mode=normalized_mode,
+        model=model,
+        prompt=build_oracle_benchmark_prompt(target=target),
+        file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
+    )
     completed = runner(
         command,
         check=False,

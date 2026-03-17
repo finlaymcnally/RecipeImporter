@@ -5,6 +5,8 @@ Optional LLM integrations live here.
 Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with strict contracts in `codex_farm_contracts.py` and subprocess/fake runners in `codex_farm_runner.py` and `fake_codex_farm_runner.py`.
 
 Run settings now include the recipe pipeline toggle plus optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
+RecipeImport now also forces its CodexFarm subprocesses onto the dedicated `~/.codex-recipe` home by default at the runner layer, so recipe/knowledge/line-role/prelabel/model-discovery calls do not silently fall back to the main `~/.codex` profile. Explicit subprocess env overrides can still replace that home when needed.
+See `RECIPE_CODEX_HOME.md` in this folder for the AI-coder explainer on how RecipeImport forces CodexFarm onto the dedicated recipe Codex home.
 
 Codex Farm model discovery for interactive run settings now comes from `codex-farm models list --json`, and subprocess orchestration validates configured pipeline ids via `codex-farm pipelines list --root ... --json` before recipe-correction execution.
 
@@ -33,6 +35,8 @@ Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor b
 Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.correction.compact.v1` and `recipe.knowledge.compact.v1`), and those ids are now the default recipe-correction / knowledge-stage selections when CodexFarm recipe parsing or optional knowledge extraction is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
 
 Knowledge harvest now reviews the seed Stage 7 non-recipe spans from `cookimport/staging/nonrecipe_stage.py`, merges `block_decisions` back into final `knowledge` versus `other` authority, and still writes reviewer artifacts under `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md`. `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` preserve both the seed and final authority plus the refinement report.
+
+The compact knowledge contract is now bundle-shaped rather than one-chunk-per-prompt. `codex_farm_knowledge_jobs.py` packs contiguous surviving chunks into local bundles, keeps table-heavy chunks isolated, and emits one Codex result array per bundle with per-`chunk_id` outputs. A later prompt-cut pass also collapses standalone heading / bridge chunks before bundling, defaults knowledge context to `1` block on each side, and uses short output-schema keys (`v`, `bid`, `r`, `cid`, `u`, `d`, `s`, `i`, `c`, `t`, `b`, `g`, `e`, `q`) to reduce structured-output token overhead.
 
 The canonical recipe path is now `llm_recipe_pipeline=codex-farm-single-correction-v1`. It runs one compact correction stage (`recipe.correction.compact.v1`), updates the intermediate `RecipeCandidate`, and rebuilds final cookbook3 drafts locally from the corrected candidate plus `ingredient_step_mapping`.
 

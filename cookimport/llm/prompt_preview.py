@@ -25,6 +25,9 @@ from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
     build_codex_farm_prompt_type_samples_markdown,
 )
+from cookimport.parsing.canonical_line_roles import (
+    LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
+)
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
@@ -65,7 +68,7 @@ def write_prompt_preview_for_existing_run(
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_context_blocks: int = 30,
-    codex_farm_knowledge_context_blocks: int = 2,
+    codex_farm_knowledge_context_blocks: int = 0,
     atomic_block_splitter: str = "atomic-v1",
 ) -> Path:
     context = _load_existing_run_preview_context(run_path=run_path)
@@ -429,12 +432,10 @@ def _build_knowledge_preview_rows(
             input_payload = _read_json(existing_input_path)
             input_path = in_dir / existing_input_path.name
             input_path.write_text(serialized_input, encoding="utf-8")
-            chunk_payload = _coerce_dict(input_payload.get("chunk"))
-            chunk_id = str(
-                chunk_payload.get("chunk_id")
-                or input_payload.get("chunk_id")
-                or existing_input_path.stem
-            ).strip() or existing_input_path.stem
+            chunk_id = _knowledge_preview_row_id(
+                input_payload=input_payload,
+                fallback=existing_input_path.stem,
+            )
             rows.append(
                 _prompt_row(
                     call_id=input_path.stem,
@@ -477,12 +478,10 @@ def _build_knowledge_preview_rows(
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):
         input_payload = _read_json(input_path)
-        chunk_payload = _coerce_dict(input_payload.get("chunk"))
-        chunk_id = str(
-            chunk_payload.get("chunk_id")
-            or input_payload.get("chunk_id")
-            or input_path.stem
-        ).strip()
+        chunk_id = _knowledge_preview_row_id(
+            input_payload=input_payload,
+            fallback=input_path.stem,
+        )
         rows.append(
             _prompt_row(
                 call_id=input_path.stem,
@@ -502,6 +501,24 @@ def _build_knowledge_preview_rows(
             )
         )
     return rows
+
+
+def _knowledge_preview_row_id(
+    *,
+    input_payload: Mapping[str, Any],
+    fallback: str,
+) -> str:
+    chunks_payload = input_payload.get("chunks")
+    if isinstance(chunks_payload, list) and chunks_payload:
+        first_chunk = _coerce_dict(chunks_payload[0])
+        first_chunk_id = str(first_chunk.get("chunk_id") or "").strip()
+        last_chunk = _coerce_dict(chunks_payload[-1])
+        last_chunk_id = str(last_chunk.get("chunk_id") or "").strip()
+        if first_chunk_id and last_chunk_id and first_chunk_id != last_chunk_id:
+            return f"{first_chunk_id}..{last_chunk_id}"
+        if first_chunk_id:
+            return first_chunk_id
+    return str(input_payload.get("bundle_id") or fallback).strip() or fallback
 
 
 def _build_line_role_preview_rows(
@@ -529,30 +546,33 @@ def _build_line_role_preview_rows(
         atomic_block_splitter=atomic_block_splitter,
     )
     rows: list[dict[str, Any]] = []
-    unresolved_candidates = _select_line_role_preview_candidates(
-        candidates=candidates,
+    deterministic_labels_by_atomic_index = _line_role_preview_deterministic_labels(
+        labeled_line_rows=context.labeled_line_rows,
+    )
+    escalation_reasons_by_atomic_index = _line_role_preview_escalation_reasons(
         labeled_line_rows=context.labeled_line_rows,
     )
     for prompt_index, batch_candidates in enumerate(
-        _batch(unresolved_candidates, size=40),
+        _batch(candidates, size=LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT),
         start=1,
     ):
         if not batch_candidates:
             continue
-        prompt_text = build_canonical_line_role_prompt(batch_candidates)
-        input_payload = {"prompt": prompt_text}
-        input_path = in_dir / f"line_role_prompt_{prompt_index or len(rows) + 1:04d}.json"
-        input_path.write_text(
-            json.dumps(input_payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        prompt_text = build_canonical_line_role_prompt(
+            batch_candidates,
+            deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
+            escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
         )
+        input_path = in_dir / f"line_role_prompt_{prompt_index or len(rows) + 1:04d}.json"
+        input_path.write_text(prompt_text, encoding="utf-8")
         rows.append(
             _prompt_row(
                 call_id=input_path.stem,
                 recipe_id=str(batch_candidates[0].recipe_id or input_path.stem),
                 source_file=context.source_file,
                 pipeline_assets=pipeline_assets,
-                input_payload=input_payload,
+                input_payload={},
+                input_text=prompt_text,
                 input_path=input_path,
                 stage_key="line_role",
                 stage_label="Line Role Labeling",
@@ -562,6 +582,7 @@ def _build_line_role_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
+                task_prompt_text=prompt_text,
             )
         )
     return rows
@@ -684,36 +705,41 @@ def _build_line_role_candidates_from_labeled_lines(
     return output
 
 
-def _select_line_role_preview_candidates(
+def _line_role_preview_deterministic_labels(
     *,
-    candidates: list[AtomicLineCandidate],
     labeled_line_rows: list[dict[str, Any]],
-) -> list[AtomicLineCandidate]:
-    if not candidates:
-        return []
-    if not labeled_line_rows:
-        return list(candidates)
-    unresolved_atomic_indices = {
-        int(row.get("atomic_index"))
-        for row in labeled_line_rows
-        if _line_role_row_needs_codex(row)
-    }
-    selected = [
-        candidate
-        for candidate in candidates
-        if int(candidate.atomic_index) in unresolved_atomic_indices
-    ]
-    return selected or list(candidates)
+) -> dict[int, str]:
+    labels_by_atomic_index: dict[int, str] = {}
+    for row in labeled_line_rows:
+        atomic_index = _coerce_int(row.get("atomic_index"))
+        if atomic_index is None:
+            continue
+        label = str(
+            row.get("deterministic_label")
+            or row.get("label")
+            or row.get("final_label")
+            or "OTHER"
+        ).strip()
+        labels_by_atomic_index[atomic_index] = label or "OTHER"
+    return labels_by_atomic_index
 
 
-def _line_role_row_needs_codex(row: Mapping[str, Any]) -> bool:
-    decided_by = str(row.get("decided_by") or "").strip().lower()
-    escalation_reasons = row.get("escalation_reasons") or []
-    if decided_by and decided_by != "rule":
-        return True
-    if isinstance(escalation_reasons, list) and escalation_reasons:
-        return True
-    return False
+def _line_role_preview_escalation_reasons(
+    *,
+    labeled_line_rows: list[dict[str, Any]],
+) -> dict[int, list[str]]:
+    reasons_by_atomic_index: dict[int, list[str]] = {}
+    for row in labeled_line_rows:
+        atomic_index = _coerce_int(row.get("atomic_index"))
+        if atomic_index is None:
+            continue
+        rendered_reasons: list[str] = []
+        for reason in row.get("escalation_reasons") or []:
+            text = str(reason or "").strip()
+            if text:
+                rendered_reasons.append(text)
+        reasons_by_atomic_index[atomic_index] = rendered_reasons
+    return reasons_by_atomic_index
 
 
 def _prompt_row(
@@ -723,8 +749,9 @@ def _prompt_row(
     source_file: str,
     pipeline_assets: dict[str, Any],
     input_payload: dict[str, Any],
-    input_text: str | None = None,
     input_path: Path,
+    input_text: str | None = None,
+    task_prompt_text: str | None = None,
     stage_key: str,
     stage_label: str,
     stage_order: int,
@@ -798,7 +825,9 @@ def _prompt_row(
             "output_schema_path": pipeline_assets.get("output_schema_path"),
         },
         "request_input_payload": input_payload,
+        "request_input_text": serialized_input,
         "request_input_file": str(input_path),
+        "task_prompt_text": task_prompt_text,
         "response_format": response_format,
         "decoding_params": {
             "temperature": None,

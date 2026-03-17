@@ -14,6 +14,7 @@ from cookimport.core.models import (
 from cookimport.parsing.chunks import (
     ChunkingProfile,
     assign_lanes,
+    collapse_heading_bridge_chunks,
     chunk_non_recipe_blocks,
     consolidate_adjacent_knowledge_chunks,
     extract_highlights,
@@ -152,6 +153,38 @@ class TestLaneAssignment:
         assign_lanes([chunk])
         assert chunk.lane == ChunkLane.NOISE
 
+    def test_navigation_fragment_is_noise(self):
+        """Contents/navigation fragments should be classified as noise."""
+        chunk = KnowledgeChunk(
+            identifier="c0",
+            title="Contents",
+            text="Contents\nSauces ........ 12\nStocks ........ 18\nRoasts ........ 26",
+            block_ids=[0],
+        )
+        assign_lanes([chunk])
+        assert chunk.lane == ChunkLane.NOISE
+
+    def test_attribution_fragment_is_noise(self):
+        """Pure byline/attribution fragments should be classified as noise."""
+        chunk = KnowledgeChunk(
+            identifier="c0",
+            text="Recipes by Jane Doe\nPhotographs by Alex Roe",
+            block_ids=[0],
+        )
+        assign_lanes([chunk])
+        assert chunk.lane == ChunkLane.NOISE
+
+    def test_intro_technique_prose_stays_knowledge(self):
+        """Cooking-principles prose should remain knowledge even when narrative-flavored."""
+        chunk = KnowledgeChunk(
+            identifier="c0",
+            text="Browning develops flavor because moisture must evaporate before the surface "
+                 "can caramelize. If you crowd the pan, the food steams instead of searing.",
+            block_ids=[0],
+        )
+        assign_lanes([chunk])
+        assert chunk.lane == ChunkLane.KNOWLEDGE
+
 
 class TestHighlightExtraction:
     """Test tip mining integration for highlights."""
@@ -240,6 +273,44 @@ class TestChunkMerging:
 
         # Should remain separate
         assert len(merged) == 2
+
+    def test_collapse_heading_only_chunk_into_following_chunk(self):
+        """Standalone heading chunks should collapse into the following payload chunk."""
+        heading = _make_chunk(
+            identifier="c0",
+            text="SAUCES",
+            block_ids=[0],
+            abs_start=0,
+            abs_end=0,
+            title="SAUCES",
+        )
+        body = _make_chunk(
+            identifier="c1",
+            text="Always whisk constantly to keep the sauce smooth.",
+            block_ids=[1],
+            abs_start=1,
+            abs_end=1,
+            section_path=["SAUCES"],
+        )
+
+        merged = collapse_heading_bridge_chunks([heading, body])
+
+        assert len(merged) == 1
+        assert "SAUCES" in merged[0].text
+        assert "Always whisk constantly" in merged[0].text
+
+    def test_process_blocks_to_chunks_does_not_leave_heading_fragment_alone(self):
+        """Process pipeline should not emit a standalone heading fragment when prose follows."""
+        blocks = [
+            _make_block("SAUCES"),
+            _make_block("EMULSIONS"),
+            _make_block("Always whisk constantly while adding butter."),
+        ]
+
+        chunks = process_blocks_to_chunks(blocks, profile=ChunkingProfile(min_chars=20))
+
+        assert len(chunks) == 1
+        assert "Always whisk constantly" in chunks[0].text
 
 
 class TestBoundaryReasons:

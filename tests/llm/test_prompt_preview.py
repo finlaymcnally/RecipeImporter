@@ -219,7 +219,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"] == {
-        "knowledge_prompt_count": 2,
+        "knowledge_prompt_count": 0,
         "line_role_prompt_count": 1,
         "recipe_prompt_count": 1,
     }
@@ -236,7 +236,6 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         if line.strip()
     ]
     assert {row["stage_key"] for row in full_prompt_rows} == {
-        "extract_knowledge_optional",
         "line_role",
         "recipe_llm_correct_and_link",
     }
@@ -259,18 +258,38 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert recipe_input_payload["tagging_guide"]["version"] == "recipe_tagging_guide.v1"
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
-    assert "Embedded prompt payload" in line_role_row["rendered_prompt_text"]
+    assert "Execute the line-role labeling task below exactly." in line_role_row["rendered_prompt_text"]
     assert "Ambiguous title-ish line" in line_role_row["rendered_prompt_text"]
+    embedded_line_role_prompt = line_role_row["task_prompt_text"]
+    assert "Compact input legends:" in embedded_line_role_prompt
+    assert "Recipe atomic index ranges for this batch: 0-1" in embedded_line_role_prompt
+    assert "RECIPE_TITLE" in embedded_line_role_prompt
+    assert "KNOWLEDGE" in embedded_line_role_prompt
+    assert "deterministic_unresolved" in embedded_line_role_prompt
+    assert "fallback_decision" in embedded_line_role_prompt
+    assert "Advertisement copy." in embedded_line_role_prompt
+    assert line_role_row["request_input_payload"] == {}
+    assert line_role_row["request_input_text"] == embedded_line_role_prompt
+    assert (
+        out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json"
+    ).read_text(encoding="utf-8") == embedded_line_role_prompt
 
     assert (out_dir / "raw" / "llm" / "fixturebook" / "recipe_llm_correct_and_link" / "in" / "r0.json").is_file()
-    assert (out_dir / "raw" / "llm" / "fixturebook" / "extract_knowledge_optional" / "in").is_dir()
     assert (out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json").is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert budget_summary["totals"]["call_count"] == 4
+    assert budget_summary["totals"]["call_count"] == 2
+    assert budget_summary["totals"]["task_prompt_chars_total"] > 0
+    assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
+    line_role_budget = budget_summary["by_stage"]["line_role"]
+    assert line_role_budget["task_prompt_chars_total"] < line_role_budget["prompt_chars_total"]
+    assert line_role_budget["transport_overhead_chars_total"] > 0
     assert budget_summary["warnings"] == []
+    budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
+    assert "Task prompt chars" in budget_summary_md
+    assert "Overhead Chars" in budget_summary_md
     assert (out_dir / "prompt_preview_budget_summary.md").is_file()
 
 
@@ -300,14 +319,19 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
 
     live_knowledge_input = run_dir / "raw" / "llm" / workbook_slug / "knowledge" / "in" / "live_knowledge.json"
     live_knowledge_payload = {
-        "bundle_version": "1",
-        "chunk": {
-            "chunk_id": "fixturebook.c9999.nr",
-            "blocks": [{"block_index": 7, "text": "Live knowledge block."}],
-        },
+        "bundle_version": "2",
+        "bundle_id": "fixturebook.kb9999.nr",
+        "chunks": [
+            {
+                "chunk_id": "fixturebook.c9999.nr",
+                "block_start_index": 7,
+                "block_end_index": 8,
+                "blocks": [{"block_index": 7, "text": "Live knowledge block."}],
+                "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
+            }
+        ],
         "context": {"blocks_before": [], "blocks_after": []},
         "guardrails": {"context_recipe_block_indices": []},
-        "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
     }
     _write_json(live_knowledge_input, live_knowledge_payload)
 

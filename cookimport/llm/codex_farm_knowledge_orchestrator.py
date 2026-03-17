@@ -104,6 +104,7 @@ def run_codex_farm_knowledge_harvest(
             "scored_effect": "seed_only",
             "counts": {
                 "jobs_written": 0,
+                "chunks_written": 0,
                 "jobs_skipped": 0,
                 "outputs_parsed": 0,
                 "chunks_missing": 0,
@@ -187,6 +188,7 @@ def run_codex_farm_knowledge_harvest(
             "output_schema_path": output_schema_path,
             "counts": {
                 "jobs_written": 0,
+                "chunks_written": 0,
                 "jobs_skipped": build_report.skipped_chunk_count,
                 "outputs_parsed": 0,
                 "chunks_missing": 0,
@@ -271,13 +273,14 @@ def run_codex_farm_knowledge_harvest(
             or "seed_only"
         ),
         "output_schema_path": output_schema_path,
-        "counts": {
-            "jobs_written": build_report.jobs_written,
-            "jobs_skipped": build_report.skipped_chunk_count,
-            "outputs_parsed": len(outputs),
-            "chunks_missing": len(missing_chunk_ids),
-            "snippets_written": write_report.snippets_written,
-            "decisions_applied": len(block_category_updates),
+            "counts": {
+                "jobs_written": build_report.jobs_written,
+                "chunks_written": build_report.chunks_written,
+                "jobs_skipped": build_report.skipped_chunk_count,
+                "outputs_parsed": len(outputs),
+                "chunks_missing": len(missing_chunk_ids),
+                "snippets_written": write_report.snippets_written,
+                "decisions_applied": len(block_category_updates),
             "changed_blocks": int(
                 refined_stage_result.refinement_report.get("changed_block_count") or 0
             ),

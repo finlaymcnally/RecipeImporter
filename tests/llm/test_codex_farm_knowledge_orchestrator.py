@@ -134,6 +134,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.manifest_path.exists()
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["jobs_written"] > 0
+    assert manifest["counts"]["chunks_written"] >= manifest["counts"]["jobs_written"]
 
     knowledge_dir = run_root / "knowledge" / "book"
     assert (knowledge_dir / "snippets.jsonl").exists()
@@ -185,6 +186,7 @@ def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Pat
 
     assert apply_result.llm_report["stage_status"] == "no_nonrecipe_spans"
     assert apply_result.llm_report["counts"]["jobs_written"] == 0
+    assert apply_result.llm_report["counts"]["chunks_written"] == 0
     assert apply_result.manifest_path.exists()
 
 
@@ -284,6 +286,7 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
     assert runner.calls == []
     assert apply_result.llm_report["stage_status"] == "all_chunks_skipped"
     assert apply_result.llm_report["counts"]["jobs_written"] == 0
+    assert apply_result.llm_report["counts"]["chunks_written"] == 0
     assert apply_result.llm_report["counts"]["jobs_skipped"] == 1
     assert apply_result.llm_report["skipped_lane_counts"] == {"noise": 1}
 
@@ -333,18 +336,23 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
     runner = FakeCodexFarmRunner(
         output_builders={
             "recipe.knowledge.compact.v1": lambda payload: {
-                "bundle_version": "1",
-                "chunk_id": payload["chunk"]["chunk_id"],
-                "is_useful": True,
-                "block_decisions": [
-                    {"block_index": 8, "category": "knowledge"},
-                ],
-                "snippets": [
+                "bundle_version": "2",
+                "bundle_id": payload["bundle_id"],
+                "chunk_results": [
                     {
-                        "title": "Acid and browning",
-                        "body": "Acid slows browning.",
-                        "tags": ["science"],
-                        "evidence": [{"block_index": 8, "quote": "acid slows browning"}],
+                        "chunk_id": payload["chunks"][0]["chunk_id"],
+                        "is_useful": True,
+                        "block_decisions": [
+                            {"block_index": 8, "category": "knowledge"},
+                        ],
+                        "snippets": [
+                            {
+                                "title": "Acid and browning",
+                                "body": "Acid slows browning.",
+                                "tags": ["science"],
+                                "evidence": [{"block_index": 8, "quote": "acid slows browning"}],
+                            }
+                        ],
                     }
                 ],
             }

@@ -9,6 +9,12 @@ TASK BOUNDARY
 Allowed labels (global):
 {{ALLOWED_LABELS}}
 
+Compact input legends:
+- Label codes: {{LABEL_CODE_LEGEND}}
+- Escalation reason codes: {{REASON_CODE_LEGEND}}
+- Recipe atomic index ranges for this batch: {{RECIPE_ATOMIC_RANGES}}
+- Any atomic index outside those ranges is outside recipe.
+
 Tie-break precedence (highest to lowest):
 {{PRECEDENCE_ORDER}}
 

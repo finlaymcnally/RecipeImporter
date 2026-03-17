@@ -4,14 +4,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-_BUNDLE_VERSION: Literal["1"] = "1"
+_BUNDLE_VERSION_V2: Literal["2"] = "2"
 
 
 class EvidencePointerV1(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    block_index: int
-    quote: str
+    block_index: int = Field(alias="i")
+    quote: str = Field(alias="q")
 
     @field_validator("block_index", mode="before")
     @classmethod
@@ -27,12 +27,12 @@ class EvidencePointerV1(BaseModel):
 
 
 class KnowledgeSnippetV1(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    title: str | None = Field(default=None)
-    body: str
-    tags: list[str] = Field(default_factory=list)
-    evidence: list[EvidencePointerV1] = Field(default_factory=list)
+    title: str | None = Field(default=None, alias="t")
+    body: str = Field(alias="b")
+    tags: list[str] = Field(default_factory=list, alias="g")
+    evidence: list[EvidencePointerV1] = Field(default_factory=list, alias="e")
 
     @field_validator("title", "body", mode="before")
     @classmethod
@@ -61,10 +61,10 @@ class KnowledgeSnippetV1(BaseModel):
 
 
 class KnowledgeBlockDecisionV1(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    block_index: int
-    category: Literal["knowledge", "other"]
+    block_index: int = Field(alias="i")
+    category: Literal["knowledge", "other"] = Field(alias="c")
 
     @field_validator("block_index", mode="before")
     @classmethod
@@ -72,14 +72,13 @@ class KnowledgeBlockDecisionV1(BaseModel):
         return int(value)
 
 
-class KnowledgeOutputV1(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class KnowledgeChunkResultV2(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    bundle_version: Literal["1"] = _BUNDLE_VERSION
-    chunk_id: str
-    is_useful: bool
-    block_decisions: list[KnowledgeBlockDecisionV1] = Field(default_factory=list)
-    snippets: list[KnowledgeSnippetV1] = Field(default_factory=list)
+    chunk_id: str = Field(alias="cid")
+    is_useful: bool = Field(alias="u")
+    block_decisions: list[KnowledgeBlockDecisionV1] = Field(default_factory=list, alias="d")
+    snippets: list[KnowledgeSnippetV1] = Field(default_factory=list, alias="s")
 
     @field_validator("chunk_id", mode="before")
     @classmethod
@@ -99,4 +98,32 @@ class KnowledgeOutputV1(BaseModel):
                     f"{decision.block_index}."
                 )
             seen.add(decision.block_index)
+        return value
+
+
+class KnowledgeBundleOutputV2(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    bundle_version: Literal["2"] = Field(default=_BUNDLE_VERSION_V2, alias="v")
+    bundle_id: str = Field(alias="bid")
+    chunk_results: list[KnowledgeChunkResultV2] = Field(default_factory=list, alias="r")
+
+    @field_validator("bundle_id", mode="before")
+    @classmethod
+    def _normalize_bundle_id(cls, value: object) -> object:
+        return str(value).strip()
+
+    @field_validator("chunk_results")
+    @classmethod
+    def _require_unique_chunk_ids(
+        cls, value: list[KnowledgeChunkResultV2]
+    ) -> list[KnowledgeChunkResultV2]:
+        seen: set[str] = set()
+        for result in value:
+            if result.chunk_id in seen:
+                raise ValueError(
+                    "chunk_results must not repeat chunk_id "
+                    f"{result.chunk_id!r}."
+                )
+            seen.add(result.chunk_id)
         return value

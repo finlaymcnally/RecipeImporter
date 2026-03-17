@@ -332,6 +332,15 @@ def _write_label_first_authority_mismatch_artifact(
     return mismatch_path
 
 
+def _append_report_warning(report: ConversionReport | None, message: str) -> ConversionReport:
+    if report is None:
+        report = ConversionReport()
+    warnings = list(report.warnings or [])
+    warnings.append(str(message))
+    report.warnings = warnings
+    return report
+
+
 def execute_stage_import_session_from_result(
     *,
     result: ConversionResult,
@@ -389,12 +398,11 @@ def execute_stage_import_session_from_result(
         line_role_pipeline=str(getattr(run_settings.line_role_pipeline, "value", "off")),
     )
     if original_result.recipes and not result.recipes:
-        if result.report is None:
-            result.report = ConversionReport()
-        result.report.warnings.append(
+        result.report = _append_report_warning(
+            result.report,
             "Authoritative Stage 2 regrouping found zero recipes after importer "
             "candidates were detected; keeping label-first outputs and writing "
-            "group_recipe_spans authority diagnostics."
+            "group_recipe_spans authority diagnostics.",
         )
         label_artifact_paths["authority_mismatch_path"] = (
             _write_label_first_authority_mismatch_artifact(
@@ -422,11 +430,10 @@ def execute_stage_import_session_from_result(
             )
         except CodexFarmRunnerError as exc:
             if run_settings.codex_farm_failure_mode.value == "fallback":
-                if result.report is None:
-                    result.report = ConversionReport()
-                result.report.warnings.append(
+                result.report = _append_report_warning(
+                    result.report,
                     "LLM recipe pipeline failed; falling back to deterministic outputs: "
-                    f"{exc}"
+                    f"{exc}",
                 )
                 llm_report = {
                     "enabled": True,
@@ -469,11 +476,10 @@ def execute_stage_import_session_from_result(
             )
         except CodexFarmRunnerError as exc:
             if run_settings.codex_farm_failure_mode.value == "fallback":
-                if result.report is None:
-                    result.report = ConversionReport()
-                result.report.warnings.append(
+                result.report = _append_report_warning(
+                    result.report,
                     "LLM knowledge harvest failed; continuing without knowledge artifacts: "
-                    f"{exc}"
+                    f"{exc}",
                 )
                 llm_report["knowledge"] = {
                     "enabled": True,
