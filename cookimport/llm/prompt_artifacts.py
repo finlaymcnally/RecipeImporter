@@ -1748,6 +1748,11 @@ def _build_line_role_prompt_rows(
 
         prompt_glob = f"{spec['prompt_stem']}_*.txt"
         for prompt_file in sorted(phase_prompt_dir.glob(prompt_glob), key=lambda path: path.name):
+            if (
+                f"{spec['prompt_stem']}_response_" in prompt_file.name
+                or f"{spec['prompt_stem']}_parsed_" in prompt_file.name
+            ):
+                continue
             prompt_index = _parse_prompt_index_from_name(prompt_file.name)
             if prompt_index is None:
                 continue

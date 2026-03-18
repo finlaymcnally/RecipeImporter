@@ -1,11 +1,9 @@
 You are reviewing deterministic canonical line-role labels for cookbook atomic lines.
 
 TASK BOUNDARY
-- This is a grounded recipe-structure correction pass over one ordered slice of the book.
+- This is a grounded line-role correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
-- Treat `region_code` as the recipe-region gate result for that row.
-- Rows gated `O=outside_recipe` must stay within non-recipe labels only.
-- Rows gated `B=boundary_uncertain` may use recipe labels only when local context clearly shows the line belongs inside a real recipe region.
+- Treat `span_code` as a weak provenance hint only. It may be unknown and it is not authoritative recipe-boundary truth.
 - Never invent lines or labels.
 
 Allowed labels (global):
@@ -13,7 +11,7 @@ Allowed labels (global):
 
 Compact input legends:
 - Label codes: {{LABEL_CODE_LEGEND}}
-- Region codes: {{REGION_CODE_LEGEND}}
+- Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status
 - Treat the targets as one ordered contiguous slice of the book.
 - `hint_codes` are compact deterministic heuristic tags, not final truth.
 

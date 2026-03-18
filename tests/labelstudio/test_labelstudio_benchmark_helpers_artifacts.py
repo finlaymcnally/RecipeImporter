@@ -568,17 +568,17 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
     tmp_path: Path,
 ) -> None:
     processed_run = tmp_path / "processed" / "2026-03-16_18.11.25"
-    prompt_dir = processed_run / "line-role-pipeline" / "prompts"
+    prompt_dir = processed_run / "line-role-pipeline" / "prompts" / "line_role"
     prompt_dir.mkdir(parents=True, exist_ok=True)
-    (prompt_dir / "prompt_0001.txt").write_text(
+    (prompt_dir / "line_role_prompt_0001.txt").write_text(
         "line role prompt body\n",
         encoding="utf-8",
     )
-    (prompt_dir / "response_0001.txt").write_text(
+    (prompt_dir / "line_role_prompt_response_0001.txt").write_text(
         '[{"atomic_index": 1, "label": "RECIPE_TITLE"}]\n',
         encoding="utf-8",
     )
-    (prompt_dir / "parsed_0001.json").write_text(
+    (prompt_dir / "line_role_prompt_parsed_0001.json").write_text(
         json.dumps([{"atomic_index": 1, "label": "RECIPE_TITLE"}], indent=2),
         encoding="utf-8",
     )
@@ -597,39 +597,44 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
                 "schema_version": 1,
                 "codex_backend": "codexfarm",
                 "codex_farm_pipeline_id": "line-role.canonical.v1",
-                "batches": [
+                "phases": [
                     {
-                        "prompt_index": 1,
-                        "candidate_count": 3,
-                        "requested_atomic_indices": [1, 2, 3],
-                        "parse_error": False,
-                        "codex_failure": None,
-                        "attempt_count": 1,
-                        "attempts_with_usage": 1,
-                        "attempts": [
+                        "phase_key": "line_role",
+                        "batches": [
                             {
-                                "attempt_index": 1,
-                                "response_present": True,
-                                "returncode": 0,
-                                "turn_failed_message": None,
-                                "usage": {
-                                    "tokens_input": 10,
-                                    "tokens_cached_input": 1,
-                                    "tokens_output": 2,
-                                    "tokens_reasoning": 3,
-                                    "tokens_total": 16,
-                                },
-                                "process_run": {
-                                    "pipeline_id": "line-role.canonical.v1",
-                                    "output_schema_path": str(schema_path),
-                                    "process_payload": {
-                                        "run_id": "line-role-run-1",
-                                        "status": "done",
-                                        "pipeline_id": "line-role.canonical.v1",
-                                        "codex_model": "gpt-5.3-codex-spark",
-                                        "codex_reasoning_effort": "low",
-                                    },
-                                },
+                                "prompt_index": 1,
+                                "candidate_count": 3,
+                                "requested_atomic_indices": [1, 2, 3],
+                                "parse_error": False,
+                                "codex_failure": None,
+                                "attempt_count": 1,
+                                "attempts_with_usage": 1,
+                                "attempts": [
+                                    {
+                                        "attempt_index": 1,
+                                        "response_present": True,
+                                        "returncode": 0,
+                                        "turn_failed_message": None,
+                                        "usage": {
+                                            "tokens_input": 10,
+                                            "tokens_cached_input": 1,
+                                            "tokens_output": 2,
+                                            "tokens_reasoning": 3,
+                                            "tokens_total": 16,
+                                        },
+                                        "process_run": {
+                                            "pipeline_id": "line-role.canonical.v1",
+                                            "output_schema_path": str(schema_path),
+                                            "process_payload": {
+                                                "run_id": "line-role-run-1",
+                                                "status": "done",
+                                                "pipeline_id": "line-role.canonical.v1",
+                                                "codex_model": "gpt-5.3-codex-spark",
+                                                "codex_reasoning_effort": "low",
+                                            },
+                                        },
+                                    }
+                                ],
                             }
                         ],
                     }
@@ -672,10 +677,18 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
     assert log_path is not None and log_path.exists()
     assert (eval_output_dir / "prompts" / "prompt_line_role.txt").exists()
     assert (
-        eval_output_dir / "prompts" / "line-role-pipeline" / "prompt_0001.txt"
+        eval_output_dir
+        / "prompts"
+        / "line-role-pipeline"
+        / "line_role"
+        / "line_role_prompt_0001.txt"
     ).exists()
     assert (
-        eval_output_dir / "prompts" / "line-role-pipeline" / "response_0001.txt"
+        eval_output_dir
+        / "prompts"
+        / "line-role-pipeline"
+        / "line_role"
+        / "line_role_prompt_response_0001.txt"
     ).exists()
     assert (
         eval_output_dir / "prompts" / "line-role-pipeline" / "telemetry_summary.json"
@@ -691,7 +704,7 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
     assert len(full_prompt_rows) == 1
     row = full_prompt_rows[0]
     assert row["stage_key"] == "line_role"
-    assert row["request_telemetry"]["run_id"] == "line-role-run-1"
+    assert row["process_run_id"] == "line-role-run-1"
     assert row["request_telemetry"]["tokens_total"] == 16
     assert row["raw_response"]["output_text"].startswith("[{")
     trace_rows = [
@@ -1788,8 +1801,8 @@ def test_prompt_budget_summary_reports_line_role_surface_target_separately_from_
         json.dumps(
             {
                 "summary": {
-                    "batch_count": 10,
-                    "attempt_count": 10,
+                    "batch_count": 5,
+                    "attempt_count": 5,
                     "tokens_input": 500,
                     "tokens_cached_input": 50,
                     "tokens_output": 60,
@@ -1798,12 +1811,7 @@ def test_prompt_budget_summary_reports_line_role_surface_target_separately_from_
                 },
                 "phases": [
                     {
-                        "phase_key": "recipe_region_gate",
-                        "summary": {"batch_count": 5},
-                        "runtime_artifacts": {"worker_count": 5},
-                    },
-                    {
-                        "phase_key": "recipe_structure_label",
+                        "phase_key": "line_role",
                         "summary": {"batch_count": 5},
                         "runtime_artifacts": {"worker_count": 5},
                     },
@@ -1831,10 +1839,9 @@ def test_prompt_budget_summary_reports_line_role_surface_target_separately_from_
     assert line_role_stage["run_count_status"] == "matched"
     assert line_role_stage["requested_worker_count"] == 5
     assert line_role_stage["actual_worker_count"] == 5
-    assert line_role_stage["internal_phase_count"] == 2
-    assert line_role_stage["internal_phase_run_counts"] == {
-        "recipe_region_gate": 5,
-        "recipe_structure_label": 5,
-    }
-    assert "total model calls were 10" in line_role_stage["run_count_explanation"]
+    assert line_role_stage["internal_phase_count"] == 1
+    assert line_role_stage["internal_phase_run_counts"] == {"line_role": 5}
+    assert line_role_stage["run_count_explanation"] == (
+        "Requested 5 run(s) and Line Role used 5 shard(s)."
+    )
     assert summary["run_count_deviations"] == []

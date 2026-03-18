@@ -40,12 +40,10 @@ def _progress_messages_as_text(messages: list[str]) -> list[str]:
 def _line_role_runner(
     label_by_atomic_index: dict[int, str] | None = None,
     *,
-    region_status_by_atomic_index: dict[int, str] | None = None,
     output_builder=None,
 ):
     def _default_builder(payload):
         rows = payload.get("rows") if isinstance(payload, dict) else []
-        phase_key = str(payload.get("phase_key") or "") if isinstance(payload, dict) else ""
         atomic_indices = [
             int(row.get("atomic_index"))
             for row in rows
@@ -61,44 +59,6 @@ def _line_role_runner(
             atomic_indices = [
                 int(value) for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
             ]
-        if phase_key == "recipe_region_gate":
-            gate_rows = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                atomic_index = int(row.get("atomic_index"))
-                explicit = (
-                    str((region_status_by_atomic_index or {}).get(atomic_index) or "").strip()
-                )
-                if explicit:
-                    region_status = explicit
-                else:
-                    span_hint = row.get("within_recipe_span")
-                    deterministic_label = str(row.get("deterministic_label") or "OTHER")
-                    if span_hint is True:
-                        region_status = "recipe"
-                    elif span_hint is False:
-                        region_status = "outside_recipe"
-                    elif deterministic_label in {
-                        "RECIPE_TITLE",
-                        "RECIPE_VARIANT",
-                        "HOWTO_SECTION",
-                        "INGREDIENT_LINE",
-                        "INSTRUCTION_LINE",
-                        "YIELD_LINE",
-                        "TIME_LINE",
-                        "RECIPE_NOTES",
-                    }:
-                        region_status = "recipe"
-                    else:
-                        region_status = "boundary_uncertain"
-                gate_rows.append(
-                    {
-                        "atomic_index": atomic_index,
-                        "region_status": region_status,
-                    }
-                )
-            return {"rows": gate_rows}
         return {
             "rows": [
                 {
@@ -1196,7 +1156,6 @@ def test_codex_mode_allows_outside_span_title_override() -> None:
         _settings("codex-line-role-shard-v1"),
         codex_runner=_line_role_runner(
             {0: "OTHER", 1: "INGREDIENT_LINE"},
-            region_status_by_atomic_index={0: "recipe", 1: "recipe"},
         ),
         live_llm_allowed=True,
     )
@@ -1403,12 +1362,11 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
         [candidate],
         allowed_labels=["OTHER", "YIELD_LINE", "INGREDIENT_LINE"],
         escalation_reasons_by_atomic_index={0: ["deterministic_unresolved"]},
-        region_status_by_atomic_index={0: "recipe"},
     )
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
-    assert "Region codes: R=recipe, O=outside_recipe, B=boundary_uncertain" in prompt
+    assert "Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status" in prompt
     assert "Grounding windows:" in prompt
     assert "ctx:0|prev=_|line=SERVES 4|next=2 tablespoons olive oil" in prompt
     assert "0|L0|R|yield,needs_review|SERVES 4" in prompt
@@ -1444,10 +1402,9 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
         candidates,
         prompt_format="compact_v1",
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
-        region_status_by_atomic_index={0: "recipe", 1: "recipe"},
     )
-    assert "atomic_index|label_code|region_code|hint_codes|current_line" in prompt
-    assert prompt.count("atomic_index|label_code|region_code|hint_codes|current_line") == 1
+    assert "atomic_index|label_code|span_code|hint_codes|current_line" in prompt
+    assert prompt.count("atomic_index|label_code|span_code|hint_codes|current_line") == 1
     assert "ordered contiguous slice of the book" in prompt
     assert "0|L1|R|yield|SERVES 4" in prompt
     assert "1|L1|R|ingredient|2 tablespoons olive oil" in prompt
@@ -1455,7 +1412,6 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
-        region_status_by_atomic_index={0: "recipe", 1: "recipe"},
     )
     assert compact_rows.splitlines() == [
         "0|L1|R|yield|SERVES 4",
@@ -1492,7 +1448,6 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
-        region_status_by_atomic_index={0: "outside_recipe", 1: "recipe"},
         escalation_reasons_by_atomic_index={
             0: ["outside_span_structured_label"],
             1: ["deterministic_unresolved"],
@@ -1500,7 +1455,7 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
     ).splitlines()
 
     assert compact_rows[0] == (
-        "0|L1|O|outside,outside_structure|Praise for SALT FAT ACID HEAT"
+        "0|L1|N|outside,outside_structure|Praise for SALT FAT ACID HEAT"
     )
     assert compact_rows[1] == "1|L1|R|yield,needs_review|SERVES 4"
 
@@ -2005,9 +1960,8 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role"
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
-    assert "TASK BOUNDARY" in prompt_text
-    assert "Read the shard JSON already placed in the worker folder" in prompt_text
-    assert "Required output rows:" in prompt_text
+    assert "Execute the line-role labeling task exactly." in prompt_text
+    assert "Read the task file already placed in the worker folder" in prompt_text
     assert "Ambiguous line 0" not in prompt_text
     worker_prompt_text = (
         tmp_path
@@ -2020,8 +1974,8 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line-role-canonical-0001-a000000-a000000"
         / "prompt.txt"
     ).read_text(encoding="utf-8")
-    assert "Read the shard JSON already placed in the worker folder" in worker_prompt_text
-    assert "Required output rows:" in worker_prompt_text
+    assert "Execute the line-role labeling task exactly." in worker_prompt_text
+    assert "Read the task file already placed in the worker folder" in worker_prompt_text
     assert "Ambiguous line 0" not in worker_prompt_text
     input_payload = json.loads(
         (

@@ -389,7 +389,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
-    assert "grounded line-role correction pass" in line_role_row["rendered_prompt_text"]
+    assert "Execute the line-role labeling task exactly." in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
     assert line_role_row["request_input_payload"]["phase_key"] == "line_role"
     assert [row["atomic_index"] for row in line_role_row["request_input_payload"]["rows"]] == [

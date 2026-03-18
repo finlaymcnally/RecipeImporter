@@ -195,6 +195,7 @@ Line-role prediction artifacts live under:
 Line-role runtime note:
 - live line-role execution no longer uses `phase_worker_runtime.py` or `codex-farm process`
 - `canonical_line_roles.py` now assigns shard ownership directly, writes authoritative worker-local shard JSON under `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, sends one short file-backed wrapper prompt per shard through `codex_exec_runner.py`, validates exact owned `atomic_index` coverage, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/line_role/workers/.../shards/<shard_id>/`
+- there is no longer any live or compatibility support for a separate LLM recipe gate inside line-role; the only active line-role model surface is the single `line_role` labeling phase
 - line-role pre-grouping candidates now default to `within_recipe_span=None`; importer recipe provenance is no longer supplied before deterministic/Codex labeling, and prompt-preview reconstruction mirrors that same span-free contract
 - `workers/*/in/*.json` are now the authoritative model-facing task payloads; `prompt.txt` is only the short wrapper that points at that file
 - `telemetry_summary.json` remains the prompt/debug and post-run cost seam for line-role, but its runtime metadata now describe direct exec instead of CodexFarm `process`

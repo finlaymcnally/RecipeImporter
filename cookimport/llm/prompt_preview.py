@@ -930,59 +930,6 @@ def _line_role_preview_escalation_reasons(
     return reasons_by_atomic_index
 
 
-def _line_role_preview_region_statuses(
-    *,
-    candidates: Sequence[AtomicLineCandidate],
-    deterministic_labels_by_atomic_index: Mapping[int, str],
-) -> dict[int, str]:
-    statuses: dict[int, str] = {}
-    for candidate in candidates:
-        atomic_index = int(candidate.atomic_index)
-        label = str(
-            deterministic_labels_by_atomic_index.get(atomic_index) or "OTHER"
-        ).strip().upper()
-        if candidate.within_recipe_span is True:
-            statuses[atomic_index] = "recipe"
-        elif candidate.within_recipe_span is False:
-            statuses[atomic_index] = "outside_recipe"
-        elif label in {
-            "RECIPE_TITLE",
-            "RECIPE_VARIANT",
-            "HOWTO_SECTION",
-            "INGREDIENT_LINE",
-            "INSTRUCTION_LINE",
-            "YIELD_LINE",
-            "TIME_LINE",
-            "RECIPE_NOTES",
-        }:
-            statuses[atomic_index] = "recipe"
-        else:
-            statuses[atomic_index] = "boundary_uncertain"
-    return statuses
-
-
-def _select_line_role_preview_structure_candidates(
-    *,
-    candidates: Sequence[AtomicLineCandidate],
-    region_status_by_atomic_index: Mapping[int, str],
-) -> list[AtomicLineCandidate]:
-    recipe_like_indices = {
-        int(candidate.atomic_index)
-        for candidate in candidates
-        if region_status_by_atomic_index.get(int(candidate.atomic_index))
-        in {"recipe", "boundary_uncertain"}
-    }
-    selected: list[AtomicLineCandidate] = []
-    for candidate in candidates:
-        atomic_index = int(candidate.atomic_index)
-        status = str(
-            region_status_by_atomic_index.get(atomic_index) or "boundary_uncertain"
-        )
-        if status in {"recipe", "boundary_uncertain"}:
-            selected.append(candidate)
-            continue
-        if {atomic_index - 1, atomic_index + 1} & recipe_like_indices:
-            selected.append(candidate)
     return selected
 
 
