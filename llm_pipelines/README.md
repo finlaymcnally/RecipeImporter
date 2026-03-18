@@ -35,9 +35,8 @@ To tune pass behavior, edit prompt text files in `prompts/`. The recipe path now
 Recipe correction schemas use native nested JSON objects for recipe payload fields (`canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
 
 Prompt input contract:
-- Active shard-v1 recipe, knowledge, and line-role pipelines now use `prompt_input_mode: "path"`.
-- Use `{{INPUT_PATH}}` and keep the prompt focused on instructions plus the deposited worker-file path.
-- RecipeImport’s worker runtime now deposits the shard files inside the worker workspace so Codex can read them from the pre-made folder structure instead of re-sending the full payload inline.
+- Recipe still uses `prompt_input_mode: "path"` through CodexFarm `process`.
+- The knowledge and line-role live runtimes no longer use prompt-pack path handoff. They keep using the schemas in this folder, but they send inline prompt bodies directly to `codex exec` from repo-owned runtime code instead of asking Codex to read `{{INPUT_PATH}}`.
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).
@@ -55,6 +54,6 @@ Span mode now uses one markerized block stream (`START/STOP` focus markers) so f
 
 Prelabel runtime now executes through CodexFarm pipeline `prelabel.freeform.v1` with prompt wrapper `prompts/prelabel.freeform.v1.prompt.md`.
 
-Canonical line-role runtime now executes through CodexFarm pipeline `line-role.canonical.v1` with prompt wrapper `prompts/line-role.canonical.v1.prompt.md`.
+Canonical line-role runtime no longer uses the live CodexFarm prompt wrapper. The schema file remains authoritative for structured output, and the pipeline asset stays in this folder for pack compatibility, preview/tooling references, and tests that still inventory the pack.
 
 For external packs, pass `--codex-farm-root <path>`.

@@ -53,6 +53,8 @@ Interactive benchmark wrap-up behavior:
 - Single-offline benchmark runs now auto-start Oracle in the background after writing `upload_bundle_v1`, then return immediately instead of waiting on Oracle.
 - Multi-book single-profile benchmark runs do the same for the top-level group `upload_bundle_v1`; per-book bundles are still written but are not auto-uploaded.
 - Detached Oracle runs write `oracle_upload.log` and `oracle_upload.json` under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`. The actual Oracle response, if the run succeeds, is in `oracle_upload.log`.
+- That detached launch directory is also the persistent staging root for any temporary sharded upload files, so the Oracle subprocess can keep reading them after benchmark wrap-up returns.
+- Interactive terminal wrap-up should stay short and point operators at `oracle_upload.log`; detailed launch metadata already lives beside it in the same launch directory.
 - `cookimport bench oracle-upload <session root or upload_bundle_v1>` remains the manual retry/replay path.
 
 Important current constraints:
@@ -140,6 +142,7 @@ Structure-only triage is now a first-class follow-up seam:
 - `structure-report` writes one bundle-wide `structure_report.json`
 - the report separates `structure_core` labels (`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`) from `nonrecipe_core` (`KNOWLEDGE`, `OTHER`)
 - it also includes boundary exactness so reviewers can tell whether a low score is mostly a segmentation problem or a label-semantics problem
+- high canonical boundary/alignment scores do not imply near-perfect overall accuracy; current single-offline misses can still be dominated by hard `KNOWLEDGE` vs `OTHER` disagreements even when recipe boundaries are mostly correct
 
 ## 3. Scoring And Artifact Contracts
 
@@ -305,6 +308,7 @@ Oracle upload contract:
 - browser uploads now pass `--browser-model-strategy ignore`, so Oracle stops failing on stale picker labels and leaves the current/manual ChatGPT model alone instead of trying to auto-switch it
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
 - transport sharding is strictly upload-time glue for oversized text files such as `upload_bundle_payload.jsonl`; checked-in and local `upload_bundle_v1` artifacts should stay unmodified on disk
+- benchmark status rendering treats generic `task X/Y | running N` updates as first-class worker-row signals, and plain legacy `run=... queued=... running=...` stderr snapshots are compatibility noise when structured progress is already present
 
 ## 5. Speed And Quality Suite Notes
 

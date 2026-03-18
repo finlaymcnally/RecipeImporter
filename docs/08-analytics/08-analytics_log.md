@@ -152,6 +152,16 @@ Still-relevant outcomes:
 Anti-loop note:
 - do not delete the precision/recall/practical metrics during a "legacy purge" unless the product has first adopted a replacement analytics vocabulary
 
+### 2026-03-17 primary-history fixture drift
+
+Still-relevant outcomes:
+- the collector's canonical primary-history rule was not the bug; stale tests were still writing their main `performance_history.csv` under `output/.history`
+- the fix for that class of analytics failure is to update the fixture or test setup to use `history_csv_for_output(output_root)`
+- nested benchmark `.history` folders under the output root remain legitimate supplemental collector inputs and should not be "fixed" away
+
+Anti-loop note:
+- if dashboard collection finds no primary history rows, verify where the fixture wrote the CSV before changing collector search paths
+
 ## 2) Current anti-loop notes
 
 - Main dashboard scope is only `Diagnostics (Latest Benchmark)` plus `Previous Runs`.

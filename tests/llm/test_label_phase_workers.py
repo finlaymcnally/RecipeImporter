@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
-from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
+from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
@@ -30,14 +30,17 @@ def _candidate(atomic_index: int, *, text: str | None = None) -> AtomicLineCandi
 
 def _line_role_builder(label_by_atomic_index: dict[int, str]):
     def _builder(payload):
-        prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
+        rows = payload.get("rows") if isinstance(payload, dict) else []
         atomic_indices = [
-            int(value)
-            for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
+            int(row.get("atomic_index"))
+            for row in rows
+            if isinstance(row, dict) and row.get("atomic_index") is not None
         ]
         if not atomic_indices:
+            prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
             atomic_indices = [
-                int(value) for value in re.findall(r"(?m)^\[(\d+),", prompt_text)
+                int(value)
+                for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
             ]
         return {
             "rows": [
@@ -55,8 +58,8 @@ def _line_role_builder(label_by_atomic_index: dict[int, str]):
 def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     tmp_path: Path,
 ) -> None:
-    runner = FakeCodexFarmRunner(
-        output_builders={"line-role.canonical.v1": _line_role_builder({0: "OTHER", 1: "OTHER", 2: "OTHER"})}
+    runner = FakeCodexExecRunner(
+        output_builder=_line_role_builder({0: "OTHER", 1: "OTHER", 2: "OTHER"})
     )
 
     predictions = label_atomic_lines(
@@ -90,11 +93,9 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
 def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
     tmp_path: Path,
 ) -> None:
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            "line-role.canonical.v1": lambda _payload: {
-                "rows": [{"atomic_index": 999, "label": "OTHER"}]
-            }
+    runner = FakeCodexExecRunner(
+        output_builder=lambda _payload: {
+            "rows": [{"atomic_index": 999, "label": "OTHER"}]
         }
     )
 
@@ -130,36 +131,25 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
 def test_line_role_phase_workers_emit_runtime_telemetry_summary(
     tmp_path: Path,
 ) -> None:
-    class _TelemetryRunner(FakeCodexFarmRunner):
-        def run_pipeline(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_pipeline(*args, **kwargs)
+    class _TelemetryRunner(FakeCodexExecRunner):
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
             return result.__class__(
-                pipeline_id=result.pipeline_id,
-                run_id=result.run_id,
+                command=result.command,
                 subprocess_exit_code=result.subprocess_exit_code,
-                process_exit_code=result.process_exit_code,
                 output_schema_path=result.output_schema_path,
-                process_payload=result.process_payload,
-                telemetry_report=result.telemetry_report,
-                autotune_report=result.autotune_report,
-                telemetry={
-                    "rows": [
-                        {
-                            "tokens_input": 50,
-                            "tokens_cached_input": 5,
-                            "tokens_output": 7,
-                            "tokens_reasoning": 2,
-                        }
-                    ],
-                    "summary": {
-                        "tokens_input": 50,
-                        "tokens_cached_input": 5,
-                        "tokens_output": 7,
-                        "tokens_reasoning": 2,
-                    },
+                prompt_text=result.prompt_text,
+                response_text=result.response_text,
+                turn_failed_message=result.turn_failed_message,
+                events=result.events,
+                usage={
+                    "input_tokens": 50,
+                    "cached_input_tokens": 5,
+                    "output_tokens": 7,
+                    "reasoning_tokens": 2,
                 },
-                runtime_mode_audit=result.runtime_mode_audit,
-                error_summary=result.error_summary,
+                stderr_text=result.stderr_text,
+                stdout_text=result.stdout_text,
             )
 
     predictions = label_atomic_lines(
@@ -167,9 +157,7 @@ def test_line_role_phase_workers_emit_runtime_telemetry_summary(
         _settings(line_role_worker_count=1),
         artifact_root=tmp_path,
         codex_batch_size=1,
-        codex_runner=_TelemetryRunner(
-            output_builders={"line-role.canonical.v1": _line_role_builder({0: "OTHER"})}
-        ),
+        codex_runner=_TelemetryRunner(output_builder=_line_role_builder({0: "OTHER"})),
         live_llm_allowed=True,
     )
 
@@ -183,4 +171,6 @@ def test_line_role_phase_workers_emit_runtime_telemetry_summary(
     assert telemetry_summary["summary"]["tokens_cached_input"] == 5
     assert telemetry_summary["summary"]["tokens_output"] == 7
     assert telemetry_summary["summary"]["tokens_reasoning"] == 2
+    assert telemetry_summary["summary"]["tokens_total"] == 64
+    assert telemetry_summary["runtime_mode"] == "direct_codex_exec_v1"
     assert telemetry_summary["runtime_artifacts"]["worker_count"] == 1

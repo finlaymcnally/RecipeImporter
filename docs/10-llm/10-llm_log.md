@@ -409,3 +409,67 @@ Durable decisions:
 
 Anti-loop note:
 - if someone wants to test worker sandboxes, per-shard in/out folders, or proposal promotion without spending tokens, do not point them at plan mode alone; use a fake subprocess on the real runner seam
+
+## 2026-03-17 prompt-preview contract reset: predictive only
+
+Problem captured:
+- prompt preview started drifting toward retrospective reporting and second-source-of-truth behavior:
+  - reusing exact live telemetry from completed runs
+  - reusing stale `raw/llm/.../{recipe_correction,knowledge}/in/*.json`
+  - falling back to guessed chars-based token math when the real structure was unknown
+
+Durable decisions:
+- prompt preview is predictive-only; retrospective cost reporting belongs to `prompt_budget_summary.json` and the separate `actual-costs` surface
+- predictive preview accepts only deterministic or `vanilla` processed inputs and must refuse Codex-backed or ambiguous sources
+- preview must rebuild recipe and knowledge shard payloads locally from that one predictive-safe source of truth
+- predictive cost estimation should come from tokenizing or structurally estimating the locally rebuilt prompt/task payloads plus fake-runner output builders, not from live telemetry reuse or one global chars-per-token multiplier
+- if preview cannot produce a safe structural estimate, it should report that the token estimate is unavailable
+
+Anti-loop note:
+- older notes that suggested "reuse exact saved payloads when available" or "print a heuristic budget anyway" were superseded by this predictive-only split
+
+## 2026-03-17 prompt-target defaults, worker defaults, and classic runtime truth
+
+Problem captured:
+- shard-v1 planning had already moved to prompt-target counts, but older runs and some defaults still behaved like the legacy shard-size world
+
+Durable decisions:
+- missing saved `*_prompt_target_count` fields now default to the current shard-v1 target of `5` per enabled phase during preview/planning
+- when explicit prompt-target counts are driving the plan, knowledge bundling should not re-split on the older char-cap rule
+- unset recipe / knowledge / line-role worker counts should default to planned shard/job count for that one book+phase, capped at `20`
+- RecipeImport's shard-v1 subprocess transport must explicitly request CodexFarm's classic one-shot runtime and the namespaced RecipeImport benchmark flag:
+  - `--runtime-mode classic_task_farm_v1`
+  - `--recipeimport-benchmark-mode line_label_v1`
+
+Anti-loop note:
+- if prompt-target counts or shard counts look honest in preview but not in live execution, verify the real subprocess flags before changing planners again
+
+## 2026-03-17 classic path handoff is still transport-dominated
+
+Problem captured:
+- after prompt-shape trims landed, line-role token totals could still look absurdly high compared with the visible prompt text
+
+Durable decisions:
+- classic path handoff is not opaque workspace context; Codex can reread deposited shard files through shell subturns, and those outputs become part of the counted thread
+- line-role is the clearest current example: most remaining live input inflation comes from repeated file reads and cached thread replay, not from the compact visible prompt text
+- treat `prompt_budget_summary.json` and finished-run telemetry as the truth for actual costs; prompt preview is still the predictive payload estimate
+
+Evidence worth keeping:
+- on the 2026-03-17 `saltfatacidheatcutdown` run, visible line-role prompt text was only modestly larger than the source book, but live line-role input was still about `17.8x` larger because the classic runtime kept replaying shard-file reads
+- earlier March 17 runs also showed recipe correction behaving close to one read per shard while knowledge and especially line-role accumulated extra shell-driven context inside one task
+
+Anti-loop note:
+- if live token totals are still huge after prompt-shape cuts, inspect trace-level file-read behavior before squeezing row serialization again
+
+## 2026-03-17 knowledge direct-exec transport cutover
+
+Problem captured:
+- knowledge was still paying path-mode shell replay costs even though its planner, validator, and writer contracts were already good enough
+
+Durable decisions:
+- keep `build_knowledge_jobs(...)`, proposal validation, and writer promotion exactly as they were
+- replace the live knowledge transport with one direct `codex exec --json --output-schema ... -` call per shard using an inline prompt built from the existing compact instructions plus the owned shard JSON
+- keep the shard-owned manifest / proposal / promotion contract so prompt preview and live knowledge execution still describe the same work units
+
+Anti-loop note:
+- if knowledge token costs or behavior drift again, check transport first; the safe cut here was dropping path-mode shell replay without inventing a second planner or validator

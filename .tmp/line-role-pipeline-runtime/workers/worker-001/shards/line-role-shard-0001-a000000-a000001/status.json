@@ -1,0 +1,10 @@
+{
+  "runtime_mode": "direct_codex_exec_v1",
+  "status": "validated",
+  "validation_errors": [],
+  "validation_metadata": {
+    "owned_row_count": 2,
+    "returned_row_count": 2,
+    "validated_row_count": 2
+  }
+}

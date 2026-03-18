@@ -560,9 +560,6 @@ def _build_recipe_shard_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
-                task_prompt_text=build_knowledge_direct_prompt(input_payload),
-                rendered_prompt_override=build_knowledge_direct_prompt(input_payload),
-                prompt_input_mode_override="inline",
             )
         )
     return rows
@@ -632,7 +629,9 @@ def _build_knowledge_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
-                task_prompt_text=serialized_input,
+                task_prompt_text=build_knowledge_direct_prompt(input_payload),
+                rendered_prompt_override=build_knowledge_direct_prompt(input_payload),
+                prompt_input_mode_override="inline",
             )
         )
     return rows

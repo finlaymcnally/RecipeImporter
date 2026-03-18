@@ -103,6 +103,10 @@ Architecture priorities:
   - prompt/bundle helpers or fixtures that still model removed numbered stage slots
   - historical analytics/follow-up readers
 - after the 2026-03-16 purge, the remaining legacy weight is concentrated in narrow compatibility helpers plus docs/tests/fixtures, not in the core recipe execution path
+- the heaviest remaining read-side compatibility seam is `scripts/benchmark_cutdown_for_external_ai.py`; it should stay semantic-stage-first and should not re-teach old numbered-stage topology to new reviewer bundles
+- retired local-LLM modules are still easier to find than to use; most of their remaining coupling is via tests and historical scaffolding rather than the live runtime
+- repo navigation is better than average because the docs tree and fast tests are strong, but architecture understanding still bottlenecks through a few very large coordinators plus cross-package dependencies (`cli`, `labelstudio`, `parsing`, `llm`, `staging`)
+- `cookimport/staging/import_session.py` is the main shared runtime seam, but stage and Label Studio still duplicate some orchestration around it, especially split-job planning; safe refactors still need both top-level call sites checked
 - cleanup rule:
   - rename current algorithms that still carry `legacy` names
   - delete true compatibility readers once fixtures/artifacts are regenerated

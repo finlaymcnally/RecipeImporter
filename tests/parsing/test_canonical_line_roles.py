@@ -8,7 +8,7 @@ from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_prompt,
     serialize_line_role_targets,
 )
-from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
+from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
@@ -30,14 +30,17 @@ def _line_role_runner(
     output_builder=None,
 ):
     def _default_builder(payload):
-        prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
+        rows = payload.get("rows") if isinstance(payload, dict) else []
         atomic_indices = [
-            int(value)
-            for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
+            int(row.get("atomic_index"))
+            for row in rows
+            if isinstance(row, dict) and row.get("atomic_index") is not None
         ]
         if not atomic_indices:
+            prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
             atomic_indices = [
-                int(value) for value in re.findall(r"(?m)^\[(\d+),", prompt_text)
+                int(value)
+                for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
             ]
         if not atomic_indices:
             atomic_indices = [
@@ -53,12 +56,8 @@ def _line_role_runner(
             ]
         }
 
-    return FakeCodexFarmRunner(
-        output_builders={
-            canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID: (
-                output_builder or _default_builder
-            )
-        }
+    return FakeCodexExecRunner(
+        output_builder=output_builder or _default_builder
     )
 
 
@@ -1414,7 +1413,10 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
         codex_runner=runner,
         live_llm_allowed=True,
     )
-    assert runner.calls == [canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID]
+    assert len(runner.calls) == 1
+    assert runner.calls[0]["output_schema_path"].endswith(
+        "line-role.canonical.v1.output.schema.json"
+    )
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
         candidates,
@@ -1448,51 +1450,32 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
         )
     ]
 
-    class _TelemetryRunner(FakeCodexFarmRunner):
-        def run_pipeline(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_pipeline(*args, **kwargs)
+    class _TelemetryRunner(FakeCodexExecRunner):
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
             return result.__class__(
-                pipeline_id=result.pipeline_id,
-                run_id=result.run_id,
+                command=result.command,
                 subprocess_exit_code=result.subprocess_exit_code,
-                process_exit_code=result.process_exit_code,
                 output_schema_path=result.output_schema_path,
-                process_payload=result.process_payload,
-                telemetry_report=result.telemetry_report,
-                autotune_report=result.autotune_report,
-                telemetry={
-                    "rows": [
-                        {
-                            "tokens_input": 20,
-                            "tokens_cached_input": 4,
-                            "tokens_output": 5,
-                            "tokens_reasoning": 2,
-                        }
-                    ],
-                    "summary": {
-                        "tokens_input": 20,
-                        "tokens_cached_input": 4,
-                        "tokens_output": 5,
-                        "tokens_reasoning": 2,
-                    },
+                prompt_text=result.prompt_text,
+                response_text=result.response_text,
+                turn_failed_message=result.turn_failed_message,
+                events=result.events,
+                usage={
+                    "input_tokens": 20,
+                    "cached_input_tokens": 4,
+                    "output_tokens": 5,
+                    "reasoning_tokens": 2,
                 },
-                runtime_mode_audit=result.runtime_mode_audit,
-                error_summary=result.error_summary,
+                stderr_text=result.stderr_text,
+                stdout_text=result.stdout_text,
             )
 
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
-        codex_runner=_TelemetryRunner(
-            output_builders={
-                canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID: (
-                    lambda payload: _line_role_runner({0: "OTHER"}).output_builders[
-                        canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID
-                    ](payload)
-                )
-            }
-        ),
+        codex_runner=_TelemetryRunner(output_builder=_line_role_runner({0: "OTHER"}).output_builder),
         live_llm_allowed=True,
     )
 
@@ -1510,8 +1493,9 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
     assert telemetry_payload["summary"]["tokens_cached_input"] == 4
     assert telemetry_payload["summary"]["tokens_output"] == 5
     assert telemetry_payload["summary"]["tokens_reasoning"] == 2
-    assert telemetry_payload["summary"]["tokens_total"] == 25
+    assert telemetry_payload["summary"]["tokens_total"] == 31
     assert telemetry_payload["batches"][0]["shard_id"].startswith("line-role-shard-")
+    assert telemetry_payload["batches"][0]["attempts"][0]["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
@@ -1540,7 +1524,10 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
         codex_runner=runner,
         live_llm_allowed=True,
     )
-    assert runner.calls == [canonical_line_roles_module._LINE_ROLE_CODEX_FARM_PIPELINE_ID]
+    assert len(runner.calls) == 1
+    assert runner.calls[0]["output_schema_path"].endswith(
+        "line-role.canonical.v1.output.schema.json"
+    )
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
         candidates,

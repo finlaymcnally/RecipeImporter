@@ -198,3 +198,16 @@ Preserved finding:
 Current rule:
 - reuse one concise book label style across interactive benchmark pickers
 - keep picker-label cleanup scoped to operator-facing menus; do not mutate report payload fields or logging identity just to match menu wording
+
+### 2026-03-17_16.18.00 shared per-surface Codex chooser seam
+
+Preserved finding:
+- import, benchmark, and all-method flows can drift apart if they each grow their own Codex surface picker behavior
+
+Current rule:
+- the shared seam is `choose_interactive_codex_surfaces(...)` in `cookimport/cli_ui/run_settings_flow.py`
+- if a per-surface Codex toggle should exist everywhere, add it on that shared chooser boundary
+- benchmark helpers should keep source/gold selection and other benchmark-only UI local, but they should not grow a second per-surface Codex menu contract
+
+Anti-loop note:
+- if a benchmark-only prompt seems to duplicate one of the shared recipe / line-role / knowledge toggles, it probably belongs in the shared chooser instead

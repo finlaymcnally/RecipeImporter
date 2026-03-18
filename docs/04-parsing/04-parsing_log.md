@@ -353,3 +353,48 @@ Evidence worth keeping:
 Anti-loop note:
 - if benchmark or import task counts explode, inspect grouping and outside-span label anchors before blaming Codex orchestration
 - if title recall work starts promoting TOC rows, generic technique headings, or `How to ...` headings again, the bug is usually that outside-span title support was widened too far, not that grouping got stricter
+
+## 2026-03-17 recipe-span gating can fail before line-role starts
+
+Problem:
+- canonical benchmark structure misses kept looking like line-role prompt or model failures even when the bad inside/outside recipe decision had already happened upstream
+
+What stuck:
+- `label_source_of_truth.py` seeds `within_recipe_span` from existing `conversion_result.recipes[*].provenance.location` before canonical line-role correction runs
+- if obvious ingredient or instruction rows are already outside accepted recipe spans, treat importer boundary detection and grouping as the first debugging seam
+- benchmark structure gaps on books like `saltfatacidheatcutdown` are often recipe-span acceptance failures first, not "Codex could not read the recipe"
+
+Evidence worth keeping:
+- on the 2026-03-17 `saltfatacidheatcutdown` run, almost every missed `INGREDIENT_LINE` / `INSTRUCTION_LINE` row was already outside recipe spans before final line-role scoring
+- the first persisted bad decision on `Bright Cabbage Slaw` happened when method blocks were absent from the provenance-backed recipe ranges, so those lines were already `outside_recipe_span` in `label_det`
+
+Anti-loop note:
+- if structure labels collapse to `OTHER` or `KNOWLEDGE`, inspect span ownership before retuning line-role prompts or swapping models
+
+## 2026-03-17 post-Codex line-role rollback layers were removed
+
+Problem:
+- canonical line-role could predict better structure labels and then lose them to deterministic rollback layers after Codex returned
+
+What stuck:
+- validated Codex labels should not be downgraded by outside-span structured-label vetoes, ownership arbitration against the deterministic baseline, or the old run-level do-no-harm fallback
+- current overrides are limited to invalid-shape sanitizers plus exact owned-row validation
+
+Anti-loop note:
+- if a future fix proposal wants to restore broad outside-span or run-level rollback logic, it is more likely to recreate the old false-negative behavior than to add safety
+
+## 2026-03-17 EPUB singleton-ingredient boundary trap
+
+Problem:
+- EPUB candidate boundary detection could truncate a real recipe when a short singleton ingredient looked title-like enough to satisfy the "new recipe starts here" heuristic
+
+What stuck:
+- `cookimport/plugins/epub.py` boundary debugging should start with `_is_title_candidate(...)` plus `_has_ingredient_run(...)` on the exact failing block window
+- unquantified singleton ingredients such as `Salt` are a known false-title shape
+- if a recipe title and ingredient run are in-span but the first instructions fall just outside, fix boundary detection before touching line-role prompts
+
+Evidence worth keeping:
+- the 2026-03-17 `Bright Cabbage Slaw` failure ended at block `1124` because `Salt` looked title-like and there was another ingredient run after it, so the method paragraphs at `1128+` never entered the seed candidate
+
+Anti-loop note:
+- do not stack downstream span or line-role heuristics on top of a still-truncated EPUB candidate

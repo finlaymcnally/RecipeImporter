@@ -169,3 +169,14 @@ Still-active outcomes:
 Anti-loop note:
 
 - if a test only needs a resolvable artifact contract, build the smallest valid fixture locally instead of depending on historical checked-in run directories
+
+### 2026-03-17 line-role shard-shape test guardrail
+
+Still-active outcomes:
+
+- `RunSettings.line_role_prompt_target_count` now defaults to `5`, so small line-role workloads can be regrouped into one shard even when `codex_batch_size=1`
+- tests that care about exact shard ids, worker assignments, or proposal filenames must explicitly opt out of that default by setting `line_role_prompt_target_count=None` or a concrete `line_role_shard_target_lines`
+
+Anti-loop note:
+
+- if a per-line shard test suddenly starts seeing grouped shards, inspect prompt-target defaults before debugging the planner

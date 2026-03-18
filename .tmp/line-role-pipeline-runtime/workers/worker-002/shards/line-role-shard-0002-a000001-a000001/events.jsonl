@@ -1,0 +1,3 @@
+{"type": "thread.started"}
+{"item": {"text": "{\n  \"rows\": [\n    {\n      \"atomic_index\": 1,\n      \"label\": \"OTHER\"\n    }\n  ]\n}", "type": "agent_message"}, "type": "item.completed"}
+{"type": "turn.completed", "usage": {"cached_input_tokens": 0, "input_tokens": 768, "output_tokens": 19, "reasoning_tokens": 0}}

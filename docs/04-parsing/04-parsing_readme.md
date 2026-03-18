@@ -80,6 +80,7 @@ Canonical line-role prompt seam note:
 - each line-role shard still uses the compact canonical prompt text, but worker execution now goes through `phase_worker_runtime.py` with raw prompt-text shard inputs plus JSON shard manifests, so one worker can process multiple shards in sequence.
 - the current compact row transport is pipe-delimited `atomic_index|label_code|current_line`; per-row escalation reasons are no longer serialized into the Codex prompt path.
 - outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose and compact domain headings can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
+- validated Codex line-role labels are no longer rolled back by the old outside-span ownership vetoes or the run-level do-no-harm fallback; only invalid-shape sanitizers still override returned labels.
 - low-risk knowledge prompt suppression belongs in parser-owned chunking, not preview-only code. `chunks.py` is the place to route obvious blurbs, navigation, attribution-only fragments, and similar junk to `noise` so live harvest and prompt preview skip the same material.
 
 Parsing-adjacent module (not in the default stage recipe-path runtime):
@@ -110,6 +111,8 @@ Label-first recipe-span note:
 - Outside importer-held recipe spans, deterministic `INGREDIENT_LINE` and `INSTRUCTION_LINE` labels now require nearby recipe-anchor evidence instead of allowing a small structured cluster to self-justify.
 - Deterministic title recall is intentionally broader than it was before March 2026: long mixed-case titles containing `with`, all-caps verb-led headings, and `TITLE -> NOTE: -> recipe body` starts can stay `RECIPE_TITLE` when nearby recipe-start evidence exists.
 - Outside-span title rescue and in-span title retention are intentionally different seams. The outside-span path stays strict to avoid TOC/how-to false positives; once a span is already accepted, immediate note prose should not eject a real title.
+- `label_source_of_truth.py` still seeds `within_recipe_span` from `conversion_result.recipes[*].provenance.location` before canonical line-role correction runs. If obvious ingredients or instructions are already outside recipe, inspect importer span boundaries and grouping first; prompt tuning alone will not rescue that cleanly.
+- In EPUBs, a short unquantified singleton ingredient such as `Salt` can still look title-like enough to cut a recipe early in `cookimport/plugins/epub.py`. When a recipe title and ingredients are in-span but the first method paragraphs fall just outside, treat candidate-boundary detection as the first debugging seam.
 
 ## End-to-End Data Flow (Current)
 

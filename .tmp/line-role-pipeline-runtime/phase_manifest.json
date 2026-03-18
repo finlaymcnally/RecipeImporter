@@ -13,8 +13,11 @@
   "phase_key": "line_role",
   "pipeline_id": "line-role.canonical.v1",
   "run_root": "/home/mcnal/projects/recipeimport/.tmp/line-role-pipeline-runtime",
-  "runtime_metadata": {},
-  "runtime_mode": "classic_task_farm_v1",
+  "runtime_metadata": {
+    "surface_pipeline": "codex-line-role-shard-v1",
+    "workspace_root": null
+  },
+  "runtime_mode": "direct_codex_exec_v1",
   "schema_version": "phase_worker_runtime.phase_manifest.v1",
   "settings": {
     "codex_timeout_seconds": 600,

@@ -96,6 +96,7 @@ History-root rule:
 - Repo-local outputs such as `data/output` write to `<repo>/.history/performance_history.csv`.
 - External output roots write to `<output_root parent>/.history/performance_history.csv`.
 - Collector also scans nested `<output_root>/**/.history/performance_history.csv` files for supplemental benchmark rows from nested benchmark layouts.
+- Tests and local fixture builders that mean "the primary history CSV for this output root" must write to that canonical parent `.history` location, not `output/.history`; nested benchmark `.history` files remain valid supplemental inputs only.
 
 Stage/import rows (`run_category=stage_import` or `labelstudio_import`) keep:
 - Timing fields: `total_seconds`, `parsing_seconds`, `writing_seconds`, `ocr_seconds`

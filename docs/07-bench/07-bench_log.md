@@ -600,4 +600,45 @@ Evidence worth keeping:
 Anti-loop note:
 - if browser upload starts failing after payload sharding succeeds, inspect the Chromium launcher / wrapper path before debugging bundle generation or Oracle attachment splitting
 
+### 2026-03-17 interactive Oracle upload cutover and stable browser contract
+
+Problem captured:
+- interactive benchmark wrap-up was blocking on synchronous Oracle upload
+- detached Oracle uploads needed stable transport files after the benchmark process returned
+- Oracle browser failures were easy to misdiagnose because several causes stacked together: stale picker assumptions, split profile roots, wrapper drift, and missing displays in the agent shell
+
+Durable decisions:
+- interactive benchmark flows should auto-start Oracle in the background and return immediately after bundle generation
+- detached launches must stage everything under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`, including temporary sharded upload files plus `oracle_upload.log` / `oracle_upload.json`
+- the terminal wrap-up should stay short and point straight at `oracle_upload.log`; the final Oracle answer lives there when the run succeeds
+- the stable browser contract is:
+  - machine-wide auto Chromium launcher
+  - canonical browser profile under `~/.local/share/oracle/browser-profile`
+  - compatibility symlink from the old `~/.oracle/browser-profile`
+  - `--browser-model-strategy ignore` so the visible/manual ChatGPT model wins instead of brittle picker automation
+
+Evidence worth keeping:
+- an early theory that only `gpt-5.2-pro` was stale was too narrow; the observed ChatGPT picker had shifted to mode-based options, so even base model-id targeting was brittle
+- login churn came from two different profile roots being used over time
+- headful Oracle smoke tests from the agent shell failed before ChatGPT interaction because no X display existed, while the xvfb-backed path succeeded against the same canonical profile
+
+Anti-loop note:
+- if Oracle upload fails after bundle generation works, debug launcher/profile/model-ignore behavior before reworking `upload_bundle_v1`
+
+### 2026-03-17 benchmark progress rendering and single-offline interpretation
+
+Problem captured:
+- benchmark progress rows could under-report active worker state, and single-offline canonical results were easy to over-read as pure recipe-structure failures
+
+Durable decisions:
+- generic `task X/Y | running N` benchmark messages should populate worker rows the same way codex-farm-prefixed messages do
+- plain legacy stderr `run=... queued=... running=...` snapshots are compatibility progress noise when structured events are already present
+- on current canonical single-offline runs, strong boundary exactness does not imply the remaining misses are mostly structural; large error mass can still live in `KNOWLEDGE` vs `OTHER`
+
+Evidence worth keeping:
+- on the 2026-03-17 `saltfatacidheatcutdown` single-offline run, codexfarm had perfect-or-near-perfect boundary counts but wrong-label rows were still dominated by `KNOWLEDGE -> OTHER` and `OTHER -> KNOWLEDGE`
+
+Anti-loop note:
+- if canonical benchmark accuracy looks "too low for a solved structure problem," inspect wrong-label distribution before chasing scorer or boundary changes
+
 If an older artifact references one of those surfaces, treat it as historical context only, not current contract guidance.

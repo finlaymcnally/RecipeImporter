@@ -215,6 +215,36 @@ Durable decisions:
 Anti-loop note:
 - if a temporary task/spec doc mostly answers "which long-lived section owns this now?", merge it into that owning section instead of keeping a second parallel archive
 
+### 2026-03-17_16.07.53 to 2026-03-17_16.13.03 AI-readiness and shared-runtime seam audit
+
+Problem captured:
+- the repo looked easier to work on than it really was because docs/tests were strong, but important runtime behavior still crossed a few large coordinators and duplicated top-level flows
+
+Durable decisions:
+- keep the numbered docs tree and fast smoke/domain tests healthy; they are a real navigation advantage for future humans and agents
+- treat large coordinator files and mutual package dependencies as current debt, not as proof the docs are wrong
+- `cookimport/staging/import_session.py` is the best existing shared runtime seam, but stage and Label Studio still duplicate some orchestration behavior around it instead of fully owning that logic in one place
+- when moving shared behavior, prefer repo-owned service seams over more "remember the other file too" coordination notes
+
+Evidence worth keeping:
+- the review that produced this note called out `cookimport/cli.py` plus mutual dependencies across `labelstudio`, `parsing`, `llm`, and `staging` as the main remaining understanding bottlenecks
+
+Anti-loop note:
+- if a change feels broader than the local module suggests, check whether the real seam is duplicated orchestration rather than a missing doc update
+
+### 2026-03-17 post-purge legacy seam audit
+
+Problem captured:
+- after the March purge, "legacy" still looked large because read-side compatibility tooling, retired local-LLM files, and live runtime seams were being lumped together
+
+Durable decisions:
+- most remaining live-path legacy risk is read-side or compatibility-only, not core recipe execution
+- `scripts/benchmark_cutdown_for_external_ai.py` is the heaviest still-relevant read-side seam and should stay semantic-stage-first
+- dead local-LLM files are real cleanup candidates, but they are not the same problem as archived readers or narrow CodexFarm compatibility fallbacks
+
+Anti-loop note:
+- if the repo still feels "full of legacy," first prove whether you are looking at current execution code or read-side/docs/tests scaffolding
+
 ## 2026-03-15 to 2026-03-16 refactor closure notes
 
 ### 2026-03-15_23.40.19 phase1 observability cutover surface

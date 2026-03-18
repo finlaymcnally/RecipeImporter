@@ -23,6 +23,7 @@ class CodexExecRunner(Protocol):
         output_schema_path: Path | None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> "CodexExecRunResult":
         """Run one direct structured Codex exec call."""
 
@@ -120,6 +121,7 @@ class SubprocessCodexExecRunner:
         output_schema_path: Path | None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> CodexExecRunResult:
         command = _build_codex_exec_command(
             cmd=self.cmd,
@@ -137,11 +139,17 @@ class SubprocessCodexExecRunner:
                 check=False,
                 cwd=str(working_dir),
                 env=_merge_env(env),
+                timeout=max(1, int(timeout_seconds)) if timeout_seconds is not None else None,
             )
         except FileNotFoundError as exc:
             binary = command[0] if command else "codex"
             raise CodexFarmRunnerError(
                 f"codex command not found: {binary!r}. Install Codex CLI before retrying."
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            timeout_display = max(1, int(timeout_seconds or 0)) if timeout_seconds is not None else "unknown"
+            raise CodexFarmRunnerError(
+                f"codex exec timed out after {timeout_display} seconds."
             ) from exc
         except OSError as exc:
             binary = command[0] if command else "codex"
@@ -191,6 +199,7 @@ class FakeCodexExecRunner:
         output_schema_path: Path | None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        timeout_seconds: int | None = None,  # noqa: ARG002 - protocol parity
     ) -> CodexExecRunResult:
         self.calls.append(
             {
@@ -200,6 +209,7 @@ class FakeCodexExecRunner:
                 "output_schema_path": str(output_schema_path) if output_schema_path is not None else None,
                 "model": model,
                 "reasoning_effort": reasoning_effort,
+                "timeout_seconds": timeout_seconds,
             }
         )
         payload = self.output_builder(input_payload)
