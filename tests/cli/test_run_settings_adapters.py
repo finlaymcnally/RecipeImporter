@@ -115,7 +115,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         pdf_column_gap_ratio=0.09,
         llm_knowledge_pipeline="codex-knowledge-shard-v1",
         atomic_block_splitter="atomic-v1",
-        line_role_pipeline="deterministic-v1",
+        line_role_pipeline="off",
         codex_farm_recipe_mode="benchmark",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
@@ -168,7 +168,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["pdf_column_gap_ratio"] == 0.09
     assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
     assert kwargs["atomic_block_splitter"] == "atomic-v1"
-    assert kwargs["line_role_pipeline"] == "deterministic-v1"
+    assert kwargs["line_role_pipeline"] == "off"
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"
     assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert kwargs["codex_farm_reasoning_effort"] == "low"
@@ -211,7 +211,7 @@ def test_prediction_identity_excludes_runtime_only_settings() -> None:
         codex_farm_cmd="codex-a",
         codex_farm_root="/tmp/codex-a",
         codex_farm_workspace_root="/tmp/work-a",
-        line_role_pipeline="deterministic-v1",
+        line_role_pipeline="off",
         section_detector_backend="shared_v1",
     )
     runtime_only_changed = RunSettings(
@@ -224,7 +224,7 @@ def test_prediction_identity_excludes_runtime_only_settings() -> None:
         codex_farm_cmd="codex-b",
         codex_farm_root="/tmp/codex-b",
         codex_farm_workspace_root="/tmp/work-b",
-        line_role_pipeline="deterministic-v1",
+        line_role_pipeline="off",
         section_detector_backend="shared_v1",
     )
 
@@ -239,7 +239,7 @@ def test_prediction_identity_changes_when_prediction_shape_changes() -> None:
         section_detector_backend="shared_v1",
     )
     changed = RunSettings(
-        line_role_pipeline="deterministic-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
         section_detector_backend="shared_v1",
     )
 
@@ -259,7 +259,7 @@ def test_line_role_cache_identity_only_tracks_line_role_pipeline() -> None:
         workers=9,
         codex_farm_cmd="codex-b",
     )
-    changed_pipeline = RunSettings(line_role_pipeline="deterministic-v1")
+    changed_pipeline = RunSettings(line_role_pipeline="off")
 
     assert build_line_role_cache_identity_payload(
         baseline

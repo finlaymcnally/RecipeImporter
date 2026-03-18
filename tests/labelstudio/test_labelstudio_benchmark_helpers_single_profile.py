@@ -433,11 +433,11 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
         "codex-recipe-shard-v1",
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
-        "deterministic-v1",
+        "off",
         "codex-line-role-shard-v1",
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
-        "atomic-v1",
+        "off",
         "atomic-v1",
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]

@@ -115,6 +115,8 @@ def test_run_settings_accepts_only_current_line_role_and_knowledge_pipeline_ids(
     assert settings.llm_knowledge_pipeline.value == KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
 
     with pytest.raises(ValueError, match="Invalid line_role_pipeline"):
+        RunSettings.from_dict({"line_role_pipeline": "deterministic-v1"})
+    with pytest.raises(ValueError, match="Invalid line_role_pipeline"):
         RunSettings.from_dict({"line_role_pipeline": "codex-line-role-v1"})
     with pytest.raises(ValueError, match="Invalid llm_knowledge_pipeline"):
         RunSettings.from_dict({"llm_knowledge_pipeline": "codex-farm-knowledge-v1"})
@@ -184,7 +186,6 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     )
     assert line_role_pipeline_spec.choices == (
         "off",
-        "deterministic-v1",
         LINE_ROLE_PIPELINE_SHARD_V1,
     )
     codex_farm_recipe_mode_spec = next(
@@ -302,7 +303,7 @@ def test_operator_and_benchmark_lab_projections_split_public_surface() -> None:
         "epub_extractor": "beautifulsoup",
         "llm_recipe_pipeline": "codex-recipe-shard-v1",
         "atomic_block_splitter": "atomic-v1",
-        "line_role_pipeline": "deterministic-v1",
+        "line_role_pipeline": "off",
         "codex_farm_model": "gpt-5.3-codex-spark",
         "multi_recipe_splitter": "rules_v1",
     }
@@ -320,7 +321,7 @@ def test_operator_and_benchmark_lab_projections_split_public_surface() -> None:
     assert "multi_recipe_splitter" not in operator_payload
 
     assert benchmark_lab_payload["atomic_block_splitter"] == "atomic-v1"
-    assert benchmark_lab_payload["line_role_pipeline"] == "deterministic-v1"
+    assert benchmark_lab_payload["line_role_pipeline"] == "off"
     assert benchmark_lab_payload["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert "workers" not in benchmark_lab_payload
     assert "multi_recipe_splitter" not in benchmark_lab_payload

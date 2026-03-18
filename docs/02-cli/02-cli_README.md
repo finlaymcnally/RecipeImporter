@@ -138,7 +138,7 @@ Important split:
 
 Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - `Workflow for this run?`
-  - underlying values are `off` and `codex-recipe-shard-v1`, but the menu still renders only the workflow families `Vanilla / deterministic only` and `CodexFarm`,
+  - underlying values are `off` and `codex-recipe-shard-v1`, but the menu still renders only the workflow families `Vanilla / no Codex` and `CodexFarm`,
   - default is inferred from global `llm_recipe_pipeline`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
 - if interactive setup chooses CodexFarm, it then asks:
@@ -156,7 +156,7 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - block labelling (`codex-line-role-shard-v1`)
   - knowledge harvest (`codex-knowledge-shard-v1`)
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
-  - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
+  - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
 - after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
   - import asks only for the enabled recipe/knowledge counts
@@ -192,8 +192,7 @@ Resolved profile families:
     (shared section detection, always-on heuristic fallback segmentation,
     compact codex stage ids, pattern hints off, current skip-on-success policy on).
 - `Vanilla automatic top-tier`:
-  - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`),
-  - deterministic line-role + atomic splitter enabled (`line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`),
+  - built-in fully vanilla baseline with Codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`),
   - current top-tier parsing baseline pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`,
   - deterministic parsing knobs pinned to `shared_v1 + rules_v1 + always + heuristic_v1 + pdf_ocr_policy=off`,
   - compact codex pass ids remain pinned even when recipe codex is off.

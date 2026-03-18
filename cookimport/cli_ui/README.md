@@ -1,7 +1,7 @@
 Interactive run-settings UI helpers.
 
 - `run_settings_flow.py` asks `Workflow for this run?` for interactive Import/Benchmark flows.
-- The workflow toggle still collapses to `off` vs shard-backed Codex, but the menu renders only the family labels `Vanilla / deterministic only` and `CodexFarm`.
+- The workflow toggle still collapses to `off` vs shard-backed Codex, but the menu renders only the family labels `Vanilla / no Codex` and `CodexFarm`.
 - Any non-`off` choice resolves `CodexFarm automatic top-tier` (winner-preferred when available).
 - Interactive Codex-enabled flows now reuse one consolidated Codex submenu after the workflow choice when CodexFarm is selected:
   - one list shows every available step with aligned `[Yes]` / `[No]` columns beside it
@@ -14,7 +14,7 @@ Interactive run-settings UI helpers.
   - interactive benchmark modes show recipe correction, block labelling, and knowledge harvest
   - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
-  - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
+  - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
@@ -25,5 +25,5 @@ Interactive run-settings UI helpers.
   - parsing stack pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`
   - deterministic parsing knobs pinned to `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`
   - recipe routing is fixed to the shard-v1 pipeline; only model/reasoning overrides remain operator-adjustable
-- `Vanilla` profile uses the same top-tier deterministic parsing stack with codex disabled and deterministic line-role enabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`).
+- `Vanilla` profile uses the same top-tier parsing stack with every Codex surface off (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`).
 - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` still overrides the interactive prompt.

@@ -698,7 +698,7 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
     )
 
     assert selected is not None
-    assert captured_titles == ["Vanilla / deterministic only", "CodexFarm"]
+    assert captured_titles == ["Vanilla / no Codex", "CodexFarm"]
 
 
 def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
@@ -734,8 +734,8 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
 
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
-    assert selected.line_role_pipeline.value == "deterministic-v1"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.line_role_pipeline.value == "off"
+    assert selected.atomic_block_splitter.value == "off"
     assert selected.llm_knowledge_pipeline.value == "off"
 
 
@@ -906,8 +906,8 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "off"
     assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
-    assert selected.line_role_pipeline.value == "deterministic-v1"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.line_role_pipeline.value == "off"
+    assert selected.atomic_block_splitter.value == "off"
 
 
 def test_prompt_codex_surface_menu_uses_arrow_keys_to_toggle_without_leaving_screen() -> None:

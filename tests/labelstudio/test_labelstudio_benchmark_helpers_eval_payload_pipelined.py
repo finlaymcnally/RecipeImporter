@@ -531,7 +531,7 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             eval_output_dir=eval_root,
             no_upload=True,
             eval_mode="canonical-text",
-            line_role_pipeline="deterministic-v1",
+            line_role_pipeline="off",
             sequence_matcher="dmp",
         )
 

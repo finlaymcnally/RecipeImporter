@@ -97,11 +97,11 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
         "codex-recipe-shard-v1",
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
-        "deterministic-v1",
+        "off",
         "codex-line-role-shard-v1",
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
-        "atomic-v1",
+        "off",
         "atomic-v1",
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
@@ -403,17 +403,17 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
     )
 
 
-def test_interactive_single_offline_deterministic_line_role_still_uses_vanilla_slug(
+def test_interactive_single_offline_fully_vanilla_still_uses_vanilla_slug(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",
-            "line_role_pipeline": "deterministic-v1",
-            "atomic_block_splitter": "atomic-v1",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
         },
-        warn_context="test deterministic-line-role vanilla slug",
+        warn_context="test fully-vanilla slug",
     )
     benchmark_eval_output = (
         tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
@@ -462,8 +462,8 @@ def test_interactive_single_offline_deterministic_line_role_still_uses_vanilla_s
     assert completed is True
     assert len(benchmark_calls) == 1
     assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
-    assert benchmark_calls[0]["line_role_pipeline"] == "deterministic-v1"
-    assert benchmark_calls[0]["atomic_block_splitter"] == "atomic-v1"
+    assert benchmark_calls[0]["line_role_pipeline"] == "off"
+    assert benchmark_calls[0]["atomic_block_splitter"] == "off"
     assert benchmark_calls[0]["eval_output_dir"] == (
         benchmark_eval_output / "single-offline-benchmark" / "vanilla"
     )

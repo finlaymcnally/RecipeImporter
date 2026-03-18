@@ -21,7 +21,7 @@ def _load_fixture(name: str) -> dict[str, object]:
     return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
-def _settings(mode: str = "deterministic-v1", **kwargs):
+def _settings(mode: str = "off", **kwargs):
     return RunSettings(line_role_pipeline=mode, **kwargs)
 
 
@@ -2107,7 +2107,7 @@ def test_label_atomic_lines_deterministic_progress_callback_reports_task_counts(
     progress_messages: list[str] = []
     predictions = label_atomic_lines(
         candidates,
-        _settings("deterministic-v1"),
+        _settings("off"),
         progress_callback=progress_messages.append,
     )
     progress_texts = _progress_messages_as_text(progress_messages)

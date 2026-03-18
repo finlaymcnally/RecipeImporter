@@ -53,7 +53,7 @@ The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prel
 
 - `llm_recipe_pipeline`: `off`, `codex-recipe-shard-v1`
 - `llm_knowledge_pipeline`: `off`, `codex-knowledge-shard-v1`
-- `line_role_pipeline`: `off`, `deterministic-v1`, `codex-line-role-shard-v1`
+- `line_role_pipeline`: `off`, `codex-line-role-shard-v1`
 - Prelabel is a separate Codex surface routed through CodexFarm pipeline `prelabel.freeform.v1`
 
 Migration note:
@@ -74,6 +74,7 @@ Migration note:
   - `line_role_pipeline=off`
   - `llm_knowledge_pipeline=off`
   - `atomic_block_splitter=off`
+- fully Codex-backed runs now come from enabling those surfaces explicitly, not from a separate deterministic line-role middle mode
 - `cookimport/config/codex_decision.py` is the shared approval and metadata layer.
 - Execute mode requires explicit approval at the command boundary.
 - `--codex-execution-policy plan` writes `codex_execution_plan.json` and returns before live Codex work.

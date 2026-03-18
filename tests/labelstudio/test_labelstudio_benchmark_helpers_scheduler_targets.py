@@ -258,10 +258,10 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     } == {"off"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in baseline_variants
-    } == {"deterministic-v1"}
+    } == {"off"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in baseline_variants
-    } == {"atomic-v1"}
+    } == {"off"}
     assert {
         variant.run_settings.llm_recipe_pipeline.value for variant in codex_variants
     } == {"codex-recipe-shard-v1"}
@@ -310,10 +310,10 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() ->
     } == {"off"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in variants
-    } == {"deterministic-v1"}
+    } == {"off"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in variants
-    } == {"atomic-v1"}
+    } == {"off"}
 
 
 def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
@@ -321,8 +321,8 @@ def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
         {
             "llm_recipe_pipeline": "off",
             "llm_knowledge_pipeline": "off",
-            "line_role_pipeline": "deterministic-v1",
-            "atomic_block_splitter": "atomic-v1",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
         },
         warn_context="test baseline codex surfaces",
     )
@@ -330,8 +330,8 @@ def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "llm_knowledge_pipeline": "off",
-            "line_role_pipeline": "deterministic-v1",
-            "atomic_block_splitter": "atomic-v1",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
         },
         warn_context="test selected codex surfaces",
     )
@@ -359,7 +359,7 @@ def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
     assert codex_variants[0].run_settings.llm_recipe_pipeline.value == (
         "codex-recipe-shard-v1"
     )
-    assert codex_variants[0].run_settings.line_role_pipeline.value == "deterministic-v1"
+    assert codex_variants[0].run_settings.line_role_pipeline.value == "off"
     assert codex_variants[0].run_settings.llm_knowledge_pipeline.value == "off"
     assert "__line_role_codex_line_role_v1" not in codex_variants[0].slug
     assert "__llm_knowledge_codex_farm_knowledge_v1" not in codex_variants[0].slug
