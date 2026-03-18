@@ -28,6 +28,21 @@ _PREVIEW_STAGE_LABELS = {
     "line_role": "Line Role",
 }
 
+_SURFACE_CONFIG_BY_KEY = {
+    "recipe": {
+        "prompt_target_key": "recipe_prompt_target_count",
+        "worker_key": "recipe_worker_count",
+    },
+    "knowledge": {
+        "prompt_target_key": "knowledge_prompt_target_count",
+        "worker_key": "knowledge_worker_count",
+    },
+    "line_role": {
+        "prompt_target_key": "line_role_prompt_target_count",
+        "worker_key": "line_role_worker_count",
+    },
+}
+
 
 def build_prediction_run_prompt_budget_summary(
     pred_manifest: Mapping[str, Any],
@@ -92,6 +107,43 @@ def build_prediction_run_prompt_budget_summary(
     if line_role_summary is not None:
         by_stage["line_role"] = line_role_summary
 
+    run_count_summary: dict[str, dict[str, Any]] = {}
+    run_count_deviations: list[dict[str, Any]] = []
+    for stage_name, stage_payload in by_stage.items():
+        if not isinstance(stage_payload, dict):
+            continue
+        run_count_payload = _build_stage_run_count_summary(
+            stage_key=stage_name,
+            stage_payload=stage_payload,
+            pred_manifest=pred_manifest,
+        )
+        if run_count_payload is None:
+            continue
+        stage_payload.update(run_count_payload)
+        run_count_summary[stage_name] = {
+            key: stage_payload.get(key)
+            for key in (
+                "stage",
+                "stage_label",
+                "requested_run_count",
+                "actual_run_count",
+                "run_count_status",
+                "run_count_explanation",
+                "requested_worker_count",
+                "actual_worker_count",
+                "call_count",
+                "internal_phase_count",
+                "internal_phase_run_counts",
+            )
+            if key in stage_payload
+        }
+        if str(stage_payload.get("run_count_status") or "").strip() in {
+            "below_target",
+            "above_target",
+            "unavailable",
+        }:
+            run_count_deviations.append(dict(run_count_summary[stage_name]))
+
     totals: dict[str, int | None] = {
         "call_count": None,
         "duration_total_ms": None,
@@ -130,6 +182,8 @@ def build_prediction_run_prompt_budget_summary(
         "schema_version": "prompt_budget_summary.v1",
         "prediction_run_dir": str(pred_run_dir),
         "by_stage": by_stage,
+        "run_count_summary": run_count_summary,
+        "run_count_deviations": run_count_deviations,
         "totals": totals,
     }
 
@@ -461,11 +515,15 @@ def _build_codex_farm_stage_summary(
     ):
         return None
 
+    worker_count, shard_count = _extract_runtime_worker_and_shard_counts(stage_payload)
+
     return {
         "stage": stage_name,
         "kind": "codex_farm",
         "call_count": call_count,
         "duration_total_ms": duration_total_ms,
+        "worker_count": worker_count,
+        "shard_count": shard_count,
         **token_totals,
         **breakdown_totals,
         "cost_breakdown": {
@@ -584,6 +642,33 @@ def _build_line_role_stage_summary(
         ):
             continue
 
+        phase_rows = payload.get("phases")
+        internal_phase_run_counts: dict[str, int] = {}
+        internal_phase_worker_counts: dict[str, int] = {}
+        if isinstance(phase_rows, list):
+            for phase_payload in phase_rows:
+                if not isinstance(phase_payload, Mapping):
+                    continue
+                phase_key = str(phase_payload.get("phase_key") or "").strip()
+                if not phase_key:
+                    continue
+                phase_summary = phase_payload.get("summary")
+                if not isinstance(phase_summary, Mapping):
+                    phase_summary = {}
+                phase_runtime_artifacts = phase_payload.get("runtime_artifacts")
+                if not isinstance(phase_runtime_artifacts, Mapping):
+                    phase_runtime_artifacts = {}
+                phase_batch_count = _nonnegative_int(phase_summary.get("batch_count"))
+                phase_worker_count = _nonnegative_int(
+                    phase_runtime_artifacts.get("worker_count")
+                )
+                if phase_batch_count is not None:
+                    internal_phase_run_counts[phase_key] = phase_batch_count
+                if phase_worker_count is not None:
+                    internal_phase_worker_counts[phase_key] = phase_worker_count
+        surface_shard_count = _common_int_value(internal_phase_run_counts.values())
+        surface_worker_count = _common_int_value(internal_phase_worker_counts.values())
+
         return {
             "stage": "line_role",
             "kind": "line_role",
@@ -591,6 +676,19 @@ def _build_line_role_stage_summary(
             "batch_count": batch_count,
             "attempt_count": attempt_count,
             "duration_total_ms": duration_total_ms,
+            "worker_count": surface_worker_count,
+            "shard_count": surface_shard_count,
+            "internal_phase_count": len(internal_phase_run_counts),
+            "internal_phase_run_counts": (
+                dict(sorted(internal_phase_run_counts.items()))
+                if internal_phase_run_counts
+                else None
+            ),
+            "internal_phase_worker_counts": (
+                dict(sorted(internal_phase_worker_counts.items()))
+                if internal_phase_worker_counts
+                else None
+            ),
             "prompt_input_mode": (
                 str(summary.get("prompt_input_mode") or "").strip()
                 if isinstance(summary, Mapping)
@@ -614,6 +712,181 @@ def _build_line_role_stage_summary(
             },
         }
     return None
+
+
+def _prediction_run_config(pred_manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+    run_config = pred_manifest.get("run_config")
+    if not isinstance(run_config, Mapping):
+        return {}
+    nested_prediction_config = run_config.get("prediction_run_config")
+    if isinstance(nested_prediction_config, Mapping):
+        return nested_prediction_config
+    return run_config
+
+
+def _surface_key_for_stage(stage_key: str) -> str | None:
+    normalized = str(stage_key or "").strip()
+    if normalized in {"recipe_correction", "recipe_llm_correct_and_link"}:
+        return "recipe"
+    if normalized in {"knowledge", "extract_knowledge_optional"}:
+        return "knowledge"
+    if normalized == "line_role" or normalized.startswith("line_role_"):
+        return "line_role"
+    return None
+
+
+def _stage_requested_counts(
+    *,
+    stage_key: str,
+    pred_manifest: Mapping[str, Any],
+) -> tuple[int | None, int | None]:
+    surface_key = _surface_key_for_stage(stage_key)
+    if surface_key is None:
+        return None, None
+    surface_config = _SURFACE_CONFIG_BY_KEY.get(surface_key) or {}
+    run_config = _prediction_run_config(pred_manifest)
+    requested_run_count = _nonnegative_int(
+        run_config.get(surface_config.get("prompt_target_key", ""))
+    )
+    requested_worker_count = _nonnegative_int(
+        run_config.get(surface_config.get("worker_key", ""))
+    )
+    return requested_run_count, requested_worker_count
+
+
+def _extract_runtime_worker_and_shard_counts(
+    stage_payload: Mapping[str, Any],
+) -> tuple[int | None, int | None]:
+    priority_paths = (
+        (),
+        ("phase_worker_runtime",),
+        ("phase_runtime",),
+        ("phase_manifest",),
+        ("process_run", "phase_manifest"),
+        ("telemetry_report",),
+        ("process_run", "telemetry_report"),
+        ("process_payload", "telemetry_report"),
+    )
+    worker_count: int | None = None
+    shard_count: int | None = None
+    for path in priority_paths:
+        current: Any = stage_payload
+        for segment in path:
+            if not isinstance(current, Mapping):
+                current = None
+                break
+            current = current.get(segment)
+        if not isinstance(current, Mapping):
+            continue
+        worker_count = worker_count if worker_count is not None else _nonnegative_int(
+            current.get("worker_count")
+        )
+        shard_count = shard_count if shard_count is not None else _nonnegative_int(
+            current.get("shard_count")
+        )
+        if worker_count is not None and shard_count is not None:
+            break
+    return worker_count, shard_count
+
+
+def _common_int_value(values: Any) -> int | None:
+    normalized = [int(value) for value in values if value is not None]
+    if not normalized:
+        return None
+    first = normalized[0]
+    if all(value == first for value in normalized):
+        return first
+    return None
+
+
+def _build_stage_run_count_summary(
+    *,
+    stage_key: str,
+    stage_payload: Mapping[str, Any],
+    pred_manifest: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    requested_run_count, requested_worker_count = _stage_requested_counts(
+        stage_key=stage_key,
+        pred_manifest=pred_manifest,
+    )
+    if requested_run_count is None and requested_worker_count is None:
+        return None
+
+    stage_label = str(stage_payload.get("stage_label") or stage_key.replace("_", " ").title())
+    actual_worker_count = _nonnegative_int(stage_payload.get("worker_count"))
+    actual_run_count = _nonnegative_int(stage_payload.get("shard_count"))
+    call_count = _nonnegative_int(stage_payload.get("call_count"))
+    internal_phase_count = _nonnegative_int(stage_payload.get("internal_phase_count"))
+    internal_phase_run_counts = (
+        dict(stage_payload.get("internal_phase_run_counts"))
+        if isinstance(stage_payload.get("internal_phase_run_counts"), Mapping)
+        else None
+    )
+
+    if actual_run_count is None and _surface_key_for_stage(stage_key) != "line_role":
+        actual_run_count = call_count
+
+    if requested_run_count is None:
+        run_count_status = "unconfigured"
+        explanation = (
+            f"No prompt-target run count was configured for {stage_label} in this run config."
+        )
+    elif actual_run_count is None:
+        run_count_status = "unavailable"
+        explanation = (
+            f"Requested {requested_run_count} run(s) for {stage_label}, but the finished artifacts "
+            "do not expose a stable actual shard count."
+        )
+    elif actual_run_count == requested_run_count:
+        run_count_status = "matched"
+        explanation = (
+            f"Requested {requested_run_count} run(s) and {stage_label} used {actual_run_count} shard(s)."
+        )
+    elif actual_run_count < requested_run_count:
+        run_count_status = "below_target"
+        explanation = (
+            f"Requested {requested_run_count} run(s), but {stage_label} only used {actual_run_count} shard(s) "
+            "because the available work fit into fewer shards."
+        )
+    else:
+        run_count_status = "above_target"
+        explanation = (
+            f"Requested {requested_run_count} run(s), but {stage_label} used {actual_run_count} shard(s). "
+            "This usually means a lower-level shard-sizing rule or planning seam split the work more than the prompt target alone."
+        )
+
+    if (
+        requested_worker_count is not None
+        and actual_worker_count is not None
+        and requested_worker_count != actual_worker_count
+    ):
+        explanation += (
+            f" Worker count also differed: requested {requested_worker_count}, actual {actual_worker_count}."
+        )
+
+    if _surface_key_for_stage(stage_key) == "line_role":
+        if internal_phase_count is not None and internal_phase_count > 1 and call_count is not None:
+            explanation += (
+                f" Line-role runs {internal_phase_count} internal phases, so total model calls were {call_count}."
+            )
+        if internal_phase_run_counts:
+            unique_phase_counts = sorted({int(value) for value in internal_phase_run_counts.values()})
+            if len(unique_phase_counts) > 1:
+                phase_bits = ", ".join(
+                    f"{phase_key}={int(count)}"
+                    for phase_key, count in sorted(internal_phase_run_counts.items())
+                )
+                explanation += f" Internal phase shard counts diverged: {phase_bits}."
+
+    return {
+        "stage_label": stage_label,
+        "requested_run_count": requested_run_count,
+        "actual_run_count": actual_run_count,
+        "run_count_status": run_count_status,
+        "run_count_explanation": explanation,
+        "requested_worker_count": requested_worker_count,
+        "actual_worker_count": actual_worker_count,
+    }
 
 
 def _iter_line_role_telemetry_paths(

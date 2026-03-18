@@ -28,9 +28,7 @@ from cookimport.labelstudio.label_config_freeform import (
 )
 from cookimport.llm.canonical_line_role_prompt import (
     LineRolePromptFormat,
-    RecipeRegionStatus,
     build_canonical_line_role_file_prompt,
-    build_recipe_region_gate_file_prompt,
 )
 from cookimport.llm.codex_exec_runner import (
     DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
@@ -234,8 +232,6 @@ _LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v4"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
-_LINE_ROLE_RECIPE_REGION_GATE_PIPELINE_ID = "line-role.recipe-region-gate.v1"
-_LINE_ROLE_RECIPE_STRUCTURE_PIPELINE_ID = "line-role.recipe-structure-label.v1"
 _LINE_ROLE_CODEX_EXEC_DEFAULT_CMD = "codex exec"
 _LINE_ROLE_DIRECT_RUNTIME_ARTIFACT_SCHEMA = "line_role.direct_worker_runtime.v1"
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
@@ -260,13 +256,6 @@ class CanonicalLineRolePrediction(BaseModel):
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
         return self
-
-
-class RecipeRegionGatePrediction(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    atomic_index: int
-    region_status: RecipeRegionStatus
 
 
 def _unique_string_list(values: Sequence[Any]) -> list[str]:
@@ -360,7 +349,6 @@ class _LineRolePhaseRuntimeResult:
 @dataclass(frozen=True)
 class _LineRoleRuntimeResult:
     predictions_by_atomic_index: dict[int, CanonicalLineRolePrediction]
-    region_status_by_atomic_index: dict[int, RecipeRegionStatus]
     phase_results: tuple[_LineRolePhaseRuntimeResult, ...]
 
 
@@ -464,7 +452,6 @@ def _label_atomic_lines_internal(
 
     codex_targets = ordered if mode == LINE_ROLE_PIPELINE_SHARD_V1 else []
     runtime_result: _LineRoleRuntimeResult | None = None
-    region_status_by_atomic_index: dict[int, RecipeRegionStatus] = {}
     if codex_targets:
         runtime_result = _run_line_role_shard_runtime(
             ordered_candidates=codex_targets,
@@ -480,20 +467,12 @@ def _label_atomic_lines_internal(
             progress_callback=progress_callback,
         )
         predictions.update(runtime_result.predictions_by_atomic_index)
-        region_status_by_atomic_index.update(runtime_result.region_status_by_atomic_index)
 
     for candidate in ordered:
         if candidate.atomic_index not in predictions:
             predictions[candidate.atomic_index] = deterministic_baseline[
                 candidate.atomic_index
             ]
-    if mode == LINE_ROLE_PIPELINE_SHARD_V1 and region_status_by_atomic_index:
-        predictions = _apply_recipe_region_constraints(
-            ordered_candidates=ordered,
-            predictions=predictions,
-            deterministic_baseline=deterministic_baseline,
-            region_status_by_atomic_index=region_status_by_atomic_index,
-        )
 
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
     sanitized_baseline_by_index: dict[int, CanonicalLineRolePrediction] = {}
@@ -623,48 +602,20 @@ def build_line_role_codex_execution_plan(
     deterministic_baseline = _build_line_role_deterministic_baseline(
         ordered_candidates=ordered
     )
-    gate_plans = _build_line_role_recipe_region_gate_plans(
+    shard_plans = _build_line_role_canonical_plans(
         ordered_candidates=ordered,
         deterministic_baseline=deterministic_baseline,
         settings=settings,
         codex_batch_size=codex_batch_size,
     )
-    structure_candidates = _select_recipe_structure_targets(
-        ordered_candidates=ordered,
-        region_status_by_atomic_index={
-            int(candidate.atomic_index): _seed_region_status_for_candidate(
-                candidate,
-                baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
-            )
-            for candidate in ordered
-        },
-    )
-    structure_plans = _build_line_role_recipe_structure_plans(
-        ordered_candidates=structure_candidates,
-        deterministic_baseline=deterministic_baseline,
-        settings=settings,
-        codex_batch_size=codex_batch_size,
-        region_status_by_atomic_index={
-            int(candidate.atomic_index): _seed_region_status_for_candidate(
-                candidate,
-                baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
-            )
-            for candidate in ordered
-        },
-    )
-    internal_phases = [
-        _line_role_execution_plan_phase(plan_group)
-        for plan_group in (gate_plans, structure_plans)
-    ]
+    internal_phases = [_line_role_execution_plan_phase(shard_plans)]
 
     return {
         "enabled": True,
         "pipeline": mode,
         "candidate_count": len(ordered),
         "planned_candidate_count": len(ordered),
-        "planned_shard_count": sum(
-            int(phase["planned_shard_count"]) for phase in internal_phases
-        ),
+        "planned_shard_count": int(internal_phases[0]["planned_shard_count"]),
         "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
             settings=settings,
             codex_batch_size=codex_batch_size,
@@ -731,88 +682,15 @@ def _line_role_plan_row(
         "prev_text": candidate.prev_text,
         "current_line": str(candidate.text),
         "next_text": candidate.next_text,
-    }
+}
 
 
-def _build_line_role_recipe_region_gate_plans(
+def _build_line_role_canonical_plans(
     *,
     ordered_candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: dict[int, CanonicalLineRolePrediction],
     settings: RunSettings,
     codex_batch_size: int,
-) -> tuple[_LineRoleShardPlan, ...]:
-    shard_target_lines = _resolve_line_role_shard_target_lines(
-        settings=settings,
-        codex_batch_size=codex_batch_size,
-        total_candidates=len(ordered_candidates),
-    )
-    prompt_format = _resolve_line_role_prompt_format()
-    plans: list[_LineRoleShardPlan] = []
-    for prompt_index, shard_candidates in enumerate(
-        _batch(ordered_candidates, max(1, int(shard_target_lines))),
-        start=1,
-    ):
-        if not shard_candidates:
-            continue
-        baseline_batch = tuple(
-            deterministic_baseline[int(candidate.atomic_index)]
-            for candidate in shard_candidates
-        )
-        first_atomic_index = int(shard_candidates[0].atomic_index)
-        last_atomic_index = int(shard_candidates[-1].atomic_index)
-        shard_id = (
-            f"line-role-recipe-region-gate-{prompt_index:04d}-"
-            f"a{first_atomic_index:06d}-a{last_atomic_index:06d}"
-        )
-        manifest_entry = ShardManifestEntryV1(
-            shard_id=shard_id,
-            owned_ids=tuple(str(int(candidate.atomic_index)) for candidate in shard_candidates),
-            evidence_refs=tuple(
-                dict.fromkeys(str(candidate.block_id) for candidate in shard_candidates)
-            ),
-            input_payload={
-                "shard_id": shard_id,
-                "phase_key": "recipe_region_gate",
-                "rows": [
-                    _line_role_plan_row(
-                        candidate=candidate,
-                        baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
-                    )
-                    for candidate in shard_candidates
-                ],
-            },
-            metadata={
-                "prompt_index": prompt_index,
-                "prompt_stem": "recipe_region_gate_prompt",
-                "first_atomic_index": first_atomic_index,
-                "last_atomic_index": last_atomic_index,
-                "owned_row_count": len(shard_candidates),
-                "prompt_format": prompt_format,
-            },
-        )
-        plans.append(
-            _LineRoleShardPlan(
-                phase_key="recipe_region_gate",
-                phase_label="Recipe Region Gate",
-                runtime_pipeline_id=_LINE_ROLE_RECIPE_REGION_GATE_PIPELINE_ID,
-                prompt_stem="recipe_region_gate_prompt",
-                shard_id=shard_id,
-                prompt_index=prompt_index,
-                candidates=tuple(shard_candidates),
-                baseline_predictions=baseline_batch,
-                manifest_entry=manifest_entry,
-            )
-        )
-    return tuple(plans)
-
-
-def _build_line_role_recipe_structure_plans(
-    *,
-    ordered_candidates: Sequence[AtomicLineCandidate],
-    deterministic_baseline: dict[int, CanonicalLineRolePrediction],
-    settings: RunSettings,
-    codex_batch_size: int,
-    region_status_by_atomic_index: Mapping[int, RecipeRegionStatus],
 ) -> tuple[_LineRoleShardPlan, ...]:
     if not ordered_candidates:
         return ()
@@ -836,35 +714,33 @@ def _build_line_role_recipe_structure_plans(
         first_atomic_index = int(shard_candidates[0].atomic_index)
         last_atomic_index = int(shard_candidates[-1].atomic_index)
         shard_id = (
-            f"line-role-recipe-structure-label-{prompt_index:04d}-"
+            f"line-role-canonical-{prompt_index:04d}-"
             f"a{first_atomic_index:06d}-a{last_atomic_index:06d}"
         )
         manifest_entry = ShardManifestEntryV1(
             shard_id=shard_id,
-            owned_ids=tuple(str(int(candidate.atomic_index)) for candidate in shard_candidates),
+            owned_ids=tuple(
+                str(int(candidate.atomic_index)) for candidate in shard_candidates
+            ),
             evidence_refs=tuple(
                 dict.fromkeys(str(candidate.block_id) for candidate in shard_candidates)
             ),
             input_payload={
                 "shard_id": shard_id,
-                "phase_key": "recipe_structure_label",
+                "phase_key": "line_role",
                 "rows": [
-                    {
-                        **_line_role_plan_row(
-                            candidate=candidate,
-                            baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
-                        ),
-                        "region_status": region_status_by_atomic_index.get(
-                            int(candidate.atomic_index),
-                            "boundary_uncertain",
-                        ),
-                    }
+                    _line_role_plan_row(
+                        candidate=candidate,
+                        baseline_prediction=deterministic_baseline[
+                            int(candidate.atomic_index)
+                        ],
+                    )
                     for candidate in shard_candidates
                 ],
             },
             metadata={
                 "prompt_index": prompt_index,
-                "prompt_stem": "recipe_structure_label_prompt",
+                "prompt_stem": "line_role_prompt",
                 "first_atomic_index": first_atomic_index,
                 "last_atomic_index": last_atomic_index,
                 "owned_row_count": len(shard_candidates),
@@ -873,10 +749,10 @@ def _build_line_role_recipe_structure_plans(
         )
         plans.append(
             _LineRoleShardPlan(
-                phase_key="recipe_structure_label",
-                phase_label="Recipe Structure Label",
-                runtime_pipeline_id=_LINE_ROLE_RECIPE_STRUCTURE_PIPELINE_ID,
-                prompt_stem="recipe_structure_label_prompt",
+                phase_key="line_role",
+                phase_label="Canonical Line Role",
+                runtime_pipeline_id=_LINE_ROLE_CODEX_FARM_PIPELINE_ID,
+                prompt_stem="line_role_prompt",
                 shard_id=shard_id,
                 prompt_index=prompt_index,
                 candidates=tuple(shard_candidates),
@@ -917,54 +793,6 @@ def _line_role_execution_plan_phase(
             for plan in shard_plans
         ],
     }
-
-
-def _seed_region_status_for_candidate(
-    candidate: AtomicLineCandidate,
-    *,
-    baseline_prediction: CanonicalLineRolePrediction,
-) -> RecipeRegionStatus:
-    label = str(baseline_prediction.label or "OTHER")
-    if candidate.within_recipe_span is True:
-        return "recipe"
-    if candidate.within_recipe_span is False:
-        return "outside_recipe"
-    if label in {
-        "RECIPE_TITLE",
-        "RECIPE_VARIANT",
-        "HOWTO_SECTION",
-        "INGREDIENT_LINE",
-        "INSTRUCTION_LINE",
-        "YIELD_LINE",
-        "TIME_LINE",
-        "RECIPE_NOTES",
-    }:
-        return "recipe"
-    return "boundary_uncertain"
-
-
-def _select_recipe_structure_targets(
-    *,
-    ordered_candidates: Sequence[AtomicLineCandidate],
-    region_status_by_atomic_index: Mapping[int, RecipeRegionStatus],
-) -> list[AtomicLineCandidate]:
-    if not ordered_candidates:
-        return []
-    selected: list[AtomicLineCandidate] = []
-    recipe_like_indices = {
-        int(candidate.atomic_index)
-        for candidate in ordered_candidates
-        if region_status_by_atomic_index.get(int(candidate.atomic_index)) in {"recipe", "boundary_uncertain"}
-    }
-    for candidate in ordered_candidates:
-        atomic_index = int(candidate.atomic_index)
-        status = region_status_by_atomic_index.get(atomic_index, "boundary_uncertain")
-        if status in {"recipe", "boundary_uncertain"}:
-            selected.append(candidate)
-            continue
-        if {atomic_index - 1, atomic_index + 1} & recipe_like_indices:
-            selected.append(candidate)
-    return selected
 
 
 def _resolve_line_role_shard_target_lines(
@@ -1039,16 +867,15 @@ def _run_line_role_shard_runtime(
     codex_runner: CodexExecRunner | None,
     progress_callback: Callable[[str], None] | None,
 ) -> _LineRoleRuntimeResult:
-    gate_plans = _build_line_role_recipe_region_gate_plans(
+    shard_plans = _build_line_role_canonical_plans(
         ordered_candidates=ordered_candidates,
         deterministic_baseline=deterministic_baseline,
         settings=settings,
         codex_batch_size=codex_batch_size,
     )
-    if not gate_plans:
+    if not shard_plans:
         return _LineRoleRuntimeResult(
             predictions_by_atomic_index={},
-            region_status_by_atomic_index={},
             phase_results=(),
         )
 
@@ -1079,62 +906,10 @@ def _run_line_role_shard_runtime(
             else Path.cwd() / ".tmp" / "line-role-pipeline-runtime"
         )
     )
-    gate_phase_result = _run_line_role_phase_runtime(
-        shard_plans=gate_plans,
+    phase_result = _run_line_role_phase_runtime(
+        shard_plans=shard_plans,
         artifact_root=artifact_root,
-        runtime_root=runtime_root / "recipe_region_gate",
-        live_llm_allowed=live_llm_allowed,
-        prompt_state=prompt_state,
-        runner=runner,
-        codex_farm_root=codex_farm_root,
-        codex_farm_workspace_root=codex_farm_workspace_root,
-        codex_farm_model=codex_farm_model,
-        codex_farm_reasoning_effort=codex_farm_reasoning_effort,
-        timeout_seconds=codex_timeout_seconds,
-        settings=settings,
-        codex_batch_size=codex_batch_size,
-        codex_max_inflight=codex_max_inflight,
-        progress_callback=progress_callback,
-        validator=_validate_recipe_region_gate_shard_proposal,
-    )
-    region_status_by_atomic_index = {
-        int(candidate.atomic_index): _seed_region_status_for_candidate(
-            candidate,
-            baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
-        )
-        for candidate in ordered_candidates
-    }
-    for shard_plan in gate_plans:
-        response_payload = gate_phase_result.response_payloads_by_shard_id.get(shard_plan.shard_id)
-        if not isinstance(response_payload, dict):
-            continue
-        rows = response_payload.get("rows")
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            try:
-                atomic_index = int(row.get("atomic_index"))
-            except (TypeError, ValueError):
-                continue
-            region_status_by_atomic_index[atomic_index] = _normalize_region_status(
-                row.get("region_status")
-            )
-
-    structure_candidates = _select_recipe_structure_targets(
-        ordered_candidates=ordered_candidates,
-        region_status_by_atomic_index=region_status_by_atomic_index,
-    )
-    structure_plans = _build_line_role_recipe_structure_plans(
-        ordered_candidates=structure_candidates,
-        deterministic_baseline=deterministic_baseline,
-        settings=settings,
-        codex_batch_size=codex_batch_size,
-        region_status_by_atomic_index=region_status_by_atomic_index,
-    )
-    structure_phase_result = _run_line_role_phase_runtime(
-        shard_plans=structure_plans,
-        artifact_root=artifact_root,
-        runtime_root=runtime_root / "recipe_structure_label",
+        runtime_root=runtime_root / "line_role",
         live_llm_allowed=live_llm_allowed,
         prompt_state=prompt_state,
         runner=runner,
@@ -1151,10 +926,8 @@ def _run_line_role_shard_runtime(
     )
 
     predictions_by_atomic_index: dict[int, CanonicalLineRolePrediction] = {}
-    for shard_plan in structure_plans:
-        response_payload = structure_phase_result.response_payloads_by_shard_id.get(
-            shard_plan.shard_id
-        )
+    for shard_plan in shard_plans:
+        response_payload = phase_result.response_payloads_by_shard_id.get(shard_plan.shard_id)
         if not isinstance(response_payload, dict):
             continue
         rows = response_payload.get("rows")
@@ -1184,8 +957,7 @@ def _run_line_role_shard_runtime(
             )
     return _LineRoleRuntimeResult(
         predictions_by_atomic_index=predictions_by_atomic_index,
-        region_status_by_atomic_index=region_status_by_atomic_index,
-        phase_results=(gate_phase_result, structure_phase_result),
+        phase_results=(phase_result,),
     )
 
 
@@ -1274,6 +1046,12 @@ def _run_line_role_phase_runtime(
         settings={
             "line_role_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
             "codex_timeout_seconds": int(timeout_seconds),
+            "line_role_prompt_target_count": getattr(
+                settings,
+                "line_role_prompt_target_count",
+                None,
+            ),
+            "line_role_worker_count": getattr(settings, "line_role_worker_count", None),
             "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
                 settings=settings,
                 codex_batch_size=codex_batch_size,
@@ -1364,60 +1142,6 @@ def _run_line_role_phase_runtime(
         missing_output_shard_count=missing_output_shard_count,
         runtime_root=Path(manifest.run_root),
     )
-
-
-def _normalize_region_status(value: Any) -> RecipeRegionStatus:
-    normalized = str(value or "").strip().lower()
-    if normalized == "recipe":
-        return "recipe"
-    if normalized == "outside_recipe":
-        return "outside_recipe"
-    return "boundary_uncertain"
-
-
-def _validate_recipe_region_gate_shard_proposal(
-    shard: ShardManifestEntryV1,
-    payload: dict[str, Any],
-) -> tuple[bool, Sequence[str], dict[str, Any] | None]:
-    if not isinstance(payload, dict):
-        return False, ("proposal_not_a_json_object",), None
-    rows = payload.get("rows")
-    if not isinstance(rows, list):
-        return False, ("rows_missing_or_not_a_list",), None
-    owned_atomic_indices = [int(value) for value in shard.owned_ids]
-    expected_owned = set(owned_atomic_indices)
-    seen_owned: set[int] = set()
-    errors: list[str] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            errors.append("row_not_a_json_object")
-            continue
-        try:
-            atomic_index = int(row.get("atomic_index"))
-        except (TypeError, ValueError):
-            errors.append("atomic_index_missing")
-            continue
-        region_status = _normalize_region_status(row.get("region_status"))
-        if region_status not in {"recipe", "outside_recipe", "boundary_uncertain"}:
-            errors.append(f"invalid_region_status:{atomic_index}:{row.get('region_status')}")
-        if atomic_index not in expected_owned:
-            errors.append(f"unowned_atomic_index:{atomic_index}")
-            continue
-        if atomic_index in seen_owned:
-            errors.append(f"duplicate_atomic_index:{atomic_index}")
-            continue
-        seen_owned.add(atomic_index)
-    missing_owned = sorted(expected_owned - seen_owned)
-    if missing_owned:
-        errors.append(
-            "missing_owned_atomic_indices:" + ",".join(str(value) for value in missing_owned)
-        )
-    metadata = {
-        "owned_row_count": len(expected_owned),
-        "returned_row_count": len(rows),
-        "validated_row_count": len(seen_owned),
-    }
-    return len(errors) == 0, tuple(errors), metadata
 
 
 def _validate_line_role_shard_proposal(
@@ -2055,13 +1779,6 @@ def _build_line_role_file_prompt_for_shard(
         for owned_id in shard.owned_ids
         if str(owned_id).strip()
     ]
-    phase_key = str((shard.input_payload or {}).get("phase_key") or "").strip()
-    if phase_key == "recipe_region_gate":
-        return build_recipe_region_gate_file_prompt(
-            input_path=input_path,
-            owned_atomic_indices=owned_atomic_indices,
-            prompt_format=prompt_format,
-        )
     return build_canonical_line_role_file_prompt(
         input_path=input_path,
         owned_atomic_indices=owned_atomic_indices,
@@ -2941,76 +2658,6 @@ def _fallback_prediction(
         decided_by="fallback",
         reason_tags=reason_tags,
     )
-
-
-def _apply_recipe_region_constraints(
-    *,
-    ordered_candidates: Sequence[AtomicLineCandidate],
-    predictions: Mapping[int, CanonicalLineRolePrediction],
-    deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
-    region_status_by_atomic_index: Mapping[int, RecipeRegionStatus],
-) -> dict[int, CanonicalLineRolePrediction]:
-    constrained: dict[int, CanonicalLineRolePrediction] = {}
-    for candidate in ordered_candidates:
-        atomic_index = int(candidate.atomic_index)
-        current = predictions[atomic_index]
-        baseline = deterministic_baseline[atomic_index]
-        region_status = region_status_by_atomic_index.get(
-            atomic_index,
-            _seed_region_status_for_candidate(
-                candidate,
-                baseline_prediction=baseline,
-            ),
-        )
-        reason_tags = list(current.reason_tags)
-        reason_tags.append(f"recipe_region_gate_{region_status}")
-        if region_status != "outside_recipe":
-            constrained[atomic_index] = current.model_copy(
-                update={"reason_tags": _unique_string_list(reason_tags)}
-            )
-            continue
-        fallback_label = _outside_recipe_safe_label(
-            candidate=candidate,
-            preferred=str(current.label or "OTHER"),
-            baseline=str(baseline.label or "OTHER"),
-        )
-        decided_by = current.decided_by if fallback_label == current.label else "fallback"
-        if fallback_label != current.label:
-            reason_tags.append("outside_recipe_recipe_label_blocked")
-        constrained[atomic_index] = current.model_copy(
-            update={
-                "label": fallback_label,
-                "decided_by": decided_by,
-                "reason_tags": _unique_string_list(reason_tags),
-            }
-        )
-    return constrained
-
-
-def _outside_recipe_safe_label(
-    *,
-    candidate: AtomicLineCandidate,
-    preferred: str,
-    baseline: str,
-) -> str:
-    allowed_labels = {"OTHER", "KNOWLEDGE", "RECIPE_NOTES"}
-    preferred_label = str(preferred or "OTHER").strip().upper() or "OTHER"
-    baseline_label = str(baseline or "OTHER").strip().upper() or "OTHER"
-    if preferred_label in allowed_labels:
-        return preferred_label
-    if baseline_label in allowed_labels:
-        return baseline_label
-    if _looks_recipe_note_prose(str(candidate.text or "")) or _looks_storage_or_serving_note(
-        str(candidate.text or "")
-    ):
-        return "RECIPE_NOTES"
-    if _looks_knowledge_heading_with_context(candidate, by_atomic_index=None) or _looks_knowledge_prose_with_context(
-        candidate,
-        by_atomic_index=None,
-    ):
-        return "KNOWLEDGE"
-    return "OTHER"
-
 
 def _sanitize_prediction(
     *,

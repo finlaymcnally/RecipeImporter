@@ -131,42 +131,8 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             "bid": payload.get("bundle_id"),
             "r": chunk_results,
         }
-    if pipeline_id == "line-role.recipe-region-gate.v1":
-        prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
-        atomic_indices = [
-            int(value)
-            for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
-        ]
-        if not atomic_indices:
-            atomic_indices = [
-                int(value)
-                for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
-            ]
-        return {
-            "rows": [
-                {"atomic_index": atomic_index, "region_status": "boundary_uncertain"}
-                for atomic_index in atomic_indices
-            ]
-        }
-    if pipeline_id in {
-        "line-role.canonical.v1",
-        "line-role.recipe-structure-label.v1",
-    }:
-        prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
-        atomic_indices = [
-            int(value)
-            for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
-        ]
-        if not atomic_indices:
-            atomic_indices = [
-                int(value)
-                for value in re.findall(r"(?m)^\[(\d+),", prompt_text)
-            ]
-        if not atomic_indices:
-            atomic_indices = [
-                int(value)
-                for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
-            ]
+    if pipeline_id == "line-role.canonical.v1":
+        atomic_indices = _extract_atomic_indices(payload)
         return {
             "rows": [
                 {"atomic_index": atomic_index, "label": "OTHER"}
@@ -182,6 +148,39 @@ def build_structural_pipeline_output(
 ) -> dict[str, Any]:
     """Return the repo's structural best-guess output shape for a pipeline payload."""
     return _default_output(pipeline_id, payload)
+
+
+def _extract_atomic_indices(payload: dict[str, Any] | str) -> list[int]:
+    if isinstance(payload, dict):
+        rows = payload.get("rows")
+        if isinstance(rows, list):
+            indices: list[int] = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                value = row.get("atomic_index")
+                if value is None:
+                    continue
+                indices.append(int(value))
+            if indices:
+                return indices
+
+    prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
+    atomic_indices = [
+        int(value)
+        for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
+    ]
+    if not atomic_indices:
+        atomic_indices = [
+            int(value)
+            for value in re.findall(r"(?m)^\[(\d+),", prompt_text)
+        ]
+    if not atomic_indices:
+        atomic_indices = [
+            int(value)
+            for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
+        ]
+    return atomic_indices
 
 
 def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]:

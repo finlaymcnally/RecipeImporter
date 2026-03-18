@@ -10,7 +10,6 @@ from cookimport.core.models import RecipeCandidate
 from cookimport.core.slug import slugify_name
 from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_file_prompt,
-    build_recipe_region_gate_file_prompt,
 )
 from cookimport.llm.codex_farm_contracts import (
     RecipeCorrectionShardInput,
@@ -50,8 +49,6 @@ _DEFAULT_RECIPE_SURFACE = "codex-recipe-shard-v1"
 _DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
 _DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-shard-v1"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
-_DEFAULT_LINE_ROLE_REGION_GATE_PIPELINE_ID = "line-role.recipe-region-gate.v1"
-_DEFAULT_LINE_ROLE_STRUCTURE_PIPELINE_ID = "line-role.recipe-structure-label.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
 _DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 3
 _DEFAULT_KNOWLEDGE_SHARD_TARGET_CHUNKS = 12
@@ -693,13 +690,9 @@ def _build_line_role_preview_rows(
     prompt_target_count: int | None,
     shard_target_lines: int | None,
 ) -> dict[str, dict[str, Any]]:
-    region_gate_assets = _load_pipeline_assets(
+    line_role_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
-        pipeline_id=_DEFAULT_LINE_ROLE_REGION_GATE_PIPELINE_ID,
-    )
-    structure_assets = _load_pipeline_assets(
-        pipeline_root=pipeline_root,
-        pipeline_id=_DEFAULT_LINE_ROLE_STRUCTURE_PIPELINE_ID,
+        pipeline_id=_DEFAULT_LINE_ROLE_PIPELINE_ID,
     )
     stage_dir = out_dir / "line-role-pipeline"
     in_dir = stage_dir / "in"
@@ -718,10 +711,6 @@ def _build_line_role_preview_rows(
     escalation_reasons_by_atomic_index = _line_role_preview_escalation_reasons(
         labeled_line_rows=context.labeled_line_rows,
     )
-    region_status_by_atomic_index = _line_role_preview_region_statuses(
-        candidates=candidates,
-        deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
-    )
     effective_target_lines = (
         resolve_items_per_shard(
             total_items=len(candidates),
@@ -732,21 +721,21 @@ def _build_line_role_preview_rows(
         if candidates
         else LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
     )
-    region_gate_rows: list[dict[str, Any]] = []
+    line_role_rows: list[dict[str, Any]] = []
     for prompt_index, batch_candidates in enumerate(
         _batch(candidates, size=effective_target_lines),
         start=1,
     ):
         if not batch_candidates:
             continue
-        input_path = in_dir / f"recipe_region_gate_input_{prompt_index:04d}.json"
+        input_path = in_dir / f"line_role_input_{prompt_index:04d}.json"
         shard_payload = {
             "shard_id": (
-                f"line-role-recipe-region-gate-{prompt_index:04d}-"
+                f"line-role-canonical-{prompt_index:04d}-"
                 f"a{int(batch_candidates[0].atomic_index):06d}-"
                 f"a{int(batch_candidates[-1].atomic_index):06d}"
             ),
-            "phase_key": "recipe_region_gate",
+            "phase_key": "line_role",
             "rows": [
                 {
                     "atomic_index": int(candidate.atomic_index),
@@ -760,79 +749,6 @@ def _build_line_role_preview_rows(
                     "rule_tags": list(candidate.rule_tags),
                     "escalation_reasons": list(
                         escalation_reasons_by_atomic_index.get(int(candidate.atomic_index), ())
-                    ),
-                    "prev_text": candidate.prev_text,
-                    "current_line": str(candidate.text),
-                    "next_text": candidate.next_text,
-                }
-                for candidate in batch_candidates
-            ],
-        }
-        input_text = json.dumps(shard_payload, ensure_ascii=False, indent=2)
-        input_path.write_text(input_text, encoding="utf-8")
-        prompt_text = build_recipe_region_gate_file_prompt(
-            input_path=input_path,
-            owned_atomic_indices=[
-                int(candidate.atomic_index) for candidate in batch_candidates
-            ],
-        )
-        region_gate_rows.append(
-            _prompt_row(
-                call_id=input_path.stem,
-                recipe_id=str(batch_candidates[0].recipe_id or input_path.stem),
-                source_file=context.source_file,
-                pipeline_assets=region_gate_assets,
-                input_payload=shard_payload,
-                input_text=input_text,
-                input_path=input_path,
-                stage_key="line_role_recipe_region_gate",
-                stage_label="Line Role Recipe Region Gate",
-                stage_order=2,
-                stage_dir_name="line-role-pipeline",
-                stage_artifact_stem="recipe_region_gate",
-                surface_pipeline=surface_pipeline,
-                model_override=model_override,
-                reasoning_effort_override=reasoning_effort_override,
-                task_prompt_text=input_text,
-                rendered_prompt_override=prompt_text,
-            )
-        )
-    structure_candidates = _select_line_role_preview_structure_candidates(
-        candidates=candidates,
-        region_status_by_atomic_index=region_status_by_atomic_index,
-    )
-    structure_rows: list[dict[str, Any]] = []
-    for prompt_index, batch_candidates in enumerate(
-        _batch(structure_candidates, size=effective_target_lines),
-        start=1,
-    ):
-        if not batch_candidates:
-            continue
-        input_path = in_dir / f"recipe_structure_label_input_{prompt_index:04d}.json"
-        shard_payload = {
-            "shard_id": (
-                f"line-role-recipe-structure-label-{prompt_index:04d}-"
-                f"a{int(batch_candidates[0].atomic_index):06d}-"
-                f"a{int(batch_candidates[-1].atomic_index):06d}"
-            ),
-            "phase_key": "recipe_structure_label",
-            "rows": [
-                {
-                    "atomic_index": int(candidate.atomic_index),
-                    "block_id": str(candidate.block_id),
-                    "recipe_id": candidate.recipe_id,
-                    "within_recipe_span": candidate.within_recipe_span,
-                    "deterministic_label": deterministic_labels_by_atomic_index.get(
-                        int(candidate.atomic_index),
-                        "OTHER",
-                    ),
-                    "rule_tags": list(candidate.rule_tags),
-                    "escalation_reasons": list(
-                        escalation_reasons_by_atomic_index.get(int(candidate.atomic_index), ())
-                    ),
-                    "region_status": region_status_by_atomic_index.get(
-                        int(candidate.atomic_index),
-                        "boundary_uncertain",
                     ),
                     "prev_text": candidate.prev_text,
                     "current_line": str(candidate.text),
@@ -849,20 +765,20 @@ def _build_line_role_preview_rows(
                 int(candidate.atomic_index) for candidate in batch_candidates
             ],
         )
-        structure_rows.append(
+        line_role_rows.append(
             _prompt_row(
                 call_id=input_path.stem,
                 recipe_id=str(batch_candidates[0].recipe_id or input_path.stem),
                 source_file=context.source_file,
-                pipeline_assets=structure_assets,
+                pipeline_assets=line_role_assets,
                 input_payload=shard_payload,
                 input_text=input_text,
                 input_path=input_path,
-                stage_key="line_role_recipe_structure_label",
-                stage_label="Line Role Recipe Structure Label",
-                stage_order=3,
+                stage_key="line_role",
+                stage_label="Line Role",
+                stage_order=2,
                 stage_dir_name="line-role-pipeline",
-                stage_artifact_stem="recipe_structure_label",
+                stage_artifact_stem="line_role",
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
@@ -872,17 +788,11 @@ def _build_line_role_preview_rows(
         )
     return {
         "phase_rows": {
-            "line_role_recipe_region_gate": {
-                "stage_label": "Line Role Recipe Region Gate",
+            "line_role": {
+                "stage_label": "Line Role",
                 "stage_order": 2,
-                "runtime_pipeline_id": _DEFAULT_LINE_ROLE_REGION_GATE_PIPELINE_ID,
-                "rows": region_gate_rows,
-            },
-            "line_role_recipe_structure_label": {
-                "stage_label": "Line Role Recipe Structure Label",
-                "stage_order": 3,
-                "runtime_pipeline_id": _DEFAULT_LINE_ROLE_STRUCTURE_PIPELINE_ID,
-                "rows": structure_rows,
+                "runtime_pipeline_id": _DEFAULT_LINE_ROLE_PIPELINE_ID,
+                "rows": line_role_rows,
             },
         }
     }

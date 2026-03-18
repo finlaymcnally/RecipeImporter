@@ -24,7 +24,44 @@ Negative rules (must-not-do):
 - Never label a quantity/unit ingredient line as `KNOWLEDGE`.
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
 - Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
-- If a row is gated `outside_recipe`, do not emit `RECIPE_TITLE`, `RECIPE_VARIANT`, `HOWTO_SECTION`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, or `TIME_LINE`.
+- If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
+
+Few-shot examples:
+1) Context: inside recipe, heading line
+   Line: `FOR THE MALT COOKIES`
+   Label: `HOWTO_SECTION`
+
+2) Context: adjacent lines are ingredients
+   Line: `Grapeseed oil`
+   Label: `INGREDIENT_LINE`
+
+3) Context: inside recipe
+   Line: `SERVES 4`
+   Label: `YIELD_LINE`
+
+4) Context: recipe method
+   Line: `Whisk in the cream and simmer for 2 to 3 minutes.`
+   Label: `INSTRUCTION_LINE`
+
+5) Context: inside recipe
+   Line: `NOTE: Cooled hollandaise can break if reheated too fast.`
+   Label: `RECIPE_NOTES`
+
+6) Context: explanatory cookbook prose
+   Line: `Copper pans conduct heat quickly and evenly, so temperature changes show up fast.`
+   Label: `KNOWLEDGE`
+
+7) Context: inside recipe, ingredient range
+   Line: `4 to 6 chicken leg quarters`
+   Label: `INGREDIENT_LINE`
+
+8) Context: inside recipe, all-caps variant header
+   Line: `DINER-STYLE MUSHROOM, PEPPER, AND ONION OMELET`
+   Label: `RECIPE_VARIANT`
+
+9) Context: inside recipe, primary recipe heading
+   Line: `A PORRIDGE OF LOVAGE STEMS`
+   Label: `RECIPE_TITLE`
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:

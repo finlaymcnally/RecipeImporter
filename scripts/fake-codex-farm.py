@@ -82,6 +82,33 @@ def _extract_first_json_object(raw: str) -> dict[str, Any] | None:
     return None
 
 
+def _extract_task_file_payload(prompt_text: str, *, cd: str | None) -> dict[str, Any] | None:
+    candidates: list[Path] = []
+    for match in re.finditer(r"([A-Za-z0-9_./:-]+\.json)", prompt_text):
+        raw_path = match.group(1).strip()
+        path = Path(raw_path)
+        if path.is_absolute():
+            candidates.append(path)
+            continue
+        if cd:
+            candidates.append((REPO_ROOT / cd / path).resolve())
+            candidates.append((Path(cd) / path).resolve())
+        candidates.append((REPO_ROOT / path).resolve())
+        candidates.append(path.resolve())
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if not candidate.is_file():
+            continue
+        payload = _read_json(candidate)
+        if payload is not None:
+            return payload
+    return None
+
+
 def _emit_progress(
     *,
     enabled: bool,
@@ -192,7 +219,9 @@ def _run_exec(args: argparse.Namespace) -> int:
     prompt_text = sys.stdin.read()
     output_schema_path = str(args.output_schema or "").strip()
     pipeline_id = _pipeline_id_for_exec_schema(output_schema_path)
-    parsed_payload = _extract_first_json_object(prompt_text)
+    parsed_payload = _extract_task_file_payload(prompt_text, cd=args.cd)
+    if parsed_payload is None:
+        parsed_payload = _extract_first_json_object(prompt_text)
     payload = parsed_payload if parsed_payload is not None else prompt_text
     response_payload = build_structural_pipeline_output(pipeline_id, payload)
     response_text = json.dumps(response_payload, sort_keys=True)

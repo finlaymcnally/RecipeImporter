@@ -1705,3 +1705,136 @@ def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker
     assert summary["by_stage"]["knowledge"]["tokens_cached_input"] == 20
     assert summary["by_stage"]["knowledge"]["tokens_output"] == 30
     assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
+
+
+def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested_target(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    pred_manifest = {
+        "run_config": {
+            "recipe_prompt_target_count": 5,
+            "recipe_worker_count": 5,
+        },
+        "llm_codex_farm": {
+            "process_runs": {
+                "recipe_correction": {
+                    "telemetry_report": {
+                        "phase_key": "recipe_llm_correct_and_link",
+                        "worker_count": 2,
+                        "shard_count": 2,
+                    },
+                    "worker_runs": [
+                        {
+                            "telemetry": {
+                                "rows": [
+                                    {
+                                        "duration_ms": 1100,
+                                        "tokens_input": 100,
+                                        "tokens_cached_input": 10,
+                                        "tokens_output": 20,
+                                        "tokens_total": 120,
+                                    },
+                                    {
+                                        "duration_ms": 1200,
+                                        "tokens_input": 140,
+                                        "tokens_cached_input": 14,
+                                        "tokens_output": 22,
+                                        "tokens_total": 176,
+                                    },
+                                ]
+                            },
+                            "telemetry_report": {
+                                "summary": {
+                                    "call_count": 2,
+                                    "duration_total_ms": 2300,
+                                    "tokens_input": 240,
+                                    "tokens_cached_input": 24,
+                                    "tokens_output": 42,
+                                    "tokens_total": 296,
+                                }
+                            },
+                        }
+                    ],
+                }
+            }
+        },
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    recipe_stage = summary["by_stage"]["recipe_correction"]
+    assert recipe_stage["requested_run_count"] == 5
+    assert recipe_stage["actual_run_count"] == 2
+    assert recipe_stage["run_count_status"] == "below_target"
+    assert "fit into fewer shards" in recipe_stage["run_count_explanation"]
+    assert recipe_stage["requested_worker_count"] == 5
+    assert recipe_stage["actual_worker_count"] == 2
+    assert len(summary["run_count_deviations"]) == 1
+    assert summary["run_count_deviations"][0]["stage"] == "recipe_correction"
+
+
+def test_prompt_budget_summary_reports_line_role_surface_target_separately_from_total_calls(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "batch_count": 10,
+                    "attempt_count": 10,
+                    "tokens_input": 500,
+                    "tokens_cached_input": 50,
+                    "tokens_output": 60,
+                    "tokens_reasoning": 0,
+                    "tokens_total": 610,
+                },
+                "phases": [
+                    {
+                        "phase_key": "recipe_region_gate",
+                        "summary": {"batch_count": 5},
+                        "runtime_artifacts": {"worker_count": 5},
+                    },
+                    {
+                        "phase_key": "recipe_structure_label",
+                        "summary": {"batch_count": 5},
+                        "runtime_artifacts": {"worker_count": 5},
+                    },
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    pred_manifest = {
+        "run_config": {
+            "line_role_prompt_target_count": 5,
+            "line_role_worker_count": 5,
+        },
+        "line_role_pipeline_telemetry_path": str(telemetry_path),
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    line_role_stage = summary["by_stage"]["line_role"]
+    assert line_role_stage["requested_run_count"] == 5
+    assert line_role_stage["actual_run_count"] == 5
+    assert line_role_stage["run_count_status"] == "matched"
+    assert line_role_stage["requested_worker_count"] == 5
+    assert line_role_stage["actual_worker_count"] == 5
+    assert line_role_stage["internal_phase_count"] == 2
+    assert line_role_stage["internal_phase_run_counts"] == {
+        "recipe_region_gate": 5,
+        "recipe_structure_label": 5,
+    }
+    assert "total model calls were 10" in line_role_stage["run_count_explanation"]
+    assert summary["run_count_deviations"] == []

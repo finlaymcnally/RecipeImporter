@@ -1077,15 +1077,8 @@ def test_title_like_line_can_be_overridden_when_full_book_codex_reviews_it(tmp_p
         tmp_path
         / "line-role-pipeline"
         / "prompts"
-        / "recipe_region_gate"
-        / "recipe_region_gate_prompt_0001.txt"
-    ).exists()
-    assert (
-        tmp_path
-        / "line-role-pipeline"
-        / "prompts"
-        / "recipe_structure_label"
-        / "recipe_structure_label_prompt_0001.txt"
+        / "line_role"
+        / "line_role_prompt_0001.txt"
     ).exists()
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
@@ -1384,7 +1377,7 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         tmp_path
         / "line-role-pipeline"
         / "prompts"
-        / "recipe_region_gate"
+        / "line_role"
         / "parse_errors.json"
     )
     payload = json.loads(parse_errors_path.read_text(encoding="utf-8"))
@@ -1655,7 +1648,7 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
     )
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "rule"
+    assert predictions[0].decided_by == "codex"
     assert predictions[0].escalation_reasons == []
 
 
@@ -1692,7 +1685,7 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
     )
 
     assert plan["enabled"] is True
-    assert plan["planned_shard_count"] == 2
+    assert plan["planned_shard_count"] == 1
     assert plan["planned_candidate_count"] == 2
     assert plan["line_role_shard_target_lines"] == 10
     assert plan["shards"][0]["atomic_indices"] == [0, 1]
@@ -1702,10 +1695,7 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
         "deterministic_unresolved",
         "fallback_decision",
     ]
-    assert [phase["phase_key"] for phase in plan["internal_phases"]] == [
-        "recipe_region_gate",
-        "recipe_structure_label",
-    ]
+    assert [phase["phase_key"] for phase in plan["internal_phases"]] == ["line_role"]
 
 
 def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -> None:
@@ -1767,12 +1757,11 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
         codex_runner=runner,
         live_llm_allowed=True,
     )
-    assert len(runner.calls) == 2
+    assert len(runner.calls) == 1
     assert {
         Path(call["output_schema_path"]).name for call in runner.calls
     } == {
-        "line-role.recipe-region-gate.v1.output.schema.json",
-        "line-role.recipe-structure-label.v1.output.schema.json",
+        "line-role.canonical.v1.output.schema.json",
     }
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
@@ -1843,17 +1832,16 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
             encoding="utf-8"
         )
     )
-    assert telemetry_payload["summary"]["batch_count"] == 2
-    assert telemetry_payload["summary"]["attempt_count"] == 2
-    assert telemetry_payload["summary"]["attempts_with_usage"] == 2
-    assert telemetry_payload["summary"]["tokens_input"] == 40
-    assert telemetry_payload["summary"]["tokens_cached_input"] == 8
-    assert telemetry_payload["summary"]["tokens_output"] == 10
-    assert telemetry_payload["summary"]["tokens_reasoning"] == 4
-    assert telemetry_payload["summary"]["tokens_total"] == 62
+    assert telemetry_payload["summary"]["batch_count"] == 1
+    assert telemetry_payload["summary"]["attempt_count"] == 1
+    assert telemetry_payload["summary"]["attempts_with_usage"] == 1
+    assert telemetry_payload["summary"]["tokens_input"] == 20
+    assert telemetry_payload["summary"]["tokens_cached_input"] == 4
+    assert telemetry_payload["summary"]["tokens_output"] == 5
+    assert telemetry_payload["summary"]["tokens_reasoning"] == 2
+    assert telemetry_payload["summary"]["tokens_total"] == 31
     assert [phase["phase_key"] for phase in telemetry_payload["phases"]] == [
-        "recipe_region_gate",
-        "recipe_structure_label",
+        "line_role",
     ]
     assert telemetry_payload["phases"][0]["batches"][0]["attempts"][0]["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
 
@@ -1884,12 +1872,11 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
         codex_runner=runner,
         live_llm_allowed=True,
     )
-    assert len(runner.calls) == 2
+    assert len(runner.calls) == 1
     assert {
         Path(call["output_schema_path"]).name for call in runner.calls
     } == {
-        "line-role.recipe-region-gate.v1.output.schema.json",
-        "line-role.recipe-structure-label.v1.output.schema.json",
+        "line-role.canonical.v1.output.schema.json",
     }
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
@@ -1975,10 +1962,10 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
 
     prompt_dir = tmp_path / "line-role-pipeline" / "prompts"
     dedup_lines = (
-        prompt_dir / "recipe_structure_label" / "codex_prompt_log.dedup.txt"
+        prompt_dir / "line_role" / "codex_prompt_log.dedup.txt"
     ).read_text(encoding="utf-8").splitlines()
     assert len(dedup_lines) == 4
-    assert all("\trecipe_structure_label_prompt_" in line for line in dedup_lines)
+    assert all("\tline_role_prompt_" in line for line in dedup_lines)
 
 
 def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
@@ -2015,8 +2002,8 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         tmp_path
         / "line-role-pipeline"
         / "prompts"
-        / "recipe_structure_label"
-        / "recipe_structure_label_prompt_0001.txt"
+        / "line_role"
+        / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
     assert "TASK BOUNDARY" in prompt_text
     assert "Read the shard JSON already placed in the worker folder" in prompt_text
@@ -2026,11 +2013,11 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         tmp_path
         / "line-role-pipeline"
         / "runtime"
-        / "recipe_structure_label"
+        / "line_role"
         / "workers"
         / "worker-001"
         / "shards"
-        / "line-role-recipe-structure-label-0001-a000000-a000000"
+        / "line-role-canonical-0001-a000000-a000000"
         / "prompt.txt"
     ).read_text(encoding="utf-8")
     assert "Read the shard JSON already placed in the worker folder" in worker_prompt_text
@@ -2041,11 +2028,11 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
             tmp_path
             / "line-role-pipeline"
             / "runtime"
-            / "recipe_structure_label"
+            / "line_role"
             / "workers"
             / "worker-001"
             / "in"
-            / "line-role-recipe-structure-label-0001-a000000-a000000.json"
+            / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
     assert input_payload["rows"][0]["current_line"] == "Ambiguous line 0"
@@ -2148,7 +2135,7 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
             tmp_path
             / "line-role-pipeline"
             / "runtime"
-            / "recipe_region_gate"
+            / "line_role"
             / "phase_manifest.json"
         ).read_text(encoding="utf-8")
     )

@@ -1701,21 +1701,13 @@ def _build_line_role_prompt_rows(
     detail_lines: list[str] = []
     phase_specs = [
         {
-            "phase_key": "recipe_region_gate",
-            "prompt_stem": "recipe_region_gate_prompt",
-            "stage_key": "line_role_recipe_region_gate",
-            "stage_label": "Line Role Recipe Region Gate",
-            "stage_artifact_stem": "recipe_region_gate",
+            "phase_key": "line_role",
+            "prompt_stem": "line_role_prompt",
+            "stage_key": "line_role",
+            "stage_label": "Line Role",
+            "stage_artifact_stem": "line_role",
             "stage_order": 2,
-        },
-        {
-            "phase_key": "recipe_structure_label",
-            "prompt_stem": "recipe_structure_label_prompt",
-            "stage_key": "line_role_recipe_structure_label",
-            "stage_label": "Line Role Recipe Structure Label",
-            "stage_artifact_stem": "recipe_structure_label",
-            "stage_order": 3,
-        },
+        }
     ]
 
     for spec in phase_specs:
@@ -1984,11 +1976,7 @@ def _append_line_role_prompt_artifacts(
         row
         for row in _load_prompt_rows(full_prompt_log_path)
         if str(row.get("stage_key") or "")
-        not in {
-            "line_role",
-            "line_role_recipe_region_gate",
-            "line_role_recipe_structure_label",
-        }
+        != "line_role"
     ]
     merged_rows = sorted(existing_rows + line_role_rows, key=_prompt_row_sort_key)
     full_prompt_log_path.write_text(
