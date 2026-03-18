@@ -7,6 +7,7 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cookimport.config.run_settings import RunSettings
+from cookimport.core.progress_messages import format_stage_counter_progress
 from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
@@ -72,6 +73,31 @@ def _unique_string_list(values: Sequence[Any]) -> list[str]:
         seen.add(rendered)
         output.append(rendered)
     return output
+
+
+def _notify_authoritative_progress(
+    *,
+    progress_callback: Any | None,
+    current: int,
+    total: int,
+    detail_lines: Sequence[Any] | None = None,
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(
+        format_stage_counter_progress(
+            "Building authoritative labels...",
+            current,
+            total,
+            stage_label="authoritative labels",
+            detail_lines=[
+                str(value).strip()
+                for value in (detail_lines or [])
+                if str(value).strip()
+            ]
+            or None,
+        )
+    )
 
 
 class AuthoritativeLabeledLine(BaseModel):
@@ -201,6 +227,13 @@ def build_label_first_stage_result(
         conversion_result=conversion_result,
         full_blocks=full_blocks,
     )
+    archive_block_count = len(archive_blocks)
+    _notify_authoritative_progress(
+        progress_callback=progress_callback,
+        current=0,
+        total=4,
+        detail_lines=[f"archive blocks: {archive_block_count}"],
+    )
     source_hash = _resolve_source_hash(
         conversion_result=conversion_result,
         source_file=source_file,
@@ -214,7 +247,25 @@ def build_label_first_stage_result(
             default="atomic-v1",
         ),
     )
+    _notify_authoritative_progress(
+        progress_callback=progress_callback,
+        current=1,
+        total=4,
+        detail_lines=[
+            f"archive blocks: {archive_block_count}",
+            f"atomic lines: {len(atomized)}",
+        ],
+    )
     if atomized:
+        _notify_authoritative_progress(
+            progress_callback=progress_callback,
+            current=2,
+            total=4,
+            detail_lines=[
+                f"archive blocks: {archive_block_count}",
+                f"atomic lines: {len(atomized)}",
+            ],
+        )
         final_predictions, baseline_predictions = label_atomic_lines_with_baseline(
             atomized,
             run_settings,
@@ -232,12 +283,30 @@ def build_label_first_stage_result(
         baseline_predictions=baseline_predictions,
     )
     block_labels = _build_authoritative_block_labels(labeled_lines)
+    _notify_authoritative_progress(
+        progress_callback=progress_callback,
+        current=3,
+        total=4,
+        detail_lines=[
+            f"labeled lines: {len(labeled_lines)}",
+            f"block labels: {len(block_labels)}",
+        ],
+    )
 
     from cookimport.parsing.recipe_span_grouping import group_recipe_spans_from_labels
 
     recipe_spans, span_decisions, normalized_block_labels = group_recipe_spans_from_labels(
         block_labels,
         labeled_lines,
+    )
+    _notify_authoritative_progress(
+        progress_callback=progress_callback,
+        current=4,
+        total=4,
+        detail_lines=[
+            f"recipe spans: {len(recipe_spans)}",
+            f"block labels: {len(normalized_block_labels)}",
+        ],
     )
     return build_conversion_result_from_label_spans(
         source_file=source_file,

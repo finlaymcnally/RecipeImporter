@@ -1277,6 +1277,73 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     assert written["totals"]["tokens_total"] == 651
 
 
+def test_prompt_budget_summary_recovers_line_role_tokens_from_nested_batch_summaries(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "batch_count": 2,
+                    "attempt_count": 2,
+                },
+                "batches": [
+                    {
+                        "attempts": [
+                            {
+                                "process_run": {
+                                    "process_payload": {
+                                        "telemetry_report": {
+                                            "summary": {
+                                                "matched_rows": 1,
+                                                "duration_avg_ms": 1200,
+                                                "tokens_total": 17,
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "attempts": [
+                            {
+                                "process_run": {
+                                    "process_payload": {
+                                        "telemetry_report": {
+                                            "summary": {
+                                                "matched_rows": 1,
+                                                "duration_avg_ms": 800,
+                                                "tokens_total": 19,
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_prediction_run_prompt_budget_summary(
+        {"line_role_pipeline_telemetry_path": str(telemetry_path)},
+        pred_run,
+    )
+
+    assert summary["by_stage"]["line_role"]["call_count"] == 2
+    assert summary["by_stage"]["line_role"]["attempt_count"] == 2
+    assert summary["by_stage"]["line_role"]["duration_total_ms"] == 2000
+    assert summary["by_stage"]["line_role"]["tokens_total"] == 36
+    assert summary["totals"]["tokens_total"] == 36
+
+
 def test_prompt_budget_summary_reads_top_level_codex_farm_telemetry_rows(
     tmp_path: Path,
 ) -> None:
@@ -1575,3 +1642,66 @@ def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
     assert summary["by_stage"]["recipe_correction"]["tokens_cached_input"] == 25
     assert summary["by_stage"]["recipe_correction"]["tokens_output"] == 45
     assert summary["by_stage"]["recipe_correction"]["tokens_total"] == 295
+
+
+def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker_duplicates(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    duplicated_row = {
+        "duration_ms": 900,
+        "tokens_input": 200,
+        "tokens_cached_input": 20,
+        "tokens_output": 30,
+        "tokens_reasoning": 0,
+        "tokens_total": 230,
+    }
+    pred_manifest = {
+        "llm_codex_farm": {
+            "knowledge": {
+                "authority_mode": "knowledge_refined_final",
+                "scored_effect": "final_authority",
+                "process_run": {
+                    "telemetry": {
+                        "rows": [duplicated_row],
+                        "summary": {
+                            "call_count": 1,
+                            "duration_total_ms": 900,
+                            "tokens_input": 200,
+                            "tokens_cached_input": 20,
+                            "tokens_output": 30,
+                            "tokens_reasoning": 0,
+                            "tokens_total": 230,
+                        },
+                    },
+                    "worker_runs": [
+                        {
+                            "telemetry": {"rows": [duplicated_row]},
+                            "telemetry_report": {
+                                "summary": {
+                                    "call_count": 1,
+                                    "duration_total_ms": 900,
+                                    "tokens_input": 200,
+                                    "tokens_cached_input": 20,
+                                    "tokens_output": 30,
+                                    "tokens_reasoning": 0,
+                                    "tokens_total": 230,
+                                }
+                            },
+                        }
+                    ],
+                },
+            }
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    assert summary["by_stage"]["knowledge"]["call_count"] == 1
+    assert summary["by_stage"]["knowledge"]["duration_total_ms"] == 900
+    assert summary["by_stage"]["knowledge"]["tokens_input"] == 200
+    assert summary["by_stage"]["knowledge"]["tokens_cached_input"] == 20
+    assert summary["by_stage"]["knowledge"]["tokens_output"] == 30
+    assert summary["by_stage"]["knowledge"]["tokens_total"] == 230

@@ -1,0 +1,555 @@
+{
+  "recipe_spans": [
+    {
+      "atomic_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "block_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 6,
+      "end_block_index": 6,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:0",
+        "block:1",
+        "block:2",
+        "block:3",
+        "block:4",
+        "block:5",
+        "block:6"
+      ],
+      "span_id": "recipe_span_0",
+      "start_atomic_index": 0,
+      "start_block_index": 0,
+      "title_atomic_index": 0,
+      "title_block_index": 0,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        11,
+        12
+      ],
+      "block_indices": [
+        13,
+        14
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 12,
+      "end_block_index": 14,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:13",
+        "block:14"
+      ],
+      "span_id": "recipe_span_3",
+      "start_atomic_index": 11,
+      "start_block_index": 13,
+      "title_atomic_index": 11,
+      "title_block_index": 13,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        22,
+        23,
+        24,
+        25
+      ],
+      "block_indices": [
+        26,
+        27,
+        28,
+        29
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 25,
+      "end_block_index": 29,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:26",
+        "block:27",
+        "block:28",
+        "block:29"
+      ],
+      "span_id": "recipe_span_7",
+      "start_atomic_index": 22,
+      "start_block_index": 26,
+      "title_atomic_index": 22,
+      "title_block_index": 26,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        28,
+        29,
+        30,
+        31,
+        32,
+        33
+      ],
+      "block_indices": [
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 33,
+      "end_block_index": 39,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:34",
+        "block:35",
+        "block:36",
+        "block:37",
+        "block:38",
+        "block:39"
+      ],
+      "span_id": "recipe_span_9",
+      "start_atomic_index": 28,
+      "start_block_index": 34,
+      "title_atomic_index": 28,
+      "title_block_index": 34,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        38,
+        39,
+        40
+      ],
+      "block_indices": [
+        46,
+        47,
+        48
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 40,
+      "end_block_index": 48,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:46",
+        "block:47",
+        "block:48"
+      ],
+      "span_id": "recipe_span_11",
+      "start_atomic_index": 38,
+      "start_block_index": 46,
+      "title_atomic_index": 38,
+      "title_block_index": 46,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        98,
+        99
+      ],
+      "block_indices": [
+        121,
+        122
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 99,
+      "end_block_index": 122,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:121",
+        "block:122"
+      ],
+      "span_id": "recipe_span_25",
+      "start_atomic_index": 98,
+      "start_block_index": 121,
+      "title_atomic_index": 98,
+      "title_block_index": 121,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        116,
+        117,
+        118,
+        119,
+        120
+      ],
+      "block_indices": [
+        145,
+        146,
+        147,
+        148,
+        149
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 120,
+      "end_block_index": 149,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:145",
+        "block:146",
+        "block:147",
+        "block:148",
+        "block:149"
+      ],
+      "span_id": "recipe_span_28",
+      "start_atomic_index": 116,
+      "start_block_index": 145,
+      "title_atomic_index": 116,
+      "title_block_index": 145,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        132,
+        133
+      ],
+      "block_indices": [
+        166,
+        167
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 133,
+      "end_block_index": 167,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:166",
+        "block:167"
+      ],
+      "span_id": "recipe_span_31",
+      "start_atomic_index": 132,
+      "start_block_index": 166,
+      "title_atomic_index": 132,
+      "title_block_index": 166,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        189,
+        190,
+        191
+      ],
+      "block_indices": [
+        243,
+        244,
+        245
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 191,
+      "end_block_index": 245,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:243",
+        "block:244",
+        "block:245"
+      ],
+      "span_id": "recipe_span_43",
+      "start_atomic_index": 189,
+      "start_block_index": 243,
+      "title_atomic_index": 189,
+      "title_block_index": 243,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        223,
+        224
+      ],
+      "block_indices": [
+        290,
+        291
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 224,
+      "end_block_index": 291,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:290",
+        "block:291"
+      ],
+      "span_id": "recipe_span_50",
+      "start_atomic_index": 223,
+      "start_block_index": 290,
+      "title_atomic_index": 223,
+      "title_block_index": 290,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        255,
+        256,
+        257,
+        258
+      ],
+      "block_indices": [
+        331,
+        332,
+        333,
+        334
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 258,
+      "end_block_index": 334,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:331",
+        "block:332",
+        "block:333",
+        "block:334"
+      ],
+      "span_id": "recipe_span_54",
+      "start_atomic_index": 255,
+      "start_block_index": 331,
+      "title_atomic_index": 255,
+      "title_block_index": 331,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        297,
+        298,
+        299,
+        300,
+        301
+      ],
+      "block_indices": [
+        392,
+        393,
+        395,
+        396,
+        397
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 301,
+      "end_block_index": 397,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:392",
+        "block:393",
+        "block:395",
+        "block:396",
+        "block:397"
+      ],
+      "span_id": "recipe_span_60",
+      "start_atomic_index": 297,
+      "start_block_index": 392,
+      "title_atomic_index": 297,
+      "title_block_index": 392,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        306,
+        307
+      ],
+      "block_indices": [
+        406,
+        407
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 307,
+      "end_block_index": 407,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:406",
+        "block:407"
+      ],
+      "span_id": "recipe_span_61",
+      "start_atomic_index": 306,
+      "start_block_index": 406,
+      "title_atomic_index": 306,
+      "title_block_index": 406,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        321,
+        322,
+        323
+      ],
+      "block_indices": [
+        423,
+        424,
+        425
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 323,
+      "end_block_index": 425,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:423",
+        "block:424",
+        "block:425"
+      ],
+      "span_id": "recipe_span_64",
+      "start_atomic_index": 321,
+      "start_block_index": 423,
+      "title_atomic_index": 321,
+      "title_block_index": 423,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        357,
+        358
+      ],
+      "block_indices": [
+        472,
+        473
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 358,
+      "end_block_index": 473,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:472",
+        "block:473"
+      ],
+      "span_id": "recipe_span_72",
+      "start_atomic_index": 357,
+      "start_block_index": 472,
+      "title_atomic_index": 357,
+      "title_block_index": 472,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        376,
+        377,
+        378,
+        379,
+        380,
+        381,
+        382,
+        383,
+        384,
+        385,
+        386,
+        387,
+        388,
+        389,
+        390,
+        391
+      ],
+      "block_indices": [
+        498,
+        499,
+        500,
+        501,
+        502,
+        503,
+        504,
+        505,
+        506,
+        507,
+        508,
+        509,
+        510,
+        511,
+        512,
+        513
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 391,
+      "end_block_index": 513,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:498",
+        "block:499",
+        "block:500",
+        "block:501",
+        "block:502",
+        "block:503",
+        "block:504",
+        "block:505",
+        "block:506",
+        "block:507",
+        "block:508",
+        "block:509",
+        "block:510",
+        "block:511",
+        "block:512",
+        "block:513"
+      ],
+      "span_id": "recipe_span_78",
+      "start_atomic_index": 376,
+      "start_block_index": 498,
+      "title_atomic_index": 376,
+      "title_block_index": 498,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        414,
+        415
+      ],
+      "block_indices": [
+        545,
+        546
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 415,
+      "end_block_index": 546,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:545",
+        "block:546"
+      ],
+      "span_id": "recipe_span_84",
+      "start_atomic_index": 414,
+      "start_block_index": 545,
+      "title_atomic_index": 414,
+      "title_block_index": 545,
+      "warnings": []
+    },
+    {
+      "atomic_indices": [
+        449,
+        450,
+        451,
+        452,
+        453
+      ],
+      "block_indices": [
+        596,
+        597,
+        598,
+        599,
+        601
+      ],
+      "decision_notes": [],
+      "end_atomic_index": 453,
+      "end_block_index": 601,
+      "escalation_reasons": [],
+      "source_block_ids": [
+        "block:596",
+        "block:597",
+        "block:598",
+        "block:599",
+        "block:601"
+      ],
+      "span_id": "recipe_span_92",
+      "start_atomic_index": 449,
+      "start_block_index": 596,
+      "title_atomic_index": 449,
+      "title_block_index": 596,
+      "warnings": []
+    }
+  ],
+  "schema_version": "group_recipe_spans.v1",
+  "workbook_slug": "hix_written"
+}

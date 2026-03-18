@@ -108,6 +108,7 @@ from cookimport.core.models import ConversionReport, ConversionResult, MappingCo
 from cookimport.core.progress_messages import (
     format_phase_counter,
     format_task_counter,
+    parse_stage_progress,
     parse_worker_activity,
 )
 from cookimport.core.progress_dashboard import (
@@ -3496,7 +3497,7 @@ def _single_offline_variant_slug(settings: RunSettings) -> str:
     run_config = settings.to_run_config_dict()
     recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
     line_role_pipeline = str(run_config.get("line_role_pipeline") or "off").strip().lower()
-    if recipe_pipeline == "off" and line_role_pipeline == "off":
+    if recipe_pipeline == "off" and line_role_pipeline in {"off", "deterministic-v1", "deterministic"}:
         return "vanilla"
     if recipe_pipeline == "off":
         return "line_role_only"
@@ -4079,6 +4080,23 @@ def _extract_codex_farm_token_usage_from_llm_manifest(
                 continue
             current = totals.get(key)
             totals[key] = value if current is None else current + value
+    knowledge_payload = llm_manifest.get("knowledge")
+    knowledge_tokens = (None, None, None, None, None)
+    if isinstance(knowledge_payload, dict):
+        process_run_payload = knowledge_payload.get("process_run")
+        if isinstance(process_run_payload, dict):
+            knowledge_tokens = _extract_codex_farm_token_usage_from_process_run_payload(
+                process_run_payload
+            )
+        if all(value is None for value in knowledge_tokens):
+            knowledge_tokens = _extract_codex_farm_token_usage_from_process_run_payload(
+                knowledge_payload
+            )
+    for key, value in zip(token_keys, knowledge_tokens):
+        if value is None:
+            continue
+        current = totals.get(key)
+        totals[key] = value if current is None else current + value
     return (
         totals.get("tokens_input"),
         totals.get("tokens_cached_input"),
@@ -4088,25 +4106,176 @@ def _extract_codex_farm_token_usage_from_llm_manifest(
     )
 
 
+def _append_single_offline_summary_payload(
+    summary: dict[str, Any],
+    summaries: list[dict[str, Any]],
+    seen: set[int],
+) -> None:
+    summary_id = id(summary)
+    if summary_id in seen:
+        return
+    seen.add(summary_id)
+    summaries.append(summary)
+
+
+def _collect_single_offline_summary_payloads(
+    payload: Any,
+    summaries: list[dict[str, Any]],
+    seen: set[int],
+) -> None:
+    if isinstance(payload, dict):
+        summary = payload.get("summary")
+        if isinstance(summary, dict):
+            _append_single_offline_summary_payload(summary, summaries, seen)
+        telemetry_report = payload.get("telemetry_report")
+        if isinstance(telemetry_report, dict):
+            nested_summary = telemetry_report.get("summary")
+            if isinstance(nested_summary, dict):
+                _append_single_offline_summary_payload(nested_summary, summaries, seen)
+        for value in payload.values():
+            _collect_single_offline_summary_payloads(value, summaries, seen)
+    elif isinstance(payload, list):
+        for value in payload:
+            _collect_single_offline_summary_payloads(value, summaries, seen)
+
+
+def _single_offline_token_usage_from_summary_payloads(
+    summaries: list[dict[str, Any]],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    token_keys = (
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+    )
+    totals: dict[str, int | None] = {key: None for key in token_keys}
+    for summary in summaries:
+        for key in token_keys:
+            raw_value = summary.get(key)
+            if key == "tokens_reasoning" and raw_value is None:
+                raw_value = summary.get("tokens_reasoning_total")
+            value = _single_offline_nonnegative_int_or_none(raw_value)
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _single_offline_line_role_summaries_from_attempts(
+    telemetry_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    batches = telemetry_payload.get("batches")
+    if not isinstance(batches, list):
+        return summaries
+    for batch in batches:
+        if not isinstance(batch, dict):
+            continue
+        attempts = batch.get("attempts")
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            process_run = attempt.get("process_run")
+            if isinstance(process_run, dict):
+                process_payload = process_run.get("process_payload")
+                if isinstance(process_payload, dict):
+                    telemetry_report = process_payload.get("telemetry_report")
+                    if (
+                        isinstance(telemetry_report, dict)
+                        and isinstance(telemetry_report.get("summary"), dict)
+                    ):
+                        summaries.append(telemetry_report.get("summary"))
+                        continue
+                telemetry_report = process_run.get("telemetry_report")
+                if (
+                    isinstance(telemetry_report, dict)
+                    and isinstance(telemetry_report.get("summary"), dict)
+                ):
+                    summaries.append(telemetry_report.get("summary"))
+                    continue
+            telemetry_report = attempt.get("telemetry_report")
+            if (
+                isinstance(telemetry_report, dict)
+                and isinstance(telemetry_report.get("summary"), dict)
+            ):
+                summaries.append(telemetry_report.get("summary"))
+    return summaries
+
+
 def _extract_line_role_token_usage_from_manifest(
     payload: dict[str, Any],
 ) -> tuple[int | None, int | None, int | None, int | None, int | None]:
-    telemetry_path = str(payload.get("line_role_pipeline_telemetry_path") or "").strip()
-    if not telemetry_path:
-        return (None, None, None, None, None)
-    telemetry_payload = _load_json_dict(Path(telemetry_path))
-    if not isinstance(telemetry_payload, dict):
-        return (None, None, None, None, None)
-    summary = telemetry_payload.get("summary")
-    if not isinstance(summary, dict):
-        return (None, None, None, None, None)
-    return (
-        _single_offline_nonnegative_int_or_none(summary.get("tokens_input")),
-        _single_offline_nonnegative_int_or_none(summary.get("tokens_cached_input")),
-        _single_offline_nonnegative_int_or_none(summary.get("tokens_output")),
-        _single_offline_nonnegative_int_or_none(summary.get("tokens_reasoning")),
-        _single_offline_nonnegative_int_or_none(summary.get("tokens_total")),
-    )
+    for telemetry_path in _line_role_telemetry_candidate_paths(payload):
+        telemetry_payload = _load_json_dict(telemetry_path)
+        if not isinstance(telemetry_payload, dict):
+            continue
+        summary = telemetry_payload.get("summary")
+        direct_tokens = (
+            _single_offline_nonnegative_int_or_none(summary.get("tokens_input"))
+            if isinstance(summary, dict)
+            else None,
+            _single_offline_nonnegative_int_or_none(summary.get("tokens_cached_input"))
+            if isinstance(summary, dict)
+            else None,
+            _single_offline_nonnegative_int_or_none(summary.get("tokens_output"))
+            if isinstance(summary, dict)
+            else None,
+            _single_offline_nonnegative_int_or_none(summary.get("tokens_reasoning"))
+            if isinstance(summary, dict)
+            else None,
+            _single_offline_nonnegative_int_or_none(summary.get("tokens_total"))
+            if isinstance(summary, dict)
+            else None,
+        )
+        nested_summaries = _single_offline_line_role_summaries_from_attempts(
+            telemetry_payload
+        )
+        fallback_tokens = _single_offline_token_usage_from_summary_payloads(
+            nested_summaries
+        )
+        resolved_tokens = tuple(
+            direct if direct is not None else fallback
+            for direct, fallback in zip(direct_tokens, fallback_tokens)
+        )
+        if any(value is not None for value in resolved_tokens):
+            return resolved_tokens
+    return (None, None, None, None, None)
+
+
+def _line_role_telemetry_candidate_paths(payload: dict[str, Any]) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _append_candidate(raw_path: Any) -> None:
+        text = str(raw_path or "").strip()
+        if not text:
+            return
+        candidate = Path(text)
+        if candidate in seen:
+            return
+        seen.add(candidate)
+        candidates.append(candidate)
+
+    _append_candidate(payload.get("line_role_pipeline_telemetry_path"))
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, dict):
+        _append_candidate(artifacts.get("line_role_pipeline_telemetry_json"))
+    for root_key in ("processed_run_root", "stage_run_root"):
+        root_value = str(payload.get(root_key) or "").strip()
+        if not root_value:
+            continue
+        _append_candidate(Path(root_value) / "line-role-pipeline" / "telemetry_summary.json")
+    return [candidate for candidate in candidates if candidate.is_file()]
 
 
 def _sum_token_usage(
@@ -9298,6 +9467,37 @@ def _extract_progress_counter(message: str) -> tuple[int, int] | None:
     return None
 
 
+_PROGRESS_STAGE_COUNTER_SUFFIX_RE = re.compile(
+    r"\s+(?:task|item|config|phase)\s+\d+/\d+\s*$",
+    re.IGNORECASE,
+)
+
+
+def _extract_progress_stage_label(message: str) -> str | None:
+    """Extract a stable stage label from a progress message."""
+    trimmed = str(message or "").strip()
+    if not trimmed:
+        return None
+    first_line = trimmed.splitlines()[0].strip()
+    if not first_line:
+        return None
+    if first_line.lower().startswith("overall source "):
+        return first_line
+    base = first_line.split("|", 1)[0].strip()
+    if not base:
+        return None
+    base = _PROGRESS_STAGE_COUNTER_SUFFIX_RE.sub("", base).strip()
+    return base or None
+
+
+def _is_structured_progress_message(message: str) -> bool:
+    cleaned = str(message or "").strip()
+    return (
+        parse_worker_activity(cleaned) is not None
+        or parse_stage_progress(cleaned) is not None
+    )
+
+
 def _extract_active_tasks(message: str) -> list[str] | None:
     match = _STATUS_ACTIVE_TASKS_RE.search(str(message or ""))
     if match is None:
@@ -9810,8 +10010,11 @@ def _run_with_progress_status(
     latest_message_started = time.monotonic()
     latest_counter: tuple[int, int] | None = None
     latest_running_workers: int | None = None
+    latest_worker_total: int | None = None
     latest_active_tasks: list[str] | None = None
     latest_codex_stage_label: str | None = None
+    latest_stage_label: str | None = None
+    latest_stage_detail_lines: list[str] = []
     status_dashboard = ProgressDashboardCore()
     worker_dashboard_adapter = ProgressCallbackAdapter(status_dashboard)
     status_dashboard.set_status_line(str(initial_status).strip() or str(progress_prefix).strip())
@@ -9937,6 +10140,7 @@ def _run_with_progress_status(
     def _inject_worker_summary_lines(snapshot: str) -> str:
         with state_lock:
             running_workers = latest_running_workers
+            worker_total = latest_worker_total
             active_tasks = (
                 None if latest_active_tasks is None else list(latest_active_tasks)
             )
@@ -9945,19 +10149,69 @@ def _run_with_progress_status(
                 if latest_codex_stage_label is not None
                 else ""
             )
+            stage_label = (
+                codex_stage_label
+                or (
+                    str(latest_stage_label).strip()
+                    if latest_stage_label is not None
+                    else ""
+                )
+            )
+            detail_lines = list(latest_stage_detail_lines)
             task_counter = latest_counter
-        if running_workers is None and active_tasks is None and not codex_stage_label:
+        if (
+            running_workers is None
+            and worker_total is None
+            and active_tasks is None
+            and not stage_label
+            and not detail_lines
+            and task_counter is None
+        ):
             return snapshot
 
         lines = [line.strip() for line in str(snapshot or "").splitlines() if line.strip()]
         if not lines:
             return ""
 
-        if codex_stage_label and not any(
+        if stage_label and not any(
             line.lower().startswith("stage:")
             for line in lines
         ):
-            lines.insert(1, f"stage: {codex_stage_label}")
+            lines.insert(1, f"stage: {stage_label}")
+
+        progress_lines: list[str] = []
+        if task_counter is not None and not any(
+            line.lower().startswith("progress:")
+            for line in lines
+        ):
+            counter_current, counter_total = task_counter
+            progress_percent = 0
+            if counter_total > 0:
+                progress_percent = int(
+                    round((float(counter_current) / float(counter_total)) * 100.0)
+                )
+            progress_lines.append(
+                f"progress: task {counter_current}/{counter_total} ({progress_percent}%)"
+            )
+            remaining_tasks = max(0, int(counter_total) - int(counter_current))
+            if remaining_tasks > 0:
+                progress_lines.append(f"remaining tasks: {remaining_tasks}")
+        if progress_lines:
+            insert_at = 2 if len(lines) > 1 and lines[1].lower().startswith("stage:") else 1
+            for progress_line in reversed(progress_lines):
+                lines.insert(insert_at, progress_line)
+
+        if detail_lines:
+            insert_at = 1 if lines else 0
+            if len(lines) > 1 and lines[1].lower().startswith("stage:"):
+                insert_at = 2
+                if len(lines) > 2 and lines[2].lower().startswith("progress:"):
+                    insert_at = 3
+                    if len(lines) > 3 and lines[3].lower().startswith("remaining tasks:"):
+                        insert_at = 4
+            for detail_line in reversed(detail_lines):
+                if detail_line and detail_line not in lines:
+                    lines.insert(insert_at, detail_line)
 
         if any(
             _WORKER_PANEL_LABEL_RE.search(line)
@@ -9967,9 +10221,12 @@ def _run_with_progress_status(
             return "\n".join(lines)
 
         running_slots = max(0, int(running_workers)) if running_workers is not None else 0
+        configured_slots = max(0, int(worker_total)) if worker_total is not None else 0
         display_slots = 8
+        if configured_slots > 0:
+            running_slots = max(running_slots, configured_slots)
         if running_slots <= 0:
-            if running_workers is None:
+            if running_workers is None and worker_total is None:
                 running_slots = display_slots
             else:
                 running_slots = 0
@@ -9980,6 +10237,10 @@ def _run_with_progress_status(
         if active_tasks is not None:
             task_count = len(active_tasks)
             tasks_left: int | None = None
+            active_slots = min(
+                running_slots,
+                max(0, int(running_workers or 0)),
+            )
             if task_counter is not None:
                 counter_current, counter_total = task_counter
                 tasks_left = max(0, int(counter_total) - int(counter_current))
@@ -10000,17 +10261,34 @@ def _run_with_progress_status(
                     )
                 if task_count < running_slots:
                     for index in range(task_count + 1, running_slots + 1):
+                        status = (
+                            "idle"
+                            if configured_slots > 0 and index > active_slots
+                            else "processing (unresolved)"
+                        )
                         worker_lines.append(
-                            f"worker {index:02d}: processing (unresolved)"
+                            f"worker {index:02d}: {status}"
                         )
             else:
                 worker_lines.append(f"active workers: {running_slots}")
+                active_slots = min(
+                    running_slots,
+                    max(0, int(running_workers or 0)),
+                )
                 for index in range(1, running_slots + 1):
-                    worker_lines.append(f"worker {index:02d}: processing")
+                    status = "processing" if index <= max(1, active_slots) else "idle"
+                    worker_lines.append(f"worker {index:02d}: {status}")
         else:
-            worker_lines.append(f"active workers: {running_slots}")
+            active_slots = min(
+                running_slots,
+                max(0, int(running_workers or 0)),
+            )
+            worker_lines.append(f"active workers: {active_slots}")
+            if configured_slots > 0 and configured_slots != active_slots:
+                worker_lines.append(f"configured workers: {configured_slots}")
             for index in range(1, running_slots + 1):
-                worker_lines.append(f"worker {index:02d}: running")
+                status = "running" if index <= active_slots else "idle"
+                worker_lines.append(f"worker {index:02d}: {status}")
 
         if running_slots <= 0 and not worker_lines:
             return "\n".join(lines)
@@ -10205,6 +10483,12 @@ def _run_with_progress_status(
             started_at = latest_message_started
             counter = latest_counter
             running_workers_hint = latest_running_workers
+            worker_total_hint = latest_worker_total
+            stage_label = latest_stage_label
+            detail_lines = list(latest_stage_detail_lines)
+            active_tasks_hint = (
+                None if latest_active_tasks is None else list(latest_active_tasks)
+            )
         worker_total, worker_statuses = worker_dashboard_adapter.snapshot_workers()
         elapsed_seconds = max(0.0, current - started_at)
         message_value = str(message or initial_status).strip() or str(initial_status).strip()
@@ -10218,6 +10502,8 @@ def _run_with_progress_status(
             for status in worker_statuses.values()
             if str(status).strip().lower() not in {"", "idle", "done", "skipped"}
         )
+        if worker_total <= 0 and worker_total_hint is not None:
+            worker_total = max(0, int(worker_total_hint))
         if worker_total <= 0 and running_workers_hint is not None:
             worker_total = max(0, int(running_workers_hint))
         if worker_active <= 0 and running_workers_hint is not None:
@@ -10235,10 +10521,13 @@ def _run_with_progress_status(
                 "progress_prefix": progress_prefix,
                 "message": message_value,
                 "elapsed_seconds": elapsed_seconds,
+                "stage_label": str(stage_label or "").strip() or None,
                 "task_current": counter_current,
                 "task_total": counter_total,
                 "worker_total": max(0, int(worker_total)),
                 "worker_active": max(0, int(worker_active)),
+                "active_tasks": list(active_tasks_hint or []),
+                "detail_lines": detail_lines,
                 "worker_activity": {
                     str(key): str(value)
                     for key, value in sorted(worker_statuses.items())
@@ -10253,25 +10542,73 @@ def _run_with_progress_status(
         nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
         nonlocal rate_sampled_seconds, rate_sampled_units
         nonlocal rate_recent_samples, all_method_metrics
-        nonlocal latest_running_workers, latest_active_tasks, latest_codex_stage_label
+        nonlocal latest_running_workers, latest_worker_total, latest_active_tasks
+        nonlocal latest_codex_stage_label, latest_stage_label, latest_stage_detail_lines
         now = time.monotonic()
         cleaned = msg.strip()
         is_worker_activity = parse_worker_activity(cleaned) is not None
+        stage_progress = (
+            None if is_worker_activity else parse_stage_progress(cleaned)
+        )
+        stage_detail_lines: list[str] | None = None
+        structured_counter: tuple[int, int] | None = None
+        structured_running_workers: int | None = None
+        structured_worker_total: int | None = None
+        structured_active_tasks: list[str] | None = None
+        current_stage_label: str | None = None
+        if stage_progress is not None:
+            cleaned = str(stage_progress.get("message") or "").strip() or cleaned
+            task_current = stage_progress.get("task_current")
+            task_total = stage_progress.get("task_total")
+            if task_current is not None and task_total is not None:
+                structured_counter = (int(task_current), int(task_total))
+            running_hint = stage_progress.get("running_workers")
+            if running_hint is not None:
+                structured_running_workers = max(0, int(running_hint))
+            worker_total_hint = stage_progress.get("worker_total")
+            if worker_total_hint is not None:
+                structured_worker_total = max(0, int(worker_total_hint))
+            active_tasks_hint = stage_progress.get("active_tasks")
+            if isinstance(active_tasks_hint, list):
+                structured_active_tasks = [
+                    str(value).strip()
+                    for value in active_tasks_hint
+                    if str(value).strip()
+                ]
+            detail_hint = stage_progress.get("detail_lines")
+            if isinstance(detail_hint, list):
+                stage_detail_lines = [
+                    str(value).strip()
+                    for value in detail_hint
+                    if str(value).strip()
+                ]
+            current_stage_label = (
+                str(stage_progress.get("stage_label") or "").strip()
+                or _extract_progress_stage_label(cleaned)
+            )
         counter = None
         generic_counter = (
-            _extract_progress_counter(cleaned)
+            structured_counter
+            if structured_counter is not None
+            else _extract_progress_counter(cleaned)
             if not is_worker_activity
             else None
         )
         generic_running_workers = (
-            _extract_running_workers(cleaned)
+            structured_running_workers
+            if structured_running_workers is not None
+            else _extract_running_workers(cleaned)
             if generic_counter is not None
             else None
         )
-        is_codex_progress = _CODEX_FARM_PROGRESS_LINE_RE.search(cleaned) is not None
+        is_codex_progress = (
+            stage_progress is None
+            and _CODEX_FARM_PROGRESS_LINE_RE.search(cleaned) is not None
+        )
         if is_codex_progress:
             running_workers = _extract_running_workers(cleaned)
             active_tasks = _extract_active_tasks(cleaned)
+            codex_stage_label: str | None
             if running_workers is not None:
                 latest_running_workers = running_workers
             if active_tasks is not None:
@@ -10280,17 +10617,46 @@ def _run_with_progress_status(
                 latest_active_tasks = None
             summarized, codex_stage_label = _summarize_codex_progress_message(cleaned)
             cleaned = summarized
+            current_stage_label = codex_stage_label or _extract_progress_stage_label(cleaned)
+            if current_stage_label != latest_stage_label:
+                latest_worker_total = None
+                latest_stage_detail_lines = []
+            latest_stage_label = current_stage_label
             latest_codex_stage_label = codex_stage_label
+            if current_stage_label == latest_stage_label:
+                latest_running_workers = running_workers
         elif not is_worker_activity:
-            latest_running_workers = generic_running_workers
-            latest_active_tasks = None
+            current_stage_label = current_stage_label or _extract_progress_stage_label(cleaned)
+            stage_changed = current_stage_label != latest_stage_label
+            if stage_changed:
+                latest_running_workers = None
+                latest_worker_total = None
+                latest_active_tasks = None
+                latest_stage_detail_lines = []
+            if generic_running_workers is not None:
+                latest_running_workers = generic_running_workers
+            if structured_worker_total is not None:
+                latest_worker_total = structured_worker_total
+            if structured_active_tasks is not None:
+                latest_active_tasks = structured_active_tasks
+            elif stage_changed:
+                latest_active_tasks = None
+            if stage_detail_lines is not None:
+                latest_stage_detail_lines = stage_detail_lines
+            elif stage_changed:
+                latest_stage_detail_lines = []
             latest_codex_stage_label = None
+            latest_stage_label = current_stage_label
         # Route every callback through the shared adapter so callback+worker
         # activity both update the same dashboard state machine.
         changed = worker_dashboard_adapter.ingest_callback_message(cleaned)
         with state_lock:
             if not is_worker_activity:
-                counter = _extract_progress_counter(cleaned)
+                counter = (
+                    structured_counter
+                    if structured_counter is not None
+                    else _extract_progress_counter(cleaned)
+                )
                 message_changed = cleaned != latest_message
                 counter_changed = counter != latest_counter
                 if message_changed or counter_changed:
@@ -11771,6 +12137,7 @@ class _SingleProfileProgressDashboard:
                 return
             row = self.rows[source_index]
             payload = parse_worker_activity(cleaned)
+            stage_progress = None if payload is not None else parse_stage_progress(cleaned)
             now = time.monotonic()
             if payload is not None:
                 payload_type = str(payload.get("type") or "").strip().lower()
@@ -11786,11 +12153,23 @@ class _SingleProfileProgressDashboard:
                     row.worker_statuses[worker_index] = status or "processing"
                     return
 
+            structured_counter: tuple[int, int] | None = None
+            if stage_progress is not None:
+                cleaned = str(stage_progress.get("message") or "").strip() or cleaned
+                task_current = stage_progress.get("task_current")
+                task_total = stage_progress.get("task_total")
+                if task_current is not None and task_total is not None:
+                    structured_counter = (int(task_current), int(task_total))
+
             row.status = "running"
             row.current_message = cleaned
             row.phase_started_at = row.phase_started_at or now
 
-            counter = _extract_progress_counter(cleaned)
+            counter = (
+                structured_counter
+                if structured_counter is not None
+                else _extract_progress_counter(cleaned)
+            )
             if counter is None:
                 row.current_counter = None
                 row.rate_total = None
@@ -11826,6 +12205,30 @@ class _SingleProfileProgressDashboard:
                         row.rate_last_current = current_value
                         row.rate_last_progress_at = now
                 row.current_counter = counter
+
+            if stage_progress is not None:
+                stage_label = (
+                    str(stage_progress.get("stage_label") or "").strip()
+                    or _extract_progress_stage_label(cleaned)
+                    or "running"
+                )
+                active_tasks = stage_progress.get("active_tasks")
+                running_workers = stage_progress.get("running_workers")
+                worker_total_hint = stage_progress.get("worker_total")
+                row.current_stage_label = stage_label
+                row.worker_statuses = {}
+                if isinstance(active_tasks, list):
+                    for worker_index, task in enumerate(active_tasks, start=1):
+                        task_text = str(task).strip()
+                        if task_text:
+                            row.worker_statuses[worker_index] = task_text
+                worker_total = max(0, len(row.worker_statuses))
+                if running_workers is not None:
+                    worker_total = max(worker_total, max(0, int(running_workers)))
+                if worker_total_hint is not None:
+                    worker_total = max(worker_total, max(0, int(worker_total_hint)))
+                row.worker_total = worker_total
+                return
 
             if cleaned.lower().startswith("codex-farm "):
                 summary, stage_label = _summarize_codex_progress_message(cleaned)
@@ -17906,7 +18309,7 @@ def _run_all_method_benchmark_global_queue(
                 if progress_callback is None:
                     return
                 if dashboard is None:
-                    if parse_worker_activity(message) is not None:
+                    if _is_structured_progress_message(message):
                         _notify_progress_callback(progress_callback, message)
                         return
                     _notify_progress_callback(
@@ -17914,7 +18317,7 @@ def _run_all_method_benchmark_global_queue(
                         f"{progress_label}: {item.variant.slug} [{item.source_file_name}] | {message}",
                     )
                     return
-                if parse_worker_activity(message) is not None:
+                if _is_structured_progress_message(message):
                     _notify_progress_callback(progress_callback, message)
                     return
                 dashboard.set_task(message)
@@ -19328,7 +19731,7 @@ def _run_all_method_benchmark(
         if not cleaned:
             return
         if progress_callback is not None:
-            if parse_worker_activity(cleaned) is not None:
+            if _is_structured_progress_message(cleaned):
                 _notify_progress_callback(progress_callback, cleaned)
                 return
             if dashboard is not None:
@@ -19957,7 +20360,7 @@ def _run_all_method_benchmark(
                 if progress_callback is None:
                     return
                 if dashboard is None:
-                    if parse_worker_activity(message) is not None:
+                    if _is_structured_progress_message(message):
                         _notify_progress_callback(progress_callback, message)
                         return
                     _notify_progress_callback(
@@ -19965,7 +20368,7 @@ def _run_all_method_benchmark(
                         f"{progress_label}: {variant.slug} | {message}",
                     )
                     return
-                if parse_worker_activity(message) is not None:
+                if _is_structured_progress_message(message):
                     _notify_progress_callback(progress_callback, message)
                     return
                 dashboard.set_task(message)

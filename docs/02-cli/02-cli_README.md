@@ -901,6 +901,7 @@ Behavior note:
 - Benchmark spinner telemetry is also persisted per phase:
   - `<eval_output_dir>/processing_timeseries_prediction.jsonl`
   - `<eval_output_dir>/processing_timeseries_evaluation.jsonl` (when evaluation runs)
+- Those per-phase time-series rows now also persist stage-centric fields (`stage_label`, `active_tasks`, `detail_lines`, effective worker counts) when a stage emits structured progress snapshots, so line-role/knowledge debugging does not depend on terminal screenshots.
 - Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
 - Single benchmark runs auto-refresh dashboard artifacts after CSV append.
 - All-method benchmark internals suppress per-config refresh and refresh once per source batch.

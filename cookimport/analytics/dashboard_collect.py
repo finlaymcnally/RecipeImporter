@@ -125,6 +125,12 @@ def _nonnegative_int(value: Any) -> int | None:
     return parsed
 
 
+def _token_value_needs_refresh(existing: Any, resolved: int | None) -> bool:
+    if resolved is None:
+        return False
+    return _safe_int(existing) != resolved
+
+
 def _extract_codex_token_usage_from_process_run(
     pass_payload: dict[str, Any],
 ) -> tuple[int | None, int | None, int | None, int | None, int | None]:
@@ -241,6 +247,23 @@ def _extract_codex_token_usage_from_manifest(
                 continue
             current = totals.get(key)
             totals[key] = value if current is None else current + value
+    knowledge_payload = llm_codex_farm.get("knowledge")
+    knowledge_tokens = (None, None, None, None, None)
+    if isinstance(knowledge_payload, dict):
+        process_run_payload = knowledge_payload.get("process_run")
+        if isinstance(process_run_payload, dict):
+            knowledge_tokens = _extract_codex_token_usage_from_process_run(
+                process_run_payload
+            )
+        if all(value is None for value in knowledge_tokens):
+            knowledge_tokens = _extract_codex_token_usage_from_process_run(
+                knowledge_payload
+            )
+    for key, value in zip(_TOKEN_USAGE_KEYS, knowledge_tokens):
+        if value is None:
+            continue
+        current = totals.get(key)
+        totals[key] = value if current is None else current + value
     return (
         totals.get("tokens_input"),
         totals.get("tokens_cached_input"),
@@ -250,36 +273,178 @@ def _extract_codex_token_usage_from_manifest(
     )
 
 
+def _append_dashboard_token_summary(
+    summary: dict[str, Any],
+    summaries: list[dict[str, Any]],
+    seen: set[int],
+) -> None:
+    summary_id = id(summary)
+    if summary_id in seen:
+        return
+    seen.add(summary_id)
+    summaries.append(summary)
+
+
+def _collect_dashboard_token_summaries(
+    payload: Any,
+    summaries: list[dict[str, Any]],
+    seen: set[int],
+) -> None:
+    if isinstance(payload, dict):
+        summary = payload.get("summary")
+        if isinstance(summary, dict):
+            _append_dashboard_token_summary(summary, summaries, seen)
+        telemetry_report = payload.get("telemetry_report")
+        if isinstance(telemetry_report, dict):
+            nested_summary = telemetry_report.get("summary")
+            if isinstance(nested_summary, dict):
+                _append_dashboard_token_summary(nested_summary, summaries, seen)
+        for value in payload.values():
+            _collect_dashboard_token_summaries(value, summaries, seen)
+    elif isinstance(payload, list):
+        for value in payload:
+            _collect_dashboard_token_summaries(value, summaries, seen)
+
+
+def _dashboard_token_usage_from_summaries(
+    summaries: list[dict[str, Any]],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    totals: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+    for summary in summaries:
+        summary_value_map = {
+            "tokens_input": summary.get("tokens_input"),
+            "tokens_cached_input": summary.get("tokens_cached_input"),
+            "tokens_output": summary.get("tokens_output"),
+            "tokens_reasoning": (
+                summary.get("tokens_reasoning")
+                if summary.get("tokens_reasoning") is not None
+                else summary.get("tokens_reasoning_total")
+            ),
+            "tokens_total": summary.get("tokens_total"),
+        }
+        for key, raw_value in summary_value_map.items():
+            value = _nonnegative_int(raw_value)
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _line_role_token_summaries_from_attempts(
+    telemetry_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    batches = telemetry_payload.get("batches")
+    if not isinstance(batches, list):
+        return summaries
+    for batch in batches:
+        if not isinstance(batch, dict):
+            continue
+        attempts = batch.get("attempts")
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            process_run = attempt.get("process_run")
+            if isinstance(process_run, dict):
+                process_payload = process_run.get("process_payload")
+                if isinstance(process_payload, dict):
+                    telemetry_report = process_payload.get("telemetry_report")
+                    if (
+                        isinstance(telemetry_report, dict)
+                        and isinstance(telemetry_report.get("summary"), dict)
+                    ):
+                        summaries.append(telemetry_report.get("summary"))
+                        continue
+                telemetry_report = process_run.get("telemetry_report")
+                if (
+                    isinstance(telemetry_report, dict)
+                    and isinstance(telemetry_report.get("summary"), dict)
+                ):
+                    summaries.append(telemetry_report.get("summary"))
+                    continue
+            telemetry_report = attempt.get("telemetry_report")
+            if (
+                isinstance(telemetry_report, dict)
+                and isinstance(telemetry_report.get("summary"), dict)
+            ):
+                summaries.append(telemetry_report.get("summary"))
+    return summaries
+
+
 def _extract_line_role_token_usage_from_manifest(
     manifest: dict[str, Any] | None,
 ) -> tuple[int | None, int | None, int | None, int | None, int | None]:
     if not isinstance(manifest, dict):
         return (None, None, None, None, None)
-    telemetry_path = str(manifest.get("line_role_pipeline_telemetry_path") or "").strip()
-    if not telemetry_path:
-        artifacts = manifest.get("artifacts")
-        if isinstance(artifacts, dict):
-            telemetry_path = str(
-                artifacts.get("line_role_pipeline_telemetry_json") or ""
-            ).strip()
-    if not telemetry_path:
-        return (None, None, None, None, None)
-    try:
-        telemetry_payload = json.loads(Path(telemetry_path).read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return (None, None, None, None, None)
-    if not isinstance(telemetry_payload, dict):
-        return (None, None, None, None, None)
-    summary = telemetry_payload.get("summary")
-    if not isinstance(summary, dict):
-        return (None, None, None, None, None)
-    return (
-        _nonnegative_int(summary.get("tokens_input")),
-        _nonnegative_int(summary.get("tokens_cached_input")),
-        _nonnegative_int(summary.get("tokens_output")),
-        _nonnegative_int(summary.get("tokens_reasoning")),
-        _nonnegative_int(summary.get("tokens_total")),
-    )
+    for telemetry_path in _line_role_telemetry_candidate_paths(manifest):
+        try:
+            telemetry_payload = json.loads(telemetry_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(telemetry_payload, dict):
+            continue
+        summary = telemetry_payload.get("summary")
+        direct_tokens = (
+            _nonnegative_int(summary.get("tokens_input"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int(summary.get("tokens_cached_input"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int(summary.get("tokens_output"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int(summary.get("tokens_reasoning"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int(summary.get("tokens_total"))
+            if isinstance(summary, dict)
+            else None,
+        )
+        nested_summaries = _line_role_token_summaries_from_attempts(telemetry_payload)
+        fallback_tokens = _dashboard_token_usage_from_summaries(nested_summaries)
+        resolved_tokens = tuple(
+            direct if direct is not None else fallback
+            for direct, fallback in zip(direct_tokens, fallback_tokens)
+        )
+        if any(value is not None for value in resolved_tokens):
+            return resolved_tokens
+    return (None, None, None, None, None)
+
+
+def _line_role_telemetry_candidate_paths(manifest: dict[str, Any]) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _append_candidate(raw_path: Any) -> None:
+        text = str(raw_path or "").strip()
+        if not text:
+            return
+        candidate = Path(text)
+        if candidate in seen:
+            return
+        seen.add(candidate)
+        candidates.append(candidate)
+
+    _append_candidate(manifest.get("line_role_pipeline_telemetry_path"))
+    artifacts = manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        _append_candidate(artifacts.get("line_role_pipeline_telemetry_json"))
+    for root_key in ("processed_run_root", "stage_run_root"):
+        root_value = str(manifest.get(root_key) or "").strip()
+        if not root_value:
+            continue
+        _append_candidate(Path(root_value) / "line-role-pipeline" / "telemetry_summary.json")
+    return [candidate for candidate in candidates if candidate.is_file()]
 
 
 def _sum_token_usage(
@@ -1207,15 +1372,18 @@ def _enrich_csv_benchmark_records_from_manifests(
                     merged_run_config["codex_farm_runtime_error"] = codex_runtime_error
                     config_changed = True
                 record.run_config = merged_run_config
-            if record.tokens_input is None and token_input is not None:
+            if _token_value_needs_refresh(record.tokens_input, token_input):
                 record.tokens_input = token_input
-            if record.tokens_cached_input is None and token_cached_input is not None:
+            if _token_value_needs_refresh(
+                record.tokens_cached_input,
+                token_cached_input,
+            ):
                 record.tokens_cached_input = token_cached_input
-            if record.tokens_output is None and token_output is not None:
+            if _token_value_needs_refresh(record.tokens_output, token_output):
                 record.tokens_output = token_output
-            if record.tokens_reasoning is None and token_reasoning is not None:
+            if _token_value_needs_refresh(record.tokens_reasoning, token_reasoning):
                 record.tokens_reasoning = token_reasoning
-            if record.tokens_total is None and token_total is not None:
+            if _token_value_needs_refresh(record.tokens_total, token_total):
                 record.tokens_total = token_total
 
         if isinstance(record.run_config, dict) and (
@@ -1898,15 +2066,18 @@ def _collect_benchmarks(
                         record.run_config_summary = _summary_for_run_config(
                             merged_run_config
                         )
-                if record.tokens_input is None and token_input is not None:
+                if _token_value_needs_refresh(record.tokens_input, token_input):
                     record.tokens_input = token_input
-                if record.tokens_cached_input is None and token_cached_input is not None:
+                if _token_value_needs_refresh(
+                    record.tokens_cached_input,
+                    token_cached_input,
+                ):
                     record.tokens_cached_input = token_cached_input
-                if record.tokens_output is None and token_output is not None:
+                if _token_value_needs_refresh(record.tokens_output, token_output):
                     record.tokens_output = token_output
-                if record.tokens_reasoning is None and token_reasoning is not None:
+                if _token_value_needs_refresh(record.tokens_reasoning, token_reasoning):
                     record.tokens_reasoning = token_reasoning
-                if record.tokens_total is None and token_total is not None:
+                if _token_value_needs_refresh(record.tokens_total, token_total):
                     record.tokens_total = token_total
                 processed_report_path = manifest.get("processed_report_path")
                 if processed_report_path:

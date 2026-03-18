@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
@@ -174,3 +176,38 @@ def test_line_role_phase_workers_emit_runtime_telemetry_summary(
     assert telemetry_summary["summary"]["tokens_total"] == 64
     assert telemetry_summary["runtime_mode"] == "direct_codex_exec_v1"
     assert telemetry_summary["runtime_artifacts"]["worker_count"] == 1
+
+
+def test_line_role_phase_workers_run_concurrently_when_multiple_workers_assigned(
+    tmp_path: Path,
+) -> None:
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    state = {"current": 0, "max": 0}
+
+    class _ConcurrentRunner(FakeCodexExecRunner):
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            with lock:
+                state["current"] += 1
+                state["max"] = max(state["max"], state["current"])
+            barrier.wait(timeout=1.0)
+            time.sleep(0.05)
+            try:
+                return super().run_structured_prompt(*args, **kwargs)
+            finally:
+                with lock:
+                    state["current"] -= 1
+
+    predictions = label_atomic_lines(
+        [_candidate(0), _candidate(1)],
+        _settings(line_role_worker_count=2, line_role_prompt_target_count=None),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+        codex_runner=_ConcurrentRunner(
+            output_builder=_line_role_builder({0: "OTHER", 1: "OTHER"})
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert [row.atomic_index for row in predictions] == [0, 1]
+    assert state["max"] >= 2

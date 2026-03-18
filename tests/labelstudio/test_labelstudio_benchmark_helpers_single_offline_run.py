@@ -402,6 +402,78 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
         == cli.history_root_for_output(processed_output_root) / "dashboard"
     )
 
+
+def test_interactive_single_offline_deterministic_line_role_still_uses_vanilla_slug(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "deterministic-v1",
+            "atomic_block_splitter": "atomic-v1",
+        },
+        warn_context="test deterministic-line-role vanilla slug",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.22, "recall": 0.31, "f1": 0.26}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_refresh_dashboard_after_history_write",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_start_benchmark_bundle_oracle_upload_background",
+        lambda **_kwargs: None,
+    )
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
+    assert benchmark_calls[0]["line_role_pipeline"] == "deterministic-v1"
+    assert benchmark_calls[0]["atomic_block_splitter"] == "atomic-v1"
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output / "single-offline-benchmark" / "vanilla"
+    )
+    assert benchmark_calls[0]["processed_output_dir"] == (
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-offline-benchmark"
+        / "vanilla"
+    )
+
 def test_interactive_single_offline_hybrid_run_uses_profile_slug_not_vanilla(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

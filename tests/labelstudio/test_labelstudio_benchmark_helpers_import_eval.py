@@ -517,6 +517,22 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
     pred_run = tmp_path / "prediction-run"
     pred_run.mkdir(parents=True, exist_ok=True)
     (pred_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    line_role_telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    line_role_telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    line_role_telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "tokens_input": 4,
+                    "tokens_cached_input": 0,
+                    "tokens_output": 1,
+                    "tokens_reasoning": 0,
+                    "tokens_total": 5,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     (pred_run / "manifest.json").write_text(
         json.dumps(
             {
@@ -528,6 +544,7 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
                     / "2026-02-16_15.00.00"
                     / "book.excel_import_report.json"
                 ),
+                "line_role_pipeline_telemetry_path": str(line_role_telemetry_path),
                 "llm_codex_farm": {
                     "process_runs": {
                         "recipe_llm_correct_and_link": {
@@ -540,6 +557,23 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
                                             "tokens_output": 3,
                                             "tokens_reasoning": 1,
                                             "tokens_total": 14,
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "knowledge": {
+                        "process_run": {
+                            "process_payload": {
+                                "telemetry": {
+                                    "rows": [
+                                        {
+                                            "tokens_input": 7,
+                                            "tokens_cached_input": 1,
+                                            "tokens_output": 2,
+                                            "tokens_reasoning": 0,
+                                            "tokens_total": 9,
                                         }
                                     ]
                                 }
@@ -595,11 +629,11 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
 
     assert captured_csv["recipes"] == 14
     assert captured_csv["source_file"] == str(tmp_path / "input" / "book.epub")
-    assert captured_csv["tokens_input"] == 11
-    assert captured_csv["tokens_cached_input"] == 2
-    assert captured_csv["tokens_output"] == 3
+    assert captured_csv["tokens_input"] == 22
+    assert captured_csv["tokens_cached_input"] == 3
+    assert captured_csv["tokens_output"] == 6
     assert captured_csv["tokens_reasoning"] == 1
-    assert captured_csv["tokens_total"] == 14
+    assert captured_csv["tokens_total"] == 28
     assert captured_dashboard["output_root"] == tmp_path / "output"
     assert captured_dashboard["out_dir"] == tmp_path / ".history" / "dashboard"
 

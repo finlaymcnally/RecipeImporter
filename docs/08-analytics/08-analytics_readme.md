@@ -111,6 +111,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:
 - Recipe context: `recipes`, `gold_recipe_headers`
 - Per-label durability field: `per_label_json`
 - Token usage fields: `tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`
+  - benchmark token backfill/enrichment now treats those as whole-run actuals when the manifest carries recipe, knowledge, and line-role telemetry rather than only one `process_runs` slice
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 

@@ -5492,6 +5492,138 @@ class TestBenchmarkCsv:
         assert row["tokens_reasoning"] == "2"
         assert row["tokens_total"] == "17"
 
+    def test_backfill_benchmark_csv_sums_knowledge_and_nested_line_role_tokens(
+        self, tmp_path
+    ):
+        history_dir = history_csv_for_output(tmp_path / "output").parent
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.37.00"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        telemetry_path = eval_dir / "line-role-pipeline" / "telemetry_summary.json"
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        telemetry_path.write_text(
+            json.dumps(
+                {
+                    "summary": {
+                        "batch_count": 2,
+                        "attempt_count": 2,
+                    },
+                    "batches": [
+                        {
+                            "attempts": [
+                                {
+                                    "process_run": {
+                                        "process_payload": {
+                                            "telemetry_report": {
+                                                "summary": {
+                                                    "matched_rows": 1,
+                                                    "tokens_total": 13,
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "attempts": [
+                                {
+                                    "process_run": {
+                                        "process_payload": {
+                                            "telemetry_report": {
+                                                "summary": {
+                                                    "matched_rows": 1,
+                                                    "tokens_total": 17,
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (eval_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": "book.epub",
+                    "line_role_pipeline_telemetry_path": str(telemetry_path),
+                    "llm_codex_farm": {
+                        "process_runs": {
+                            "recipe_llm_correct_and_link": {
+                                "process_payload": {
+                                    "telemetry": {
+                                        "rows": [
+                                            {
+                                                "tokens_input": 40,
+                                                "tokens_cached_input": 4,
+                                                "tokens_output": 6,
+                                                "tokens_reasoning": 1,
+                                                "tokens_total": 46,
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                        "knowledge": {
+                            "process_run": {
+                                "process_payload": {
+                                    "telemetry": {
+                                        "rows": [
+                                            {
+                                                "tokens_input": 70,
+                                                "tokens_cached_input": 7,
+                                                "tokens_output": 8,
+                                                "tokens_reasoning": 0,
+                                                "tokens_total": 78,
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bench_row = {field: "" for field in _CSV_FIELDS}
+        bench_row.update(
+            {
+                "run_timestamp": "2026-02-16T14:37:30",
+                "run_dir": str(eval_dir),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+                "tokens_input": "40",
+                "tokens_cached_input": "4",
+                "tokens_output": "6",
+                "tokens_reasoning": "1",
+                "tokens_total": "46",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(bench_row)
+
+        summary = backfill_benchmark_history_csv(csv_path)
+
+        assert summary.token_rows_filled == 1
+        assert summary.token_fields_filled == 4
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            row = next(csv.DictReader(fh))
+        assert row["tokens_input"] == "110"
+        assert row["tokens_cached_input"] == "11"
+        assert row["tokens_output"] == "14"
+        assert row["tokens_reasoning"] == "1"
+        assert row["tokens_total"] == "154"
+
     def test_dashboard_collector_sums_codex_farm_and_line_role_manifest_tokens(self, tmp_path):
         history_dir = history_csv_for_output(tmp_path / "output").parent
         history_dir.mkdir(parents=True)
@@ -5504,12 +5636,43 @@ class TestBenchmarkCsv:
             json.dumps(
                 {
                     "summary": {
-                        "tokens_input": 50,
-                        "tokens_cached_input": 5,
-                        "tokens_output": 7,
-                        "tokens_reasoning": 2,
-                        "tokens_total": 57,
-                    }
+                        "batch_count": 2,
+                        "attempt_count": 2,
+                    },
+                    "batches": [
+                        {
+                            "attempts": [
+                                {
+                                    "process_run": {
+                                        "process_payload": {
+                                            "telemetry_report": {
+                                                "summary": {
+                                                    "matched_rows": 1,
+                                                    "tokens_total": 23,
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "attempts": [
+                                {
+                                    "process_run": {
+                                        "process_payload": {
+                                            "telemetry_report": {
+                                                "summary": {
+                                                    "matched_rows": 1,
+                                                    "tokens_total": 34,
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                    ],
                 }
             ),
             encoding="utf-8",
@@ -5538,6 +5701,23 @@ class TestBenchmarkCsv:
                                     }
                                 }
                             }
+                        },
+                        "knowledge": {
+                            "process_run": {
+                                "process_payload": {
+                                    "telemetry": {
+                                        "rows": [
+                                            {
+                                                "tokens_input": 200,
+                                                "tokens_cached_input": 20,
+                                                "tokens_output": 30,
+                                                "tokens_reasoning": 0,
+                                                "tokens_total": 230,
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
                         }
                     },
                 }
@@ -5555,6 +5735,11 @@ class TestBenchmarkCsv:
                 "precision": "0.05",
                 "recall": "0.25",
                 "f1": "0.08",
+                "tokens_input": "101",
+                "tokens_cached_input": "9",
+                "tokens_output": "12",
+                "tokens_reasoning": "1",
+                "tokens_total": "114",
             }
         )
         csv_path.write_text(SAMPLE_CSV_HEADER + "\n" + bench_row + "\n", encoding="utf-8")
@@ -5566,8 +5751,8 @@ class TestBenchmarkCsv:
 
         assert len(data.benchmark_records) == 1
         record = data.benchmark_records[0]
-        assert record.tokens_input == 151
-        assert record.tokens_cached_input == 14
-        assert record.tokens_output == 19
-        assert record.tokens_reasoning == 3
-        assert record.tokens_total == 171
+        assert record.tokens_input == 301
+        assert record.tokens_cached_input == 29
+        assert record.tokens_output == 42
+        assert record.tokens_reasoning == 1
+        assert record.tokens_total == 401

@@ -1,0 +1,35 @@
+{
+  "@context": [
+    "https://schema.org",
+    {
+      "recipeimport": "https://recipeimport.local/ns#"
+    }
+  ],
+  "@id": "urn:recipeimport:text:4ebe793ab1dc756fd0398357172adba6b83dd2382e22b68148b82a722599a072:label_span_2",
+  "@type": "Recipe",
+  "identifier": "urn:recipeimport:text:4ebe793ab1dc756fd0398357172adba6b83dd2382e22b68148b82a722599a072:label_span_2",
+  "name": "Pickled Walnut Dressing",
+  "recipeIngredient": [
+    "2-3 good-quality pickled walruts chopped plus 2 tbsp of their juice",
+    "4 5 tbsp cold-pressed rapeseed oil"
+  ],
+  "recipeYield": "Serves 4-6",
+  "recipeimport:provenance": {
+    "@id": "urn:recipeimport:text:4ebe793ab1dc756fd0398357172adba6b83dd2382e22b68148b82a722599a072:label_span_2",
+    "converter_version": "0.1.0",
+    "extraction_method": "label_first_stage2",
+    "generated_at": "2026-03-17T20:55:30.599584",
+    "importer_version": "0.1.0",
+    "location": {
+      "chunk_index": 2,
+      "end_block": 29,
+      "label_source": "label-first-v1",
+      "recipe_span_id": "recipe_span_7",
+      "start_block": 26,
+      "title_block_index": 26
+    },
+    "processing_log": [],
+    "source_file": "Hix written.docx",
+    "source_hash": "4ebe793ab1dc756fd0398357172adba6b83dd2382e22b68148b82a722599a072"
+  }
+}

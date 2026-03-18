@@ -497,6 +497,7 @@ Gates include:
 - `YIELD_LINE` now has strict header validation (`MAKES`/`SERVES`/`YIELDS` prefix plus short header shape and quantity/count hint); non-header yield-like prose is sanitized to structural fallback (`INSTRUCTION_LINE` or `OTHER`) instead of forcing yield.
 - `TIME_LINE` is only used for primary time metadata; non-primary `TIME_LINE` predictions are sanitized to `INSTRUCTION_LINE` unless a later stage has explicitly established that the row is outside recipe.
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
+- In the pre-grouping `within_recipe_span=None` state, explanatory cooking-science prose and compact domain headings can still promote directly to `KNOWLEDGE`; otherwise unknown-span prose falls back to `OTHER`.
 - Outside recipe spans, prose now defaults to `OTHER`; `KNOWLEDGE` is used only when explicit knowledge cues are present.
 - Final non-recipe authority can still arbitrate outside-span `KNOWLEDGE` versus `OTHER` after recipe-local projection; this seam stays binary only and does not override recipe-structural labels.
 - `RECIPE_TITLE` now requires supportive near-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion; inside accepted recipe spans, immediate note prose is enough to retain the title.
@@ -512,7 +513,7 @@ Gates include:
 - Prompt logging internals are thread-safe for concurrent codex batch workers (`prompt_*.txt`, `response_*.txt`, `parsed_*.json`, and dedup log writes).
 - Codex call failures now use bounded retry/backoff before fallback (`3` attempts, exponential backoff base `1.5s`).
 - Canonical line-role predictions are cached on disk by source hash + run-settings hash + candidate fingerprint; reruns can reuse cache and skip codex calls (`COOKIMPORT_LINE_ROLE_CACHE_ROOT` overrides cache location).
-- The shard runtime emits progress callbacks for deterministic prep plus shard-worker start/finish states as `task X/Y | running N`, so benchmark/import spinners still get legible line-role stage progress.
+- The shard runtime emits structured stage-progress callbacks for deterministic prep plus shard-worker start/finish states, keeping the visible line-role status text in `task X/Y | running N` form while also attaching configured-worker and queued-shard detail for benchmark/import spinners and processing timeseries logs.
 - Canonical line-role deterministic labeling now also emits `task X/Y` progress callbacks, so ETA appears in this stage even before/without codex batch escalation.
 
 ### Related modules

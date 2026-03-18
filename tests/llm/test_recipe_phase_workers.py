@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
+from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
@@ -229,3 +230,72 @@ def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
 
     assert phase_manifest["shard_count"] == 2
     assert phase_manifest["worker_count"] == 2
+
+
+def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_worker_count": 2,
+            "recipe_shard_target_recipes": 2,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    progress_messages: list[str] = []
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            "recipe.correction.compact.v1": lambda payload: {
+                "bundle_version": "1",
+                "shard_id": payload.get("shard_id"),
+                "recipes": [
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": recipe_payload["recipe_id"],
+                        "canonical_recipe": {
+                            "title": recipe_payload["recipe_candidate_hint"]["name"],
+                            "ingredients": recipe_payload["recipe_candidate_hint"].get(
+                                "recipeIngredient", []
+                            ),
+                            "steps": recipe_payload["recipe_candidate_hint"].get(
+                                "recipeInstructions", []
+                            ),
+                            "description": None,
+                            "recipeYield": None,
+                        },
+                        "ingredient_step_mapping": [],
+                        "ingredient_step_mapping_reason": "not_needed_single_step",
+                        "selected_tags": [],
+                        "warnings": [],
+                    }
+                    for recipe_payload in payload.get("recipes") or []
+                ],
+            }
+        }
+    )
+
+    run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+        progress_callback=progress_messages.append,
+    )
+
+    payloads = [
+        payload
+        for message in progress_messages
+        for payload in [parse_stage_progress(message)]
+        if payload is not None
+    ]
+    assert payloads
+    assert payloads[0]["stage_label"] == "recipe pipeline"
+    assert payloads[0]["task_total"] == 2
+    assert int(payloads[0]["worker_total"] or 0) >= 1
+    assert payloads[-1]["task_current"] == payloads[-1]["task_total"]

@@ -85,7 +85,10 @@ Manifest enrichment now includes benchmark run context used by the dashboard:
 - `run_config_hash`
 - `run_config_summary`
 - `recipe_count` (extracted recipes in prediction run)
-- Codex token totals from `llm_codex_farm.process_runs.*.process_payload.telemetry` (`tokens_*`)
+- Codex token totals from whole-run actual telemetry when available:
+  - `llm_codex_farm.process_runs.*`
+  - sibling `llm_codex_farm.knowledge.process_run`
+  - line-role `telemetry_summary.json`, including nested batch/attempt summaries when the top-level benchmark copy only has metadata
 - `processed_report_path` when processed outputs were written during benchmark
   - benchmark `recipes` prefers `recipe_count`; collector backfills from `processed_report_path` (`totalRecipes`) when needed, then falls back to eval `recipe_counts.predicted_recipe_count`
 
@@ -115,8 +118,8 @@ Notes:
   (CSV-first; no extra dashboard-only metric store). The hierarchy is run summary -> per-book detail, and all pages are written under `.history/dashboard/all-method-benchmark/`.
 - `single-offline-benchmark/{vanilla,codexfarm}` eval directories are collected and shown in the regular benchmark tables/metrics (not grouped into all-method standalone pages).
 - Analytics semantics note:
-  - `vanilla` is reserved for official paired benchmark variants that are actually deterministic (`llm_recipe_pipeline=off` and `line_role_pipeline=off`).
-  - Rows with recipe AI off but line-role AI on are shown as `Line-role only`, not `vanilla`.
+  - `vanilla` is reserved for official paired benchmark variants that stay fully deterministic from the Codex point of view: `llm_recipe_pipeline=off` and line-role either `off` or `deterministic-v1`.
+  - Rows with recipe AI off but Codex line-role on are shown as `Line-role only`, not `vanilla`.
   - Path-based benchmark classification checks `artifact_dir`, `run_dir`, and `report_path` so benchmark rows stay classifiable even when one path field is missing.
   - The Previous Runs trend chart uses a simpler binary plot grouping: any benchmark row inferred as AI-on is plotted under `codexfarm`, and AI-off or unlabelled rows are plotted under `vanilla`, so ad hoc history does not create extra `other`/hybrid trend lines.
 - Before writing all-method pages, renderer removes stale root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.

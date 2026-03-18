@@ -1,0 +1,53 @@
+{
+  "recipe": {
+    "confidence": null,
+    "description": null,
+    "notes": null,
+    "title": "Pickled Walnut Dressing",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4-6",
+    "yield_unit_name": "serving",
+    "yield_units": 5
+  },
+  "schema_v": 1,
+  "source": "Hix written.docx",
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.879,
+          "ingredient_id": "good-quality pickled walruts",
+          "input_qty": 3.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": "plus 2 tbsp of",
+          "preparation": "chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "good-quality pickled walruts",
+          "raw_text": "2-3 good-quality pickled walruts chopped plus 2 tbsp of their juice",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "cold-pressed rapeseed oil",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cold-pressed rapeseed oil",
+          "raw_text": "4 5 tbsp cold-pressed rapeseed oil",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Gather and prepare ingredients."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

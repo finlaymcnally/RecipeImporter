@@ -1,0 +1,53 @@
+{
+  "recipe": {
+    "confidence": null,
+    "description": null,
+    "notes": null,
+    "title": "Bearnaise Sauce",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4- 6",
+    "yield_unit_name": "serving",
+    "yield_units": 5
+  },
+  "schema_v": 1,
+  "source": "Hix written.docx",
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.875,
+          "ingredient_id": "white wine",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "white wine",
+          "raw_text": "1 tbsp white wine or cider vinegar",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "shallot",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": "small",
+          "preparation": "peeled and roughly chopped",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "shallot",
+          "raw_text": "1 small shallot, peeled and roughly chopped",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Gather and prepare ingredients."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

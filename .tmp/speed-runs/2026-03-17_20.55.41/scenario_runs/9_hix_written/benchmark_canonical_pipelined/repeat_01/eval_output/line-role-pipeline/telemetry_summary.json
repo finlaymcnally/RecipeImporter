@@ -1,0 +1,10 @@
+{
+  "authority_mode": "deterministic_seed_only",
+  "changed_block_count": 0,
+  "changed_block_indices": [],
+  "labeled_line_count": 711,
+  "mode": "final_authority_projection",
+  "recipe_span_count": 18,
+  "schema_version": "line_role_final_authority_projection.v1",
+  "scored_effect": "seed_only"
+}

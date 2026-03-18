@@ -1,0 +1,39 @@
+{
+  "recipe": {
+    "confidence": null,
+    "description": null,
+    "notes": null,
+    "title": "Ling with Creamed Peas, Leeks and Bacon",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": "serving",
+    "yield_units": 4
+  },
+  "schema_v": 1,
+  "source": "Hix written.docx",
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.951,
+          "ingredient_id": "thick f illets of ling",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": "with skin salt and freshly ground black pepper",
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "thick f illets of ling",
+          "raw_text": "4 thick f illets of ling, about 200g each, with skin salt and freshly ground black pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Gather and prepare ingredients."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

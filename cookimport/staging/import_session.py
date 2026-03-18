@@ -8,6 +8,10 @@ from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
+from cookimport.core.progress_messages import (
+    format_stage_counter_progress,
+    format_stage_progress,
+)
 from cookimport.core.reporting import (
     build_authoritative_stage_report,
     compute_file_hash,
@@ -72,6 +76,37 @@ class StageImportSessionResult:
 def _notify(progress_callback: Callable[[str], None] | None, message: str) -> None:
     if progress_callback is not None:
         progress_callback(message)
+
+
+def _notify_stage_progress(
+    progress_callback: Callable[[str], None] | None,
+    *,
+    message: str,
+    stage_label: str,
+    task_current: int | None = None,
+    task_total: int | None = None,
+    detail_lines: list[str] | None = None,
+) -> None:
+    if progress_callback is None:
+        return
+    if task_current is not None and task_total is not None:
+        progress_callback(
+            format_stage_counter_progress(
+                message,
+                task_current,
+                task_total,
+                stage_label=stage_label,
+                detail_lines=detail_lines,
+            )
+        )
+        return
+    progress_callback(
+        format_stage_progress(
+            message,
+            stage_label=stage_label,
+            detail_lines=detail_lines,
+        )
+    )
 
 
 def _resolve_source_hash(result: ConversionResult, source_file: Path) -> str:
@@ -378,7 +413,13 @@ def execute_stage_import_session_from_result(
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     live_llm_allowed = bool((run_config or {}).get("codex_execution_live_llm_allowed"))
 
-    _notify(progress_callback, "Building authoritative labels...")
+    _notify_stage_progress(
+        progress_callback,
+        message="Building authoritative labels...",
+        stage_label="authoritative labels",
+        task_current=0,
+        task_total=4,
+    )
     with measure(stats, "label_source_of_truth_seconds"):
         label_first_result = build_label_first_stage_result(
             conversion_result=result,
@@ -418,7 +459,11 @@ def execute_stage_import_session_from_result(
         )
 
     if run_settings.llm_recipe_pipeline.value != "off":
-        _notify(progress_callback, "Running codex-farm recipe pipeline...")
+        _notify_stage_progress(
+            progress_callback,
+            message="Running codex-farm recipe pipeline...",
+            stage_label="recipe pipeline",
+        )
         try:
             llm_apply = run_codex_farm_recipe_pipeline(
                 conversion_result=result,
@@ -461,7 +506,11 @@ def execute_stage_import_session_from_result(
 
     knowledge_write_report = None
     if run_settings.llm_knowledge_pipeline.value != "off":
-        _notify(progress_callback, "Running codex-farm knowledge harvest...")
+        _notify_stage_progress(
+            progress_callback,
+            message="Running codex-farm knowledge harvest...",
+            stage_label="knowledge harvest",
+        )
         try:
             knowledge_apply = run_codex_farm_knowledge_harvest(
                 conversion_result=result,
@@ -501,13 +550,28 @@ def execute_stage_import_session_from_result(
 
     extracted_tables = []
     if nonrecipe_block_rows:
-        _notify(progress_callback, "Extracting knowledge tables...")
+        _notify_stage_progress(
+            progress_callback,
+            message="Extracting knowledge tables...",
+            stage_label="extracting knowledge tables",
+            detail_lines=[f"non-recipe blocks: {len(nonrecipe_block_rows)}"],
+        )
         extracted_tables = extract_and_annotate_tables(
             nonrecipe_block_rows,
             source_hash=_resolve_source_hash(result, source_file),
         )
 
-    _notify(progress_callback, "Generating knowledge chunks...")
+    chunk_detail_lines = [f"non-recipe blocks: {len(nonrecipe_block_rows)}"]
+    if not nonrecipe_block_rows and result.topic_candidates:
+        chunk_detail_lines.append(
+            f"fallback topic candidates: {len(result.topic_candidates)}"
+        )
+    _notify_stage_progress(
+        progress_callback,
+        message="Generating knowledge chunks...",
+        stage_label="knowledge chunk generation",
+        detail_lines=chunk_detail_lines,
+    )
     if nonrecipe_block_rows:
         result.chunks = chunks_from_non_recipe_blocks(
             nonrecipe_block_rows,
@@ -552,7 +616,40 @@ def execute_stage_import_session_from_result(
     stage_predictions_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
 
     with measure(stats, "writing"):
-        _notify(progress_callback, "Writing outputs...")
+        write_steps = [
+            "nonrecipe outputs",
+            "intermediate drafts",
+            "final drafts",
+            "section outputs",
+            "tips",
+            "topic candidates",
+            "chunks" if result.chunks else None,
+            "tables",
+            "raw artifacts" if write_raw_artifacts_enabled else None,
+            "stage block predictions",
+        ]
+        write_steps = [step for step in write_steps if step is not None]
+        write_total = len(write_steps)
+        write_completed = 0
+
+        def _notify_write_progress(step_label: str | None = None) -> None:
+            detail_lines = [
+                f"recipes: {len(result.recipes)}",
+                f"chunks: {len(result.chunks or [])}",
+                f"tables: {len(extracted_tables)}",
+            ]
+            if step_label:
+                detail_lines.append(f"current output: {step_label}")
+            _notify_stage_progress(
+                progress_callback,
+                message="Writing outputs...",
+                stage_label="writing outputs",
+                task_current=write_completed,
+                task_total=write_total,
+                detail_lines=detail_lines,
+            )
+
+        _notify_write_progress(write_steps[0] if write_steps else None)
         with measure(stats, "write_nonrecipe_seconds"):
             write_nonrecipe_stage_outputs(
                 nonrecipe_stage_result,
@@ -570,6 +667,8 @@ def execute_stage_import_session_from_result(
                 ),
                 output_stats=output_stats,
             )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_intermediate_seconds"):
             write_intermediate_outputs(
                 result,
@@ -578,6 +677,8 @@ def execute_stage_import_session_from_result(
                 schemaorg_overrides_by_recipe_id=llm_schema_overrides,
                 instruction_step_options=run_config,
             )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_final_seconds"):
             write_draft_outputs(
                 result,
@@ -587,6 +688,8 @@ def execute_stage_import_session_from_result(
                 ingredient_parser_options=run_config,
                 instruction_step_options=run_config,
             )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_sections_seconds"):
             write_section_outputs(
                 run_root,
@@ -596,6 +699,8 @@ def execute_stage_import_session_from_result(
                 write_markdown=write_markdown,
                 instruction_step_options=run_config,
             )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_tips_seconds"):
             write_tip_outputs(
                 result,
@@ -603,6 +708,8 @@ def execute_stage_import_session_from_result(
                 output_stats=output_stats,
                 write_markdown=write_markdown,
             )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_topic_candidates_seconds"):
             write_topic_candidate_outputs(
                 result,
@@ -610,6 +717,8 @@ def execute_stage_import_session_from_result(
                 output_stats=output_stats,
                 write_markdown=write_markdown,
             )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         if result.chunks:
             with measure(stats, "write_chunks_seconds"):
                 write_chunk_outputs(
@@ -618,6 +727,8 @@ def execute_stage_import_session_from_result(
                     output_stats=output_stats,
                     write_markdown=write_markdown,
                 )
+            write_completed += 1
+            _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_tables_seconds"):
             write_table_outputs(
                 run_root,
@@ -627,9 +738,13 @@ def execute_stage_import_session_from_result(
                 output_stats=output_stats,
                 write_markdown=write_markdown,
             )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         if write_raw_artifacts_enabled:
             with measure(stats, "write_raw_seconds"):
                 write_raw_artifacts(result, run_root, output_stats=output_stats)
+            write_completed += 1
+            _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_stage_block_predictions_seconds"):
             write_stage_block_predictions(
                 results=result,
@@ -641,6 +756,8 @@ def execute_stage_import_session_from_result(
                 output_stats=output_stats,
                 label_first_result=label_first_result,
             )
+        write_completed += 1
+        _notify_write_progress(None)
 
     if output_stats.file_counts:
         result.report.output_stats = output_stats.to_report()

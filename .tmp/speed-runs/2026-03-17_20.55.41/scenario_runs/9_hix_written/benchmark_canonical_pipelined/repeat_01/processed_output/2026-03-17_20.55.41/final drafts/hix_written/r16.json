@@ -1,0 +1,20 @@
+{
+  "recipe": {
+    "confidence": null,
+    "description": null,
+    "notes": null,
+    "title": "Lamb Chops with Cucumber and Mint",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4",
+    "yield_unit_name": "serving",
+    "yield_units": 4
+  },
+  "schema_v": 1,
+  "source": "Hix written.docx",
+  "steps": [
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import json
 import re
 
 from cookimport.config.run_settings import RunSettings
+from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_prompt,
     serialize_line_role_targets,
@@ -22,6 +23,17 @@ def _load_fixture(name: str) -> dict[str, object]:
 
 def _settings(mode: str = "deterministic-v1", **kwargs):
     return RunSettings(line_role_pipeline=mode, **kwargs)
+
+
+def _progress_messages_as_text(messages: list[str]) -> list[str]:
+    rows: list[str] = []
+    for message in messages:
+        payload = parse_stage_progress(message)
+        if payload is not None:
+            rows.append(str(payload.get("message") or "").strip())
+        else:
+            rows.append(str(message).strip())
+    return rows
 
 
 def _line_role_runner(
@@ -386,6 +398,65 @@ def test_label_atomic_lines_unknown_pre_grouping_cluster_stays_structured() -> N
     assert predictions[1].within_recipe_span is None
     assert predictions[0].label == "INGREDIENT_LINE"
     assert predictions[1].label == "INSTRUCTION_LINE"
+
+
+def test_label_atomic_lines_unknown_pre_grouping_science_prose_is_knowledge() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:science:unknown",
+            "block_index": 1,
+            "text": (
+                "The primary role that salt plays in cooking is to amplify flavor. "
+                "Though salt also affects texture, nearly every decision you make "
+                "about salt will involve enhancing and deepening flavor."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].within_recipe_span is None
+    assert predictions[0].label == "KNOWLEDGE"
+
+
+def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor_context() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:prev:unknown",
+            "block_index": 1,
+            "text": (
+                "Salt affects texture and flavor because it changes how food "
+                "absorbs moisture during cooking."
+            ),
+        },
+        {
+            "block_id": "block:knowledge:heading:unknown",
+            "block_index": 2,
+            "text": "SALT AND FLAVOR",
+        },
+        {
+            "block_id": "block:knowledge:next:unknown",
+            "block_index": 3,
+            "text": (
+                "The relationship between salt and flavor is multidimensional, "
+                "and even small changes can improve aroma and balance bitterness."
+            ),
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    by_text = {prediction.text: prediction for prediction in predictions}
+    assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
+    assert by_text["Salt affects texture and flavor because it changes how food absorbs moisture during cooking."].label == "KNOWLEDGE"
+    assert by_text["The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."].label == "KNOWLEDGE"
 
 
 def test_label_atomic_lines_outside_recipe_howto_heading_can_stay_structured() -> None:
@@ -1698,15 +1769,16 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
         progress_callback=progress_messages.append,
     )
 
+    progress_texts = _progress_messages_as_text(progress_messages)
     assert [row.atomic_index for row in predictions] == [0, 1, 2]
-    assert progress_messages[0] == (
+    assert progress_texts[0] == (
         "Running canonical line-role pipeline... task 0/3"
     )
     assert (
         "Running canonical line-role pipeline... task 0/3 | running 2"
-        in progress_messages
+        in progress_texts
     )
-    assert progress_messages[-1] == (
+    assert progress_texts[-1] == (
         "Running canonical line-role pipeline... task 3/3 | running 0"
     )
 
@@ -1742,10 +1814,11 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
         progress_callback=progress_messages.append,
     )
 
+    progress_texts = _progress_messages_as_text(progress_messages)
     assert [row.atomic_index for row in predictions] == [0, 1, 2]
     assert (
         "Running canonical line-role pipeline... task 0/3 | running 3"
-        in progress_messages
+        in progress_texts
     )
     phase_manifest = json.loads(
         (
@@ -1790,10 +1863,11 @@ def test_label_atomic_lines_defaults_workers_to_shard_count_when_unspecified() -
         progress_callback=progress_messages.append,
     )
 
+    progress_texts = _progress_messages_as_text(progress_messages)
     assert [row.atomic_index for row in predictions] == [0, 1, 2, 3, 4]
     assert (
         "Running canonical line-role pipeline... task 0/5 | running 5"
-        in progress_messages
+        in progress_texts
     )
 
 
@@ -1821,7 +1895,8 @@ def test_label_atomic_lines_deterministic_progress_callback_reports_task_counts(
         _settings("deterministic-v1"),
         progress_callback=progress_messages.append,
     )
+    progress_texts = _progress_messages_as_text(progress_messages)
     assert len(predictions) == 2
-    assert progress_messages[0] == "Running canonical line-role pipeline... task 0/2"
-    assert progress_messages[-1] == "Running canonical line-role pipeline... task 2/2"
-    assert all("| running " not in message for message in progress_messages)
+    assert progress_texts[0] == "Running canonical line-role pipeline... task 0/2"
+    assert progress_texts[-1] == "Running canonical line-role pipeline... task 2/2"
+    assert all("| running " not in message for message in progress_texts)

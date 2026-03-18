@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from cookimport.cli import _merge_split_jobs
+from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate, TopicCandidate
 
 
@@ -79,8 +80,13 @@ def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
     assert all(total == parsed[0][1] for _, total, _ in parsed)
     assert any(message.endswith(": Writing report...") for _, _, message in parsed)
     assert any(message.endswith(": Merging raw artifacts...") for _, _, message in parsed)
-    assert "Generating knowledge chunks..." in statuses
-    assert "Writing outputs..." in statuses
+    normalized_statuses = [
+        str((payload or {}).get("message") or message).strip()
+        for message in statuses
+        for payload in [parse_stage_progress(message)]
+    ]
+    assert "Generating knowledge chunks..." in normalized_statuses
+    assert "Writing outputs... task 0/9" in normalized_statuses
 
 
 def _output_stats_category_for_path(relative_path: Path) -> str | None:

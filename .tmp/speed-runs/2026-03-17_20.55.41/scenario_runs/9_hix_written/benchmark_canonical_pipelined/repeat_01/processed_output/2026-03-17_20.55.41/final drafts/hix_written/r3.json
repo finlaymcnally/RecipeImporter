@@ -1,0 +1,81 @@
+{
+  "recipe": {
+    "confidence": null,
+    "description": null,
+    "notes": null,
+    "title": "Bramble Dressing",
+    "yield_detail": "6",
+    "yield_phrase": "Serves 4 6",
+    "yield_unit_name": "6",
+    "yield_units": 4
+  },
+  "schema_v": 1,
+  "source": "Hix written.docx",
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.999,
+          "ingredient_id": "blackberries",
+          "input_qty": 7.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "blackberries",
+          "raw_text": "6-8 blackberries",
+          "raw_unit_text": null
+        },
+        {
+          "confidence": 0.999,
+          "ingredient_id": "cider vinegar",
+          "input_qty": 1.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cider vinegar",
+          "raw_text": "1 tbsp cider vinegar",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 0.996,
+          "ingredient_id": "cold pressed rape seed oil",
+          "input_qty": 4.0,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "exact",
+          "raw_ingredient_text": "cold pressed rape seed oil",
+          "raw_text": "4 tbsp cold pressed rape seed oil",
+          "raw_unit_text": "tablespoon"
+        },
+        {
+          "confidence": 1.0,
+          "ingredient_id": "salt",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "salt",
+          "raw_text": "salt & pepper",
+          "raw_unit_text": null
+        }
+      ],
+      "instruction": "Gather and prepare ingredients."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

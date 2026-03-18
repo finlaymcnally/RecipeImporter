@@ -1,0 +1,39 @@
+{
+  "recipe": {
+    "confidence": null,
+    "description": null,
+    "notes": null,
+    "title": "Tewkesbury Mustard Dressing",
+    "yield_detail": null,
+    "yield_phrase": "Serves 4-6",
+    "yield_unit_name": "serving",
+    "yield_units": 5
+  },
+  "schema_v": 1,
+  "source": "Hix written.docx",
+  "steps": [
+    {
+      "ingredient_lines": [
+        {
+          "confidence": 0.998,
+          "ingredient_id": "cider vinegar",
+          "input_qty": null,
+          "input_unit_id": null,
+          "is_optional": false,
+          "linked_recipe_id": null,
+          "note": null,
+          "preparation": null,
+          "quantity_kind": "unquantified",
+          "raw_ingredient_text": "cider vinegar",
+          "raw_text": "l tbsp cider vinegar",
+          "raw_unit_text": "liter * tablespoon"
+        }
+      ],
+      "instruction": "Gather and prepare ingredients."
+    },
+    {
+      "ingredient_lines": [],
+      "instruction": "See original recipe for details."
+    }
+  ]
+}

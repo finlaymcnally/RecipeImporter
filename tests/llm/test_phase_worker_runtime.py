@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.codex_farm_runner import (
     CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1,
     SubprocessCodexFarmRunner,
@@ -267,3 +270,145 @@ def test_resolve_phase_worker_count_defaults_to_shard_count_capped_at_20() -> No
 def test_resolve_phase_worker_count_honors_explicit_override() -> None:
     assert resolve_phase_worker_count(requested_worker_count=7, shard_count=5) == 5
     assert resolve_phase_worker_count(requested_worker_count=3, shard_count=5) == 3
+
+
+def test_phase_worker_runtime_executes_multiple_worker_assignments_concurrently(
+    tmp_path: Path,
+) -> None:
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    state = {"current": 0, "max": 0}
+
+    class _ConcurrentRunner:
+        def run_pipeline(
+            self,
+            pipeline_id: str,
+            in_dir: Path,
+            out_dir: Path,
+            env: dict[str, str],
+            *,
+            root_dir: Path | None = None,
+            workspace_root: Path | None = None,
+            model: str | None = None,
+            reasoning_effort: str | None = None,
+            runtime_mode: str | None = None,
+            process_worker_count: int | None = None,
+        ):
+            del env, root_dir, workspace_root, model, reasoning_effort, runtime_mode, process_worker_count
+            assert pipeline_id == "recipe.correction.compact.v1"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with lock:
+                state["current"] += 1
+                state["max"] = max(state["max"], state["current"])
+            barrier.wait(timeout=1.0)
+            time.sleep(0.05)
+            for in_path in sorted(in_dir.glob("*.json")):
+                payload = json.loads(in_path.read_text(encoding="utf-8"))
+                (out_dir / in_path.name).write_text(
+                    json.dumps(
+                        {
+                            "shard_id": payload.get("shard_id"),
+                            "accepted": True,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            with lock:
+                state["current"] -= 1
+            return {
+                "pipeline_id": pipeline_id,
+                "runtime_mode_audit": {"mode": "test", "status": "ok"},
+            }
+
+    def _validator(shard: ShardManifestEntryV1, payload: dict[str, object]):
+        accepted = bool(payload.get("accepted"))
+        if accepted:
+            return True, (), {}
+        return False, ("synthetic_rejection",), {}
+
+    manifest, reports = run_phase_workers_v1(
+        phase_key="recipe",
+        pipeline_id="recipe.correction.compact.v1",
+        run_root=tmp_path / "runtime",
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="shard-001",
+                owned_ids=("recipe-001",),
+                input_payload={"shard_id": "shard-001"},
+            ),
+            ShardManifestEntryV1(
+                shard_id="shard-002",
+                owned_ids=("recipe-002",),
+                input_payload={"shard_id": "shard-002"},
+            ),
+        ],
+        runner=_ConcurrentRunner(),
+        worker_count=2,
+        proposal_validator=_validator,
+    )
+
+    assert manifest.worker_count == 2
+    assert len(reports) == 2
+    assert state["max"] >= 2
+
+
+def test_phase_worker_runtime_emits_structured_progress_snapshots(tmp_path: Path) -> None:
+    progress_messages: list[str] = []
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            "recipe.correction.compact.v1": lambda payload: {
+                "shard_id": payload["shard_id"],
+                "accepted": True,
+            }
+        }
+    )
+
+    def _validator(shard: ShardManifestEntryV1, payload: dict[str, object]):
+        if bool(payload.get("accepted")):
+            return True, (), {"owned_ids": list(shard.owned_ids)}
+        return False, ("synthetic_rejection",), {}
+
+    manifest, reports = run_phase_workers_v1(
+        phase_key="recipe_llm_correct_and_link",
+        pipeline_id="recipe.correction.compact.v1",
+        run_root=tmp_path / "runtime",
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="shard-001",
+                owned_ids=("recipe-001",),
+                input_payload={"shard_id": "shard-001"},
+            ),
+            ShardManifestEntryV1(
+                shard_id="shard-002",
+                owned_ids=("recipe-002",),
+                input_payload={"shard_id": "shard-002"},
+            ),
+        ],
+        runner=runner,
+        worker_count=2,
+        proposal_validator=_validator,
+        progress_callback=progress_messages.append,
+        progress_message_prefix="Running codex-farm recipe pipeline...",
+        progress_stage_label="recipe pipeline",
+    )
+
+    assert manifest.worker_count == 2
+    assert len(reports) == 2
+    payloads = [
+        payload
+        for message in progress_messages
+        for payload in [parse_stage_progress(message)]
+        if payload is not None
+    ]
+    assert payloads
+    assert payloads[0]["stage_label"] == "recipe pipeline"
+    assert payloads[0]["task_current"] == 0
+    assert payloads[0]["task_total"] == 2
+    assert payloads[0]["worker_total"] == 2
+    assert any(
+        "configured workers: 2" in (payload.get("detail_lines") or [])
+        for payload in payloads
+    )
+    assert payloads[-1]["task_current"] == 2
+    assert payloads[-1]["running_workers"] == 0

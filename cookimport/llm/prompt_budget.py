@@ -406,8 +406,32 @@ def _build_codex_farm_stage_summary(
 
 
 def _extract_telemetry_rows(*, stage_payload: Mapping[str, Any]) -> list[Any] | None:
+    direct_telemetry = stage_payload.get("telemetry")
+    if isinstance(direct_telemetry, Mapping) and isinstance(direct_telemetry.get("rows"), list):
+        return list(direct_telemetry.get("rows") or [])
+
+    process_run = stage_payload.get("process_run")
+    if isinstance(process_run, Mapping):
+        process_run_rows = _extract_telemetry_rows(stage_payload=process_run)
+        if process_run_rows:
+            return process_run_rows
+
+    process_payload = stage_payload.get("process_payload")
+    if isinstance(process_payload, Mapping):
+        process_payload_rows = _extract_telemetry_rows(stage_payload=process_payload)
+        if process_payload_rows:
+            return process_payload_rows
+
+    for runtime_key in ("phase_runtime", "phase_worker_runtime"):
+        runtime_payload = stage_payload.get(runtime_key)
+        if not isinstance(runtime_payload, Mapping):
+            continue
+        runtime_telemetry = runtime_payload.get("telemetry")
+        if isinstance(runtime_telemetry, Mapping) and isinstance(runtime_telemetry.get("rows"), list):
+            return list(runtime_telemetry.get("rows") or [])
+
     rows: list[Any] = []
-    _collect_telemetry_rows_from_payload(stage_payload, rows)
+    _collect_telemetry_rows_from_worker_children(stage_payload, rows)
     return rows or None
 
 
@@ -431,18 +455,50 @@ def _build_line_role_stage_summary(
             if _looks_like_summary_payload(payload):
                 summary = payload
             else:
-                continue
+                summary = None
 
-        call_count = _nonnegative_int(summary.get("call_count"))
-        batch_count = _nonnegative_int(summary.get("batch_count"))
-        if call_count is None:
-            call_count = batch_count
-
+        direct_token_totals = (
+            {
+                key: _nonnegative_int(summary.get(key))
+                for key in _TOKEN_KEYS
+            }
+            if isinstance(summary, Mapping)
+            else {key: None for key in _TOKEN_KEYS}
+        )
+        nested_summaries = _collect_line_role_attempt_summaries(payload)
+        fallback_token_totals = _aggregate_token_totals_from_summaries(
+            [
+                item
+                for item in nested_summaries
+                if not isinstance(summary, Mapping) or item is not summary
+            ]
+        )
         token_totals = {
-            key: _nonnegative_int(summary.get(key))
+            key: (
+                direct_token_totals.get(key)
+                if direct_token_totals.get(key) is not None
+                else fallback_token_totals.get(key)
+            )
             for key in _TOKEN_KEYS
         }
-        duration_total_ms = _nonnegative_int(summary.get("duration_total_ms"))
+
+        call_count = _nonnegative_int(summary.get("call_count")) if isinstance(summary, Mapping) else None
+        batch_count = _nonnegative_int(summary.get("batch_count")) if isinstance(summary, Mapping) else None
+        attempt_count = _nonnegative_int(summary.get("attempt_count")) if isinstance(summary, Mapping) else None
+        if call_count is None:
+            call_count = batch_count
+        if call_count is None:
+            call_count = _aggregate_call_count_from_summaries(nested_summaries)
+        if attempt_count is None:
+            attempt_count = call_count
+
+        duration_total_ms = (
+            _nonnegative_int(summary.get("duration_total_ms"))
+            if isinstance(summary, Mapping)
+            else None
+        )
+        if duration_total_ms is None:
+            duration_total_ms = _aggregate_duration_total_ms_from_summaries(nested_summaries)
         if (
             call_count is None
             and duration_total_ms is None
@@ -455,7 +511,7 @@ def _build_line_role_stage_summary(
             "kind": "line_role",
             "call_count": call_count,
             "batch_count": batch_count,
-            "attempt_count": _nonnegative_int(summary.get("attempt_count")),
+            "attempt_count": attempt_count,
             "duration_total_ms": duration_total_ms,
             **token_totals,
         }
@@ -493,8 +549,7 @@ def _iter_line_role_telemetry_paths(
 
 
 def _extract_summary_payload(*, stage_payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    candidates: list[Mapping[str, Any]] = []
-    _collect_summary_payloads(stage_payload, candidates)
+    candidates = _preferred_summary_payloads(stage_payload)
     if not candidates:
         return None
     return max(candidates, key=_summary_payload_score)
@@ -545,24 +600,14 @@ def _extract_duration_total_ms_from_rows(rows: list[Any]) -> int | None:
     return duration_total_ms
 
 
-def _collect_telemetry_rows_from_payload(payload: Mapping[str, Any], rows: list[Any]) -> None:
-    process_payload = payload.get("process_payload")
-    if isinstance(process_payload, Mapping):
-        _collect_telemetry_rows_from_payload(process_payload, rows)
-
-    process_run = payload.get("process_run")
-    if isinstance(process_run, Mapping):
-        _collect_telemetry_rows_from_payload(process_run, rows)
-
-    telemetry = payload.get("telemetry")
-    if isinstance(telemetry, Mapping) and isinstance(telemetry.get("rows"), list):
-        rows.extend(telemetry.get("rows") or [])
-
+def _collect_telemetry_rows_from_worker_children(payload: Mapping[str, Any], rows: list[Any]) -> None:
     worker_runs = payload.get("worker_runs")
     if isinstance(worker_runs, list):
         for worker_run in worker_runs:
             if isinstance(worker_run, Mapping):
-                _collect_telemetry_rows_from_payload(worker_run, rows)
+                worker_rows = _extract_telemetry_rows(stage_payload=worker_run)
+                if worker_rows:
+                    rows.extend(worker_rows)
 
     for runtime_key in ("phase_runtime", "phase_worker_runtime"):
         runtime_payload = payload.get(runtime_key)
@@ -576,21 +621,126 @@ def _collect_telemetry_rows_from_payload(payload: Mapping[str, Any], rows: list[
                 continue
             runner_result = report.get("runner_result")
             if isinstance(runner_result, Mapping):
-                _collect_telemetry_rows_from_payload(runner_result, rows)
+                worker_rows = _extract_telemetry_rows(stage_payload=runner_result)
+                if worker_rows:
+                    rows.extend(worker_rows)
 
 
 def _collect_summary_payloads(
     payload: Mapping[str, Any],
     summaries: list[Mapping[str, Any]],
+    seen: set[int] | None = None,
 ) -> None:
+    if seen is None:
+        seen = set()
+
+    def _append_summary(summary_payload: Mapping[str, Any]) -> None:
+        summary_id = id(summary_payload)
+        if summary_id in seen:
+            return
+        seen.add(summary_id)
+        summaries.append(summary_payload)
+
     process_payload = payload.get("process_payload")
     if isinstance(process_payload, Mapping):
-        _collect_summary_payloads(process_payload, summaries)
+        _collect_summary_payloads(process_payload, summaries, seen)
 
     process_run = payload.get("process_run")
     if isinstance(process_run, Mapping):
-        _collect_summary_payloads(process_run, summaries)
+        _collect_summary_payloads(process_run, summaries, seen)
 
+    telemetry_report = payload.get("telemetry_report")
+    if isinstance(telemetry_report, Mapping):
+        if isinstance(telemetry_report.get("summary"), Mapping):
+            _append_summary(telemetry_report.get("summary"))
+        elif _looks_like_summary_payload(telemetry_report):
+            _append_summary(telemetry_report)
+
+    telemetry = payload.get("telemetry")
+    if isinstance(telemetry, Mapping) and isinstance(telemetry.get("summary"), Mapping):
+        _append_summary(telemetry.get("summary"))
+
+    worker_runs = payload.get("worker_runs")
+    if isinstance(worker_runs, list):
+        for worker_run in worker_runs:
+            if isinstance(worker_run, Mapping):
+                _collect_summary_payloads(worker_run, summaries, seen)
+
+    for runtime_key in ("phase_runtime", "phase_worker_runtime"):
+        runtime_payload = payload.get(runtime_key)
+        if not isinstance(runtime_payload, Mapping):
+            continue
+        telemetry_payload = runtime_payload.get("telemetry")
+        if isinstance(telemetry_payload, Mapping) and _looks_like_summary_payload(telemetry_payload):
+            _append_summary(telemetry_payload)
+        worker_reports = runtime_payload.get("worker_reports")
+        if not isinstance(worker_reports, list):
+            continue
+        for report in worker_reports:
+            if not isinstance(report, Mapping):
+                continue
+            runner_result = report.get("runner_result")
+            if isinstance(runner_result, Mapping):
+                _collect_summary_payloads(runner_result, summaries, seen)
+
+    batches = payload.get("batches")
+    if isinstance(batches, list):
+        for batch in batches:
+            if isinstance(batch, Mapping):
+                _collect_summary_payloads(batch, summaries, seen)
+
+    attempts = payload.get("attempts")
+    if isinstance(attempts, list):
+        for attempt in attempts:
+            if isinstance(attempt, Mapping):
+                _collect_summary_payloads(attempt, summaries, seen)
+
+
+def _collect_line_role_attempt_summaries(
+    payload: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    summaries: list[Mapping[str, Any]] = []
+    batches = payload.get("batches")
+    if not isinstance(batches, list):
+        return summaries
+    for batch in batches:
+        if not isinstance(batch, Mapping):
+            continue
+        attempts = batch.get("attempts")
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if not isinstance(attempt, Mapping):
+                continue
+            process_run = attempt.get("process_run")
+            if isinstance(process_run, Mapping):
+                process_payload = process_run.get("process_payload")
+                if isinstance(process_payload, Mapping):
+                    telemetry_report = process_payload.get("telemetry_report")
+                    if (
+                        isinstance(telemetry_report, Mapping)
+                        and isinstance(telemetry_report.get("summary"), Mapping)
+                    ):
+                        summaries.append(telemetry_report.get("summary"))
+                        continue
+                telemetry_report = process_run.get("telemetry_report")
+                if (
+                    isinstance(telemetry_report, Mapping)
+                    and isinstance(telemetry_report.get("summary"), Mapping)
+                ):
+                    summaries.append(telemetry_report.get("summary"))
+                    continue
+            telemetry_report = attempt.get("telemetry_report")
+            if (
+                isinstance(telemetry_report, Mapping)
+                and isinstance(telemetry_report.get("summary"), Mapping)
+            ):
+                summaries.append(telemetry_report.get("summary"))
+    return summaries
+
+
+def _preferred_summary_payloads(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    summaries: list[Mapping[str, Any]] = []
     telemetry_report = payload.get("telemetry_report")
     if isinstance(telemetry_report, Mapping):
         if isinstance(telemetry_report.get("summary"), Mapping):
@@ -602,11 +752,20 @@ def _collect_summary_payloads(
     if isinstance(telemetry, Mapping) and isinstance(telemetry.get("summary"), Mapping):
         summaries.append(telemetry.get("summary"))
 
-    worker_runs = payload.get("worker_runs")
-    if isinstance(worker_runs, list):
-        for worker_run in worker_runs:
-            if isinstance(worker_run, Mapping):
-                _collect_summary_payloads(worker_run, summaries)
+    if summaries:
+        return summaries
+
+    process_run = payload.get("process_run")
+    if isinstance(process_run, Mapping):
+        process_run_summaries = _preferred_summary_payloads(process_run)
+        if process_run_summaries:
+            return process_run_summaries
+
+    process_payload = payload.get("process_payload")
+    if isinstance(process_payload, Mapping):
+        process_payload_summaries = _preferred_summary_payloads(process_payload)
+        if process_payload_summaries:
+            return process_payload_summaries
 
     for runtime_key in ("phase_runtime", "phase_worker_runtime"):
         runtime_payload = payload.get(runtime_key)
@@ -623,7 +782,14 @@ def _collect_summary_payloads(
                 continue
             runner_result = report.get("runner_result")
             if isinstance(runner_result, Mapping):
-                _collect_summary_payloads(runner_result, summaries)
+                summaries.extend(_preferred_summary_payloads(runner_result))
+
+    worker_runs = payload.get("worker_runs")
+    if isinstance(worker_runs, list):
+        for worker_run in worker_runs:
+            if isinstance(worker_run, Mapping):
+                summaries.extend(_preferred_summary_payloads(worker_run))
+    return summaries
 
 
 def _looks_like_summary_payload(payload: Mapping[str, Any]) -> bool:
@@ -659,6 +825,44 @@ def _summary_payload_score(payload: Mapping[str, Any]) -> tuple[int, int]:
         if payload.get(key) is not None
     )
     return (token_hits, aux_hits)
+
+
+def _aggregate_token_totals_from_summaries(
+    summaries: list[Mapping[str, Any]],
+) -> dict[str, int | None]:
+    totals: dict[str, int | None] = {key: None for key in _TOKEN_KEYS}
+    for summary in summaries:
+        for key in _TOKEN_KEYS:
+            raw_value = summary.get(key)
+            if key == "tokens_reasoning" and raw_value is None:
+                raw_value = summary.get("tokens_reasoning_total")
+            value = _nonnegative_int(raw_value)
+            if value is None:
+                continue
+            totals[key] = _sum_optional_ints(totals.get(key), value)
+    return totals
+
+
+def _aggregate_call_count_from_summaries(
+    summaries: list[Mapping[str, Any]],
+) -> int | None:
+    call_count: int | None = None
+    for summary in summaries:
+        call_count = _sum_optional_ints(call_count, _extract_call_count(summary))
+    return call_count
+
+
+def _aggregate_duration_total_ms_from_summaries(
+    summaries: list[Mapping[str, Any]],
+) -> int | None:
+    duration_total_ms: int | None = None
+    for summary in summaries:
+        summary_call_count = _extract_call_count(summary)
+        duration_total_ms = _sum_optional_ints(
+            duration_total_ms,
+            _extract_duration_total_ms(summary, call_count=summary_call_count),
+        )
+    return duration_total_ms
 
 
 def _nonnegative_int(value: Any) -> int | None:

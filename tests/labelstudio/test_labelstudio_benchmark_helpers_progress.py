@@ -589,6 +589,71 @@ def test_run_with_progress_status_writes_processing_timeseries(
     assert any("cpu_utilization_pct" in row for row in rows)
 
 
+def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+    telemetry_path = tmp_path / "processing_timeseries.jsonl"
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Running codex-farm knowledge harvest... task 1/4 | running 2",
+                stage_label="knowledge harvest",
+                task_current=1,
+                task_total=4,
+                running_workers=2,
+                worker_total=4,
+                active_tasks=["knowledge-shard-0001", "knowledge-shard-0002"],
+                detail_lines=["configured workers: 4", "queued shards: 3"],
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        telemetry_path=telemetry_path,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    rows = [
+        json.loads(line)
+        for line in telemetry_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(row.get("stage_label") == "knowledge harvest" for row in rows)
+    assert any(row.get("worker_total") == 4 for row in rows)
+    assert any(row.get("worker_active") == 2 for row in rows)
+    assert any(row.get("active_tasks") == ["knowledge-shard-0001", "knowledge-shard-0002"] for row in rows)
+    assert any("configured workers: 4" in (row.get("detail_lines") or []) for row in rows)
+
+
 def test_run_with_progress_status_renders_worker_activity_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -639,7 +704,78 @@ def test_run_with_progress_status_renders_worker_activity_summary(
         and "worker 02: task 2/4 blocks 40-79" in message
         for message in capture.messages
     )
-    assert "worker 01:" not in capture.messages[-1]
+
+
+def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Running codex-farm knowledge harvest... task 1/4 | running 2",
+                stage_label="knowledge harvest",
+                task_current=1,
+                task_total=4,
+                running_workers=2,
+                worker_total=4,
+                active_tasks=["knowledge-shard-0001", "knowledge-shard-0002"],
+                detail_lines=["configured workers: 4", "queued shards: 3"],
+            )
+        )
+        update_progress(
+            format_stage_progress(
+                "Running codex-farm knowledge harvest... task 2/4",
+                stage_label="knowledge harvest",
+                task_current=2,
+                task_total=4,
+                worker_total=4,
+                detail_lines=["configured workers: 4", "queued shards: 2"],
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    knowledge_messages = [
+        message
+        for message in capture.messages
+        if "knowledge harvest" in message.lower()
+    ]
+    assert knowledge_messages
+    assert any("configured workers: 4" in message for message in knowledge_messages)
+    assert any("worker 01: knowledge-shard-0001" in message for message in knowledge_messages)
+    assert any("worker 03: idle" in message for message in knowledge_messages)
+    assert "queued shards: 2" in capture.messages[-1]
 
 
 def test_run_with_progress_status_clears_codex_worker_state_for_new_phase(
@@ -831,6 +967,53 @@ def test_run_with_progress_status_shows_worker_rows_for_generic_running_task_pro
     assert phase_messages
     assert any("active workers: 4" in message for message in phase_messages)
     assert any("worker 01: running" in message for message in phase_messages)
+
+
+def test_run_with_progress_status_renders_stage_and_progress_lines_for_plain_task_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Analyzing standalone knowledge blocks... task 2/5")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "stage: Analyzing standalone knowledge blocks..." in message
+        for message in capture.messages
+    )
+    assert any("progress: task 2/5 (40%)" in message for message in capture.messages)
+    assert any("remaining tasks: 3" in message for message in capture.messages)
 
 
 def test_run_with_progress_status_clamps_live_box_width_to_terminal(

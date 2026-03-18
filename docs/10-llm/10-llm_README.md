@@ -179,6 +179,7 @@ Prompt/debug artifacts:
 - `prompts/thinking_trace_summary.jsonl` and `prompts/thinking_trace_summary.md` summarize trace-path coverage, availability, and reasoning-event presence from the merged prompt log
 - `prediction-run/prompt_budget_summary.json` is the post-run actual-costs artifact; it merges recipe/knowledge telemetry with line-role telemetry when present and publishes semantic `by_stage` totals instead of an old pass-slot grouping container
 - `prediction-run/prompt_budget_summary.json` now also falls back to current shard-runtime worker telemetry plus the linked processed-run `line-role-pipeline/telemetry_summary.json` when a benchmark/prediction manifest only carries lightweight phase summaries or a metadata-only benchmark copy
+- when line-role telemetry only exposes nested batch/attempt summaries, `prompt_budget_summary.json` should still recover those `tokens_total` values so the finished-run whole-run drain is not understated
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - preview budget estimation is predictive-only: it rebuilds deterministic/`vanilla` shard payloads locally, estimates tokens from reconstructable prompt/output structure, and never reuses Codex-backed run telemetry
 - older saved runs that predate the prompt-target fields should default preview planning to the current shard-v1 target count (`5`) for each enabled phase instead of falling back to legacy shard-size defaults
@@ -247,6 +248,7 @@ Run-level observability note:
 
 Shard-runtime observability note:
 - `phase_worker_runtime.py` standardizes `phase_manifest.json`, `shard_manifest.jsonl`, `worker_assignments.json`, `promotion_report.json`, `telemetry.json`, `failures.json`, per-worker status files, and per-shard proposals as the runtime-artifact family the active recipe, knowledge, and line-role phases now populate with real work
+- those active shard runtimes now also launch worker assignments concurrently up to the resolved worker count instead of looping through assigned workers one at a time; recipe still runs one classic CodexFarm process per worker assignment, while knowledge and line-role direct runtimes do the same with direct `codex exec` shard calls
 
 ## Runner and contract notes
 
@@ -256,6 +258,7 @@ Shard-runtime observability note:
 - For zero-token handoff rehearsal, point `--codex-farm-cmd` at `scripts/fake-codex-farm.py` and still run execute mode with `--allow-codex`; RecipeImport will exercise the real shard-runtime folders through the subprocess runner without live model calls.
 - shard-v1 recipe workers still explicitly run `codex-farm process --runtime-mode classic_task_farm_v1 --workers 1`; knowledge and line-role now use one direct `codex exec` call per shard, so the “one shard equals one real model call” contract is literal on those surfaces
 - when `recipe_worker_count`, `knowledge_worker_count`, or `line_role_worker_count` are unset, shard-v1 now defaults live and preview worker planning to the planned shard/job count for that one book+phase, capped at `20`
+- the old misleading state was “planned N workers, launched one assignment loop”; current shard-v1 runtime behavior is “planned N workers, launch up to N worker assignments concurrently” with shard count still acting as the true upper bound
 - RecipeImport no longer labels shard-v1 work as `structured_loop_agentic_v1`; the classic runtime choice is intentional so prompt-target counts describe real shard-call count instead of hidden extra session turns. True multi-shard session reuse would be a future transport change, not the current default.
 - classic path handoff is still not a free lunch on recipe: Codex may `cat` / `sed` / `jq` the deposited shard files during one task, so raw prompt size and real token spend can diverge sharply there
 - Runner resolves each pipeline's `output_schema_path` and passes it explicitly as `--output-schema`.
@@ -266,6 +269,7 @@ Shard-runtime observability note:
   - compact CSV `telemetry` slices
 - When callers provide progress callbacks, runner requires `codex-farm process --progress-events --json`.
 - Current runners must emit structured progress events plus JSON stdout when `--json` is requested; older stderr-only progress and missing-flag fallbacks are no longer supported.
+- Direct line-role and knowledge runtimes now also emit repo-owned structured stage-progress callback payloads (task counters, effective worker counts, active shard labels, queued-shard detail) so CLI benchmark/import spinners and `processing_timeseries*.jsonl` capture the same stage metadata.
 - Recoverable partial-output failures include `no last agent message` and `nonzero_exit_no_payload`.
 - In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing recipe-correction bundles.
 - Recipe pass block extraction falls back to `full_text.lines` when cached payloads are missing `full_text.blocks`.

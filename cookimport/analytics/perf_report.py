@@ -894,9 +894,7 @@ def backfill_benchmark_history_csv(
             ("tokens_reasoning", context.tokens_reasoning),
             ("tokens_total", context.tokens_total),
         ):
-            if token_value is None:
-                continue
-            if _parse_int_or_none(row.get(token_key)) is not None:
+            if not _token_value_needs_update(row.get(token_key), token_value):
                 continue
             row[token_key] = str(token_value)
             row_updated = True
@@ -1505,6 +1503,12 @@ def _token_usage_has_values(
     )
 
 
+def _token_value_needs_update(existing: Any, resolved: int | None) -> bool:
+    if resolved is None:
+        return False
+    return _parse_int_or_none(existing) != resolved
+
+
 def _token_usage_from_process_payload(
     pass_payload: dict[str, Any],
 ) -> tuple[int | None, int | None, int | None, int | None, int | None]:
@@ -1621,6 +1625,19 @@ def _extract_codex_token_usage_from_manifest(
                 continue
             current = summed.get(key)
             summed[key] = value if current is None else current + value
+    knowledge_payload = llm_codex_farm.get("knowledge")
+    knowledge_tokens = (None, None, None, None, None)
+    if isinstance(knowledge_payload, dict):
+        process_run_payload = knowledge_payload.get("process_run")
+        if isinstance(process_run_payload, dict):
+            knowledge_tokens = _token_usage_from_process_payload(process_run_payload)
+        if all(value is None for value in knowledge_tokens):
+            knowledge_tokens = _token_usage_from_process_payload(knowledge_payload)
+    for key, value in zip(_TOKEN_USAGE_KEYS, knowledge_tokens):
+        if value is None:
+            continue
+        current = summed.get(key)
+        summed[key] = value if current is None else current + value
 
     return (
         summed.get("tokens_input"),
@@ -1631,36 +1648,178 @@ def _extract_codex_token_usage_from_manifest(
     )
 
 
+def _append_token_summary_payload(
+    summary: dict[str, Any],
+    summaries: list[dict[str, Any]],
+    seen: set[int],
+) -> None:
+    summary_id = id(summary)
+    if summary_id in seen:
+        return
+    seen.add(summary_id)
+    summaries.append(summary)
+
+
+def _collect_token_summary_payloads(
+    payload: Any,
+    summaries: list[dict[str, Any]],
+    seen: set[int],
+) -> None:
+    if isinstance(payload, dict):
+        summary = payload.get("summary")
+        if isinstance(summary, dict):
+            _append_token_summary_payload(summary, summaries, seen)
+        telemetry_report = payload.get("telemetry_report")
+        if isinstance(telemetry_report, dict):
+            nested_summary = telemetry_report.get("summary")
+            if isinstance(nested_summary, dict):
+                _append_token_summary_payload(nested_summary, summaries, seen)
+        for value in payload.values():
+            _collect_token_summary_payloads(value, summaries, seen)
+    elif isinstance(payload, list):
+        for value in payload:
+            _collect_token_summary_payloads(value, summaries, seen)
+
+
+def _token_usage_from_summary_payloads(
+    summaries: list[dict[str, Any]],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    totals: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+    for summary in summaries:
+        summary_value_map = {
+            "tokens_input": summary.get("tokens_input"),
+            "tokens_cached_input": summary.get("tokens_cached_input"),
+            "tokens_output": summary.get("tokens_output"),
+            "tokens_reasoning": (
+                summary.get("tokens_reasoning")
+                if summary.get("tokens_reasoning") is not None
+                else summary.get("tokens_reasoning_total")
+            ),
+            "tokens_total": summary.get("tokens_total"),
+        }
+        for key, raw_value in summary_value_map.items():
+            value = _nonnegative_int_or_none(raw_value)
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _line_role_token_summaries_from_attempts(
+    telemetry_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    batches = telemetry_payload.get("batches")
+    if not isinstance(batches, list):
+        return summaries
+    for batch in batches:
+        if not isinstance(batch, dict):
+            continue
+        attempts = batch.get("attempts")
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            process_run = attempt.get("process_run")
+            if isinstance(process_run, dict):
+                process_payload = process_run.get("process_payload")
+                if isinstance(process_payload, dict):
+                    telemetry_report = process_payload.get("telemetry_report")
+                    if (
+                        isinstance(telemetry_report, dict)
+                        and isinstance(telemetry_report.get("summary"), dict)
+                    ):
+                        summaries.append(telemetry_report.get("summary"))
+                        continue
+                telemetry_report = process_run.get("telemetry_report")
+                if (
+                    isinstance(telemetry_report, dict)
+                    and isinstance(telemetry_report.get("summary"), dict)
+                ):
+                    summaries.append(telemetry_report.get("summary"))
+                    continue
+            telemetry_report = attempt.get("telemetry_report")
+            if (
+                isinstance(telemetry_report, dict)
+                and isinstance(telemetry_report.get("summary"), dict)
+            ):
+                summaries.append(telemetry_report.get("summary"))
+    return summaries
+
+
 def _extract_line_role_token_usage_from_manifest(
     payload: dict[str, Any] | None,
 ) -> tuple[int | None, int | None, int | None, int | None, int | None]:
     if not isinstance(payload, dict):
         return (None, None, None, None, None)
-    telemetry_path = str(payload.get("line_role_pipeline_telemetry_path") or "").strip()
-    if not telemetry_path:
-        artifacts = payload.get("artifacts")
-        if isinstance(artifacts, dict):
-            telemetry_path = str(
-                artifacts.get("line_role_pipeline_telemetry_json") or ""
-            ).strip()
-    if not telemetry_path:
-        return (None, None, None, None, None)
-    try:
-        telemetry_payload = json.loads(Path(telemetry_path).read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return (None, None, None, None, None)
-    if not isinstance(telemetry_payload, dict):
-        return (None, None, None, None, None)
-    summary = telemetry_payload.get("summary")
-    if not isinstance(summary, dict):
-        return (None, None, None, None, None)
-    return (
-        _nonnegative_int_or_none(summary.get("tokens_input")),
-        _nonnegative_int_or_none(summary.get("tokens_cached_input")),
-        _nonnegative_int_or_none(summary.get("tokens_output")),
-        _nonnegative_int_or_none(summary.get("tokens_reasoning")),
-        _nonnegative_int_or_none(summary.get("tokens_total")),
-    )
+    for telemetry_path in _line_role_telemetry_candidate_paths(payload):
+        try:
+            telemetry_payload = json.loads(telemetry_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(telemetry_payload, dict):
+            continue
+        summary = telemetry_payload.get("summary")
+        direct_tokens = (
+            _nonnegative_int_or_none(summary.get("tokens_input"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int_or_none(summary.get("tokens_cached_input"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int_or_none(summary.get("tokens_output"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int_or_none(summary.get("tokens_reasoning"))
+            if isinstance(summary, dict)
+            else None,
+            _nonnegative_int_or_none(summary.get("tokens_total"))
+            if isinstance(summary, dict)
+            else None,
+        )
+        nested_summaries = _line_role_token_summaries_from_attempts(telemetry_payload)
+        fallback_tokens = _token_usage_from_summary_payloads(nested_summaries)
+        resolved_tokens = tuple(
+            direct if direct is not None else fallback
+            for direct, fallback in zip(direct_tokens, fallback_tokens)
+        )
+        if any(value is not None for value in resolved_tokens):
+            return resolved_tokens
+    return (None, None, None, None, None)
+
+
+def _line_role_telemetry_candidate_paths(payload: dict[str, Any]) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _append_candidate(raw_path: Any) -> None:
+        text = str(raw_path or "").strip()
+        if not text:
+            return
+        candidate = Path(text)
+        if candidate in seen:
+            return
+        seen.add(candidate)
+        candidates.append(candidate)
+
+    _append_candidate(payload.get("line_role_pipeline_telemetry_path"))
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, dict):
+        _append_candidate(artifacts.get("line_role_pipeline_telemetry_json"))
+    for root_key in ("processed_run_root", "stage_run_root"):
+        root_value = str(payload.get(root_key) or "").strip()
+        if not root_value:
+            continue
+        _append_candidate(Path(root_value) / "line-role-pipeline" / "telemetry_summary.json")
+    return [candidate for candidate in candidates if candidate.is_file()]
 
 
 def _sum_token_usage(

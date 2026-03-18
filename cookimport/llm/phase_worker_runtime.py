@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
+
+from cookimport.core.progress_messages import format_stage_counter_progress
 
 from .codex_farm_runner import (
     CODEX_FARM_RUNTIME_MODE_CLASSIC_TASK_FARM_V1,
@@ -69,6 +72,13 @@ class WorkerExecutionReportV1:
     runtime_mode_audit: dict[str, Any] | None = None
     runner_result: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class WorkerAssignmentResultV1:
+    report: WorkerExecutionReportV1
+    proposals: tuple[ShardProposalV1, ...]
+    failures: tuple[dict[str, Any], ...]
 
 
 ProposalValidatorV1 = Callable[
@@ -148,6 +158,23 @@ def _default_validate_proposal(
     }
 
 
+def _phase_progress_stage_label(value: str | None, *, fallback: str) -> str:
+    cleaned = str(value or "").strip()
+    if cleaned:
+        return cleaned
+    return fallback.replace("_", " ").strip() or "phase work"
+
+
+def _phase_progress_task_label(shard_ids: Sequence[str]) -> str:
+    if not shard_ids:
+        return "[idle]"
+    first = str(shard_ids[0]).strip() or "[unknown shard]"
+    remaining = max(0, len(shard_ids) - 1)
+    if remaining <= 0:
+        return first
+    return f"{first} (+{remaining} more)"
+
+
 def _assign_workers(
     *,
     run_root: Path,
@@ -171,6 +198,148 @@ def _assign_workers(
     ]
 
 
+def _run_worker_assignment_v1(
+    *,
+    run_root: Path,
+    assignment: WorkerAssignmentV1,
+    artifacts: Mapping[str, str],
+    shard_by_id: Mapping[str, ShardManifestEntryV1],
+    runner: CodexFarmRunner,
+    pipeline_id: str,
+    root_dir: Path | None,
+    env: Mapping[str, str] | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    runtime_mode: str,
+    process_worker_count: int | None,
+    validator: ProposalValidatorV1,
+) -> WorkerAssignmentResultV1:
+    worker_root = Path(assignment.workspace_root)
+    sandbox_root = worker_root / "sandbox"
+    in_dir = worker_root / "in"
+    out_dir = worker_root / "out"
+    logs_dir = worker_root / "logs"
+    sandbox_root.mkdir(parents=True, exist_ok=True)
+    in_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
+    _write_json(
+        worker_root / "assigned_shards.json",
+        [asdict(shard) for shard in assigned_shards],
+    )
+    for shard in assigned_shards:
+        _write_worker_input(
+            in_dir / f"{shard.shard_id}.json",
+            payload=shard.input_payload,
+            input_text=shard.input_text,
+        )
+
+    runner_result = runner.run_pipeline(
+        pipeline_id,
+        in_dir,
+        out_dir,
+        dict(env or {}),
+        root_dir=root_dir,
+        workspace_root=worker_root,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        runtime_mode=runtime_mode,
+        process_worker_count=process_worker_count,
+    )
+    runner_payload = as_pipeline_run_result_payload(runner_result)
+    _write_json(worker_root / "status.json", runner_payload or {})
+
+    worker_failures: list[dict[str, Any]] = []
+    worker_proposals: list[ShardProposalV1] = []
+    worker_failure_count = 0
+    worker_proposal_count = 0
+    for shard in assigned_shards:
+        out_path = out_dir / f"{shard.shard_id}.json"
+        if not out_path.exists():
+            worker_failure_count += 1
+            failure = {
+                "worker_id": assignment.worker_id,
+                "shard_id": shard.shard_id,
+                "reason": "missing_output_file",
+                "expected_output_path": _relative_path(run_root, out_path),
+            }
+            worker_failures.append(failure)
+            worker_proposals.append(
+                ShardProposalV1(
+                    shard_id=shard.shard_id,
+                    worker_id=assignment.worker_id,
+                    status="missing_output",
+                    proposal_path=None,
+                    validation_errors=("missing_output_file",),
+                )
+            )
+            continue
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        valid, validation_errors, validation_metadata = validator(shard, payload)
+        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        _write_json(
+            proposal_path,
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": assignment.worker_id,
+                "payload": payload,
+                "validation_errors": list(validation_errors),
+                "validation_metadata": dict(validation_metadata or {}),
+            },
+        )
+        proposal_status = "validated" if valid else "invalid"
+        if not valid:
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": "proposal_validation_failed",
+                    "validation_errors": list(validation_errors),
+                }
+            )
+        else:
+            worker_proposal_count += 1
+        worker_proposals.append(
+            ShardProposalV1(
+                shard_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                status=proposal_status,
+                proposal_path=_relative_path(run_root, proposal_path),
+                payload=payload,
+                validation_errors=tuple(str(item) for item in validation_errors),
+                metadata=dict(validation_metadata or {}),
+            )
+        )
+
+    return WorkerAssignmentResultV1(
+        report=WorkerExecutionReportV1(
+            worker_id=assignment.worker_id,
+            shard_ids=assignment.shard_ids,
+            workspace_root=_relative_path(run_root, worker_root),
+            status="ok" if worker_failure_count == 0 else "partial_failure",
+            proposal_count=worker_proposal_count,
+            failure_count=worker_failure_count,
+            runtime_mode_audit=(
+                dict(runner_payload.get("runtime_mode_audit") or {})
+                if isinstance(runner_payload, dict)
+                else None
+            ),
+            runner_result=runner_payload,
+            metadata={
+                "sandbox_root": _relative_path(run_root, sandbox_root),
+                "in_dir": _relative_path(run_root, in_dir),
+                "out_dir": _relative_path(run_root, out_dir),
+                "log_dir": _relative_path(run_root, logs_dir),
+            },
+        ),
+        proposals=tuple(worker_proposals),
+        failures=tuple(worker_failures),
+    )
+
+
 def run_phase_workers_v1(
     *,
     phase_key: str,
@@ -189,6 +358,9 @@ def run_phase_workers_v1(
     proposal_validator: ProposalValidatorV1 | None = None,
     settings: Mapping[str, Any] | None = None,
     runtime_metadata: Mapping[str, Any] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+    progress_message_prefix: str | None = None,
+    progress_stage_label: str | None = None,
 ) -> tuple[PhaseManifestV1, list[WorkerExecutionReportV1]]:
     run_root = run_root.resolve()
     run_root.mkdir(parents=True, exist_ok=True)
@@ -218,128 +390,87 @@ def run_phase_workers_v1(
     all_proposals: list[ShardProposalV1] = []
     worker_reports: list[WorkerExecutionReportV1] = []
     failures: list[dict[str, Any]] = []
+    total_shards = len(shards)
+    displayed_worker_total = len(assignments)
+    pending_shards_by_worker = {
+        assignment.worker_id: list(assignment.shard_ids)
+        for assignment in assignments
+    }
+    completed_shards = 0
 
-    for assignment in assignments:
-        worker_root = Path(assignment.workspace_root)
-        sandbox_root = worker_root / "sandbox"
-        in_dir = worker_root / "in"
-        out_dir = worker_root / "out"
-        logs_dir = worker_root / "logs"
-        sandbox_root.mkdir(parents=True, exist_ok=True)
-        in_dir.mkdir(parents=True, exist_ok=True)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir.mkdir(parents=True, exist_ok=True)
-
-        assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
-        _write_json(
-            worker_root / "assigned_shards.json",
-            [asdict(shard) for shard in assigned_shards],
-        )
-        for shard in assigned_shards:
-            _write_worker_input(
-                in_dir / f"{shard.shard_id}.json",
-                payload=shard.input_payload,
-                input_text=shard.input_text,
-            )
-
-        runner_result = runner.run_pipeline(
-            pipeline_id,
-            in_dir,
-            out_dir,
-            dict(env or {}),
-            root_dir=root_dir,
-            workspace_root=worker_root,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            runtime_mode=runtime_mode,
-            process_worker_count=process_worker_count,
-        )
-        runner_payload = as_pipeline_run_result_payload(runner_result)
-        _write_json(worker_root / "status.json", runner_payload or {})
-
-        worker_failure_count = 0
-        worker_proposal_count = 0
-        for shard in assigned_shards:
-            out_path = out_dir / f"{shard.shard_id}.json"
-            if not out_path.exists():
-                worker_failure_count += 1
-                failure = {
-                    "worker_id": assignment.worker_id,
-                    "shard_id": shard.shard_id,
-                    "reason": "missing_output_file",
-                    "expected_output_path": _relative_path(run_root, out_path),
-                }
-                failures.append(failure)
-                all_proposals.append(
-                    ShardProposalV1(
-                        shard_id=shard.shard_id,
-                        worker_id=assignment.worker_id,
-                        status="missing_output",
-                        proposal_path=None,
-                        validation_errors=("missing_output_file",),
-                    )
-                )
-                continue
-            payload = json.loads(out_path.read_text(encoding="utf-8"))
-            valid, validation_errors, validation_metadata = validator(shard, payload)
-            proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
-            _write_json(
-                proposal_path,
-                {
-                    "shard_id": shard.shard_id,
-                    "worker_id": assignment.worker_id,
-                    "payload": payload,
-                    "validation_errors": list(validation_errors),
-                    "validation_metadata": dict(validation_metadata or {}),
-                },
-            )
-            proposal_status = "validated" if valid else "invalid"
-            if not valid:
-                worker_failure_count += 1
-                failures.append(
-                    {
-                        "worker_id": assignment.worker_id,
-                        "shard_id": shard.shard_id,
-                        "reason": "proposal_validation_failed",
-                        "validation_errors": list(validation_errors),
-                    }
-                )
-            else:
-                worker_proposal_count += 1
-            all_proposals.append(
-                ShardProposalV1(
-                    shard_id=shard.shard_id,
-                    worker_id=assignment.worker_id,
-                    status=proposal_status,
-                    proposal_path=_relative_path(run_root, proposal_path),
-                    payload=payload,
-                    validation_errors=tuple(str(item) for item in validation_errors),
-                    metadata=dict(validation_metadata or {}),
-                )
-            )
-
-        worker_reports.append(
-            WorkerExecutionReportV1(
-                worker_id=assignment.worker_id,
-                shard_ids=assignment.shard_ids,
-                workspace_root=_relative_path(run_root, worker_root),
-                status="ok" if worker_failure_count == 0 else "partial_failure",
-                proposal_count=worker_proposal_count,
-                failure_count=worker_failure_count,
-                runtime_mode_audit=(
-                    dict(runner_payload.get("runtime_mode_audit") or {})
-                    if isinstance(runner_payload, dict)
-                    else None
+    def _emit_progress() -> None:
+        if progress_callback is None or total_shards <= 0:
+            return
+        active_tasks = [
+            _phase_progress_task_label(pending)
+            for assignment in assignments
+            for pending in [pending_shards_by_worker.get(assignment.worker_id) or []]
+            if pending
+        ]
+        running_workers = len(active_tasks)
+        detail_lines = [
+            f"configured workers: {displayed_worker_total}",
+            f"queued shards: {max(0, total_shards - completed_shards)}",
+        ]
+        progress_callback(
+            format_stage_counter_progress(
+                str(progress_message_prefix or "Running phase workers...").strip(),
+                completed_shards,
+                total_shards,
+                stage_label=_phase_progress_stage_label(
+                    progress_stage_label,
+                    fallback=phase_key,
                 ),
-                runner_result=runner_payload,
-                metadata={
-                    "sandbox_root": _relative_path(run_root, sandbox_root),
-                    "in_dir": _relative_path(run_root, in_dir),
-                    "out_dir": _relative_path(run_root, out_dir),
-                    "log_dir": _relative_path(run_root, logs_dir),
-                },
+                running_workers=running_workers,
+                worker_total=displayed_worker_total,
+                active_tasks=active_tasks if active_tasks else [],
+                detail_lines=detail_lines,
             )
         )
+
+    _emit_progress()
+
+    if assignments:
+        with ThreadPoolExecutor(
+            max_workers=len(assignments),
+            thread_name_prefix="phase-worker",
+        ) as executor:
+            futures = {
+                executor.submit(
+                    _run_worker_assignment_v1,
+                    run_root=run_root,
+                    assignment=assignment,
+                    artifacts=artifacts,
+                    shard_by_id=shard_by_id,
+                    runner=runner,
+                    pipeline_id=pipeline_id,
+                    root_dir=root_dir,
+                    env=env,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    runtime_mode=runtime_mode,
+                    process_worker_count=process_worker_count,
+                    validator=validator,
+                ): assignment
+                for assignment in assignments
+            }
+            reports_by_worker_id: dict[str, WorkerExecutionReportV1] = {}
+            proposals_by_worker_id: dict[str, tuple[ShardProposalV1, ...]] = {}
+            failures_by_worker_id: dict[str, tuple[dict[str, Any], ...]] = {}
+            for future in as_completed(futures):
+                assignment = futures[future]
+                result = future.result()
+                reports_by_worker_id[assignment.worker_id] = result.report
+                proposals_by_worker_id[assignment.worker_id] = result.proposals
+                failures_by_worker_id[assignment.worker_id] = result.failures
+                completed_shards += len(assignment.shard_ids)
+                pending_shards_by_worker[assignment.worker_id] = []
+                _emit_progress()
+            for assignment in assignments:
+                result_report = reports_by_worker_id[assignment.worker_id]
+                worker_reports.append(result_report)
+                all_proposals.extend(proposals_by_worker_id[assignment.worker_id])
+                failures.extend(failures_by_worker_id[assignment.worker_id])
 
     promotion_report = {
         "schema_version": "phase_worker_runtime.promotion_report.v1",

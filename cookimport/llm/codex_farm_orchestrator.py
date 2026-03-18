@@ -787,6 +787,9 @@ def _run_single_correction_recipe_pipeline(
                 "workbook_slug": workbook_slug,
                 "compatibility_recipe_artifacts_dir": str(correction_stage_dir),
             },
+            progress_callback=progress_callback,
+            progress_message_prefix="Running codex-farm recipe pipeline...",
+            progress_stage_label="recipe pipeline",
         )
         phase_manifest_payload = json.loads(
             (phase_runtime_dir / "phase_manifest.json").read_text(encoding="utf-8")

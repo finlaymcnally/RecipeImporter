@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Sequence
@@ -18,6 +20,7 @@ from cookimport.config.run_settings import (
     RunSettings,
     normalize_line_role_pipeline_value,
 )
+from cookimport.core.progress_messages import format_stage_progress
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
     FREEFORM_LABELS,
@@ -313,6 +316,15 @@ class _LineRoleRuntimeResult:
     invalid_shard_count: int
     missing_output_shard_count: int
     runtime_root: Path | None
+
+
+@dataclass(frozen=True)
+class _DirectLineRoleWorkerResult:
+    report: WorkerExecutionReportV1
+    proposals: tuple[ShardProposalV1, ...]
+    failures: tuple[dict[str, Any], ...]
+    stage_rows: tuple[dict[str, Any], ...]
+    runner_results_by_shard_id: dict[str, dict[str, Any]]
 
 
 def _label_atomic_lines_internal(
@@ -871,6 +883,7 @@ def _run_line_role_shard_runtime(
         completed_tasks=0,
         total_tasks=total_shards,
         running_tasks=min(worker_count, total_shards),
+        worker_total=worker_count,
     )
     runtime_root = (
         artifact_root / "line-role-pipeline" / "runtime"
@@ -918,6 +931,7 @@ def _run_line_role_shard_runtime(
             completed_tasks=total_shards,
             total_tasks=total_shards,
             running_tasks=0,
+            worker_total=worker_count,
         )
 
     predictions_by_atomic_index: dict[int, CanonicalLineRolePrediction] = {}
@@ -1047,6 +1061,7 @@ def _notify_line_role_progress(
     completed_tasks: int,
     total_tasks: int,
     running_tasks: int | None = None,
+    worker_total: int | None = None,
 ) -> None:
     if progress_callback is None:
         return
@@ -1056,7 +1071,23 @@ def _notify_line_role_progress(
     if running_tasks is not None:
         running = max(0, int(running_tasks))
         message = f"{message} | running {running}"
-    progress_callback(message)
+    remaining = max(0, total - completed)
+    detail_lines = [
+        f"queued shards: {remaining}",
+    ]
+    if worker_total is not None:
+        detail_lines.insert(0, f"configured workers: {max(0, int(worker_total))}")
+    progress_callback(
+        format_stage_progress(
+            message,
+            stage_label="canonical line-role pipeline",
+            task_current=completed,
+            task_total=total,
+            running_workers=running_tasks,
+            worker_total=worker_total,
+            detail_lines=detail_lines,
+        )
+    )
 
 
 def _line_role_progress_interval(total_tasks: int) -> int:
@@ -1126,6 +1157,241 @@ def _looks_like_codex_exec_command(command_text: str) -> bool:
     return executable in _CODEX_EXECUTABLES
 
 
+def _run_line_role_direct_worker_assignment_v1(
+    *,
+    run_root: Path,
+    assignment: WorkerAssignmentV1,
+    artifacts: dict[str, str],
+    shard_by_id: dict[str, ShardManifestEntryV1],
+    runner: CodexExecRunner,
+    pipeline_id: str,
+    env: dict[str, str],
+    model: str | None,
+    reasoning_effort: str | None,
+    output_schema_path: Path | None,
+    timeout_seconds: int,
+    shard_completed_callback: Callable[..., None] | None,
+) -> _DirectLineRoleWorkerResult:
+    worker_root = Path(assignment.workspace_root)
+    in_dir = worker_root / "in"
+    shard_dir = worker_root / "shards"
+    logs_dir = worker_root / "logs"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
+    _write_runtime_json(
+        worker_root / "assigned_shards.json",
+        [_line_role_asdict(shard) for shard in assigned_shards],
+    )
+
+    worker_failure_count = 0
+    worker_proposal_count = 0
+    worker_runner_results: list[dict[str, Any]] = []
+    worker_failures: list[dict[str, Any]] = []
+    worker_proposals: list[ShardProposalV1] = []
+    stage_rows: list[dict[str, Any]] = []
+    runner_results_by_shard_id: dict[str, dict[str, Any]] = {}
+
+    for shard in assigned_shards:
+        input_path = in_dir / f"{shard.shard_id}.json"
+        _write_worker_debug_input(
+            path=input_path,
+            payload=shard.input_payload,
+            input_text=None,
+        )
+        shard_root = shard_dir / shard.shard_id
+        shard_root.mkdir(parents=True, exist_ok=True)
+        prompt_text = str(shard.input_text or "")
+        (shard_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
+
+        try:
+            run_result = runner.run_structured_prompt(
+                prompt_text=prompt_text,
+                input_payload=_coerce_mapping_dict(shard.input_payload),
+                working_dir=worker_root,
+                env=env,
+                output_schema_path=output_schema_path,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                timeout_seconds=timeout_seconds,
+            )
+        except CodexFarmRunnerError as exc:
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": "runner_failed",
+                    "error": str(exc),
+                }
+            )
+            worker_proposals.append(
+                ShardProposalV1(
+                    shard_id=shard.shard_id,
+                    worker_id=assignment.worker_id,
+                    status="missing_output",
+                    proposal_path=None,
+                    validation_errors=("runner_failed",),
+                    metadata={"error": str(exc)},
+                )
+            )
+            _write_runtime_json(
+                shard_root / "status.json",
+                {
+                    "status": "runner_failed",
+                    "error": str(exc),
+                    "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                },
+            )
+            if shard_completed_callback is not None:
+                shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+            continue
+
+        runner_payload = _build_line_role_runner_payload(
+            pipeline_id=pipeline_id,
+            worker_id=assignment.worker_id,
+            shard_id=shard.shard_id,
+            run_result=run_result,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        runner_results_by_shard_id[shard.shard_id] = dict(runner_payload)
+        worker_runner_results.append(dict(runner_payload))
+        telemetry = runner_payload.get("telemetry")
+        row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+        if isinstance(row_payloads, list):
+            for row_payload in row_payloads:
+                if isinstance(row_payload, dict):
+                    stage_rows.append(dict(row_payload))
+        (shard_root / "events.jsonl").write_text(
+            _render_codex_events_jsonl(run_result.events),
+            encoding="utf-8",
+        )
+        _write_runtime_json(shard_root / "last_message.json", {"text": run_result.response_text})
+        _write_runtime_json(shard_root / "usage.json", dict(run_result.usage or {}))
+
+        payload: dict[str, Any] | None = None
+        validation_errors: tuple[str, ...] = ()
+        validation_metadata: dict[str, Any] = {}
+        proposal_status = "validated"
+        response_text = str(run_result.response_text or "").strip()
+        if not response_text:
+            validation_errors = ("missing_output_file",)
+            proposal_status = "missing_output"
+        else:
+            try:
+                parsed_payload = json.loads(response_text)
+            except json.JSONDecodeError as exc:
+                validation_errors = ("response_json_invalid",)
+                validation_metadata = {"parse_error": str(exc)}
+                proposal_status = "invalid"
+            else:
+                if isinstance(parsed_payload, dict):
+                    payload = parsed_payload
+                    valid, validation_errors, validation_metadata = _validate_line_role_shard_proposal(
+                        shard,
+                        parsed_payload,
+                    )
+                    proposal_status = "validated" if valid else "invalid"
+                else:
+                    validation_errors = ("response_not_json_object",)
+                    validation_metadata = {"response_type": type(parsed_payload).__name__}
+                    proposal_status = "invalid"
+
+        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        wrapper_payload = {
+            "shard_id": shard.shard_id,
+            "worker_id": assignment.worker_id,
+            "payload": payload,
+            "validation_errors": list(validation_errors),
+            "validation_metadata": dict(validation_metadata or {}),
+        }
+        _write_runtime_json(proposal_path, wrapper_payload)
+        _write_runtime_json(
+            shard_root / "proposal.json",
+            payload
+            if payload is not None
+            else {
+                "error": proposal_status,
+                "validation_errors": list(validation_errors),
+                "validation_metadata": dict(validation_metadata or {}),
+            },
+        )
+        _write_runtime_json(
+            shard_root / "status.json",
+            {
+                "status": proposal_status,
+                "validation_errors": list(validation_errors),
+                "validation_metadata": dict(validation_metadata or {}),
+                "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+            },
+        )
+
+        if proposal_status != "validated":
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": (
+                        "proposal_validation_failed"
+                        if proposal_status == "invalid"
+                        else "missing_output_file"
+                    ),
+                    "validation_errors": list(validation_errors),
+                }
+            )
+        else:
+            worker_proposal_count += 1
+
+        worker_proposals.append(
+            ShardProposalV1(
+                shard_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                status=proposal_status,
+                proposal_path=_relative_runtime_path(run_root, proposal_path),
+                payload=payload,
+                validation_errors=validation_errors,
+                metadata=dict(validation_metadata or {}),
+            )
+        )
+        if shard_completed_callback is not None:
+            shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+
+    worker_runner_payload = _aggregate_line_role_worker_runner_payload(
+        pipeline_id=pipeline_id,
+        worker_runs=worker_runner_results,
+    )
+    _write_runtime_json(worker_root / "status.json", worker_runner_payload)
+    return _DirectLineRoleWorkerResult(
+        report=WorkerExecutionReportV1(
+            worker_id=assignment.worker_id,
+            shard_ids=assignment.shard_ids,
+            workspace_root=_relative_runtime_path(run_root, worker_root),
+            status="ok" if worker_failure_count == 0 else "partial_failure",
+            proposal_count=worker_proposal_count,
+            failure_count=worker_failure_count,
+            runtime_mode_audit={
+                "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "status": "ok",
+                "output_schema_enforced": output_schema_path is not None,
+                "tool_affordances_requested": False,
+            },
+            runner_result=worker_runner_payload,
+            metadata={
+                "in_dir": _relative_runtime_path(run_root, in_dir),
+                "shards_dir": _relative_runtime_path(run_root, shard_dir),
+                "log_dir": _relative_runtime_path(run_root, logs_dir),
+            },
+        ),
+        proposals=tuple(worker_proposals),
+        failures=tuple(worker_failures),
+        stage_rows=tuple(stage_rows),
+        runner_results_by_shard_id=dict(runner_results_by_shard_id),
+    )
+
+
 def _run_line_role_direct_workers_v1(
     *,
     phase_key: str,
@@ -1175,226 +1441,62 @@ def _run_line_role_direct_workers_v1(
     runner_results_by_shard_id: dict[str, dict[str, Any]] = {}
     completed_shards = 0
     total_shards = len(shards)
+    progress_lock = threading.Lock()
+    pending_shards_by_worker = {
+        assignment.worker_id: list(assignment.shard_ids)
+        for assignment in assignments
+    }
 
-    for assignment in assignments:
-        worker_root = Path(assignment.workspace_root)
-        in_dir = worker_root / "in"
-        shard_dir = worker_root / "shards"
-        logs_dir = worker_root / "logs"
-        in_dir.mkdir(parents=True, exist_ok=True)
-        shard_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
-        _write_runtime_json(
-            worker_root / "assigned_shards.json",
-            [_line_role_asdict(shard) for shard in assigned_shards],
-        )
-
-        worker_failure_count = 0
-        worker_proposal_count = 0
-        worker_runner_results: list[dict[str, Any]] = []
-
-        for shard in assigned_shards:
-            input_path = in_dir / f"{shard.shard_id}.json"
-            _write_worker_debug_input(
-                path=input_path,
-                payload=shard.input_payload,
-                input_text=None,
-            )
-            shard_root = shard_dir / shard.shard_id
-            shard_root.mkdir(parents=True, exist_ok=True)
-            prompt_text = str(shard.input_text or "")
-            (shard_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
-
-            try:
-                run_result = runner.run_structured_prompt(
-                    prompt_text=prompt_text,
-                    input_payload=_coerce_mapping_dict(shard.input_payload),
-                    working_dir=worker_root,
-                    env=env,
-                    output_schema_path=output_schema_path,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    timeout_seconds=timeout_seconds,
-                )
-            except CodexFarmRunnerError as exc:
-                worker_failure_count += 1
-                failures.append(
-                    {
-                        "worker_id": assignment.worker_id,
-                        "shard_id": shard.shard_id,
-                        "reason": "runner_failed",
-                        "error": str(exc),
-                    }
-                )
-                all_proposals.append(
-                    ShardProposalV1(
-                        shard_id=shard.shard_id,
-                        worker_id=assignment.worker_id,
-                        status="missing_output",
-                        proposal_path=None,
-                        validation_errors=("runner_failed",),
-                        metadata={"error": str(exc)},
-                    )
-                )
-                _write_runtime_json(
-                    shard_root / "status.json",
-                    {
-                        "status": "runner_failed",
-                        "error": str(exc),
-                        "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
-                    },
-                )
-                completed_shards += 1
-                _notify_line_role_progress(
-                    progress_callback=progress_callback,
-                    completed_tasks=completed_shards,
-                    total_tasks=total_shards,
-                )
-                continue
-
-            runner_payload = _build_line_role_runner_payload(
-                pipeline_id=pipeline_id,
-                worker_id=assignment.worker_id,
-                shard_id=shard.shard_id,
-                run_result=run_result,
-                model=model,
-                reasoning_effort=reasoning_effort,
-            )
-            runner_results_by_shard_id[shard.shard_id] = dict(runner_payload)
-            worker_runner_results.append(dict(runner_payload))
-            telemetry = runner_payload.get("telemetry")
-            row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
-            if isinstance(row_payloads, list):
-                for row_payload in row_payloads:
-                    if isinstance(row_payload, dict):
-                        stage_rows.append(dict(row_payload))
-            (shard_root / "events.jsonl").write_text(
-                _render_codex_events_jsonl(run_result.events),
-                encoding="utf-8",
-            )
-            _write_runtime_json(shard_root / "last_message.json", {"text": run_result.response_text})
-            _write_runtime_json(shard_root / "usage.json", dict(run_result.usage or {}))
-
-            payload: dict[str, Any] | None = None
-            validation_errors: tuple[str, ...] = ()
-            validation_metadata: dict[str, Any] = {}
-            proposal_status = "validated"
-            response_text = str(run_result.response_text or "").strip()
-            if not response_text:
-                validation_errors = ("missing_output_file",)
-                proposal_status = "missing_output"
-            else:
-                try:
-                    parsed_payload = json.loads(response_text)
-                except json.JSONDecodeError as exc:
-                    validation_errors = ("response_json_invalid",)
-                    validation_metadata = {"parse_error": str(exc)}
-                    proposal_status = "invalid"
-                else:
-                    if isinstance(parsed_payload, dict):
-                        payload = parsed_payload
-                        valid, validation_errors, validation_metadata = _validate_line_role_shard_proposal(
-                            shard,
-                            parsed_payload,
-                        )
-                        proposal_status = "validated" if valid else "invalid"
-                    else:
-                        validation_errors = ("response_not_json_object",)
-                        validation_metadata = {"response_type": type(parsed_payload).__name__}
-                        proposal_status = "invalid"
-
-            proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
-            wrapper_payload = {
-                "shard_id": shard.shard_id,
-                "worker_id": assignment.worker_id,
-                "payload": payload,
-                "validation_errors": list(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
-            }
-            _write_runtime_json(proposal_path, wrapper_payload)
-            _write_runtime_json(
-                shard_root / "proposal.json",
-                payload
-                if payload is not None
-                else {
-                    "error": proposal_status,
-                    "validation_errors": list(validation_errors),
-                    "validation_metadata": dict(validation_metadata or {}),
-                },
-            )
-            _write_runtime_json(
-                shard_root / "status.json",
-                {
-                    "status": proposal_status,
-                    "validation_errors": list(validation_errors),
-                    "validation_metadata": dict(validation_metadata or {}),
-                    "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
-                },
-            )
-
-            if proposal_status != "validated":
-                worker_failure_count += 1
-                failures.append(
-                    {
-                        "worker_id": assignment.worker_id,
-                        "shard_id": shard.shard_id,
-                        "reason": (
-                            "proposal_validation_failed"
-                            if proposal_status == "invalid"
-                            else "missing_output_file"
-                        ),
-                        "validation_errors": list(validation_errors),
-                    }
-                )
-            else:
-                worker_proposal_count += 1
-
-            all_proposals.append(
-                ShardProposalV1(
-                    shard_id=shard.shard_id,
-                    worker_id=assignment.worker_id,
-                    status=proposal_status,
-                    proposal_path=_relative_runtime_path(run_root, proposal_path),
-                    payload=payload,
-                    validation_errors=validation_errors,
-                    metadata=dict(validation_metadata or {}),
-                )
-            )
+    def _mark_shard_completed(*, worker_id: str, shard_id: str) -> None:
+        nonlocal completed_shards
+        with progress_lock:
+            pending = pending_shards_by_worker.get(worker_id) or []
+            if shard_id in pending:
+                pending.remove(shard_id)
             completed_shards += 1
+            remaining = max(0, total_shards - completed_shards)
+            active_tasks: list[str] = []
+            for next_assignment in assignments:
+                worker_pending = pending_shards_by_worker.get(next_assignment.worker_id) or []
+                if worker_pending:
+                    active_tasks.append(worker_pending[0])
             _notify_line_role_progress(
                 progress_callback=progress_callback,
                 completed_tasks=completed_shards,
                 total_tasks=total_shards,
+                running_tasks=min(len(active_tasks), remaining),
+                worker_total=worker_count,
             )
 
-        worker_runner_payload = _aggregate_line_role_worker_runner_payload(
-            pipeline_id=pipeline_id,
-            worker_runs=worker_runner_results,
-        )
-        _write_runtime_json(worker_root / "status.json", worker_runner_payload)
-        worker_reports.append(
-            WorkerExecutionReportV1(
-                worker_id=assignment.worker_id,
-                shard_ids=assignment.shard_ids,
-                workspace_root=_relative_runtime_path(run_root, worker_root),
-                status="ok" if worker_failure_count == 0 else "partial_failure",
-                proposal_count=worker_proposal_count,
-                failure_count=worker_failure_count,
-                runtime_mode_audit={
-                    "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
-                    "status": "ok",
-                    "output_schema_enforced": output_schema_path is not None,
-                    "tool_affordances_requested": False,
-                },
-                runner_result=worker_runner_payload,
-                metadata={
-                    "in_dir": _relative_runtime_path(run_root, in_dir),
-                    "shards_dir": _relative_runtime_path(run_root, shard_dir),
-                    "log_dir": _relative_runtime_path(run_root, logs_dir),
-                },
+    with ThreadPoolExecutor(
+        max_workers=max(1, len(assignments)),
+        thread_name_prefix="line-role-worker",
+    ) as executor:
+        futures_by_worker_id = {
+            assignment.worker_id: executor.submit(
+                _run_line_role_direct_worker_assignment_v1,
+                run_root=run_root,
+                assignment=assignment,
+                artifacts=artifacts,
+                shard_by_id=shard_by_id,
+                runner=runner,
+                pipeline_id=pipeline_id,
+                env=env,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                output_schema_path=output_schema_path,
+                timeout_seconds=timeout_seconds,
+                shard_completed_callback=_mark_shard_completed,
             )
-        )
+            for assignment in assignments
+        }
+        for assignment in assignments:
+            result = futures_by_worker_id[assignment.worker_id].result()
+            worker_reports.append(result.report)
+            all_proposals.extend(result.proposals)
+            failures.extend(result.failures)
+            stage_rows.extend(result.stage_rows)
+            runner_results_by_shard_id.update(result.runner_results_by_shard_id)
 
     promotion_report = {
         "schema_version": "phase_worker_runtime.promotion_report.v1",
@@ -2113,6 +2215,25 @@ def _deterministic_label(
                 "knowledge_context",
             ]
         return "OTHER", ["outside_recipe_span", "prose_default_other"]
+    if (
+        candidate.within_recipe_span is None
+        and _looks_prose(candidate.text)
+        and "ingredient_like" not in tags
+        and "yield_prefix" not in tags
+        and "howto_heading" not in tags
+    ):
+        if _looks_narrative_prose(candidate.text):
+            return "OTHER", ["unknown_recipe_span", "narrative_default_other"]
+        if _looks_knowledge_prose_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            return "KNOWLEDGE", [
+                "unknown_recipe_span",
+                "prose_like",
+                "knowledge_context",
+            ]
+        return "OTHER", ["unknown_recipe_span", "prose_default_other"]
     if "yield_prefix" in tags:
         return "YIELD_LINE", ["yield_prefix"]
     if "howto_heading" in tags:
@@ -2178,6 +2299,11 @@ def _deterministic_label(
                 ]
             return "OTHER", ["outside_recipe_span", "prose_default_other"]
         return "OTHER", ["outside_recipe_span"]
+    if candidate.within_recipe_span is None and _looks_knowledge_heading_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "KNOWLEDGE", ["unknown_recipe_span", "knowledge_heading_context"]
     if (
         "title_like" in tags or _looks_recipe_title(candidate.text)
     ) and _looks_recipe_title_with_context(

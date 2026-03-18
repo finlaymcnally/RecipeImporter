@@ -160,6 +160,16 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
             "line_role_pipeline": "off",
         },
     }
+    deterministic_line_role_official = {
+        "artifact_dir": (
+            "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
+            "single-offline-benchmark/my-book/vanilla"
+        ),
+        "run_config": {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "deterministic-v1",
+        },
+    }
     full_stack_official = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
@@ -211,6 +221,11 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     assert engine.ai_assistance_profile_for_record(deterministic_official) == "deterministic"
     assert engine.ai_effort_label_for_record(deterministic_official) == "AI off"
     assert engine.previous_runs_field_value(deterministic_official, "ai_effort") == "AI off"
+    assert engine.benchmark_variant_for_record(deterministic_line_role_official) == "vanilla"
+    assert (
+        engine.ai_assistance_profile_for_record(deterministic_line_role_official)
+        == "deterministic"
+    )
 
     assert engine.benchmark_variant_for_record(full_stack_official) == "codexfarm"
     assert engine.ai_assistance_profile_for_record(full_stack_official) == "full_stack"
