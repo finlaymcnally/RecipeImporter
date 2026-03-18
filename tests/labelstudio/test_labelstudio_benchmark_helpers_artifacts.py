@@ -305,7 +305,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     combined = log_path.read_text(encoding="utf-8")
     assert "INPUT recipe_llm_correct_and_link => r0000.json" in combined
     recipe_path = eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt"
-    knowledge_path = eval_output_dir / "prompts" / "prompt_extract_knowledge_optional.txt"
+    knowledge_path = eval_output_dir / "prompts" / "prompt_nonrecipe_knowledge_review.txt"
     for category_path in (recipe_path, knowledge_path):
         assert category_path.exists()
 
@@ -332,7 +332,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert len(full_prompt_rows) == 2
     assert {str(row.get("stage_key") or "") for row in full_prompt_rows} == {
         "recipe_llm_correct_and_link",
-        "extract_knowledge_optional",
+        "nonrecipe_knowledge_review",
     }
     correction_row = next(
         row
@@ -380,7 +380,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
-    assert "## extract_knowledge_optional (Non-Recipe Knowledge Review)" in prompt_samples
+    assert "## nonrecipe_knowledge_review (Non-Recipe Knowledge Review)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
     assert "Thinking Trace:" in prompt_samples
@@ -462,7 +462,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     )
     assert log_path is not None and log_path.exists()
     assert (eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_extract_knowledge_optional.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_nonrecipe_knowledge_review.txt").exists()
     assert not (eval_output_dir / "prompts" / "prompt_tags.txt").exists()
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     full_prompt_rows = [
@@ -480,7 +480,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
-    assert "## extract_knowledge_optional (Non-Recipe Knowledge Review)" in prompt_samples
+    assert "## nonrecipe_knowledge_review (Non-Recipe Knowledge Review)" in prompt_samples
     assert "_No rows captured for this stage._" in prompt_samples
 
 

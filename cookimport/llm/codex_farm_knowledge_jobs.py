@@ -50,10 +50,6 @@ class KnowledgeJobBuildReport:
     skipped_lane_counts: dict[str, int]
     shard_entries: list[ShardManifestEntryV1]
 
-    @property
-    def jobs_written(self) -> int:
-        return self.shards_written
-
 
 @dataclass(frozen=True, slots=True)
 class _PreparedKnowledgeBundleChunk:

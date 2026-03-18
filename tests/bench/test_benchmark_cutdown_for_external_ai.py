@@ -259,7 +259,7 @@ def _write_knowledge_artifacts(
         + "\n",
         encoding="utf-8",
     )
-    (prompts_dir / "prompt_extract_knowledge_optional.txt").write_text(
+    (prompts_dir / "prompt_nonrecipe_knowledge_review.txt").write_text(
         "knowledge raw prompt body\n",
         encoding="utf-8",
     )
@@ -291,7 +291,7 @@ def _write_knowledge_artifacts(
                         "pipeline": "codex-knowledge-shard-v1",
                         "pipeline_id": "recipe.knowledge.compact.v1",
                         "counts": {
-                            "jobs_written": knowledge_call_count,
+                            "shards_written": knowledge_call_count,
                             "outputs_parsed": knowledge_call_count,
                             "snippets_written": knowledge_call_count * 2,
                         },
@@ -319,7 +319,7 @@ def _write_knowledge_artifacts(
             {
                 "pipeline_id": "recipe.knowledge.compact.v1",
                 "counts": {
-                    "jobs_written": knowledge_call_count,
+                    "shards_written": knowledge_call_count,
                     "outputs_parsed": knowledge_call_count,
                     "snippets_written": knowledge_call_count * 2,
                 },
@@ -339,7 +339,7 @@ def _write_processed_output_knowledge_artifacts(
         {
             "enabled": True,
             "counts": {
-                "jobs_written": knowledge_call_count,
+                "shards_written": knowledge_call_count,
                 "outputs_parsed": knowledge_call_count,
                 "snippets_written": knowledge_call_count * 2,
             },
@@ -350,7 +350,7 @@ def _write_processed_output_knowledge_artifacts(
         {
             "pipeline_id": "recipe.knowledge.compact.v1",
             "counts": {
-                "jobs_written": knowledge_call_count,
+                "shards_written": knowledge_call_count,
                 "outputs_parsed": knowledge_call_count,
                 "snippets_written": knowledge_call_count * 2,
             },
@@ -2536,7 +2536,7 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
     assert locator_row["prompt_knowledge_txt"]["path"].endswith(
-        "prompts/prompt_extract_knowledge_optional.txt"
+        "prompts/prompt_nonrecipe_knowledge_review.txt"
     )
     assert locator_row["knowledge_manifest_json"]["path"].endswith(
         "prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
@@ -2609,7 +2609,7 @@ def test_build_upload_bundle_discovers_current_single_offline_knowledge_layout(
         row for row in knowledge_summary["rows"] if str(row.get("run_id") or "") == codex_run_id
     )
     assert codex_row["knowledge_call_count"] == 4
-    assert codex_row["jobs_written"] == 4
+    assert codex_row["shards_written"] == 4
     assert codex_row["outputs_parsed"] == 4
     assert codex_row["snippets_written"] == 8
     assert codex_row["prompt_samples_status"] == "written"
@@ -2640,7 +2640,7 @@ def test_build_upload_bundle_discovers_current_single_offline_knowledge_layout(
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
     assert codex_locator_row["prompt_knowledge_txt"]["path"].endswith(
-        "prompts/prompt_extract_knowledge_optional.txt"
+        "prompts/prompt_nonrecipe_knowledge_review.txt"
     )
     assert codex_locator_row["prompt_budget_summary_json"]["path"].endswith(
         "codexfarm/prompt_budget_summary.json"
@@ -2675,7 +2675,7 @@ def test_resolve_knowledge_prompt_path_supports_dynamic_stage_file_names(
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
 
-    dynamic_path = prompts_dir / "prompt_extract_knowledge_optional_stage.txt"
+    dynamic_path = prompts_dir / "prompt_nonrecipe_knowledge_review_stage.txt"
     dynamic_path.write_text("dynamic knowledge content\n", encoding="utf-8")
     (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
         str(dynamic_path) + "\n",
@@ -2716,7 +2716,7 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
     rows = _read_jsonl(output_path)
     assert len(rows) == 1
     row = rows[0]
-    assert row["stage_key"] == "extract_knowledge_optional"
+    assert row["stage_key"] == "nonrecipe_knowledge_review"
     assert row["pipeline_id"] == "recipe.knowledge.compact.v1"
     assert row["process_run_id"] == "run-knowledge-reconstruct"
     assert row["recipe_id"] is None
@@ -2803,7 +2803,7 @@ def test_build_upload_bundle_high_level_includes_lightweight_knowledge_artifacts
         f"{run_id}/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
         in artifact_paths
     )
-    assert f"{run_id}/prompts/prompt_extract_knowledge_optional.txt" not in artifact_paths
+    assert f"{run_id}/prompts/prompt_nonrecipe_knowledge_review.txt" not in artifact_paths
 
     knowledge_summary = index_payload["analysis"]["knowledge"]["rows"][0]
     assert knowledge_summary["prompt_samples_in_bundle"] is True

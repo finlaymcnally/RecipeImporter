@@ -24,7 +24,7 @@ _BREAKDOWN_KEYS = (
 
 _PREVIEW_STAGE_LABELS = {
     "recipe_llm_correct_and_link": "Recipe Correction",
-    "extract_knowledge_optional": "Non-Recipe Knowledge Review",
+    "nonrecipe_knowledge_review": "Non-Recipe Knowledge Review",
     "line_role": "Line Role",
 }
 
@@ -728,7 +728,7 @@ def _surface_key_for_stage(stage_key: str) -> str | None:
     normalized = str(stage_key or "").strip()
     if normalized in {"recipe_correction", "recipe_llm_correct_and_link"}:
         return "recipe"
-    if normalized in {"knowledge", "extract_knowledge_optional"}:
+    if normalized in {"knowledge", "nonrecipe_knowledge_review"}:
         return "knowledge"
     if normalized == "line_role" or normalized.startswith("line_role_"):
         return "line_role"
@@ -1494,7 +1494,7 @@ def _build_prompt_preview_budget_warnings(
             }
         )
 
-    knowledge_stage = by_stage.get("extract_knowledge_optional")
+    knowledge_stage = by_stage.get("nonrecipe_knowledge_review")
     if isinstance(knowledge_stage, Mapping):
         knowledge_calls = _nonnegative_int(knowledge_stage.get("call_count")) or 0
         if knowledge_calls >= 40:

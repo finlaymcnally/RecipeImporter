@@ -732,12 +732,6 @@ def _atomize_archive_blocks(
 
     output: list[AtomicLineCandidate] = []
     for atomic_index, row in enumerate(staged):
-        prev_text = staged[atomic_index - 1]["text"] if atomic_index > 0 else None
-        next_text = (
-            staged[atomic_index + 1]["text"]
-            if atomic_index + 1 < len(staged)
-            else None
-        )
         output.append(
             AtomicLineCandidate(
                 recipe_id=row["recipe_id"],
@@ -746,8 +740,6 @@ def _atomize_archive_blocks(
                 atomic_index=atomic_index,
                 text=str(row["text"]),
                 within_recipe_span=row["within_recipe_span"],
-                prev_text=prev_text,
-                next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
             )
         )

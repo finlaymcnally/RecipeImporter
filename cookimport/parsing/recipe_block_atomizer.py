@@ -122,9 +122,25 @@ class AtomicLineCandidate(BaseModel):
     atomic_index: int
     text: str
     within_recipe_span: bool | None = None
-    prev_text: str | None = None
-    next_text: str | None = None
     rule_tags: list[str] = Field(default_factory=list)
+
+
+def build_atomic_index_lookup(
+    candidates: Sequence[AtomicLineCandidate],
+) -> dict[int, AtomicLineCandidate]:
+    return {int(candidate.atomic_index): candidate for candidate in candidates}
+
+
+def get_atomic_line_neighbor_texts(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: Mapping[int, AtomicLineCandidate],
+) -> tuple[str | None, str | None]:
+    prev_candidate = by_atomic_index.get(int(candidate.atomic_index) - 1)
+    next_candidate = by_atomic_index.get(int(candidate.atomic_index) + 1)
+    prev_text = str(prev_candidate.text or "") if prev_candidate is not None else None
+    next_text = str(next_candidate.text or "") if next_candidate is not None else None
+    return prev_text, next_text
 
 
 def atomize_blocks(
@@ -162,8 +178,6 @@ def atomize_blocks(
 
     output: list[AtomicLineCandidate] = []
     for atomic_index, row in enumerate(rows):
-        prev_text = rows[atomic_index - 1]["text"] if atomic_index > 0 else None
-        next_text = rows[atomic_index + 1]["text"] if atomic_index + 1 < len(rows) else None
         output.append(
             AtomicLineCandidate(
                 recipe_id=row["recipe_id"],
@@ -172,8 +186,6 @@ def atomize_blocks(
                 atomic_index=atomic_index,
                 text=str(row["text"]),
                 within_recipe_span=row["within_recipe_span"],
-                prev_text=prev_text,
-                next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
             )
         )

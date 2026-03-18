@@ -39,7 +39,12 @@ from cookimport.llm.prompt_artifacts import (
     build_codex_farm_prompt_type_samples_markdown,
     write_prompt_log_summary,
 )
-from cookimport.parsing.canonical_line_roles import LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
+from cookimport.parsing.canonical_line_roles import (
+    CanonicalLineRolePrediction,
+    LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
+    build_line_role_debug_input_payload,
+    build_line_role_model_input_payload,
+)
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
@@ -181,8 +186,8 @@ def write_prompt_preview_for_existing_run(
             if knowledge_shard_target_chunks is not None
             else _coerce_int(context.run_config.get("knowledge_shard_target_chunks")),
         )
-        stage_plans["extract_knowledge_optional"] = _build_direct_shard_phase_plan(
-            stage_key="extract_knowledge_optional",
+        stage_plans["nonrecipe_knowledge_review"] = _build_direct_shard_phase_plan(
+            stage_key="nonrecipe_knowledge_review",
             stage_label="Non-Recipe Knowledge Review",
             stage_order=4,
             surface_pipeline=llm_knowledge_pipeline,
@@ -194,7 +199,7 @@ def write_prompt_preview_for_existing_run(
         )
         _annotate_rows_from_phase_plan(
             rows=knowledge_rows,
-            phase_plan=stage_plans["extract_knowledge_optional"],
+            phase_plan=stage_plans["nonrecipe_knowledge_review"],
         )
         rows.extend(knowledge_rows)
         counts["knowledge_interaction_count"] = len(knowledge_rows)
@@ -604,7 +609,7 @@ def _build_knowledge_preview_rows(
         pipeline_root=pipeline_root,
         pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
     )
-    stage_dir = out_dir / "raw" / "llm" / context.workbook_slug / "extract_knowledge_optional"
+    stage_dir = out_dir / "raw" / "llm" / context.workbook_slug / "knowledge"
     in_dir = stage_dir / "in"
     in_dir.mkdir(parents=True, exist_ok=True)
 
@@ -644,10 +649,10 @@ def _build_knowledge_preview_rows(
                 input_payload=input_payload,
                 input_text=serialized_input,
                 input_path=input_path,
-                stage_key="extract_knowledge_optional",
+                stage_key="nonrecipe_knowledge_review",
                 stage_label="Non-Recipe Knowledge Review",
                 stage_order=4,
-                stage_dir_name="extract_knowledge_optional",
+                stage_dir_name="knowledge",
                 stage_artifact_stem="knowledge",
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
@@ -722,6 +727,8 @@ def _build_line_role_preview_rows(
         else LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
     )
     line_role_rows: list[dict[str, Any]] = []
+    debug_in_dir = out_dir / "line-role-pipeline" / "debug_in"
+    debug_in_dir.mkdir(parents=True, exist_ok=True)
     for prompt_index, batch_candidates in enumerate(
         _batch(candidates, size=effective_target_lines),
         start=1,
@@ -729,42 +736,50 @@ def _build_line_role_preview_rows(
         if not batch_candidates:
             continue
         input_path = in_dir / f"line_role_input_{prompt_index:04d}.json"
-        shard_payload = {
-            "shard_id": (
-                f"line-role-canonical-{prompt_index:04d}-"
-                f"a{int(batch_candidates[0].atomic_index):06d}-"
-                f"a{int(batch_candidates[-1].atomic_index):06d}"
-            ),
-            "phase_key": "line_role",
-            "rows": [
-                {
-                    "atomic_index": int(candidate.atomic_index),
-                    "block_id": str(candidate.block_id),
-                    "recipe_id": candidate.recipe_id,
-                    "within_recipe_span": candidate.within_recipe_span,
-                    "deterministic_label": deterministic_labels_by_atomic_index.get(
-                        int(candidate.atomic_index),
-                        "OTHER",
-                    ),
-                    "rule_tags": list(candidate.rule_tags),
-                    "escalation_reasons": list(
-                        escalation_reasons_by_atomic_index.get(int(candidate.atomic_index), ())
-                    ),
-                    "prev_text": candidate.prev_text,
-                    "current_line": str(candidate.text),
-                    "next_text": candidate.next_text,
-                }
-                for candidate in batch_candidates
-            ],
-        }
-        input_text = json.dumps(shard_payload, ensure_ascii=False, indent=2)
-        input_path.write_text(input_text, encoding="utf-8")
-        prompt_text = build_canonical_line_role_file_prompt(
-            input_path=input_path,
-            owned_atomic_indices=[
-                int(candidate.atomic_index) for candidate in batch_candidates
-            ],
+        shard_id = (
+            f"line-role-canonical-{prompt_index:04d}-"
+            f"a{int(batch_candidates[0].atomic_index):06d}-"
+            f"a{int(batch_candidates[-1].atomic_index):06d}"
         )
+        deterministic_baseline = {
+            int(candidate.atomic_index): CanonicalLineRolePrediction(
+                recipe_id=candidate.recipe_id,
+                block_id=str(candidate.block_id),
+                block_index=int(candidate.block_index),
+                atomic_index=int(candidate.atomic_index),
+                text=str(candidate.text),
+                within_recipe_span=candidate.within_recipe_span,
+                label=deterministic_labels_by_atomic_index.get(
+                    int(candidate.atomic_index),
+                    "OTHER",
+                ),
+                decided_by="rule",
+                reason_tags=[],
+                escalation_reasons=list(
+                    escalation_reasons_by_atomic_index.get(
+                        int(candidate.atomic_index),
+                        (),
+                    )
+                ),
+            )
+            for candidate in batch_candidates
+        }
+        shard_payload = build_line_role_model_input_payload(
+            shard_id=shard_id,
+            candidates=batch_candidates,
+            deterministic_baseline=deterministic_baseline,
+        )
+        debug_payload = build_line_role_debug_input_payload(
+            shard_id=shard_id,
+            candidates=batch_candidates,
+            deterministic_baseline=deterministic_baseline,
+        )
+        input_text = json.dumps(shard_payload, ensure_ascii=False, indent=2)
+        debug_input_path = debug_in_dir / f"line_role_input_{prompt_index:04d}.json"
+        debug_input_text = json.dumps(debug_payload, ensure_ascii=False, indent=2)
+        input_path.write_text(input_text, encoding="utf-8")
+        debug_input_path.write_text(debug_input_text, encoding="utf-8")
+        prompt_text = build_canonical_line_role_file_prompt(input_path=input_path)
         line_role_rows.append(
             _prompt_row(
                 call_id=input_path.stem,
@@ -774,6 +789,9 @@ def _build_line_role_preview_rows(
                 input_payload=shard_payload,
                 input_text=input_text,
                 input_path=input_path,
+                debug_input_payload=debug_payload,
+                debug_input_text=debug_input_text,
+                debug_input_path=debug_input_path,
                 stage_key="line_role",
                 stage_label="Line Role",
                 stage_order=2,
@@ -834,8 +852,6 @@ def _build_line_role_candidates(
 
     output: list[AtomicLineCandidate] = []
     for atomic_index, row in enumerate(rows):
-        prev_text = rows[atomic_index - 1]["text"] if atomic_index > 0 else None
-        next_text = rows[atomic_index + 1]["text"] if atomic_index + 1 < len(rows) else None
         output.append(
             AtomicLineCandidate(
                 recipe_id=row["recipe_id"],
@@ -844,8 +860,6 @@ def _build_line_role_candidates(
                 atomic_index=atomic_index,
                 text=str(row["text"]),
                 within_recipe_span=row["within_recipe_span"],
-                prev_text=prev_text,
-                next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
             )
         )
@@ -863,16 +877,6 @@ def _build_line_role_candidates_from_labeled_lines(
     output: list[AtomicLineCandidate] = []
     for position, row in enumerate(ordered_rows):
         block_index = int(row.get("source_block_index", row.get("block_index", 0)))
-        prev_text = (
-            str(ordered_rows[position - 1].get("text") or "")
-            if position > 0
-            else None
-        )
-        next_text = (
-            str(ordered_rows[position + 1].get("text") or "")
-            if position + 1 < len(ordered_rows)
-            else None
-        )
         output.append(
             AtomicLineCandidate(
                 recipe_id=None,
@@ -881,8 +885,6 @@ def _build_line_role_candidates_from_labeled_lines(
                 atomic_index=int(row.get("atomic_index", position)),
                 text=str(row.get("text") or ""),
                 within_recipe_span=row.get("within_recipe_span_hint"),
-                prev_text=prev_text,
-                next_text=next_text,
                 rule_tags=[
                     str(tag)
                     for tag in row.get("reason_tags") or []
@@ -942,6 +944,9 @@ def _prompt_row(
     input_payload: dict[str, Any],
     input_path: Path,
     input_text: str | None = None,
+    debug_input_payload: dict[str, Any] | None = None,
+    debug_input_text: str | None = None,
+    debug_input_path: Path | None = None,
     task_prompt_text: str | None = None,
     stage_key: str,
     stage_label: str,
@@ -978,7 +983,7 @@ def _prompt_row(
     response_format = None
     if output_schema_payload:
         response_format = {"type": "json_schema", "json_schema": output_schema_payload}
-    return {
+    row = {
         "schema_version": PROMPT_CALL_RECORD_SCHEMA_VERSION,
         "call_id": call_id,
         "recipe_id": recipe_id,
@@ -1044,6 +1049,13 @@ def _prompt_row(
         "request_telemetry": None,
         "thinking_trace": None,
     }
+    if debug_input_payload is not None:
+        row["debug_input_payload"] = debug_input_payload
+    if debug_input_text is not None:
+        row["debug_input_text"] = debug_input_text
+    if debug_input_path is not None:
+        row["debug_input_file"] = str(debug_input_path)
+    return row
 
 
 def _build_direct_shard_phase_plan(
@@ -1184,7 +1196,7 @@ def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> lis
         owned_recipe_ids = payload.get("owned_recipe_ids")
         if isinstance(owned_recipe_ids, list):
             return [str(item).strip() for item in owned_recipe_ids if str(item).strip()]
-    if stage_key == "extract_knowledge_optional":
+    if stage_key == "nonrecipe_knowledge_review":
         chunks = payload.get("chunks")
         if isinstance(chunks, list):
             return [
@@ -1197,7 +1209,11 @@ def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> lis
         if isinstance(rows, list):
             owned_ids: list[str] = []
             for entry in rows:
-                atomic_index = _coerce_dict(entry).get("atomic_index")
+                atomic_index = None
+                if isinstance(entry, Mapping):
+                    atomic_index = _coerce_dict(entry).get("atomic_index")
+                elif isinstance(entry, list | tuple) and entry:
+                    atomic_index = entry[0]
                 if atomic_index is None:
                     continue
                 rendered = str(atomic_index).strip()

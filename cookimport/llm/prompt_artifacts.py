@@ -36,7 +36,7 @@ _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
         "manifest_name": RECIPE_MANIFEST_FILE_NAME,
     },
     {
-        "stage_key": "extract_knowledge_optional",
+        "stage_key": "nonrecipe_knowledge_review",
         "stage_order": 4,
         "stage_label": "Non-Recipe Knowledge Review",
         "stage_artifact_stem": "knowledge",
@@ -451,7 +451,7 @@ def _resolve_process_run_payload_for_stage(
             return None
         pass_payload = process_runs.get("recipe_correction")
         return pass_payload if isinstance(pass_payload, dict) else None
-    if stage_key == "extract_knowledge_optional":
+    if stage_key == "nonrecipe_knowledge_review":
         process_run = manifest_payload.get("process_run")
         if isinstance(process_run, dict):
             return process_run
@@ -486,7 +486,7 @@ def _resolve_manifest_pipeline_id_for_stage(
             if candidate is not None:
                 return candidate
         return default_pipeline_id
-    if stage_key == "extract_knowledge_optional":
+    if stage_key == "nonrecipe_knowledge_review":
         candidate = _clean_text(manifest_payload.get("pipeline_id"))
         if candidate is not None:
             return candidate
@@ -514,11 +514,11 @@ def _resolve_stage_in_out_dirs(
 
     input_key_map = {
         "recipe_llm_correct_and_link": "recipe_phase_input_dir",
-        "extract_knowledge_optional": "knowledge_in_dir",
+        "nonrecipe_knowledge_review": "knowledge_in_dir",
     }
     output_key_map = {
         "recipe_llm_correct_and_link": "recipe_phase_proposals_dir",
-        "extract_knowledge_optional": "proposals_dir",
+        "nonrecipe_knowledge_review": "proposals_dir",
     }
 
     input_key = input_key_map.get(stage_key)
@@ -536,7 +536,7 @@ def _resolve_stage_in_out_dirs(
     if out_dir is None or not out_dir.exists():
         if stage_key == "recipe_llm_correct_and_link":
             out_dir = run_dir / "recipe_phase_runtime" / "proposals"
-        elif stage_key == "extract_knowledge_optional":
+        elif stage_key == "nonrecipe_knowledge_review":
             out_dir = run_dir / stage_dir_name / "proposals"
         else:
             out_dir = run_dir / stage_dir_name / "out"
@@ -1532,6 +1532,7 @@ def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
             ],
             "worker_id": worker_by_shard_id.get(shard_id),
             "input_file": None,
+            "debug_input_file": None,
             "metadata": dict(row.get("metadata") or {})
             if isinstance(row.get("metadata"), dict)
             else {},
@@ -1541,6 +1542,9 @@ def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
             input_file = stage_root / "workers" / str(worker_id) / "in" / f"{shard_id}.json"
             if input_file.exists() and input_file.is_file():
                 normalized["input_file"] = str(input_file)
+            debug_input_file = stage_root / "workers" / str(worker_id) / "debug" / f"{shard_id}.json"
+            if debug_input_file.exists() and debug_input_file.is_file():
+                normalized["debug_input_file"] = str(debug_input_file)
         shard_by_id[shard_id] = normalized
         for owned_id in normalized["owned_ids"]:
             shard_by_owned_id[owned_id] = normalized
@@ -1579,6 +1583,7 @@ def _resolve_runtime_context(
         "runtime_worker_id": shard_row.get("worker_id"),
         "runtime_owned_ids": list(shard_row.get("owned_ids") or []),
         "request_input_file": shard_row.get("input_file"),
+        "debug_input_file": shard_row.get("debug_input_file"),
     }
 
 
@@ -1788,16 +1793,36 @@ def _build_line_role_prompt_rows(
                 if _clean_text(runtime_context.get("request_input_file")) is not None
                 else None
             )
+            debug_input_file = (
+                Path(str(runtime_context.get("debug_input_file")))
+                if _clean_text(runtime_context.get("debug_input_file")) is not None
+                else None
+            )
             input_payload = _load_json_value(input_file) if input_file is not None else None
             input_text = _safe_read_text(input_file) if input_file is not None else ""
+            debug_input_payload = (
+                _load_json_value(debug_input_file) if debug_input_file is not None else None
+            )
+            debug_input_text = (
+                _safe_read_text(debug_input_file) if debug_input_file is not None else ""
+            )
             exported_input_file = None
+            exported_debug_input_file = None
             if input_file is not None and input_file.exists():
-                exported_input_file = phase_export_dir / input_file.name
+                exported_input_file = phase_export_dir / "in" / input_file.name
                 _copy_prompt_artifact_file(source=input_file, target=exported_input_file)
+            if debug_input_file is not None and debug_input_file.exists():
+                exported_debug_input_file = phase_export_dir / "debug" / debug_input_file.name
+                _copy_prompt_artifact_file(
+                    source=debug_input_file,
+                    target=exported_debug_input_file,
+                )
 
             detail_lines.append(f"INPUT {spec['stage_key']} => {prompt_file.name}")
             if exported_input_file is not None:
                 detail_lines.append(f"task_file: {exported_input_file}")
+            if exported_debug_input_file is not None:
+                detail_lines.append(f"debug_task_file: {exported_debug_input_file}")
             detail_lines.append("-" * 80)
             detail_lines.append(prompt_text)
             detail_lines.append("-" * 80)
@@ -1912,6 +1937,8 @@ def _build_line_role_prompt_rows(
                 },
                 "request_input_payload": input_payload,
                 "request_input_text": input_text or None,
+                "debug_input_payload": debug_input_payload,
+                "debug_input_text": debug_input_text or None,
                 "task_prompt_text": input_text or None,
                 "tools": [],
                 "response_format": response_format_payload,
@@ -1930,6 +1957,11 @@ def _build_line_role_prompt_rows(
                 "request_input_file": (
                     str(exported_input_file)
                     if exported_input_file is not None
+                    else None
+                ),
+                "debug_input_file": (
+                    str(exported_debug_input_file)
+                    if exported_debug_input_file is not None
                     else None
                 ),
                 "request_telemetry": {
@@ -2007,6 +2039,7 @@ def _append_line_role_prompt_artifacts(
         call_id = str(row.get("call_id") or "")
         stage_key = str(row.get("stage_key") or "line_role")
         request_input_file = _clean_text(row.get("request_input_file"))
+        debug_input_file = _clean_text(row.get("debug_input_file"))
         raw_response = row.get("raw_response")
         response_file = (
             _clean_text(raw_response.get("output_file"))
@@ -2022,6 +2055,8 @@ def _append_line_role_prompt_artifacts(
         section_lines.append(f"INPUT {stage_key} => {call_id}")
         if request_input_file is not None:
             section_lines.append(f"path: {request_input_file}")
+        if debug_input_file is not None:
+            section_lines.append(f"debug_path: {debug_input_file}")
         section_lines.append("-" * 80)
         section_lines.append(rendered_prompt_text)
         section_lines.append("-" * 80)
@@ -2053,7 +2088,7 @@ def _append_line_role_prompt_artifacts(
         stage_order_by_manifest_path = {
             str(prompts_dir / "prompt_recipe_llm_correct_and_link.txt"): 1,
             str(prompts_dir / "prompt_line_role.txt"): 2,
-            str(prompts_dir / "prompt_extract_knowledge_optional.txt"): 4,
+            str(prompts_dir / "prompt_nonrecipe_knowledge_review.txt"): 4,
         }
         manifest_lines.sort(
             key=lambda path: (
@@ -2166,7 +2201,7 @@ def render_prompt_artifacts_from_descriptors(
                 runtime_stage_root = None
                 if stage.stage_key == "recipe_llm_correct_and_link":
                     runtime_stage_root = run_dir / "recipe_phase_runtime"
-                elif stage.stage_key == "extract_knowledge_optional":
+                elif stage.stage_key == "nonrecipe_knowledge_review":
                     runtime_stage_root = run_dir / "knowledge"
                 runtime_index = (
                     _load_phase_runtime_index(runtime_stage_root)
@@ -2327,7 +2362,7 @@ def render_prompt_artifacts_from_descriptors(
                             or _clean_text(_coerce_dict(parsed_output).get("shard_id"))
                             or (
                                 call_stem
-                                if stage.stage_key == "extract_knowledge_optional"
+                                if stage.stage_key == "nonrecipe_knowledge_review"
                                 else None
                             )
                         ),

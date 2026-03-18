@@ -10,7 +10,7 @@ import pytest
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.core.models import ChunkLane, ConversionReport, ConversionResult, KnowledgeChunk, RawArtifact
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
@@ -75,7 +75,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
             dict(payload or {}),
         )
     )
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -149,11 +149,10 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["paths"]["seed_nonrecipe_spans_path"].endswith("08_nonrecipe_spans.json")
     assert manifest["paths"]["final_knowledge_outputs_path"].endswith("09_knowledge_outputs.json")
-    assert manifest["counts"]["jobs_written"] > 0
-    assert manifest["counts"]["shards_written"] == manifest["counts"]["jobs_written"]
+    assert manifest["counts"]["shards_written"] > 0
     assert manifest["counts"]["seed_nonrecipe_span_count"] == 2
     assert manifest["counts"]["chunks_built_before_pruning"] >= manifest["counts"]["chunks_written"]
-    assert manifest["counts"]["chunks_written"] >= manifest["counts"]["jobs_written"]
+    assert manifest["counts"]["chunks_written"] >= manifest["counts"]["shards_written"]
     assert manifest["stage_status"] == "completed"
     assert manifest["review_summary"]["promoted_snippet_count"] >= 1
 
@@ -219,7 +218,7 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(tmp_path: Pa
     )
 
     progress_messages: list[str] = []
-    run_codex_farm_knowledge_harvest(
+    run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -404,7 +403,7 @@ def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
         workbookPath="book.txt",
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -474,7 +473,7 @@ def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Pat
         workbookPath="book.txt",
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[],
@@ -496,7 +495,7 @@ def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Pat
     )
 
     assert apply_result.llm_report["stage_status"] == "no_nonrecipe_spans"
-    assert apply_result.llm_report["counts"]["jobs_written"] == 0
+    assert apply_result.llm_report["counts"]["shards_written"] == 0
     assert apply_result.llm_report["counts"]["shards_written"] == 0
     assert apply_result.llm_report["counts"]["chunks_written"] == 0
     assert apply_result.manifest_path.exists()
@@ -567,7 +566,7 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
         )
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -602,10 +601,10 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
 
     assert runner.calls == []
     assert apply_result.llm_report["stage_status"] == "all_chunks_skipped"
-    assert apply_result.llm_report["counts"]["jobs_written"] == 0
+    assert apply_result.llm_report["counts"]["shards_written"] == 0
     assert apply_result.llm_report["counts"]["shards_written"] == 0
     assert apply_result.llm_report["counts"]["chunks_written"] == 0
-    assert apply_result.llm_report["counts"]["jobs_skipped"] == 1
+    assert apply_result.llm_report["counts"]["skipped_chunk_count"] == 1
     assert apply_result.llm_report["skipped_lane_counts"] == {"noise": 1}
 
 
@@ -687,7 +686,7 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
         workbookPath="book.txt",
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -793,7 +792,7 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
         }
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -901,7 +900,7 @@ def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
         }
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -1016,7 +1015,7 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
         }
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -1115,7 +1114,7 @@ def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(
         workbookPath="book.txt",
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[

@@ -116,7 +116,7 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
     )
 
     manifest, reports = run_phase_workers_v1(
-        phase_key="extract_knowledge_optional",
+        phase_key="nonrecipe_knowledge_review",
         pipeline_id="recipe.knowledge.compact.v1",
         run_root=runtime_root,
         shards=[

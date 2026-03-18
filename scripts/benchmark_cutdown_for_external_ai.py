@@ -228,7 +228,7 @@ AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
 FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
 PROMPT_TYPE_SAMPLES_FILE_NAME = "prompt_type_samples_from_full_prompt_log.md"
-KNOWLEDGE_PROMPT_FILE_NAME = "prompt_extract_knowledge_optional.txt"
+KNOWLEDGE_PROMPT_FILE_NAME = "prompt_nonrecipe_knowledge_review.txt"
 KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 PROMPT_WARNING_AGGREGATE_FILE_NAME = "prompt_warning_aggregate.json"
 PROJECTION_TRACE_FILE_NAME = "projection_trace.codex_to_benchmark.json"
@@ -269,8 +269,8 @@ LLM_STAGE_MAP = {
         "pipeline_id": None,
         "sort_order": 2,
     },
-    "extract_knowledge_optional": {
-        "artifact_stem": stage_artifact_stem("extract_knowledge_optional"),
+    "nonrecipe_knowledge_review": {
+        "artifact_stem": stage_artifact_stem("nonrecipe_knowledge_review"),
         "pipeline_id": "recipe.knowledge.compact.v1",
         "sort_order": 4,
     },
@@ -2328,9 +2328,9 @@ def _resolve_knowledge_prompt_path(run_dir: Path) -> Path | None:
             continue
         for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
             name = candidate.name.lower()
-            if name.startswith("prompt_extract_knowledge_optional") and name.endswith(".txt"):
+            if name.startswith("prompt_nonrecipe_knowledge_review") and name.endswith(".txt"):
                 candidate_paths.append(candidate)
-        candidate_paths.extend(sorted(prompts_dir.glob("prompt_extract_knowledge_optional*.txt")))
+        candidate_paths.extend(sorted(prompts_dir.glob("prompt_nonrecipe_knowledge_review*.txt")))
     seen: set[Path] = set()
     for candidate in candidate_paths:
         resolved = candidate.resolve(strict=False)
@@ -2829,7 +2829,7 @@ def _reconstruct_full_prompt_log(
                     continue
                 input_by_name = {path.name: path for path in input_files}
                 output_by_name = {path.name: path for path in output_files}
-                if stage_key == "extract_knowledge_optional":
+                if stage_key == "nonrecipe_knowledge_review":
                     pass_process_payload = (
                         knowledge_payload.get("process_run")
                         if isinstance(knowledge_payload.get("process_run"), dict)
@@ -2886,7 +2886,7 @@ def _reconstruct_full_prompt_log(
                         recipe_id = str(parsed_input.get("recipe_id") or "").strip() or None
                     if recipe_id is None and isinstance(parsed_output, dict):
                         recipe_id = str(parsed_output.get("recipe_id") or "").strip() or None
-                    if recipe_id is None and stage_key == "extract_knowledge_optional":
+                    if recipe_id is None and stage_key == "nonrecipe_knowledge_review":
                         chunk_id = None
                         if isinstance(parsed_input, dict):
                             chunk_id = str(parsed_input.get("chunk_id") or "").strip() or None
@@ -3620,7 +3620,7 @@ def _prompt_case_score(
 ) -> int:
     stage_weights = {
         "recipe_llm_correct_and_link": 6,
-        "extract_knowledge_optional": 3,
+        "nonrecipe_knowledge_review": 3,
         "tags": 1,
     }
     return (
@@ -7046,7 +7046,7 @@ def _upload_bundle_build_knowledge_summary(
     runs_with_prompt_samples = 0
     runs_with_knowledge_manifest = 0
     total_knowledge_call_count = 0
-    jobs_written_total = 0
+    shards_written_total = 0
     outputs_parsed_total = 0
     snippets_written_total = 0
 
@@ -7166,7 +7166,7 @@ def _upload_bundle_build_knowledge_summary(
         if isinstance(knowledge_manifest_path, Path) and knowledge_manifest_path.is_file():
             runs_with_knowledge_manifest += 1
         total_knowledge_call_count += int(knowledge_call_count or 0)
-        jobs_written_total += int(_coerce_int(knowledge_counts.get("jobs_written")) or 0)
+        shards_written_total += int(_coerce_int(knowledge_counts.get("shards_written")) or 0)
         outputs_parsed_total += int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0)
         snippets_written_total += int(_coerce_int(knowledge_counts.get("snippets_written")) or 0)
 
@@ -7180,7 +7180,7 @@ def _upload_bundle_build_knowledge_summary(
                 "pipeline_id": str(knowledge_payload.get("pipeline_id") or "").strip(),
                 "knowledge_call_count": int(knowledge_call_count or 0),
                 "knowledge_token_total": int(knowledge_token_total or 0),
-                "jobs_written": int(_coerce_int(knowledge_counts.get("jobs_written")) or 0),
+                "shards_written": int(_coerce_int(knowledge_counts.get("shards_written")) or 0),
                 "outputs_parsed": int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0),
                 "snippets_written": int(_coerce_int(knowledge_counts.get("snippets_written")) or 0),
                 "prompt_samples_status": _upload_bundle_optional_artifact_status(
@@ -7229,7 +7229,7 @@ def _upload_bundle_build_knowledge_summary(
         "runs_with_prompt_samples": runs_with_prompt_samples,
         "runs_with_knowledge_manifest": runs_with_knowledge_manifest,
         "total_knowledge_call_count": total_knowledge_call_count,
-        "jobs_written_total": jobs_written_total,
+        "shards_written_total": shards_written_total,
         "outputs_parsed_total": outputs_parsed_total,
         "snippets_written_total": snippets_written_total,
         "rows": rows,
@@ -8571,8 +8571,8 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
                 process_runs.get("recipe_correction")
                 or process_runs.get("recipe_llm_correct_and_link")
             ),
-            "extract_knowledge_optional": (
-                process_runs.get("extract_knowledge_optional")
+            "nonrecipe_knowledge_review": (
+                process_runs.get("nonrecipe_knowledge_review")
                 or (
                     knowledge_payload.get("process_run")
                     if isinstance(knowledge_payload.get("process_run"), dict)

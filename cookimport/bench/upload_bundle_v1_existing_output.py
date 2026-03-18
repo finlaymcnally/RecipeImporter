@@ -176,10 +176,10 @@ def _summarize_runtime_stages_for_run(run_dir: Path) -> dict[str, Any]:
     for knowledge_root in sorted((stage_run_dir / "raw" / "llm").glob("*/knowledge")):
         summary = _load_runtime_stage_summary(
             knowledge_root,
-            stage_key="extract_knowledge_optional",
+            stage_key="nonrecipe_knowledge_review",
         )
         if summary is not None:
-            runtime_rows["extract_knowledge_optional"] = summary
+            runtime_rows["nonrecipe_knowledge_review"] = summary
             break
     line_role_summary = _load_runtime_stage_summary(
         stage_run_dir / "line-role-pipeline" / "runtime",

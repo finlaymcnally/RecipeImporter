@@ -62,7 +62,7 @@ from cookimport.llm.codex_farm_orchestrator import (
     run_codex_farm_recipe_pipeline,
 )
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
-    run_codex_farm_knowledge_harvest,
+    run_codex_farm_nonrecipe_knowledge_review,
 )
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.prompt_budget import (
@@ -994,12 +994,6 @@ def _build_line_role_candidates_from_archive(
 
     output: list[AtomicLineCandidate] = []
     for atomic_index, row in enumerate(staged):
-        prev_text = staged[atomic_index - 1]["text"] if atomic_index > 0 else None
-        next_text = (
-            staged[atomic_index + 1]["text"]
-            if atomic_index + 1 < len(staged)
-            else None
-        )
         output.append(
             AtomicLineCandidate(
                 recipe_id=row["recipe_id"],
@@ -1008,8 +1002,6 @@ def _build_line_role_candidates_from_archive(
                 atomic_index=atomic_index,
                 text=str(row["text"]),
                 within_recipe_span=row["within_recipe_span"],
-                prev_text=prev_text,
-                next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
             )
         )
@@ -2389,7 +2381,7 @@ def generate_pred_run_artifacts(
                 result.chunks = chunks_from_non_recipe_blocks(stage7_block_rows)
             elif result.topic_candidates:
                 result.chunks = chunks_from_topic_candidates(result.topic_candidates)
-            planned_work["knowledge_harvest"] = {
+            planned_work["nonrecipe_knowledge_review"] = {
                 "enabled": True,
                 "pipeline": run_settings.llm_knowledge_pipeline.value,
                 "pipeline_id": run_settings.codex_farm_pipeline_knowledge,
@@ -2552,7 +2544,7 @@ def generate_pred_run_artifacts(
     if processed_output_root is None and run_settings.llm_knowledge_pipeline.value != "off":
         _notify("Running codex-farm non-recipe knowledge review...")
         try:
-            knowledge_apply = run_codex_farm_knowledge_harvest(
+            knowledge_apply = run_codex_farm_nonrecipe_knowledge_review(
                 conversion_result=result,
                 nonrecipe_stage_result=(
                     nonrecipe_stage_result

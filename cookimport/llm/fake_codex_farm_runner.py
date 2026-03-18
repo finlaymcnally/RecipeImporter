@@ -156,9 +156,11 @@ def _extract_atomic_indices(payload: dict[str, Any] | str) -> list[int]:
         if isinstance(rows, list):
             indices: list[int] = []
             for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                value = row.get("atomic_index")
+                value = None
+                if isinstance(row, dict):
+                    value = row.get("atomic_index")
+                elif isinstance(row, list | tuple) and row:
+                    value = row[0]
                 if value is None:
                     continue
                 indices.append(int(value))

@@ -78,8 +78,10 @@ Canonical line-role prompt seam note:
 - prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
 - `codex-line-role-shard-v1` now plans one live file-backed `line_role` phase in `canonical_line_roles.py`, writes shard/runtime artifacts under `line-role-pipeline/runtime/line_role/`, and still preserves prompt artifact files under `line-role-pipeline/prompts/line_role/` for reviewer/export surfaces.
 - the abandoned `recipe_region_gate` / `recipe_structure_label` split is gone from active code and pipeline assets; line-role now means one LLM labeling pass, then deterministic grouping afterward.
-- each line-role shard now writes its authoritative task payload to `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, then sends a short wrapper prompt through direct `codex exec` and mirrors the shard-worker artifact contract under `line-role-pipeline/runtime/line_role/workers/.../shards/<shard_id>/`.
-- the current compact row transport is pipe-delimited `atomic_index|label_code|span_code|hint_codes|current_line`, and the prompt now adds selective `ctx:<atomic_index>|prev=...|line=...|next=...` windows for ambiguous or outside-recipe rows instead of repeating neighbor text for every row.
+- each line-role shard now writes two local files: the billed model-facing task payload at `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, and a richer local debug copy at `line-role-pipeline/runtime/line_role/workers/*/debug/*.json`. The worker still sends only a short wrapper prompt through direct `codex exec` and mirrors the shard-worker artifact contract under `line-role-pipeline/runtime/line_role/workers/.../shards/<shard_id>/`.
+- the worker `in/*.json` transport is now `{"v":1,"shard_id":...,"rows":[[atomic_index,label_code,current_line], ...]}`. It is still one ordered contiguous slice of the book, but it no longer carries operator metadata such as block ids, recipe hints, rule tags, or escalation reasons.
+- the local `debug/*.json` copy preserves the old rich object rows for inspection, and preview mirrors the same split under `line-role-pipeline/in/*.json` plus `line-role-pipeline/debug_in/*.json`.
+- the inline compact prompt seam is still separate from the file-backed transport: prompt text uses pipe-delimited `atomic_index|label_code|span_code|hint_codes|current_line` rows plus selective `ctx:<atomic_index>|prev=...|line=...|next=...` windows for ambiguous or outside-recipe rows instead of repeating neighbor text for every row. Those windows now come from explicit ordered-candidate lookup (`build_atomic_index_lookup(...)` plus `get_atomic_line_neighbor_texts(...)`), not hidden fields on `AtomicLineCandidate`.
 - line-role planning now defaults to prompt-target control instead of old per-batch mental models: the live and preview paths both aim for `line_role_prompt_target_count=5` unless a caller overrides shard sizing explicitly.
 - outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose, short explanatory domain fragments, title-case pedagogical/domain headings, and endorsement-credit lines can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
 - validated Codex line-role labels are no longer rolled back by the old outside-span ownership vetoes or the run-level do-no-harm fallback; only invalid-shape sanitizers still override returned labels.
@@ -464,7 +466,7 @@ Gates include:
 ### What it does
 
 - Splits merged recipe blocks into atomic line candidates for canonical line-label benchmark work.
-- Emits serializable `AtomicLineCandidate` rows with deterministic `atomic_index`, adjacency context (`prev_text`, `next_text`), candidate labels, and rule tags.
+- Emits serializable `AtomicLineCandidate` rows with deterministic `atomic_index`, single-line metadata, and rule tags. Neighbor text is no longer stored on the candidate itself; prompt/cache callers that need adjacency derive it explicitly from the ordered candidate set.
 - `atomic_block_splitter=atomic-v1` enables boundary-first splitting; `atomic_block_splitter=off` keeps one candidate per source block (no sub-line splitting).
 
 ### Current rules
@@ -491,6 +493,7 @@ Gates include:
 - Supports optional shard-worker correction over the full ordered candidate set when `line_role_pipeline=codex-line-role-shard-v1`; each shard row carries the deterministic first-pass label plus any escalation reasons so Codex reviews local windows instead of inventing labels from scratch.
 - Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`), reason tags, and explicit `escalation_reasons`.
 - Prediction rows carry tri-state `within_recipe_span`: `None` during the pre-grouping line-role pass, then explicit `True`/`False` only after grouped recipe spans are projected back downstream.
+- Cache identity and inline prompt context both derive adjacency from explicit ordered-candidate lookup, so `AtomicLineCandidate` itself remains a single-row fact.
 
 ### Current safeguards
 

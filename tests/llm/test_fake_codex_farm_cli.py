@@ -7,7 +7,7 @@ from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.label_source_of_truth import RecipeSpan
@@ -265,7 +265,7 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
         }
     )
 
-    apply_result = run_codex_farm_knowledge_harvest(
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=_knowledge_conversion_result(source),
         nonrecipe_stage_result=NonRecipeStageResult(
             nonrecipe_spans=[
@@ -355,8 +355,6 @@ def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(
             atomic_index=atomic_index,
             text=f"Ambiguous line {atomic_index}",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
         for atomic_index in range(3)

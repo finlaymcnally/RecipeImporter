@@ -7,13 +7,18 @@ from pathlib import Path
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.canonical_line_role_prompt import (
+    build_canonical_line_role_file_prompt,
     build_canonical_line_role_prompt,
     serialize_line_role_targets,
 )
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
-from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
+from cookimport.parsing.recipe_block_atomizer import (
+    AtomicLineCandidate,
+    atomize_blocks,
+    build_atomic_index_lookup,
+)
 from tests.paths import FIXTURES_DIR
 
 
@@ -44,11 +49,15 @@ def _line_role_runner(
 ):
     def _default_builder(payload):
         rows = payload.get("rows") if isinstance(payload, dict) else []
-        atomic_indices = [
-            int(row.get("atomic_index"))
-            for row in rows
-            if isinstance(row, dict) and row.get("atomic_index") is not None
-        ]
+        atomic_indices: list[int] = []
+        for row in rows:
+            value = None
+            if isinstance(row, dict):
+                value = row.get("atomic_index")
+            elif isinstance(row, list | tuple) and row:
+                value = row[0]
+            if value is not None:
+                atomic_indices.append(int(value))
         if not atomic_indices:
             prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
             atomic_indices = [
@@ -152,8 +161,6 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
             atomic_index=0,
             text="Add onions and cook for 5 minutes.",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -179,8 +186,6 @@ def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtim
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -836,8 +841,6 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient() -> None:
             atomic_index=0,
             text="1 cup",
             within_recipe_span=True,
-            prev_text=None,
-            next_text="flour",
             rule_tags=["ingredient_like"],
         ),
         AtomicLineCandidate(
@@ -847,8 +850,6 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient() -> None:
             atomic_index=1,
             text="flour",
             within_recipe_span=True,
-            prev_text="1 cup",
-            next_text="2 tablespoons sugar",
             rule_tags=["recipe_span_fallback"],
         ),
         AtomicLineCandidate(
@@ -858,8 +859,6 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient() -> None:
             atomic_index=2,
             text="2 tablespoons sugar",
             within_recipe_span=True,
-            prev_text="flour",
-            next_text=None,
             rule_tags=["ingredient_like"],
         ),
     ]
@@ -1020,8 +1019,6 @@ def test_title_like_line_can_be_overridden_when_full_book_codex_reviews_it(tmp_p
             atomic_index=0,
             text="A PORRIDGE OF LOVAGE STEMS",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -1054,8 +1051,6 @@ def test_codex_mode_accepts_global_label_not_present_in_old_shortlist() -> None:
             atomic_index=0,
             text="Shaved Carrot Salad with Ginger and Lime",
             within_recipe_span=True,
-            prev_text=None,
-            next_text="1 large jalapeño, seeds and veins removed if desired, thinly sliced",
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -1080,8 +1075,6 @@ def test_codex_mode_allows_override_of_strong_recipe_note() -> None:
             atomic_index=0,
             text="NOTE: Keep blender cup warm.",
             within_recipe_span=True,
-            prev_text=None,
-            next_text="Whisk in the butter.",
             rule_tags=["note_prefix"],
         )
     ]
@@ -1107,8 +1100,6 @@ def test_codex_mode_allows_override_without_old_syntax_ownership_veto() -> None:
             atomic_index=0,
             text="Stir well and taste for seasoning.",
             within_recipe_span=True,
-            prev_text="1 cup stock",
-            next_text="Serve warm.",
             rule_tags=["instruction_like"],
         )
     ]
@@ -1134,8 +1125,6 @@ def test_codex_mode_allows_outside_span_title_override() -> None:
             atomic_index=0,
             text="A PORRIDGE OF LOVAGE STEMS",
             within_recipe_span=False,
-            prev_text=None,
-            next_text="2 tablespoons olive oil",
             rule_tags=["outside_recipe_span"],
         ),
         AtomicLineCandidate(
@@ -1145,8 +1134,6 @@ def test_codex_mode_allows_outside_span_title_override() -> None:
             atomic_index=1,
             text="2 tablespoons olive oil",
             within_recipe_span=False,
-            prev_text="A PORRIDGE OF LOVAGE STEMS",
-            next_text=None,
             rule_tags=["ingredient_like", "outside_recipe_span"],
         )
     ]
@@ -1196,8 +1183,6 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
             atomic_index=0,
             text="How Salt Works",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         ),
         AtomicLineCandidate(
@@ -1207,8 +1192,6 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
             atomic_index=1,
             text="FAT",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         ),
         AtomicLineCandidate(
@@ -1218,8 +1201,6 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
             atomic_index=2,
             text="acid, which brightens and balances",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         ),
         AtomicLineCandidate(
@@ -1229,8 +1210,6 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
             atomic_index=3,
             text="and heat, which ultimately determines the texture of food",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         ),
     ]
@@ -1256,8 +1235,6 @@ def test_label_atomic_lines_recovers_outside_recipe_pedagogical_and_endorsement_
                 "day, mastering these four elements will make every meal better."
             ),
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         ),
         AtomicLineCandidate(
@@ -1267,8 +1244,6 @@ def test_label_atomic_lines_recovers_outside_recipe_pedagogical_and_endorsement_
             atomic_index=1,
             text="-Alice Waters , New York Times bestselling author of The Art of Simple Food",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         ),
     ]
@@ -1289,8 +1264,6 @@ def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None
             atomic_index=0,
             text="A Panzanella for Every Season",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         )
     ]
@@ -1314,8 +1287,6 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
                 "development and how airflow changes moisture retention."
             ),
             within_recipe_span=True,
-            prev_text="1. Heat a heavy skillet over medium-high heat.",
-            next_text="2. Add the steak and sear until browned.",
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -1354,14 +1325,27 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
         atomic_index=0,
         text="SERVES 4",
         within_recipe_span=True,
-        prev_text="",
-        next_text="2 tablespoons olive oil",
         rule_tags=["yield_prefix"],
+    )
+    by_atomic_index = build_atomic_index_lookup(
+        [
+            candidate,
+            AtomicLineCandidate(
+                recipe_id="r1",
+                block_id="block:2",
+                block_index=2,
+                atomic_index=1,
+                text="2 tablespoons olive oil",
+                within_recipe_span=True,
+                rule_tags=["ingredient_like"],
+            ),
+        ]
     )
     prompt = build_canonical_line_role_prompt(
         [candidate],
         allowed_labels=["OTHER", "YIELD_LINE", "INGREDIENT_LINE"],
         escalation_reasons_by_atomic_index={0: ["deterministic_unresolved"]},
+        by_atomic_index=by_atomic_index,
     )
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
@@ -1381,8 +1365,6 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
             atomic_index=0,
             text="SERVES 4",
             within_recipe_span=True,
-            prev_text="",
-            next_text="2 tablespoons olive oil",
             rule_tags=["yield_prefix"],
         ),
         AtomicLineCandidate(
@@ -1392,8 +1374,6 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
             atomic_index=1,
             text="2 tablespoons olive oil",
             within_recipe_span=True,
-            prev_text="SERVES 4",
-            next_text="Whisk and serve.",
             rule_tags=["ingredient_like"],
         ),
     ]
@@ -1428,8 +1408,6 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
             atomic_index=0,
             text="Praise for SALT FAT ACID HEAT",
             within_recipe_span=False,
-            prev_text="Front matter",
-            next_text="Quote paragraph",
             rule_tags=["outside_recipe"],
         ),
         AtomicLineCandidate(
@@ -1439,8 +1417,6 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
             atomic_index=1,
             text="SERVES 4",
             within_recipe_span=True,
-            prev_text="",
-            next_text="2 tablespoons olive oil",
             rule_tags=["yield_prefix"],
         ),
     ]
@@ -1460,6 +1436,66 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
     assert compact_rows[1] == "1|L1|R|yield,needs_review|SERVES 4"
 
 
+def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() -> None:
+    baseline = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text="Before",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:1",
+            block_index=1,
+            atomic_index=1,
+            text="Ambiguous line",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:2",
+            block_index=2,
+            atomic_index=2,
+            text="After",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        ),
+    ]
+    updated = [
+        baseline[0],
+        baseline[1],
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:2",
+            block_index=2,
+            atomic_index=2,
+            text="Changed after",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        ),
+    ]
+
+    assert canonical_line_roles_module._canonical_candidate_fingerprint(
+        baseline
+    ) != canonical_line_roles_module._canonical_candidate_fingerprint(updated)
+
+
+def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> None:
+    prompt = build_canonical_line_role_file_prompt(
+        input_path=Path("/tmp/line_role_input_0001.json")
+    )
+
+    assert '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}' in prompt
+    assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
+    assert "Label codes:" in prompt
+    assert "Use each row's tuple slot 2 (`current_line`) as the line to label." in prompt
+
+
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
     tmp_path,
 ) -> None:
@@ -1474,8 +1510,6 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
                 "it includes multiple clauses to remain prose-like."
             ),
             within_recipe_span=True,
-            prev_text=None,
-            next_text="middle",
             rule_tags=["recipe_span_fallback", "explicit_prose"],
         ),
         AtomicLineCandidate(
@@ -1488,8 +1522,6 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
                 "and texture outcomes in complete sentences."
             ),
             within_recipe_span=True,
-            prev_text="prev",
-            next_text="next",
             rule_tags=["recipe_span_fallback", "explicit_prose"],
         ),
         AtomicLineCandidate(
@@ -1502,8 +1534,6 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
                 "long-form explanation rather than imperative action."
             ),
             within_recipe_span=True,
-            prev_text="middle",
-            next_text=None,
             rule_tags=["recipe_span_fallback", "explicit_prose"],
         ),
     ]
@@ -1534,8 +1564,6 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
                 "it includes multiple clauses to remain prose-like."
             ),
             within_recipe_span=True,
-            prev_text=None,
-            next_text="middle",
             rule_tags=["recipe_span_fallback", "explicit_prose"],
         ),
         AtomicLineCandidate(
@@ -1548,8 +1576,6 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
                 "and texture outcomes in complete sentences."
             ),
             within_recipe_span=True,
-            prev_text="prev",
-            next_text="next",
             rule_tags=["recipe_span_fallback"],
         ),
         AtomicLineCandidate(
@@ -1562,8 +1588,6 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
                 "long-form explanation rather than imperative action."
             ),
             within_recipe_span=True,
-            prev_text="middle",
-            next_text=None,
             rule_tags=["recipe_span_fallback", "explicit_prose"],
         ),
     ]
@@ -1589,8 +1613,6 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
             atomic_index=0,
             text="CONTENTS",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=["outside_recipe_span"],
         )
     ]
@@ -1616,8 +1638,6 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
             atomic_index=0,
             text="Ambiguous title-ish line",
             within_recipe_span=True,
-            prev_text=None,
-            next_text="1 cup flour",
             rule_tags=[],
         ),
         AtomicLineCandidate(
@@ -1627,8 +1647,6 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
             atomic_index=1,
             text="1 cup flour",
             within_recipe_span=True,
-            prev_text="Ambiguous title-ish line",
-            next_text=None,
             rule_tags=["ingredient_like"],
         ),
     ]
@@ -1662,8 +1680,6 @@ def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -
             atomic_index=index,
             text=f"Line {index}",
             within_recipe_span=False,
-            prev_text=None,
-            next_text=None,
             rule_tags=[],
         )
         for index in range(canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT + 1)
@@ -1697,8 +1713,6 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -1745,8 +1759,6 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -1812,8 +1824,6 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -1855,8 +1865,6 @@ def test_line_role_cache_path_changes_when_line_role_pipeline_changes(tmp_path) 
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            prev_text=None,
-            next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
@@ -1898,8 +1906,6 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
                 atomic_index=atomic_index,
                 text=f"Ambiguous line {atomic_index}",
                 within_recipe_span=True,
-                prev_text=None,
-                next_text=None,
                 rule_tags=["recipe_span_fallback"],
             )
         )
@@ -1935,8 +1941,6 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
             atomic_index=0,
             text="Ambiguous line 0",
             within_recipe_span=None,
-            prev_text="Before",
-            next_text="After",
             rule_tags=[],
         )
     ]
@@ -1989,9 +1993,22 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    assert input_payload["rows"][0]["current_line"] == "Ambiguous line 0"
-    assert input_payload["rows"][0]["prev_text"] == "Before"
-    assert input_payload["rows"][0]["next_text"] == "After"
+    debug_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "debug"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert input_payload["rows"][0][2] == "Ambiguous line 0"
+    assert debug_payload["rows"][0]["current_line"] == "Ambiguous line 0"
+    assert "prev_text" not in debug_payload["rows"][0]
+    assert "next_text" not in debug_payload["rows"][0]
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
@@ -2013,8 +2030,6 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
                 atomic_index=atomic_index,
                 text=f"Ambiguous line {atomic_index}",
                 within_recipe_span=True,
-                prev_text=None,
-                next_text=None,
                 rule_tags=["recipe_span_fallback"],
             )
         )
@@ -2060,8 +2075,6 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
                 atomic_index=atomic_index,
                 text=f"Ambiguous line {atomic_index}",
                 within_recipe_span=True,
-                prev_text=None,
-                next_text=None,
                 rule_tags=["recipe_span_fallback"],
             )
         )
@@ -2107,8 +2120,6 @@ def test_label_atomic_lines_defaults_workers_to_shard_count_when_unspecified() -
                 atomic_index=atomic_index,
                 text=f"Ambiguous line {atomic_index}",
                 within_recipe_span=True,
-                prev_text=None,
-                next_text=None,
                 rule_tags=["recipe_span_fallback"],
             )
         )

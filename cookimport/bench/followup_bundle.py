@@ -212,12 +212,12 @@ def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
 
 
 def _resolve_knowledge_prompt_task_path(prompts_dir: Path) -> Path | None:
-    candidates: list[Path] = [prompts_dir / "prompt_extract_knowledge_optional.txt"]
+    candidates: list[Path] = [prompts_dir / "prompt_nonrecipe_knowledge_review.txt"]
     for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
         name = candidate.name.lower()
-        if name.startswith("prompt_extract_knowledge_optional") and name.endswith(".txt"):
+        if name.startswith("prompt_nonrecipe_knowledge_review") and name.endswith(".txt"):
             candidates.append(candidate)
-    candidates.extend(sorted(prompts_dir.glob("prompt_extract_knowledge_optional*.txt")))
+    candidates.extend(sorted(prompts_dir.glob("prompt_nonrecipe_knowledge_review*.txt")))
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -1876,7 +1876,7 @@ def _knowledge_audit_row(
         "pipeline": summary.get("pipeline"),
         "pipeline_id": summary.get("pipeline_id"),
         "llm_knowledge_pipeline": summary.get("llm_knowledge_pipeline"),
-        "jobs_written": summary.get("jobs_written"),
+        "shards_written": summary.get("shards_written"),
         "outputs_parsed": summary.get("outputs_parsed"),
         "snippets_written": summary.get("snippets_written"),
         "knowledge_call_count": summary.get("knowledge_call_count"),

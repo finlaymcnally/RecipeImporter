@@ -266,7 +266,7 @@ def test_build_knowledge_jobs_bundles_neighboring_chunks_into_one_prompt(
 
     payloads = _load_all_jobs(in_dir)
     assert report.chunks_written >= 2
-    assert report.jobs_written < report.chunks_written
+    assert report.shards_written < report.chunks_written
     assert any(len(payload["chunks"]) >= 2 for payload in payloads)
 
 
@@ -337,7 +337,7 @@ def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
 
     payloads = _load_all_jobs(in_dir)
     assert report.chunks_written == 2
-    assert report.jobs_written == 1
+    assert report.shards_written == 1
     assert len(payloads) == 1
     assert len(payloads[0]["chunks"]) == 2
 
@@ -389,7 +389,7 @@ def test_build_knowledge_jobs_target_prompt_count_overrides_char_cap(
     )
 
     payloads = _load_all_jobs(in_dir)
-    assert report.jobs_written == 5
+    assert report.shards_written == 5
     assert len(payloads) == 5
     assert all(len(payload["chunks"]) == 2 for payload in payloads)
 
@@ -434,7 +434,7 @@ def test_build_knowledge_jobs_skips_noise_lane_chunks(
         out_dir=tmp_path / "in",
     )
 
-    assert report.jobs_written == 0
+    assert report.shards_written == 0
     assert report.chunks_written == 0
     assert report.skipped_chunk_count == 1
     assert report.skipped_lane_counts == {"noise": 1}
@@ -481,7 +481,7 @@ def test_build_knowledge_jobs_skips_tiny_low_signal_knowledge_chunks(
         out_dir=tmp_path / "in",
     )
 
-    assert report.jobs_written == 0
+    assert report.shards_written == 0
     assert report.chunks_written == 0
     assert report.skipped_chunk_count == 1
     assert report.skipped_lane_counts == {"low_signal": 1}

@@ -197,7 +197,10 @@ Line-role runtime note:
 - `canonical_line_roles.py` now assigns shard ownership directly, writes authoritative worker-local shard JSON under `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, sends one short file-backed wrapper prompt per shard through `codex_exec_runner.py`, validates exact owned `atomic_index` coverage, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/line_role/workers/.../shards/<shard_id>/`
 - there is no longer any live or compatibility support for a separate LLM recipe gate inside line-role; the only active line-role model surface is the single `line_role` labeling phase
 - line-role pre-grouping candidates now default to `within_recipe_span=None`; importer recipe provenance is no longer supplied before deterministic/Codex labeling, and prompt-preview reconstruction mirrors that same span-free contract
+- `AtomicLineCandidate` is now a single-line parser record; selective inline `ctx:` rows and cache identity derive neighbor text from explicit ordered-candidate lookup instead of embedded `prev_text` / `next_text` fields
 - `workers/*/in/*.json` are now the authoritative model-facing task payloads; `prompt.txt` is only the short wrapper that points at that file
+- line-role now keeps a second local-only debug copy at `workers/*/debug/*.json`; prompt-preview mirrors that as `line-role-pipeline/debug_in/*.json`, while `request_input_file` and budget estimation still point at the compact billed `in/*.json` file.
+- those `workers/*/in/*.json` rows are now compact tuples: `{"v":1,"shard_id":...,"rows":[[atomic_index,label_code,current_line], ...]}`. The richer deterministic/rule metadata moved to the debug copy, and the model-facing file still avoids repeated neighbor context.
 - `telemetry_summary.json` remains the prompt/debug and post-run cost seam for line-role, but its runtime metadata now describe direct exec instead of CodexFarm `process`
 - line-role worker launches are concurrent and then re-collected in planned order so stable artifacts and real worker fan-out coexist
 
@@ -235,13 +238,13 @@ Prompt/debug artifacts:
 - when explicit `knowledge_prompt_target_count` is driving the shard plan, knowledge bundling should not split again on the older per-bundle char cap
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
-- line-role row transport is now minimal: `atomic_index|label_code|current_line` in the live prompt, and the debug shard JSON keeps only `atomic_index`, `deterministic_label`, and `current_line`
+- line-role row transport is now split cleanly by seam: the inline compact prompt uses pipe-delimited target rows plus selective `ctx:` windows, the file-backed billed shard JSON is the tuple-based `v=1` transport, and a parallel debug copy keeps the richer local object rows
 - prompt/actual cost reporting for the direct phases now also carries a shared cost-breakdown vocabulary: `visible_input_tokens`, `cached_input_tokens`, `visible_output_tokens`, and `wrapper_overhead_tokens`
 - live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, sends the built prompt text itself through direct `codex exec`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
-- prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_extract_knowledge_optional.txt`
+- prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_nonrecipe_knowledge_review.txt`
 - active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names. Older numbered stage labels belong only to archived local readers.
 
 Prompt cost notes worth keeping in mind:
@@ -276,7 +279,7 @@ Where prompt cuts should live:
 - knowledge prompt count reductions should usually happen in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
 - obvious junk suppression for knowledge cost should also live in `chunks.py` lane scoring so live harvest and preview both skip the same blurbs / navigation / attribution fragments
 - chunk-count suppression should also live in `chunks.py`: collapsing standalone heading/bridge chunks before bundling is cheaper and safer than trying to fix that fragmentation in the prompt layer
-- when `build_knowledge_jobs(...)` skips every chunk, `run_codex_farm_knowledge_harvest(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
+- when `build_knowledge_jobs(...)` skips every chunk, `run_codex_farm_nonrecipe_knowledge_review(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
 
 Run-level observability note:
 - `stage_observability.json` at the run root is the canonical stage index. The recipe and knowledge manifests above are stage-local detail, not a second naming system.
@@ -327,7 +330,7 @@ Structured output contract:
 ## Related docs
 
 - `docs/10-llm/10-llm_log.md`
-- `docs/10-llm/knowledge_harvest.md`
+- `docs/10-llm/nonrecipe_knowledge_review.md`
 
 ## Recent Durable Notes
 

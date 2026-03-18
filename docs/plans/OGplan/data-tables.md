@@ -6,7 +6,7 @@ This plan must be maintained in accordance with `docs/PLANS.md` (repository root
 
 ## Purpose / Big Picture
 
-Many “textbook-style” cookbooks contain high-value cooking knowledge in tables (conversion charts, doneness temps, sauce ratios, substitution matrices, pantry storage times, etc.). Today those tables are usually flattened into awkward text blocks during PDF/EPUB extraction, which makes them hard to search, hard to embed into a knowledge system, and easy for pass4 knowledge harvesting to miss or misinterpret.
+Many “textbook-style” cookbooks contain high-value cooking knowledge in tables (conversion charts, doneness temps, sauce ratios, substitution matrices, pantry storage times, etc.). Today those tables are usually flattened into awkward text blocks during PDF/EPUB extraction, which makes them hard to search, hard to embed into a knowledge system, and easy for Stage 7 non-recipe knowledge review to miss or misinterpret.
 
 After this change, a user can run:
 
@@ -16,18 +16,18 @@ After this change, a user can run:
 
 - A deterministic, structured table export for the book (JSONL + human-readable markdown) under the run output.
 - Table-aware chunking behavior that keeps table rows together (so “knowledge chunks” don’t split a table mid-way).
-- Optional: pass4 knowledge harvesting gets “table structure hints” so it can extract reusable snippets grounded in table rows while still quoting verbatim evidence from the original text.
+- Optional: Stage 7 non-recipe knowledge review gets “table structure hints” so it can extract reusable snippets grounded in table rows while still quoting verbatim evidence from the original text.
 
 The “see it working” proof is: you can open `data/output/<timestamp>/tables/<workbook_slug>/tables.md` and visually see the tables preserved, and you can open `tables.jsonl` and ingest row-level text into your own “knowledge” index (vector DB, full-text search, etc.). If you enable pass4, you should also see snippets derived from table facts in `knowledge/<workbook_slug>/snippets.jsonl`.
 
 ## Progress
 
-- [x] (2026-02-25 00:00Z) Drafted initial ExecPlan describing table extraction + table outputs + pass4 integration.
+- [x] (2026-02-25 00:00Z) Drafted initial ExecPlan describing table extraction + table outputs + Stage 7 integration.
 - [ ] Implement deterministic table extraction over non-recipe block streams (grouping row-like consecutive blocks into tables).
 - [ ] Add table artifacts writer (`tables.jsonl`, `tables.md`) and wire into stage output.
 - [ ] Make chunking “table-aware” so tables are not split across chunks and are classified as `knowledge` lane by default.
-- [ ] Extend pass4 knowledge bundle inputs with optional table-structure hints and update the prompt to use them safely.
-- [ ] Add tests (unit + small integration) and update docs (`docs/04-parsing`, `docs/05-staging`, `docs/10-llm/knowledge_harvest.md`) to describe table behavior and outputs.
+- [ ] Extend Stage 7 knowledge bundle inputs with optional table-structure hints and update the prompt to use them safely.
+- [ ] Add tests (unit + small integration) and update docs (`docs/04-parsing`, `docs/05-staging`, `docs/10-llm/nonrecipe_knowledge_review.md`) to describe table behavior and outputs.
 - [ ] Validate end-to-end on at least one PDF and one EPUB containing a table; capture evidence snippets in `Artifacts and Notes`.
 
 ## Surprises & Discoveries
@@ -38,16 +38,16 @@ The “see it working” proof is: you can open `data/output/<timestamp>/tables/
 ## Decision Log
 
 - Decision: Treat “table importing for knowledge” as a deterministic extraction + export problem first, and only then as an optional LLM summarization problem.
-  Rationale: Users can ingest deterministic structured tables into their own knowledge tooling even when LLMs are disabled; pass4 should be additive, not the only path.
+  Rationale: Users can ingest deterministic structured tables into their own knowledge tooling even when LLMs are disabled; Stage 7 should be additive, not the only path.
   Date/Author: 2026-02-25 / GPT-5.2 Pro
 
 - Decision: Preserve verbatim extracted text for evidence quotes; provide table structure as *hints* rather than rewriting block text.
-  Rationale: Pass4 requires verbatim quotes from `chunk.blocks[*].text` as evidence; rewriting would break “verbatim excerpt” semantics.
+  Rationale: Stage 7 requires verbatim quotes from `chunk.blocks[*].text` as evidence; rewriting would break “verbatim excerpt” semantics.
   Date/Author: 2026-02-25 / GPT-5.2 Pro
 
 ## Outcomes & Retrospective
 
-- (Not implemented yet.) At completion, summarize: table extraction quality, false positive rate, what kinds of tables still fail (merged cells, multi-line cells), and how the outputs improved pass4 snippet recall.
+- (Not implemented yet.) At completion, summarize: table extraction quality, false positive rate, what kinds of tables still fail (merged cells, multi-line cells), and how the outputs improved Stage 7 snippet recall.
 
 ## Context and Orientation
 
@@ -58,7 +58,7 @@ Key concepts (plain language):
 - A “block” is one extracted piece of text (often a paragraph, a heading, a list item, or a line) produced by an importer. Block-first importers (PDF/EPUB) produce a stream of blocks, which is written as a raw artifact (`raw/.../full_text.json`) and also used for downstream parsing.
 - “Non-recipe blocks” are blocks the importer/segmenter believes are *not* part of a recipe. These blocks feed “knowledge chunking”.
 - A “chunk” is a grouped sequence of non-recipe blocks that is meant to be a coherent unit of general cooking knowledge. Chunking is implemented in `cookimport/parsing/chunks.py` (`process_blocks_to_chunks`) and assigns each chunk a “lane” (currently `knowledge` or `noise`).
-- “Pass4 knowledge harvesting” is an optional codex-farm pipeline (`llm_knowledge_pipeline=codex-farm-knowledge-v1`) that reads chunk bundles and emits reusable knowledge snippets into `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md`. Prompt: `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`.
+- “Stage 7 non-recipe knowledge review” is an optional codex-farm pipeline (`llm_knowledge_pipeline=codex-farm-knowledge-v1`) that reads chunk bundles and emits reusable knowledge snippets into `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md`. Prompt: `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`.
 
 Relevant files for this plan:
 
@@ -75,8 +75,8 @@ Relevant files for this plan:
 - Staging writers and output layout:
   - `cookimport/staging/writer.py`
   - Docs reference: `docs/05-staging/05-staging_readme.md`
-- Pass4 knowledge harvesting:
-  - Docs: `docs/10-llm/knowledge_harvest.md`
+- Stage 7 non-recipe knowledge review:
+  - Docs: `docs/10-llm/nonrecipe_knowledge_review.md`
   - Prompt: `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`
   - Orchestration likely in `cookimport/llm/` (see `docs/10-llm/10-llm_README.md`)
 
@@ -154,9 +154,9 @@ Add focused tests in `tests/test_chunks.py` or a new test file to prove:
 - A table run is not split across two chunks.
 - A chunk containing a table run is assigned `knowledge` lane.
 
-### Milestone 4: Optional pass4 integration: provide table-structure hints to the LLM prompt safely
+### Milestone 4: Optional Stage 7 integration: provide table-structure hints to the LLM prompt safely
 
-Pass4 knowledge harvesting prompt (`llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`) currently instructs the model to extract only from `chunk.blocks` and to quote verbatim excerpts from `chunk.blocks[*].text`.
+The Stage 7 knowledge-review prompt (`llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`) currently instructs the model to extract only from `chunk.blocks` and to quote verbatim excerpts from `chunk.blocks[*].text`.
 
 We want to help the model interpret tables without violating the evidence contract.
 
@@ -176,7 +176,7 @@ Update `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md` by adding a narrow 
 
 This keeps the grounding model the same but improves table comprehension.
 
-Add/extend tests around pipeline pack assets if needed (there are tests named in docs: `tests/test_llm_pipeline_pack.py`, `tests/test_llm_pipeline_pack_assets.py`). Add a unit test for the pass4 input bundle builder asserting `table_hint` appears when table extraction is on.
+Add/extend tests around pipeline pack assets if needed (there are tests named in docs: `tests/test_llm_pipeline_pack.py`, `tests/test_llm_pipeline_pack_assets.py`). Add a unit test for the Stage 7 input bundle builder asserting `table_hint` appears when table extraction is on.
 
 ### Milestone 5: Documentation and UX polishing
 
@@ -186,8 +186,8 @@ Update docs to make the feature discoverable and to keep “source of truth” a
   - Add a short subsection under Knowledge Chunking describing table detection, table_id markers, and chunking behavior.
 - `docs/05-staging/05-staging_readme.md`
   - Add the new `tables/<workbook_slug>/tables.jsonl` + `tables.md` outputs to the output layout list (and note they are gated by `--table-extraction on`).
-- `docs/10-llm/knowledge_harvest.md`
-  - Mention that enabling `--table-extraction on` is recommended for table-heavy sources, because it improves pass4 extraction and provides deterministic table artifacts.
+- `docs/10-llm/nonrecipe_knowledge_review.md`
+  - Mention that enabling `--table-extraction on` is recommended for table-heavy sources, because it improves Stage 7 extraction and provides deterministic table artifacts.
 
 ## Concrete Steps
 
@@ -198,7 +198,7 @@ All commands below assume repository root as the working directory.
     - docs/PLANS.md
     - docs/04-parsing/04-parsing_readme.md (Knowledge Chunking section)
     - docs/05-staging/05-staging_readme.md (output layout and writer functions)
-    - docs/10-llm/knowledge_harvest.md
+    - docs/10-llm/nonrecipe_knowledge_review.md
     - llm_pipelines/prompts/recipe.knowledge.v1.prompt.md
     - cookimport/parsing/chunks.py
     - cookimport/staging/writer.py

@@ -391,27 +391,34 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
     assert "Execute the line-role labeling task exactly." in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
-    assert line_role_row["request_input_payload"]["phase_key"] == "line_role"
-    assert [row["atomic_index"] for row in line_role_row["request_input_payload"]["rows"]] == [
+    assert line_role_row["request_input_payload"]["v"] == 1
+    assert [row[0] for row in line_role_row["request_input_payload"]["rows"]] == [
         0,
         1,
         2,
         3,
     ]
     assert (
-        line_role_row["request_input_payload"]["rows"][0]["current_line"]
+        line_role_row["request_input_payload"]["rows"][0][2]
         == "Ambiguous title-ish line"
     )
     assert (
-        line_role_row["request_input_payload"]["rows"][3]["current_line"]
+        line_role_row["request_input_payload"]["rows"][3][2]
         == "Advertisement copy."
     )
+    assert line_role_row["debug_input_payload"]["phase_key"] == "line_role"
+    assert line_role_row["debug_input_payload"]["rows"][0]["current_line"] == "Ambiguous title-ish line"
+    assert "block_index" in line_role_row["debug_input_payload"]["rows"][0]
+    assert "rule_tags" in line_role_row["debug_input_payload"]["rows"][0]
     assert line_role_row["request_input_text"] == line_role_row["task_prompt_text"]
     assert line_role_row["runtime_worker_id"] == "worker-001"
     assert line_role_row["runtime_owned_ids"] == ["0", "1", "2", "3"]
     assert (
         out_dir / "line-role-pipeline" / "in" / "line_role_input_0001.json"
     ).read_text(encoding="utf-8") == line_role_row["task_prompt_text"]
+    assert (
+        out_dir / "line-role-pipeline" / "debug_in" / "line_role_input_0001.json"
+    ).read_text(encoding="utf-8") == line_role_row["debug_input_text"]
 
     assert (
         out_dir
@@ -423,6 +430,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         / "recipe-preview-shard-0001-r0.json"
     ).is_file()
     assert (out_dir / "line-role-pipeline" / "in" / "line_role_input_0001.json").is_file()
+    assert (out_dir / "line-role-pipeline" / "debug_in" / "line_role_input_0001.json").is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
@@ -509,21 +517,22 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
     assert "LIVE canonical text" not in recipe_row["request_input_text"]
     assert recipe_row["recipe_id"] == "urn:recipe:test:r0"
     assert not any(
-        row["stage_key"] == "extract_knowledge_optional"
+        row["stage_key"] == "nonrecipe_knowledge_review"
         for row in full_prompt_rows
     )
 
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert "extract_knowledge_optional" not in budget_summary["by_stage"]
+    assert "nonrecipe_knowledge_review" not in budget_summary["by_stage"]
 
 
 def test_prompt_preview_budget_uses_structural_prompt_tokenization_when_live_missing() -> None:
     request_payload = {
+        "v": 1,
         "rows": [
-            {"atomic_index": 11, "label_code": "OTHER", "current_line": "Toast spices."},
-            {"atomic_index": 12, "label_code": "KNOWLEDGE", "current_line": "Keep stirring."},
+            [11, "L0", "Toast spices."],
+            [12, "L1", "Keep stirring."],
         ]
     }
     task_prompt_text = json.dumps(request_payload, ensure_ascii=False, indent=2)
@@ -709,7 +718,7 @@ def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> 
                 "rendered_prompt_text": "line-role wrapper",
                 "prompt_input_mode": "path",
                 "task_prompt_text": huge_task_prompt,
-                "request_input_payload": {"rows": [{"atomic_index": 1, "current_line": "Line one"}]},
+                "request_input_payload": {"v": 1, "rows": [[1, "L0", "Line one"]]},
             },
         ],
         preview_dir=tmp_path / "preview",

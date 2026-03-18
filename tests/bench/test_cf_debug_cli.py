@@ -52,7 +52,7 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
     run_dir = copied_root / "line_role_only"
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
-    knowledge_prompt_path = prompts_dir / "prompt_extract_knowledge_optional.txt"
+    knowledge_prompt_path = prompts_dir / "prompt_nonrecipe_knowledge_review.txt"
     knowledge_prompt_path.write_text("knowledge prompt body\n", encoding="utf-8")
     prompt_samples_path = prompts_dir / "prompt_type_samples_from_full_prompt_log.md"
     prompt_samples_path.write_text(
@@ -108,7 +108,7 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
             row["knowledge_manifest_in_bundle"] = True
             row["prompt_samples_in_bundle"] = True
             row["prompt_budget_summary_in_bundle"] = True
-            row["jobs_written"] = 1
+            row["shards_written"] = 1
             row["outputs_parsed"] = 1
             row["snippets_written"] = 1
             row["source_key"] = KNOWLEDGE_SOURCE_KEY
@@ -127,7 +127,7 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
                 "payload_row": 999001,
             }
             row["prompt_knowledge_txt"] = {
-                "path": "line_role_only/prompts/prompt_extract_knowledge_optional.txt",
+                "path": "line_role_only/prompts/prompt_nonrecipe_knowledge_review.txt",
                 "payload_row": 999002,
             }
             row["knowledge_manifest_json"] = {
@@ -157,7 +157,7 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
                 "content_text": prompt_samples_path.read_text(encoding="utf-8"),
             },
             {
-                "path": "line_role_only/prompts/prompt_extract_knowledge_optional.txt",
+                "path": "line_role_only/prompts/prompt_nonrecipe_knowledge_review.txt",
                 "content_type": "text",
                 "category": "run_artifact",
                 "run_subdir": "line_role_only",
@@ -721,8 +721,8 @@ def test_pack_includes_knowledge_audit_and_case_export(tmp_path: Path) -> None:
     assert case_row["knowledge_summary"]["enabled"] is True
     assert any(
         (
-            "prompt_extract_knowledge_optional.txt" in row["path"]
-            or "prompt_extract_knowledge_optional_stage.txt" in row["path"]
+            "prompt_nonrecipe_knowledge_review.txt" in row["path"]
+            or "prompt_nonrecipe_knowledge_review_stage.txt" in row["path"]
         )
         for row in case_row["knowledge_artifacts"]
     )

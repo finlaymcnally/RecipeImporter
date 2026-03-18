@@ -606,7 +606,7 @@ Use names that describe job responsibility:
 - `recipe_llm_correct_and_link`
 - `build_final_recipe`
 - `classify_nonrecipe`
-- `extract_knowledge_optional`
+- `nonrecipe_knowledge_review`
 - `write_outputs`
 
 This alone will make the system far easier to understand.

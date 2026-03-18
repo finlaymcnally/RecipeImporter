@@ -531,7 +531,7 @@ def test_generate_pred_run_artifacts_plan_mode_uses_stage7_rows_for_knowledge_co
 
     assert [row["index"] for row in seen_rows[0]] == [2]
     assert (
-        plan_payload["planned_work"]["knowledge_harvest"]["non_recipe_block_count"]
+        plan_payload["planned_work"]["nonrecipe_knowledge_review"]["non_recipe_block_count"]
         == 1
     )
 

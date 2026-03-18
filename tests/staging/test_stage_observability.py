@@ -94,7 +94,7 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
 
     assert _stage_keys(report) == [
         "classify_nonrecipe",
-        "extract_knowledge_optional",
+        "nonrecipe_knowledge_review",
         "write_outputs",
     ]
     assert report.stages[1].stage_label == "Non-Recipe Knowledge Review"

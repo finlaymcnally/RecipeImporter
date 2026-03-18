@@ -24,8 +24,6 @@ def _candidate(atomic_index: int, *, text: str | None = None) -> AtomicLineCandi
         atomic_index=atomic_index,
         text=text or f"Ambiguous line {atomic_index}",
         within_recipe_span=True,
-        prev_text=None,
-        next_text=None,
         rule_tags=["recipe_span_fallback"],
     )
 
@@ -33,11 +31,15 @@ def _candidate(atomic_index: int, *, text: str | None = None) -> AtomicLineCandi
 def _line_role_builder(label_by_atomic_index: dict[int, str]):
     def _builder(payload):
         rows = payload.get("rows") if isinstance(payload, dict) else []
-        atomic_indices = [
-            int(row.get("atomic_index"))
-            for row in rows
-            if isinstance(row, dict) and row.get("atomic_index") is not None
-        ]
+        atomic_indices: list[int] = []
+        for row in rows:
+            value = None
+            if isinstance(row, dict):
+                value = row.get("atomic_index")
+            elif isinstance(row, list | tuple) and row:
+                value = row[0]
+            if value is not None:
+                atomic_indices.append(int(value))
         if not atomic_indices:
             prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
             atomic_indices = [
@@ -100,6 +102,33 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
         "line-role-canonical-0003-a000002-a000002",
     ]
     assert len(phase_proposals) == 3
+    compact_input = json.loads(
+        (
+            runtime_root
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "in"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    debug_input = json.loads(
+        (
+            runtime_root
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "debug"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert compact_input["v"] == 1
+    assert compact_input["rows"][0][0] == 0
+    assert compact_input["rows"][0][2] == "Ambiguous line 0"
+    assert debug_input["phase_key"] == "line_role"
+    assert debug_input["rows"][0]["atomic_index"] == 0
+    assert debug_input["rows"][0]["current_line"] == "Ambiguous line 0"
+    assert "rule_tags" in debug_input["rows"][0]
 
 
 def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(

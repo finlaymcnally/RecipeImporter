@@ -91,7 +91,7 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "family": "recipe_deterministic",
         "order": 30,
     },
-    "extract_knowledge_optional": {
+    "nonrecipe_knowledge_review": {
         "label": "Non-Recipe Knowledge Review",
         "artifact_stem": "knowledge",
         "family": "knowledge_llm",
@@ -264,7 +264,7 @@ def build_stage_observability_report(
             knowledge_paths = knowledge_manifest_payload.get("paths")
             if not isinstance(knowledge_paths, Mapping):
                 knowledge_paths = {}
-            knowledge_dir = workbook_dir / stage_artifact_stem("extract_knowledge_optional")
+            knowledge_dir = workbook_dir / stage_artifact_stem("nonrecipe_knowledge_review")
             knowledge_input_dir = _path_from_manifest(
                 knowledge_paths.get("knowledge_in_dir")
             ) or (knowledge_dir / "in")
@@ -272,7 +272,7 @@ def build_stage_observability_report(
                 knowledge_paths.get("proposals_dir")
             ) or (knowledge_dir / "proposals")
             if knowledge_manifest_path.exists() or knowledge_dir.exists():
-                key = "extract_knowledge_optional"
+                key = "nonrecipe_knowledge_review"
                 stage_rows.setdefault(
                     key,
                     ObservedStage(
@@ -352,7 +352,7 @@ def build_stage_observability_report(
         )
     knowledge_outputs_path = run_root / "09_knowledge_outputs.json"
     if knowledge_outputs_path.exists():
-        stage_key = "extract_knowledge_optional"
+        stage_key = "nonrecipe_knowledge_review"
         stage_rows.setdefault(
             stage_key,
             ObservedStage(

@@ -60,7 +60,7 @@ Problem captured:
 Durable decisions:
 - recipe prompt body cuts should land in the shared serializer for `MergedRecipeRepairInput`, not only in `prompt_preview.py`
 - knowledge prompt count cuts should land in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
-- if `build_knowledge_jobs(...)` returns no work, `run_codex_farm_knowledge_harvest(...)` must short-circuit before Codex invocation or empty-manifest writing
+- if `build_knowledge_jobs(...)` returns no work, `run_codex_farm_nonrecipe_knowledge_review(...)` must short-circuit before Codex invocation or empty-manifest writing
 - the first low-risk cut bundle was intentionally conservative (`knowledge` context width `12 -> 4`, skip only `noise`, keep `draft_hint` optional but omit it when empty); the second bundle then took the next cheap cuts (`4 -> 2`, drop recipe hint provenance, blank outside-recipe line-role neighbors)
 
 Anti-loop note:

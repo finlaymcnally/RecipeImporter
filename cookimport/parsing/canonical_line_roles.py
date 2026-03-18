@@ -29,6 +29,8 @@ from cookimport.labelstudio.label_config_freeform import (
 from cookimport.llm.canonical_line_role_prompt import (
     LineRolePromptFormat,
     build_canonical_line_role_file_prompt,
+    build_line_role_label_code_by_label,
+    serialize_line_role_model_row,
 )
 from cookimport.llm.codex_exec_runner import (
     DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
@@ -50,7 +52,11 @@ from cookimport.llm.phase_worker_runtime import (
     resolve_phase_worker_count,
 )
 from cookimport.llm.shard_prompt_targets import resolve_items_per_shard
-from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
+from cookimport.parsing.recipe_block_atomizer import (
+    AtomicLineCandidate,
+    build_atomic_index_lookup,
+    get_atomic_line_neighbor_texts,
+)
 
 _PROSE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
 _QUANTITY_LINE_RE = re.compile(
@@ -236,6 +242,7 @@ _LINE_ROLE_CODEX_EXEC_DEFAULT_CMD = "codex exec"
 _LINE_ROLE_DIRECT_RUNTIME_ARTIFACT_SCHEMA = "line_role.direct_worker_runtime.v1"
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
 LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT = 240
+_LINE_ROLE_MODEL_PAYLOAD_VERSION = 1
 
 class CanonicalLineRolePrediction(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -330,6 +337,7 @@ class _LineRoleShardPlan:
     prompt_index: int
     candidates: tuple[AtomicLineCandidate, ...]
     baseline_predictions: tuple[CanonicalLineRolePrediction, ...]
+    debug_input_payload: dict[str, Any]
     manifest_entry: ShardManifestEntryV1
 
 
@@ -665,10 +673,11 @@ def _build_line_role_deterministic_baseline(
     return baseline
 
 
-def _line_role_plan_row(
+def serialize_line_role_file_row(
     *,
     candidate: AtomicLineCandidate,
-    baseline_prediction: CanonicalLineRolePrediction,
+    deterministic_label: str,
+    escalation_reasons: Sequence[str],
 ) -> dict[str, Any]:
     return {
         "atomic_index": int(candidate.atomic_index),
@@ -676,13 +685,61 @@ def _line_role_plan_row(
         "block_id": str(candidate.block_id),
         "recipe_id": candidate.recipe_id,
         "within_recipe_span": candidate.within_recipe_span,
-        "deterministic_label": str(baseline_prediction.label or "OTHER"),
+        "deterministic_label": str(deterministic_label or "OTHER"),
         "rule_tags": list(candidate.rule_tags),
-        "escalation_reasons": list(baseline_prediction.escalation_reasons),
-        "prev_text": candidate.prev_text,
+        "escalation_reasons": list(escalation_reasons),
         "current_line": str(candidate.text),
-        "next_text": candidate.next_text,
-}
+    }
+
+
+def build_line_role_debug_input_payload(
+    *,
+    shard_id: str,
+    candidates: Sequence[AtomicLineCandidate],
+    deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
+) -> dict[str, Any]:
+    return {
+        "shard_id": shard_id,
+        "phase_key": "line_role",
+        "rows": [
+            serialize_line_role_file_row(
+                candidate=candidate,
+                deterministic_label=str(
+                    deterministic_baseline[int(candidate.atomic_index)].label
+                    or "OTHER"
+                ),
+                escalation_reasons=deterministic_baseline[
+                    int(candidate.atomic_index)
+                ].escalation_reasons,
+            )
+            for candidate in candidates
+        ],
+    }
+
+
+def build_line_role_model_input_payload(
+    *,
+    shard_id: str,
+    candidates: Sequence[AtomicLineCandidate],
+    deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
+) -> dict[str, Any]:
+    label_code_by_label = build_line_role_label_code_by_label(FREEFORM_LABELS)
+    return {
+        "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
+        "shard_id": shard_id,
+        "rows": [
+            serialize_line_role_model_row(
+                atomic_index=int(candidate.atomic_index),
+                deterministic_label=str(
+                    deterministic_baseline[int(candidate.atomic_index)].label
+                    or "OTHER"
+                ),
+                current_line=str(candidate.text),
+                label_code_by_label=label_code_by_label,
+            )
+            for candidate in candidates
+        ],
+    }
 
 
 def _build_line_role_canonical_plans(
@@ -717,6 +774,11 @@ def _build_line_role_canonical_plans(
             f"line-role-canonical-{prompt_index:04d}-"
             f"a{first_atomic_index:06d}-a{last_atomic_index:06d}"
         )
+        debug_input_payload = build_line_role_debug_input_payload(
+            shard_id=shard_id,
+            candidates=shard_candidates,
+            deterministic_baseline=deterministic_baseline,
+        )
         manifest_entry = ShardManifestEntryV1(
             shard_id=shard_id,
             owned_ids=tuple(
@@ -725,20 +787,13 @@ def _build_line_role_canonical_plans(
             evidence_refs=tuple(
                 dict.fromkeys(str(candidate.block_id) for candidate in shard_candidates)
             ),
-            input_payload={
-                "shard_id": shard_id,
-                "phase_key": "line_role",
-                "rows": [
-                    _line_role_plan_row(
-                        candidate=candidate,
-                        baseline_prediction=deterministic_baseline[
-                            int(candidate.atomic_index)
-                        ],
-                    )
-                    for candidate in shard_candidates
-                ],
-            },
+            input_payload=build_line_role_model_input_payload(
+                shard_id=shard_id,
+                candidates=shard_candidates,
+                deterministic_baseline=deterministic_baseline,
+            ),
             metadata={
+                "phase_key": "line_role",
                 "prompt_index": prompt_index,
                 "prompt_stem": "line_role_prompt",
                 "first_atomic_index": first_atomic_index,
@@ -757,6 +812,7 @@ def _build_line_role_canonical_plans(
                 prompt_index=prompt_index,
                 candidates=tuple(shard_candidates),
                 baseline_predictions=baseline_batch,
+                debug_input_payload=debug_input_payload,
                 manifest_entry=manifest_entry,
             )
         )
@@ -788,7 +844,7 @@ def _line_role_execution_plan_phase(
                 "candidate_count": len(plan.candidates),
                 "atomic_indices": [int(candidate.atomic_index) for candidate in plan.candidates],
                 "owned_ids": list(plan.manifest_entry.owned_ids),
-                "rows": list(plan.manifest_entry.input_payload.get("rows") or []),
+                "rows": list(plan.debug_input_payload.get("rows") or []),
             }
             for plan in shard_plans
         ],
@@ -1036,6 +1092,9 @@ def _run_line_role_phase_runtime(
         pipeline_id=shard_plans[0].runtime_pipeline_id,
         run_root=runtime_root,
         shards=[plan.manifest_entry for plan in shard_plans],
+        debug_payload_by_shard_id={
+            plan.shard_id: plan.debug_input_payload for plan in shard_plans
+        },
         runner=runner,
         worker_count=worker_count,
         env={"CODEX_FARM_ROOT": str(codex_farm_root)},
@@ -1301,6 +1360,7 @@ def _run_line_role_direct_worker_assignment_v1(
     assignment: WorkerAssignmentV1,
     artifacts: dict[str, str],
     shard_by_id: dict[str, ShardManifestEntryV1],
+    debug_payload_by_shard_id: Mapping[str, Any],
     runner: CodexExecRunner,
     pipeline_id: str,
     env: dict[str, str],
@@ -1314,9 +1374,11 @@ def _run_line_role_direct_worker_assignment_v1(
 ) -> _DirectLineRoleWorkerResult:
     worker_root = Path(assignment.workspace_root)
     in_dir = worker_root / "in"
+    debug_dir = worker_root / "debug"
     shard_dir = worker_root / "shards"
     logs_dir = worker_root / "logs"
     in_dir.mkdir(parents=True, exist_ok=True)
+    debug_dir.mkdir(parents=True, exist_ok=True)
     shard_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
@@ -1335,21 +1397,24 @@ def _run_line_role_direct_worker_assignment_v1(
 
     for shard in assigned_shards:
         input_path = in_dir / f"{shard.shard_id}.json"
+        debug_path = debug_dir / f"{shard.shard_id}.json"
         _write_worker_debug_input(
             path=input_path,
             payload=shard.input_payload,
             input_text=None,
         )
+        _write_worker_debug_input(
+            path=debug_path,
+            payload=debug_payload_by_shard_id.get(shard.shard_id),
+            input_text=None,
+        )
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
-        prompt_text = _build_line_role_file_prompt_for_shard(
-            shard=shard,
-            input_path=input_path,
-        )
+        prompt_text = _build_line_role_file_prompt_for_shard(input_path=input_path)
         (shard_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
         if prompt_state is not None:
             prompt_state.write_prompt(
-                phase_key=str((shard.input_payload or {}).get("phase_key") or "").strip(),
+                phase_key=str((shard.metadata or {}).get("phase_key") or "line_role").strip(),
                 prompt_stem=str((shard.metadata or {}).get("prompt_stem") or "prompt").strip(),
                 prompt_index=int((shard.metadata or {}).get("prompt_index") or 0),
                 prompt_text=prompt_text,
@@ -1406,6 +1471,7 @@ def _run_line_role_direct_worker_assignment_v1(
             model=model,
             reasoning_effort=reasoning_effort,
             request_input_file=input_path,
+            debug_input_file=debug_path,
         )
         runner_results_by_shard_id[shard.shard_id] = dict(runner_payload)
         worker_runner_results.append(dict(runner_payload))
@@ -1532,6 +1598,7 @@ def _run_line_role_direct_worker_assignment_v1(
             runner_result=worker_runner_payload,
             metadata={
                 "in_dir": _relative_runtime_path(run_root, in_dir),
+                "debug_dir": _relative_runtime_path(run_root, debug_dir),
                 "shards_dir": _relative_runtime_path(run_root, shard_dir),
                 "log_dir": _relative_runtime_path(run_root, logs_dir),
             },
@@ -1549,6 +1616,7 @@ def _run_line_role_direct_workers_v1(
     pipeline_id: str,
     run_root: Path,
     shards: Sequence[ShardManifestEntryV1],
+    debug_payload_by_shard_id: Mapping[str, Any],
     runner: CodexExecRunner,
     worker_count: int,
     env: dict[str, str],
@@ -1632,6 +1700,7 @@ def _run_line_role_direct_workers_v1(
                 assignment=assignment,
                 artifacts=artifacts,
                 shard_by_id=shard_by_id,
+                debug_payload_by_shard_id=debug_payload_by_shard_id,
                 runner=runner,
                 pipeline_id=pipeline_id,
                 env=env,
@@ -1730,6 +1799,7 @@ def _build_line_role_runner_payload(
     model: str | None,
     reasoning_effort: str | None,
     request_input_file: Path | None,
+    debug_input_file: Path | None,
 ) -> dict[str, Any]:
     payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
     payload["pipeline_id"] = pipeline_id
@@ -1743,6 +1813,11 @@ def _build_line_role_runner_payload(
         if request_input_file is not None and request_input_file.exists()
         else None
     )
+    debug_input_file_str = (
+        str(debug_input_file)
+        if debug_input_file is not None
+        else None
+    )
     telemetry = payload.get("telemetry")
     row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
     if isinstance(row_payloads, list):
@@ -1752,6 +1827,7 @@ def _build_line_role_runner_payload(
             row_payload["prompt_input_mode"] = "path"
             row_payload["request_input_file"] = request_input_file_str
             row_payload["request_input_file_bytes"] = request_input_file_bytes
+            row_payload["debug_input_file"] = debug_input_file_str
     summary_payload = telemetry.get("summary") if isinstance(telemetry, dict) else None
     if isinstance(summary_payload, dict):
         summary_payload["prompt_input_mode"] = "path"
@@ -1764,26 +1840,16 @@ def _build_line_role_runner_payload(
         "prompt_input_mode": "path",
         "request_input_file": request_input_file_str,
         "request_input_file_bytes": request_input_file_bytes,
+        "debug_input_file": debug_input_file_str,
     }
     return payload
 
 
 def _build_line_role_file_prompt_for_shard(
     *,
-    shard: ShardManifestEntryV1,
     input_path: Path,
 ) -> str:
-    prompt_format = str((shard.metadata or {}).get("prompt_format") or "compact_v1")
-    owned_atomic_indices = [
-        int(owned_id)
-        for owned_id in shard.owned_ids
-        if str(owned_id).strip()
-    ]
-    return build_canonical_line_role_file_prompt(
-        input_path=input_path,
-        owned_atomic_indices=owned_atomic_indices,
-        prompt_format=prompt_format,
-    )
+    return build_canonical_line_role_file_prompt(input_path=input_path)
 
 
 def _aggregate_line_role_worker_runner_payload(
@@ -2368,8 +2434,13 @@ def _resolve_line_role_cache_root(
 def _canonical_candidate_fingerprint(
     candidates: Sequence[AtomicLineCandidate],
 ) -> str:
+    by_atomic_index = build_atomic_index_lookup(candidates)
     payload: list[dict[str, Any]] = []
     for candidate in candidates:
+        prev_text, next_text = get_atomic_line_neighbor_texts(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
         payload.append(
             {
                 "recipe_id": candidate.recipe_id,
@@ -2378,8 +2449,8 @@ def _canonical_candidate_fingerprint(
                 "atomic_index": candidate.atomic_index,
                 "text": candidate.text,
                 "within_recipe_span": candidate.within_recipe_span,
-                "prev_text": candidate.prev_text,
-                "next_text": candidate.next_text,
+                "prev_text": prev_text,
+                "next_text": next_text,
                 "rule_tags": list(candidate.rule_tags),
             }
         )

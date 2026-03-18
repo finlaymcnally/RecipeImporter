@@ -191,7 +191,7 @@ from cookimport.labelstudio.prelabel import (
     normalize_codex_reasoning_effort,
     normalize_prelabel_granularity,
 )
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm import prompt_artifacts as llm_prompt_artifacts

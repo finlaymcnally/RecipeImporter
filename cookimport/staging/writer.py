@@ -1291,9 +1291,10 @@ def write_knowledge_outputs_artifact(
                 1 for category in stage_result.block_category_by_index.values()
                 if category == "other"
             ),
-            "jobs_written": int(counts.get("jobs_written") or 0),
+            "shards_written": int(counts.get("shards_written") or 0),
             "outputs_parsed": int(counts.get("outputs_parsed") or 0),
             "chunks_missing": int(counts.get("chunks_missing") or 0),
+            "skipped_chunk_count": int(counts.get("skipped_chunk_count") or 0),
             "snippets_written": int(counts.get("snippets_written") or 0),
             "decisions_applied": int(counts.get("decisions_applied") or 0),
             "changed_blocks": int(counts.get("changed_blocks") or 0),

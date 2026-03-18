@@ -99,7 +99,7 @@ def _notify_knowledge_progress(
 
 
 @dataclass(frozen=True, slots=True)
-class CodexFarmKnowledgeHarvestResult:
+class CodexFarmNonrecipeKnowledgeReviewResult:
     llm_report: dict[str, Any]
     llm_raw_dir: Path
     manifest_path: Path
@@ -116,7 +116,7 @@ class _DirectKnowledgeWorkerResult:
     worker_runner_payload: dict[str, Any]
 
 
-def run_codex_farm_knowledge_harvest(
+def run_codex_farm_nonrecipe_knowledge_review(
     *,
     conversion_result: ConversionResult,
     nonrecipe_stage_result: NonRecipeStageResult,
@@ -128,20 +128,20 @@ def run_codex_farm_knowledge_harvest(
     runner: CodexExecRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
-) -> CodexFarmKnowledgeHarvestResult:
+) -> CodexFarmNonrecipeKnowledgeReviewResult:
     """Optional Stage 7 review over non-recipe chunks via codex-farm."""
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
     manifest_path = llm_raw_dir / KNOWLEDGE_MANIFEST_FILE_NAME
 
     if run_settings.llm_knowledge_pipeline.value == "off":
-        return CodexFarmKnowledgeHarvestResult(
+        return CodexFarmNonrecipeKnowledgeReviewResult(
             llm_report={"enabled": False, "pipeline": "off"},
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
             refined_stage_result=nonrecipe_stage_result,
         )
 
-    knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("extract_knowledge_optional")
+    knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("nonrecipe_knowledge_review")
     knowledge_in_dir = knowledge_stage_dir / "in"
     knowledge_in_dir.mkdir(parents=True, exist_ok=True)
 
@@ -165,7 +165,7 @@ def run_codex_farm_knowledge_harvest(
             stage_status="no_nonrecipe_spans",
         )
         _write_json(llm_report, manifest_path)
-        return CodexFarmKnowledgeHarvestResult(
+        return CodexFarmNonrecipeKnowledgeReviewResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -243,7 +243,7 @@ def run_codex_farm_knowledge_harvest(
             skipped_lane_counts=dict(build_report.skipped_lane_counts),
         )
         _write_json(llm_report, manifest_path)
-        return CodexFarmKnowledgeHarvestResult(
+        return CodexFarmNonrecipeKnowledgeReviewResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -265,7 +265,7 @@ def run_codex_farm_knowledge_harvest(
     process_run_payload: dict[str, Any] | None = None
     try:
         phase_manifest, phase_worker_reports, process_run_payload = _run_direct_knowledge_workers_v1(
-            phase_key="extract_knowledge_optional",
+            phase_key="nonrecipe_knowledge_review",
             pipeline_id=pipeline_id,
             run_root=knowledge_stage_dir,
             shards=build_report.shard_entries,
@@ -320,7 +320,7 @@ def run_codex_farm_knowledge_harvest(
             error=str(exc),
         )
         _write_json(llm_report, manifest_path)
-        return CodexFarmKnowledgeHarvestResult(
+        return CodexFarmNonrecipeKnowledgeReviewResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -396,10 +396,9 @@ def run_codex_farm_knowledge_harvest(
         "counts": {
             "seed_nonrecipe_span_count": build_report.seed_nonrecipe_span_count,
             "chunks_built_before_pruning": build_report.chunk_count_before_pruning,
-            "jobs_written": build_report.jobs_written,
             "shards_written": build_report.shards_written,
             "chunks_written": build_report.chunks_written,
-            "jobs_skipped": build_report.skipped_chunk_count,
+            "skipped_chunk_count": build_report.skipped_chunk_count,
             "outputs_parsed": len(outputs),
             "chunks_missing": len(missing_chunk_ids),
             "useful_chunks_promoted": useful_chunk_count,
@@ -430,7 +429,7 @@ def run_codex_farm_knowledge_harvest(
         "refinement_report": dict(refined_stage_result.refinement_report),
         "process_run": process_run_payload,
         "phase_worker_runtime": {
-            "phase_key": "extract_knowledge_optional",
+            "phase_key": "nonrecipe_knowledge_review",
             "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
             "worker_count": int(phase_manifest.worker_count) if phase_manifest is not None else worker_count,
             "shard_count": int(phase_manifest.shard_count) if phase_manifest is not None else build_report.shards_written,
@@ -452,7 +451,7 @@ def run_codex_farm_knowledge_harvest(
     }
     _write_json(llm_report, manifest_path)
 
-    return CodexFarmKnowledgeHarvestResult(
+    return CodexFarmNonrecipeKnowledgeReviewResult(
         llm_report=llm_report,
         llm_raw_dir=llm_raw_dir,
         manifest_path=manifest_path,
@@ -492,10 +491,9 @@ def _build_noop_knowledge_llm_report(
         "counts": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
             "chunks_built_before_pruning": int(chunk_count_before_pruning),
-            "jobs_written": 0,
             "shards_written": 0,
             "chunks_written": 0,
-            "jobs_skipped": int(skipped_chunk_count),
+            "skipped_chunk_count": int(skipped_chunk_count),
             "outputs_parsed": 0,
             "chunks_missing": 0,
             "useful_chunks_promoted": 0,
@@ -535,7 +533,7 @@ def _build_noop_knowledge_llm_report(
         },
         "stage_status": stage_status,
         "phase_worker_runtime": {
-            "phase_key": "extract_knowledge_optional",
+            "phase_key": "nonrecipe_knowledge_review",
             "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
             "worker_count": 0,
             "shard_count": 0,
@@ -568,10 +566,9 @@ def _build_runtime_failed_knowledge_llm_report(
         "counts": {
             "seed_nonrecipe_span_count": int(build_report.seed_nonrecipe_span_count),
             "chunks_built_before_pruning": int(build_report.chunk_count_before_pruning),
-            "jobs_written": int(build_report.jobs_written),
             "shards_written": int(build_report.shards_written),
             "chunks_written": int(build_report.chunks_written),
-            "jobs_skipped": int(build_report.skipped_chunk_count),
+            "skipped_chunk_count": int(build_report.skipped_chunk_count),
             "outputs_parsed": 0,
             "chunks_missing": int(build_report.chunks_written),
             "useful_chunks_promoted": 0,
@@ -607,7 +604,7 @@ def _build_runtime_failed_knowledge_llm_report(
         "stage_status": "runtime_failed",
         "error": error,
         "phase_worker_runtime": {
-            "phase_key": "extract_knowledge_optional",
+            "phase_key": "nonrecipe_knowledge_review",
             "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
             "worker_count": 0,
             "shard_count": int(build_report.shards_written),

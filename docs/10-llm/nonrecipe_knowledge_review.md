@@ -1,11 +1,11 @@
 ---
-summary: "How the optional shard-runtime knowledge stage reviews seed non-recipe spans, refines final authority, and writes its artifacts."
+summary: "How the optional shard-runtime non-recipe knowledge review stage refines seed non-recipe spans and writes its artifacts."
 read_when:
-  - "When enabling or debugging optional knowledge extraction outputs"
+  - "When enabling or debugging optional non-recipe knowledge review outputs"
   - "When editing the compact knowledge-stage codex-farm pipeline prompt/schema assets"
 ---
 
-# Optional Knowledge Refinement And Extraction
+# Optional Non-Recipe Knowledge Review
 
 The knowledge stage is an **optional** shard-worker CodexFarm phase that reviews seed Stage 7 non-recipe spans, can refine final `knowledge` versus `other` ownership, and extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) from the spans that remain knowledge.
 
@@ -69,8 +69,8 @@ Run-level index (if any knowledge artifacts were written):
 
 Manifest/runtime note:
 - `knowledge_manifest.json` now advertises `input_mode = "stage7_seed_nonrecipe_spans"` and reports whether the stage changed final authority.
-- manifest `counts` now distinguish shard count (`shards_written`) from surviving chunk count (`chunks_written`), while `jobs_written` remains a compatibility alias for the same shard total.
-- If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero jobs.
+- manifest `counts` now distinguish shard count (`shards_written`) from surviving chunk count (`chunks_written`).
+- If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero shards.
 - Live execution and prompt/debug reconstruction both read immutable shard payloads from `knowledge/in/*.json` and validated proposal wrappers from `knowledge/proposals/*.json`; there is no `knowledge/out/*.json` compatibility copy anymore.
 
 ## Pipeline assets

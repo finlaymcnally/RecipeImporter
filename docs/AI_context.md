@@ -121,7 +121,7 @@ Current stage families include:
 - `build_intermediate_det`
 - `recipe_llm_correct_and_link`
 - `build_final_recipe`
-- `extract_knowledge_optional`
+- `nonrecipe_knowledge_review`
 - `write_outputs`
 
 If you are reading old docs, tests, or artifacts that still imply numbered pass slots, treat them as historical noise, not the current architecture.

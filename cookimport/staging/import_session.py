@@ -19,7 +19,7 @@ from cookimport.core.reporting import (
 )
 from cookimport.core.slug import slugify_name
 from cookimport.core.timing import TimingStats, measure
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
@@ -512,7 +512,7 @@ def execute_stage_import_session_from_result(
             stage_label="non-recipe knowledge review",
         )
         try:
-            knowledge_apply = run_codex_farm_knowledge_harvest(
+            knowledge_apply = run_codex_farm_nonrecipe_knowledge_review(
                 conversion_result=result,
                 nonrecipe_stage_result=nonrecipe_stage_result,
                 recipe_spans=list(label_first_result.recipe_spans if label_first_result is not None else []),

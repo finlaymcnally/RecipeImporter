@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
-from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
+from cookimport.parsing.recipe_block_atomizer import (
+    AtomicLineCandidate,
+    build_atomic_index_lookup,
+    get_atomic_line_neighbor_texts,
+)
 
 LineRolePromptFormat = Literal["compact_v1"]
 
@@ -103,6 +107,7 @@ def build_canonical_line_role_prompt(
     prompt_format: LineRolePromptFormat = "compact_v1",
     deterministic_labels_by_atomic_index: Mapping[int, str] | None = None,
     escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None = None,
+    by_atomic_index: Mapping[int, AtomicLineCandidate] | None = None,
 ) -> str:
     if not targets:
         raise ValueError("targets cannot be empty")
@@ -141,40 +146,77 @@ def build_canonical_line_role_prompt(
             targets,
             deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
             escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
+            by_atomic_index=by_atomic_index,
         ),
     )
     rendered = rendered.replace("{{TARGETS_ROWS}}", rendered_targets)
     return rendered.strip() + "\n"
 
 
+def build_line_role_label_code_by_label(
+    labels: Sequence[str] | None = None,
+) -> dict[str, str]:
+    resolved_labels = [str(label) for label in (labels or FREEFORM_LABELS)]
+    return _build_label_code_by_label(resolved_labels)
+
+
+def serialize_line_role_model_row(
+    *,
+    atomic_index: int,
+    deterministic_label: str,
+    current_line: str,
+    label_code_by_label: Mapping[str, str] | None = None,
+) -> list[Any]:
+    resolved_codes = (
+        dict(label_code_by_label)
+        if label_code_by_label is not None
+        else build_line_role_label_code_by_label()
+    )
+    normalized_label = str(deterministic_label or "").strip().upper() or "OTHER"
+    return [
+        int(atomic_index),
+        resolved_codes.get(
+            normalized_label,
+            resolved_codes.get("OTHER", "L0"),
+        ),
+        str(current_line),
+    ]
+
+
 def build_canonical_line_role_file_prompt(
     *,
     input_path: Path,
-    owned_atomic_indices: Sequence[int],
-    allowed_labels: Sequence[str] | None = None,
-    prompt_format: LineRolePromptFormat = "compact_v1",
 ) -> str:
-    if not owned_atomic_indices:
-        raise ValueError("owned_atomic_indices cannot be empty")
-    del allowed_labels
-    del prompt_format
+    label_code_legend = _render_label_code_legend(
+        build_line_role_label_code_by_label()
+    )
     template = _load_prompt_template(
         template_path=_FILE_PROMPT_TEMPLATE_PATH,
         fallback=(
             "Execute the line-role labeling task exactly.\n\n"
             "Return strict JSON with this exact shape:\n"
             '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
+            "Task file shape:\n"
+            '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}\n\n'
             "Rules:\n"
             "- Output only JSON.\n"
             "- Use only the keys `rows`, `atomic_index`, and `label`.\n"
             "- Keep row order exactly as requested by the task file.\n"
+            "- Treat the task file as one ordered contiguous slice of the book.\n"
+            "- The task file has one version marker `v`, one `shard_id`, and compact `rows` tuples.\n"
+            "- Each row is `[atomic_index, label_code, current_line]`.\n"
+            "- Label codes: {{LABEL_CODE_LEGEND}}.\n"
+            "- Use each row's tuple slot 2 (`current_line`) as the line to label.\n"
+            "- Use neighboring rows in `rows[*]` for local context when needed.\n"
             "- Read the task file already placed in the worker folder at `{{INPUT_PATH}}`.\n"
             "- Use only that task file as evidence.\n\n"
             "Task file path:\n"
             "{{INPUT_PATH}}\n"
         ),
     )
-    return template.replace("{{INPUT_PATH}}", str(input_path)).strip() + "\n"
+    rendered = template.replace("{{INPUT_PATH}}", str(input_path))
+    rendered = rendered.replace("{{LABEL_CODE_LEGEND}}", label_code_legend)
+    return rendered.strip() + "\n"
 
 
 def serialize_line_role_targets(
@@ -340,8 +382,14 @@ def _render_local_context_rows(
     *,
     deterministic_labels_by_atomic_index: Mapping[int, str] | None,
     escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None,
+    by_atomic_index: Mapping[int, AtomicLineCandidate] | None,
 ) -> str:
     allowed_labels = {str(label).strip().upper() for label in FREEFORM_LABELS}
+    resolved_by_atomic_index = (
+        dict(by_atomic_index)
+        if by_atomic_index is not None
+        else build_atomic_index_lookup(targets)
+    )
     rows: list[str] = []
     for candidate in targets:
         atomic_index = int(candidate.atomic_index)
@@ -362,11 +410,15 @@ def _render_local_context_rows(
             escalation_reasons=escalation_reasons,
         ):
             continue
+        prev_text, next_text = get_atomic_line_neighbor_texts(
+            candidate,
+            by_atomic_index=resolved_by_atomic_index,
+        )
         rows.append(
             "ctx:"
-            f"{atomic_index}|prev={_escape_compact_text(_context_text(candidate.prev_text))}"
+            f"{atomic_index}|prev={_escape_compact_text(_context_text(prev_text))}"
             f"|line={_escape_compact_text(_context_text(candidate.text))}"
-            f"|next={_escape_compact_text(_context_text(candidate.next_text))}"
+            f"|next={_escape_compact_text(_context_text(next_text))}"
         )
     return "\n".join(rows) if rows else "(none)"
 

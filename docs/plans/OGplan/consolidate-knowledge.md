@@ -6,7 +6,7 @@ This plan must be maintained in accordance with `docs/PLANS.md` (repository root
 
 ## Purpose / Big Picture
 
-When processing a block-first cookbook source (EPUB/PDF/Markdown/text), the pipeline currently produces “knowledge chunks” (files under `data/output/<ts>/chunks/<workbook_slug>/`) by chunking `non_recipe_blocks` (or a topic-candidate fallback). In many books, chunk boundaries are sometimes “too eager”: the chunker splits content under the same conceptual topic (same section header / same taxonomy tags) into multiple adjacent chunks. This creates fragmentation in `chunks.md` and causes downstream “knowledge harvesting” (pass4 codex-farm) to do extra work on near-duplicate adjacent chunks.
+When processing a block-first cookbook source (EPUB/PDF/Markdown/text), the pipeline currently produces “knowledge chunks” (files under `data/output/<ts>/chunks/<workbook_slug>/`) by chunking `non_recipe_blocks` (or a topic-candidate fallback). In many books, chunk boundaries are sometimes “too eager”: the chunker splits content under the same conceptual topic (same section header / same taxonomy tags) into multiple adjacent chunks. This creates fragmentation in `chunks.md` and causes downstream non-recipe knowledge review to do extra work on near-duplicate adjacent chunks.
 
 After this change, adjacent **knowledge** chunks that refer to the same topic/idea (as indicated by shared heading context and/or shared taxonomy tags) will be consolidated into one chunk, as long as doing so is safe and does not cross real book boundaries. A human can see it working by staging an input and comparing `chunks.md` before vs after: the output should show fewer “knowledge” chunks, with merged text where the topic is clearly continuous.
 
@@ -82,7 +82,7 @@ Where the relevant code lives:
 Why this change matters:
 
 - Fragmented adjacent chunks under the same topic make `chunks.md` harder to review.
-- Optional pass4 knowledge harvesting (`docs/10-llm/knowledge_harvest.md`) uses these chunks as inputs; fragmentation increases job count and reduces per-chunk context.
+- Optional non-recipe knowledge review (`docs/10-llm/nonrecipe_knowledge_review.md`) uses these chunks as inputs; fragmentation increases job count and reduces per-chunk context.
 
 ## Plan of Work
 
@@ -218,7 +218,7 @@ Update `docs/04-parsing/04-parsing_readme.md`:
   - what “same topic” means,
   - how to disable with the env var for debugging.
 
-Optionally update `docs/10-llm/knowledge_harvest.md` with a one-paragraph note that pass4 inputs come from these consolidated knowledge chunks, so job counts may change.
+Optionally update `docs/10-llm/nonrecipe_knowledge_review.md` with a one-paragraph note that Stage 7 inputs come from these consolidated knowledge chunks, so job counts may change.
 
 ## Concrete Steps
 
@@ -227,7 +227,7 @@ All commands are from the repository root.
 1) Read and orient:
 
     sed -n '1,220p' docs/04-parsing/04-parsing_readme.md
-    sed -n '1,220p' docs/10-llm/knowledge_harvest.md
+    sed -n '1,220p' docs/10-llm/nonrecipe_knowledge_review.md
     rg -n "def process_blocks_to_chunks|chunk_non_recipe_blocks|merge_small_chunks|assign_lanes|extract_highlights" cookimport/parsing/chunks.py
 
 2) Implement consolidation in `cookimport/parsing/chunks.py`:
