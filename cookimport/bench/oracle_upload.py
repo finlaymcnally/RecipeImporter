@@ -12,7 +12,7 @@ from typing import Callable
 
 
 ORACLE_BROWSER_CMD = "/home/mcnal/.nvm/versions/node/v20.19.6/bin/oracle"
-ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-nosandbox"
+ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-oracle-auto"
 ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
 ORACLE_BROWSER_MODEL_STRATEGY = "ignore"
 ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")

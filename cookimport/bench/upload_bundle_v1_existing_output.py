@@ -395,6 +395,12 @@ def build_upload_bundle_source_model_from_existing_root(
                 "practical_f1": _record_attr(record, "metric_practical_f1"),
                 "full_prompt_log_status": _record_attr(record, "full_prompt_log_status"),
                 "full_prompt_log_rows": _record_attr(record, "full_prompt_log_rows"),
+                "full_prompt_log_runtime_shard_count": _record_attr(
+                    record, "full_prompt_log_runtime_shard_count"
+                ),
+                "full_prompt_log_runtime_shard_count_by_stage": _record_attr(
+                    record, "full_prompt_log_runtime_shard_count_by_stage"
+                ),
                 "line_role_pipeline": _record_attr(record, "line_role_pipeline"),
                 "llm_recipe_pipeline": _record_attr(record, "llm_recipe_pipeline"),
             }

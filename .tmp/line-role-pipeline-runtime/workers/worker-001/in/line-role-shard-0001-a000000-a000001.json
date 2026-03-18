@@ -11,9 +11,9 @@ RECIPE_TITLE, INGREDIENT_LINE, INSTRUCTION_LINE, HOWTO_SECTION, YIELD_LINE, TIME
 
 Compact input legends:
 - Label codes: L0=RECIPE_TITLE, L1=INGREDIENT_LINE, L2=INSTRUCTION_LINE, L3=HOWTO_SECTION, L4=YIELD_LINE, L5=TIME_LINE, L6=RECIPE_NOTES, L7=RECIPE_VARIANT, L8=KNOWLEDGE, L9=OTHER
-- Escalation reason codes: R0=outside_span_structured_label
-- Recipe atomic index ranges for this batch: none
-- Any atomic index outside those ranges is outside recipe.
+- No prior recipe-span authority is provided for this batch.
+- Treat the targets as one ordered contiguous slice of the book.
+- Infer recipe structure only from the supplied ordered lines; do not expect inline neighbor duplicates.
 
 Tie-break precedence (highest to lowest):
 RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION > INGREDIENT_LINE > INSTRUCTION_LINE > TIME_LINE > RECIPE_NOTES > KNOWLEDGE > OTHER
@@ -21,7 +21,7 @@ RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION > INGREDIENT_LINE > I
 Negative rules (must-not-do):
 - Never label a quantity/unit ingredient line as `KNOWLEDGE`.
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
-- Inside recipe spans, `KNOWLEDGE` is last resort and should be used only when the line is explicit prose.
+- Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
 
 Few-shot examples:
@@ -45,7 +45,7 @@ Few-shot examples:
    Line: `NOTE: Cooled hollandaise can break if reheated too fast.`
    Label: `RECIPE_NOTES`
 
-6) Context: outside recipe span, narrative paragraph
+6) Context: explanatory cookbook prose
    Line: `Copper pans conduct heat quickly and evenly, so temperature changes show up fast.`
    Label: `KNOWLEDGE`
 
@@ -72,8 +72,8 @@ Hard output rules:
 4) No markdown, no commentary, no extra keys.
 
 Target row format:
-One JSON array per line. Base shape: [atomic_index, label_code, reason_codes, current_line]. Optional local-context shape: [atomic_index, label_code, reason_codes, current_line, [previous_line, next_line]]. Use "-" for empty reason_codes.
+One pipe-delimited row per line: atomic_index|label_code|current_line. Only the current line text is included; there is no per-row reason or inline neighbor payload.
 
 Targets:
-[0, "L0", "R0", "A PORRIDGE OF LOVAGE STEMS"]
-[1, "L1", "R0", "2 tablespoons olive oil"]
+0|L0|A PORRIDGE OF LOVAGE STEMS
+1|L1|2 tablespoons olive oil

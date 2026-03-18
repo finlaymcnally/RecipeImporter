@@ -139,6 +139,28 @@ def test_atomize_marks_explicit_prose_tag_for_fallback_paragraphs() -> None:
     assert "explicit_prose" in inside_candidates[0].rule_tags
 
 
+def test_atomize_unknown_pre_grouping_state_does_not_emit_recipe_membership_tags() -> None:
+    candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:unknown:1",
+                "block_index": 1,
+                "text": (
+                    "Copper is a responsive metal, and temperature shifts become "
+                    "obvious across the pan surface within seconds."
+                ),
+            }
+        ],
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    assert len(candidates) == 1
+    assert candidates[0].within_recipe_span is None
+    assert "outside_recipe_span" not in candidates[0].rule_tags
+    assert "recipe_span_fallback" not in candidates[0].rule_tags
+    assert "explicit_prose" in candidates[0].rule_tags
+
+
 def test_atomize_title_like_line_offers_recipe_title_candidate_inside_recipe() -> None:
     candidates = atomize_blocks(
         [

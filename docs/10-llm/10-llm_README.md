@@ -157,33 +157,30 @@ Inline recipe tagging writes through the normal recipe artifacts:
 Line-role prediction artifacts live under:
 
 - `prediction-run/line-role-pipeline/telemetry_summary.json`
-- `prediction-run/line-role-pipeline/guardrail_report.json`
-- `prediction-run/line-role-pipeline/guardrail_changed_rows.jsonl`
 - `prediction-run/line-role-pipeline/runtime/phase_manifest.json`
 - `prediction-run/line-role-pipeline/runtime/shard_manifest.jsonl`
 - `prediction-run/line-role-pipeline/runtime/worker_assignments.json`
 - `prediction-run/line-role-pipeline/runtime/proposals/*.json`
-- alternate reviewer copies:
-  - `prediction-run/line-role-pipeline/do_no_harm_diagnostics.json`
-  - `prediction-run/line-role-pipeline/do_no_harm_changed_rows.jsonl`
 
 Prompt/debug artifacts:
 
 - `prompts/full_prompt_log.jsonl` is the stable per-call truth
+- `prompts/prompt_log_summary.json` is the small count summary for that log; it separates raw row count from `runtime_shard_count` so bundled recipe outputs do not look like extra Codex calls
 - `prompts/prompt_request_response_log.txt` is the human-readable convenience export
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
 - `prompts/thinking_trace_summary.jsonl` and `prompts/thinking_trace_summary.md` summarize trace-path coverage, availability, and reasoning-event presence from the merged prompt log
-- `prediction-run/prompt_budget_summary.json` merges recipe/knowledge telemetry with line-role telemetry when present and now publishes semantic `by_stage` totals instead of an old pass-slot grouping container
+- `prediction-run/prompt_budget_summary.json` is the post-run actual-costs artifact; it merges recipe/knowledge telemetry with line-role telemetry when present and publishes semantic `by_stage` totals instead of an old pass-slot grouping container
 - `prediction-run/prompt_budget_summary.json` now also falls back to current shard-runtime worker telemetry plus the linked processed-run `line-role-pipeline/telemetry_summary.json` when a benchmark/prediction manifest only carries lightweight phase summaries or a metadata-only benchmark copy
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
-- preview budget estimation is now `predictive` by default: it ignores exact live telemetry from the selected run and instead uses stage-specific calibration from prior classic shard-runtime runs when available
-- pass `--estimation-mode observed` only when you explicitly want retrospective “what this completed run actually cost” numbers
+- preview budget estimation is predictive-only: it rebuilds deterministic/`vanilla` shard payloads locally, tokenizes the wrapper prompts plus deposited task files, and never reuses Codex-backed run telemetry
+- retrospective “what did this completed run actually cost?” reporting lives in the finished-run `prompt_budget_summary.json` / `actual_costs_json` artifact, not in prompt preview
 - when `--run` points at a benchmark root, preview follows `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it reaches the processed stage run with the real staged outputs
 - preview manifests now carry `phase_plans` keyed by stage, with worker count, shard count, owned-ID distributions, and first-turn payload distributions; prompt rows also carry `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids`
 - `cf-debug preview-shard-sweep --run ... --experiment-file docs/examples/shard_sweep_examples.json --out ...` runs several local worker/shard planning variants and writes one sweep manifest plus per-experiment preview dirs
-- when a processed run already has live CodexFarm input files under `raw/llm/<workbook_slug>/{recipe_correction,knowledge}/in/`, preview export reuses those exact payloads before falling back to local reconstruction
-- preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`; when the referenced processed run already has stage telemetry on disk, preview prefers those observed token totals, otherwise it tries stage-specific historical calibration from local `data/output` Codex runtime rows, and if neither source exists it reports token estimates as unavailable instead of guessing
+- preview export now always rebuilds recipe and knowledge shard payloads from the predictive-safe processed artifact itself; it does not reuse stale `raw/llm/<workbook_slug>/{recipe_correction,knowledge}/in/` payloads
+- preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`; it is predictive-only, prefers the paired deterministic/`vanilla` processed artifact when a benchmark root has both variants, tokenizes the locally reconstructed prompt/task payloads, uses structural fake-runner output builders for best-guess JSON output size, and hard-refuses Codex-backed or ambiguous processed runs
 - reviewer-facing prompt files stay prompt-level on purpose; the durable cutover is to annotate them with runtime ownership metadata (`runtime_shard_id`, `runtime_worker_id`, `runtime_owned_ids`), not to invent a second legacy export family just for shard workers
+- when you want “how many Codex jobs actually ran?” on classic shard runtime, prefer stage `call_count` in `prompt_budget_summary.json` or `prompts/prompt_log_summary.json.runtime_shard_count`; raw `full_prompt_log_rows` may be higher because one shard output can expand into several per-item rows
 - preview defaults to the shard-v1 surfaces unless explicitly overridden, so it can project post-refactor worker/shard budgets over saved deterministic-only benchmark outputs too
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
@@ -192,6 +189,8 @@ Prompt/debug artifacts:
 - knowledge preview now follows the live bundle contract exactly: prompt counts come from contiguous bundled `chunks[*]` payloads, not one chunk per prompt
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
+- line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
+- line-role row transport is now minimal: `atomic_index|label_code|current_line`. Per-row escalation reasons are no longer serialized into the Codex prompt, so row metadata stays close to “need to know” rather than repeating review-only hints on every line.
 - live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, writes raw prompt-text shard inputs for `line-role.canonical.v1`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
@@ -211,7 +210,7 @@ Prompt cost notes worth keeping in mind:
 - the durable shape lessons are:
   - knowledge prompt count fell because contiguous chunks were packed across neighboring seed spans, not only within each individual seed span
   - after that, remaining knowledge prompt count was mostly gap-limited by hard breaks between chunk runs
-  - line-role cost after the transport fix mostly lived in repeated per-row keys and always-on neighbor text, so shared row compaction is the right seam
+  - line-role cost after the transport fix mostly lived in repeated per-row keys and duplicated inline neighbor text, so the right seam is one ordered contiguous slice without in-slice line repetition
   - after those cuts, most remaining prompt budget is real task payload rather than wrapper waste
 - the implemented low-risk trims are:
   - drop empty recipe `draft_hint`
@@ -219,8 +218,8 @@ Prompt cost notes worth keeping in mind:
   - reduce knowledge context blocks from `12 -> 4 -> 2 -> 0`
   - skip knowledge calls already marked `suggested_lane=noise`
   - bundle local knowledge chunks instead of writing one chunk per prompt
-  - blank line-role neighbor context for outside-recipe rows
-  - compact line-role rows into batch-level legends plus conditional local context only for escalated rows
+  - compact line-role rows into batch-level legends and one ordered contiguous slice with no inline neighbor duplication
+  - remove recipe-range authority from line-role prompts so Codex reviews the deterministic labels without inherited recipe membership
   - switch active shard-v1 packs to file-path prompt transport so prompt wrapper text only carries instructions plus `INPUT_PATH`, while the task payload already lives in the worker folder on disk
   - default active shard-v1 phases to `*_prompt_target_count=5`, with older shard-size knobs retained only as explicit lower-level overrides
 

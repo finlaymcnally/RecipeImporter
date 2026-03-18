@@ -30,7 +30,8 @@ Behavior differences:
   - `request-template`: create a manifest you can fill with the web AI's asks.
   - `build-followup`: answer that manifest into a new `followup_dataN/` folder that assumes the requester already has `upload_bundle_v1`.
   - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
-  - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing processed run or benchmark run root. Budget mode defaults to predictive; use `--estimation-mode observed` only for retrospective cost recovery on an already-finished run.
+  - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing deterministic/`vanilla` processed run or benchmark root so you can estimate likely cost before spending tokens.
+  - `actual-costs`: resolve the finished-run postmortem cost artifact (`prompt_budget_summary.json`) from a completed run or benchmark root.
   - `preview-shard-sweep`: run several local worker/shard preview variants from one existing run root and compare them side by side.
   - knowledge follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-knowledge-source-key` or `--include-knowledge-output-subdir`, and `audit-knowledge` / `pack` / `build-followup` can emit `knowledge_audit.jsonl` plus knowledge artifact references.
 - `import` / `C3import`:
@@ -258,7 +259,7 @@ What each setting affects:
 - Bucket 1 fixed behavior is recorded as `bucket1_fixed_behavior_version` in new run configs. Old payloads may still carry older hidden keys such as `section_detector_backend`, `multi_recipe_trace`, or instruction-step fallback settings, but new runs do not expose them as operator choices.
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
 - `p6_emit_metadata_debug`: internal-only debug toggle for optional Priority 6 sidecar artifacts.
-- Internal-only parser/OCR/scoring payload keys remain accepted for engineering experiments and benchmark reproducibility: `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `line_role_guardrail_mode`, and `codex_farm_failure_mode`.
+- Internal-only parser/OCR/scoring payload keys remain accepted for engineering experiments and benchmark reproducibility: `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, and `codex_farm_failure_mode`.
 - `pdf_ocr_policy`: public OCR policy for PDFs.
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
@@ -397,7 +398,7 @@ Interactive benchmark now has a mode submenu before execution:
 3. Matched-set picker path:
    - matched-book selection rows reuse the same concise book label style as the single-offline gold picker instead of mixing source filename plus bracketed gold label text.
      - after that bundle is written, interactive single-offline mode starts Oracle automatically in the background instead of blocking benchmark wrap-up
-     - the Oracle browser window is intentionally visible so you can watch login/model selection and keep an eye on the run
+     - Oracle now uses one auto browser launcher everywhere: it opens visible Chromium when a usable display exists and falls back to xvfb otherwise
      - the wrap-up prints the detached Oracle PID, the chosen browser-profile path, and one explicit `oracle_upload.log` response/log path under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`; full command/shard detail stays in the log/metadata files instead of spamming the terminal
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
@@ -442,7 +443,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
      - group mode targets ~40MB and automatically lowers per-book sampled detail as selected-book count increases.
      - when that group bundle is written, interactive multi-book single-profile mode starts Oracle automatically in the background for that top-level bundle; per-book bundles are retained but not auto-uploaded
-     - the Oracle browser window is intentionally visible so you can watch login/model selection and keep an eye on the run
+     - Oracle now uses that same auto browser launcher here too: visible Chromium when a usable display exists, xvfb otherwise
      - the wrap-up prints the detached Oracle PID, the chosen browser-profile path, and one explicit `oracle_upload.log` response/log path under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`; full command/shard detail stays in the log/metadata files instead of spamming the terminal
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
 4. Returns to the main menu on completion.

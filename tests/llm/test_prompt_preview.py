@@ -2,16 +2,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
+import tiktoken
 
 from typer.testing import CliRunner
 
 from cookimport.cf_debug_cli import app
-from cookimport.llm.prompt_budget import build_prompt_preview_budget_summary
+from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
+from cookimport.llm.prompt_budget import (
+    build_prompt_preview_budget_summary,
+    write_prompt_preview_budget_summary,
+)
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 runner = CliRunner()
+_ENCODING = tiktoken.get_encoding("o200k_base")
+
+
+def _count_tokens(text: str) -> int:
+    return len(_ENCODING.encode(text))
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -20,7 +31,10 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def _build_existing_run(tmp_path: Path) -> Path:
-    run_dir = tmp_path / "processed-run"
+    return _build_existing_run_at(tmp_path / "processed-run")
+
+
+def _build_existing_run_at(run_dir: Path) -> Path:
     workbook_slug = "fixturebook"
     source_hash = "fixture-source-hash"
 
@@ -206,6 +220,76 @@ def _build_existing_run(tmp_path: Path) -> Path:
     return run_dir
 
 
+def _build_benchmark_root_with_vanilla_and_codex(tmp_path: Path) -> tuple[Path, Path, Path]:
+    benchmark_root = tmp_path / "benchmark-root"
+    vanilla_run_dir = _build_existing_run_at(tmp_path / "outputs" / "vanilla" / "2026-03-17_16.07.27")
+    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codexfarm" / "2026-03-17_16.07.50")
+
+    vanilla_report_path = vanilla_run_dir / "fixturebook.excel_import_report.json"
+    vanilla_report = json.loads(vanilla_report_path.read_text(encoding="utf-8"))
+    vanilla_report["runConfig"] = {
+        "llm_recipe_pipeline": "off",
+        "llm_knowledge_pipeline": "off",
+        "line_role_pipeline": "deterministic-v1",
+    }
+    vanilla_report_path.write_text(
+        json.dumps(vanilla_report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    codex_report_path = codex_run_dir / "fixturebook.excel_import_report.json"
+    codex_report = json.loads(codex_report_path.read_text(encoding="utf-8"))
+    codex_report["runConfig"] = {
+        "llm_recipe_pipeline": "codex-recipe-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "line_role_pipeline": "codex-line-role-shard-v1",
+    }
+    codex_report_path.write_text(
+        json.dumps(codex_report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    _write_json(
+        benchmark_root / "single-offline-benchmark" / "fixturebook" / "vanilla" / "run_manifest.json",
+        {
+            "artifacts": {"processed_output_run_dir": str(vanilla_run_dir)},
+            "run_config": vanilla_report["runConfig"],
+        },
+    )
+    _write_json(
+        benchmark_root / "single-offline-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
+        {
+            "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
+            "run_config": codex_report["runConfig"],
+        },
+    )
+    return benchmark_root, vanilla_run_dir, codex_run_dir
+
+
+def _set_run_config(run_dir: Path, run_config: dict[str, object]) -> None:
+    report_path = run_dir / "fixturebook.excel_import_report.json"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    payload["runConfig"] = dict(run_config)
+    report_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_actual_costs_summary(path: Path) -> Path:
+    _write_json(
+        path,
+        {
+            "schema_version": "prompt_budget_summary.v1",
+            "by_stage": {
+                "line_role": {"call_count": 1, "tokens_total": 1234},
+            },
+            "totals": {"tokens_total": 1234},
+        },
+    )
+    return path
+
+
 def _write_worker_status(path: Path, row: dict[str, int]) -> None:
     _write_json(
         path,
@@ -244,7 +328,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         "line_role_interaction_count": 1,
         "recipe_interaction_count": 1,
     }
-    assert any(
+    assert not any(
         warning["code"] == "token_estimate_unavailable"
         for warning in manifest["warnings"]
     )
@@ -304,12 +388,11 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert "line_role_prompt_0001.json" in line_role_row["rendered_prompt_text"]
     embedded_line_role_prompt = line_role_row["task_prompt_text"]
     assert "Compact input legends:" in embedded_line_role_prompt
-    assert "Recipe atomic index ranges for this batch: 0-1" in embedded_line_role_prompt
+    assert "No prior recipe-span authority is provided for this batch." in embedded_line_role_prompt
     assert "RECIPE_TITLE" in embedded_line_role_prompt
     assert "KNOWLEDGE" in embedded_line_role_prompt
-    assert "deterministic_unresolved" in embedded_line_role_prompt
-    assert "fallback_decision" in embedded_line_role_prompt
     assert "Advertisement copy." in embedded_line_role_prompt
+    assert "0|L" in embedded_line_role_prompt
     assert line_role_row["request_input_payload"]["shard_id"].startswith("line-role-shard-0001")
     assert [row["atomic_index"] for row in line_role_row["request_input_payload"]["rows"]] == [
         0,
@@ -348,18 +431,19 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
     assert line_role_budget["task_prompt_chars_total"] > line_role_budget["prompt_chars_total"]
     assert line_role_budget["transport_overhead_chars_total"] == 0
-    assert any(
-        warning["code"] == "token_estimate_unavailable"
-        for warning in budget_summary["warnings"]
-    )
+    assert budget_summary["estimation_method"]["type"] == "structural_prompt_tokenization"
+    assert budget_summary["estimation_method"]["mode"] == "predictive"
+    assert budget_summary["totals"]["estimated_total_tokens"] is not None
     budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
     assert "Workers" in budget_summary_md
     assert "Prompt Detail" in budget_summary_md
-    assert "unavailable" in budget_summary_md
+    assert "structural prompt tokenization" in budget_summary_md
     assert (out_dir / "prompt_preview_budget_summary.md").is_file()
 
 
-def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> None:
+def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_state(
+    tmp_path: Path,
+) -> None:
     run_dir = _build_existing_run(tmp_path)
     workbook_slug = "fixturebook"
     live_recipe_input = run_dir / "raw" / "llm" / workbook_slug / "recipe_correction" / "in" / "live_recipe.json"
@@ -406,48 +490,7 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
         run_path=run_dir,
         out_dir=out_dir,
         repo_root=REPO_ROOT,
-        estimation_mode="observed",
     )
-
-    copied_recipe_input = (
-        out_dir
-        / "raw"
-        / "llm"
-        / workbook_slug
-        / "recipe_llm_correct_and_link"
-        / "in"
-        / "recipe-preview-shard-0001-live_recipe.json"
-    )
-    copied_knowledge_input = (
-        out_dir
-        / "raw"
-        / "llm"
-        / workbook_slug
-        / "extract_knowledge_optional"
-        / "in"
-        / "live_knowledge.json"
-    )
-    copied_recipe_payload = json.loads(copied_recipe_input.read_text(encoding="utf-8"))
-    assert copied_recipe_payload["owned_recipe_ids"] == ["urn:recipe:test:live"]
-    assert copied_recipe_payload["recipes"] == [
-        {
-            "canonical_text": "LIVE canonical text",
-            "evidence_rows": [[42, "LIVE canonical text"]],
-            "recipe_candidate_hint": {
-                "description": None,
-                "identifier": "urn:recipe:test:live",
-                "name": "Live Recipe Name",
-                "recipeIngredient": ["2 tbsp butter"],
-                "recipeInstructions": ["Melt the butter."],
-                "recipeYield": None,
-            },
-            "recipe_id": "urn:recipe:test:live",
-            "warnings": [],
-        }
-    ]
-    assert copied_recipe_payload["tagging_guide"] == {"version": "custom-live-guide"}
-    assert copied_recipe_payload["authority_notes"] == ["live_artifact_reuse"]
-    assert copied_knowledge_input.read_text(encoding="utf-8") == live_knowledge_input.read_text(encoding="utf-8")
 
     full_prompt_rows = [
         json.loads(line)
@@ -457,182 +500,68 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
         if line.strip()
     ]
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
-    knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "extract_knowledge_optional")
     assert "Read the authoritative shard JSON file at" in recipe_row["rendered_prompt_text"]
-    assert "LIVE canonical text" in recipe_row["request_input_text"]
-    assert recipe_row["recipe_id"] == "urn:recipe:test:live"
-    assert "Read the input JSON file at" in knowledge_row["rendered_prompt_text"]
-    assert knowledge_row["task_prompt_text"] == knowledge_row["request_input_text"]
-    assert "Live knowledge block." in knowledge_row["request_input_text"]
-    assert knowledge_row["recipe_id"] == "fixturebook.c9999.nr"
-
-    budget_summary = json.loads(
-        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
-    )
-    knowledge_budget = budget_summary["by_stage"]["extract_knowledge_optional"]
-    assert knowledge_budget["task_prompt_chars_total"] > 0
-    assert (
-        knowledge_budget["estimated_request_chars_total"]
-        == knowledge_budget["task_prompt_chars_total"] + knowledge_budget["prompt_chars_total"]
-    )
-
-
-def test_prompt_preview_budget_prefers_live_stage_telemetry_when_available(
-    tmp_path: Path,
-) -> None:
-    run_dir = _build_existing_run(tmp_path)
-    workbook_slug = "fixturebook"
-
-    live_knowledge_input = run_dir / "raw" / "llm" / workbook_slug / "knowledge" / "in" / "live_knowledge.json"
-    _write_json(
-        live_knowledge_input,
-        {
-            "bundle_version": "2",
-            "bundle_id": "fixturebook.kb0001.nr",
-            "chunks": [
-                {
-                    "chunk_id": "fixturebook.c0001.nr",
-                    "block_start_index": 7,
-                    "block_end_index": 8,
-                    "blocks": [{"block_index": 7, "text": "Live knowledge block."}],
-                    "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
-                }
-            ],
-            "context": {"blocks_before": [], "blocks_after": []},
-            "guardrails": {"context_recipe_block_indices": []},
-        },
-    )
-
-    _write_worker_status(
-        run_dir
-        / "raw"
-        / "llm"
-        / workbook_slug
-        / "recipe_phase_runtime"
-        / "workers"
-        / "worker-001"
-        / "status.json",
-        {
-            "tokens_input": 250,
-            "tokens_cached_input": 25,
-            "tokens_output": 45,
-            "tokens_total": 295,
-        },
-    )
-    _write_worker_status(
-        run_dir
-        / "raw"
-        / "llm"
-        / workbook_slug
-        / "knowledge"
-        / "workers"
-        / "worker-001"
-        / "status.json",
-        {
-            "tokens_input": 200,
-            "tokens_cached_input": 20,
-            "tokens_output": 30,
-            "tokens_total": 230,
-        },
-    )
-    _write_json(
-        run_dir / "line-role-pipeline" / "telemetry_summary.json",
-        {
-            "summary": {
-                "batch_count": 1,
-                "attempt_count": 1,
-                "tokens_input": 500,
-                "tokens_cached_input": 50,
-                "tokens_output": 60,
-                "tokens_total": 560,
-            }
-        },
-    )
-
-    out_dir = tmp_path / "preview"
-    write_prompt_preview_for_existing_run(
-        run_path=run_dir,
-        out_dir=out_dir,
-        repo_root=REPO_ROOT,
-        estimation_mode="observed",
+    assert "LIVE canonical text" not in recipe_row["request_input_text"]
+    assert recipe_row["recipe_id"] == "urn:recipe:test:r0"
+    assert not any(
+        row["stage_key"] == "extract_knowledge_optional"
+        for row in full_prompt_rows
     )
 
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert budget_summary["estimation_method"]["type"] == "observed_live_telemetry"
-    assert budget_summary["estimation_method"]["mode"] == "observed"
-    assert budget_summary["totals"]["estimated_cached_input_tokens"] == 95
-    assert budget_summary["totals"]["estimated_input_tokens"] == 950
-    assert budget_summary["totals"]["estimated_output_tokens"] == 135
-    assert budget_summary["totals"]["estimated_total_tokens"] == 1085
-
-    recipe_budget = budget_summary["by_stage"]["recipe_llm_correct_and_link"]
-    assert recipe_budget["estimation_basis"] == "live_telemetry"
-    assert recipe_budget["estimated_input_tokens"] == 250
-    assert recipe_budget["estimated_cached_input_tokens"] == 25
-    assert recipe_budget["estimated_output_tokens"] == 45
-    assert recipe_budget["estimated_total_tokens"] == 295
-
-    knowledge_budget = budget_summary["by_stage"]["extract_knowledge_optional"]
-    assert knowledge_budget["estimation_basis"] == "live_telemetry"
-    assert knowledge_budget["estimated_input_tokens"] == 200
-    assert knowledge_budget["estimated_cached_input_tokens"] == 20
-    assert knowledge_budget["estimated_output_tokens"] == 30
-    assert knowledge_budget["estimated_total_tokens"] == 230
-
-    line_role_budget = budget_summary["by_stage"]["line_role"]
-    assert line_role_budget["estimation_basis"] == "live_telemetry"
-    assert line_role_budget["estimated_input_tokens"] == 500
-    assert line_role_budget["estimated_cached_input_tokens"] == 50
-    assert line_role_budget["estimated_output_tokens"] == 60
-    assert line_role_budget["estimated_total_tokens"] == 560
-
-    budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
-    assert "retrospective, not predictive" in budget_summary_md
-    assert "live_telemetry" in budget_summary_md
+    assert "extract_knowledge_optional" not in budget_summary["by_stage"]
 
 
-def test_prompt_preview_budget_uses_historical_calibration_when_live_missing() -> None:
+def test_prompt_preview_budget_uses_structural_prompt_tokenization_when_live_missing() -> None:
+    request_payload = {
+        "rows": [
+            {"atomic_index": 11, "label_code": "OTHER", "current_line": "Toast spices."},
+            {"atomic_index": 12, "label_code": "KNOWLEDGE", "current_line": "Keep stirring."},
+        ]
+    }
+    task_prompt_text = json.dumps(request_payload, ensure_ascii=False, indent=2)
+    expected_output = json.dumps(
+        build_structural_pipeline_output("line-role.canonical.v1", request_payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     summary = build_prompt_preview_budget_summary(
         prompt_rows=[
             {
                 "stage_key": "line_role",
+                "pipeline_id": "line-role.canonical.v1",
+                "model": "gpt-5",
                 "rendered_prompt_text": "wrapper",
                 "prompt_input_mode": "path",
-                "task_prompt_text": "x" * 1000,
+                "task_prompt_text": task_prompt_text,
+                "request_input_payload": request_payload,
             }
         ],
         preview_dir=Path("/tmp/preview"),
         phase_plans=None,
-        live_stage_summaries={},
-        stage_calibrations={
-            "line_role": {
-                "stage": "line_role",
-                "sample_count": 2,
-                "input_tokens_per_request_char": 4.0,
-                "output_tokens_per_request_char": 0.2,
-                "total_tokens_per_request_char": 4.2,
-                "total_tokens_per_request_char_low": 3.5,
-                "total_tokens_per_request_char_high": 5.1,
-                "cached_input_share": 0.7,
-            }
-        },
     )
 
-    assert summary["estimation_method"]["type"] == "predictive_historical_calibration"
+    expected_input_tokens = _count_tokens("wrapper") + _count_tokens(task_prompt_text)
+    expected_output_tokens = _count_tokens(expected_output)
+
+    assert summary["estimation_method"]["type"] == "structural_prompt_tokenization"
     assert summary["estimation_method"]["mode"] == "predictive"
     line_role = summary["by_stage"]["line_role"]
-    assert line_role["estimation_basis"] == "historical_calibration"
-    assert line_role["estimated_input_tokens"] == 4028
-    assert line_role["estimated_cached_input_tokens"] == 2820
-    assert line_role["estimated_output_tokens"] == 201
-    assert line_role["estimated_total_tokens"] == 4229
-    assert line_role["estimated_total_tokens_low"] == 3524
-    assert line_role["estimated_total_tokens_high"] == 5136
+    assert line_role["estimation_basis"] == "structural_prompt_tokenization"
+    assert line_role["estimated_input_tokens"] == expected_input_tokens
+    assert line_role["estimated_cached_input_tokens"] == 0
+    assert line_role["estimated_output_tokens"] == expected_output_tokens
+    assert line_role["estimated_total_tokens"] == expected_input_tokens + expected_output_tokens
+    assert line_role["estimated_total_tokens_low"] == expected_input_tokens + expected_output_tokens
+    assert line_role["estimated_total_tokens_high"] == expected_input_tokens + expected_output_tokens
 
 
-def test_prompt_preview_default_mode_ignores_exact_live_telemetry(tmp_path: Path) -> None:
+def test_prompt_preview_ignores_exact_live_telemetry_and_uses_structural_prediction(
+    tmp_path: Path,
+) -> None:
     run_dir = _build_existing_run(tmp_path)
     workbook_slug = "fixturebook"
 
@@ -667,11 +596,11 @@ def test_prompt_preview_default_mode_ignores_exact_live_telemetry(tmp_path: Path
     )
     assert budget_summary["estimation_method"]["mode"] == "predictive"
     recipe_budget = budget_summary["by_stage"]["recipe_llm_correct_and_link"]
-    assert recipe_budget["estimation_basis"] == "unavailable"
-    assert recipe_budget["estimated_total_tokens"] is None
+    assert recipe_budget["estimation_basis"] == "structural_prompt_tokenization"
+    assert recipe_budget["estimated_total_tokens"] is not None
 
 
-def test_prompt_preview_budget_reports_unavailable_without_live_or_calibration() -> None:
+def test_prompt_preview_budget_reports_unavailable_without_reconstructable_structure() -> None:
     summary = build_prompt_preview_budget_summary(
         prompt_rows=[
             {
@@ -683,8 +612,6 @@ def test_prompt_preview_budget_reports_unavailable_without_live_or_calibration()
         ],
         preview_dir=Path("/tmp/preview"),
         phase_plans=None,
-        live_stage_summaries={},
-        stage_calibrations={},
     )
 
     assert summary["estimation_method"]["type"] == "no_token_estimate_available"
@@ -702,59 +629,98 @@ def test_prompt_preview_budget_reports_unavailable_without_live_or_calibration()
     )
 
 
-def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> None:
-    run_dir = _build_existing_run(tmp_path)
-    workbook_slug = "fixturebook"
-    live_recipe_dir = run_dir / "raw" / "llm" / workbook_slug / "recipe_correction" / "in"
-    huge_text = "X" * 20000
-    for index in range(120):
-        _write_json(
-            live_recipe_dir / f"r{index:04d}.json",
-            {
-                "bundle_version": "1",
-                "recipe_id": f"urn:recipe:test:{index}",
-                "workbook_slug": workbook_slug,
-                "source_hash": "fixture-source-hash",
-                "canonical_text": huge_text,
-                "evidence_rows": [[index, huge_text]],
-                "recipe_candidate_hint": {
-                    "identifier": f"urn:recipe:test:{index}",
-                    "name": f"Recipe {index}",
-                    "recipeIngredient": ["1 cup flour"],
-                    "recipeInstructions": ["Mix."],
-                    "description": None,
-                    "recipeYield": None,
-                },
-                "tagging_guide": {"version": "custom-live-guide"},
-                "authority_notes": ["warning_fixture"],
-            },
-        )
+def test_prompt_preview_predictive_prefers_vanilla_benchmark_manifest(tmp_path: Path) -> None:
+    benchmark_root, vanilla_run_dir, _ = _build_benchmark_root_with_vanilla_and_codex(tmp_path)
+    out_dir = tmp_path / "preview-predictive"
 
-    out_dir = tmp_path / "preview"
     manifest_path = write_prompt_preview_for_existing_run(
-        run_path=run_dir,
+        run_path=benchmark_root,
         out_dir=out_dir,
         repo_root=REPO_ROOT,
-        llm_knowledge_pipeline="off",
-        line_role_pipeline="off",
     )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    warning_messages = [warning["message"] for warning in manifest["warnings"]]
-    assert any("Token estimate unavailable for:" in message for message in warning_messages)
 
-    budget_summary = json.loads(
-        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["resolved_processed_run_dir"] == str(vanilla_run_dir)
+
+
+def test_prompt_preview_predictive_rejects_direct_codex_processed_run(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    _set_run_config(
+        run_dir,
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
+        },
     )
-    assert budget_summary["totals"]["call_count"] == 5
-    assert budget_summary["totals"]["estimated_request_chars_total"] > 1_500_000
+
+    with pytest.raises(ValueError, match="Predictive prompt preview only accepts deterministic/vanilla artifacts"):
+        write_prompt_preview_for_existing_run(
+            run_path=run_dir,
+            out_dir=tmp_path / "preview",
+            repo_root=REPO_ROOT,
+        )
+
+
+def test_prompt_preview_predictive_rejects_codex_only_benchmark_manifest(tmp_path: Path) -> None:
+    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codexfarm" / "2026-03-17_16.07.50")
+    _set_run_config(
+        codex_run_dir,
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
+        },
+    )
+    benchmark_root = tmp_path / "benchmark-root"
+    _write_json(
+        benchmark_root / "single-offline-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
+        {
+            "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
+            "run_config": {
+                "llm_recipe_pipeline": "codex-recipe-shard-v1",
+                "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+                "line_role_pipeline": "codex-line-role-shard-v1",
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="Could not resolve a predictive-safe processed stage run"):
+        write_prompt_preview_for_existing_run(
+            run_path=benchmark_root,
+            out_dir=tmp_path / "preview",
+            repo_root=REPO_ROOT,
+        )
+
+
+def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> None:
+    huge_task_prompt = "X" * 1_600_000
+    summary = build_prompt_preview_budget_summary(
+        prompt_rows=[
+            {
+                "stage_key": "line_role",
+                "pipeline_id": "line-role.canonical.v1",
+                "model": "gpt-5",
+                "rendered_prompt_text": "line-role wrapper",
+                "prompt_input_mode": "path",
+                "task_prompt_text": huge_task_prompt,
+                "request_input_payload": {"rows": [{"atomic_index": 1, "current_line": "Line one"}]},
+            },
+        ],
+        preview_dir=tmp_path / "preview",
+        phase_plans=None,
+    )
+    out_dir = tmp_path / "preview"
+    _, md_path = write_prompt_preview_budget_summary(out_dir, summary)
+
+    assert summary["totals"]["call_count"] == 1
+    assert summary["totals"]["estimated_request_chars_total"] > 1_500_000
+    assert summary["estimation_method"]["type"] == "structural_prompt_tokenization"
     assert any(
-        warning["code"] == "token_estimate_unavailable" for warning in budget_summary["warnings"]
+        warning["code"] == "extreme_prompt_budget" for warning in summary["warnings"]
     )
-    assert any(
-        warning["code"] == "extreme_prompt_budget" for warning in budget_summary["warnings"]
-    )
-    assert "No predictive token estimate is shown" in (
-        out_dir / "prompt_preview_budget_summary.md"
+    assert "tokenize the locally reconstructed wrapper prompts plus deposited task files" in (
+        md_path
     ).read_text(encoding="utf-8")
 
 
@@ -790,12 +756,14 @@ def test_cf_debug_preview_prompts_resolves_processed_run_from_benchmark_manifest
     assert manifest_path.is_file()
 
 
-def test_cf_debug_preview_prompts_emits_budget_warning_to_stderr(tmp_path: Path) -> None:
+def test_cf_debug_preview_prompts_ignores_live_input_leftovers_in_budget_warning(
+    tmp_path: Path,
+) -> None:
     run_dir = _build_existing_run(tmp_path)
     workbook_slug = "fixturebook"
     live_recipe_dir = run_dir / "raw" / "llm" / workbook_slug / "recipe_correction" / "in"
-    huge_text = "X" * 20000
-    for index in range(120):
+    huge_text = "X" * 1_600_000
+    for index in range(1):
         _write_json(
             live_recipe_dir / f"r{index:04d}.json",
             {
@@ -834,55 +802,88 @@ def test_cf_debug_preview_prompts_emits_budget_warning_to_stderr(tmp_path: Path)
     )
     assert result.exit_code == 0
     assert result.stdout.strip() == str(out_dir / "prompt_preview_manifest.json")
-    assert "Token estimate unavailable for:" in result.stderr
+    assert result.stderr.strip() == ""
 
 
-def test_cf_debug_preview_prompts_observed_mode_uses_live_telemetry(tmp_path: Path) -> None:
-    run_dir = _build_existing_run(tmp_path)
-    workbook_slug = "fixturebook"
-    _write_worker_status(
-        run_dir
-        / "raw"
-        / "llm"
-        / workbook_slug
-        / "recipe_phase_runtime"
-        / "workers"
-        / "worker-001"
-        / "status.json",
+def test_cf_debug_preview_prompts_predictive_rejects_codex_only_root(tmp_path: Path) -> None:
+    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codexfarm" / "2026-03-17_16.07.50")
+    _set_run_config(
+        codex_run_dir,
         {
-            "tokens_input": 250,
-            "tokens_cached_input": 25,
-            "tokens_output": 45,
-            "tokens_total": 295,
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "line_role_pipeline": "codex-line-role-shard-v1",
+        },
+    )
+    benchmark_root = tmp_path / "benchmark-root"
+    _write_json(
+        benchmark_root / "run_manifest.json",
+        {
+            "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
+            "run_config": {
+                "llm_recipe_pipeline": "codex-recipe-shard-v1",
+                "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+                "line_role_pipeline": "codex-line-role-shard-v1",
+            },
         },
     )
 
-    out_dir = tmp_path / "preview"
     result = runner.invoke(
         app,
         [
             "preview-prompts",
             "--run",
-            str(run_dir),
+            str(benchmark_root),
             "--out",
-            str(out_dir),
-            "--llm-knowledge-pipeline",
-            "off",
-            "--line-role-pipeline",
-            "off",
-            "--estimation-mode",
-            "observed",
+            str(tmp_path / "preview"),
         ],
     )
-    assert result.exit_code == 0
-    budget_summary = json.loads(
-        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "Predictive prompt preview only accepts deterministic/vanilla artifacts" in str(result.exception)
+
+
+def test_cf_debug_actual_costs_reads_direct_summary_file(tmp_path: Path) -> None:
+    summary_path = _write_actual_costs_summary(tmp_path / "prompt_budget_summary.json")
+
+    result = runner.invoke(
+        app,
+        [
+            "actual-costs",
+            "--run",
+            str(summary_path),
+        ],
     )
-    assert budget_summary["estimation_method"]["mode"] == "observed"
-    assert budget_summary["estimation_method"]["type"] == "observed_live_telemetry"
-    recipe_budget = budget_summary["by_stage"]["recipe_llm_correct_and_link"]
-    assert recipe_budget["estimation_basis"] == "live_telemetry"
-    assert recipe_budget["estimated_total_tokens"] == 295
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == str(summary_path)
+
+
+def test_cf_debug_actual_costs_resolves_manifest_artifact(tmp_path: Path) -> None:
+    run_root = tmp_path / "finished-run"
+    summary_path = _write_actual_costs_summary(run_root / "prediction-run" / "prompt_budget_summary.json")
+    _write_json(
+        run_root / "run_manifest.json",
+        {
+            "artifacts": {
+                "actual_costs_json": "prediction-run/prompt_budget_summary.json",
+                "prompt_budget_summary_json": "prediction-run/prompt_budget_summary.json",
+            }
+        },
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "actual-costs",
+            "--run",
+            str(run_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == str(summary_path)
 
 
 def test_cf_debug_preview_shard_sweep_writes_experiment_summaries(tmp_path: Path) -> None:

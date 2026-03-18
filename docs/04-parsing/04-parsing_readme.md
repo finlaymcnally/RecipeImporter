@@ -78,6 +78,7 @@ Canonical line-role prompt seam note:
 - prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
 - `codex-line-role-shard-v1` now plans contiguous local shards in `canonical_line_roles.py`, writes shard/runtime artifacts under `line-role-pipeline/runtime/`, and still preserves legacy prompt artifact files under `line-role-pipeline/prompts/` for reviewer/export surfaces.
 - each line-role shard still uses the compact canonical prompt text, but worker execution now goes through `phase_worker_runtime.py` with raw prompt-text shard inputs plus JSON shard manifests, so one worker can process multiple shards in sequence.
+- the current compact row transport is pipe-delimited `atomic_index|label_code|current_line`; per-row escalation reasons are no longer serialized into the Codex prompt path.
 - outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose and compact domain headings can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
 - low-risk knowledge prompt suppression belongs in parser-owned chunking, not preview-only code. `chunks.py` is the place to route obvious blurbs, navigation, attribution-only fragments, and similar junk to `noise` so live harvest and prompt preview skip the same material.
 
@@ -311,6 +312,7 @@ Recipe boundary detection directly controls which text reaches parsing/linking/t
 - Explicitly keeps subsection headers inside recipe, including:
   - `For the X`
   - short `For X`
+- Rejects singleton pantry lines like `Salt` or `Pepper` as next-recipe titles so ingredient runs do not truncate the current recipe before instructions.
 
 ### Extraction backend plumbing that affects parsing inputs
 
@@ -469,7 +471,7 @@ Gates include:
 - Heading-like title rows now emit `RECIPE_TITLE` candidates (`title_like`) before generic fallback labels.
 - Note-like prose rows now emit `RECIPE_NOTES` candidates (`note_like_prose`) before instruction heuristics.
 - Yield regex intentionally excludes bare `serving` to avoid splitting prose lines like `before serving`.
-- Label-first Stage 2 reuse still needs provisional `within_recipe_span` hints before regrouped spans exist. If `_atomize_archive_blocks(...)` defaults every block to outside-span, canonical safety rules will over-downgrade real `RECIPE_TITLE`, `HOWTO_SECTION`, `INSTRUCTION_LINE`, and `RECIPE_VARIANT` rows to `OTHER`.
+- Pre-grouping candidates now carry `within_recipe_span=None` by default. The old provenance-backed recipe-range seed is gone; deterministic line-role and Codex review run span-free, and recipe grouping happens only after corrected labels exist.
 
 ### Tests to read
 
@@ -482,36 +484,27 @@ Gates include:
 - Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
 - Supports optional shard-worker correction over the full ordered candidate set when `line_role_pipeline=codex-line-role-shard-v1`; each shard row carries the deterministic first-pass label plus any escalation reasons so Codex reviews local windows instead of inventing labels from scratch.
 - Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`), reason tags, and explicit `escalation_reasons`.
-- Prediction rows also carry `within_recipe_span` context (from atomized candidates), which benchmark Milestone-5 diagnostics reuse for slice metrics and knowledge-budget reporting.
+- Prediction rows carry tri-state `within_recipe_span`: `None` during the pre-grouping line-role pass, then explicit `True`/`False` only after grouped recipe spans are projected back downstream.
 
 ### Current safeguards
 
 - Rule-first path handles low-ambiguity cases (`NOTE`, yield, ingredient-like, method headers, variants, and instruction lines).
+- The pre-grouping contract is intended-only: no prompt or deterministic rule gets importer recipe ranges up front. Any logic that truly depends on accepted recipe membership must key off explicit `within_recipe_span is True`, not truthy/falsy fallback.
 - Compact all-caps title-like rows are disambiguated to `HOWTO_SECTION` when neighboring lines indicate an internal component/subsection flow and the next line is not a yield boundary.
 - `YIELD_LINE` now has strict header validation (`MAKES`/`SERVES`/`YIELDS` prefix plus short header shape and quantity/count hint); non-header yield-like prose is sanitized to structural fallback (`INSTRUCTION_LINE` or `OTHER`) instead of forcing yield.
-- `TIME_LINE` is only used for primary time metadata; non-primary `TIME_LINE` predictions are sanitized to `INSTRUCTION_LINE` (or `OTHER` outside recipe spans).
+- `TIME_LINE` is only used for primary time metadata; non-primary `TIME_LINE` predictions are sanitized to `INSTRUCTION_LINE` unless a later stage has explicitly established that the row is outside recipe.
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
 - Outside recipe spans, prose now defaults to `OTHER`; `KNOWLEDGE` is used only when explicit knowledge cues are present.
 - Final non-recipe authority can still arbitrate outside-span `KNOWLEDGE` versus `OTHER` after recipe-local projection; this seam stays binary only and does not override recipe-structural labels.
-- Outside recipe spans, `HOWTO_SECTION` is hard-denied in the v1 safety policy.
-- Outside recipe spans, `RECIPE_TITLE`/`RECIPE_VARIANT` now require heading shape plus nearby recipe-start evidence; duplicate-title echoes and explicit `NOTE:` lines can be skipped, but TOC-like rows, `How to ...` headings, and generic knowledge headings do not count as support.
-- Outside recipe spans, `INSTRUCTION_LINE`/`INGREDIENT_LINE` now require local recipe evidence (±2 lines) and are downgraded when evidence is missing.
 - `RECIPE_TITLE` now requires supportive near-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion; inside accepted recipe spans, immediate note prose is enough to retain the title.
 - Short ingredient fragments (for example split quantity/name rows) now get neighbor-aware rescue to `INGREDIENT_LINE` when adjacent ingredient-dominant context supports it.
 - Shard proposals use strict ownership validation with the full global line-role label set available on every row; invalid or missing shard outputs fall back to deterministic labels, with fallback counts still summarized in `line-role-pipeline/prompts/parse_errors.json`.
 - Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
 - Strong deterministic `RECIPE_TITLE` outcomes are held on the rule path without any score-based fallback pressure.
-- Outside-recipe-span score-based escalation is gone; codex escalation now remains inside-span-first and reason-driven.
+- Outside-recipe-span score-based escalation is gone; shard review sees the whole ordered candidate set, and local neighbor context is attached only for escalated rows rather than only for pre-marked recipe rows.
+- Codex line-role outputs are no longer subject to post-Codex ownership arbitration, outside-span structured-label downgrades, or do-no-harm rollback; after shard validation, only the generic label sanitizers still run.
 - This seam is now reason-only. Current runtime artifacts expose label-driven grouping plus explicit `escalation_reasons` only; scalar `confidence`, `trust_score`, and `escalation_score` fields are no longer part of the contract.
 - Reviewer/export surfaces should mirror that same contract. If a downstream bundle or debug packet still wants scalar uncertainty fields, that downstream surface is stale rather than the parsing contract being incomplete.
-- Codex mode now applies an explicit line-role guardrail mode after sanitization: `off`, `preview`, or `enforce`.
-- `preview` computes the same downgrade decisions as enforce mode but leaves accepted predictions unchanged; `enforce` applies partial downgrades or full-source fallback to deterministic baseline labels.
-- Guardrail diagnostics are written under `line-role-pipeline/`:
-  - `guardrail_report.json`
-  - `guardrail_changed_rows.jsonl`
-- Reviewer sidecars remain available when guardrail diagnostics exist:
-  - `do_no_harm_diagnostics.json`
-  - `do_no_harm_changed_rows.jsonl`
 - Codex fallback batches now run with bounded in-flight concurrency (parser default `4` per book; explicit env override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`; ingest callers can pass `codex_max_inflight`) and merge back deterministically by atomic index/prompt order.
 - Prompt logging internals are thread-safe for concurrent codex batch workers (`prompt_*.txt`, `response_*.txt`, `parsed_*.json`, and dedup log writes).
 - Codex call failures now use bounded retry/backoff before fallback (`3` attempts, exponential backoff base `1.5s`).

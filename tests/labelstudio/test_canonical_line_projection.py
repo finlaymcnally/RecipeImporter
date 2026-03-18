@@ -49,7 +49,7 @@ def test_projection_keeps_explicit_span_flag_even_for_recipe_index_ids() -> None
     assert spans[0].within_recipe_span is False
 
 
-def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) -> None:
+def test_projection_artifacts_ignore_removed_guardrail_sidecars(tmp_path) -> None:
     pipeline_dir = tmp_path / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
     (pipeline_dir / "guardrail_report.json").write_text("{}", encoding="utf-8")
@@ -77,10 +77,10 @@ def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) ->
         ],
     )
 
-    assert artifacts["guardrail_report_path"].name == "guardrail_report.json"
-    assert artifacts["guardrail_changed_rows_path"].name == "guardrail_changed_rows.jsonl"
-    assert artifacts["do_no_harm_diagnostics_path"].name == "do_no_harm_diagnostics.json"
-    assert artifacts["do_no_harm_changed_rows_path"].name == "do_no_harm_changed_rows.jsonl"
+    assert "guardrail_report_path" not in artifacts
+    assert "guardrail_changed_rows_path" not in artifacts
+    assert "do_no_harm_diagnostics_path" not in artifacts
+    assert "do_no_harm_changed_rows_path" not in artifacts
 
 def test_projection_artifacts_preserve_projected_labels(tmp_path) -> None:
     artifacts = write_line_role_projection_artifacts(

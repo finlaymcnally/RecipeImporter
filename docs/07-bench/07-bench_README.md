@@ -109,6 +109,7 @@ Current interactive contracts:
   - `codex_vs_vanilla_comparison.json`
   - `single_offline_summary.md`
   - `upload_bundle_v1/`
+- benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log volume only
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
 - interactive single-offline writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
@@ -298,9 +299,10 @@ Oracle upload contract:
 
 - the user-facing target can be a session root or an `upload_bundle_v1/` directory
 - the actual upload code targets the three concrete bundle files; browser uploads may temporarily shard oversized files into ordered `partNNN` attachments to get past Oracle's per-file cap without changing the on-disk bundle format
-- the browser upload path calls Oracle directly with the visible Linux Chromium launcher, `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`, and the canonical Oracle browser profile at `~/.local/share/oracle/browser-profile`; the legacy `~/.oracle/browser-profile` path is now only a compatibility symlink to that same directory
-- browser uploads now pass `--browser-model-strategy ignore`, so Oracle stops failing on stale picker labels and leaves the visible browser on the current/manual model instead of trying to auto-switch it
-- browser `--model ...` still appears in the launch metadata, but the visible browser's active/manual model is what actually matters while picker-ignore mode is enabled
+- the browser upload path now calls Oracle with one machine-wide auto Chromium launcher, `/home/mcnal/.local/bin/chromium-oracle-auto`, plus `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`
+- that launcher opens visible Chromium when a usable display exists and falls back to `chromium-nosandbox-xvfb` otherwise, so the same benchmark upload path works both from interactive shells and from the agent shell
+- browser uploads use the canonical Oracle browser profile at `~/.local/share/oracle/browser-profile`; the legacy `~/.oracle/browser-profile` path is now only a compatibility symlink to that same directory
+- browser uploads now pass `--browser-model-strategy ignore`, so Oracle stops failing on stale picker labels and leaves the current/manual ChatGPT model alone instead of trying to auto-switch it
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
 - transport sharding is strictly upload-time glue for oversized text files such as `upload_bundle_payload.jsonl`; checked-in and local `upload_bundle_v1` artifacts should stay unmodified on disk
 

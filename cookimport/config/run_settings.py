@@ -71,7 +71,6 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "recipe_score_min_ingredient_lines",
     "recipe_score_min_instruction_lines",
     "pdf_column_gap_ratio",
-    "line_role_guardrail_mode",
     "codex_farm_failure_mode",
     "ocr_device",
     "ocr_batch_size",
@@ -132,7 +131,6 @@ _SUMMARY_ORDER = (
     "line_role_worker_count",
     "line_role_shard_target_lines",
     "line_role_shard_max_turns",
-    "line_role_guardrail_mode",
     "llm_knowledge_pipeline",
     "knowledge_prompt_target_count",
     "knowledge_worker_count",
@@ -328,12 +326,6 @@ class LineRolePipeline(str, Enum):
     off = "off"
     deterministic_v1 = "deterministic-v1"
     codex_line_role_shard_v1 = LINE_ROLE_PIPELINE_SHARD_V1
-
-
-class LineRoleGuardrailMode(str, Enum):
-    off = "off"
-    preview = "preview"
-    enforce = "enforce"
 
 
 class LlmKnowledgePipeline(str, Enum):
@@ -1125,20 +1117,6 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
-    line_role_guardrail_mode: LineRoleGuardrailMode = Field(
-        default=LineRoleGuardrailMode.enforce,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Line Role Guardrail",
-            order=113,
-            description=(
-                "Line-role do-no-harm arbitration mode: off disables it, preview "
-                "reports would-be downgrades without mutating predictions, and "
-                "enforce applies the accepted downgrades."
-            ),
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
     llm_knowledge_pipeline: LlmKnowledgePipeline = Field(
         default=LlmKnowledgePipeline.off,
         json_schema_extra=_ui_meta(
@@ -1889,9 +1867,6 @@ def build_run_settings(
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.off,
     line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
-    line_role_guardrail_mode: (
-        str | LineRoleGuardrailMode
-    ) = LineRoleGuardrailMode.enforce,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
     codex_farm_cmd: str = "codex-farm",
@@ -1986,7 +1961,6 @@ def build_run_settings(
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
             "atomic_block_splitter": _normalized_value(atomic_block_splitter),
             "line_role_pipeline": _normalized_value(line_role_pipeline),
-            "line_role_guardrail_mode": _normalized_value(line_role_guardrail_mode),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",

@@ -11,9 +11,9 @@ Allowed labels (global):
 
 Compact input legends:
 - Label codes: {{LABEL_CODE_LEGEND}}
-- Escalation reason codes: {{REASON_CODE_LEGEND}}
-- Recipe atomic index ranges for this batch: {{RECIPE_ATOMIC_RANGES}}
-- Any atomic index outside those ranges is outside recipe.
+- No prior recipe-span authority is provided for this batch.
+- Treat the targets as one ordered contiguous slice of the book.
+- Infer recipe structure only from the supplied ordered lines; do not expect inline neighbor duplicates.
 
 Tie-break precedence (highest to lowest):
 {{PRECEDENCE_ORDER}}
@@ -21,7 +21,7 @@ Tie-break precedence (highest to lowest):
 Negative rules (must-not-do):
 - Never label a quantity/unit ingredient line as `KNOWLEDGE`.
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
-- Inside recipe spans, `KNOWLEDGE` is last resort and should be used only when the line is explicit prose.
+- Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
 
 Few-shot examples:
@@ -45,7 +45,7 @@ Few-shot examples:
    Line: `NOTE: Cooled hollandaise can break if reheated too fast.`
    Label: `RECIPE_NOTES`
 
-6) Context: outside recipe span, narrative paragraph
+6) Context: explanatory cookbook prose
    Line: `Copper pans conduct heat quickly and evenly, so temperature changes show up fast.`
    Label: `KNOWLEDGE`
 

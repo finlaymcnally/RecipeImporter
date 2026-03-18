@@ -305,11 +305,6 @@ def preview_prompts(
         "--line-role-prompt-target-count",
         min=1,
     ),
-    estimation_mode: str = typer.Option(
-        "predictive",
-        "--estimation-mode",
-        help="Budget mode: predictive ignores exact live telemetry for the selected run; observed reuses it.",
-    ),
     line_role_shard_target_lines: int | None = typer.Option(
         None,
         "--line-role-shard-target-lines",
@@ -338,7 +333,6 @@ def preview_prompts(
         line_role_worker_count=line_role_worker_count,
         line_role_prompt_target_count=line_role_prompt_target_count,
         line_role_shard_target_lines=line_role_shard_target_lines,
-        estimation_mode=estimation_mode,
     )
     try:
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -358,6 +352,67 @@ def preview_prompts(
                 color = typer.colors.RED
             typer.secho(message, fg=color, err=True)
     typer.echo(str(manifest_path))
+
+
+@app.command("actual-costs")
+def actual_costs(
+    run: Path = typer.Option(..., "--run", exists=True, file_okay=True, dir_okay=True),
+) -> None:
+    summary_path = _resolve_actual_costs_summary_path(run)
+    typer.echo(str(summary_path))
+
+
+def _resolve_actual_costs_summary_path(run_path: Path) -> Path:
+    candidate = run_path.expanduser().resolve(strict=False)
+    if candidate.is_file() and candidate.name == "prompt_budget_summary.json":
+        return candidate
+    if candidate.is_dir():
+        for direct_candidate in (
+            candidate / "prompt_budget_summary.json",
+            candidate / "prediction-run" / "prompt_budget_summary.json",
+        ):
+            if direct_candidate.is_file():
+                return direct_candidate
+    for manifest_path in _candidate_manifest_paths(root=candidate):
+        payload = _read_json(manifest_path)
+        artifacts = payload.get("artifacts")
+        if not isinstance(artifacts, dict):
+            continue
+        for key in ("actual_costs_json", "prompt_budget_summary_json"):
+            raw_path = artifacts.get(key)
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                continue
+            resolved = _resolve_manifest_artifact_path(
+                manifest_path=manifest_path,
+                raw_path=raw_path.strip(),
+            )
+            if resolved.is_file():
+                return resolved
+    raise ValueError(
+        f"Could not find an actual-costs summary from {run_path}. "
+        "Actual costs are a post-run artifact; look for prompt_budget_summary.json on the finished run."
+    )
+
+
+def _candidate_manifest_paths(*, root: Path) -> list[Path]:
+    rows: list[Path] = []
+    if root.is_file() and root.name in {"run_manifest.json", "manifest.json"}:
+        return [root]
+    if root.is_dir():
+        for pattern in ("**/run_manifest.json", "**/manifest.json"):
+            rows.extend(sorted(root.glob(pattern)))
+    return rows
+
+
+def _resolve_manifest_artifact_path(*, manifest_path: Path, raw_path: str) -> Path:
+    candidate = Path(raw_path)
+    if candidate.is_absolute():
+        return candidate.resolve(strict=False)
+    return (manifest_path.parent.resolve(strict=False) / raw_path).resolve(strict=False)
+
+
+def _read_json(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _load_shard_sweep_experiments(path: Path) -> list[dict[str, object]]:

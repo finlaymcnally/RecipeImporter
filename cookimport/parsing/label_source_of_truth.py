@@ -81,7 +81,7 @@ class AuthoritativeLabeledLine(BaseModel):
     source_block_index: int
     atomic_index: int
     text: str
-    within_recipe_span_hint: bool = False
+    within_recipe_span_hint: bool | None = None
     deterministic_label: str
     final_label: str
     decided_by: Literal["rule", "codex", "fallback"]
@@ -630,21 +630,13 @@ def _atomize_archive_blocks(
     conversion_result: ConversionResult,
     atomic_block_splitter: str,
 ) -> list[AtomicLineCandidate]:
-    recipe_ranges = _recipe_ranges_from_conversion_result(
-        conversion_result,
-        archive_blocks=archive_blocks,
-    )
+    del conversion_result
     staged: list[dict[str, Any]] = []
     for row in archive_blocks:
         block_index = int(row.get("index", 0))
         text = str(row.get("text") or "").strip()
         if not text:
             continue
-        recipe_index = _recipe_index_for_block(
-            block_index,
-            recipe_ranges=recipe_ranges,
-        )
-        within_recipe_span = recipe_index is not None
         atomized = atomize_blocks(
             [
                 {
@@ -653,8 +645,8 @@ def _atomize_archive_blocks(
                     "text": text,
                 }
             ],
-            recipe_id=f"recipe:{recipe_index}" if recipe_index is not None else None,
-            within_recipe_span=within_recipe_span,
+            recipe_id=None,
+            within_recipe_span=None,
             atomic_block_splitter=atomic_block_splitter,
         )
         for candidate in atomized:
@@ -684,93 +676,13 @@ def _atomize_archive_blocks(
                 block_index=int(row["block_index"]),
                 atomic_index=atomic_index,
                 text=str(row["text"]),
-                within_recipe_span=bool(row["within_recipe_span"]),
+                within_recipe_span=row["within_recipe_span"],
                 prev_text=prev_text,
                 next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
             )
         )
     return output
-
-
-def _recipe_ranges_from_conversion_result(
-    conversion_result: ConversionResult,
-    *,
-    archive_blocks: Sequence[dict[str, Any]],
-) -> list[tuple[int, int, int]]:
-    line_to_block: dict[int, int] = {}
-    for block in archive_blocks:
-        if not isinstance(block, dict):
-            continue
-        block_index = _coerce_int(block.get("index"))
-        if block_index is None:
-            continue
-        location = block.get("location")
-        if isinstance(location, dict):
-            line_index = _coerce_int(location.get("line_index"))
-            if line_index is not None:
-                line_to_block[line_index] = block_index
-
-    output: list[tuple[int, int, int]] = []
-    for recipe_index, recipe in enumerate(conversion_result.recipes):
-        provenance = getattr(recipe, "provenance", None)
-        if not isinstance(provenance, dict):
-            continue
-        location = provenance.get("location")
-        if not isinstance(location, dict):
-            continue
-        start = _coerce_int(location.get("start_block"))
-        if start is None:
-            start = _coerce_int(location.get("startBlock"))
-        end = _coerce_int(location.get("end_block"))
-        if end is None:
-            end = _coerce_int(location.get("endBlock"))
-        if start is None and end is None:
-            single = _coerce_int(location.get("block_index"))
-            if single is None:
-                single = _coerce_int(location.get("blockIndex"))
-            if single is not None:
-                start, end = single, single
-        if start is None or end is None:
-            start_line = _coerce_int(location.get("start_line"))
-            if start_line is None:
-                start_line = _coerce_int(location.get("startLine"))
-            end_line = _coerce_int(location.get("end_line"))
-            if end_line is None:
-                end_line = _coerce_int(location.get("endLine"))
-            if start_line is not None or end_line is not None:
-                if start_line is None:
-                    start_line = end_line
-                if end_line is None:
-                    end_line = start_line
-                if start_line is not None and end_line is not None:
-                    if start_line > end_line:
-                        start_line, end_line = end_line, start_line
-                    matched = [
-                        block_index
-                        for line_index, block_index in line_to_block.items()
-                        if start_line <= line_index <= end_line
-                    ]
-                    if matched:
-                        start = min(matched)
-                        end = max(matched)
-        if start is None or end is None:
-            continue
-        if start > end:
-            start, end = end, start
-        output.append((recipe_index, start, end))
-    return output
-
-
-def _recipe_index_for_block(
-    block_index: int,
-    *,
-    recipe_ranges: list[tuple[int, int, int]],
-) -> int | None:
-    for recipe_index, start, end in recipe_ranges:
-        if start <= block_index <= end:
-            return recipe_index
-    return None
 
 
 def _build_authoritative_lines(
@@ -792,7 +704,7 @@ def _build_authoritative_lines(
                 source_block_index=int(prediction.block_index or 0),
                 atomic_index=int(prediction.atomic_index),
                 text=str(prediction.text or ""),
-                within_recipe_span_hint=bool(prediction.within_recipe_span),
+                within_recipe_span_hint=prediction.within_recipe_span,
                 deterministic_label=deterministic_label,
                 final_label=final_label,
                 decided_by=prediction.decided_by,

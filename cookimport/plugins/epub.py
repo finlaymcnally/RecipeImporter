@@ -107,6 +107,25 @@ _STANDALONE_ANALYSIS_WORKERS_ENV = "C3IMP_STANDALONE_ANALYSIS_WORKERS"
 _LONG_STANDALONE_BLOCK_CHAR_THRESHOLD = 420
 _LONG_STANDALONE_BLOCK_WORD_THRESHOLD = 70
 _STANDALONE_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+_SINGLETON_INGREDIENT_WORDS = {
+    "butter",
+    "cheese",
+    "cream",
+    "egg",
+    "eggs",
+    "flour",
+    "garlic",
+    "milk",
+    "oil",
+    "onion",
+    "onions",
+    "pepper",
+    "salt",
+    "stock",
+    "sugar",
+    "vinegar",
+    "water",
+}
 
 
 def _get_epub_extractor() -> str:
@@ -2355,6 +2374,8 @@ class EpubImporter:
             return False
         if text.endswith("."):
             return False
+        if self._looks_like_singleton_ingredient_line(text):
+            return False
         if block.features.get("is_heading"):
             return True
         if block.font_weight == "bold" and len(text) <= 60:
@@ -2362,6 +2383,13 @@ class EpubImporter:
         if text.isupper() or text.istitle():
             return True
         return False
+
+    def _looks_like_singleton_ingredient_line(self, text: str) -> bool:
+        normalized = re.sub(r"[^a-z\s]", " ", text.lower())
+        words = [word for word in normalized.split() if word]
+        if not words or len(words) > 2:
+            return False
+        return all(word in _SINGLETON_INGREDIENT_WORDS for word in words)
 
     def _extract_title(self, blocks: List[Block]) -> tuple[str, int]:
         if not blocks:

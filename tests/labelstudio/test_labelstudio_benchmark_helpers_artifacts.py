@@ -928,6 +928,10 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         "{}\n",
         encoding="utf-8",
     )
+    (prompts_dir / "prompt_log_summary.json").write_text(
+        json.dumps({"full_prompt_log_rows": 1}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     (prompts_dir / "prompt_type_samples_from_full_prompt_log.md").write_text(
         "# samples\n",
         encoding="utf-8",
@@ -964,6 +968,9 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
     assert artifacts["full_prompt_log_jsonl"] == (
         "prompts/full_prompt_log.jsonl"
     )
+    assert artifacts["prompt_log_summary_json"] == (
+        "prompts/prompt_log_summary.json"
+    )
     assert artifacts["prompt_type_samples_from_full_prompt_log_md"] == (
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
@@ -973,6 +980,79 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
     assert artifacts["thinking_trace_summary_md"] == (
         "prompts/thinking_trace_summary.md"
     )
+
+
+def test_write_prompt_log_summary_tracks_rows_separately_from_runtime_shards(
+    tmp_path: Path,
+) -> None:
+    full_prompt_log_path = tmp_path / "full_prompt_log.jsonl"
+    full_prompt_log_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "stage_key": "recipe_llm_correct_and_link",
+                        "stage_artifact_stem": "recipe_correction",
+                        "runtime_shard_id": "recipe-shard-0000",
+                        "runtime_worker_id": "worker-001",
+                        "runtime_owned_ids": ["recipe:0"],
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "stage_key": "recipe_llm_correct_and_link",
+                        "stage_artifact_stem": "recipe_correction",
+                        "runtime_shard_id": "recipe-shard-0000",
+                        "runtime_worker_id": "worker-001",
+                        "runtime_owned_ids": ["recipe:1"],
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "stage_key": "recipe_llm_correct_and_link",
+                        "stage_artifact_stem": "recipe_correction",
+                        "runtime_shard_id": "recipe-shard-0001",
+                        "runtime_worker_id": "worker-002",
+                        "runtime_owned_ids": ["recipe:2"],
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "stage_key": "line_role",
+                        "stage_artifact_stem": "line_role",
+                        "runtime_shard_id": "line-role-shard-0000",
+                        "runtime_worker_id": "worker-003",
+                        "runtime_owned_ids": ["line:1", "line:2"],
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary_path = prompt_artifacts.write_prompt_log_summary(
+        full_prompt_log_path=full_prompt_log_path,
+    )
+
+    assert summary_path == tmp_path / "prompt_log_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["full_prompt_log_rows"] == 4
+    assert summary["runtime_shard_count"] == 3
+    assert summary["runtime_shard_count_status"] == "complete"
+    assert summary["by_stage"]["recipe_llm_correct_and_link"]["row_count"] == 3
+    assert (
+        summary["by_stage"]["recipe_llm_correct_and_link"]["runtime_shard_count"] == 2
+    )
+    assert (
+        summary["by_stage"]["recipe_llm_correct_and_link"]["runtime_owned_id_count"] == 3
+    )
+    assert summary["by_stage"]["line_role"]["row_count"] == 1
+    assert summary["by_stage"]["line_role"]["runtime_shard_count"] == 1
 
 def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
     monkeypatch: pytest.MonkeyPatch,

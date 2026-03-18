@@ -20,11 +20,10 @@ from cookimport.llm.codex_farm_orchestrator import (
     _build_recipe_correction_input,
 )
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
+from cookimport.llm.knowledge_prompt_builder import build_knowledge_direct_prompt
 from cookimport.llm.phase_worker_runtime import resolve_phase_worker_count
 from cookimport.llm.prompt_budget import (
     build_prompt_preview_budget_summary,
-    load_prompt_preview_live_stage_summaries,
-    load_prompt_preview_stage_calibrations,
     write_prompt_preview_budget_summary,
 )
 from cookimport.llm.shard_prompt_targets import (
@@ -33,7 +32,9 @@ from cookimport.llm.shard_prompt_targets import (
 )
 from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
+    PROMPT_LOG_SUMMARY_JSON_NAME,
     build_codex_farm_prompt_type_samples_markdown,
+    write_prompt_log_summary,
 )
 from cookimport.parsing.canonical_line_roles import LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
@@ -48,9 +49,6 @@ _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
 _DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 3
 _DEFAULT_KNOWLEDGE_SHARD_TARGET_CHUNKS = 12
-_DEFAULT_PREVIEW_ESTIMATION_MODE = "predictive"
-
-
 @dataclass(frozen=True)
 class PreviewShardAssignment:
     shard_id: str
@@ -100,7 +98,6 @@ def write_prompt_preview_for_existing_run(
     line_role_worker_count: int | None = None,
     line_role_prompt_target_count: int | None = None,
     line_role_shard_target_lines: int | None = None,
-    estimation_mode: str = _DEFAULT_PREVIEW_ESTIMATION_MODE,
 ) -> Path:
     context = _load_existing_run_preview_context(run_path=run_path)
     prompts_dir = out_dir / "prompts"
@@ -234,6 +231,10 @@ def write_prompt_preview_for_existing_run(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
     )
+    write_prompt_log_summary(
+        full_prompt_log_path=full_prompt_log_path,
+        output_path=prompts_dir / PROMPT_LOG_SUMMARY_JSON_NAME,
+    )
     _write_prompt_request_response_log(rows=rows, output_path=prompts_dir / "prompt_request_response_log.txt")
     _write_stage_prompt_files(rows=rows, prompts_dir=prompts_dir)
     build_codex_farm_prompt_type_samples_markdown(
@@ -241,28 +242,10 @@ def write_prompt_preview_for_existing_run(
         output_path=prompts_dir / "prompt_type_samples_from_full_prompt_log.md",
         examples_per_pass=3,
     )
-    normalized_estimation_mode = _normalize_preview_estimation_mode(estimation_mode)
     budget_summary = build_prompt_preview_budget_summary(
         prompt_rows=rows,
         preview_dir=out_dir,
         phase_plans=stage_plans,
-        live_stage_summaries=(
-            load_prompt_preview_live_stage_summaries(
-                processed_run_dir=context.processed_run_dir,
-                workbook_slug=context.workbook_slug,
-            )
-            if normalized_estimation_mode == "observed"
-            else {}
-        ),
-        stage_calibrations=(
-            load_prompt_preview_stage_calibrations(repo_root=repo_root)
-            if _path_is_within_repo_data_root(
-                path=context.processed_run_dir,
-                repo_root=repo_root,
-            )
-            else {}
-        ),
-        estimation_mode=normalized_estimation_mode,
     )
     budget_json_path, budget_md_path = write_prompt_preview_budget_summary(
         out_dir,
@@ -287,7 +270,6 @@ def write_prompt_preview_for_existing_run(
         "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
         "atomic_block_splitter": atomic_block_splitter,
         "preview_settings": {
-            "estimation_mode": normalized_estimation_mode,
             "recipe_worker_count": recipe_worker_count,
             "recipe_prompt_target_count": resolved_recipe_prompt_target_count,
             "recipe_shard_target_recipes": recipe_shard_target_recipes,
@@ -303,6 +285,7 @@ def write_prompt_preview_for_existing_run(
         "warnings": budget_summary.get("warnings") or [],
         "artifacts": {
             "full_prompt_log_jsonl": "prompts/full_prompt_log.jsonl",
+            "prompt_log_summary_json": f"prompts/{PROMPT_LOG_SUMMARY_JSON_NAME}",
             "prompt_request_response_log_txt": "prompts/prompt_request_response_log.txt",
             "prompt_type_samples_from_full_prompt_log_md": (
                 "prompts/prompt_type_samples_from_full_prompt_log.md"
@@ -317,15 +300,6 @@ def write_prompt_preview_for_existing_run(
         encoding="utf-8",
     )
     return manifest_path
-
-
-def _normalize_preview_estimation_mode(value: str | None) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in {"", "predictive"}:
-        return "predictive"
-    if normalized in {"observed", "from-run", "live"}:
-        return "observed"
-    raise ValueError("preview estimation_mode must be 'predictive' or 'observed'")
 
 
 def _load_existing_run_preview_context(*, run_path: Path) -> ExistingRunPreviewContext:
@@ -444,45 +418,7 @@ def _build_recipe_preview_rows(
     full_blocks_by_index = {
         int(block["index"]): block for block in context.full_blocks if isinstance(block, dict)
     }
-    existing_input_dir = (
-        context.processed_run_dir
-        / "raw"
-        / "llm"
-        / context.workbook_slug
-        / "recipe_correction"
-        / "in"
-    )
     recipe_inputs: list[dict[str, Any]] = []
-    if existing_input_dir.is_dir():
-        for existing_input_path in sorted(existing_input_dir.glob("*.json"), key=lambda path: path.name):
-            serialized_input = existing_input_path.read_text(encoding="utf-8")
-            input_payload = _read_json(existing_input_path)
-            recipe_id = str(
-                input_payload.get("recipe_id")
-                or input_payload.get("identifier")
-                or existing_input_path.stem
-            ).strip() or existing_input_path.stem
-            recipe_inputs.append(
-                {
-                    "call_id": existing_input_path.stem,
-                    "recipe_id": recipe_id,
-                    "input_payload": input_payload,
-                    "input_text": serialized_input,
-                }
-            )
-        if recipe_inputs:
-            return _build_recipe_shard_preview_rows(
-                context=context,
-                source_file=context.source_file,
-                pipeline_assets=pipeline_assets,
-                in_dir=in_dir,
-                surface_pipeline=surface_pipeline,
-                model_override=model_override,
-                reasoning_effort_override=reasoning_effort_override,
-                prompt_target_count=prompt_target_count,
-                shard_target_recipes=shard_target_recipes,
-                recipe_inputs=recipe_inputs,
-            )
 
     for recipe_index, draft in enumerate(context.recipe_drafts):
         provenance = _coerce_dict(draft.get("recipeimport:provenance"))
@@ -624,7 +560,9 @@ def _build_recipe_shard_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
-                task_prompt_text=serialized_input,
+                task_prompt_text=build_knowledge_direct_prompt(input_payload),
+                rendered_prompt_override=build_knowledge_direct_prompt(input_payload),
+                prompt_input_mode_override="inline",
             )
         )
     return rows
@@ -649,47 +587,6 @@ def _build_knowledge_preview_rows(
     stage_dir = out_dir / "raw" / "llm" / context.workbook_slug / "extract_knowledge_optional"
     in_dir = stage_dir / "in"
     in_dir.mkdir(parents=True, exist_ok=True)
-    existing_input_dir = (
-        context.processed_run_dir
-        / "raw"
-        / "llm"
-        / context.workbook_slug
-        / "knowledge"
-        / "in"
-    )
-    if existing_input_dir.is_dir():
-        rows: list[dict[str, Any]] = []
-        for existing_input_path in sorted(existing_input_dir.glob("*.json"), key=lambda path: path.name):
-            serialized_input = existing_input_path.read_text(encoding="utf-8")
-            input_payload = _read_json(existing_input_path)
-            input_path = in_dir / existing_input_path.name
-            input_path.write_text(serialized_input, encoding="utf-8")
-            chunk_id = _knowledge_preview_row_id(
-                input_payload=input_payload,
-                fallback=existing_input_path.stem,
-            )
-            rows.append(
-                _prompt_row(
-                    call_id=input_path.stem,
-                    recipe_id=chunk_id,
-                    source_file=context.source_file,
-                    pipeline_assets=pipeline_assets,
-                    input_payload=input_payload,
-                    input_text=serialized_input,
-                    input_path=input_path,
-                    stage_key="extract_knowledge_optional",
-                    stage_label="Knowledge Harvest",
-                    stage_order=4,
-                    stage_dir_name="extract_knowledge_optional",
-                    stage_artifact_stem="knowledge",
-                    surface_pipeline=surface_pipeline,
-                    model_override=model_override,
-                    reasoning_effort_override=reasoning_effort_override,
-                    task_prompt_text=serialized_input,
-                )
-            )
-        if rows:
-            return rows
 
     nonrecipe_stage_result = build_nonrecipe_stage_result(
         full_blocks=context.full_blocks,
@@ -828,7 +725,7 @@ def _build_line_role_preview_rows(
                     "block_id": str(candidate.block_id),
                     "block_index": int(candidate.block_index),
                     "recipe_id": candidate.recipe_id,
-                    "within_recipe_span": bool(candidate.within_recipe_span),
+                    "within_recipe_span": candidate.within_recipe_span,
                     "text": str(candidate.text),
                     "deterministic_label": deterministic_labels_by_atomic_index.get(
                         int(candidate.atomic_index),
@@ -875,31 +772,15 @@ def _build_line_role_candidates(
     if labeled_line_rows:
         return _build_line_role_candidates_from_labeled_lines(
             labeled_line_rows=labeled_line_rows,
-            recipe_spans=recipe_spans,
         )
-
-    recipe_id_by_block_index: dict[int, str] = {}
-    for span in recipe_spans:
-        draft = recipe_draft_by_span_id.get(span.span_id)
-        recipe_id = None
-        if isinstance(draft, dict):
-            recipe_id = str(draft.get("identifier") or draft.get("@id") or "").strip() or None
-        for block_index in span.block_indices:
-            if recipe_id is not None:
-                recipe_id_by_block_index[int(block_index)] = recipe_id
-
-    span_block_indices = {
-        int(block_index)
-        for span in recipe_spans
-        for block_index in span.block_indices
-    }
+    del recipe_spans
+    del recipe_draft_by_span_id
     rows: list[dict[str, Any]] = []
     for block in sorted(full_blocks, key=lambda row: int(row["index"])):
-        block_index = int(block["index"])
         batch = atomize_blocks(
             [block],
-            recipe_id=recipe_id_by_block_index.get(block_index),
-            within_recipe_span=block_index in span_block_indices,
+            recipe_id=None,
+            within_recipe_span=None,
             atomic_block_splitter=atomic_block_splitter,
         )
         for candidate in batch:
@@ -909,7 +790,7 @@ def _build_line_role_candidates(
                     "block_id": candidate.block_id,
                     "block_index": int(candidate.block_index),
                     "text": candidate.text,
-                    "within_recipe_span": bool(candidate.within_recipe_span),
+                    "within_recipe_span": candidate.within_recipe_span,
                     "rule_tags": list(candidate.rule_tags),
                 }
             )
@@ -925,7 +806,7 @@ def _build_line_role_candidates(
                 block_index=int(row["block_index"]),
                 atomic_index=atomic_index,
                 text=str(row["text"]),
-                within_recipe_span=bool(row["within_recipe_span"]),
+                within_recipe_span=row["within_recipe_span"],
                 prev_text=prev_text,
                 next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
@@ -937,13 +818,7 @@ def _build_line_role_candidates(
 def _build_line_role_candidates_from_labeled_lines(
     *,
     labeled_line_rows: list[dict[str, Any]],
-    recipe_spans: list[RecipeSpan],
 ) -> list[AtomicLineCandidate]:
-    recipe_block_indices = {
-        int(block_index)
-        for span in recipe_spans
-        for block_index in span.block_indices
-    }
     ordered_rows = sorted(
         (dict(row) for row in labeled_line_rows if isinstance(row, Mapping)),
         key=lambda row: int(row.get("atomic_index", 0)),
@@ -968,7 +843,7 @@ def _build_line_role_candidates_from_labeled_lines(
                 block_index=block_index,
                 atomic_index=int(row.get("atomic_index", position)),
                 text=str(row.get("text") or ""),
-                within_recipe_span=block_index in recipe_block_indices,
+                within_recipe_span=row.get("within_recipe_span_hint"),
                 prev_text=prev_text,
                 next_text=next_text,
                 rule_tags=[
@@ -1036,15 +911,21 @@ def _prompt_row(
     surface_pipeline: str,
     model_override: str | None,
     reasoning_effort_override: str | None,
+    rendered_prompt_override: str | None = None,
+    prompt_input_mode_override: str | None = None,
 ) -> dict[str, Any]:
     serialized_input = input_text
     if serialized_input is None:
         serialized_input = json.dumps(input_payload, ensure_ascii=False, indent=2)
     template_text = str(pipeline_assets.get("prompt_template_text") or "")
-    rendered_prompt = _render_prompt_text(
-        template_text=template_text,
-        input_text=serialized_input,
-        input_path=input_path,
+    rendered_prompt = (
+        str(rendered_prompt_override)
+        if rendered_prompt_override is not None
+        else _render_prompt_text(
+            template_text=template_text,
+            input_text=serialized_input,
+            input_path=input_path,
+        )
     )
     effective_pipeline_payload = _coerce_dict(pipeline_assets.get("pipeline_payload"))
     output_schema_payload = _coerce_dict(pipeline_assets.get("output_schema_payload"))
@@ -1084,7 +965,11 @@ def _prompt_row(
             "INPUT_PATH": str(input_path),
             "INPUT_TEXT": serialized_input,
         },
-        "prompt_input_mode": str(effective_pipeline_payload.get("prompt_input_mode") or "path"),
+        "prompt_input_mode": (
+            str(prompt_input_mode_override).strip()
+            if prompt_input_mode_override is not None
+            else str(effective_pipeline_payload.get("prompt_input_mode") or "path")
+        ),
         "request": {
             "messages": [{"role": "user", "content": rendered_prompt}],
             "tools": [],
@@ -1119,88 +1004,6 @@ def _prompt_row(
         "request_telemetry": None,
         "thinking_trace": None,
     }
-
-
-def _build_recipe_phase_plan(
-    *,
-    context: ExistingRunPreviewContext,
-    rows: Sequence[dict[str, Any]],
-    pipeline_assets: Mapping[str, Any],
-    surface_pipeline: str,
-    worker_count: int | None,
-    prompt_target_count: int | None,
-    shard_target_recipes: int | None,
-) -> dict[str, Any]:
-    effective_target = resolve_items_per_shard(
-        total_items=len(rows),
-        prompt_target_count=prompt_target_count,
-        items_per_shard=shard_target_recipes,
-        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
-    )
-    shard_specs: list[dict[str, Any]] = []
-    for index, recipe_rows in enumerate(_batch(list(rows), size=effective_target), start=1):
-        if not recipe_rows:
-            continue
-        first_call_id = str(recipe_rows[0].get("call_id") or f"recipe-shard-{index:04d}")
-        shard_id = f"recipe-preview-shard-{index:04d}-{first_call_id}"
-        recipe_inputs: list[RecipeCorrectionShardRecipeInput] = []
-        owned_recipe_ids: list[str] = []
-        for row in recipe_rows:
-            payload = _coerce_dict(row.get("request_input_payload"))
-            recipe_id = str(row.get("recipe_id") or payload.get("recipe_id") or row.get("call_id") or "").strip()
-            owned_recipe_ids.append(recipe_id)
-            recipe_inputs.append(
-                RecipeCorrectionShardRecipeInput(
-                    recipe_id=recipe_id,
-                    canonical_text=str(payload.get("canonical_text") or ""),
-                    evidence_rows=[
-                        tuple(item)
-                        for item in payload.get("evidence_rows") or []
-                        if isinstance(item, (list, tuple)) and len(item) == 2
-                    ],
-                    recipe_candidate_hint=_coerce_dict(payload.get("recipe_candidate_hint")),
-                    warnings=[],
-                )
-            )
-        base_payload = _coerce_dict(recipe_rows[0].get("request_input_payload"))
-        shard_payload = serialize_recipe_correction_shard_input(
-            RecipeCorrectionShardInput(
-                shard_id=shard_id,
-                workbook_slug=context.workbook_slug,
-                source_hash=context.source_hash,
-                owned_recipe_ids=owned_recipe_ids,
-                recipes=recipe_inputs,
-                tagging_guide=_coerce_dict(base_payload.get("tagging_guide")),
-                authority_notes=[
-                    str(note).strip()
-                    for note in base_payload.get("authority_notes") or []
-                    if str(note).strip()
-                ],
-            )
-        )
-        rendered_prompt = _render_prompt_text(
-            template_text=str(pipeline_assets.get("prompt_template_text") or ""),
-            input_text=json.dumps(shard_payload, ensure_ascii=False, indent=2),
-            input_path=Path(f"<preview>/{shard_id}.json"),
-        )
-        shard_specs.append(
-            {
-                "shard_id": shard_id,
-                "owned_ids": owned_recipe_ids,
-                "call_ids": [str(row.get("call_id") or "") for row in recipe_rows],
-                "prompt_chars": len(rendered_prompt),
-                "task_prompt_chars": len(json.dumps(shard_payload, ensure_ascii=False, indent=2)),
-            }
-        )
-    return _finalize_phase_plan(
-        stage_key="recipe_llm_correct_and_link",
-        stage_label="Recipe Correction",
-        stage_order=1,
-        surface_pipeline=surface_pipeline,
-        runtime_pipeline_id=_DEFAULT_RECIPE_PIPELINE_ID,
-        worker_count=worker_count,
-        shard_specs=shard_specs,
-    )
 
 
 def _build_direct_shard_phase_plan(
@@ -1406,20 +1209,26 @@ def _int_distribution(values: Sequence[int]) -> dict[str, int | float]:
 def _resolve_processed_run_dir(*, run_path: Path) -> Path:
     candidate = run_path.expanduser().resolve(strict=False)
     if (candidate / "intermediate drafts").is_dir():
+        source_classification = _classify_predictive_source(processed_run_dir=candidate)
+        if source_classification != "predictive_safe":
+            raise ValueError(
+                _predictive_source_resolution_error(
+                    run_path=run_path,
+                    source_description=str(candidate),
+                    source_classification=source_classification,
+                )
+            )
         return candidate
 
-    for manifest_path in _candidate_manifest_paths(root=candidate):
-        payload = _read_json(manifest_path)
-        artifacts = _coerce_dict(payload.get("artifacts"))
-        for key in ("processed_output_run_dir", "stage_run_dir"):
-            resolved = artifacts.get(key)
-            if isinstance(resolved, str) and resolved.strip():
-                stage_dir = Path(resolved.strip()).expanduser().resolve(strict=False)
-                if (stage_dir / "intermediate drafts").is_dir():
-                    return stage_dir
+    for _, stage_dir in _resolved_manifest_stage_dirs(
+        manifest_paths=_candidate_manifest_paths(root=candidate),
+    ):
+        if (stage_dir / "intermediate drafts").is_dir():
+            return stage_dir
     raise ValueError(
-        f"Could not resolve a processed stage run from {run_path}. "
-        "Point at a processed run dir or a benchmark run root with a run manifest."
+        "Could not resolve a predictive-safe processed stage run from "
+        f"{run_path}. Predictive prompt preview only accepts deterministic/vanilla "
+        "artifacts and refuses Codex-backed or ambiguous processed runs."
     )
 
 
@@ -1433,12 +1242,176 @@ def _candidate_manifest_paths(*, root: Path) -> list[Path]:
     return rows
 
 
-def _path_is_within_repo_data_root(*, path: Path, repo_root: Path) -> bool:
-    try:
-        path.resolve(strict=False).relative_to((repo_root / "data").resolve(strict=False))
-    except ValueError:
+def _resolved_manifest_stage_dirs(
+    *,
+    manifest_paths: Sequence[Path],
+) -> list[tuple[int, Path]]:
+    resolved_rows: list[tuple[int, Path]] = []
+    for manifest_path in manifest_paths:
+        payload = _read_json(manifest_path)
+        artifacts = _coerce_dict(payload.get("artifacts"))
+        for key in ("processed_output_run_dir", "stage_run_dir"):
+            resolved = artifacts.get(key)
+            if not isinstance(resolved, str) or not resolved.strip():
+                continue
+            stage_dir = Path(resolved.strip()).expanduser().resolve(strict=False)
+            if _classify_predictive_source(
+                processed_run_dir=stage_dir,
+                manifest_payload=payload,
+            ) != "predictive_safe":
+                continue
+            resolved_rows.append(
+                (
+                    _score_predictive_manifest(
+                        manifest_path=manifest_path,
+                        manifest_payload=payload,
+                    ),
+                    stage_dir,
+                )
+            )
+    resolved_rows.sort(key=lambda item: item[0], reverse=True)
+    return resolved_rows
+
+
+def _score_predictive_manifest(
+    *,
+    manifest_path: Path,
+    manifest_payload: Mapping[str, Any],
+) -> int:
+    score = 0
+    path_text = str(manifest_path).lower()
+    run_config = _coerce_dict(
+        manifest_payload.get("run_config") or manifest_payload.get("runConfig")
+    )
+    recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "").strip().lower()
+    knowledge_pipeline = str(run_config.get("llm_knowledge_pipeline") or "").strip().lower()
+    line_role_pipeline = str(run_config.get("line_role_pipeline") or "").strip().lower()
+    codex_enabled = any(
+        pipeline not in {"", "off", "deterministic-v1"}
+        for pipeline in (recipe_pipeline, knowledge_pipeline, line_role_pipeline)
+    )
+    vanilla_like = (
+        recipe_pipeline in {"", "off"}
+        and knowledge_pipeline in {"", "off"}
+        and line_role_pipeline in {"", "off", "deterministic-v1"}
+    )
+    if "/vanilla/" in path_text:
+        score += 100
+    if vanilla_like:
+        score += 50
+    if codex_enabled:
+        score -= 25
+    if "/codexfarm/" in path_text:
+        score -= 50
+    return score
+
+
+def _classify_predictive_source(
+    *,
+    processed_run_dir: Path,
+    manifest_payload: Mapping[str, Any] | None = None,
+) -> str:
+    run_config = _load_processed_run_config(
+        processed_run_dir=processed_run_dir,
+        manifest_payload=manifest_payload,
+    )
+    if run_config:
+        if _run_config_is_predictive_safe(run_config):
+            return "predictive_safe"
+        if _run_config_is_codex_backed(run_config):
+            return "codex_backed"
+    path_text = str(processed_run_dir).lower()
+    if "/vanilla/" in path_text:
+        return "predictive_safe"
+    if "/codexfarm/" in path_text:
+        return "codex_backed"
+    if _processed_run_has_codex_artifacts(processed_run_dir):
+        return "codex_backed"
+    return "predictive_safe"
+
+
+def _load_processed_run_config(
+    *,
+    processed_run_dir: Path,
+    manifest_payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if isinstance(manifest_payload, Mapping):
+        manifest_config = _coerce_dict(
+            manifest_payload.get("run_config") or manifest_payload.get("runConfig")
+        )
+        if manifest_config:
+            return manifest_config
+    report_paths = sorted(processed_run_dir.glob("*.excel_import_report.json"))
+    for report_path in report_paths:
+        try:
+            report_payload = _read_json(report_path)
+        except Exception:  # noqa: BLE001
+            continue
+        run_config = _coerce_dict(report_payload.get("runConfig"))
+        if run_config:
+            return run_config
+    return {}
+
+
+def _run_config_is_codex_backed(run_config: Mapping[str, Any]) -> bool:
+    recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "").strip().lower()
+    knowledge_pipeline = str(run_config.get("llm_knowledge_pipeline") or "").strip().lower()
+    line_role_pipeline = str(run_config.get("line_role_pipeline") or "").strip().lower()
+    return any(
+        pipeline not in {"", "off", "deterministic-v1"}
+        for pipeline in (recipe_pipeline, knowledge_pipeline, line_role_pipeline)
+    )
+
+
+def _run_config_is_predictive_safe(run_config: Mapping[str, Any]) -> bool:
+    recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "").strip().lower()
+    knowledge_pipeline = str(run_config.get("llm_knowledge_pipeline") or "").strip().lower()
+    line_role_pipeline = str(run_config.get("line_role_pipeline") or "").strip().lower()
+    return (
+        recipe_pipeline in {"", "off"}
+        and knowledge_pipeline in {"", "off"}
+        and line_role_pipeline in {"", "off", "deterministic-v1"}
+    )
+
+
+def _predictive_source_resolution_error(
+    *,
+    run_path: Path,
+    source_description: str,
+    source_classification: str,
+) -> str:
+    reason = {
+        "codex_backed": "it is Codex-backed",
+        "unknown": "it is not clearly deterministic/vanilla",
+    }.get(source_classification, "it is not predictive-safe")
+    return (
+        "Could not resolve a predictive-safe processed stage run from "
+        f"{run_path}. The resolved source {source_description} is rejected because "
+        f"{reason}. Predictive prompt preview only accepts deterministic/vanilla "
+        "artifacts and refuses Codex-backed or ambiguous processed runs."
+    )
+
+
+def _processed_run_has_codex_artifacts(processed_run_dir: Path) -> bool:
+    if (processed_run_dir / "prompts" / "full_prompt_log.jsonl").is_file():
+        return True
+    if (processed_run_dir / "line-role-pipeline" / "telemetry_summary.json").is_file():
+        return True
+    raw_llm_root = processed_run_dir / "raw" / "llm"
+    if not raw_llm_root.is_dir():
         return False
-    return True
+    for workbook_dir in raw_llm_root.iterdir():
+        if not workbook_dir.is_dir():
+            continue
+        if (workbook_dir / "recipe_phase_runtime" / "workers").is_dir():
+            return True
+        if (workbook_dir / "knowledge" / "workers").is_dir():
+            return True
+        if (workbook_dir / "recipe_manifest.json").is_file():
+            return True
+        if (workbook_dir / "knowledge_manifest.json").is_file():
+            return True
+    return False
 
 
 def _load_pipeline_assets(*, pipeline_root: Path, pipeline_id: str) -> dict[str, Any]:

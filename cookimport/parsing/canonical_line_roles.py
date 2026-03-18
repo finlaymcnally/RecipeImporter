@@ -189,12 +189,6 @@ _RECIPEISH_OUTSIDE_SPAN_LABELS = {
     "INSTRUCTION_LINE",
     "INGREDIENT_LINE",
 }
-_DO_NO_HARM_SCHEMA_VERSION = "line_role_do_no_harm.v1"
-_LINE_ROLE_GUARDRAIL_SCHEMA_VERSION = "line_role_guardrail_report.v1"
-_DO_NO_HARM_TITLE_VARIANT_PARTIAL_THRESHOLD = 2
-_DO_NO_HARM_INSTR_ING_NO_EVIDENCE_PARTIAL_THRESHOLD = 4
-_DO_NO_HARM_TOTAL_PROMOTION_FULL_THRESHOLD = 8
-_DO_NO_HARM_TOTAL_PROMOTION_RATIO_FULL_THRESHOLD = 0.20
 _YIELD_COUNT_HINT_RE = re.compile(
     r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"about|approximately|approx\.?|around|up to|at least|at most)\b",
@@ -217,7 +211,7 @@ class CanonicalLineRolePrediction(BaseModel):
     block_index: int | None = None
     atomic_index: int
     text: str
-    within_recipe_span: bool = False
+    within_recipe_span: bool | None = None
     label: str
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
@@ -249,6 +243,14 @@ def _prediction_has_reason_tag(
     return any(fragment in str(tag) for tag in prediction.reason_tags)
 
 
+def _is_within_recipe_span(candidate: AtomicLineCandidate | CanonicalLineRolePrediction) -> bool:
+    return candidate.within_recipe_span is True
+
+
+def _is_outside_recipe_span(candidate: AtomicLineCandidate | CanonicalLineRolePrediction) -> bool:
+    return candidate.within_recipe_span is False
+
+
 def _apply_prediction_decision_metadata(
     *,
     prediction: CanonicalLineRolePrediction,
@@ -266,10 +268,7 @@ def _apply_prediction_decision_metadata(
         reasons.append("deterministic_unresolved")
     if prediction.decided_by == "fallback":
         reasons.append("fallback_decision")
-    if (
-        not candidate.within_recipe_span
-        and label in _RECIPEISH_OUTSIDE_SPAN_LABELS
-    ):
+    if _is_outside_recipe_span(candidate) and label in _RECIPEISH_OUTSIDE_SPAN_LABELS:
         reasons.append("outside_span_structured_label")
     if baseline_prediction is not None:
         baseline_label = str(baseline_prediction.label or "OTHER")
@@ -373,7 +372,7 @@ def _label_atomic_lines_internal(
                 block_index=int(candidate.block_index),
                 atomic_index=int(candidate.atomic_index),
                 text=str(candidate.text),
-                within_recipe_span=bool(candidate.within_recipe_span),
+                within_recipe_span=candidate.within_recipe_span,
                 label=label,
                 decided_by="rule",
                 reason_tags=tags,
@@ -449,30 +448,6 @@ def _label_atomic_lines_internal(
         sanitized_by_index[candidate.atomic_index] = sanitized_current
         sanitized_baseline_by_index[candidate.atomic_index] = sanitized_baseline
     if mode == LINE_ROLE_PIPELINE_SHARD_V1:
-        guardrail_mode = _line_role_guardrail_mode(settings)
-        guardrail_diagnostics: dict[str, Any] | None = None
-        guardrail_changed_rows: list[dict[str, Any]] = []
-        if guardrail_mode != "off":
-            enforced_by_index, guardrail_diagnostics, guardrail_changed_rows = (
-                _apply_do_no_harm_arbitration(
-                    ordered_candidates=ordered,
-                    candidate_predictions=sanitized_by_index,
-                    baseline_predictions=sanitized_baseline_by_index,
-                )
-            )
-            if guardrail_mode == "enforce":
-                sanitized_by_index = enforced_by_index
-        guardrail_report = _build_line_role_guardrail_report(
-            guardrail_mode=guardrail_mode,
-            diagnostics=guardrail_diagnostics,
-            changed_rows=guardrail_changed_rows,
-        )
-        _write_line_role_guardrail_artifacts(
-            artifact_root=artifact_root,
-            report=guardrail_report,
-            diagnostics=guardrail_diagnostics,
-            changed_rows=guardrail_changed_rows,
-        )
         _write_line_role_telemetry_summary(
             artifact_root=artifact_root,
             runtime_result=runtime_result,
@@ -637,7 +612,7 @@ def _build_line_role_deterministic_baseline(
                 block_index=int(candidate.block_index),
                 atomic_index=int(candidate.atomic_index),
                 text=str(candidate.text),
-                within_recipe_span=bool(candidate.within_recipe_span),
+                within_recipe_span=candidate.within_recipe_span,
                 label=label,
                 decided_by="rule",
                 reason_tags=list(tags),
@@ -660,7 +635,7 @@ def _line_role_plan_row(
         "block_index": int(candidate.block_index),
         "block_id": str(candidate.block_id),
         "recipe_id": candidate.recipe_id,
-        "within_recipe_span": bool(candidate.within_recipe_span),
+        "within_recipe_span": candidate.within_recipe_span,
         "text": str(candidate.text),
         "deterministic_label": str(baseline_prediction.label or "OTHER"),
         "escalation_reasons": list(baseline_prediction.escalation_reasons),
@@ -994,7 +969,7 @@ def _run_line_role_shard_runtime(
                 block_index=int(candidate.block_index),
                 atomic_index=atomic_index,
                 text=str(candidate.text),
-                within_recipe_span=bool(candidate.within_recipe_span),
+                within_recipe_span=candidate.within_recipe_span,
                 label=str(row["label"] or baseline_prediction.label or "OTHER"),
                 decided_by="codex",
                 reason_tags=["codex_line_role"],
@@ -1055,335 +1030,6 @@ def _validate_line_role_shard_proposal(
         "validated_row_count": len(seen_owned),
     }
     return len(errors) == 0, tuple(errors), metadata
-
-
-def _line_role_guardrail_mode(settings: RunSettings) -> Literal["off", "preview", "enforce"]:
-    raw_value = getattr(settings, "line_role_guardrail_mode", "enforce")
-    raw = (
-        str(raw_value.value).strip().lower()
-        if hasattr(raw_value, "value")
-        else str(raw_value or "").strip().lower()
-    )
-    if raw in {"", "enforce"}:
-        return "enforce"
-    if raw in {"off", "preview"}:
-        return raw  # type: ignore[return-value]
-    return "enforce"
-
-
-def _build_line_role_guardrail_report(
-    *,
-    guardrail_mode: Literal["off", "preview", "enforce"],
-    diagnostics: dict[str, Any] | None,
-    changed_rows: Sequence[dict[str, Any]],
-) -> dict[str, Any]:
-    decision_payload = (
-        dict(diagnostics.get("decision") or {})
-        if isinstance(diagnostics, dict)
-        else {}
-    )
-    if guardrail_mode == "off":
-        decision_payload.setdefault("scope", "disabled")
-        decision_payload.setdefault("reasons", [])
-        decision_payload.setdefault("changed_rows", 0)
-    applied = bool(guardrail_mode == "enforce" and changed_rows)
-    preview_only = guardrail_mode == "preview"
-    return {
-        "schema_version": _LINE_ROLE_GUARDRAIL_SCHEMA_VERSION,
-        "guardrail_name": "line_role_do_no_harm",
-        "mode": guardrail_mode,
-        "preview_only": preview_only,
-        "applied": applied,
-        "would_change_rows": len(changed_rows),
-        "decision": decision_payload,
-        "diagnostics": diagnostics or {},
-    }
-
-
-def _apply_do_no_harm_arbitration(
-    *,
-    ordered_candidates: Sequence[AtomicLineCandidate],
-    candidate_predictions: dict[int, CanonicalLineRolePrediction],
-    baseline_predictions: dict[int, CanonicalLineRolePrediction],
-) -> tuple[
-    dict[int, CanonicalLineRolePrediction],
-    dict[str, Any],
-    list[dict[str, Any]],
-]:
-    accepted = dict(candidate_predictions)
-    promotion_rows: list[dict[str, Any]] = []
-    outside_row_count = 0
-    howto_promotions = 0
-    title_variant_promotions = 0
-    instruction_ingredient_promotions = 0
-    instruction_ingredient_no_evidence = 0
-
-    by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered_candidates}
-    for candidate in ordered_candidates:
-        if candidate.within_recipe_span:
-            continue
-        outside_row_count += 1
-        atomic_index = int(candidate.atomic_index)
-        current = candidate_predictions[atomic_index]
-        baseline = baseline_predictions[atomic_index]
-        is_recipeish_promotion = (
-            current.label in _RECIPEISH_OUTSIDE_SPAN_LABELS
-            and baseline.label not in _RECIPEISH_OUTSIDE_SPAN_LABELS
-            and current.label != baseline.label
-        )
-        if not is_recipeish_promotion:
-            continue
-        lacks_local_evidence = (
-            current.label in {"INSTRUCTION_LINE", "INGREDIENT_LINE"}
-            and not _outside_span_has_neighboring_recipe_evidence(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            )
-        )
-        if current.label == "HOWTO_SECTION":
-            howto_promotions += 1
-        if current.label in {"RECIPE_TITLE", "RECIPE_VARIANT"}:
-            title_variant_promotions += 1
-        if current.label in {"INSTRUCTION_LINE", "INGREDIENT_LINE"}:
-            instruction_ingredient_promotions += 1
-            if lacks_local_evidence:
-                instruction_ingredient_no_evidence += 1
-        promotion_rows.append(
-            {
-                "atomic_index": atomic_index,
-                "block_index": int(current.block_index)
-                if current.block_index is not None
-                else None,
-                "block_id": str(current.block_id),
-                "text": str(current.text),
-                "current_label": current.label,
-                "baseline_label": baseline.label,
-                "lacks_local_evidence": bool(lacks_local_evidence),
-            }
-        )
-
-    total_promotions = len(promotion_rows)
-    total_rows = len(ordered_candidates)
-    promotion_ratio = (
-        float(total_promotions) / float(total_rows)
-        if total_rows > 0
-        else 0.0
-    )
-    full_fallback_triggered = (
-        total_promotions >= _DO_NO_HARM_TOTAL_PROMOTION_FULL_THRESHOLD
-        or promotion_ratio > _DO_NO_HARM_TOTAL_PROMOTION_RATIO_FULL_THRESHOLD
-    )
-    partial_triggered = (
-        not full_fallback_triggered
-        and (
-            howto_promotions > 0
-            or title_variant_promotions >= _DO_NO_HARM_TITLE_VARIANT_PARTIAL_THRESHOLD
-            or instruction_ingredient_no_evidence
-            >= _DO_NO_HARM_INSTR_ING_NO_EVIDENCE_PARTIAL_THRESHOLD
-        )
-    )
-
-    decision_scope = "accept"
-    decision_reasons: list[str] = []
-    changed_rows: list[dict[str, Any]] = []
-    if full_fallback_triggered:
-        decision_scope = "full_source_fallback"
-        if total_promotions >= _DO_NO_HARM_TOTAL_PROMOTION_FULL_THRESHOLD:
-            decision_reasons.append("outside_recipeish_promotions_count")
-        if promotion_ratio > _DO_NO_HARM_TOTAL_PROMOTION_RATIO_FULL_THRESHOLD:
-            decision_reasons.append("outside_recipeish_promotions_ratio")
-        for candidate in ordered_candidates:
-            atomic_index = int(candidate.atomic_index)
-            current = accepted[atomic_index]
-            baseline = baseline_predictions[atomic_index]
-            replacement = _downgraded_prediction(
-                baseline,
-                reason_tag="do_no_harm_full_source_fallback",
-            )
-            accepted[atomic_index] = replacement
-            if (
-                current.label == replacement.label
-                and current.decided_by == replacement.decided_by
-            ):
-                continue
-            changed_rows.append(
-                _do_no_harm_changed_row(
-                    current=current,
-                    replacement=replacement,
-                    decision_scope=decision_scope,
-                    baseline=baseline,
-                )
-            )
-    elif partial_triggered:
-        decision_scope = "partial_outside_downgrade"
-        if howto_promotions > 0:
-            decision_reasons.append("outside_howto_promotions")
-        if title_variant_promotions >= _DO_NO_HARM_TITLE_VARIANT_PARTIAL_THRESHOLD:
-            decision_reasons.append("outside_title_variant_promotions")
-        if (
-            instruction_ingredient_no_evidence
-            >= _DO_NO_HARM_INSTR_ING_NO_EVIDENCE_PARTIAL_THRESHOLD
-        ):
-            decision_reasons.append("outside_instruction_ingredient_promotions_without_evidence")
-        for row in promotion_rows:
-            atomic_index = int(row["atomic_index"])
-            current = accepted[atomic_index]
-            baseline = baseline_predictions[atomic_index]
-            replacement = _downgraded_prediction(
-                baseline,
-                reason_tag="do_no_harm_outside_promotion_downgrade",
-            )
-            accepted[atomic_index] = replacement
-            if (
-                current.label == replacement.label
-                and current.decided_by == replacement.decided_by
-            ):
-                continue
-            changed_rows.append(
-                _do_no_harm_changed_row(
-                    current=current,
-                    replacement=replacement,
-                    decision_scope=decision_scope,
-                    baseline=baseline,
-                )
-            )
-
-    diagnostics = {
-        "schema_version": _DO_NO_HARM_SCHEMA_VERSION,
-        "total_rows": int(total_rows),
-        "outside_rows": int(outside_row_count),
-        "outside_recipeish_promotions": int(total_promotions),
-        "outside_howto_promotions": int(howto_promotions),
-        "outside_title_variant_promotions": int(title_variant_promotions),
-        "outside_instruction_ingredient_promotions": int(instruction_ingredient_promotions),
-        "outside_instruction_ingredient_promotions_without_evidence": int(
-            instruction_ingredient_no_evidence
-        ),
-        "outside_recipeish_promotion_ratio": round(float(promotion_ratio), 6),
-        "thresholds": {
-            "partial_howto_promotions_min": 1,
-            "partial_title_variant_promotions_min": _DO_NO_HARM_TITLE_VARIANT_PARTIAL_THRESHOLD,
-            "partial_instruction_ingredient_promotions_without_evidence_min": (
-                _DO_NO_HARM_INSTR_ING_NO_EVIDENCE_PARTIAL_THRESHOLD
-            ),
-            "full_total_outside_recipeish_promotions_min": _DO_NO_HARM_TOTAL_PROMOTION_FULL_THRESHOLD,
-            "full_total_outside_recipeish_promotion_ratio_gt": (
-                _DO_NO_HARM_TOTAL_PROMOTION_RATIO_FULL_THRESHOLD
-            ),
-        },
-        "decision": {
-            "scope": decision_scope,
-            "reasons": decision_reasons,
-            "changed_rows": len(changed_rows),
-        },
-    }
-    return accepted, diagnostics, changed_rows
-
-
-def _downgraded_prediction(
-    prediction: CanonicalLineRolePrediction,
-    *,
-    reason_tag: str,
-) -> CanonicalLineRolePrediction:
-    reason_tags: list[str] = []
-    seen: set[str] = set()
-    for tag in list(prediction.reason_tags) + [reason_tag]:
-        rendered = str(tag).strip()
-        if not rendered or rendered in seen:
-            continue
-        seen.add(rendered)
-        reason_tags.append(rendered)
-    return CanonicalLineRolePrediction(
-        recipe_id=prediction.recipe_id,
-        block_id=prediction.block_id,
-        block_index=prediction.block_index,
-        atomic_index=prediction.atomic_index,
-        text=prediction.text,
-        within_recipe_span=prediction.within_recipe_span,
-        label=prediction.label,
-        decided_by="fallback",
-        reason_tags=reason_tags,
-    )
-
-
-def _do_no_harm_changed_row(
-    *,
-    current: CanonicalLineRolePrediction,
-    replacement: CanonicalLineRolePrediction,
-    decision_scope: str,
-    baseline: CanonicalLineRolePrediction,
-) -> dict[str, Any]:
-    return {
-        "atomic_index": int(current.atomic_index),
-        "block_index": int(current.block_index)
-        if current.block_index is not None
-        else None,
-        "block_id": str(current.block_id),
-        "within_recipe_span": bool(current.within_recipe_span),
-        "text": str(current.text),
-        "decision_scope": decision_scope,
-        "candidate_label": str(current.label),
-        "accepted_label": str(replacement.label),
-        "baseline_label": str(baseline.label),
-        "candidate_decided_by": str(current.decided_by),
-        "accepted_decided_by": str(replacement.decided_by),
-        "candidate_reason_tags": list(current.reason_tags),
-        "accepted_reason_tags": list(replacement.reason_tags),
-    }
-
-
-def _write_line_role_guardrail_artifacts(
-    *,
-    artifact_root: Path | None,
-    report: dict[str, Any],
-    diagnostics: dict[str, Any] | None,
-    changed_rows: Sequence[dict[str, Any]],
-) -> None:
-    if artifact_root is None:
-        return
-    pipeline_dir = artifact_root / "line-role-pipeline"
-    pipeline_dir.mkdir(parents=True, exist_ok=True)
-    guardrail_report_path = pipeline_dir / "guardrail_report.json"
-    guardrail_report_path.write_text(
-        json.dumps(report, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    guardrail_changed_rows_path = pipeline_dir / "guardrail_changed_rows.jsonl"
-    guardrail_changed_rows_path.write_text(
-        "".join(json.dumps(dict(row), sort_keys=True) + "\n" for row in changed_rows),
-        encoding="utf-8",
-    )
-    if diagnostics is not None:
-        _write_do_no_harm_artifacts(
-            artifact_root=artifact_root,
-            diagnostics=diagnostics,
-            changed_rows=changed_rows,
-        )
-
-
-def _write_do_no_harm_artifacts(
-    *,
-    artifact_root: Path | None,
-    diagnostics: dict[str, Any],
-    changed_rows: Sequence[dict[str, Any]],
-) -> None:
-    if artifact_root is None:
-        return
-    pipeline_dir = artifact_root / "line-role-pipeline"
-    pipeline_dir.mkdir(parents=True, exist_ok=True)
-    diagnostics_path = pipeline_dir / "do_no_harm_diagnostics.json"
-    diagnostics_path.write_text(
-        json.dumps(diagnostics, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    changed_rows_path = pipeline_dir / "do_no_harm_changed_rows.jsonl"
-    changed_rows_path.write_text(
-        "".join(
-            json.dumps(dict(row), sort_keys=True) + "\n"
-            for row in changed_rows
-        ),
-        encoding="utf-8",
-    )
 
 
 def _notify_line_role_progress(
@@ -1917,7 +1563,7 @@ def _deterministic_label(
         return "RECIPE_NOTES", ["note_prefix"]
     if "variant_heading" in tags or _looks_variant_heading_text(candidate.text):
         if (
-            not candidate.within_recipe_span
+            _is_outside_recipe_span(candidate)
             and _outside_span_variant_should_be_recipe_title(
                 candidate,
                 by_atomic_index=by_atomic_index,
@@ -1926,11 +1572,11 @@ def _deterministic_label(
             return "RECIPE_TITLE", ["title_like", "variant_heading_title_override"]
         return "RECIPE_VARIANT", ["variant_heading"]
     if _looks_editorial_note(candidate.text):
-        if candidate.within_recipe_span:
+        if _is_within_recipe_span(candidate):
             return "RECIPE_NOTES", ["editorial_note"]
         return "RECIPE_NOTES", ["outside_recipe_editorial_note"]
     if (
-        not candidate.within_recipe_span
+        _is_outside_recipe_span(candidate)
         and _looks_recipe_note_prose(candidate.text)
         and "ingredient_like" not in tags
         and "yield_prefix" not in tags
@@ -1938,7 +1584,7 @@ def _deterministic_label(
     ):
         return "RECIPE_NOTES", ["outside_recipe_note_prose"]
     if (
-        not candidate.within_recipe_span
+        _is_outside_recipe_span(candidate)
         and _looks_prose(candidate.text)
         and "ingredient_like" not in tags
         and "yield_prefix" not in tags
@@ -1965,7 +1611,7 @@ def _deterministic_label(
         by_atomic_index=by_atomic_index,
     ):
         if (
-            not candidate.within_recipe_span
+            _is_outside_recipe_span(candidate)
             and _looks_recipe_title_with_context(
                 candidate,
                 by_atomic_index=by_atomic_index,
@@ -1986,7 +1632,7 @@ def _deterministic_label(
         return "INSTRUCTION_LINE", ["instruction_with_time"]
     if "instruction_like" in tags:
         if (
-            not candidate.within_recipe_span
+            _is_outside_recipe_span(candidate)
             and _looks_recipe_title_with_context(
                 candidate,
                 by_atomic_index=by_atomic_index,
@@ -2055,7 +1701,7 @@ def _fallback_prediction(
         block_index=int(candidate.block_index),
         atomic_index=int(candidate.atomic_index),
         text=str(candidate.text),
-        within_recipe_span=bool(candidate.within_recipe_span),
+        within_recipe_span=candidate.within_recipe_span,
         label=label,
         decided_by="fallback",
         reason_tags=reason_tags,
@@ -2073,7 +1719,7 @@ def _sanitize_prediction(
     decided_by = prediction.decided_by
     if (
         label == "KNOWLEDGE"
-        and candidate.within_recipe_span
+        and _is_within_recipe_span(candidate)
         and not _knowledge_allowed_inside_recipe(
             candidate,
             by_atomic_index=by_atomic_index,
@@ -2083,11 +1729,11 @@ def _sanitize_prediction(
         decided_by = "fallback"
         reason_tags.append("sanitized_knowledge_inside_recipe")
     if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
-        label = "INSTRUCTION_LINE" if candidate.within_recipe_span else "OTHER"
+        label = "OTHER" if _is_outside_recipe_span(candidate) else "INSTRUCTION_LINE"
         decided_by = "fallback"
         reason_tags.append(
             "sanitized_time_to_instruction"
-            if candidate.within_recipe_span
+            if not _is_outside_recipe_span(candidate)
             else "sanitized_time_to_other"
         )
     if (
@@ -2113,26 +1759,6 @@ def _sanitize_prediction(
                 if label == "INSTRUCTION_LINE"
                 else "sanitized_yield_non_header"
             )
-    if not candidate.within_recipe_span:
-        if label == "HOWTO_SECTION":
-            label = _outside_span_fallback_label(candidate)
-            decided_by = "fallback"
-            reason_tags.append("outside_span_howto_hard_deny")
-        elif label in {"RECIPE_TITLE", "RECIPE_VARIANT"} and not _outside_span_title_variant_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            label = _outside_span_fallback_label(candidate)
-            decided_by = "fallback"
-            reason_tags.append("outside_span_title_variant_needs_compact_evidence")
-        elif label in {"INSTRUCTION_LINE", "INGREDIENT_LINE"} and not _outside_span_structured_line_allowed(
-            candidate,
-            label=label,
-            by_atomic_index=by_atomic_index,
-        ):
-            label = _outside_span_fallback_label(candidate)
-            decided_by = "fallback"
-            reason_tags.append("outside_span_structured_label_needs_local_evidence")
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -2145,200 +1771,19 @@ def _sanitize_prediction(
         reason_tags=reason_tags,
     )
 
-
-def _prediction_with_reason_tags(
-    prediction: CanonicalLineRolePrediction,
-    *,
-    extra_reason_tags: Sequence[str],
-    decided_by: Literal["rule", "codex", "fallback"] | None = None,
-) -> CanonicalLineRolePrediction:
-    reason_tags: list[str] = []
-    seen: set[str] = set()
-    for tag in [*prediction.reason_tags, *extra_reason_tags]:
-        rendered = str(tag or "").strip()
-        if not rendered or rendered in seen:
-            continue
-        seen.add(rendered)
-        reason_tags.append(rendered)
-    return CanonicalLineRolePrediction(
-        recipe_id=prediction.recipe_id,
-        block_id=prediction.block_id,
-        block_index=prediction.block_index,
-        atomic_index=prediction.atomic_index,
-        text=prediction.text,
-        within_recipe_span=prediction.within_recipe_span,
-        label=prediction.label,
-        decided_by=decided_by or prediction.decided_by,
-        reason_tags=reason_tags,
-    )
-
-
-def _has_strong_syntax_label_evidence(
-    *,
-    label: str,
-    candidate: AtomicLineCandidate,
-    by_atomic_index: dict[int, AtomicLineCandidate],
-) -> bool:
-    if label == "TIME_LINE":
-        return _is_primary_time_line(candidate.text)
-    if label == "YIELD_LINE":
-        return _looks_strict_yield_header(candidate.text)
-    if label == "RECIPE_NOTES":
-        return (
-            _looks_note_text(candidate.text)
-            or _looks_recipe_note_prose(candidate.text)
-            or _looks_editorial_note(candidate.text)
-        )
-    if label == "HOWTO_SECTION":
-        return "howto_heading" in {str(tag) for tag in candidate.rule_tags} or _looks_subsection_heading_context(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    if label == "RECIPE_TITLE":
-        return _looks_recipe_title_with_context(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    if label == "INGREDIENT_LINE":
-        return _looks_obvious_ingredient(candidate) and not _looks_instructional_neighbor(
-            candidate
-        )
-    return False
-
-
-def _apply_label_ownership_arbitration(
-    *,
-    prediction: CanonicalLineRolePrediction,
-    baseline_prediction: CanonicalLineRolePrediction,
-    candidate: AtomicLineCandidate,
-    by_atomic_index: dict[int, AtomicLineCandidate],
-) -> CanonicalLineRolePrediction:
-    if prediction.decided_by != "codex" or prediction.label == baseline_prediction.label:
-        return prediction
-
-    baseline_label = str(baseline_prediction.label)
-    candidate_label = str(prediction.label)
-    if baseline_label in _SYNTAX_OWNED_LABELS and _has_strong_syntax_label_evidence(
-        label=baseline_label,
-        candidate=candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return _prediction_with_reason_tags(
-            baseline_prediction,
-            extra_reason_tags=[
-                f"ownership_veto_{baseline_label.lower()}",
-                f"ownership_rejected_{candidate_label.lower()}",
-            ],
-            decided_by="fallback",
-        )
-
-    if candidate_label in _SYNTAX_OWNED_LABELS and not _has_strong_syntax_label_evidence(
-        label=candidate_label,
-        candidate=candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return _prediction_with_reason_tags(
-            baseline_prediction,
-            extra_reason_tags=[
-                f"ownership_veto_{candidate_label.lower()}_needs_strong_evidence",
-                f"ownership_rejected_{candidate_label.lower()}",
-            ],
-            decided_by="fallback",
-        )
-
-    return _prediction_with_reason_tags(
-        prediction,
-        extra_reason_tags=[
-            f"ownership_codex_override_{baseline_label.lower()}_to_{candidate_label.lower()}"
-        ],
-    )
-
-
 def _should_escalate_candidate(
     *,
     candidate: AtomicLineCandidate,
     deterministic_label: str | None,
     escalation_reasons: Sequence[str],
 ) -> bool:
-    if not candidate.within_recipe_span:
+    if _is_outside_recipe_span(candidate):
         return False
     if deterministic_label in {"RECIPE_TITLE", "RECIPE_VARIANT"}:
         return False
     if not escalation_reasons:
         return False
     return True
-
-
-def _outside_span_title_variant_allowed(
-    candidate: AtomicLineCandidate,
-    *,
-    by_atomic_index: dict[int, AtomicLineCandidate],
-) -> bool:
-    if _looks_recipe_title_with_context(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return True
-    if not _looks_compact_heading(candidate.text):
-        return False
-    return _outside_span_has_neighboring_recipe_evidence(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    )
-
-
-def _outside_span_structured_line_allowed(
-    candidate: AtomicLineCandidate,
-    *,
-    label: str,
-    by_atomic_index: dict[int, AtomicLineCandidate],
-) -> bool:
-    if label == "INGREDIENT_LINE":
-        if not _looks_obvious_ingredient(candidate):
-            return False
-        return _outside_span_has_neighboring_anchor_evidence(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    if label == "INSTRUCTION_LINE":
-        if not _looks_instructional_neighbor(candidate):
-            return False
-        return _outside_span_has_neighboring_anchor_evidence(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    return True
-
-
-def _outside_span_has_neighboring_anchor_evidence(
-    candidate: AtomicLineCandidate,
-    *,
-    by_atomic_index: dict[int, AtomicLineCandidate],
-    radius: int = 6,
-) -> bool:
-    center = int(candidate.atomic_index)
-    lower = int(candidate.atomic_index) - max(1, int(radius))
-    upper = int(candidate.atomic_index) + max(1, int(radius))
-    for atomic_index in range(lower, upper + 1):
-        if atomic_index == center:
-            continue
-        row = by_atomic_index.get(atomic_index)
-        if row is None:
-            continue
-        tags = {str(tag) for tag in row.rule_tags}
-        if row.within_recipe_span:
-            return True
-        if {"title_like", "yield_prefix", "howto_heading", "variant_heading"} & tags:
-            return True
-        if _looks_recipe_start_boundary(row):
-            return True
-        if _looks_recipe_title_with_context(
-            row,
-            by_atomic_index=by_atomic_index,
-        ):
-            return True
-    return False
-
 
 def _outside_span_has_neighboring_recipe_evidence(
     candidate: AtomicLineCandidate,
@@ -2371,15 +1816,6 @@ def _outside_span_has_neighboring_recipe_evidence(
             return True
     return False
 
-
-def _outside_span_fallback_label(candidate: AtomicLineCandidate) -> str:
-    if _looks_explicit_knowledge_cue(candidate.text):
-        return "KNOWLEDGE"
-    if _looks_prose(candidate.text):
-        return "KNOWLEDGE" if _has_explicit_prose_tag(candidate) else "OTHER"
-    return "OTHER"
-
-
 def _is_primary_time_line(text: str) -> bool:
     if _TIME_PREFIX_RE.search(text):
         return True
@@ -2411,7 +1847,7 @@ def _knowledge_allowed_inside_recipe(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> bool:
-    if not candidate.within_recipe_span:
+    if not _is_within_recipe_span(candidate):
         return True
     if not _has_explicit_prose_tag(candidate):
         return False
@@ -2495,7 +1931,7 @@ def _should_rescue_neighbor_ingredient_fragment(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> bool:
-    if not candidate.within_recipe_span:
+    if _is_outside_recipe_span(candidate):
         return False
     text = str(candidate.text or "").strip()
     if not text:
@@ -2590,7 +2026,7 @@ def _looks_recipe_title_with_context(
         saw_neighbor = True
         if _supports_recipe_title_context(next_candidate):
             return True
-        if candidate.within_recipe_span and _is_recipe_note_context_line(next_candidate):
+        if _is_within_recipe_span(candidate) and _is_recipe_note_context_line(next_candidate):
             return True
         if _is_skippable_title_context_line(
             next_candidate,
@@ -2604,7 +2040,7 @@ def _looks_recipe_title_with_context(
         if "outside_recipe_span" in next_tags and _looks_prose(next_text):
             return False
         break
-    if not saw_neighbor and candidate.within_recipe_span:
+    if not saw_neighbor and _is_within_recipe_span(candidate):
         return True
     return False
 
@@ -2913,7 +2349,7 @@ def _looks_knowledge_heading_with_context(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate] | None,
 ) -> bool:
-    if candidate.within_recipe_span or by_atomic_index is None:
+    if _is_within_recipe_span(candidate) or by_atomic_index is None:
         return False
     text = str(candidate.text or "").strip()
     if not text or not _looks_compact_heading(text):
@@ -2922,7 +2358,7 @@ def _looks_knowledge_heading_with_context(
         return False
     for offset in (-1, 1):
         neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
-        if neighbor is None or neighbor.within_recipe_span:
+        if neighbor is None or _is_within_recipe_span(neighbor):
             continue
         neighbor_text = str(neighbor.text or "")
         if _looks_domain_knowledge_prose(neighbor_text) or _looks_explicit_knowledge_cue(
@@ -2944,7 +2380,7 @@ def _looks_knowledge_prose_with_context(
         return False
     for offset in (-1, 1):
         neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
-        if neighbor is None or neighbor.within_recipe_span:
+        if neighbor is None or _is_within_recipe_span(neighbor):
             continue
         neighbor_text = str(neighbor.text or "")
         if _looks_explicit_knowledge_cue(neighbor_text) or _looks_domain_knowledge_prose(
@@ -2983,7 +2419,7 @@ def _yield_fallback_label(candidate: AtomicLineCandidate) -> str:
     text = str(candidate.text or "").strip()
     lowered = text.lower()
     if _INSTRUCTION_VERB_RE.match(text) or lowered.startswith("serves "):
-        return "INSTRUCTION_LINE" if candidate.within_recipe_span else "OTHER"
+        return "OTHER" if _is_outside_recipe_span(candidate) else "INSTRUCTION_LINE"
     if _looks_recipe_note_prose(text) or _looks_editorial_note(text):
         return "RECIPE_NOTES"
     return "OTHER"

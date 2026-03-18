@@ -5224,7 +5224,10 @@ def _print_background_oracle_upload_summary(
     )
     typer.secho(f"Oracle benchmark bundle: {target.bundle_dir}", fg=typer.colors.CYAN)
     typer.secho(f"Oracle mode: {launch.mode}", fg=typer.colors.CYAN)
-    typer.secho("Oracle browser window: visible", fg=typer.colors.BRIGHT_BLACK)
+    typer.secho(
+        "Oracle browser launcher: auto (visible with display, xvfb otherwise)",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
     if launch.browser_profile_dir is not None:
         typer.secho(
             f"Oracle browser profile: {launch.browser_profile_dir}",
@@ -8950,19 +8953,6 @@ def _normalize_line_role_pipeline(value: str) -> str:
             f"Expected one of: off, deterministic-v1, {LINE_ROLE_PIPELINE_SHARD_V1}."
         )
         return "off"
-
-
-def _normalize_line_role_guardrail_mode(value: str) -> str:
-    normalized = str(value or "").strip().lower().replace("_", "-")
-    if normalized in {"", "enforce", "default"}:
-        return "enforce"
-    if normalized in {"off", "preview"}:
-        return normalized
-    _fail(
-        f"Invalid line role guardrail mode: {value!r}. "
-        "Expected one of: off, preview, enforce."
-    )
-    return "enforce"
 
 
 def _benchmark_sequence_matcher_modes() -> tuple[str, ...]:
@@ -15986,9 +15976,6 @@ def _run_all_method_prediction_once(
                                 "atomic_block_splitter"
                             ],
                             "line_role_pipeline": benchmark_kwargs["line_role_pipeline"],
-                            "line_role_guardrail_mode": benchmark_kwargs[
-                                "line_role_guardrail_mode"
-                            ],
                             "codex_farm_cmd": benchmark_kwargs["codex_farm_cmd"],
                             "codex_farm_model": benchmark_kwargs.get("codex_farm_model"),
                             "codex_farm_reasoning_effort": benchmark_kwargs.get(
@@ -21191,6 +21178,13 @@ def _write_stage_run_manifest(
         if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
             artifacts["full_prompt_log_jsonl"] = str(
                 full_prompt_log_path.relative_to(run_root)
+            )
+        prompt_log_summary_path = (
+            prompt_artifacts_dir / llm_prompt_artifacts.PROMPT_LOG_SUMMARY_JSON_NAME
+        )
+        if prompt_log_summary_path.exists() and prompt_log_summary_path.is_file():
+            artifacts["prompt_log_summary_json"] = str(
+                prompt_log_summary_path.relative_to(run_root)
             )
         prompt_type_samples_path = (
             prompt_artifacts_dir
@@ -26914,11 +26908,6 @@ def labelstudio_benchmark(
             f"experiments: off, deterministic-v1, or {LINE_ROLE_PIPELINE_SHARD_V1}."
         ),
     )] = "off",
-    line_role_guardrail_mode: Annotated[str, typer.Option(
-        "--line-role-guardrail-mode",
-        hidden=True,
-        help=f"Line-role guardrail mode for {LINE_ROLE_PIPELINE_SHARD_V1}: off, preview, or enforce.",
-    )] = "enforce",
     line_role_gated: Annotated[bool, typer.Option(
         "--line-role-gated/--no-line-role-gated",
         help=(
@@ -27169,9 +27158,6 @@ def labelstudio_benchmark(
         atomic_block_splitter
     )
     selected_line_role_pipeline = _normalize_line_role_pipeline(line_role_pipeline)
-    selected_line_role_guardrail_mode = _normalize_line_role_guardrail_mode(
-        line_role_guardrail_mode
-    )
     selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
         codex_farm_recipe_mode
     )
@@ -27372,7 +27358,6 @@ def labelstudio_benchmark(
             llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
             atomic_block_splitter=selected_atomic_block_splitter,
             line_role_pipeline=selected_line_role_pipeline,
-            line_role_guardrail_mode=selected_line_role_guardrail_mode,
             codex_farm_cmd=codex_farm_cmd,
             codex_farm_model=selected_codex_farm_model,
             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -27408,7 +27393,6 @@ def labelstudio_benchmark(
                 "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
                 "atomic_block_splitter": selected_atomic_block_splitter,
                 "line_role_pipeline": selected_line_role_pipeline,
-                "line_role_guardrail_mode": selected_line_role_guardrail_mode,
                 "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
                 "codex_farm_cmd": codex_farm_cmd,
                 "codex_farm_model": selected_codex_farm_model,
@@ -27530,7 +27514,6 @@ def labelstudio_benchmark(
                 llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                 atomic_block_splitter=selected_atomic_block_splitter,
                 line_role_pipeline=selected_line_role_pipeline,
-                line_role_guardrail_mode=selected_line_role_guardrail_mode,
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_model=selected_codex_farm_model,
                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -27653,7 +27636,6 @@ def labelstudio_benchmark(
                                 llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
-                                line_role_guardrail_mode=selected_line_role_guardrail_mode,
                                 codex_farm_cmd=codex_farm_cmd,
                                 codex_farm_model=selected_codex_farm_model,
                                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -27768,7 +27750,6 @@ def labelstudio_benchmark(
                             llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                             atomic_block_splitter=selected_atomic_block_splitter,
                             line_role_pipeline=selected_line_role_pipeline,
-                            line_role_guardrail_mode=selected_line_role_guardrail_mode,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_model=selected_codex_farm_model,
                             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -28381,22 +28362,6 @@ def labelstudio_benchmark(
                 eval_output_dir,
                 line_role_output_dir / "line_role_flips_vs_baseline.sample.jsonl",
             ),
-            "guardrail_report_json": _path_for_manifest(
-                eval_output_dir,
-                line_role_output_dir / "guardrail_report.json",
-            ),
-            "guardrail_changed_rows_jsonl": _path_for_manifest(
-                eval_output_dir,
-                line_role_output_dir / "guardrail_changed_rows.jsonl",
-            ),
-            "do_no_harm_diagnostics_json": _path_for_manifest(
-                eval_output_dir,
-                line_role_output_dir / "do_no_harm_diagnostics.json",
-            ),
-            "do_no_harm_changed_rows_jsonl": _path_for_manifest(
-                eval_output_dir,
-                line_role_output_dir / "do_no_harm_changed_rows.jsonl",
-            ),
         }
         if isinstance(baseline_history_row, dict):
             baseline_run_dir = str(baseline_history_row.get("run_dir") or "").strip()
@@ -28530,7 +28495,6 @@ def labelstudio_benchmark(
         "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
         "atomic_block_splitter": selected_atomic_block_splitter,
         "line_role_pipeline": selected_line_role_pipeline,
-        "line_role_guardrail_mode": selected_line_role_guardrail_mode,
         "line_role_gated": bool(line_role_gated),
         "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
@@ -28683,16 +28647,50 @@ def labelstudio_benchmark(
             / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_MD_NAME
         )
         if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
-            full_prompt_log_rows = 0
-            try:
-                with full_prompt_log_path.open("r", encoding="utf-8") as handle:
-                    for line in handle:
-                        if line.strip():
-                            full_prompt_log_rows += 1
-            except OSError:
-                full_prompt_log_rows = 0
+            prompt_log_summary_path = (
+                codexfarm_prompt_response_log_path.parent
+                / llm_prompt_artifacts.PROMPT_LOG_SUMMARY_JSON_NAME
+            )
+            summary_path = llm_prompt_artifacts.write_prompt_log_summary(
+                full_prompt_log_path=full_prompt_log_path,
+                output_path=prompt_log_summary_path,
+            )
+            prompt_log_summary: dict[str, Any] = {}
+            if summary_path is not None and summary_path.exists():
+                try:
+                    loaded_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    loaded_summary = {}
+                if isinstance(loaded_summary, dict):
+                    prompt_log_summary = loaded_summary
+            by_stage_summary = (
+                prompt_log_summary.get("by_stage")
+                if isinstance(prompt_log_summary.get("by_stage"), dict)
+                else {}
+            )
             benchmark_artifacts["full_prompt_log_status"] = "complete"
-            benchmark_artifacts["full_prompt_log_rows"] = full_prompt_log_rows
+            benchmark_artifacts["full_prompt_log_rows"] = int(
+                prompt_log_summary.get("full_prompt_log_rows") or 0
+            )
+            benchmark_artifacts["full_prompt_log_runtime_shard_count"] = int(
+                prompt_log_summary.get("runtime_shard_count") or 0
+            )
+            benchmark_artifacts["full_prompt_log_runtime_shard_count_status"] = str(
+                prompt_log_summary.get("runtime_shard_count_status") or "missing"
+            )
+            benchmark_artifacts["full_prompt_log_rows_without_runtime_shard_id"] = int(
+                prompt_log_summary.get("rows_without_runtime_shard_id") or 0
+            )
+            benchmark_artifacts["full_prompt_log_rows_by_stage"] = {
+                str(stage_key): int((payload or {}).get("row_count") or 0)
+                for stage_key, payload in by_stage_summary.items()
+                if isinstance(payload, dict)
+            }
+            benchmark_artifacts["full_prompt_log_runtime_shard_count_by_stage"] = {
+                str(stage_key): int((payload or {}).get("runtime_shard_count") or 0)
+                for stage_key, payload in by_stage_summary.items()
+                if isinstance(payload, dict)
+            }
             benchmark_artifacts["full_prompt_log_path"] = _path_for_manifest(
                 eval_output_dir,
                 full_prompt_log_path,
@@ -28701,9 +28699,21 @@ def labelstudio_benchmark(
                 eval_output_dir,
                 full_prompt_log_path,
             )
+            if summary_path is not None and summary_path.exists():
+                benchmark_artifacts["codexfarm_prompt_log_summary_json"] = (
+                    _path_for_manifest(
+                        eval_output_dir,
+                        summary_path,
+                    )
+                )
         else:
             benchmark_artifacts["full_prompt_log_status"] = "missing"
             benchmark_artifacts["full_prompt_log_rows"] = 0
+            benchmark_artifacts["full_prompt_log_runtime_shard_count"] = 0
+            benchmark_artifacts["full_prompt_log_runtime_shard_count_status"] = "missing"
+            benchmark_artifacts["full_prompt_log_rows_without_runtime_shard_id"] = 0
+            benchmark_artifacts["full_prompt_log_rows_by_stage"] = {}
+            benchmark_artifacts["full_prompt_log_runtime_shard_count_by_stage"] = {}
             benchmark_artifacts["full_prompt_log_path"] = None
         if prompt_type_samples_path.exists() and prompt_type_samples_path.is_file():
             benchmark_artifacts[

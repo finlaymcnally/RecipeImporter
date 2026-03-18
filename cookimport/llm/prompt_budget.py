@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 from typing import Any, Mapping
+
+import tiktoken
+
+from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 
 _TOKEN_KEYS = (
     "tokens_input",
@@ -16,41 +21,6 @@ _PREVIEW_STAGE_LABELS = {
     "recipe_llm_correct_and_link": "Recipe Correction",
     "extract_knowledge_optional": "Knowledge Harvest",
     "line_role": "Line Role",
-}
-_PREDICTIVE_STAGE_MODELS: dict[str, dict[str, Any]] = {
-    "recipe_llm_correct_and_link": {
-        "stage": "recipe_llm_correct_and_link",
-        "source": "repo_calibrated_vanilla_to_codex_benchmark",
-        "benchmark_ref": "2026-03-17_16.06.55/single-offline-benchmark/saltfatacidheatcutdown",
-        "input_tokens_per_request_char": 1.056321,
-        "output_tokens_per_request_char": 0.171744,
-        "total_tokens_per_request_char": 1.228065,
-        "cached_input_share": 0.480193,
-        "total_tokens_per_request_char_low": 1.044,
-        "total_tokens_per_request_char_high": 1.412,
-    },
-    "extract_knowledge_optional": {
-        "stage": "extract_knowledge_optional",
-        "source": "repo_calibrated_vanilla_to_codex_benchmark",
-        "benchmark_ref": "2026-03-17_16.06.55/single-offline-benchmark/saltfatacidheatcutdown",
-        "input_tokens_per_request_char": 1.949124,
-        "output_tokens_per_request_char": 0.168638,
-        "total_tokens_per_request_char": 2.117762,
-        "cached_input_share": 0.722900,
-        "total_tokens_per_request_char_low": 1.800,
-        "total_tokens_per_request_char_high": 2.435,
-    },
-    "line_role": {
-        "stage": "line_role",
-        "source": "repo_calibrated_vanilla_to_codex_benchmark",
-        "benchmark_ref": "2026-03-17_16.06.55/single-offline-benchmark/saltfatacidheatcutdown",
-        "input_tokens_per_request_char": 4.027269,
-        "output_tokens_per_request_char": 0.145910,
-        "total_tokens_per_request_char": 4.173179,
-        "cached_input_share": 0.841418,
-        "total_tokens_per_request_char_low": 3.547,
-        "total_tokens_per_request_char_high": 4.799,
-    },
 }
 
 
@@ -162,15 +132,10 @@ def build_prompt_preview_budget_summary(
     prompt_rows: list[Mapping[str, Any]],
     preview_dir: Path,
     phase_plans: Mapping[str, Mapping[str, Any]] | None = None,
-    live_stage_summaries: Mapping[str, Mapping[str, Any]] | None = None,
-    predictive_stage_models: Mapping[str, Mapping[str, Any]] | None = None,
-    estimation_mode: str = "predictive",
 ) -> dict[str, Any]:
     by_stage: dict[str, dict[str, Any]] = {}
-    live_telemetry_used = False
-    historical_calibration_used = False
+    structural_estimate_used = False
     unavailable_stage_count = 0
-    normalized_estimation_mode = str(estimation_mode or "predictive").strip().lower() or "predictive"
     for row in prompt_rows:
         stage_key = str(row.get("stage_key") or "").strip()
         if not stage_key:
@@ -248,177 +213,27 @@ def build_prompt_preview_budget_summary(
             int(round(task_prompt_chars_total / call_count)) if call_count > 0 else 0
         )
         payload["prompt_chars_avg"] = int(round(prompt_chars_total / call_count)) if call_count > 0 else 0
-        live_stage = (
-            live_stage_summaries.get(stage_key)
-            if normalized_estimation_mode == "observed" and isinstance(live_stage_summaries, Mapping)
-            else None
+        (
+            estimated_input_tokens,
+            estimated_cached_input_tokens,
+            estimated_output_tokens,
+            estimated_total_tokens,
+            structural_payload,
+        ) = _build_structural_stage_estimate(
+            stage_rows=_rows_for_stage(prompt_rows=prompt_rows, stage_key=stage_key),
         )
-        if isinstance(live_stage, Mapping):
-            live_input_tokens = _nonnegative_int(live_stage.get("tokens_input"))
-            live_cached_input_tokens = _nonnegative_int(live_stage.get("tokens_cached_input"))
-            live_output_tokens = _nonnegative_int(live_stage.get("tokens_output"))
-            live_total_tokens = _nonnegative_int(live_stage.get("tokens_total"))
-            if any(
-                value is not None
-                for value in (
-                    live_input_tokens,
-                    live_cached_input_tokens,
-                    live_output_tokens,
-                    live_total_tokens,
-                )
-            ):
-                live_telemetry_used = True
-                payload["estimation_basis"] = "live_telemetry"
-                payload["live_telemetry"] = {
-                    "call_count": _nonnegative_int(live_stage.get("call_count")),
-                    "duration_total_ms": _nonnegative_int(live_stage.get("duration_total_ms")),
-                    "tokens_input": live_input_tokens,
-                    "tokens_cached_input": live_cached_input_tokens,
-                    "tokens_output": live_output_tokens,
-                    "tokens_total": live_total_tokens,
-                }
-                estimated_input_tokens = live_input_tokens or 0
-                estimated_output_tokens = live_output_tokens or 0
-                estimated_cached_input_tokens = live_cached_input_tokens or 0
-                estimated_total_tokens = (
-                    live_total_tokens
-                    if live_total_tokens is not None
-                    else estimated_input_tokens + estimated_output_tokens
-                )
-            else:
-                calibration = (
-                    predictive_stage_models.get(stage_key)
-                    if isinstance(predictive_stage_models, Mapping)
-                    else None
-                )
-                if isinstance(calibration, Mapping):
-                    calibrated_input_ratio = _nonnegative_float(
-                        calibration.get("input_tokens_per_request_char")
-                    )
-                    calibrated_output_ratio = _nonnegative_float(
-                        calibration.get("output_tokens_per_request_char")
-                    )
-                    calibrated_total_ratio = _nonnegative_float(
-                        calibration.get("total_tokens_per_request_char")
-                    )
-                    calibrated_cached_share = _nonnegative_float(
-                        calibration.get("cached_input_share")
-                    )
-                    if (
-                        estimated_request_chars_total > 0
-                        and calibrated_input_ratio is not None
-                        and calibrated_total_ratio is not None
-                    ):
-                        historical_calibration_used = True
-                        payload["estimation_basis"] = "historical_calibration"
-                        payload["historical_calibration"] = dict(calibration)
-                        estimated_input_tokens = int(
-                            round(estimated_request_chars_total * calibrated_input_ratio)
-                        )
-                        if calibrated_output_ratio is not None:
-                            estimated_output_tokens = int(
-                                round(estimated_request_chars_total * calibrated_output_ratio)
-                            )
-                        else:
-                            estimated_output_tokens = max(
-                                int(round(estimated_request_chars_total * calibrated_total_ratio))
-                                - estimated_input_tokens,
-                                0,
-                            )
-                        estimated_cached_input_tokens = int(
-                            round(estimated_input_tokens * calibrated_cached_share)
-                        ) if calibrated_cached_share is not None else 0
-                        estimated_total_tokens = int(
-                            round(estimated_request_chars_total * calibrated_total_ratio)
-                        )
-                        payload["estimated_total_tokens_low"] = int(
-                            round(
-                                estimated_request_chars_total
-                                * float(
-                                    calibration.get("total_tokens_per_request_char_low")
-                                    or calibrated_total_ratio
-                                )
-                            )
-                        )
-                        payload["estimated_total_tokens_high"] = int(
-                            round(
-                                estimated_request_chars_total
-                                * float(
-                                    calibration.get("total_tokens_per_request_char_high")
-                                    or calibrated_total_ratio
-                                )
-                            )
-                        )
-                    else:
-                        payload["estimation_basis"] = "unavailable"
-        else:
-            calibration = (
-                predictive_stage_models.get(stage_key)
-                if isinstance(predictive_stage_models, Mapping)
-                else None
+        if structural_payload is not None:
+            structural_estimate_used = True
+            payload["estimation_basis"] = "structural_prompt_tokenization"
+            payload["structural_token_estimate"] = structural_payload
+            payload["estimated_total_tokens_low"] = _nonnegative_int(
+                structural_payload.get("estimated_total_tokens_low")
             )
-            if isinstance(calibration, Mapping):
-                calibrated_input_ratio = _nonnegative_float(
-                    calibration.get("input_tokens_per_request_char")
-                )
-                calibrated_output_ratio = _nonnegative_float(
-                    calibration.get("output_tokens_per_request_char")
-                )
-                calibrated_total_ratio = _nonnegative_float(
-                    calibration.get("total_tokens_per_request_char")
-                )
-                calibrated_cached_share = _nonnegative_float(
-                    calibration.get("cached_input_share")
-                )
-                if (
-                    estimated_request_chars_total > 0
-                    and calibrated_input_ratio is not None
-                    and calibrated_total_ratio is not None
-                ):
-                    historical_calibration_used = True
-                    payload["estimation_basis"] = "historical_calibration"
-                    payload["historical_calibration"] = dict(calibration)
-                    estimated_input_tokens = int(
-                        round(estimated_request_chars_total * calibrated_input_ratio)
-                    )
-                    if calibrated_output_ratio is not None:
-                        estimated_output_tokens = int(
-                            round(estimated_request_chars_total * calibrated_output_ratio)
-                        )
-                    else:
-                        estimated_output_tokens = max(
-                            int(round(estimated_request_chars_total * calibrated_total_ratio))
-                            - estimated_input_tokens,
-                            0,
-                        )
-                    estimated_cached_input_tokens = int(
-                        round(estimated_input_tokens * calibrated_cached_share)
-                    ) if calibrated_cached_share is not None else 0
-                    estimated_total_tokens = int(
-                        round(estimated_request_chars_total * calibrated_total_ratio)
-                    )
-                    payload["estimated_total_tokens_low"] = int(
-                        round(
-                            estimated_request_chars_total
-                            * float(
-                                calibration.get("total_tokens_per_request_char_low")
-                                or calibrated_total_ratio
-                            )
-                        )
-                    )
-                    payload["estimated_total_tokens_high"] = int(
-                        round(
-                            estimated_request_chars_total
-                            * float(
-                                calibration.get("total_tokens_per_request_char_high")
-                                or calibrated_total_ratio
-                            )
-                        )
-                    )
-                else:
-                    payload["estimation_basis"] = "unavailable"
-            else:
-                payload["estimation_basis"] = "unavailable"
+            payload["estimated_total_tokens_high"] = _nonnegative_int(
+                structural_payload.get("estimated_total_tokens_high")
+            )
+        else:
+            payload["estimation_basis"] = "unavailable"
         payload["estimated_input_tokens"] = estimated_input_tokens
         payload["estimated_cached_input_tokens"] = estimated_cached_input_tokens
         payload["estimated_output_tokens"] = estimated_output_tokens
@@ -486,30 +301,23 @@ def build_prompt_preview_budget_summary(
     )
 
     return {
-        "schema_version": "prompt_preview_budget_summary.v4",
+        "schema_version": "prompt_preview_budget_summary.v5",
         "preview_dir": str(preview_dir),
         "estimation_method": {
             "type": (
-                    "observed_live_telemetry"
-                    if live_telemetry_used
-                    else (
-                    "predictive_stage_model"
-                    if historical_calibration_used
-                    else "no_token_estimate_available"
-                )
+                "structural_prompt_tokenization"
+                if structural_estimate_used
+                else "no_token_estimate_available"
             ),
-            "mode": normalized_estimation_mode,
+            "mode": "predictive",
             "unavailable_stage_count": unavailable_stage_count,
             "notes": [
                 (
-                    "Observed mode can reuse exact stage telemetry from a completed processed run, "
-                    "but predictive mode intentionally ignores exact live telemetry."
+                    "Predictive estimates tokenize the locally reconstructed wrapper prompt text plus deposited task-file text for each planned shard."
                 ),
-                (
-                    "Predictive estimates use repo-owned stage models calibrated from a paired vanilla-to-Codex benchmark, "
-                    "applied to the selected run's vanilla-shaped prompt payloads."
-                ),
-                "Stages without usable calibration are reported as unavailable instead of guessed from prompt text length.",
+                "Predictive output tokens are structural best guesses derived from the planned shard inputs and repo-owned fake pipeline output builders.",
+                "Predictive preview assumes zero cached-input reuse before a live run.",
+                "Stages without reconstructable prompt or output structure are reported as unavailable instead of guessed from prompt text length.",
                 "Warnings are intentionally blunt and also consider raw prompt chars plus call counts, not only token estimates.",
             ],
         },
@@ -523,6 +331,7 @@ def write_prompt_preview_budget_summary(
     preview_dir: Path,
     summary: Mapping[str, Any],
 ) -> tuple[Path, Path]:
+    preview_dir.mkdir(parents=True, exist_ok=True)
     json_path = preview_dir / "prompt_preview_budget_summary.json"
     md_path = preview_dir / "prompt_preview_budget_summary.md"
     json_path.write_text(
@@ -880,6 +689,144 @@ def _sum_optional_ints(left: int | None, right: int | None) -> int | None:
     return left + right
 
 
+def _rows_for_stage(
+    *,
+    prompt_rows: list[Mapping[str, Any]],
+    stage_key: str,
+) -> list[Mapping[str, Any]]:
+    return [
+        row
+        for row in prompt_rows
+        if str(row.get("stage_key") or "").strip() == stage_key
+    ]
+
+
+def _build_structural_stage_estimate(
+    *,
+    stage_rows: list[Mapping[str, Any]],
+) -> tuple[int | None, int | None, int | None, int | None, dict[str, Any] | None]:
+    if not stage_rows:
+        return None, None, None, None, None
+
+    estimated_input_tokens = 0
+    estimated_output_tokens = 0
+    tokenizer_names: set[str] = set()
+    pipeline_ids: set[str] = set()
+    counted_rows = 0
+
+    for row in stage_rows:
+        row_input_tokens = _count_structural_input_tokens(row)
+        row_output_tokens = _count_structural_output_tokens(row)
+        if row_input_tokens is None or row_output_tokens is None:
+            return None, None, None, None, None
+        estimated_input_tokens += row_input_tokens
+        estimated_output_tokens += row_output_tokens
+        estimated_pipeline_id = str(row.get("pipeline_id") or "").strip()
+        if estimated_pipeline_id:
+            pipeline_ids.add(estimated_pipeline_id)
+        tokenizer_names.add(_tokenizer_name_for_model(str(row.get("model") or "")))
+        counted_rows += 1
+
+    estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
+    structural_payload = {
+        "row_count": counted_rows,
+        "tokenizer_names": sorted(tokenizer_names),
+        "pipeline_ids": sorted(pipeline_ids),
+        "cached_input_assumption": "zero_pre_run",
+        "estimated_total_tokens_low": estimated_total_tokens,
+        "estimated_total_tokens_high": estimated_total_tokens,
+    }
+    return (
+        estimated_input_tokens,
+        0,
+        estimated_output_tokens,
+        estimated_total_tokens,
+        structural_payload,
+    )
+
+
+def _count_structural_input_tokens(row: Mapping[str, Any]) -> int | None:
+    rendered_prompt_text = str(row.get("rendered_prompt_text") or "")
+    if not rendered_prompt_text:
+        return None
+
+    model_name = str(row.get("model") or "")
+    prompt_input_mode = str(row.get("prompt_input_mode") or "path").strip().lower()
+    total = _count_tokens(rendered_prompt_text, model_name=model_name)
+
+    if prompt_input_mode == "path":
+        task_prompt_text = str(
+            row.get("task_prompt_text") or row.get("request_input_text") or ""
+        )
+        if not task_prompt_text:
+            return None
+        total += _count_tokens(task_prompt_text, model_name=model_name)
+    return total
+
+
+def _count_structural_output_tokens(row: Mapping[str, Any]) -> int | None:
+    pipeline_id = str(row.get("pipeline_id") or "").strip()
+    if not pipeline_id:
+        return None
+    request_input_payload = row.get("request_input_payload")
+    if not isinstance(request_input_payload, dict | str):
+        return None
+    try:
+        output_payload = build_structural_pipeline_output(
+            pipeline_id,
+            request_input_payload,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    compact_output = json.dumps(
+        output_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return _count_tokens(compact_output, model_name=str(row.get("model") or ""))
+
+
+def _count_tokens(text: str, *, model_name: str) -> int:
+    if not text:
+        return 0
+    if len(text) <= 100_000:
+        return _count_tokens_cached(model_name, text)
+    return sum(
+        _count_tokens_cached(model_name, chunk)
+        for chunk in _chunk_tokenization_text(text)
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def _count_tokens_cached(model_name: str, text: str) -> int:
+    return len(_encoding_for_model(model_name).encode(text))
+
+
+def _chunk_tokenization_text(text: str, *, chunk_size: int = 50_000) -> tuple[str, ...]:
+    if len(text) <= chunk_size:
+        return (text,)
+    return tuple(
+        text[index : index + chunk_size]
+        for index in range(0, len(text), chunk_size)
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def _encoding_for_model(model_name: str):
+    normalized_model = str(model_name or "").strip()
+    if normalized_model:
+        try:
+            return tiktoken.encoding_for_model(normalized_model)
+        except KeyError:
+            pass
+    return tiktoken.get_encoding("o200k_base")
+
+
+def _tokenizer_name_for_model(model_name: str) -> str:
+    return _encoding_for_model(model_name).name
+
+
 def _build_prompt_preview_budget_warnings(
     *,
     by_stage: Mapping[str, Mapping[str, Any]],
@@ -904,7 +851,7 @@ def _build_prompt_preview_budget_warnings(
                 "message": (
                     "Token estimate unavailable for: "
                     + ", ".join(unavailable_stages)
-                    + ". Preview only reports tokens when live telemetry or historical calibration is available."
+                    + ". Preview only reports tokens when it can tokenize the reconstructed prompt inputs and build structural output estimates."
                 ),
             }
         )
@@ -995,13 +942,9 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
         estimation_method = {}
     estimation_type = str(estimation_method.get("type") or "no_token_estimate_available").strip()
     headline_suffix = (
-        "observed live telemetry"
-        if estimation_type == "observed_live_telemetry"
-        else (
-            "predictive historical calibration"
-            if estimation_type == "predictive_historical_calibration"
-            else "no estimate available"
-        )
+        "structural prompt tokenization"
+        if estimation_type == "structural_prompt_tokenization"
+        else "no estimate available"
     )
     estimated_total_tokens = _nonnegative_int(totals.get("estimated_total_tokens"))
     estimated_total_tokens_text = (
@@ -1108,104 +1051,12 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
                 + " |"
             )
     lines.append("")
-    if estimation_type == "observed_live_telemetry":
+    if estimation_type == "structural_prompt_tokenization":
         lines.append(
-            "_Estimated tokens reuse exact live stage telemetry from the completed processed run when available; this is retrospective, not predictive._"
-        )
-    elif estimation_type == "predictive_stage_model":
-        lines.append(
-            "_Estimated tokens are predictive: they ignore exact live telemetry for the selected run, derive workload shape from the selected run's vanilla-style processed output, and apply repo-owned stage models calibrated from a paired vanilla-to-Codex benchmark; the range column reflects the baked-in uncertainty band for each stage model._"
+            "_Estimated tokens are predictive: they tokenize the locally reconstructed wrapper prompts plus deposited task files and use schema-shaped structural output guesses from the planned shard inputs. Predictive preview assumes zero cached-input reuse before the live run._"
         )
     else:
         lines.append(
-            "_No predictive token estimate is shown because this preview had no usable stage calibration to ground the numbers._"
+            "_No predictive token estimate is shown because this preview could not reconstruct enough local prompt/output structure to ground the numbers._"
         )
     return "\n".join(lines) + "\n"
-
-
-def load_prompt_preview_live_stage_summaries(
-    *,
-    processed_run_dir: Path,
-    workbook_slug: str,
-) -> dict[str, dict[str, Any]]:
-    by_stage: dict[str, dict[str, Any]] = {}
-
-    recipe_summary = _build_phase_worker_status_stage_summary(
-        stage_name="recipe_llm_correct_and_link",
-        runtime_root=processed_run_dir / "raw" / "llm" / workbook_slug / "recipe_phase_runtime",
-    )
-    if recipe_summary is not None:
-        by_stage["recipe_llm_correct_and_link"] = recipe_summary
-
-    knowledge_summary = _build_phase_worker_status_stage_summary(
-        stage_name="extract_knowledge_optional",
-        runtime_root=processed_run_dir / "raw" / "llm" / workbook_slug / "knowledge",
-    )
-    if knowledge_summary is not None:
-        by_stage["extract_knowledge_optional"] = knowledge_summary
-
-    line_role_summary = _build_line_role_stage_summary(
-        pred_manifest={},
-        pred_run_dir=processed_run_dir,
-    )
-    if line_role_summary is not None:
-        by_stage["line_role"] = line_role_summary
-
-    return by_stage
-
-
-def load_prompt_preview_stage_calibrations(*, repo_root: Path) -> dict[str, dict[str, Any]]:
-    del repo_root
-    return {
-        stage_key: dict(payload)
-        for stage_key, payload in _PREDICTIVE_STAGE_MODELS.items()
-    }
-
-
-def _build_phase_worker_status_stage_summary(
-    *,
-    stage_name: str,
-    runtime_root: Path,
-) -> dict[str, Any] | None:
-    workers_root = runtime_root / "workers"
-    if not workers_root.is_dir():
-        return None
-
-    aggregated: dict[str, int | None] = {
-        "call_count": None,
-        "duration_total_ms": None,
-        **{key: None for key in _TOKEN_KEYS},
-    }
-    found = False
-    for status_path in sorted(workers_root.glob("*/status.json")):
-        try:
-            payload = json.loads(status_path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            continue
-        if not isinstance(payload, Mapping):
-            continue
-        summary = _build_codex_farm_stage_summary(stage_name=stage_name, stage_payload=payload)
-        if summary is None:
-            continue
-        found = True
-        aggregated["call_count"] = _sum_optional_ints(
-            aggregated.get("call_count"),
-            _nonnegative_int(summary.get("call_count")),
-        )
-        aggregated["duration_total_ms"] = _sum_optional_ints(
-            aggregated.get("duration_total_ms"),
-            _nonnegative_int(summary.get("duration_total_ms")),
-        )
-        for key in _TOKEN_KEYS:
-            aggregated[key] = _sum_optional_ints(
-                aggregated.get(key),
-                _nonnegative_int(summary.get(key)),
-            )
-    if not found:
-        return None
-
-    return {
-        "stage": stage_name,
-        "kind": "live_telemetry",
-        **aggregated,
-    }

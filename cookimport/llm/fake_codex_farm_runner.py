@@ -149,6 +149,14 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
     raise ValueError(f"Unsupported fake pipeline id: {pipeline_id}")
 
 
+def build_structural_pipeline_output(
+    pipeline_id: str,
+    payload: dict[str, Any] | str,
+) -> dict[str, Any]:
+    """Return the repo's structural best-guess output shape for a pipeline payload."""
+    return _default_output(pipeline_id, payload)
+
+
 def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]:
     canonical_text = str(payload.get("canonical_text") or "").strip()
     evidence_rows = payload.get("evidence_rows")

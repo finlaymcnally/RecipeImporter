@@ -950,94 +950,13 @@ def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | No
         return str(candidate)
 
 
-def _line_role_recipe_ranges(
-    result: ConversionResult,
-    *,
-    archive_payload: list[dict[str, Any]],
-) -> list[tuple[int, int, int]]:
-    line_to_block: dict[int, int] = {}
-    for row in archive_payload:
-        location = row.get("location")
-        if not isinstance(location, dict):
-            continue
-        block_index = _coerce_int(row.get("index"))
-        if block_index is None:
-            continue
-        line_index = _coerce_int(
-            location.get("line_index")
-            if location.get("line_index") is not None
-            else location.get("lineIndex")
-        )
-        if line_index is not None:
-            line_to_block[line_index] = block_index
-
-    output: list[tuple[int, int, int]] = []
-    for recipe_index, recipe in enumerate(result.recipes):
-        provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
-        location = provenance.get("location")
-        if not isinstance(location, dict):
-            continue
-        start = _coerce_int(location.get("start_block"))
-        if start is None:
-            start = _coerce_int(location.get("startBlock"))
-        end = _coerce_int(location.get("end_block"))
-        if end is None:
-            end = _coerce_int(location.get("endBlock"))
-        if start is None and end is None:
-            single = _coerce_int(location.get("block_index"))
-            if single is None:
-                single = _coerce_int(location.get("blockIndex"))
-            if single is not None:
-                start, end = single, single
-        if start is None or end is None:
-            start_line = _coerce_int(location.get("start_line"))
-            if start_line is None:
-                start_line = _coerce_int(location.get("startLine"))
-            end_line = _coerce_int(location.get("end_line"))
-            if end_line is None:
-                end_line = _coerce_int(location.get("endLine"))
-            if start_line is not None or end_line is not None:
-                if start_line is None:
-                    start_line = end_line
-                if end_line is None:
-                    end_line = start_line
-                if start_line is not None and end_line is not None:
-                    if start_line > end_line:
-                        start_line, end_line = end_line, start_line
-                    matched = [
-                        block_index
-                        for line_index, block_index in line_to_block.items()
-                        if start_line <= line_index <= end_line
-                    ]
-                    if matched:
-                        start = min(matched)
-                        end = max(matched)
-        if start is None or end is None:
-            continue
-        if start > end:
-            start, end = end, start
-        output.append((recipe_index, start, end))
-    return output
-
-
-def _recipe_index_for_block(
-    block_index: int,
-    *,
-    recipe_ranges: list[tuple[int, int, int]],
-) -> int | None:
-    for recipe_index, start, end in recipe_ranges:
-        if start <= block_index <= end:
-            return recipe_index
-    return None
-
-
 def _build_line_role_candidates_from_archive(
     *,
     archive_payload: list[dict[str, Any]],
     result: ConversionResult,
     atomic_block_splitter: str,
 ) -> list[AtomicLineCandidate]:
-    recipe_ranges = _line_role_recipe_ranges(result, archive_payload=archive_payload)
+    del result
     staged: list[dict[str, Any]] = []
     for row in sorted(
         archive_payload,
@@ -1049,12 +968,6 @@ def _build_line_role_candidates_from_archive(
         text = str(row.get("text") or "").strip()
         if not text:
             continue
-        recipe_index = _recipe_index_for_block(
-            block_index,
-            recipe_ranges=recipe_ranges,
-        )
-        within_recipe_span = recipe_index is not None
-        recipe_id = f"recipe:{recipe_index}" if recipe_index is not None else None
         atomized = atomize_blocks(
             [
                 {
@@ -1063,8 +976,8 @@ def _build_line_role_candidates_from_archive(
                     "text": text,
                 }
             ],
-            recipe_id=recipe_id,
-            within_recipe_span=within_recipe_span,
+            recipe_id=None,
+            within_recipe_span=None,
             atomic_block_splitter=atomic_block_splitter,
         )
         for candidate in atomized:
@@ -1094,7 +1007,7 @@ def _build_line_role_candidates_from_archive(
                 block_index=int(row["block_index"]),
                 atomic_index=atomic_index,
                 text=str(row["text"]),
-                within_recipe_span=bool(row["within_recipe_span"]),
+                within_recipe_span=row["within_recipe_span"],
                 prev_text=prev_text,
                 next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
@@ -1791,7 +1704,6 @@ def generate_pred_run_artifacts(
     codex_farm_knowledge_context_blocks: int = 0,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
-    line_role_guardrail_mode: str = "enforce",
     processed_output_root: Path | None = None,
     write_markdown: bool = True,
     write_label_studio_tasks: bool = True,
@@ -1966,7 +1878,6 @@ def generate_pred_run_artifacts(
         llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
         atomic_block_splitter=atomic_block_splitter,
         line_role_pipeline=line_role_pipeline,
-        line_role_guardrail_mode=line_role_guardrail_mode,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
@@ -2567,10 +2478,6 @@ def generate_pred_run_artifacts(
             "stage_block_predictions_path": None,
             "line_role_pipeline_line_role_predictions_path": None,
             "line_role_pipeline_projected_spans_path": None,
-            "line_role_pipeline_guardrail_report_path": None,
-            "line_role_pipeline_guardrail_changed_rows_path": None,
-            "line_role_pipeline_do_no_harm_diagnostics_path": None,
-            "line_role_pipeline_do_no_harm_changed_rows_path": None,
             "tasks_total": 0,
             "tasks_jsonl_status": "skipped_plan_only",
             "manifest_path": manifest_path,
@@ -3437,30 +3344,6 @@ def generate_pred_run_artifacts(
             and line_role_artifacts.get("projected_spans_path") is not None
             else None
         ),
-        "line_role_pipeline_guardrail_report_path": (
-            str(line_role_artifacts["guardrail_report_path"])
-            if isinstance(line_role_artifacts, dict)
-            and line_role_artifacts.get("guardrail_report_path") is not None
-            else None
-        ),
-        "line_role_pipeline_guardrail_changed_rows_path": (
-            str(line_role_artifacts["guardrail_changed_rows_path"])
-            if isinstance(line_role_artifacts, dict)
-            and line_role_artifacts.get("guardrail_changed_rows_path") is not None
-            else None
-        ),
-        "line_role_pipeline_do_no_harm_diagnostics_path": (
-            str(line_role_artifacts["do_no_harm_diagnostics_path"])
-            if isinstance(line_role_artifacts, dict)
-            and line_role_artifacts.get("do_no_harm_diagnostics_path") is not None
-            else None
-        ),
-        "line_role_pipeline_do_no_harm_changed_rows_path": (
-            str(line_role_artifacts["do_no_harm_changed_rows_path"])
-            if isinstance(line_role_artifacts, dict)
-            and line_role_artifacts.get("do_no_harm_changed_rows_path") is not None
-            else None
-        ),
         "line_role_pipeline_recipe_projection": line_role_recipe_projection_summary,
         "task_scope": "freeform-spans",
         "segment_blocks": segment_blocks,
@@ -3573,44 +3456,16 @@ def generate_pred_run_artifacts(
             run_manifest_artifacts[
                 "line_role_pipeline_projected_spans_jsonl"
             ] = line_role_spans_manifest_path
-        line_role_guardrail_report_manifest_path = _path_for_manifest(
-            run_root,
-            line_role_artifacts.get("guardrail_report_path"),
-        )
-        if line_role_guardrail_report_manifest_path:
-            run_manifest_artifacts[
-                "line_role_pipeline_guardrail_report_json"
-            ] = line_role_guardrail_report_manifest_path
-        line_role_guardrail_changed_rows_manifest_path = _path_for_manifest(
-            run_root,
-            line_role_artifacts.get("guardrail_changed_rows_path"),
-        )
-        if line_role_guardrail_changed_rows_manifest_path:
-            run_manifest_artifacts[
-                "line_role_pipeline_guardrail_changed_rows_jsonl"
-            ] = line_role_guardrail_changed_rows_manifest_path
-        line_role_do_no_harm_diagnostics_manifest_path = _path_for_manifest(
-            run_root,
-            line_role_artifacts.get("do_no_harm_diagnostics_path"),
-        )
-        if line_role_do_no_harm_diagnostics_manifest_path:
-            run_manifest_artifacts[
-                "line_role_pipeline_do_no_harm_diagnostics_json"
-            ] = line_role_do_no_harm_diagnostics_manifest_path
-        line_role_do_no_harm_changed_rows_manifest_path = _path_for_manifest(
-            run_root,
-            line_role_artifacts.get("do_no_harm_changed_rows_path"),
-        )
-        if line_role_do_no_harm_changed_rows_manifest_path:
-            run_manifest_artifacts[
-                "line_role_pipeline_do_no_harm_changed_rows_jsonl"
-            ] = line_role_do_no_harm_changed_rows_manifest_path
     if line_role_recipe_projection_summary is not None:
         run_manifest_artifacts[
             "line_role_pipeline_recipe_projection"
         ] = dict(line_role_recipe_projection_summary)
     if prompt_budget_summary_path is not None:
         run_manifest_artifacts["prompt_budget_summary_json"] = _path_for_manifest(
+            run_root,
+            prompt_budget_summary_path,
+        )
+        run_manifest_artifacts["actual_costs_json"] = _path_for_manifest(
             run_root,
             prompt_budget_summary_path,
         )
@@ -3748,26 +3603,6 @@ def generate_pred_run_artifacts(
         ),
         "line_role_pipeline_projected_spans_path": (
             line_role_artifacts.get("projected_spans_path")
-            if isinstance(line_role_artifacts, dict)
-            else None
-        ),
-        "line_role_pipeline_guardrail_report_path": (
-            line_role_artifacts.get("guardrail_report_path")
-            if isinstance(line_role_artifacts, dict)
-            else None
-        ),
-        "line_role_pipeline_guardrail_changed_rows_path": (
-            line_role_artifacts.get("guardrail_changed_rows_path")
-            if isinstance(line_role_artifacts, dict)
-            else None
-        ),
-        "line_role_pipeline_do_no_harm_diagnostics_path": (
-            line_role_artifacts.get("do_no_harm_diagnostics_path")
-            if isinstance(line_role_artifacts, dict)
-            else None
-        ),
-        "line_role_pipeline_do_no_harm_changed_rows_path": (
-            line_role_artifacts.get("do_no_harm_changed_rows_path")
             if isinstance(line_role_artifacts, dict)
             else None
         ),
@@ -4286,38 +4121,6 @@ def run_labelstudio_import(
         run_manifest_artifacts[
             "line_role_pipeline_projected_spans_jsonl"
         ] = line_role_spans_manifest_path
-    line_role_guardrail_report_manifest_path = _path_for_manifest(
-        run_root,
-        pred.get("line_role_pipeline_guardrail_report_path"),
-    )
-    if line_role_guardrail_report_manifest_path:
-        run_manifest_artifacts[
-            "line_role_pipeline_guardrail_report_json"
-        ] = line_role_guardrail_report_manifest_path
-    line_role_guardrail_changed_rows_manifest_path = _path_for_manifest(
-        run_root,
-        pred.get("line_role_pipeline_guardrail_changed_rows_path"),
-    )
-    if line_role_guardrail_changed_rows_manifest_path:
-        run_manifest_artifacts[
-            "line_role_pipeline_guardrail_changed_rows_jsonl"
-        ] = line_role_guardrail_changed_rows_manifest_path
-    line_role_do_no_harm_diagnostics_manifest_path = _path_for_manifest(
-        run_root,
-        pred.get("line_role_pipeline_do_no_harm_diagnostics_path"),
-    )
-    if line_role_do_no_harm_diagnostics_manifest_path:
-        run_manifest_artifacts[
-            "line_role_pipeline_do_no_harm_diagnostics_json"
-        ] = line_role_do_no_harm_diagnostics_manifest_path
-    line_role_do_no_harm_changed_rows_manifest_path = _path_for_manifest(
-        run_root,
-        pred.get("line_role_pipeline_do_no_harm_changed_rows_path"),
-    )
-    if line_role_do_no_harm_changed_rows_manifest_path:
-        run_manifest_artifacts[
-            "line_role_pipeline_do_no_harm_changed_rows_jsonl"
-        ] = line_role_do_no_harm_changed_rows_manifest_path
     if isinstance(pred.get("line_role_pipeline_recipe_projection"), dict):
         run_manifest_artifacts[
             "line_role_pipeline_recipe_projection"
@@ -4356,18 +4159,6 @@ def run_labelstudio_import(
         ),
         "line_role_pipeline_projected_spans_path": pred.get(
             "line_role_pipeline_projected_spans_path"
-        ),
-        "line_role_pipeline_guardrail_report_path": pred.get(
-            "line_role_pipeline_guardrail_report_path"
-        ),
-        "line_role_pipeline_guardrail_changed_rows_path": pred.get(
-            "line_role_pipeline_guardrail_changed_rows_path"
-        ),
-        "line_role_pipeline_do_no_harm_diagnostics_path": pred.get(
-            "line_role_pipeline_do_no_harm_diagnostics_path"
-        ),
-        "line_role_pipeline_do_no_harm_changed_rows_path": pred.get(
-            "line_role_pipeline_do_no_harm_changed_rows_path"
         ),
         "line_role_pipeline_recipe_projection": pred.get(
             "line_role_pipeline_recipe_projection"

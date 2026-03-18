@@ -179,18 +179,6 @@ def write_line_role_projection_artifacts(
     telemetry_summary_path = pipeline_dir / "telemetry_summary.json"
     if telemetry_summary_path.exists():
         artifact_paths["telemetry_summary_path"] = telemetry_summary_path
-    guardrail_report_path = pipeline_dir / "guardrail_report.json"
-    if guardrail_report_path.exists():
-        artifact_paths["guardrail_report_path"] = guardrail_report_path
-    guardrail_changed_rows_path = pipeline_dir / "guardrail_changed_rows.jsonl"
-    if guardrail_changed_rows_path.exists():
-        artifact_paths["guardrail_changed_rows_path"] = guardrail_changed_rows_path
-    do_no_harm_diagnostics_path = pipeline_dir / "do_no_harm_diagnostics.json"
-    if do_no_harm_diagnostics_path.exists():
-        artifact_paths["do_no_harm_diagnostics_path"] = do_no_harm_diagnostics_path
-    do_no_harm_changed_rows_path = pipeline_dir / "do_no_harm_changed_rows.jsonl"
-    if do_no_harm_changed_rows_path.exists():
-        artifact_paths["do_no_harm_changed_rows_path"] = do_no_harm_changed_rows_path
     return artifact_paths
 
 

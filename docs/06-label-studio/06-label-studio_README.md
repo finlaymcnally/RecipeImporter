@@ -298,12 +298,6 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/projected_spans.jsonl`
 - `line-role-pipeline/stage_block_predictions.json`
 - `line-role-pipeline/extracted_archive.json`
-- `line-role-pipeline/guardrail_report.json`
-- `raw/llm/<workbook_slug>/guardrail_report.json`
-- `raw/llm/<workbook_slug>/guardrail_rows.jsonl`
-- `line-role-pipeline/guardrail_changed_rows.jsonl`
-- `line-role-pipeline/do_no_harm_diagnostics.json`
-- `line-role-pipeline/do_no_harm_changed_rows.jsonl`
 Prediction-generation now reuses authoritative recipe-local line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` versus `OTHER` comes from the final non-recipe authority that import produced after any enabled refinement step.
 Those authoritative and projected line-role rows now carry `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone from this seam.
 Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.
@@ -342,14 +336,6 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
 - Eval/benchmark manifests should resolve the prediction-run directory from `artifacts.artifact_root_dir`; do not add new readers that prefer eval-root-relative fallbacks when the prediction artifacts live elsewhere.
 - New-format benchmark/prediction runs do not write or consume the old knowledge-stage merge report; Stage 7 ownership is already baked into the reused stage artifacts.
-- Line-role manifests now also surface do-no-harm pointers:
-  - `line_role_pipeline_do_no_harm_diagnostics_json`
-  - `line_role_pipeline_do_no_harm_changed_rows_jsonl`
-- Line-role manifests also surface explicit guardrail pointers:
-  - `line_role_pipeline_guardrail_report_json`
-  - `recipe_codex_guardrail_report_json`
-  - `recipe_codex_guardrail_rows_jsonl`
-  - `line_role_pipeline_guardrail_changed_rows_jsonl`
 
 ## 7) Current Gotchas
 

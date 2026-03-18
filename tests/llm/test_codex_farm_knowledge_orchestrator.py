@@ -8,8 +8,9 @@ import pytest
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ChunkLane, ConversionReport, ConversionResult, KnowledgeChunk, RawArtifact
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
+from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
-from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
+from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 
@@ -65,7 +66,12 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
         workbookPath="book.txt",
     )
 
-    runner = FakeCodexFarmRunner()
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: build_structural_pipeline_output(
+            "recipe.knowledge.compact.v1",
+            dict(payload or {}),
+        )
+    )
     apply_result = run_codex_farm_knowledge_harvest(
         conversion_result=result,
         nonrecipe_stage_result=NonRecipeStageResult(
@@ -128,8 +134,8 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert "output_schema_path" in apply_result.llm_report
     assert "process_run" in apply_result.llm_report
     assert apply_result.llm_report["process_run"]["pipeline_id"] == "recipe.knowledge.compact.v1"
-    assert "telemetry_report" in apply_result.llm_report["process_run"]
-    assert "autotune_report" in apply_result.llm_report["process_run"]
+    assert apply_result.llm_report["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
+    assert apply_result.llm_report["process_run"]["telemetry"]["summary"]["call_count"] > 0
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] > 0
     assert apply_result.llm_report["input_mode"] == "stage7_seed_nonrecipe_spans"
     assert apply_result.refined_stage_result.block_category_by_index[4] == "knowledge"
@@ -188,7 +194,12 @@ def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Pat
         run_settings=settings,
         run_root=run_root,
         workbook_slug="book",
-        runner=FakeCodexFarmRunner(),
+        runner=FakeCodexExecRunner(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                "recipe.knowledge.compact.v1",
+                dict(payload or {}),
+            )
+        ),
         full_blocks=[],
     )
 
@@ -257,7 +268,12 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
         workbook="book",
         workbookPath="book.txt",
     )
-    runner = FakeCodexFarmRunner()
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: build_structural_pipeline_output(
+            "recipe.knowledge.compact.v1",
+            dict(payload or {}),
+        )
+    )
 
     apply_result = run_codex_farm_knowledge_harvest(
         conversion_result=result,
@@ -409,7 +425,12 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
         run_settings=settings,
         run_root=run_root,
         workbook_slug="book",
-        runner=FakeCodexFarmRunner(),
+        runner=FakeCodexExecRunner(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                "recipe.knowledge.compact.v1",
+                dict(payload or {}),
+            )
+        ),
     )
 
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 2
@@ -458,29 +479,25 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
         workbook="book",
         workbookPath="book.txt",
     )
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            "recipe.knowledge.compact.v1": lambda payload: {
-                "bundle_version": "2",
-                "bundle_id": payload["bundle_id"],
-                "chunk_results": [
-                    {
-                        "chunk_id": payload["chunks"][0]["chunk_id"],
-                        "is_useful": True,
-                        "block_decisions": [
-                            {"block_index": 8, "category": "knowledge"},
-                        ],
-                        "snippets": [
-                            {
-                                "title": "Acid and browning",
-                                "body": "Acid slows browning.",
-                                "tags": ["science"],
-                                "evidence": [{"block_index": 8, "quote": "acid slows browning"}],
-                            }
-                        ],
-                    }
-                ],
-            }
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "v": "2",
+            "bid": payload["bundle_id"],
+            "r": [
+                {
+                    "cid": payload["chunks"][0]["chunk_id"],
+                    "u": True,
+                    "d": [{"i": 8, "c": "knowledge"}],
+                    "s": [
+                        {
+                            "t": "Acid and browning",
+                            "b": "Acid slows browning.",
+                            "g": ["science"],
+                            "e": [{"i": 8, "q": "acid slows browning"}],
+                        }
+                    ],
+                }
+            ],
         }
     )
 
@@ -578,27 +595,25 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
         workbook="book",
         workbookPath="book.txt",
     )
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            "recipe.knowledge.compact.v1": lambda payload: {
-                "bundle_version": "2",
-                "bundle_id": payload["bundle_id"],
-                "chunk_results": [
-                    {
-                        "chunk_id": payload["chunks"][0]["chunk_id"],
-                        "is_useful": True,
-                        "block_decisions": [{"block_index": 99, "category": "knowledge"}],
-                        "snippets": [
-                            {
-                                "title": "Bad pointer",
-                                "body": "Invalid output.",
-                                "tags": ["invalid"],
-                                "evidence": [{"block_index": 99, "quote": "bad"}],
-                            }
-                        ],
-                    }
-                ],
-            }
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "v": "2",
+            "bid": payload["bundle_id"],
+            "r": [
+                {
+                    "cid": payload["chunks"][0]["chunk_id"],
+                    "u": True,
+                    "d": [{"i": 99, "c": "knowledge"}],
+                    "s": [
+                        {
+                            "t": "Bad pointer",
+                            "b": "Invalid output.",
+                            "g": ["invalid"],
+                            "e": [{"i": 99, "q": "bad"}],
+                        }
+                    ],
+                }
+            ],
         }
     )
 
@@ -650,7 +665,7 @@ def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(
     tmp_path: Path,
 ) -> None:
     class FailingRunner:
-        def run_pipeline(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
             raise CodexFarmRunnerError("boom")
 
     monkeypatch.setattr(

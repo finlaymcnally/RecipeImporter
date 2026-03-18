@@ -104,7 +104,7 @@ _BENCHMARK_LAB_FIELDS = (
     "codex_farm_model",
     "codex_farm_reasoning_effort",
 )
-_BENCHMARK_INTERNAL_FIELDS = _STAGE_INTERNAL_FIELDS + ("line_role_guardrail_mode",)
+_BENCHMARK_INTERNAL_FIELDS = _STAGE_INTERNAL_FIELDS
 _BENCHMARK_FIXED_BEHAVIOR_FIELDS = _STAGE_FIXED_BEHAVIOR_FIELDS + (
     "benchmark_sequence_matcher",
 )

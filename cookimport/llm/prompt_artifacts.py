@@ -7,7 +7,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence, cast
 
 from cookimport.core.slug import slugify_name
 from cookimport.runs import (
@@ -19,7 +19,9 @@ from cookimport.runs import (
 PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION = "prompt_run_descriptor.v1"
 PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION = "prompt_stage_descriptor.v1"
 PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
+PROMPT_LOG_SUMMARY_SCHEMA_VERSION = "prompt_log_summary.v1"
 PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION = "prompt_thinking_trace_summary.v1"
+PROMPT_LOG_SUMMARY_JSON_NAME = "prompt_log_summary.json"
 PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
 THINKING_TRACE_SUMMARY_JSONL_NAME = "thinking_trace_summary.jsonl"
 THINKING_TRACE_SUMMARY_MD_NAME = "thinking_trace_summary.md"
@@ -64,6 +66,114 @@ _TEXT_ATTACHMENT_SUFFIXES = {
     ".yml",
     ".csv",
 }
+
+
+def summarize_prompt_log(*, full_prompt_log_path: Path) -> dict[str, Any] | None:
+    if not full_prompt_log_path.exists() or not full_prompt_log_path.is_file():
+        return None
+
+    by_stage: dict[str, dict[str, Any]] = {}
+    unique_runtime_shard_keys: set[tuple[str, str]] = set()
+    total_rows = 0
+    rows_without_runtime_shard_id = 0
+    try:
+        lines = full_prompt_log_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(row, Mapping):
+            continue
+        total_rows += 1
+        stage_key = str(row.get("stage_key") or "").strip() or "unknown"
+        stage_payload = by_stage.setdefault(
+            stage_key,
+            {
+                "stage_key": stage_key,
+                "stage_label": _PROMPT_STAGE_LABELS_BY_KEY.get(
+                    stage_key,
+                    stage_key.replace("_", " ").title(),
+                ),
+                "stage_artifact_stem": str(row.get("stage_artifact_stem") or "").strip() or None,
+                "row_count": 0,
+                "runtime_shard_count": 0,
+                "runtime_worker_count": 0,
+                "runtime_owned_id_count": 0,
+                "rows_without_runtime_shard_id": 0,
+                "_runtime_shard_ids": set(),
+                "_runtime_worker_ids": set(),
+                "_runtime_owned_ids": set(),
+            },
+        )
+        stage_payload["row_count"] += 1
+
+        runtime_shard_id = str(row.get("runtime_shard_id") or "").strip()
+        if runtime_shard_id:
+            cast(set[str], stage_payload["_runtime_shard_ids"]).add(runtime_shard_id)
+            unique_runtime_shard_keys.add((stage_key, runtime_shard_id))
+        else:
+            rows_without_runtime_shard_id += 1
+            stage_payload["rows_without_runtime_shard_id"] += 1
+
+        runtime_worker_id = str(row.get("runtime_worker_id") or "").strip()
+        if runtime_worker_id:
+            cast(set[str], stage_payload["_runtime_worker_ids"]).add(runtime_worker_id)
+
+        runtime_owned_ids = row.get("runtime_owned_ids")
+        if isinstance(runtime_owned_ids, list):
+            for owned_id in runtime_owned_ids:
+                owned_id_text = str(owned_id or "").strip()
+                if owned_id_text:
+                    cast(set[str], stage_payload["_runtime_owned_ids"]).add(owned_id_text)
+
+    if total_rows <= 0:
+        return None
+
+    for stage_payload in by_stage.values():
+        stage_payload["runtime_shard_count"] = len(stage_payload.pop("_runtime_shard_ids"))
+        stage_payload["runtime_worker_count"] = len(stage_payload.pop("_runtime_worker_ids"))
+        stage_payload["runtime_owned_id_count"] = len(stage_payload.pop("_runtime_owned_ids"))
+
+    runtime_shard_count = len(unique_runtime_shard_keys)
+    runtime_shard_count_status = "missing"
+    if runtime_shard_count > 0:
+        runtime_shard_count_status = (
+            "complete" if rows_without_runtime_shard_id == 0 else "partial"
+        )
+    return {
+        "schema_version": PROMPT_LOG_SUMMARY_SCHEMA_VERSION,
+        "full_prompt_log_rows": total_rows,
+        "runtime_shard_count": runtime_shard_count,
+        "runtime_shard_count_status": runtime_shard_count_status,
+        "rows_without_runtime_shard_id": rows_without_runtime_shard_id,
+        "by_stage": by_stage,
+    }
+
+
+def write_prompt_log_summary(
+    *,
+    full_prompt_log_path: Path,
+    output_path: Path | None = None,
+) -> Path | None:
+    summary = summarize_prompt_log(full_prompt_log_path=full_prompt_log_path)
+    if summary is None:
+        return None
+    target_path = (
+        output_path
+        if output_path is not None
+        else full_prompt_log_path.with_name(PROMPT_LOG_SUMMARY_JSON_NAME)
+    )
+    target_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return target_path
 
 
 @dataclass(frozen=True)
@@ -2575,15 +2685,21 @@ def build_prompt_response_log(
     )
     prompts_dir = eval_output_dir / "prompts"
     full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
+    prompt_log_summary_path = prompts_dir / PROMPT_LOG_SUMMARY_JSON_NAME
     thinking_trace_summary_jsonl_path = prompts_dir / THINKING_TRACE_SUMMARY_JSONL_NAME
     thinking_trace_summary_md_path = prompts_dir / THINKING_TRACE_SUMMARY_MD_NAME
     if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
+        write_prompt_log_summary(
+            full_prompt_log_path=full_prompt_log_path,
+            output_path=prompt_log_summary_path,
+        )
         build_codex_farm_thinking_trace_summaries(
             full_prompt_log_path=full_prompt_log_path,
             output_jsonl_path=thinking_trace_summary_jsonl_path,
             output_md_path=thinking_trace_summary_md_path,
         )
     else:
+        prompt_log_summary_path.unlink(missing_ok=True)
         thinking_trace_summary_jsonl_path.unlink(missing_ok=True)
         thinking_trace_summary_md_path.unlink(missing_ok=True)
     return prompt_log_path or line_role_prompt_log_path
@@ -2591,6 +2707,8 @@ def build_prompt_response_log(
 
 __all__ = [
     "PROMPT_CALL_RECORD_SCHEMA_VERSION",
+    "PROMPT_LOG_SUMMARY_JSON_NAME",
+    "PROMPT_LOG_SUMMARY_SCHEMA_VERSION",
     "PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION",
     "PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION",
     "PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION",
@@ -2608,4 +2726,6 @@ __all__ = [
     "discover_prompt_run_descriptors",
     "discover_codexfarm_prompt_run_descriptors",
     "render_prompt_artifacts_from_descriptors",
+    "summarize_prompt_log",
+    "write_prompt_log_summary",
 ]

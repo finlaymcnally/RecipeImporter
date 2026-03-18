@@ -121,7 +121,7 @@ class AtomicLineCandidate(BaseModel):
     block_index: int
     atomic_index: int
     text: str
-    within_recipe_span: bool
+    within_recipe_span: bool | None = None
     prev_text: str | None = None
     next_text: str | None = None
     rule_tags: list[str] = Field(default_factory=list)
@@ -131,7 +131,7 @@ def atomize_blocks(
     blocks: Sequence[Any],
     *,
     recipe_id: str | None,
-    within_recipe_span: bool,
+    within_recipe_span: bool | None,
     atomic_block_splitter: str = "atomic-v1",
 ) -> list[AtomicLineCandidate]:
     splitter_mode = _normalize_atomic_block_splitter(atomic_block_splitter)
@@ -171,7 +171,7 @@ def atomize_blocks(
                 block_index=int(row["block_index"]),
                 atomic_index=atomic_index,
                 text=str(row["text"]),
-                within_recipe_span=bool(row["within_recipe_span"]),
+                within_recipe_span=row["within_recipe_span"],
                 prev_text=prev_text,
                 next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
@@ -346,7 +346,7 @@ def _is_control_line(text: str) -> bool:
 def _infer_rule_tags(
     text: str,
     *,
-    within_recipe_span: bool,
+    within_recipe_span: bool | None,
 ) -> list[str]:
     if _is_note_line(text):
         return ["note_prefix"]
@@ -357,9 +357,11 @@ def _infer_rule_tags(
     if _is_variant_heading(text):
         return ["variant_heading"]
     if _is_recipe_title_like(text):
-        if within_recipe_span:
+        if within_recipe_span is True:
             return ["title_like"]
-        return ["title_like", "outside_recipe_span"]
+        if within_recipe_span is False:
+            return ["title_like", "outside_recipe_span"]
+        return ["title_like"]
     if _is_ingredient_line(text):
         return ["ingredient_like"]
     if _looks_note_prose(text):
@@ -370,12 +372,17 @@ def _infer_rule_tags(
         return ["instruction_like"]
     if _is_time_metadata(text):
         return ["time_metadata"]
-    if within_recipe_span:
+    if within_recipe_span is True:
         rule_tags = ["recipe_span_fallback"]
         if _looks_explicit_prose(text):
             rule_tags.append("explicit_prose")
         return rule_tags
-    rule_tags = ["outside_recipe_span"]
+    if within_recipe_span is False:
+        rule_tags = ["outside_recipe_span"]
+        if _looks_explicit_prose(text):
+            rule_tags.append("explicit_prose")
+        return rule_tags
+    rule_tags: list[str] = []
     if _looks_explicit_prose(text):
         rule_tags.append("explicit_prose")
     return rule_tags

@@ -457,7 +457,7 @@ def test_build_conversion_result_from_label_spans_keeps_title_plus_yield_stub() 
     assert updated.span_decisions[0].decision == "accepted_recipe_span"
 
 
-def test_atomize_archive_blocks_marks_recipe_provenance_as_within_span() -> None:
+def test_atomize_archive_blocks_ignores_old_recipe_provenance_before_grouping() -> None:
     archive_blocks = [
         {"index": 0, "block_id": "block:0", "text": "Pancakes", "location": {"block_index": 0}},
         {"index": 1, "block_id": "block:1", "text": "Makes 2", "location": {"block_index": 1}},
@@ -488,5 +488,5 @@ def test_atomize_archive_blocks_marks_recipe_provenance_as_within_span() -> None
         atomic_block_splitter="atomic-v1",
     )
 
-    assert [row.within_recipe_span for row in rows] == [True, True, False]
-    assert [row.recipe_id for row in rows] == ["recipe:0", "recipe:0", None]
+    assert [row.within_recipe_span for row in rows] == [None, None, None]
+    assert [row.recipe_id for row in rows] == [None, None, None]

@@ -399,7 +399,11 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
     )
 
     assert any("Oracle response/log:" in message for message in messages)
-    assert any("Oracle browser window: visible" in message for message in messages)
+    assert any(
+        "Oracle browser launcher: auto (visible with display, xvfb otherwise)"
+        in message
+        for message in messages
+    )
     assert any("Oracle browser profile: /tmp/oracle-profile" in message for message in messages)
     assert any("When Oracle finishes, open that log file to read the response." in message for message in messages)
     assert any("oversized bundle files were sharded for upload" in message for message in messages)

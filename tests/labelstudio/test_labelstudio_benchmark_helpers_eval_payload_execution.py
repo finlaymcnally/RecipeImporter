@@ -1111,7 +1111,6 @@ def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only
             "llm_knowledge_pipeline": "off",
             "atomic_block_splitter": "off",
             "line_role_pipeline": "off",
-            "line_role_guardrail_mode": "disabled",
             "codex_farm_cmd": None,
             "codex_farm_model": None,
             "codex_farm_reasoning_effort": None,

@@ -8,7 +8,7 @@ Shard-v1 recipe, knowledge, and line-role work now calls CodexFarm in explicit c
 When shard-v1 worker counts are left unset, recipe, knowledge, and line-role now default to the planned shard/job count for that book+phase, capped at `20`; explicit `*_worker_count` overrides still win.
 Shard-v1 recipe, knowledge, and line-role planning now also expose per-phase prompt-count targets (`*_prompt_target_count`) and default them to `5`. The lower-level shard-size knobs still exist as explicit overrides, but the default operator mental model is now “prompts per phase,” not “items per shard.”
 Active shard-v1 pipeline packs now use path-mode prompt transport. RecipeImport points Codex at the full `workers/<id>/` folder as the workspace root, and the prompt tells Codex to read the deposited shard file from that prewritten worker folder instead of embedding the full payload inline.
-`cf-debug preview-prompts` is now predictive by default: it ignores exact live telemetry for the selected run and estimates tokens from stage-specific calibration built from prior classic shard-runtime rows under local `data/output`. If you explicitly want retrospective numbers for a finished run, pass `--estimation-mode observed`; when neither source exists preview reports token estimates as unavailable instead of guessing from prompt text.
+`cf-debug preview-prompts` is predictive-only now: it prefers the paired `vanilla` benchmark artifact when one exists, tokenizes the locally reconstructed wrapper prompts plus deposited task files, builds structural best-guess JSON outputs from the planned shard payloads, ignores stale live `raw/llm/.../{recipe_correction,knowledge}/in/` payload copies, and hard-refuses Codex-backed or ambiguous processed runs. Retrospective costs now live under the post-run artifact surface instead of preview.
 
 Run settings now include shard-v1 pipeline ids plus optional shard worker/size/turn knobs, and they reject removed recipe/knowledge/line-role ids instead of normalizing them.
 Run settings also include the optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
@@ -29,7 +29,7 @@ The runner also suppresses legacy `run=... queued=... running=...` stderr snapsh
 
 Canonical line-role fallback support now lives in `canonical_line_role_prompt.py` plus CodexFarm-backed adapters in `parsing/canonical_line_roles.py` (`line-role.canonical.v1`) and `labelstudio/prelabel.py` (`prelabel.freeform.v1`).
 
-Prediction runs now also write `prediction-run/prompt_budget_summary.json`, which merges codex-farm stage telemetry plus line-role telemetry into one repo-owned budget artifact.
+Prediction runs now also write `prediction-run/prompt_budget_summary.json`, which is the post-run actual-costs artifact: it merges codex-farm stage telemetry plus line-role telemetry into one repo-owned budget summary. Run manifests now also expose that file under `actual_costs_json`.
 
 Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor boundary:
 - `discover_codexfarm_prompt_run_descriptors(...)` adapts current raw CodexFarm layout.

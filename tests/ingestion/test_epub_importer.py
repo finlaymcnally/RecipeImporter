@@ -825,6 +825,34 @@ def test_find_recipe_end_includes_subsection_headers():
     assert end_idx == 9, f"Expected end at block 9, got {end_idx}"
 
 
+def test_find_recipe_end_does_not_treat_singleton_ingredient_as_next_title() -> None:
+    importer = EpubImporter()
+    blocks = [
+        Block(text="Bright Cabbage Slaw", font_weight="bold"),
+        Block(text="Serves 4"),
+        Block(text="A sharp, crunchy slaw for rich food."),
+        Block(text="1/2 head green cabbage"),
+        Block(text="1/2 red onion"),
+        Block(text="Salt"),
+        Block(text="1/4 cup red wine vinegar"),
+        Block(text="1/2 cup olive oil"),
+        Block(text="Quarter the cabbage through the core and slice it thin."),
+        Block(text="In a small bowl, toss the sliced onion with the vinegar and a pinch of salt."),
+        Block(text="Roasted Carrots", font_weight="bold"),
+        Block(text="Ingredients"),
+        Block(text="2 carrots"),
+    ]
+
+    for block in blocks:
+        signals.enrich_block(block)
+
+    assert importer._is_title_candidate(blocks[5]) is False
+
+    end_idx = importer._find_recipe_end(blocks, start_idx=0, anchor_idx=1)
+
+    assert end_idx == 10, f"Expected end at next recipe title, got {end_idx}"
+
+
 def test_extract_fields_shared_backend_preserves_for_the_component_headers() -> None:
     importer = EpubImporter()
     importer._section_detector_backend = "shared_v1"
