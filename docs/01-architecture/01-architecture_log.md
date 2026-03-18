@@ -408,3 +408,26 @@ Durable decisions:
 
 Anti-loop note:
 - if a refactor review says "the new folders exist so the architecture is done," verify who actually owns final authority before accepting that conclusion
+
+### 2026-03-17 docs routing and overlapping ExecPlan cleanup
+
+Problem captured:
+- same-day March notes and plans had started to look like parallel long-lived authorities even when they were really:
+  - temporary discovery notes
+  - landed transport plans
+  - one remaining architecture-level parent plan
+
+Durable decisions:
+- merge temporary findings by durable owner, not by the branch or run that exposed them:
+  - architecture/authority-boundary notes here
+  - parser-owned behavior in `docs/04-parsing/`
+  - benchmark transport/reviewer seams in `docs/07-bench/`
+  - Codex runtime and prompt-cost seams in `docs/10-llm/`
+- treat `docs/understandings/` and `docs/tasks/` as temporary inboxes; once merged into the owning README/log they should be deleted
+- when several ExecPlans overlap on the same day:
+  - keep the active parent/architecture plan explicit
+  - mark superseded plans as superseded
+  - treat landed transport plans as history/implementation record, not parallel current guidance
+
+Anti-loop note:
+- if several nearby docs seem contradictory, first ask which one owns the current contract and which ones were only scaffolding for the landed work

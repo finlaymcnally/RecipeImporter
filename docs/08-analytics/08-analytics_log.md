@@ -167,6 +167,7 @@ Anti-loop note:
 Still-relevant outcomes:
 - benchmark token enrichment should recover whole-run actuals from repo-owned artifacts first: recipe and knowledge manifest telemetry plus nested line-role telemetry when the top-level summary is sparse
 - `prompt_budget_summary.json` is part of the durable actual-cost surface and should include recovered line-role stage totals when those are derivable
+- dashboard `All token use` remains a cached-discounted row-level proxy, not a whole-run actual-cost answer; large differences between the dashboard cell and `prompt_budget_summary.json` can be expected on multi-stage Codex runs
 
 Anti-loop note:
 - if a dashboard token cell looks too small, inspect manifest plus `prompt_budget_summary.json` before assuming the live run used fewer tokens

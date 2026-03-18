@@ -654,4 +654,24 @@ Durable decisions:
 Anti-loop note:
 - if a benchmark subprocess or Oracle upload breaks again, verify the active local transport contract before editing bundle format or interactive wrap-up flow
 
+### 2026-03-17 shared-profile Oracle reattach failure mode
+
+Problem captured:
+- Oracle browser uploads against the shared manual-login profile could fail with `connect ECONNREFUSED 127.0.0.1:<port>` even though Chromium was already running on that profile
+
+Durable decisions:
+- treat missing `DevToolsActivePort` plus a stale `chrome.pid` as a recoverable profile-reuse failure, not proof that no browser exists
+- recover the live port from current Chromium process args when needed, rewrite `DevToolsActivePort`, and only clear singleton lock state when no live Chromium still owns the profile
+- keep benchmark upload on the canonical shared profile path; do not start inventing per-run browser profiles just to dodge this failure mode
+
+Evidence worth keeping:
+- the failing state was:
+  - live Chromium still running on the shared profile
+  - `DevToolsActivePort` missing
+  - `chrome.pid` pointing at a dead process
+  - Chromium singleton files still redirecting launches into the already-running browser
+
+Anti-loop note:
+- if Oracle fails on a new localhost port while the shared profile browser is visibly alive, debug profile reattach first, not upload bundle sharding or benchmark wrap-up
+
 If an older artifact references one of those surfaces, treat it as historical context only, not current contract guidance.

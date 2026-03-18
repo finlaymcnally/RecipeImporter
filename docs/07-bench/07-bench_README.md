@@ -420,6 +420,7 @@ Primary benchmark modules:
 
 - In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
 - When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. Stage 7 deterministic labels now own outside-recipe `KNOWLEDGE` vs `OTHER`, so optional knowledge harvest no longer relabels benchmark truth.
+- Single-offline benchmark folder naming is about Codex participation, not every deterministic helper. A run with recipe Codex off and only deterministic line-role still belongs under `vanilla/`; only actual Codex-backed line-role belongs in the Codex/hybrid branch.
 - High Codex recipe task counts in single-offline runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
 - Tiny line-role token spend in a Codex single-offline run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.
 - Canonical benchmark scoring should project final non-recipe authority, not just deterministic seed labels. The current contract is seed deterministic authority plus optional knowledge-stage refinement merged into final scored `KNOWLEDGE` / `OTHER`.
@@ -428,3 +429,4 @@ Primary benchmark modules:
   - line-role prompt artifacts copied from `line-role-pipeline/prompts`
   - knowledge harvest
 - Reviewer-facing trace summaries should be derived from the merged `prompts/full_prompt_log.jsonl`, not from a second raw-trace discovery path.
+- Oracle shared-profile browser failures can look like a fresh-port `ECONNREFUSED` problem even when Chromium is already alive. If upload starts failing after bundle generation succeeds, inspect shared-profile reuse (`DevToolsActivePort`, stale `chrome.pid`, singleton locks, canonical browser profile) before redesigning the bundle or upload flow.

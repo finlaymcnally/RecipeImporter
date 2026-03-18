@@ -1119,7 +1119,7 @@ class RunSettings(BaseModel):
             label="Knowledge LLM Pipeline",
             order=115,
             description=(
-                "Optional non-recipe knowledge harvesting pipeline. "
+                "Optional non-recipe knowledge review pipeline. "
                 "Off keeps the fully vanilla nonrecipe authority."
             ),
         ),
@@ -1129,7 +1129,7 @@ class RunSettings(BaseModel):
         ge=1,
         json_schema_extra=_ui_meta(
             group="LLM",
-            label="Knowledge Prompt Count Target",
+            label="Knowledge Review Prompt Count Target",
             order=115,
             description=(
                 "Approximate prompt-count target for shard-v1 knowledge runtime. "

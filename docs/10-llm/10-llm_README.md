@@ -126,9 +126,9 @@ Worker/shard mental model:
 
 Recipe passes write under:
 
-- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction_audit/`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/phase_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/shard_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/worker_assignments.json`
@@ -141,7 +141,7 @@ Recipe runtime note:
 - the live recipe implementation now groups nearby recipes into explicit shard payloads, executes them through the repo-owned direct recipe worker runtime in `codex_farm_orchestrator.py`, validates exact owned `recipe_id` coverage, and promotes only validated per-recipe outputs
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still builds the intermediate `RecipeCandidate`, Codex still emits `ingredient_step_mapping` plus raw `selected_tags`, and deterministic code still rebuilds the final cookbook3 draft locally and normalizes tags before write-out
-- runtime artifacts now live under `recipe_phase_runtime/`, while compatibility per-recipe artifacts for prompt/debug readers still bridge through `recipe_correction/{in,out}/`; keep those two artifact families separate so runtime truth does not depend on reviewer/export compatibility files
+- the authoritative recipe contract is now: `recipe_phase_runtime/inputs/*.json` immutable shard payloads, `recipe_phase_runtime/proposals/*.json` validated shard proposals, then deterministic promotion into staged outputs; `recipe_correction_audit/` remains only the per-recipe human/debug summary surface
 - recipe worker shard folders now also write `prompt.txt`, `events.jsonl`, `usage.json`, `last_message.json`, and `cost_breakdown.json`, so prompt-preview and actual-cost reporting can talk about the same visible request/response surface
 - `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
 
@@ -149,8 +149,8 @@ Knowledge-stage writes:
 
 - `data/output/<ts>/08_nonrecipe_spans.json`
 - `data/output/<ts>/09_knowledge_outputs.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/shard_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/worker_assignments.json`
@@ -170,7 +170,7 @@ Knowledge runtime note:
 - `codex_farm_knowledge_jobs.py` now writes stable shard payload files plus shard-manifest metadata with owned `chunk_id`s and owned block indices
 - the live knowledge model call now goes through `codex_exec_runner.py`, but it keeps the same shard-manifest / worker-assignment artifact shape the shared runtime established
 - `codex_farm_knowledge_ingest.py` validates exact owned `chunk_id` coverage and rejects any `block_decisions` or snippet evidence that point outside the shard's eligible block surface
-- prompt/debug readers now pair `knowledge/in/*.json` with validated `knowledge/proposals/*.json`; there is no compatibility `knowledge/out/` mirror anymore
+- the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, `knowledge/proposals/*.json` validated shard proposals, then deterministic promotion into `08_nonrecipe_spans.json`, `09_knowledge_outputs.json`, and reviewer-facing knowledge artifacts
 - the runtime cutover did not require a brand-new pack immediately; `codex-knowledge-shard-v1` still reuses the compact knowledge pack underneath, and the important authority seam is shard ownership plus validation, not a new prompt asset family
 - knowledge worker assignments now launch concurrently and merge back in planned order so `running N` reflects real in-flight work
 - prompt-cost control for this stage lives before worker execution:
@@ -221,14 +221,14 @@ Prompt/debug artifacts:
 - when `--run` points at a benchmark root, preview follows `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it reaches the processed stage run with the real staged outputs
 - preview manifests now carry `phase_plans` keyed by stage, with worker count, shard count, owned-ID distributions, and first-turn payload distributions; prompt rows also carry `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids`
 - `cf-debug preview-shard-sweep --run ... --experiment-file docs/examples/shard_sweep_examples.json --out ...` runs several local worker/shard planning variants and writes one sweep manifest plus per-experiment preview dirs
-- preview export now always rebuilds recipe and knowledge shard payloads from the predictive-safe processed artifact itself; it does not reuse stale `raw/llm/<workbook_slug>/{recipe_correction,knowledge}/in/` payloads
+- preview export now always rebuilds recipe and knowledge shard payloads from the predictive-safe processed artifact itself; it does not depend on saved live payload copies under `raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/` or `raw/llm/<workbook_slug>/knowledge/in/`
 - preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`; it is predictive-only, prefers the paired deterministic/`vanilla` processed artifact when a benchmark root has both variants, uses structural prompt/output reconstruction for token estimates, reports stages as unavailable when that structure cannot be reconstructed safely, and hard-refuses Codex-backed or ambiguous processed runs
 - reviewer-facing prompt files stay prompt-level on purpose; the durable cutover is to annotate them with runtime ownership metadata (`runtime_shard_id`, `runtime_worker_id`, `runtime_owned_ids`), not to invent a second legacy export family just for shard workers
 - when you want “how many Codex jobs actually ran?” on classic shard runtime, prefer stage `call_count` in `prompt_budget_summary.json` or `prompts/prompt_log_summary.json.runtime_shard_count`; raw `full_prompt_log_rows` may be higher because one shard output can expand into several per-item rows
 - preview defaults to the shard-v1 surfaces unless explicitly overridden, so it can project post-refactor worker/shard budgets over saved deterministic-only benchmark outputs too
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
-  - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live knowledge harvest and preview reconstruction
+  - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live non-recipe knowledge review and preview reconstruction
   - line-role prompt text from `build_canonical_line_role_prompt`
 - knowledge preview now follows the live bundle contract exactly: prompt counts come from contiguous bundled `chunks[*]` payloads, not one chunk per prompt
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
@@ -334,9 +334,32 @@ Structured output contract:
 - In single-offline benchmark runs, missing benchmark-level `prompts/` exports does not by itself mean CodexFarm did not run. The lower-level truth is the linked processed stage run under `data/output`, where raw recipe/knowledge inputs, outputs, and `.codex-farm-traces` live.
 - After shard-v1 cutover, active run-setting surfaces are already strict about pipeline ids. If legacy behavior still shows up, it is more likely to be a reader/fixture/tooling seam than the live recipe, knowledge, or line-role execution path.
 - `prompt_budget_summary.json` must aggregate CodexFarm split tokens from both nested `process_payload.telemetry.rows` and the benchmark single-offline top-level `stage_payload.telemetry.rows` layout. Otherwise `tokens_input`, `tokens_cached_input`, and `tokens_output` can drop to null while per-call telemetry still exists.
+- `prompt_budget_summary.json` must also prefer one knowledge telemetry layer when aggregate direct-exec payloads duplicate the same stage totals at both the top level and nested worker/runtime levels. Double-counting that stack makes the knowledge stage look more expensive than it was.
 - Prompt-cost debugging should separate call-count inflation from prompt-size inflation:
   - call-count inflation on `saltfatacidheatcutdown` came from `175` grouped recipe spans
   - recipe prompt inflation also came from the constant `tagging_guide` payload plus `selected_tags` instructions
+- The intended operator shape is still surface-level prompt counts such as `3 / 3 / 3` or `5 / 5 / 5`: one planned shard should correspond closely to one real model call for that surface. Preview and live runtime should be judged against that mental model, not against hidden transport/session turns.
 - Line-role transport cost should now be nearly all task prompt, not wrapper overhead. If wrapper chars spike again, inspect raw-prompt transport and compact row serialization before touching the response schema or preview math.
+- Current line-role runtime truth is one file-backed `line_role` phase under `line-role-pipeline/runtime/line_role/`. The abandoned inline path and the brief `recipe_region_gate` / `recipe_structure_label` split are historical only; new docs and prompt exports should describe the single file-backed phase plus its worker `in/*.json` payloads.
+- File-backed line-role observability has to describe both pieces of the request honestly:
+  - the visible wrapper prompt
+  - the model-facing task file recorded as `request_input_file`
+  `prompt_input_mode=path` is the durable vocabulary for that split.
+- Regenerated prompt preview on an old benchmark root is forward-looking, not retrospective truth. Use a fresh preview to answer "what would this cost now?", and use finished-run `prompt_budget_summary.json` / `cf-debug actual-costs` to answer "what did that old run actually cost?".
+- Large preview-vs-live gaps on current direct-exec runs are usually transport/runtime accounting issues such as cached-input replay, file reads, or larger real outputs than the structural estimate, not evidence that Codex secretly took extra turns or wandered the repo.
+- Recipe direct-exec no longer treats `recipe_correction/{in,out}` as runtime truth. Current readers and debug helpers should start from `recipe_phase_runtime/inputs/*.json`, `recipe_phase_runtime/proposals/*.json`, and `recipe_correction_audit/*.json`.
+- Stage 7 wording cleanup was a label/reporting pass, not a new runtime. The durable knowledge contract is still:
+  - deterministic seed non-recipe spans
+  - parser-owned chunk pruning before review
+  - immutable `knowledge/in/*.json` inputs
+  - validated `knowledge/proposals/*.json` outputs
+  - deterministic promotion into final authority plus reviewer snippets
+  Operator-facing clarity now comes from using `non-recipe knowledge review` wording and from richer `knowledge_manifest.json.review_summary` counts/paths.
+- The March 17 repo-wide cost-honesty pass landed the main structural pieces:
+  - recipe moved off classic task-farm transport onto direct exec
+  - recipe payloads and outputs use compact aliases on the model-facing seam
+  - line-role debug payloads were trimmed toward the actual prompt contract
+  - per-shard and per-stage artifacts now expose visible-input / cached-input / visible-output / wrapper-overhead vocabulary
+  The remaining expensive validation step is always a real live benchmark run, not more zero-token plumbing work.
 - RecipeImport-owned CodexFarm subprocesses should inherit `~/.codex-recipe` from `cookimport/llm/codex_farm_runner.py`, not from ad hoc shell aliases or per-command CLI glue. If the wrong Codex home is in use, debug the runner env injection first.
 - `gpt-5.3-codex-spark` plus reasoning effort does not guarantee reasoning-summary events in saved `.trace.json` files. A zero `reasoning_event_count` can be a legitimate upstream Codex CLI event-stream outcome, not an exporter bug.

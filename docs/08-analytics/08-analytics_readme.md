@@ -294,6 +294,12 @@ Current page behavior:
 5. Compare/control and table filters are intentionally different scopes.
 - If they disagree, check whether you are looking at table filters versus compare/control-local analysis before changing collector logic.
 
+6. Dashboard token cells are not the same thing as whole-run actual cost.
+- `All token use` is a cached-discounted per-row dashboard proxy.
+- raw CSV `tokens_total` is still just that one benchmark row's total.
+- finished-run `prompt_budget_summary.json` is the multi-stage actual-cost artifact when recipe, knowledge, and line-role all contributed spend.
+- prompt preview artifacts are forward-looking estimates, not retrospective billing truth.
+
 ## 7) Debugging checklist
 
 1. Confirm the expected report files or benchmark artifacts actually exist.

@@ -24,7 +24,7 @@ _BREAKDOWN_KEYS = (
 
 _PREVIEW_STAGE_LABELS = {
     "recipe_llm_correct_and_link": "Recipe Correction",
-    "extract_knowledge_optional": "Knowledge Harvest",
+    "extract_knowledge_optional": "Non-Recipe Knowledge Review",
     "line_role": "Line Role",
 }
 

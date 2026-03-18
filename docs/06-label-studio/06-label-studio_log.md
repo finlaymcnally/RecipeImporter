@@ -89,6 +89,22 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 Anti-loop note:
 - keep these fixes local to benchmark helper display/resolution seams; do not rebuild the whole interactive benchmark flow just to change labels or one inferred-source branch
 
+### 2026-03-17: final non-recipe authority must not erase outside-recipe `RECIPE_NOTES`
+
+- The bug was two-part:
+  - deterministic line-role lacked an explicit storage/serving-note path for rows such as `Store leftover...`, `Refrigerate leftovers...`, and `Ideal for ...`
+  - after deterministic recovery improved, `_apply_nonrecipe_authority_to_predictions(...)` still rewrote every outside-recipe row to binary `KNOWLEDGE` or `OTHER`
+- Durable rule:
+  - final non-recipe authority is only a binary outside-recipe seam
+  - it may arbitrate already-binary `OTHER` / `KNOWLEDGE` rows
+  - it must preserve outside-recipe structural labels such as `RECIPE_NOTES`
+- Evidence worth keeping:
+  - the fix moved `saltfatacidheatcutdown` from strict accuracy about `0.5996` to `0.6160`
+  - `RECIPE_NOTES` recall improved from `0/31` to `23/31`
+
+Anti-loop note:
+- if a projected benchmark artifact shows `storage_or_serving_note` evidence but final labels still say `OTHER`, inspect the projection seam before retuning the parser again
+
 ## 2) Current Non-Negotiable Contracts
 
 - Runtime scope is `freeform-spans`.

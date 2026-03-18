@@ -297,9 +297,10 @@ def _write_labelstudio_compare_source_row(
         and write_required_llm_debug
     ):
         llm_root = prediction_run_root / "llm"
-        correction_in = llm_root / "recipe_correction" / "in"
-        correction_out = llm_root / "recipe_correction" / "out"
-        for folder in (correction_in, correction_out):
+        recipe_phase_runtime_dir = llm_root / "recipe_phase_runtime"
+        recipe_phase_input_dir = recipe_phase_runtime_dir / "inputs"
+        recipe_phase_proposals_dir = recipe_phase_runtime_dir / "proposals"
+        for folder in (recipe_phase_input_dir, recipe_phase_proposals_dir):
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "r0000.json").write_text("{}", encoding="utf-8")
         llm_manifest = {
@@ -308,8 +309,9 @@ def _write_labelstudio_compare_source_row(
                 "recipe_correction": "recipe.correction.compact.v1",
             },
             "paths": {
-                "recipe_correction_in": str(correction_in),
-                "recipe_correction_out": str(correction_out),
+                "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                "recipe_phase_input_dir": str(recipe_phase_input_dir),
+                "recipe_phase_proposals_dir": str(recipe_phase_proposals_dir),
             },
             "process_runs": {
                 "recipe_correction": {
@@ -326,10 +328,10 @@ def _write_labelstudio_compare_source_row(
         prediction_run_manifest["artifacts"]["recipe_manifest_json"] = str(llm_manifest_path)
         if write_prompt_manifests:
             prompt_input_payloads = [
-                correction_in / "prompt_request_0.json",
+                recipe_phase_input_dir / "prompt_request_0.json",
             ]
             prompt_output_payloads = [
-                correction_out / "prompt_response_0.json",
+                recipe_phase_proposals_dir / "prompt_response_0.json",
             ]
             for payload_path in prompt_input_payloads:
                 payload_path.write_text("{}", encoding="utf-8")

@@ -381,6 +381,8 @@ When you need the shortest accurate mental model, describe the repo this way:
   - `tests/CONVENTIONS.md`
 - When adding a new durable rule, document it in the nearest code-local `CONVENTIONS.md` first; only add pointers in docs when discoverability needs to change.
 - Discovery-note convention: keep notes focused to one discovery, use timestamped filenames, and merge durable outcomes into the owning stage README to avoid split sources of truth.
+- `docs/understandings/` and temporary task/spec docs are inboxes, not long-lived authorities. Once the durable owner is clear, merge current-state material into the owning README, merge attempt history into the owning `_log`, and delete the temporary note.
+- When several same-day ExecPlans overlap, keep one active parent/architecture plan, mark superseded plans explicitly, and treat already-landed transport plans as implementation history rather than parallel sources of truth.
 - Repo-hygiene convention after the 2026-03-16 purge:
   - current operator-facing docs should describe only the current architecture
   - compatibility readers should stay narrow and read-side only

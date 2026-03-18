@@ -415,3 +415,30 @@ Evidence worth keeping:
 
 Anti-loop note:
 - do not stack downstream span or line-role heuristics on top of a still-truncated EPUB candidate
+
+## 2026-03-17 outside-recipe knowledge crater and deterministic recovery widening
+
+Problem:
+- after pre-grouping candidates stopped inheriting importer recipe-span hints, deterministic outside-recipe recovery became too narrow
+- the visible symptom on `saltfatacidheatcutdown` was a large vanilla score crater driven by `KNOWLEDGE -> OTHER`, not by recipe-local ingredient/instruction collapse
+
+What stuck:
+- the unknown-span (`within_recipe_span=None`) path still needs deterministic `KNOWLEDGE` recovery for:
+  - explicit cooking-science prose
+  - title-case pedagogical/domain headings
+  - short domain-plus-explanation fragments
+  - endorsement/attribution lines that clearly function as cookbook knowledge rather than navigation
+- the wrong fix is widening the generic fallback. The right fix is widening deterministic knowledge recovery before fallback to `OTHER`
+- after span removal, the remaining hard problem is mostly heading/prose disambiguation:
+  - rescue real cookbook concept headings such as `How Salt Works`
+  - stop book/chapter/front-matter headings from turning into `RECIPE_TITLE` or `HOWTO_SECTION`
+
+Evidence worth keeping:
+- the low run shape was:
+  - strict accuracy about `0.6085 -> 0.4898`
+  - deterministic unresolved/unavailable rows `41 -> 737`
+  - surviving deterministic `KNOWLEDGE` predictions `492 -> 0`
+- restoring an unknown-span knowledge path moved the deterministic benchmark back near the earlier shape (`0.4898 -> 0.5996`) without restoring the deleted rollback/veto layers
+
+Anti-loop note:
+- if vanilla drops sharply while ingredient and instruction slices barely move, inspect outside-recipe knowledge heuristics first; do not start by retuning ingredient parsing or scorer code

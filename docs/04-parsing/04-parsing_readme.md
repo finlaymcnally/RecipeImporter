@@ -683,4 +683,12 @@ Under a run output folder:
 - High recipe-correction task counts usually reflect grouped recipe-span count, not Codex retry fan-out. On `saltfatacidheatcutdown`, `group_recipe_spans` produced `175` spans, many of them titleless or single-block pseudo-recipes, so Codex correctly processed too many weak recipe candidates.
 - Outside-span structured lines must not self-anchor. A nearby ingredient-like or instruction-like line is not enough evidence by itself; title/yield/howto/variant anchors or importer-held recipe-span context are the safe boundary.
 - Outside-recipe `KNOWLEDGE` labeling is still benchmark-critical, but canonical benchmark scoring now projects recipe-local Stage 2 labels together with the final non-recipe authority. Missed deterministic `KNOWLEDGE` labels are no longer guaranteed to survive unchanged if later refinement changes outside-recipe ownership.
+- Span-free pre-grouping means deterministic outside-recipe recovery can no longer rely on importer recipe-span hints. The current safe recovery paths are:
+  - explicit cooking-science/explanatory prose even when `within_recipe_span=None`
+  - title-case pedagogical/domain headings such as `How Salt Works`
+  - short domain-plus-explanation fragments and endorsement-credit lines that clearly read as cookbook knowledge rather than navigation
+- The remaining hard slice after the span-hint removal is mostly heading/prose disambiguation, not ingredient/instruction recovery. If prose-heavy books still miss badly, inspect:
+  - cookbook concept headings being left as `OTHER`
+  - chapter/front-matter headings being over-promoted into recipe structure
+  - short explanatory fragments that now need the widened unknown-span knowledge path
 - Empty-shell rejection must stay narrower than "zero ingredients and zero instructions". Title-plus-yield/time stubs are still real recipes and should survive even when the grouped span body is short or split awkwardly.

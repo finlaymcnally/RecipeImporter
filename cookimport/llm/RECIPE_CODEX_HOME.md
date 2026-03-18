@@ -14,7 +14,7 @@ The behavior lives in `codex_farm_runner.py`, because every real CodexFarm subpr
 
 That includes:
 - recipe correction
-- knowledge harvest
+- non-recipe knowledge review
 - canonical line-role runs
 - freeform prelabel runs
 - helper/discovery calls like `codex-farm models list`, `pipelines list`, `run errors`, and `run autotune`

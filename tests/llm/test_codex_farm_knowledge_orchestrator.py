@@ -141,13 +141,21 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.llm_report["process_run"]["telemetry"]["summary"]["call_count"] > 0
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] > 0
     assert apply_result.llm_report["input_mode"] == "stage7_seed_nonrecipe_spans"
+    assert apply_result.llm_report["review_summary"]["seed_nonrecipe_span_count"] == 2
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] >= 1
+    assert apply_result.llm_report["review_summary"]["promoted_snippet_count"] >= 1
     assert apply_result.refined_stage_result.block_category_by_index[4] == "knowledge"
     assert apply_result.manifest_path.exists()
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["paths"]["seed_nonrecipe_spans_path"].endswith("08_nonrecipe_spans.json")
+    assert manifest["paths"]["final_knowledge_outputs_path"].endswith("09_knowledge_outputs.json")
     assert manifest["counts"]["jobs_written"] > 0
     assert manifest["counts"]["shards_written"] == manifest["counts"]["jobs_written"]
+    assert manifest["counts"]["seed_nonrecipe_span_count"] == 2
+    assert manifest["counts"]["chunks_built_before_pruning"] >= manifest["counts"]["chunks_written"]
     assert manifest["counts"]["chunks_written"] >= manifest["counts"]["jobs_written"]
     assert manifest["stage_status"] == "completed"
+    assert manifest["review_summary"]["promoted_snippet_count"] >= 1
 
     knowledge_dir = run_root / "knowledge" / "book"
     assert (knowledge_dir / "snippets.jsonl").exists()
@@ -282,7 +290,7 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(tmp_path: Pa
         if payload is not None
     ]
     assert payloads
-    assert payloads[0]["stage_label"] == "knowledge harvest"
+    assert payloads[0]["stage_label"] == "non-recipe knowledge review"
     assert payloads[0]["task_current"] == 0
     assert payloads[0]["task_total"] >= 1
     assert int(payloads[0]["worker_total"] or 0) >= 1

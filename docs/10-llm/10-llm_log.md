@@ -485,3 +485,150 @@ Durable decisions:
 
 Anti-loop note:
 - if a future refactor needs the current shard-runtime contract, start here and the section README rather than reviving `docs/tasks`
+
+## 2026-03-17 line-role direct exec, preview/cost truth, and scope narrowing
+
+Problem captured:
+- line-role moved onto direct `codex exec`, but several follow-up questions kept looping:
+  - whether line-role needed its own subprocess runner
+  - whether prompt preview or dashboard token cells were the truth for finished runs
+  - whether the line-role task itself was too broad for prose-heavy books
+
+Durable decisions:
+- line-role should reuse the shared direct runner in `codex_exec_runner.py`; the line-role-specific seam is telemetry shaping, because prompt exports and actual-cost readers still need shard-facing metadata such as prompt index, shard id, owned `atomic_index` coverage, and per-attempt summaries
+- prompt preview is forward-looking and predictive-only; finished-run truth is `prompt_budget_summary.json`
+- old saved preview artifacts can overstate cost relative to a freshly regenerated preview because current preview rebuilds the current planner/runtime shape instead of replaying older assumptions
+- direct-exec token gaps are usually transport/runtime effects such as cached-input replay, file reads, or bigger real outputs than the preview schema guess, not hidden extra turns
+- the mixed line-role task was the deeper product problem on prose-heavy books: one global label prompt was being asked to both recover recipe structure and judge outside-recipe semantics, which helped recipe-local books and hurt prose-heavy ones
+
+Evidence worth keeping:
+- `saltfatacidheatcutdown` showed the warning-sign split clearly:
+  - recipe-local slices were strong
+  - `KNOWLEDGE` vs `OTHER` stayed weak
+- older saved previews on the same roots could still show hundreds of calls even after the live/current preview contract had moved to `5 / 5 / 5`
+
+Anti-loop note:
+- if someone is comparing preview, dashboard, and live telemetry, settle "predictive vs actual" first before changing prompt builders or scorer math
+- if line-role helps a recipe-dense book and hurts a prose-heavy book, do not assume the model is uniformly bad; inspect whether the task scope is still mixing recipe-boundary work with outside-recipe semantics
+
+## 2026-03-17 knowledge direct exec cutover and repo-wide cost-honesty pass
+
+Problem captured:
+- knowledge still paid path-mode shell replay costs after line-role and preview cleanup had already made the overhead obvious
+- at the repo level, preview and live runtime could agree on call count but still diverge badly on billed tokens because recipe was still on classic transport and the visible-vs-billed vocabulary was inconsistent across stages
+
+Durable decisions:
+- keep the knowledge planner, validator, and writer intact; replace only the live transport with one direct structured `codex exec` call per shard using an inline prompt built from the existing compact knowledge instructions plus the owned shard JSON
+- treat recipe transport as the highest-value remaining runtime cleanup once line-role and knowledge direct exec were in place
+- the repo-level optimization target is not "teach preview to imitate hidden waste"; it is "make live runtime honor the simple one-shard / one-call operator model, then let preview describe that honest runtime"
+- standardize cost reporting across direct phases around:
+  - `visible_input_tokens`
+  - `cached_input_tokens`
+  - `visible_output_tokens`
+  - `wrapper_overhead_tokens`
+
+Evidence worth keeping:
+- on the motivating benchmark root, preview and actual agreed on `15` total calls while actual billed tokens were still far higher, proving the main remaining problem was per-call size/overhead rather than hidden extra calls
+- knowledge was already structurally clean enough that the safe cut was to drop transport replay without rewriting job planning or promotion
+
+Anti-loop note:
+- if preview and live disagree after call counts match, debug transport shape, cached replay, and output schema width before changing planners again
+
+## 2026-03-17 recipe direct-exec cleanup and legacy mirror removal
+
+Problem captured:
+- recipe live execution had already moved to direct structured shard calls, but compatibility mirrors and a few readers still advertised `recipe_correction/{in,out}` as if that were the active contract
+
+Durable decisions:
+- the live recipe contract is:
+  - immutable shard inputs under `recipe_phase_runtime/inputs/*.json`
+  - validated proposals under `recipe_phase_runtime/proposals/*.json`
+  - human/debug summaries under `recipe_correction_audit/*.json`
+- delete the old `recipe_correction/{in,out}` write path instead of preserving it as a fake second truth
+- move CLI debug-status checks and prompt-artifact discovery onto manifest keys and `recipe_phase_runtime/{inputs,proposals}` fallbacks so local tooling teaches the same contract as the runtime
+- recipe direct-exec should use the same operator model as knowledge and line-role: one shard equals one structured Codex call, plus visible-vs-billed cost breakdown artifacts
+
+Anti-loop note:
+- if a tool claims recipe debug artifacts are missing, check whether it is still probing `recipe_correction/{in,out}` before touching the live writer
+
+## 2026-03-18 line-role file-backed transport landed, two-phase prototype was retired, and cleanup had to be repo-wide
+
+Problem captured:
+- large inline line-role prompts still hit context limits on big books, so the model-facing seam had to move from giant inline prompt bodies to worker input files
+- during that work, the repo briefly carried three competing stories:
+  - old inline single-phase transport
+  - a two-phase `recipe_region_gate` plus `recipe_structure_label` prototype
+  - the final single-pass file-backed `line_role` runtime
+
+Durable decisions:
+- current live line-role truth is one file-backed `line_role` phase writing under `line-role-pipeline/runtime/line_role/`
+- the worker `in/*.json` file is the authoritative model payload; wrapper prompts are intentionally short and must report `prompt_input_mode=path` plus `request_input_file`
+- the two-phase prototype was useful only as a transport experiment; it was retired because rereading the same rows twice cost too much on books like `thefoodlabcutdown`
+- finishing the cleanup required more than changing the runtime:
+  - fake exec had to read the deposited task file for dry runs
+  - fake-runner tests had to follow the new `runtime/line_role/` layout and `line-role-canonical-*` shard ids
+  - prompt export had to stop globbing `line_role_prompt_response_*.txt` as if they were fresh input prompts
+  - abandoned gate assets and compatibility branches had to be deleted so the repo stopped teaching the retired split
+
+Evidence worth keeping:
+- on `thefoodlabcutdown`, removing the live `recipe_region_gate` pass cut predictive line-role cost from about `10` calls / `1.30M` estimated tokens to about `5` calls / `636.9k`
+- after wrapper bloat was removed, the dominant remaining line-role costs were:
+  - duplicated neighbor context
+  - repeated metadata / JSON framing
+  - the raw row text itself
+
+Anti-loop note:
+- if line-role looks "wrong" because a test or preview still shows the older two-phase or inline layout, verify whether the bug is in runtime code, fake-runner/test expectations, or prompt-artifact discovery before reopening the transport design itself
+
+## 2026-03-18 split recipe-region gate prototype was intentionally abandoned
+
+Problem captured:
+- prose-heavy books showed that one mixed line-role prompt was doing two jobs at once, so a two-phase `recipe_region_gate` plus `recipe_structure_label` split looked attractive
+
+Durable decisions:
+- the prototype was useful as a design probe and proved that preview, tests, and runtime artifacts could support multiple internal line-role phases
+- it was intentionally backed out after user review because the extra internal phases increased effective prompt/fresh-agent count beyond the desired public `5 + 5 + 5` shape
+- the active product shape is therefore:
+  - one file-backed `line_role` phase
+  - deterministic grouping afterward
+  - continued work inside the existing stage boundary rather than multiplying line-role passes
+
+Evidence worth keeping:
+- the prototype succeeded technically, then was removed on product-shape grounds, not because the implementation was impossible
+
+Anti-loop note:
+- if someone proposes reviving `recipe_region_gate`, first justify why the gain is worth violating the current single-surface prompt-count mental model
+
+## 2026-03-18 immutable input -> owned proposal -> deterministic promotion is the seam to keep
+
+Problem captured:
+- docs and helper surfaces could still make current Codex phases look more compatibility-heavy than they really were
+
+Durable decisions:
+- keep the durable LLM seam as:
+  - program-written immutable input payload
+  - model-owned structured proposal for exact owned ids
+  - deterministic ownership validation
+  - deterministic promotion into durable outputs
+- recipe, knowledge, and line-role all already follow that contract closely enough that the next cleanup should remove misleading compatibility surfaces, not add new ones
+
+Anti-loop note:
+- if a future change wants the model to free-edit shared output files in place, it is probably moving away from the clean contract that made the current shard runtimes debuggable
+
+## 2026-03-18 Stage 7 clarity was mostly naming plus one richer review summary
+
+Problem captured:
+- after the knowledge-stage runtime contract had settled, the remaining confusion was operator-facing wording and summary visibility, not artifact ownership or shard-runtime mechanics
+
+Durable decisions:
+- keep the live Stage 7 mechanics as they were:
+  - deterministic seed non-recipe spans
+  - parser-owned chunk pruning
+  - immutable `knowledge/in/*.json`
+  - validated `knowledge/proposals/*.json`
+  - deterministic promotion into final authority plus reviewer snippets
+- align remaining labels toward `non-recipe knowledge review`
+- add one richer `review_summary` block in `knowledge_manifest.json` so operators can see seed-span count, chunk pruning totals, reviewed shard count, promoted useful chunks/snippets, and direct pointers back to `08_nonrecipe_spans.json` plus `09_knowledge_outputs.json`
+
+Anti-loop note:
+- if Stage 7 docs feel right but the surface still feels vague, check labels and manifest/report summaries before redesigning the runtime

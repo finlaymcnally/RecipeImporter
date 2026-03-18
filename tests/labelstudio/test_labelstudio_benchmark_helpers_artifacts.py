@@ -11,13 +11,78 @@ globals().update({
     and not (name.startswith("__") and name.endswith("__"))
 })
 
+
+def test_source_debug_artifact_status_reads_recipe_phase_runtime_paths(
+    tmp_path: Path,
+) -> None:
+    eval_dir = tmp_path / "eval"
+    prediction_run_dir = eval_dir / "prediction-run"
+    prediction_run_dir.mkdir(parents=True, exist_ok=True)
+
+    aligned_path = eval_dir / "aligned_prediction_blocks.jsonl"
+    aligned_path.write_text("{}\n", encoding="utf-8")
+    prompt_inputs_manifest = prediction_run_dir / "prompt_inputs_manifest.txt"
+    prompt_outputs_manifest = prediction_run_dir / "prompt_outputs_manifest.txt"
+    recipe_phase_runtime_dir = prediction_run_dir / "llm" / "recipe_phase_runtime"
+    recipe_phase_input_dir = recipe_phase_runtime_dir / "inputs"
+    recipe_phase_proposals_dir = recipe_phase_runtime_dir / "proposals"
+    for path in (recipe_phase_input_dir, recipe_phase_proposals_dir):
+        path.mkdir(parents=True, exist_ok=True)
+    prompt_request_path = recipe_phase_input_dir / "prompt_request_0.json"
+    prompt_response_path = recipe_phase_proposals_dir / "prompt_response_0.json"
+    prompt_request_path.write_text("{}", encoding="utf-8")
+    prompt_response_path.write_text("{}", encoding="utf-8")
+    prompt_inputs_manifest.write_text(f"{prompt_request_path}\n", encoding="utf-8")
+    prompt_outputs_manifest.write_text(f"{prompt_response_path}\n", encoding="utf-8")
+
+    recipe_manifest_path = prediction_run_dir / "recipe_manifest.json"
+    recipe_manifest_path.write_text(
+        json.dumps(
+            {
+                "paths": {
+                    "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                    "recipe_phase_input_dir": str(recipe_phase_input_dir),
+                    "recipe_phase_proposals_dir": str(recipe_phase_proposals_dir),
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    prediction_run_manifest = {
+        "artifacts": {
+            "prompt_inputs_manifest_txt": str(prompt_inputs_manifest),
+            "prompt_outputs_manifest_txt": str(prompt_outputs_manifest),
+            "recipe_manifest_json": str(recipe_manifest_path),
+        }
+    }
+    (prediction_run_dir / "run_manifest.json").write_text(
+        json.dumps(prediction_run_manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    status = cli._build_source_debug_artifact_status(
+        eval_report_path=eval_dir / "eval_report.json",
+        eval_report={"artifacts": {"aligned_prediction_blocks_jsonl": str(aligned_path)}},
+        codex_farm_recipe_mode="benchmark",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        prediction_run_dir=prediction_run_dir,
+    )
+
+    assert status["all_present"] is True
+    assert status["required"] is True
+    assert "recipe_phase_input_json" in status["required_checks"]
+    assert "recipe_phase_proposal_json" in status["required_checks"]
+
 def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     tmp_path: Path,
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    correction_in = run_dir / "recipe_correction" / "in"
-    correction_out = run_dir / "recipe_correction" / "out"
+    recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
+    correction_in = recipe_phase_runtime_dir / "inputs"
+    correction_out = recipe_phase_runtime_dir / "proposals"
     knowledge_in = run_dir / "knowledge" / "in"
     knowledge_out = run_dir / "knowledge" / "out"
     tags_in = run_dir / "tags" / "in"
@@ -200,8 +265,9 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                     "recipe_correction": "recipe.correction.compact.v1",
                 },
                 "paths": {
-                    "recipe_correction_in": str(correction_in),
-                    "recipe_correction_out": str(correction_out),
+                    "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                    "recipe_phase_input_dir": str(correction_in),
+                    "recipe_phase_proposals_dir": str(correction_out),
                 },
             },
             indent=2,
@@ -314,7 +380,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
-    assert "## extract_knowledge_optional (Knowledge Harvest)" in prompt_samples
+    assert "## extract_knowledge_optional (Non-Recipe Knowledge Review)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
     assert "Thinking Trace:" in prompt_samples
@@ -350,8 +416,9 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    correction_in = run_dir / "recipe_correction" / "in"
-    correction_out = run_dir / "recipe_correction" / "out"
+    recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
+    correction_in = recipe_phase_runtime_dir / "inputs"
+    correction_out = recipe_phase_runtime_dir / "proposals"
     correction_in.mkdir(parents=True, exist_ok=True)
     correction_out.mkdir(parents=True, exist_ok=True)
     (correction_in / "r0000.json").write_text(
@@ -376,8 +443,9 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
                     "recipe_correction": "recipe.correction.compact.v1",
                 },
                 "paths": {
-                    "recipe_correction_in": str(correction_in),
-                    "recipe_correction_out": str(correction_out),
+                    "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                    "recipe_phase_input_dir": str(correction_in),
+                    "recipe_phase_proposals_dir": str(correction_out),
                 }
             },
             indent=2,
@@ -412,7 +480,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
-    assert "## extract_knowledge_optional (Knowledge Harvest)" in prompt_samples
+    assert "## extract_knowledge_optional (Non-Recipe Knowledge Review)" in prompt_samples
     assert "_No rows captured for this stage._" in prompt_samples
 
 
@@ -421,8 +489,9 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    correction_in = run_dir / "recipe_correction" / "in"
-    correction_out = run_dir / "recipe_correction" / "out"
+    recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
+    correction_in = recipe_phase_runtime_dir / "inputs"
+    correction_out = recipe_phase_runtime_dir / "proposals"
     for folder in (correction_in, correction_out):
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -450,8 +519,9 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
                     "recipe_correction": "recipe.correction.compact.v1",
                 },
                 "paths": {
-                    "recipe_correction_in": str(correction_in),
-                    "recipe_correction_out": str(correction_out),
+                    "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                    "recipe_phase_input_dir": str(correction_in),
+                    "recipe_phase_proposals_dir": str(correction_out),
                 },
             },
             indent=2,
@@ -501,8 +571,9 @@ def test_build_codex_farm_prompt_response_log_follows_benchmark_stage_run_pointe
 ) -> None:
     processed_run = tmp_path / "processed" / "2026-03-16_18.11.25"
     run_dir = processed_run / "raw" / "llm" / "book"
-    correction_in = run_dir / "recipe_correction" / "in"
-    correction_out = run_dir / "recipe_correction" / "out"
+    recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
+    correction_in = recipe_phase_runtime_dir / "inputs"
+    correction_out = recipe_phase_runtime_dir / "proposals"
     correction_in.mkdir(parents=True, exist_ok=True)
     correction_out.mkdir(parents=True, exist_ok=True)
     (correction_in / "r0000.json").write_text(
@@ -521,8 +592,9 @@ def test_build_codex_farm_prompt_response_log_follows_benchmark_stage_run_pointe
                     "recipe_correction": "recipe.correction.compact.v1",
                 },
                 "paths": {
-                    "recipe_correction_in": str(correction_in),
-                    "recipe_correction_out": str(correction_out),
+                    "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                    "recipe_phase_input_dir": str(correction_in),
+                    "recipe_phase_proposals_dir": str(correction_out),
                 },
                 "process_runs": {
                     "recipe_correction": {

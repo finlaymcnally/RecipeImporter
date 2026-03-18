@@ -40,6 +40,8 @@ _LOW_SIGNAL_SKIP_KEY = "low_signal"
 
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
+    seed_nonrecipe_span_count: int
+    chunk_count_before_pruning: int
     shards_written: int
     chunks_written: int
     chunk_ids: list[str]
@@ -115,6 +117,7 @@ def build_knowledge_jobs(
         for value in skip_suggested_lanes
         if str(value or "").strip()
     }
+    chunk_count_before_pruning = 0
     skipped_chunk_count = 0
     skipped_lane_counts: dict[str, int] = {}
     all_prepared_chunks: list[_PreparedKnowledgeBundleChunk] = []
@@ -130,6 +133,7 @@ def build_knowledge_jobs(
         table_hints_by_index = _table_hints_by_index(sequence)
         chunks = chunks_from_non_recipe_blocks(sequence, overrides=overrides)
         for chunk in chunks:
+            chunk_count_before_pruning += 1
             chunk_id = f"{workbook_slug}.c{chunk_counter:04d}.nr"
             suggested_lane: str | None
             if isinstance(chunk.lane, ChunkLane):
@@ -242,6 +246,8 @@ def build_knowledge_jobs(
         bundle_counter += 1
 
     return KnowledgeJobBuildReport(
+        seed_nonrecipe_span_count=len(candidate_spans),
+        chunk_count_before_pruning=chunk_count_before_pruning,
         shards_written=bundle_counter,
         chunks_written=len(chunk_ids),
         chunk_ids=chunk_ids,

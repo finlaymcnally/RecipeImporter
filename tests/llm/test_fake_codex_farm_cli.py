@@ -370,7 +370,7 @@ def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(
         live_llm_allowed=True,
     )
 
-    runtime_root = tmp_path / "line-role-pipeline" / "runtime"
+    runtime_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
     phase_manifest = json.loads((runtime_root / "phase_manifest.json").read_text(encoding="utf-8"))
     proposals = sorted(path.name for path in (runtime_root / "proposals").glob("*.json"))
 
@@ -378,7 +378,7 @@ def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(
     assert all(row.decided_by == "codex" for row in predictions)
     assert phase_manifest["pipeline_id"] == "line-role.canonical.v1"
     assert proposals == [
-        "line-role-shard-0001-a000000-a000000.json",
-        "line-role-shard-0002-a000001-a000001.json",
-        "line-role-shard-0003-a000002-a000002.json",
+        "line-role-canonical-0001-a000000-a000000.json",
+        "line-role-canonical-0002-a000001-a000001.json",
+        "line-role-canonical-0003-a000002-a000002.json",
     ]

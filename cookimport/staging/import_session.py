@@ -508,8 +508,8 @@ def execute_stage_import_session_from_result(
     if run_settings.llm_knowledge_pipeline.value != "off":
         _notify_stage_progress(
             progress_callback,
-            message="Running codex-farm knowledge harvest...",
-            stage_label="knowledge harvest",
+            message="Running codex-farm non-recipe knowledge review...",
+            stage_label="non-recipe knowledge review",
         )
         try:
             knowledge_apply = run_codex_farm_knowledge_harvest(
@@ -527,7 +527,7 @@ def execute_stage_import_session_from_result(
             if run_settings.codex_farm_failure_mode.value == "fallback":
                 result.report = _append_report_warning(
                     result.report,
-                    "LLM knowledge harvest failed; continuing without knowledge artifacts: "
+                    "LLM non-recipe knowledge review failed; continuing without knowledge artifacts: "
                     f"{exc}",
                 )
                 llm_report["knowledge"] = {

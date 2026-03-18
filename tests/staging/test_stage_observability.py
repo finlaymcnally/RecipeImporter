@@ -41,11 +41,16 @@ def test_build_stage_observability_report_for_deterministic_stage_run(tmp_path: 
 def test_build_stage_observability_report_for_single_correction_recipe_run(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     llm_root = run_root / "raw" / "llm" / "book"
-    (llm_root / "recipe_correction" / "in").mkdir(parents=True)
+    (llm_root / "recipe_phase_runtime" / "inputs").mkdir(parents=True)
     _write_json(
         llm_root / RECIPE_MANIFEST_FILE_NAME,
         {
             "pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+            "paths": {
+                "recipe_phase_runtime_dir": str(llm_root / "recipe_phase_runtime"),
+                "recipe_phase_input_dir": str(llm_root / "recipe_phase_runtime" / "inputs"),
+                "recipe_phase_proposals_dir": str(llm_root / "recipe_phase_runtime" / "proposals"),
+            },
             "process_runs": {"recipe_correction": {}},
         },
     )
@@ -92,6 +97,7 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
         "extract_knowledge_optional",
         "write_outputs",
     ]
+    assert report.stages[1].stage_label == "Non-Recipe Knowledge Review"
     assert report.stages[1].workbooks[0].manifest_path == (
         "raw/llm/book/knowledge_manifest.json"
     )

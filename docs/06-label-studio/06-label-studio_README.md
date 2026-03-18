@@ -300,6 +300,7 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/extracted_archive.json`
 Prediction-generation now reuses authoritative recipe-local line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` versus `OTHER` comes from the final non-recipe authority that import produced after any enabled refinement step.
 Those authoritative and projected line-role rows now carry `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone from this seam.
+Final non-recipe authority is still only a binary outside-recipe seam. It may arbitrate rows already labeled `OTHER` or `KNOWLEDGE`, but it must not collapse clear outside-recipe structural labels such as recipe-tail `RECIPE_NOTES` back into `OTHER`.
 Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.
 Canonical line-role codex inflight is now resolved inside `canonical_line_roles.py`; `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the explicit override.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
@@ -344,6 +345,9 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, `cookimport/staging/stage_block_predictions.py`, `cookimport/bench/eval_stage_blocks.py`, and `cookimport/bench/eval_canonical_text.py`.
 - Reusing an older Label Studio project can leave stale `label_config`; if code labels and UI labels disagree, recreate or patch the project before changing scorers.
 - `labelstudio-benchmark compare` accepts either all-method benchmark report roots/files or single `eval_report.json` inputs.
+- If recipe-tail storage/use notes are scoring as `OTHER`, check both seams:
+  - deterministic line-role note recovery in `canonical_line_roles.py`
+  - final non-recipe authority projection in `labelstudio/ingest.py`
 
 ## 8) Troubleshooting Checklist
 

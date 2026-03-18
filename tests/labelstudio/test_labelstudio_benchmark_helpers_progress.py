@@ -621,8 +621,8 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
     def _run(update_progress):
         update_progress(
             format_stage_progress(
-                "Running codex-farm knowledge harvest... task 1/4 | running 2",
-                stage_label="knowledge harvest",
+                "Running codex-farm non-recipe knowledge review... task 1/4 | running 2",
+                stage_label="non-recipe knowledge review",
                 task_current=1,
                 task_total=4,
                 running_workers=2,
@@ -647,7 +647,7 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
         for line in telemetry_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert any(row.get("stage_label") == "knowledge harvest" for row in rows)
+    assert any(row.get("stage_label") == "non-recipe knowledge review" for row in rows)
     assert any(row.get("worker_total") == 4 for row in rows)
     assert any(row.get("worker_active") == 2 for row in rows)
     assert any(row.get("active_tasks") == ["knowledge-shard-0001", "knowledge-shard-0002"] for row in rows)
@@ -736,8 +736,8 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
     def _run(update_progress):
         update_progress(
             format_stage_progress(
-                "Running codex-farm knowledge harvest... task 1/4 | running 2",
-                stage_label="knowledge harvest",
+                "Running codex-farm non-recipe knowledge review... task 1/4 | running 2",
+                stage_label="non-recipe knowledge review",
                 task_current=1,
                 task_total=4,
                 running_workers=2,
@@ -748,8 +748,8 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
         )
         update_progress(
             format_stage_progress(
-                "Running codex-farm knowledge harvest... task 2/4",
-                stage_label="knowledge harvest",
+                "Running codex-farm non-recipe knowledge review... task 2/4",
+                stage_label="non-recipe knowledge review",
                 task_current=2,
                 task_total=4,
                 worker_total=4,
@@ -769,7 +769,7 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
     knowledge_messages = [
         message
         for message in capture.messages
-        if "knowledge harvest" in message.lower()
+        if "non-recipe knowledge review" in message.lower()
     ]
     assert knowledge_messages
     assert any("configured workers: 4" in message for message in knowledge_messages)

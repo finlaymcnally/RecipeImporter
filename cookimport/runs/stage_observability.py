@@ -92,7 +92,7 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "order": 30,
     },
     "extract_knowledge_optional": {
-        "label": "Extract Knowledge Optional",
+        "label": "Non-Recipe Knowledge Review",
         "artifact_stem": "knowledge",
         "family": "knowledge_llm",
         "order": 40,
@@ -159,6 +159,15 @@ def _relative_to(run_root: Path, path: Path | None) -> str | None:
         return str(path)
 
 
+def _path_from_manifest(value: Any) -> Path | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    return Path(cleaned)
+
+
 def _has_json_payloads(path: Path) -> bool:
     if not path.exists() or not path.is_dir():
         return False
@@ -195,13 +204,27 @@ def build_stage_observability_report(
             recipe_manifest_path = workbook_dir / RECIPE_MANIFEST_FILE_NAME
             recipe_manifest_payload = _load_json_dict(recipe_manifest_path) or {}
             recipe_pipeline_id = str(recipe_manifest_payload.get("pipeline") or "").strip() or None
+            recipe_paths = recipe_manifest_payload.get("paths")
+            if not isinstance(recipe_paths, Mapping):
+                recipe_paths = {}
             for key in _recipe_stage_key_map(
                 recipe_manifest_payload=recipe_manifest_payload,
                 workbook_dir=workbook_dir,
             ):
-                stage_dir = workbook_dir / stage_artifact_stem(key)
-                input_dir = stage_dir / "in"
-                output_dir = stage_dir / "out"
+                if key == "recipe_llm_correct_and_link":
+                    stage_dir = _path_from_manifest(
+                        recipe_paths.get("recipe_phase_runtime_dir")
+                    ) or (workbook_dir / "recipe_phase_runtime")
+                    input_dir = _path_from_manifest(
+                        recipe_paths.get("recipe_phase_input_dir")
+                    ) or (stage_dir / "inputs")
+                    output_dir = _path_from_manifest(
+                        recipe_paths.get("recipe_phase_proposals_dir")
+                    ) or (stage_dir / "proposals")
+                else:
+                    stage_dir = workbook_dir / stage_artifact_stem(key)
+                    input_dir = stage_dir / "in"
+                    output_dir = stage_dir / "out"
                 if (
                     key == "recipe_llm_correct_and_link"
                     and not stage_dir.exists()
@@ -238,7 +261,16 @@ def build_stage_observability_report(
 
             knowledge_manifest_path = workbook_dir / KNOWLEDGE_MANIFEST_FILE_NAME
             knowledge_manifest_payload = _load_json_dict(knowledge_manifest_path) or {}
+            knowledge_paths = knowledge_manifest_payload.get("paths")
+            if not isinstance(knowledge_paths, Mapping):
+                knowledge_paths = {}
             knowledge_dir = workbook_dir / stage_artifact_stem("extract_knowledge_optional")
+            knowledge_input_dir = _path_from_manifest(
+                knowledge_paths.get("knowledge_in_dir")
+            ) or (knowledge_dir / "in")
+            knowledge_output_dir = _path_from_manifest(
+                knowledge_paths.get("proposals_dir")
+            ) or (knowledge_dir / "proposals")
             if knowledge_manifest_path.exists() or knowledge_dir.exists():
                 key = "extract_knowledge_optional"
                 stage_rows.setdefault(
@@ -260,11 +292,11 @@ def build_stage_observability_report(
                         if knowledge_manifest_path.exists()
                         else None,
                         stage_dir=_relative_to(run_root, knowledge_dir) if knowledge_dir.exists() else None,
-                        input_dir=_relative_to(run_root, knowledge_dir / "in")
-                        if (knowledge_dir / "in").exists()
+                        input_dir=_relative_to(run_root, knowledge_input_dir)
+                        if knowledge_input_dir.exists()
                         else None,
-                        output_dir=_relative_to(run_root, knowledge_dir / "out")
-                        if (knowledge_dir / "out").exists()
+                        output_dir=_relative_to(run_root, knowledge_output_dir)
+                        if knowledge_output_dir.exists()
                         else None,
                     )
                 )

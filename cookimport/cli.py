@@ -6284,17 +6284,17 @@ def _build_source_debug_artifact_status(
         )
         if not isinstance(recipe_paths, dict):
             recipe_paths = {}
-        recipe_correction_in = _resolve_artifact_path(
+        recipe_phase_input_dir = _resolve_artifact_path(
             recipe_manifest_path.parent
             if recipe_manifest_path is not None
             else candidate_prediction_run_dir,
-            recipe_paths.get("recipe_correction_in"),
+            recipe_paths.get("recipe_phase_input_dir"),
         )
-        recipe_correction_out = _resolve_artifact_path(
+        recipe_phase_proposals_dir = _resolve_artifact_path(
             recipe_manifest_path.parent
             if recipe_manifest_path is not None
             else candidate_prediction_run_dir,
-            recipe_paths.get("recipe_correction_out"),
+            recipe_paths.get("recipe_phase_proposals_dir"),
         )
         checks.extend(
             [
@@ -6354,20 +6354,20 @@ def _build_source_debug_artifact_status(
                     ),
                 },
                 {
-                    "name": "recipe_correction_in_json",
-                    "present": _dir_has_json_files(recipe_correction_in),
+                    "name": "recipe_phase_input_json",
+                    "present": _dir_has_json_files(recipe_phase_input_dir),
                     "path": (
-                        str(recipe_correction_in)
-                        if recipe_correction_in is not None
+                        str(recipe_phase_input_dir)
+                        if recipe_phase_input_dir is not None
                         else None
                     ),
                 },
                 {
-                    "name": "recipe_correction_out_json",
-                    "present": _dir_has_json_files(recipe_correction_out),
+                    "name": "recipe_phase_proposal_json",
+                    "present": _dir_has_json_files(recipe_phase_proposals_dir),
                     "path": (
-                        str(recipe_correction_out)
-                        if recipe_correction_out is not None
+                        str(recipe_phase_proposals_dir)
+                        if recipe_phase_proposals_dir is not None
                         else None
                     ),
                 },
@@ -9527,7 +9527,7 @@ def _humanize_codex_pipeline_stage_label(pipeline_id: str) -> str:
     if "recipe.correction" in lowered or "recipe_correction" in lowered or "correction" in lowered:
         return "recipe correction"
     if "knowledge" in lowered:
-        return "knowledge harvest"
+        return "non-recipe knowledge review"
     if "tags" in lowered:
         return "tag suggestions"
     return normalized
@@ -10099,7 +10099,7 @@ def _run_with_progress_status(
         if "recipe.correction" in lowered or "recipe_correction" in lowered or "correction" in lowered:
             return "recipe correction"
         if "knowledge" in lowered:
-            return "knowledge harvest"
+            return "non-recipe knowledge review"
         if "tags" in lowered:
             return "tag suggestions"
         return normalized
@@ -10173,6 +10173,15 @@ def _run_with_progress_status(
         if not lines:
             return ""
 
+        if (
+            running_workers is None
+            and worker_total is None
+            and active_tasks is None
+            and not detail_lines
+            and task_counter is None
+        ):
+            return "\n".join(lines)
+
         if stage_label and not any(
             line.lower().startswith("stage:")
             for line in lines
@@ -10212,6 +10221,13 @@ def _run_with_progress_status(
             for detail_line in reversed(detail_lines):
                 if detail_line and detail_line not in lines:
                     lines.insert(insert_at, detail_line)
+
+        if (
+            running_workers is None
+            and worker_total is None
+            and active_tasks is None
+        ):
+            return "\n".join(lines)
 
         if any(
             _WORKER_PANEL_LABEL_RE.search(line)
@@ -22512,7 +22528,7 @@ def _merge_split_jobs(
     phase_labels.append("Extracting tables...")
     phase_labels.append("Building chunks...")
     if knowledge_enabled:
-        phase_labels.append("Running codex-farm knowledge harvest...")
+        phase_labels.append("Running codex-farm non-recipe knowledge review...")
     phase_labels.extend(
         [
             "Writing merged outputs...",
@@ -23187,7 +23203,7 @@ def stage(
         "recipe.knowledge.compact.v1",
         "--codex-farm-pipeline-knowledge",
         hidden=True,
-        help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
+        help="Stage-7 codex-farm pipeline id for non-recipe knowledge review.",
     ),
     codex_farm_context_blocks: int = typer.Option(
         30,
@@ -23199,7 +23215,7 @@ def stage(
         2,
         "--codex-farm-knowledge-context-blocks",
         min=0,
-        help="Blocks before/after each non-recipe chunk included as context in pass-4 bundles.",
+        help="Blocks before/after each non-recipe review chunk included as context in Stage-7 bundles.",
     ),
     codex_farm_failure_mode: str = typer.Option(
         "fail",
@@ -27359,7 +27375,7 @@ def labelstudio_benchmark(
     codex_farm_pipeline_knowledge: Annotated[str, typer.Option(
         "--codex-farm-pipeline-knowledge",
         hidden=True,
-        help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
+        help="Stage-7 codex-farm pipeline id for non-recipe knowledge review.",
     )] = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-context-blocks",
@@ -27369,7 +27385,7 @@ def labelstudio_benchmark(
     codex_farm_knowledge_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-knowledge-context-blocks",
         min=0,
-        help="Blocks before/after each non-recipe chunk included as context in pass-4 bundles.",
+        help="Blocks before/after each non-recipe review chunk included as context in Stage-7 bundles.",
     )] = 2,
     codex_farm_failure_mode: Annotated[str, typer.Option(
         "--codex-farm-failure-mode",

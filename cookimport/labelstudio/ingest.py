@@ -2550,7 +2550,7 @@ def generate_pred_run_artifacts(
             result.chunks = chunks_from_topic_candidates(result.topic_candidates)
 
     if processed_output_root is None and run_settings.llm_knowledge_pipeline.value != "off":
-        _notify("Running codex-farm knowledge harvest...")
+        _notify("Running codex-farm non-recipe knowledge review...")
         try:
             knowledge_apply = run_codex_farm_knowledge_harvest(
                 conversion_result=result,
@@ -2576,7 +2576,7 @@ def generate_pred_run_artifacts(
         except CodexFarmRunnerError as exc:
             if run_settings.codex_farm_failure_mode.value == "fallback":
                 warning = (
-                    "LLM knowledge harvest failed; continuing without knowledge artifacts: "
+                    "LLM non-recipe knowledge review failed; continuing without knowledge artifacts: "
                     f"{exc}"
                 )
                 result.report.warnings.append(warning)

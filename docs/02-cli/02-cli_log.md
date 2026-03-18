@@ -221,6 +221,7 @@ Current rule:
 - the shared CLI progress seam accepts the repo-owned serialized `stage_progress` payload in addition to plain strings
 - plain `task X/Y` messages still work, but the spinner now infers `stage:` / `progress:` rows from them
 - generic `task X/Y | running N` messages expand to `active workers: N` plus worker rows; this is no longer limited to one old codex-farm message shape
+- recipe shard progress should stay honest about the seam it can observe: outer worker-bucket state is real, inner shard-by-shard Codex progress inside one classic worker assignment is not
 - legacy codex-farm `run=... queued=... running=...` stderr snapshots are progress noise and should be dropped at the runner boundary instead of surfaced as ordinary stderr
 - processing timeseries artifacts should preserve structured progress metadata when the emitter provides it
 

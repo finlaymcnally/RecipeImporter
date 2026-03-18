@@ -38,7 +38,7 @@ _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
     {
         "stage_key": "extract_knowledge_optional",
         "stage_order": 4,
-        "stage_label": "Knowledge Harvest",
+        "stage_label": "Non-Recipe Knowledge Review",
         "stage_artifact_stem": "knowledge",
         "default_pipeline_id": "recipe.knowledge.compact.v1",
         "manifest_name": KNOWLEDGE_MANIFEST_FILE_NAME,
@@ -54,7 +54,7 @@ _PROMPT_STAGE_LABELS_BY_KEY = {
         str(spec["stage_key"]): str(spec["stage_label"])
         for spec in _CODEXFARM_STAGE_SPECS
     },
-    "knowledge": "Knowledge Harvest",
+    "knowledge": "Non-Recipe Knowledge Review",
 }
 
 _TEXT_ATTACHMENT_SUFFIXES = {
@@ -529,13 +529,24 @@ def _resolve_stage_in_out_dirs(
     in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
     out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
     if in_dir is None or not in_dir.exists():
-        in_dir = run_dir / stage_dir_name / "in"
+        if stage_key == "recipe_llm_correct_and_link":
+            in_dir = run_dir / "recipe_phase_runtime" / "inputs"
+        else:
+            in_dir = run_dir / stage_dir_name / "in"
     if out_dir is None or not out_dir.exists():
-        if stage_key == "extract_knowledge_optional":
+        if stage_key == "recipe_llm_correct_and_link":
+            out_dir = run_dir / "recipe_phase_runtime" / "proposals"
+        elif stage_key == "extract_knowledge_optional":
             out_dir = run_dir / stage_dir_name / "proposals"
         else:
             out_dir = run_dir / stage_dir_name / "out"
     return in_dir, out_dir
+
+
+def _runtime_stage_dir_name(stage_key: str) -> str:
+    if stage_key == "recipe_llm_correct_and_link":
+        return "recipe_phase_runtime"
+    return stage_artifact_stem(stage_key)
 
 
 def discover_codexfarm_prompt_run_descriptors(
@@ -624,7 +635,7 @@ def discover_codexfarm_prompt_run_descriptors(
                     stage_key=stage_key,
                     pipeline_id=pipeline_id,
                 )
-                resolved_stage_dir_name = stage_artifact_stem(
+                resolved_stage_dir_name = _runtime_stage_dir_name(
                     str(stage_metadata.get("stage_key") or stage_key)
                 )
                 input_dir, output_dir = _resolve_stage_in_out_dirs(

@@ -10,12 +10,12 @@ Interactive run-settings UI helpers.
   - left/right arrows set the current row to `[Yes]` or `[No]` in place and visibly move the active marker
   - pressing Enter on a step row still flips that row's current state
   - `Continue` accepts the whole list at once
-  - interactive `Import` shows recipe correction and knowledge harvest
-  - interactive benchmark modes show recipe correction, block labelling, and knowledge harvest
+  - interactive `Import` shows recipe correction and non-recipe knowledge review
+  - interactive benchmark modes show recipe correction, block labelling, and non-recipe knowledge review
   - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
-  - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
+  - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)

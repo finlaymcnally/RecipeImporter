@@ -95,7 +95,8 @@ Current spinner/status rule:
 - shared CLI status rendering accepts either plain text or the serialized `stage_progress` payload from `cookimport/core/progress_messages.py`
 - plain `task X/Y` updates are still valid and now infer `stage:` / `progress:` lines in the shared spinner even before a stage emits richer worker metadata
 - generic messages shaped like `task X/Y | running N` now expand into `active workers: N` rows just like the older codex-farm-specific worker surface
-- stage-specific emitters for recipe shard work, line-role, knowledge harvest, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
+- stage-specific emitters for recipe shard work, line-role, non-recipe knowledge review, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
+- recipe shard work should report outer worker-bucket truth from `phase_worker_runtime.py` (configured workers, queued shards, active worker buckets, current first shard), not pretend the CLI can see true inner per-shard Codex progress once one worker hands a whole bucket to a single classic `process` call
 - `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, task counts, active tasks, worker counts, and detail lines when present
 
 ### [C] Main Menu
@@ -150,14 +151,14 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - `Continue` accepts the current per-row settings
 - for interactive `Import`, that submenu asks about:
   - recipe correction (`codex-recipe-shard-v1`)
-  - knowledge harvest (`codex-knowledge-shard-v1`)
+  - non-recipe knowledge review (`codex-knowledge-shard-v1`)
 - for interactive benchmark modes (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`), that submenu asks about:
   - recipe correction (`codex-recipe-shard-v1`)
   - block labelling (`codex-line-role-shard-v1`)
-  - knowledge harvest (`codex-knowledge-shard-v1`)
+  - non-recipe knowledge review (`codex-knowledge-shard-v1`)
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
-  - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
+  - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
 - after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
   - import asks only for the enabled recipe/knowledge counts
   - benchmark and all-method Codex menus can ask for recipe, block-labelling, and knowledge counts

@@ -183,7 +183,7 @@ def write_prompt_preview_for_existing_run(
         )
         stage_plans["extract_knowledge_optional"] = _build_direct_shard_phase_plan(
             stage_key="extract_knowledge_optional",
-            stage_label="Knowledge Harvest",
+            stage_label="Non-Recipe Knowledge Review",
             stage_order=4,
             surface_pipeline=llm_knowledge_pipeline,
             runtime_pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
@@ -645,7 +645,7 @@ def _build_knowledge_preview_rows(
                 input_text=serialized_input,
                 input_path=input_path,
                 stage_key="extract_knowledge_optional",
-                stage_label="Knowledge Harvest",
+                stage_label="Non-Recipe Knowledge Review",
                 stage_order=4,
                 stage_dir_name="extract_knowledge_optional",
                 stage_artifact_stem="knowledge",
