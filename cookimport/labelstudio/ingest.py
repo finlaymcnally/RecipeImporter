@@ -3510,10 +3510,10 @@ def generate_pred_run_artifacts(
         prompt_inputs_manifest_path = run_root / "prompt_inputs_manifest.txt"
         prompt_outputs_manifest_path = run_root / "prompt_outputs_manifest.txt"
         prompt_input_dirs = (
-            llm_run_dir / stage_artifact_stem("recipe_llm_correct_and_link") / "in",
+            llm_run_dir / "recipe_phase_runtime" / "inputs",
         )
         prompt_output_dirs = (
-            llm_run_dir / stage_artifact_stem("recipe_llm_correct_and_link") / "out",
+            llm_run_dir / "recipe_phase_runtime" / "proposals",
         )
 
         def _build_prompt_manifest(

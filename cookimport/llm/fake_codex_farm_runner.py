@@ -131,7 +131,27 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             "bid": payload.get("bundle_id"),
             "r": chunk_results,
         }
-    if pipeline_id == "line-role.canonical.v1":
+    if pipeline_id == "line-role.recipe-region-gate.v1":
+        prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
+        atomic_indices = [
+            int(value)
+            for value in re.findall(r'"atomic_index"\s*:\s*(\d+)', prompt_text)
+        ]
+        if not atomic_indices:
+            atomic_indices = [
+                int(value)
+                for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
+            ]
+        return {
+            "rows": [
+                {"atomic_index": atomic_index, "region_status": "boundary_uncertain"}
+                for atomic_index in atomic_indices
+            ]
+        }
+    if pipeline_id in {
+        "line-role.canonical.v1",
+        "line-role.recipe-structure-label.v1",
+    }:
         prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
         atomic_indices = [
             int(value)

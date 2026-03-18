@@ -7,7 +7,7 @@ from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
-from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
+from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 
 
 def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
@@ -72,6 +72,36 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
     )
 
 
+def _build_recipe_shard_output(payload: dict[str, object] | None) -> dict[str, object]:
+    shard_payload = dict(payload or {})
+    recipes = []
+    for recipe_payload in shard_payload.get("r") or []:
+        recipe_payload = dict(recipe_payload)
+        recipe_hint = dict(recipe_payload.get("h") or {})
+        recipes.append(
+            {
+                "bundle_version": "1",
+                "recipe_id": recipe_payload["rid"],
+                "canonical_recipe": {
+                    "title": recipe_hint["name"],
+                    "ingredients": recipe_hint.get("recipeIngredient", []),
+                    "steps": recipe_hint.get("recipeInstructions", []),
+                    "description": None,
+                    "recipeYield": None,
+                },
+                "ingredient_step_mapping": [],
+                "ingredient_step_mapping_reason": "not_needed_single_step",
+                "selected_tags": [],
+                "warnings": [],
+            }
+        )
+    return {
+        "bundle_version": "1",
+        "shard_id": shard_payload.get("sid"),
+        "recipes": recipes,
+    }
+
+
 def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     tmp_path: Path,
 ) -> None:
@@ -89,36 +119,7 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     for name in ("pipelines", "prompts", "schemas"):
         (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
 
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            "recipe.correction.compact.v1": lambda payload: {
-                "bundle_version": "1",
-                "shard_id": payload.get("shard_id"),
-                "recipes": [
-                    {
-                        "bundle_version": "1",
-                        "recipe_id": recipe_payload["recipe_id"],
-                        "canonical_recipe": {
-                            "title": recipe_payload["recipe_candidate_hint"]["name"],
-                            "ingredients": recipe_payload["recipe_candidate_hint"].get(
-                                "recipeIngredient", []
-                            ),
-                            "steps": recipe_payload["recipe_candidate_hint"].get(
-                                "recipeInstructions", []
-                            ),
-                            "description": None,
-                            "recipeYield": None,
-                        },
-                        "ingredient_step_mapping": [],
-                        "ingredient_step_mapping_reason": "not_needed_single_step",
-                        "selected_tags": [],
-                        "warnings": [],
-                    }
-                    for recipe_payload in payload.get("recipes") or []
-                ],
-            }
-        }
-    )
+    runner = FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
 
     apply_result = run_codex_farm_recipe_pipeline(
         conversion_result=_build_multi_recipe_conversion_result(source),
@@ -160,10 +161,9 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     ]
     assert shard_manifest[1]["owned_ids"] == ["urn:recipe:test:cereal"]
 
-    correction_in_dir = apply_result.llm_raw_dir / "recipe_correction" / "in"
-    correction_out_dir = apply_result.llm_raw_dir / "recipe_correction" / "out"
-    assert len(list(correction_in_dir.glob("*.json"))) == 3
-    assert len(list(correction_out_dir.glob("*.json"))) == 3
+    phase_input_dir = apply_result.llm_raw_dir / "recipe_phase_runtime" / "inputs"
+    assert len(list(phase_input_dir.glob("*.json"))) == 2
+    assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert len(apply_result.intermediate_overrides_by_recipe_id) == 3
     assert len(apply_result.final_overrides_by_recipe_id) == 3
 
@@ -184,36 +184,7 @@ def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
     for name in ("pipelines", "prompts", "schemas"):
         (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
 
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            "recipe.correction.compact.v1": lambda payload: {
-                "bundle_version": "1",
-                "shard_id": payload.get("shard_id"),
-                "recipes": [
-                    {
-                        "bundle_version": "1",
-                        "recipe_id": recipe_payload["recipe_id"],
-                        "canonical_recipe": {
-                            "title": recipe_payload["recipe_candidate_hint"]["name"],
-                            "ingredients": recipe_payload["recipe_candidate_hint"].get(
-                                "recipeIngredient", []
-                            ),
-                            "steps": recipe_payload["recipe_candidate_hint"].get(
-                                "recipeInstructions", []
-                            ),
-                            "description": None,
-                            "recipeYield": None,
-                        },
-                        "ingredient_step_mapping": [],
-                        "ingredient_step_mapping_reason": "not_needed_single_step",
-                        "selected_tags": [],
-                        "warnings": [],
-                    }
-                    for recipe_payload in payload.get("recipes") or []
-                ],
-            }
-        }
-    )
+    runner = FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
 
     apply_result = run_codex_farm_recipe_pipeline(
         conversion_result=_build_multi_recipe_conversion_result(source),
@@ -249,36 +220,7 @@ def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> No
         (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
 
     progress_messages: list[str] = []
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            "recipe.correction.compact.v1": lambda payload: {
-                "bundle_version": "1",
-                "shard_id": payload.get("shard_id"),
-                "recipes": [
-                    {
-                        "bundle_version": "1",
-                        "recipe_id": recipe_payload["recipe_id"],
-                        "canonical_recipe": {
-                            "title": recipe_payload["recipe_candidate_hint"]["name"],
-                            "ingredients": recipe_payload["recipe_candidate_hint"].get(
-                                "recipeIngredient", []
-                            ),
-                            "steps": recipe_payload["recipe_candidate_hint"].get(
-                                "recipeInstructions", []
-                            ),
-                            "description": None,
-                            "recipeYield": None,
-                        },
-                        "ingredient_step_mapping": [],
-                        "ingredient_step_mapping_reason": "not_needed_single_step",
-                        "selected_tags": [],
-                        "warnings": [],
-                    }
-                    for recipe_payload in payload.get("recipes") or []
-                ],
-            }
-        }
-    )
+    runner = FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
 
     run_codex_farm_recipe_pipeline(
         conversion_result=_build_multi_recipe_conversion_result(source),

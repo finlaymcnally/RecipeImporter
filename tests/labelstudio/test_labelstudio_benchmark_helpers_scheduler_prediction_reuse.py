@@ -138,7 +138,7 @@ def test_run_all_method_prediction_once_reuses_across_runtime_only_setting_chang
         slug="reuse-workers-a",
         run_settings=cli.RunSettings.from_dict(
             {
-                **base_settings.to_run_config_dict(),
+                **base_settings.model_dump(mode="json", exclude_none=True),
                 "workers": 1,
                 "pdf_split_workers": 1,
                 "epub_split_workers": 1,
@@ -154,7 +154,7 @@ def test_run_all_method_prediction_once_reuses_across_runtime_only_setting_chang
         slug="reuse-workers-b",
         run_settings=cli.RunSettings.from_dict(
             {
-                **base_settings.to_run_config_dict(),
+                **base_settings.model_dump(mode="json", exclude_none=True),
                 "workers": 8,
                 "pdf_split_workers": 4,
                 "epub_split_workers": 3,
@@ -245,7 +245,7 @@ def test_run_all_method_prediction_once_misses_reuse_when_prediction_shape_chang
         slug="reuse-shape-a",
         run_settings=cli.RunSettings.from_dict(
             {
-                **base_settings.to_run_config_dict(),
+                **base_settings.model_dump(mode="json", exclude_none=True),
                 "line_role_pipeline": "off",
             },
             warn_context="test",
@@ -256,7 +256,7 @@ def test_run_all_method_prediction_once_misses_reuse_when_prediction_shape_chang
         slug="reuse-shape-b",
         run_settings=cli.RunSettings.from_dict(
             {
-                **base_settings.to_run_config_dict(),
+                **base_settings.model_dump(mode="json", exclude_none=True),
                 "line_role_pipeline": "codex-line-role-shard-v1",
             },
             warn_context="test",
@@ -501,7 +501,6 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
             "pdf_split_workers": 5,
             "epub_split_workers": 4,
             "multi_recipe_splitter": "rules_v1",
-            "multi_recipe_trace": True,
             "multi_recipe_min_ingredient_lines": 3,
             "multi_recipe_min_instruction_lines": 2,
             "multi_recipe_for_the_guardrail": False,
@@ -524,7 +523,6 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
             "p6_temperature_unit_backend": "pint_v1",
             "p6_ovenlike_mode": "off",
             "p6_yield_mode": "scored_v1",
-            "p6_emit_metadata_debug": True,
             "recipe_scorer_backend": "heuristic_v1",
             "recipe_score_gold_min": 0.8,
             "recipe_score_silver_min": 0.6,
@@ -604,7 +602,6 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
         no_upload=True,
         write_markdown=False,
         write_label_studio_tasks=False,
-        sequence_matcher_override=settings.benchmark_sequence_matcher,
     )
     assert captured_kwargs["eval_output_dir"] == root_output_dir / config_dir_name
     assert captured_kwargs["predictions_out_path"] == (

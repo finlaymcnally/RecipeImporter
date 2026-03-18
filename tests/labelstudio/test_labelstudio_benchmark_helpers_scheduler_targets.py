@@ -132,7 +132,7 @@ def test_build_all_method_variants_include_multi_recipe_dimension_when_non_legac
 
     assert len(variants) == 1
     assert variants[0].dimensions["multi_recipe_splitter"] == "rules_v1"
-    assert "__multi_recipe_rules_v1" in variants[0].slug
+    assert variants[0].slug == "source_pdf"
 
 def test_build_all_method_variants_html_webschema_policy_matrix() -> None:
     base_settings = _benchmark_test_run_settings()
@@ -218,7 +218,7 @@ def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
     )
     assert len(variants) == 26
     assert len({variant.run_settings.stable_hash() for variant in variants}) == 26
-    assert any("__llm_recipe_codex_farm_single_correction_v1" in variant.slug for variant in variants)
+    assert any("__llm_recipe_codex_recipe_shard_v1" in variant.slug for variant in variants)
 
 def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled() -> None:
     base_settings = cli.RunSettings.from_dict(
@@ -240,12 +240,12 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     baseline_variants = [
         variant
         for variant in variants
-        if "__llm_recipe_codex_farm_single_correction_v1" not in variant.slug
+        if "__llm_recipe_codex_recipe_shard_v1" not in variant.slug
     ]
     codex_variants = [
         variant
         for variant in variants
-        if "__llm_recipe_codex_farm_single_correction_v1" in variant.slug
+        if "__llm_recipe_codex_recipe_shard_v1" in variant.slug
     ]
 
     assert len(baseline_variants) == 13
@@ -346,12 +346,12 @@ def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
     baseline_variants = [
         variant
         for variant in variants
-        if "__llm_recipe_codex_farm_single_correction_v1" not in variant.slug
+        if "__llm_recipe_codex_recipe_shard_v1" not in variant.slug
     ]
     codex_variants = [
         variant
         for variant in variants
-        if "__llm_recipe_codex_farm_single_correction_v1" in variant.slug
+        if "__llm_recipe_codex_recipe_shard_v1" in variant.slug
     ]
 
     assert len(baseline_variants) == 1
@@ -418,8 +418,8 @@ def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
                 ),
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
                 "llm_knowledge_pipeline": "off",
-                "line_role_pipeline": "deterministic-v1",
-                "atomic_block_splitter": "atomic-v1",
+                "line_role_pipeline": "off",
+                "atomic_block_splitter": "off",
             },
             warn_context="test all-method shared codex menu",
         )

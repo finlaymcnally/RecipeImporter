@@ -23,7 +23,7 @@ from cookimport.llm.codex_farm_orchestrator import (
     build_codex_farm_recipe_execution_plan,
     run_codex_farm_recipe_pipeline,
 )
-from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
+from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 
 
 def _build_conversion_result(source_path: Path) -> ConversionResult:
@@ -95,49 +95,47 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     )
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            SINGLE_CORRECTION_STAGE_PIPELINE_ID: lambda payload: {
-                "bundle_version": "1",
-                "shard_id": payload.get("shard_id"),
-                "recipes": [
-                    {
-                        "bundle_version": "1",
-                        "recipe_id": payload["recipes"][0]["recipe_id"],
-                        "canonical_recipe": {
-                            "title": "Toast",
-                            "ingredients": [
-                                "1 slice bread",
-                                "1 tablespoon butter",
-                            ],
-                            "steps": [
-                                "Toast the bread until golden.",
-                                "Spread with butter and serve hot.",
-                            ],
-                            "description": None,
-                            "recipeYield": None,
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "bundle_version": "1",
+            "shard_id": payload.get("sid"),
+            "recipes": [
+                {
+                    "bundle_version": "1",
+                    "recipe_id": payload["r"][0]["rid"],
+                    "canonical_recipe": {
+                        "title": "Toast",
+                        "ingredients": [
+                            "1 slice bread",
+                            "1 tablespoon butter",
+                        ],
+                        "steps": [
+                            "Toast the bread until golden.",
+                            "Spread with butter and serve hot.",
+                        ],
+                        "description": None,
+                        "recipeYield": None,
+                    },
+                    "ingredient_step_mapping": [
+                        {"ingredient_index": 0, "step_indexes": [0]},
+                        {"ingredient_index": 1, "step_indexes": [1]},
+                    ],
+                    "ingredient_step_mapping_reason": None,
+                    "selected_tags": [
+                        {
+                            "category": "meal",
+                            "label": "breakfast",
+                            "confidence": 0.83,
                         },
-                        "ingredient_step_mapping": [
-                            {"ingredient_index": 0, "step_indexes": [0]},
-                            {"ingredient_index": 1, "step_indexes": [1]},
-                        ],
-                        "ingredient_step_mapping_reason": None,
-                        "selected_tags": [
-                            {
-                                "category": "meal",
-                                "label": "breakfast",
-                                "confidence": 0.83,
-                            },
-                            {
-                                "category": "method",
-                                "label": "toasted",
-                                "confidence": 0.79,
-                            },
-                        ],
-                        "warnings": [],
-                    }
-                ],
-            }
+                        {
+                            "category": "method",
+                            "label": "toasted",
+                            "confidence": 0.79,
+                        },
+                    ],
+                    "warnings": [],
+                }
+            ],
         }
     )
 
@@ -149,7 +147,8 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         runner=runner,
     )
 
-    assert runner.calls == [SINGLE_CORRECTION_STAGE_PIPELINE_ID]
+    assert len(runner.calls) == 1
+    assert runner.calls[0]["input_payload"]["r"][0]["rid"] == "urn:recipe:test:toast"
     assert set(apply_result.intermediate_overrides_by_recipe_id) == {
         "urn:recipe:test:toast"
     }
@@ -174,16 +173,11 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 1
     assert sorted(manifest["process_runs"].keys()) == ["recipe_correction"]
-    correction_input_paths = sorted(
-        (apply_result.llm_raw_dir / "recipe_correction" / "in").glob("*.json")
-    )
-    assert len(correction_input_paths) == 1
-    correction_input = json.loads(
-        correction_input_paths[0].read_text(encoding="utf-8")
-    )
+    correction_input = runner.calls[0]["input_payload"]
     assert "draft_hint" not in correction_input
-    assert "provenance" not in correction_input["h"]
+    assert "provenance" not in correction_input["r"][0]["h"]
     assert correction_input["tg"]["version"] == "recipe_tagging_guide.v1"
+    assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert apply_result.updated_conversion_result.recipes[0].tags == [
         "breakfast",
         "toasted",

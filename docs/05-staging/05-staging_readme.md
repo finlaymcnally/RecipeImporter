@@ -106,7 +106,8 @@ Per workbook (slugified file stem):
 - `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (internal-only Priority 6 diagnostics; Bucket 1 no longer exposes `p6_emit_metadata_debug` as a normal run setting)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
   - includes `recipe_scoring_debug.jsonl` when importers emit candidate gate decisions
-- `raw/llm/<workbook_slug>/recipe_correction/{in,out}/*.json` (when recipe Codex correction ran)
+- `raw/llm/<workbook_slug>/recipe_correction_audit/*.json` (when recipe Codex correction ran)
+- `raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/*.json` + `raw/llm/<workbook_slug>/recipe_phase_runtime/proposals/*.json` (when recipe Codex correction ran)
 - `raw/llm/<workbook_slug>/recipe_manifest.json`
 - `raw/llm/<workbook_slug>/knowledge/{in,out}/*.json` + `knowledge_manifest.json` (if knowledge harvesting is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root

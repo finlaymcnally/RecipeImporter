@@ -60,3 +60,6 @@ coverage.xml
 
 # Docs plans policy
 docs/plans/**/*.json
+
+.tmp/
+tmp/

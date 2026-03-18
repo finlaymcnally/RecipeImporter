@@ -14,7 +14,7 @@ from cookimport.config.run_settings import RunSettings
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.core.progress_messages import format_stage_progress
 from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
-from cookimport.runs import RECIPE_MANIFEST_FILE_NAME, stage_artifact_stem
+from cookimport.runs import RECIPE_MANIFEST_FILE_NAME
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 
 from .codex_farm_contracts import (
@@ -30,11 +30,7 @@ from .codex_farm_contracts import (
 )
 from .codex_farm_ids import bundle_filename, ensure_recipe_id, sanitize_for_filename
 from .codex_farm_runner import (
-    CodexFarmRunner,
     CodexFarmRunnerError,
-    SubprocessCodexFarmRunner,
-    ensure_codex_farm_pipelines_exist,
-    resolve_codex_farm_output_schema_path,
 )
 from .codex_exec_runner import (
     DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
@@ -189,76 +185,6 @@ class _DirectRecipeWorkerResult:
     proposals: tuple[ShardProposalV1, ...]
     failures: tuple[dict[str, Any], ...]
     stage_rows: tuple[dict[str, Any], ...]
-
-
-@dataclass
-class _LegacyRecipeRunnerAdapter:
-    legacy_runner: CodexFarmRunner
-    pipeline_id: str
-    call_index: int = 0
-
-    def run_structured_prompt(
-        self,
-        *,
-        prompt_text: str,
-        input_payload: Mapping[str, Any] | None,
-        working_dir: Path,
-        env: Mapping[str, str],
-        output_schema_path: Path | None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
-        timeout_seconds: int | None = None,
-    ):
-        del prompt_text
-        del output_schema_path
-        del timeout_seconds
-        self.call_index += 1
-        run_root = working_dir / ".legacy_recipe_runner" / f"call-{self.call_index:04d}"
-        in_dir = run_root / "in"
-        out_dir = run_root / "out"
-        in_dir.mkdir(parents=True, exist_ok=True)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        normalized_input = RecipeCorrectionShardInput.model_validate(
-            dict(input_payload or {})
-        ).model_dump(mode="json", by_alias=False)
-        input_path = in_dir / "payload.json"
-        input_path.write_text(
-            json.dumps(normalized_input, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        self.legacy_runner.run_pipeline(
-            self.pipeline_id,
-            in_dir,
-            out_dir,
-            env,
-            root_dir=Path(str(env.get("CODEX_FARM_ROOT") or working_dir)),
-            workspace_root=working_dir,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            runtime_mode=DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
-            process_worker_count=1,
-        )
-        output_path = next(iter(sorted(out_dir.glob("*.json"))), None)
-        response_text = output_path.read_text(encoding="utf-8") if output_path else "{}"
-        usage = {
-            "input_tokens": max(1, len(json.dumps(normalized_input, sort_keys=True)) // 4),
-            "cached_input_tokens": 0,
-            "output_tokens": max(1, len(response_text) // 4),
-            "reasoning_tokens": 0,
-        }
-        from .codex_exec_runner import CodexExecRunResult
-
-        return CodexExecRunResult(
-            command=["legacy-codex-farm-adapter"],
-            subprocess_exit_code=0,
-            output_schema_path=None,
-            prompt_text=json.dumps(normalized_input, indent=2, sort_keys=True),
-            response_text=response_text,
-            turn_failed_message=None,
-            events=(),
-            usage=usage,
-        )
-
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
     rendered = sanitize_for_filename(str(recipe_id).strip())
@@ -505,6 +431,7 @@ def _build_recipe_correction_audit(
             "block_count": len(correction_input.evidence_rows),
             "canonical_char_count": len(correction_input.canonical_text),
             "authority_notes": list(correction_input.authority_notes),
+            "payload": serialize_merged_recipe_repair_input(correction_input),
         },
         "output": {
             "title": correction_output.canonical_recipe.title,
@@ -521,6 +448,7 @@ def _build_recipe_correction_audit(
             "warning_count": len(correction_output.warnings),
             "ingredient_step_mapping": correction_output.ingredient_step_mapping,
             "ingredient_step_mapping_reason": correction_output.ingredient_step_mapping_reason,
+            "payload": _serialize_recipe_correction_output(correction_output),
         },
         "deterministic_final_assembly": {
             "corrected_candidate_title": corrected_candidate.name,
@@ -645,8 +573,6 @@ def _build_single_correction_manifest(
     *,
     run_settings: RunSettings,
     llm_raw_dir: Path,
-    correction_in_dir: Path,
-    correction_out_dir: Path,
     correction_audit_dir: Path,
     manifest_path: Path,
     states: list[_RecipeState],
@@ -704,7 +630,7 @@ def _build_single_correction_manifest(
             "recipe_workers_total": int(
                 (phase_runtime_summary or {}).get("worker_count") or 0
             ),
-            "recipe_correction_inputs": len(list(correction_in_dir.glob("*.json"))),
+            "recipe_correction_inputs": len(states),
             "recipe_correction_ok": sum(
                 1
                 for state in states
@@ -734,9 +660,13 @@ def _build_single_correction_manifest(
         },
         "output_schema_paths": dict(output_schema_paths),
         "paths": {
-            "recipe_correction_in": str(correction_in_dir),
-            "recipe_correction_out": str(correction_out_dir),
             "recipe_correction_audit_dir": str(correction_audit_dir),
+            "recipe_phase_input_dir": (
+                str(phase_runtime_dir / "inputs") if phase_runtime_dir else None
+            ),
+            "recipe_phase_proposals_dir": (
+                str(phase_runtime_dir / "proposals") if phase_runtime_dir else None
+            ),
             "recipe_manifest": str(manifest_path),
             "recipe_phase_runtime_dir": str(phase_runtime_dir) if phase_runtime_dir else None,
         },
@@ -1180,17 +1110,15 @@ def _run_single_correction_recipe_pipeline(
     run_settings: RunSettings,
     run_root: Path,
     workbook_slug: str,
-    runner: CodexExecRunner | CodexFarmRunner | None = None,
+    runner: CodexExecRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmApplyResult:
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
-    correction_stage_dir = llm_raw_dir / stage_artifact_stem("recipe_llm_correct_and_link")
-    correction_in_dir = correction_stage_dir / "in"
-    correction_out_dir = correction_stage_dir / "out"
     correction_audit_dir = llm_raw_dir / "recipe_correction_audit"
     phase_runtime_dir = llm_raw_dir / "recipe_phase_runtime"
-    for path in (correction_in_dir, correction_out_dir, correction_audit_dir, phase_runtime_dir):
+    phase_input_dir = phase_runtime_dir / "inputs"
+    for path in (correction_audit_dir, phase_runtime_dir, phase_input_dir):
         path.mkdir(parents=True, exist_ok=True)
 
     full_blocks_payload = _prepare_full_blocks(
@@ -1208,8 +1136,6 @@ def _run_single_correction_recipe_pipeline(
         manifest = _build_single_correction_manifest(
             run_settings=run_settings,
             llm_raw_dir=llm_raw_dir,
-            correction_in_dir=correction_in_dir,
-            correction_out_dir=correction_out_dir,
             correction_audit_dir=correction_audit_dir,
             manifest_path=manifest_path,
             states=[],
@@ -1248,33 +1174,14 @@ def _run_single_correction_recipe_pipeline(
     }
     if runner is None:
         raw_runner_cmd = str(run_settings.codex_farm_cmd or "").strip()
-        if Path(raw_runner_cmd).name == "fake-codex-farm.py":
-            codex_runner = _LegacyRecipeRunnerAdapter(
-                legacy_runner=SubprocessCodexFarmRunner(cmd=raw_runner_cmd),
-                pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
-            )
-        else:
-            codex_runner = SubprocessCodexExecRunner(cmd="codex exec")
-    elif hasattr(runner, "run_structured_prompt"):
-        codex_runner = runner
-    else:
-        codex_runner = _LegacyRecipeRunnerAdapter(
-            legacy_runner=runner,  # type: ignore[arg-type]
-            pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
+        direct_runner_cmd = (
+            raw_runner_cmd if Path(raw_runner_cmd).name == "fake-codex-farm.py" else "codex exec"
         )
+        codex_runner = SubprocessCodexExecRunner(cmd=direct_runner_cmd)
+    else:
+        codex_runner = runner
     output_schema_paths: dict[str, str] = {}
     resolved_output_schema_path = Path(pipeline_assets["output_schema_path"])
-    if runner is None:
-        ensure_codex_farm_pipelines_exist(
-            cmd=run_settings.codex_farm_cmd,
-            root_dir=pipeline_root,
-            pipeline_ids=(SINGLE_CORRECTION_STAGE_PIPELINE_ID,),
-            env=env,
-        )
-        resolved_output_schema_path = resolve_codex_farm_output_schema_path(
-            root_dir=pipeline_root,
-            pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
-        )
     output_schema_paths["recipe_correction"] = str(resolved_output_schema_path)
     codex_model = run_settings.codex_farm_model
     codex_reasoning_effort = _effort_override_value(
@@ -1301,10 +1208,6 @@ def _run_single_correction_recipe_pipeline(
         )
         correction_inputs_by_recipe_id[state.recipe_id] = prepared_input.correction_input
         prepared_inputs.append(prepared_input)
-        _write_json(
-            serialize_merged_recipe_repair_input(prepared_input.correction_input),
-            correction_in_dir / state.bundle_name,
-        )
 
     recipe_shards = _build_recipe_shard_plans(
         prepared_inputs=prepared_inputs,
@@ -1312,6 +1215,11 @@ def _run_single_correction_recipe_pipeline(
         workbook_slug=workbook_slug,
         source_hash=source_hash,
     )
+    for recipe_shard in recipe_shards:
+        _write_json(
+            serialize_recipe_correction_shard_input(recipe_shard.shard_input),
+            phase_input_dir / f"{recipe_shard.shard_id}.json",
+        )
     process_runs: dict[str, dict[str, Any]] = {}
     correction_started = time.perf_counter()
     phase_runtime_summary: dict[str, Any] = {}
@@ -1352,7 +1260,7 @@ def _run_single_correction_recipe_pipeline(
             },
             runtime_metadata={
                 "workbook_slug": workbook_slug,
-                "compatibility_recipe_artifacts_dir": str(correction_stage_dir),
+                "recipe_phase_input_dir": str(phase_input_dir),
             },
             pipeline_assets=pipeline_assets,
             progress_callback=progress_callback,
@@ -1442,11 +1350,6 @@ def _run_single_correction_recipe_pipeline(
                 state.errors.append("recipe missing from validated shard output.")
                 continue
 
-            _write_json(
-                _serialize_recipe_correction_output(correction_output),
-                correction_out_dir / state.bundle_name,
-            )
-
             corrected_candidate = _corrected_candidate_from_output(
                 state=state,
                 output=correction_output,
@@ -1527,8 +1430,6 @@ def _run_single_correction_recipe_pipeline(
     manifest = _build_single_correction_manifest(
         run_settings=run_settings,
         llm_raw_dir=llm_raw_dir,
-        correction_in_dir=correction_in_dir,
-        correction_out_dir=correction_out_dir,
         correction_audit_dir=correction_audit_dir,
         manifest_path=manifest_path,
         states=states,
@@ -1637,7 +1538,7 @@ def run_codex_farm_recipe_pipeline(
     run_settings: RunSettings,
     run_root: Path,
     workbook_slug: str,
-    runner: CodexExecRunner | CodexFarmRunner | None = None,
+    runner: CodexExecRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmApplyResult:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
@@ -39,10 +40,12 @@ def _progress_messages_as_text(messages: list[str]) -> list[str]:
 def _line_role_runner(
     label_by_atomic_index: dict[int, str] | None = None,
     *,
+    region_status_by_atomic_index: dict[int, str] | None = None,
     output_builder=None,
 ):
     def _default_builder(payload):
         rows = payload.get("rows") if isinstance(payload, dict) else []
+        phase_key = str(payload.get("phase_key") or "") if isinstance(payload, dict) else ""
         atomic_indices = [
             int(row.get("atomic_index"))
             for row in rows
@@ -58,6 +61,44 @@ def _line_role_runner(
             atomic_indices = [
                 int(value) for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
             ]
+        if phase_key == "recipe_region_gate":
+            gate_rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                atomic_index = int(row.get("atomic_index"))
+                explicit = (
+                    str((region_status_by_atomic_index or {}).get(atomic_index) or "").strip()
+                )
+                if explicit:
+                    region_status = explicit
+                else:
+                    span_hint = row.get("within_recipe_span")
+                    deterministic_label = str(row.get("deterministic_label") or "OTHER")
+                    if span_hint is True:
+                        region_status = "recipe"
+                    elif span_hint is False:
+                        region_status = "outside_recipe"
+                    elif deterministic_label in {
+                        "RECIPE_TITLE",
+                        "RECIPE_VARIANT",
+                        "HOWTO_SECTION",
+                        "INGREDIENT_LINE",
+                        "INSTRUCTION_LINE",
+                        "YIELD_LINE",
+                        "TIME_LINE",
+                        "RECIPE_NOTES",
+                    }:
+                        region_status = "recipe"
+                    else:
+                        region_status = "boundary_uncertain"
+                gate_rows.append(
+                    {
+                        "atomic_index": atomic_index,
+                        "region_status": region_status,
+                    }
+                )
+            return {"rows": gate_rows}
         return {
             "rows": [
                 {
@@ -1032,7 +1073,20 @@ def test_title_like_line_can_be_overridden_when_full_book_codex_reviews_it(tmp_p
         codex_runner=_line_role_runner({0: "OTHER"}),
         live_llm_allowed=True,
     )
-    assert (tmp_path / "line-role-pipeline" / "prompts" / "prompt_0001.txt").exists()
+    assert (
+        tmp_path
+        / "line-role-pipeline"
+        / "prompts"
+        / "recipe_region_gate"
+        / "recipe_region_gate_prompt_0001.txt"
+    ).exists()
+    assert (
+        tmp_path
+        / "line-role-pipeline"
+        / "prompts"
+        / "recipe_structure_label"
+        / "recipe_structure_label_prompt_0001.txt"
+    ).exists()
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "codex"
@@ -1147,7 +1201,10 @@ def test_codex_mode_allows_outside_span_title_override() -> None:
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-shard-v1"),
-        codex_runner=_line_role_runner({0: "OTHER", 1: "INGREDIENT_LINE"}),
+        codex_runner=_line_role_runner(
+            {0: "OTHER", 1: "INGREDIENT_LINE"},
+            region_status_by_atomic_index={0: "recipe", 1: "recipe"},
+        ),
         live_llm_allowed=True,
     )
     assert len(predictions) == 2
@@ -1323,7 +1380,13 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "deterministic_unavailable" in predictions[0].reason_tags
-    parse_errors_path = tmp_path / "line-role-pipeline" / "prompts" / "parse_errors.json"
+    parse_errors_path = (
+        tmp_path
+        / "line-role-pipeline"
+        / "prompts"
+        / "recipe_region_gate"
+        / "parse_errors.json"
+    )
     payload = json.loads(parse_errors_path.read_text(encoding="utf-8"))
     assert payload["parse_error_count"] == 1
     assert payload["parse_error_present"] is True
@@ -1347,13 +1410,12 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
         [candidate],
         allowed_labels=["OTHER", "YIELD_LINE", "INGREDIENT_LINE"],
         escalation_reasons_by_atomic_index={0: ["deterministic_unresolved"]},
+        region_status_by_atomic_index={0: "recipe"},
     )
-    assert "schema.org extraction" in prompt
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
-    assert "Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status" in prompt
-    assert "No prior recipe-span authority is provided for this batch." in prompt
+    assert "Region codes: R=recipe, O=outside_recipe, B=boundary_uncertain" in prompt
     assert "Grounding windows:" in prompt
     assert "ctx:0|prev=_|line=SERVES 4|next=2 tablespoons olive oil" in prompt
     assert "0|L0|R|yield,needs_review|SERVES 4" in prompt
@@ -1389,10 +1451,10 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
         candidates,
         prompt_format="compact_v1",
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+        region_status_by_atomic_index={0: "recipe", 1: "recipe"},
     )
-    assert "atomic_index|label_code|span_code|hint_codes|current_line" in prompt
-    assert prompt.count("atomic_index|label_code|span_code|hint_codes|current_line") == 1
-    assert "No prior recipe-span authority is provided for this batch." in prompt
+    assert "atomic_index|label_code|region_code|hint_codes|current_line" in prompt
+    assert prompt.count("atomic_index|label_code|region_code|hint_codes|current_line") == 1
     assert "ordered contiguous slice of the book" in prompt
     assert "0|L1|R|yield|SERVES 4" in prompt
     assert "1|L1|R|ingredient|2 tablespoons olive oil" in prompt
@@ -1400,6 +1462,7 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+        region_status_by_atomic_index={0: "recipe", 1: "recipe"},
     )
     assert compact_rows.splitlines() == [
         "0|L1|R|yield|SERVES 4",
@@ -1436,6 +1499,7 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+        region_status_by_atomic_index={0: "outside_recipe", 1: "recipe"},
         escalation_reasons_by_atomic_index={
             0: ["outside_span_structured_label"],
             1: ["deterministic_unresolved"],
@@ -1443,7 +1507,7 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
     ).splitlines()
 
     assert compact_rows[0] == (
-        "0|L1|N|outside,outside_structure|Praise for SALT FAT ACID HEAT"
+        "0|L1|O|outside,outside_structure|Praise for SALT FAT ACID HEAT"
     )
     assert compact_rows[1] == "1|L1|R|yield,needs_review|SERVES 4"
 
@@ -1591,7 +1655,7 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
     )
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "codex"
+    assert predictions[0].decided_by == "rule"
     assert predictions[0].escalation_reasons == []
 
 
@@ -1628,7 +1692,7 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
     )
 
     assert plan["enabled"] is True
-    assert plan["planned_shard_count"] == 1
+    assert plan["planned_shard_count"] == 2
     assert plan["planned_candidate_count"] == 2
     assert plan["line_role_shard_target_lines"] == 10
     assert plan["shards"][0]["atomic_indices"] == [0, 1]
@@ -1637,6 +1701,10 @@ def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() ->
     assert plan["shards"][0]["rows"][0]["escalation_reasons"] == [
         "deterministic_unresolved",
         "fallback_decision",
+    ]
+    assert [phase["phase_key"] for phase in plan["internal_phases"]] == [
+        "recipe_region_gate",
+        "recipe_structure_label",
     ]
 
 
@@ -1699,10 +1767,13 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
         codex_runner=runner,
         live_llm_allowed=True,
     )
-    assert len(runner.calls) == 1
-    assert runner.calls[0]["output_schema_path"].endswith(
-        "line-role.canonical.v1.output.schema.json"
-    )
+    assert len(runner.calls) == 2
+    assert {
+        Path(call["output_schema_path"]).name for call in runner.calls
+    } == {
+        "line-role.recipe-region-gate.v1.output.schema.json",
+        "line-role.recipe-structure-label.v1.output.schema.json",
+    }
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
         candidates,
@@ -1772,16 +1843,19 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
             encoding="utf-8"
         )
     )
-    assert telemetry_payload["summary"]["batch_count"] == 1
-    assert telemetry_payload["summary"]["attempt_count"] == 1
-    assert telemetry_payload["summary"]["attempts_with_usage"] == 1
-    assert telemetry_payload["summary"]["tokens_input"] == 20
-    assert telemetry_payload["summary"]["tokens_cached_input"] == 4
-    assert telemetry_payload["summary"]["tokens_output"] == 5
-    assert telemetry_payload["summary"]["tokens_reasoning"] == 2
-    assert telemetry_payload["summary"]["tokens_total"] == 31
-    assert telemetry_payload["batches"][0]["shard_id"].startswith("line-role-shard-")
-    assert telemetry_payload["batches"][0]["attempts"][0]["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
+    assert telemetry_payload["summary"]["batch_count"] == 2
+    assert telemetry_payload["summary"]["attempt_count"] == 2
+    assert telemetry_payload["summary"]["attempts_with_usage"] == 2
+    assert telemetry_payload["summary"]["tokens_input"] == 40
+    assert telemetry_payload["summary"]["tokens_cached_input"] == 8
+    assert telemetry_payload["summary"]["tokens_output"] == 10
+    assert telemetry_payload["summary"]["tokens_reasoning"] == 4
+    assert telemetry_payload["summary"]["tokens_total"] == 62
+    assert [phase["phase_key"] for phase in telemetry_payload["phases"]] == [
+        "recipe_region_gate",
+        "recipe_structure_label",
+    ]
+    assert telemetry_payload["phases"][0]["batches"][0]["attempts"][0]["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
@@ -1810,10 +1884,13 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
         codex_runner=runner,
         live_llm_allowed=True,
     )
-    assert len(runner.calls) == 1
-    assert runner.calls[0]["output_schema_path"].endswith(
-        "line-role.canonical.v1.output.schema.json"
-    )
+    assert len(runner.calls) == 2
+    assert {
+        Path(call["output_schema_path"]).name for call in runner.calls
+    } == {
+        "line-role.recipe-region-gate.v1.output.schema.json",
+        "line-role.recipe-structure-label.v1.output.schema.json",
+    }
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
         candidates,
@@ -1898,10 +1975,10 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
 
     prompt_dir = tmp_path / "line-role-pipeline" / "prompts"
     dedup_lines = (
-        prompt_dir / "codex_prompt_log.dedup.txt"
+        prompt_dir / "recipe_structure_label" / "codex_prompt_log.dedup.txt"
     ).read_text(encoding="utf-8").splitlines()
     assert len(dedup_lines) == 4
-    assert all("\tprompt_" in line for line in dedup_lines)
+    assert all("\trecipe_structure_label_prompt_" in line for line in dedup_lines)
 
 
 def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
@@ -1934,15 +2011,46 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     )
 
     assert predictions[0].label == "OTHER"
-    prompt_text = (tmp_path / "line-role-pipeline" / "prompts" / "prompt_0001.txt").read_text(
-        encoding="utf-8"
+    prompt_text = (
+        tmp_path
+        / "line-role-pipeline"
+        / "prompts"
+        / "recipe_structure_label"
+        / "recipe_structure_label_prompt_0001.txt"
+    ).read_text(encoding="utf-8")
+    assert "TASK BOUNDARY" in prompt_text
+    assert "Read the shard JSON already placed in the worker folder" in prompt_text
+    assert "Required output rows:" in prompt_text
+    assert "Ambiguous line 0" not in prompt_text
+    worker_prompt_text = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "recipe_structure_label"
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "line-role-recipe-structure-label-0001-a000000-a000000"
+        / "prompt.txt"
+    ).read_text(encoding="utf-8")
+    assert "Read the shard JSON already placed in the worker folder" in worker_prompt_text
+    assert "Required output rows:" in worker_prompt_text
+    assert "Ambiguous line 0" not in worker_prompt_text
+    input_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "recipe_structure_label"
+            / "workers"
+            / "worker-001"
+            / "in"
+            / "line-role-recipe-structure-label-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
     )
-    assert "atomic_index|label_code|span_code|hint_codes|current_line" in prompt_text
-    assert "Label codes:" in prompt_text
-    assert "No prior recipe-span authority is provided for this batch." in prompt_text
-    assert "ordered contiguous slice of the book" in prompt_text
-    assert '["Before", "After"]' not in prompt_text
-    assert "Ambiguous line 0" in prompt_text
+    assert input_payload["rows"][0]["current_line"] == "Ambiguous line 0"
+    assert input_payload["rows"][0]["prev_text"] == "Before"
+    assert input_payload["rows"][0]["next_text"] == "After"
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
@@ -2037,7 +2145,11 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
     )
     phase_manifest = json.loads(
         (
-            tmp_path / "line-role-pipeline" / "runtime" / "phase_manifest.json"
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "recipe_region_gate"
+            / "phase_manifest.json"
         ).read_text(encoding="utf-8")
     )
     assert phase_manifest["worker_count"] == 3

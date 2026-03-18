@@ -513,11 +513,11 @@ def _resolve_stage_in_out_dirs(
             paths_payload = raw_paths
 
     input_key_map = {
-        "recipe_llm_correct_and_link": "recipe_correction_in",
+        "recipe_llm_correct_and_link": "recipe_phase_input_dir",
         "extract_knowledge_optional": "knowledge_in_dir",
     }
     output_key_map = {
-        "recipe_llm_correct_and_link": "recipe_correction_out",
+        "recipe_llm_correct_and_link": "recipe_phase_proposals_dir",
         "extract_knowledge_optional": "proposals_dir",
     }
 
@@ -1520,10 +1520,16 @@ def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
                 if str(item).strip()
             ],
             "worker_id": worker_by_shard_id.get(shard_id),
+            "input_file": None,
             "metadata": dict(row.get("metadata") or {})
             if isinstance(row.get("metadata"), dict)
             else {},
         }
+        worker_id = normalized.get("worker_id")
+        if worker_id:
+            input_file = stage_root / "workers" / str(worker_id) / "in" / f"{shard_id}.json"
+            if input_file.exists() and input_file.is_file():
+                normalized["input_file"] = str(input_file)
         shard_by_id[shard_id] = normalized
         for owned_id in normalized["owned_ids"]:
             shard_by_owned_id[owned_id] = normalized
@@ -1561,6 +1567,7 @@ def _resolve_runtime_context(
         "runtime_shard_id": shard_row.get("shard_id"),
         "runtime_worker_id": shard_row.get("worker_id"),
         "runtime_owned_ids": list(shard_row.get("owned_ids") or []),
+        "request_input_file": shard_row.get("input_file"),
     }
 
 
@@ -1663,33 +1670,22 @@ def _build_line_role_prompt_rows(
     prompts_dir.mkdir(parents=True, exist_ok=True)
     export_dir = prompts_dir / "line-role-pipeline"
     export_dir.mkdir(parents=True, exist_ok=True)
-    runtime_index = _load_phase_runtime_index(
-        stage_run_root / "line-role-pipeline" / "runtime"
-    )
-
     telemetry_summary_path = stage_run_root / "line-role-pipeline" / "telemetry_summary.json"
     telemetry_summary = _load_json_dict(telemetry_summary_path) or {}
-    telemetry_batches = telemetry_summary.get("batches")
-    batches_by_prompt_index: dict[int, dict[str, Any]] = {}
-    if isinstance(telemetry_batches, list):
-        for batch in telemetry_batches:
-            if not isinstance(batch, dict):
+    phases = telemetry_summary.get("phases")
+    phases_by_key: dict[str, dict[str, Any]] = {}
+    if isinstance(phases, list):
+        for phase_payload in phases:
+            if not isinstance(phase_payload, dict):
                 continue
-            prompt_index = _coerce_int(batch.get("prompt_index"))
-            if prompt_index is not None:
-                batches_by_prompt_index[prompt_index] = batch
+            phase_key = _clean_text(phase_payload.get("phase_key"))
+            if phase_key is not None:
+                phases_by_key[phase_key] = phase_payload
     if telemetry_summary_path.exists() and telemetry_summary_path.is_file():
         _copy_prompt_artifact_file(
             source=telemetry_summary_path,
             target=export_dir / "telemetry_summary.json",
         )
-
-    for source_path in sorted(stage_prompt_dir.iterdir(), key=lambda path: path.name):
-        if source_path.is_file():
-            _copy_prompt_artifact_file(
-                source=source_path,
-                target=export_dir / source_path.name,
-            )
 
     pred_run_manifest = _load_json_dict(pred_run / "run_manifest.json") or {}
     pred_run_source = (
@@ -1702,222 +1698,258 @@ def _build_line_role_prompt_rows(
         source_file = _clean_text(pred_run_source.get("path"))
 
     rows: list[dict[str, Any]] = []
-    detail_lines: list[str] = [
-        "=== CATEGORY line_role (line_role / Line Role Labeling) | stage_dir: line-role-pipeline ===",
-        f"source_dir: {stage_prompt_dir}",
-        "",
-    ]
-    for prompt_file in sorted(stage_prompt_dir.glob("prompt_*.txt"), key=lambda path: path.name):
-        prompt_index = _parse_prompt_index_from_name(prompt_file.name)
-        if prompt_index is None:
-            continue
-        response_file = stage_prompt_dir / f"response_{prompt_index:04d}.txt"
-        parsed_file = stage_prompt_dir / f"parsed_{prompt_index:04d}.json"
-        exported_prompt_file = export_dir / prompt_file.name
-        exported_response_file = export_dir / response_file.name
-        exported_parsed_file = export_dir / parsed_file.name
-
-        prompt_text = _safe_read_text(prompt_file)
-        response_text = _safe_read_text(response_file) if response_file.exists() else ""
-        parsed_response = _load_json_value(parsed_file)
-        if parsed_response is None:
-            parsed_response = _parse_json_text(response_text)
-
-        detail_lines.append(f"INPUT line_role => {prompt_file.name}")
-        detail_lines.append("-" * 80)
-        detail_lines.append(prompt_text)
-        detail_lines.append("-" * 80)
-        detail_lines.append("")
-        if response_file.exists():
-            detail_lines.append(f"OUTPUT line_role => {response_file.name}")
-            detail_lines.append("-" * 80)
-            detail_lines.append(response_text)
-            detail_lines.append("-" * 80)
-            detail_lines.append("")
-        if parsed_file.exists():
-            detail_lines.append(f"PARSED line_role => {parsed_file.name}")
-            detail_lines.append("-" * 80)
-            detail_lines.append(_safe_read_text(parsed_file))
-            detail_lines.append("-" * 80)
-            detail_lines.append("")
-
-        batch_payload = batches_by_prompt_index.get(prompt_index, {})
-        attempts = batch_payload.get("attempts")
-        attempt_payload = attempts[0] if isinstance(attempts, list) and attempts else {}
-        process_run_payload = (
-            attempt_payload.get("process_run")
-            if isinstance(attempt_payload, dict)
-            else {}
-        )
-        if not isinstance(process_run_payload, dict):
-            process_run_payload = {}
-        process_payload = process_run_payload.get("process_payload")
-        if not isinstance(process_payload, dict):
-            process_payload = {}
-        autotune_report = process_run_payload.get("autotune_report")
-        if not isinstance(autotune_report, dict):
-            autotune_report = {}
-        telemetry_report = process_payload.get("telemetry_report")
-        if not isinstance(telemetry_report, dict):
-            telemetry_report = {}
-
-        pipeline_id = (
-            _clean_text(process_run_payload.get("pipeline_id"))
-            or _clean_text(process_payload.get("pipeline_id"))
-            or _clean_text(telemetry_summary.get("codex_farm_pipeline_id"))
-            or "line-role.canonical.v1"
-        )
-        model_value = _clean_text(process_payload.get("codex_model"))
-        reasoning_effort_value = _clean_text(process_payload.get("codex_reasoning_effort"))
-        output_schema_path = (
-            _clean_text(process_run_payload.get("output_schema_path"))
-            or _clean_text(process_payload.get("output_schema_path"))
-        )
-        response_format_payload: dict[str, Any] | None = None
-        if output_schema_path is not None:
-            output_schema_payload = _load_json_dict(Path(output_schema_path))
-            if isinstance(output_schema_payload, dict):
-                response_format_payload = {
-                    "type": "json_schema",
-                    "json_schema": output_schema_payload,
-                }
-
-        usage_payload = (
-            attempt_payload.get("usage")
-            if isinstance(attempt_payload, dict)
-            and isinstance(attempt_payload.get("usage"), dict)
-            else {}
-        )
-        if not isinstance(usage_payload, dict):
-            usage_payload = {}
-        process_run_id = _clean_text(process_payload.get("run_id"))
-        timestamp_utc = (
-            _clean_text(autotune_report.get("generated_at_utc"))
-            or _clean_text(telemetry_report.get("generated_at_utc"))
-            or _timestamp_utc_for_path(prompt_file)
-        )
-        call_id = f"line_role_prompt_{prompt_index:04d}"
-        request_messages = [{"role": "user", "content": prompt_text}]
-        runtime_context = _resolve_runtime_context(
-            runtime_index=runtime_index,
-            prompt_index=prompt_index,
-        )
-        row_payload = {
-            "run_id": eval_output_dir.name,
-            "schema_version": PROMPT_CALL_RECORD_SCHEMA_VERSION,
-            "call_id": call_id,
-            "timestamp_utc": timestamp_utc,
-            "recipe_id": f"line_role_batch_{prompt_index:04d}",
-            "source_file": source_file,
-            "pipeline_id": pipeline_id,
-            "stage_key": "line_role",
-            "stage_heading_key": "line_role",
-            "stage_label": "Line Role Labeling",
-            "stage_artifact_stem": "line_role",
-            "stage_dir_name": "line-role-pipeline",
+    detail_lines: list[str] = []
+    phase_specs = [
+        {
+            "phase_key": "recipe_region_gate",
+            "prompt_stem": "recipe_region_gate_prompt",
+            "stage_key": "line_role_recipe_region_gate",
+            "stage_label": "Line Role Recipe Region Gate",
+            "stage_artifact_stem": "recipe_region_gate",
             "stage_order": 2,
-            "process_run_id": process_run_id,
-            "model": model_value,
-            "request_payload_source": "line_role_saved_prompt_text",
-            "request_messages": request_messages,
-            "system_prompt": None,
-            "developer_prompt": None,
-            "user_prompt": prompt_text,
-            "rendered_prompt_text": prompt_text,
-            "rendered_messages": request_messages,
-            "prompt_templates": {
-                "prompt_template_text": None,
-                "prompt_template_path": None,
-            },
-            "template_vars": {
-                "INPUT_PATH": str(exported_prompt_file),
-                "INPUT_TEXT": prompt_text,
-            },
-            "inserted_context_blocks": [],
-            "request": {
-                "messages": request_messages,
+        },
+        {
+            "phase_key": "recipe_structure_label",
+            "prompt_stem": "recipe_structure_label_prompt",
+            "stage_key": "line_role_recipe_structure_label",
+            "stage_label": "Line Role Recipe Structure Label",
+            "stage_artifact_stem": "recipe_structure_label",
+            "stage_order": 3,
+        },
+    ]
+
+    for spec in phase_specs:
+        phase_key = spec["phase_key"]
+        phase_prompt_dir = stage_prompt_dir / phase_key
+        if not phase_prompt_dir.exists() or not phase_prompt_dir.is_dir():
+            continue
+        phase_export_dir = export_dir / phase_key
+        phase_export_dir.mkdir(parents=True, exist_ok=True)
+        for source_path in sorted(phase_prompt_dir.iterdir(), key=lambda path: path.name):
+            if source_path.is_file():
+                _copy_prompt_artifact_file(
+                    source=source_path,
+                    target=phase_export_dir / source_path.name,
+                )
+
+        runtime_index = _load_phase_runtime_index(
+            stage_run_root / "line-role-pipeline" / "runtime" / phase_key
+        )
+        phase_payload = phases_by_key.get(phase_key) or {}
+        phase_batches = phase_payload.get("batches")
+        batches_by_prompt_index: dict[int, dict[str, Any]] = {}
+        if isinstance(phase_batches, list):
+            for batch in phase_batches:
+                if not isinstance(batch, dict):
+                    continue
+                prompt_index = _coerce_int(batch.get("prompt_index"))
+                if prompt_index is not None:
+                    batches_by_prompt_index[prompt_index] = batch
+
+        detail_lines.extend(
+            [
+                f"=== CATEGORY {spec['stage_key']} ({spec['stage_label']}) | stage_dir: line-role-pipeline/{phase_key} ===",
+                f"source_dir: {phase_prompt_dir}",
+                "",
+            ]
+        )
+
+        prompt_glob = f"{spec['prompt_stem']}_*.txt"
+        for prompt_file in sorted(phase_prompt_dir.glob(prompt_glob), key=lambda path: path.name):
+            prompt_index = _parse_prompt_index_from_name(prompt_file.name)
+            if prompt_index is None:
+                continue
+            response_file = phase_prompt_dir / f"{spec['prompt_stem']}_response_{prompt_index:04d}.txt"
+            parsed_file = phase_prompt_dir / f"{spec['prompt_stem']}_parsed_{prompt_index:04d}.json"
+            exported_prompt_file = phase_export_dir / prompt_file.name
+            exported_response_file = phase_export_dir / response_file.name
+            exported_parsed_file = phase_export_dir / parsed_file.name
+
+            prompt_text = _safe_read_text(prompt_file)
+            response_text = _safe_read_text(response_file) if response_file.exists() else ""
+            parsed_response = _load_json_value(parsed_file)
+            if parsed_response is None:
+                parsed_response = _parse_json_text(response_text)
+
+            runtime_context = _resolve_runtime_context(
+                runtime_index=runtime_index,
+                prompt_index=prompt_index,
+            )
+            input_file = (
+                Path(str(runtime_context.get("request_input_file")))
+                if _clean_text(runtime_context.get("request_input_file")) is not None
+                else None
+            )
+            input_payload = _load_json_value(input_file) if input_file is not None else None
+            input_text = _safe_read_text(input_file) if input_file is not None else ""
+            exported_input_file = None
+            if input_file is not None and input_file.exists():
+                exported_input_file = phase_export_dir / input_file.name
+                _copy_prompt_artifact_file(source=input_file, target=exported_input_file)
+
+            detail_lines.append(f"INPUT {spec['stage_key']} => {prompt_file.name}")
+            if exported_input_file is not None:
+                detail_lines.append(f"task_file: {exported_input_file}")
+            detail_lines.append("-" * 80)
+            detail_lines.append(prompt_text)
+            detail_lines.append("-" * 80)
+            detail_lines.append("")
+            if response_file.exists():
+                detail_lines.append(f"OUTPUT {spec['stage_key']} => {response_file.name}")
+                detail_lines.append("-" * 80)
+                detail_lines.append(response_text)
+                detail_lines.append("-" * 80)
+                detail_lines.append("")
+            if parsed_file.exists():
+                detail_lines.append(f"PARSED {spec['stage_key']} => {parsed_file.name}")
+                detail_lines.append("-" * 80)
+                detail_lines.append(_safe_read_text(parsed_file))
+                detail_lines.append("-" * 80)
+                detail_lines.append("")
+
+            batch_payload = batches_by_prompt_index.get(prompt_index, {})
+            attempts = batch_payload.get("attempts")
+            attempt_payload = attempts[0] if isinstance(attempts, list) and attempts else {}
+            process_run_payload = (
+                attempt_payload.get("process_run")
+                if isinstance(attempt_payload, dict)
+                else {}
+            )
+            if not isinstance(process_run_payload, dict):
+                process_run_payload = {}
+            process_payload = process_run_payload.get("process_payload")
+            if not isinstance(process_payload, dict):
+                process_payload = {}
+            pipeline_id = (
+                _clean_text(process_run_payload.get("pipeline_id"))
+                or _clean_text(process_payload.get("pipeline_id"))
+                or _clean_text((runtime_index or {}).get("pipeline_id"))
+                or _clean_text(telemetry_summary.get("codex_farm_pipeline_id"))
+                or "line-role.canonical.v1"
+            )
+            model_value = _clean_text(process_payload.get("codex_model"))
+            reasoning_effort_value = _clean_text(process_payload.get("codex_reasoning_effort"))
+            output_schema_path = (
+                _clean_text(process_run_payload.get("output_schema_path"))
+                or _clean_text(process_payload.get("output_schema_path"))
+            )
+            response_format_payload: dict[str, Any] | None = None
+            if output_schema_path is not None:
+                output_schema_payload = _load_json_dict(Path(output_schema_path))
+                if isinstance(output_schema_payload, dict):
+                    response_format_payload = {
+                        "type": "json_schema",
+                        "json_schema": output_schema_payload,
+                    }
+
+            usage_payload = (
+                attempt_payload.get("usage")
+                if isinstance(attempt_payload, dict)
+                and isinstance(attempt_payload.get("usage"), dict)
+                else {}
+            )
+            if not isinstance(usage_payload, dict):
+                usage_payload = {}
+            timestamp_utc = _timestamp_utc_for_path(prompt_file)
+            call_id = f"{spec['prompt_stem']}_{prompt_index:04d}"
+            request_messages = [{"role": "user", "content": prompt_text}]
+            row_payload = {
+                "run_id": eval_output_dir.name,
+                "schema_version": PROMPT_CALL_RECORD_SCHEMA_VERSION,
+                "call_id": call_id,
+                "timestamp_utc": timestamp_utc,
+                "recipe_id": f"{phase_key}_{prompt_index:04d}",
+                "source_file": source_file,
+                "pipeline_id": pipeline_id,
+                "stage_key": spec["stage_key"],
+                "stage_heading_key": spec["stage_key"],
+                "stage_label": spec["stage_label"],
+                "stage_artifact_stem": spec["stage_artifact_stem"],
+                "stage_dir_name": "line-role-pipeline",
+                "stage_order": spec["stage_order"],
+                "process_run_id": _clean_text(process_payload.get("run_id")),
+                "model": model_value,
+                "prompt_input_mode": "path",
+                "request_payload_source": "line_role_saved_prompt_text",
+                "request_messages": request_messages,
+                "system_prompt": None,
+                "developer_prompt": None,
+                "user_prompt": prompt_text,
+                "rendered_prompt_text": prompt_text,
+                "rendered_messages": request_messages,
+                "prompt_templates": {
+                    "prompt_template_text": None,
+                    "prompt_template_path": None,
+                },
+                "template_vars": {
+                    "INPUT_PATH": str(exported_input_file) if exported_input_file is not None else None,
+                    "INPUT_TEXT": input_text or None,
+                },
+                "inserted_context_blocks": [],
+                "request": {
+                    "messages": request_messages,
+                    "tools": [],
+                    "response_format": response_format_payload,
+                    "model": model_value,
+                    "reasoning_effort": reasoning_effort_value,
+                    "temperature": None,
+                    "top_p": None,
+                    "max_output_tokens": None,
+                    "seed": None,
+                    "pipeline_id": pipeline_id,
+                    "sandbox": None,
+                    "ask_for_approval": None,
+                    "web_search": None,
+                    "output_schema_path": output_schema_path,
+                },
+                "request_input_payload": input_payload,
+                "request_input_text": input_text or None,
+                "task_prompt_text": input_text or None,
                 "tools": [],
                 "response_format": response_format_payload,
-                "model": model_value,
-                "reasoning_effort": reasoning_effort_value,
-                "temperature": None,
-                "top_p": None,
-                "max_output_tokens": None,
-                "seed": None,
-                "pipeline_id": pipeline_id,
-                "sandbox": None,
-                "ask_for_approval": None,
-                "web_search": None,
-                "output_schema_path": output_schema_path,
-            },
-            "request_input_payload": {"prompt": prompt_text},
-            "tools": [],
-            "response_format": response_format_payload,
-            "decoding_params": {
-                "temperature": None,
-                "top_p": None,
-                "max_output_tokens": None,
-                "seed": None,
-                "reasoning_effort": reasoning_effort_value,
-            },
-            "raw_response": {
-                "output_text": response_text or None,
-                "output_file": (
-                    str(exported_response_file)
-                    if response_file.exists()
+                "decoding_params": {
+                    "temperature": None,
+                    "top_p": None,
+                    "max_output_tokens": None,
+                    "seed": None,
+                    "reasoning_effort": reasoning_effort_value,
+                },
+                "raw_response": {
+                    "output_text": response_text or None,
+                    "output_file": str(exported_response_file) if response_file.exists() else None,
+                },
+                "parsed_response": parsed_response,
+                "request_input_file": (
+                    str(exported_input_file)
+                    if exported_input_file is not None
                     else None
                 ),
-            },
-            "parsed_response": parsed_response,
-            "request_input_file": str(exported_prompt_file),
-            "request_telemetry": {
-                "status": _clean_text(process_payload.get("status")),
-                "attempt_index": _coerce_int(attempt_payload.get("attempt_index")),
-                "duration_ms": _coerce_int(
-                    process_payload.get("telemetry_report", {})
-                    .get("summary", {})
-                    .get("duration_total_ms")
-                )
-                if isinstance(process_payload.get("telemetry_report"), dict)
-                else None,
-                "prompt_index": prompt_index,
-                "candidate_count": _coerce_int(batch_payload.get("candidate_count")),
-                "requested_atomic_indices": list(
-                    batch_payload.get("requested_atomic_indices") or []
-                ),
-                "parse_error": bool(batch_payload.get("parse_error")),
-                "codex_failure": _clean_text(batch_payload.get("codex_failure")),
-                "run_id": process_run_id,
-                "returncode": _coerce_int(attempt_payload.get("returncode")),
-                "response_present": _coerce_bool(attempt_payload.get("response_present")),
-                "turn_failed_message": _clean_text(
-                    attempt_payload.get("turn_failed_message")
-                ),
-                "tokens_input": _coerce_int(usage_payload.get("tokens_input")),
-                "tokens_cached_input": _coerce_int(
-                    usage_payload.get("tokens_cached_input")
-                ),
-                "tokens_output": _coerce_int(usage_payload.get("tokens_output")),
-                "tokens_reasoning": _coerce_int(usage_payload.get("tokens_reasoning")),
-                "tokens_total": _coerce_int(usage_payload.get("tokens_total")),
-                "trace_path": None,
-                "trace_resolved_path": None,
-                "trace_action_count": None,
-                "trace_action_types": [],
-                "trace_reasoning_count": None,
-                "trace_reasoning_types": [],
-                "worker_id": runtime_context.get("runtime_worker_id"),
-                "shard_id": runtime_context.get("runtime_shard_id"),
-                "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
-            },
-            "runtime_shard_id": runtime_context.get("runtime_shard_id"),
-            "runtime_worker_id": runtime_context.get("runtime_worker_id"),
-            "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
-            "thinking_trace": None,
-        }
-        if parsed_file.exists():
-            row_payload["parsed_response_file"] = str(exported_parsed_file)
-        rows.append(row_payload)
+                "request_telemetry": {
+                    "status": _clean_text(process_payload.get("status")),
+                    "attempt_index": _coerce_int(attempt_payload.get("attempt_index")),
+                    "prompt_index": prompt_index,
+                    "candidate_count": _coerce_int(batch_payload.get("candidate_count")),
+                    "requested_atomic_indices": list(batch_payload.get("requested_atomic_indices") or []),
+                    "returncode": _coerce_int(attempt_payload.get("returncode")),
+                    "response_present": _coerce_bool(attempt_payload.get("response_present")),
+                    "turn_failed_message": _clean_text(attempt_payload.get("turn_failed_message")),
+                    "tokens_input": _coerce_int(usage_payload.get("tokens_input")),
+                    "tokens_cached_input": _coerce_int(usage_payload.get("tokens_cached_input")),
+                    "tokens_output": _coerce_int(usage_payload.get("tokens_output")),
+                    "tokens_reasoning": _coerce_int(usage_payload.get("tokens_reasoning")),
+                    "tokens_total": _coerce_int(usage_payload.get("tokens_total")),
+                    "worker_id": runtime_context.get("runtime_worker_id"),
+                    "shard_id": runtime_context.get("runtime_shard_id"),
+                    "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
+                },
+                "runtime_shard_id": runtime_context.get("runtime_shard_id"),
+                "runtime_worker_id": runtime_context.get("runtime_worker_id"),
+                "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
+                "thinking_trace": None,
+            }
+            if parsed_file.exists():
+                row_payload["parsed_response_file"] = str(exported_parsed_file)
+            rows.append(row_payload)
 
     if not rows:
         return [], None
@@ -1951,7 +1983,12 @@ def _append_line_role_prompt_artifacts(
     existing_rows = [
         row
         for row in _load_prompt_rows(full_prompt_log_path)
-        if str(row.get("stage_key") or "") != "line_role"
+        if str(row.get("stage_key") or "")
+        not in {
+            "line_role",
+            "line_role_recipe_region_gate",
+            "line_role_recipe_structure_label",
+        }
     ]
     merged_rows = sorted(existing_rows + line_role_rows, key=_prompt_row_sort_key)
     full_prompt_log_path.write_text(
@@ -1964,6 +2001,7 @@ def _append_line_role_prompt_artifacts(
     section_lines: list[str] = []
     for row in line_role_rows:
         call_id = str(row.get("call_id") or "")
+        stage_key = str(row.get("stage_key") or "line_role")
         request_input_file = _clean_text(row.get("request_input_file"))
         raw_response = row.get("raw_response")
         response_file = (
@@ -1977,7 +2015,7 @@ def _append_line_role_prompt_artifacts(
             if isinstance(raw_response, dict)
             else ""
         )
-        section_lines.append(f"INPUT line_role => {call_id}")
+        section_lines.append(f"INPUT {stage_key} => {call_id}")
         if request_input_file is not None:
             section_lines.append(f"path: {request_input_file}")
         section_lines.append("-" * 80)
@@ -1985,7 +2023,7 @@ def _append_line_role_prompt_artifacts(
         section_lines.append("-" * 80)
         section_lines.append("")
         if response_text:
-            section_lines.append(f"OUTPUT line_role => {call_id}")
+            section_lines.append(f"OUTPUT {stage_key} => {call_id}")
             if response_file is not None:
                 section_lines.append(f"path: {response_file}")
             section_lines.append("-" * 80)

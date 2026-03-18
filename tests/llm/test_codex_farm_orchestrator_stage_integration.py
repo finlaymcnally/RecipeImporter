@@ -10,7 +10,7 @@ from cookimport.llm.codex_farm_orchestrator import (
     SINGLE_CORRECTION_STAGE_PIPELINE_ID,
     run_codex_farm_recipe_pipeline,
 )
-from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
+from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 
 
 def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
@@ -64,35 +64,33 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
     for name in ("pipelines", "prompts", "schemas"):
         (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
 
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            SINGLE_CORRECTION_STAGE_PIPELINE_ID: lambda payload: {
-                "bundle_version": "1",
-                "shard_id": payload.get("shard_id"),
-                "recipes": [
-                    {
-                        "bundle_version": "1",
-                        "recipe_id": payload["recipes"][0]["recipe_id"],
-                        "canonical_recipe": {
-                            "title": "Toast",
-                            "ingredients": ["1 slice bread"],
-                            "steps": ["Toast the bread."],
-                            "description": None,
-                            "recipeYield": None,
-                        },
-                        "ingredient_step_mapping": [],
-                        "ingredient_step_mapping_reason": "not_needed_single_step",
-                        "selected_tags": [
-                            {
-                                "category": "meal",
-                                "label": "breakfast",
-                                "confidence": 0.8,
-                            }
-                        ],
-                        "warnings": [],
-                    }
-                ],
-            }
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "bundle_version": "1",
+            "shard_id": payload.get("sid"),
+            "recipes": [
+                {
+                    "bundle_version": "1",
+                    "recipe_id": payload["r"][0]["rid"],
+                    "canonical_recipe": {
+                        "title": "Toast",
+                        "ingredients": ["1 slice bread"],
+                        "steps": ["Toast the bread."],
+                        "description": None,
+                        "recipeYield": None,
+                    },
+                    "ingredient_step_mapping": [],
+                    "ingredient_step_mapping_reason": "not_needed_single_step",
+                    "selected_tags": [
+                        {
+                            "category": "meal",
+                            "label": "breakfast",
+                            "confidence": 0.8,
+                        }
+                    ],
+                    "warnings": [],
+                }
+            ],
         }
     )
 

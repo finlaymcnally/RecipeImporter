@@ -591,6 +591,17 @@ def _build_line_role_stage_summary(
             "batch_count": batch_count,
             "attempt_count": attempt_count,
             "duration_total_ms": duration_total_ms,
+            "prompt_input_mode": (
+                str(summary.get("prompt_input_mode") or "").strip()
+                if isinstance(summary, Mapping)
+                else None
+            )
+            or "path",
+            "request_input_file_bytes_total": (
+                _nonnegative_int(summary.get("request_input_file_bytes_total"))
+                if isinstance(summary, Mapping)
+                else None
+            ),
             **token_totals,
             **breakdown_totals,
             "cost_breakdown": {

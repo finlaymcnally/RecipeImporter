@@ -325,7 +325,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"] == {
         "knowledge_interaction_count": 0,
-        "line_role_interaction_count": 1,
+        "line_role_interaction_count": 2,
         "recipe_interaction_count": 1,
     }
     assert not any(
@@ -343,9 +343,17 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert phase_plans["recipe_llm_correct_and_link"]["shards"][0]["owned_ids"] == [
         "urn:recipe:test:r0"
     ]
-    assert phase_plans["line_role"]["worker_count"] == 1
-    assert phase_plans["line_role"]["shard_count"] == 1
-    assert phase_plans["line_role"]["shards"][0]["owned_ids"] == ["0", "1", "2", "3"]
+    assert phase_plans["line_role_recipe_region_gate"]["worker_count"] == 1
+    assert phase_plans["line_role_recipe_region_gate"]["shard_count"] == 1
+    assert phase_plans["line_role_recipe_region_gate"]["shards"][0]["owned_ids"] == ["0", "1", "2", "3"]
+    assert phase_plans["line_role_recipe_structure_label"]["worker_count"] == 1
+    assert phase_plans["line_role_recipe_structure_label"]["shard_count"] == 1
+    assert phase_plans["line_role_recipe_structure_label"]["shards"][0]["owned_ids"] == [
+        "0",
+        "1",
+        "2",
+        "3",
+    ]
     artifacts = manifest["artifacts"]
     assert artifacts["prompt_preview_budget_summary_json"] == "prompt_preview_budget_summary.json"
     assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"
@@ -358,7 +366,8 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         if line.strip()
     ]
     assert {row["stage_key"] for row in full_prompt_rows} == {
-        "line_role",
+        "line_role_recipe_region_gate",
+        "line_role_recipe_structure_label",
         "recipe_llm_correct_and_link",
     }
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
@@ -383,29 +392,53 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert recipe_input_payload["tg"]["version"] == "recipe_tagging_guide.v1"
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
-    line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
-    assert "Execute the line-role labeling task exactly." in line_role_row["rendered_prompt_text"]
-    assert "line_role_prompt_0001.json" in line_role_row["rendered_prompt_text"]
-    embedded_line_role_prompt = line_role_row["task_prompt_text"]
-    assert "Compact input legends:" in embedded_line_role_prompt
-    assert "No prior recipe-span authority is provided for this batch." in embedded_line_role_prompt
-    assert "RECIPE_TITLE" in embedded_line_role_prompt
-    assert "KNOWLEDGE" in embedded_line_role_prompt
-    assert "Advertisement copy." in embedded_line_role_prompt
-    assert "0|L" in embedded_line_role_prompt
-    assert line_role_row["request_input_payload"]["shard_id"].startswith("line-role-shard-0001")
-    assert [row["atomic_index"] for row in line_role_row["request_input_payload"]["rows"]] == [
+    region_gate_row = next(
+        row for row in full_prompt_rows if row["stage_key"] == "line_role_recipe_region_gate"
+    )
+    assert "recipe-region membership" in region_gate_row["rendered_prompt_text"]
+    assert "recipe_region_gate_input_0001.json" in region_gate_row["rendered_prompt_text"]
+    assert region_gate_row["request_input_payload"]["phase_key"] == "recipe_region_gate"
+    assert [row["atomic_index"] for row in region_gate_row["request_input_payload"]["rows"]] == [
         0,
         1,
         2,
         3,
     ]
-    assert line_role_row["request_input_text"] == embedded_line_role_prompt
-    assert line_role_row["runtime_worker_id"] == "worker-001"
-    assert line_role_row["runtime_owned_ids"] == ["0", "1", "2", "3"]
+    assert region_gate_row["request_input_text"] == region_gate_row["task_prompt_text"]
+    assert region_gate_row["runtime_worker_id"] == "worker-001"
+    assert region_gate_row["runtime_owned_ids"] == ["0", "1", "2", "3"]
     assert (
-        out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json"
-    ).read_text(encoding="utf-8") == embedded_line_role_prompt
+        out_dir / "line-role-pipeline" / "in" / "recipe_region_gate_input_0001.json"
+    ).read_text(encoding="utf-8") == region_gate_row["task_prompt_text"]
+
+    structure_row = next(
+        row
+        for row in full_prompt_rows
+        if row["stage_key"] == "line_role_recipe_structure_label"
+    )
+    assert "grounded line-role correction pass" in structure_row["rendered_prompt_text"]
+    assert "recipe_structure_label_input_0001.json" in structure_row["rendered_prompt_text"]
+    assert structure_row["request_input_payload"]["phase_key"] == "recipe_structure_label"
+    assert [row["atomic_index"] for row in structure_row["request_input_payload"]["rows"]] == [
+        0,
+        1,
+        2,
+        3,
+    ]
+    assert (
+        structure_row["request_input_payload"]["rows"][0]["current_line"]
+        == "Ambiguous title-ish line"
+    )
+    assert (
+        structure_row["request_input_payload"]["rows"][3]["current_line"]
+        == "Advertisement copy."
+    )
+    assert structure_row["request_input_text"] == structure_row["task_prompt_text"]
+    assert structure_row["runtime_worker_id"] == "worker-001"
+    assert structure_row["runtime_owned_ids"] == ["0", "1", "2", "3"]
+    assert (
+        out_dir / "line-role-pipeline" / "in" / "recipe_structure_label_input_0001.json"
+    ).read_text(encoding="utf-8") == structure_row["task_prompt_text"]
 
     assert (
         out_dir
@@ -416,21 +449,28 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         / "in"
         / "recipe-preview-shard-0001-r0.json"
     ).is_file()
-    assert (out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json").is_file()
+    assert (out_dir / "line-role-pipeline" / "in" / "recipe_region_gate_input_0001.json").is_file()
+    assert (
+        out_dir / "line-role-pipeline" / "in" / "recipe_structure_label_input_0001.json"
+    ).is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert budget_summary["totals"]["call_count"] == 2
+    assert budget_summary["totals"]["call_count"] == 3
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
     assert budget_summary["totals"]["estimated_request_chars_total"] >= budget_summary["totals"]["prompt_chars_total"]
     assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
-    line_role_budget = budget_summary["by_stage"]["line_role"]
-    assert line_role_budget["worker_count"] == 1
-    assert line_role_budget["shard_count"] == 1
-    assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
-    assert line_role_budget["task_prompt_chars_total"] > line_role_budget["prompt_chars_total"]
-    assert line_role_budget["transport_overhead_chars_total"] == 0
+    gate_budget = budget_summary["by_stage"]["line_role_recipe_region_gate"]
+    structure_budget = budget_summary["by_stage"]["line_role_recipe_structure_label"]
+    assert gate_budget["worker_count"] == 1
+    assert gate_budget["shard_count"] == 1
+    assert gate_budget["owned_ids_per_shard"]["avg"] == 4.0
+    assert structure_budget["worker_count"] == 1
+    assert structure_budget["shard_count"] == 1
+    assert structure_budget["owned_ids_per_shard"]["avg"] == 4.0
+    assert gate_budget["task_prompt_chars_total"] > 0
+    assert structure_budget["task_prompt_chars_total"] > 0
     assert budget_summary["estimation_method"]["type"] == "structural_prompt_tokenization"
     assert budget_summary["estimation_method"]["mode"] == "predictive"
     assert budget_summary["totals"]["estimated_total_tokens"] is not None

@@ -1,10 +1,11 @@
 You are reviewing deterministic canonical line-role labels for cookbook atomic lines.
 
 TASK BOUNDARY
-- This is a grounded line-role correction pass over one ordered slice of the book.
+- This is a grounded recipe-structure correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
-- Use local context to correct structure. Do not treat an isolated heading or blurb as a recipe just because it looks title-like.
-- Never perform schema.org extraction.
+- Treat `region_code` as the recipe-region gate result for that row.
+- Rows gated `O=outside_recipe` must stay within non-recipe labels only.
+- Rows gated `B=boundary_uncertain` may use recipe labels only when local context clearly shows the line belongs inside a real recipe region.
 - Never invent lines or labels.
 
 Allowed labels (global):
@@ -12,11 +13,9 @@ Allowed labels (global):
 
 Compact input legends:
 - Label codes: {{LABEL_CODE_LEGEND}}
-- Span codes: {{SPAN_CODE_LEGEND}}
-- No prior recipe-span authority is provided for this batch.
+- Region codes: {{REGION_CODE_LEGEND}}
 - Treat the targets as one ordered contiguous slice of the book.
 - `hint_codes` are compact deterministic heuristic tags, not final truth.
-- Review outside-recipe `KNOWLEDGE` versus `OTHER` only when the local context windows support it.
 
 Tie-break precedence (highest to lowest):
 {{PRECEDENCE_ORDER}}
@@ -25,44 +24,7 @@ Negative rules (must-not-do):
 - Never label a quantity/unit ingredient line as `KNOWLEDGE`.
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
 - Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
-- If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
-
-Few-shot examples:
-1) Context: inside recipe, heading line
-   Line: `FOR THE MALT COOKIES`
-   Label: `HOWTO_SECTION`
-
-2) Context: adjacent lines are ingredients
-   Line: `Grapeseed oil`
-   Label: `INGREDIENT_LINE`
-
-3) Context: inside recipe
-   Line: `SERVES 4`
-   Label: `YIELD_LINE`
-
-4) Context: recipe method
-   Line: `Whisk in the cream and simmer for 2 to 3 minutes.`
-   Label: `INSTRUCTION_LINE`
-
-5) Context: inside recipe
-   Line: `NOTE: Cooled hollandaise can break if reheated too fast.`
-   Label: `RECIPE_NOTES`
-
-6) Context: explanatory cookbook prose
-   Line: `Copper pans conduct heat quickly and evenly, so temperature changes show up fast.`
-   Label: `KNOWLEDGE`
-
-7) Context: inside recipe, ingredient range
-   Line: `4 to 6 chicken leg quarters`
-   Label: `INGREDIENT_LINE`
-
-8) Context: inside recipe, all-caps variant header
-   Line: `DINER-STYLE MUSHROOM, PEPPER, AND ONION OMELET`
-   Label: `RECIPE_VARIANT`
-
-9) Context: inside recipe, primary recipe heading
-   Line: `A PORRIDGE OF LOVAGE STEMS`
-   Label: `RECIPE_TITLE`
+- If a row is gated `outside_recipe`, do not emit `RECIPE_TITLE`, `RECIPE_VARIANT`, `HOWTO_SECTION`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `YIELD_LINE`, or `TIME_LINE`.
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:

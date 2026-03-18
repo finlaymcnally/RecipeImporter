@@ -404,19 +404,7 @@ class RunContext:
         suffix = _recipe_suffix(recipe_id)
         if not suffix or self.raw_llm_dir is None:
             return {}
-        source_key = self.source_key
-        pattern = f"*_{source_key}_{suffix}.json"
         resolved: dict[str, str] = {}
-        for label, relative in (
-            ("recipe_correction_input", Path("recipe_correction/in")),
-            ("recipe_correction_output", Path("recipe_correction/out")),
-        ):
-            directory = self.raw_llm_dir / relative
-            if not directory.is_dir():
-                continue
-            matches = sorted(path for path in directory.glob(pattern) if path.is_file())
-            if matches:
-                resolved[label] = str(matches[0])
         audit_path = self.raw_llm_dir / "recipe_correction_audit" / _recipe_artifact_filename(recipe_id)
         if audit_path.is_file():
             resolved["recipe_correction_audit"] = str(audit_path)
@@ -2140,12 +2128,15 @@ def write_case_export(
                 "triage": triage_row,
                 "stage_comparison": stage_row,
                 "line_level_changed_rows": selected_rows,
-                "raw_block_window": _read_json(
-                    Path(recipe_artifacts["recipe_correction_input"])
-                ).get("evidence_rows")
+                "raw_block_window": (
+                    (
+                        _read_json(Path(recipe_artifacts["recipe_correction_audit"])).get("input")
+                        or {}
+                    ).get("payload", {})
+                ).get("evidence_rows", [])
                 if (
                     selector_kind != "knowledge_run"
-                    and "recipe_correction_input" in recipe_artifacts
+                    and "recipe_correction_audit" in recipe_artifacts
                 )
                 else [],
                 "pass_summaries": {

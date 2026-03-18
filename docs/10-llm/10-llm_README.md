@@ -63,7 +63,10 @@ Migration note:
 - shards are ownership units and workers are bounded execution contexts; preview, prompt exports, and reviewer artifacts should describe both instead of pretending one prompt equals one independent task
 - the foundation plan froze the ids and runtime contracts first; recipe, knowledge, and line-role now all execute through shard-owned runtime artifacts, and the preview/export cutover has landed on top of those artifacts
 - prompt planning now defaults to direct per-phase prompt-count controls (`recipe_prompt_target_count`, `knowledge_prompt_target_count`, `line_role_prompt_target_count`) with current default `5` per enabled phase; lower-level shard-size knobs remain explicit overrides
-- knowledge and line-role no longer use the path-mode CodexFarm `process` transport; each sends one inline prompt per shard through `codex exec`
+- knowledge no longer uses the path-mode CodexFarm `process` transport; it sends one inline prompt per shard through `codex exec`
+- line-role also uses direct `codex exec`, but its two internal phases now hand Codex a short wrapper prompt plus a worker-local JSON task file instead of one fully inline shard body
+- `codex-line-role-shard-v1` now expands into two internal phases, `recipe_region_gate` and `recipe_structure_label`, while keeping the public run-setting surface unchanged
+- line-role preview, prompt-budget, and runtime artifacts now report those two internal phases separately so outside-recipe gating and recipe-structure correction stay observable
 - recipe no longer uses the classic `codex-farm process` transport either; it now renders the shard JSON inline into the checked-in recipe prompt and sends one direct structured call per shard through `codex exec`
 - recipe shard JSON and recipe shard outputs now use compact aliases on the live model-facing seam (`sid`, `rid`, `cr`, `tg`, etc.), while deterministic promotion still normalizes the result back into the existing staged outputs
 
@@ -166,16 +169,17 @@ Inline recipe tagging writes through the normal recipe artifacts:
 Line-role prediction artifacts live under:
 
 - `prediction-run/line-role-pipeline/telemetry_summary.json`
-- `prediction-run/line-role-pipeline/runtime/phase_manifest.json`
-- `prediction-run/line-role-pipeline/runtime/shard_manifest.jsonl`
-- `prediction-run/line-role-pipeline/runtime/worker_assignments.json`
-- `prediction-run/line-role-pipeline/runtime/proposals/*.json`
+- `prediction-run/line-role-pipeline/runtime/recipe_region_gate/phase_manifest.json`
+- `prediction-run/line-role-pipeline/runtime/recipe_structure_label/phase_manifest.json`
+- `prediction-run/line-role-pipeline/runtime/<phase>/shard_manifest.jsonl`
+- `prediction-run/line-role-pipeline/runtime/<phase>/worker_assignments.json`
+- `prediction-run/line-role-pipeline/runtime/<phase>/proposals/*.json`
 
 Line-role runtime note:
 - live line-role execution no longer uses `phase_worker_runtime.py` or `codex-farm process`
-- `canonical_line_roles.py` now assigns shard ownership directly, sends each shard prompt body once on stdin through `codex_exec_runner.py`, validates exact owned `atomic_index` coverage, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/workers/.../shards/<shard_id>/`
+- `canonical_line_roles.py` now assigns shard ownership directly, runs `recipe_region_gate` before `recipe_structure_label`, validates exact owned `atomic_index` coverage in both phases, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/<phase>/workers/.../shards/<shard_id>/`
 - line-role pre-grouping candidates now default to `within_recipe_span=None`; importer recipe provenance is no longer supplied before deterministic/Codex labeling, and prompt-preview reconstruction mirrors that same span-free contract
-- `workers/*/in/*.json` remain debug copies of the shard payload, but the model evidence is the inline prompt text in `prompt.txt`
+- `workers/*/in/*.json` are now the authoritative model-facing shard payloads for both internal phases, while `prompts/<phase>/*_prompt_*.txt` keeps the reviewer/export wrapper prompt and each shard runtime `prompt.txt` keeps the exact file-wrapper prompt handed to `codex exec`
 - `telemetry_summary.json` remains the prompt/debug and post-run cost seam for line-role, but its runtime metadata now describe direct exec instead of CodexFarm `process`
 - line-role worker launches are concurrent and then re-collected in planned order so stable artifacts and real worker fan-out coexist
 
@@ -191,7 +195,7 @@ Prompt/debug artifacts:
 - when line-role telemetry only exposes nested batch/attempt summaries, `prompt_budget_summary.json` should still recover those `tokens_total` values so the finished-run whole-run drain is not understated
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - preview budget estimation is predictive-only: it rebuilds deterministic/`vanilla` shard payloads locally, estimates tokens from reconstructable prompt/output structure, and never reuses Codex-backed run telemetry
-- predictive preview is now structural rather than ratio-based: it tokenizes the reconstructed prompt wrapper plus deposited task-file body with `tiktoken`, estimates output tokens from schema-shaped JSON built from the planned shard input, and reports stages as unavailable when that structure cannot be rebuilt safely
+- predictive preview is now structural rather than ratio-based: it tokenizes the reconstructed wrapper prompt plus deposited task-file body with `tiktoken`, estimates output tokens from schema-shaped JSON built from the planned shard input, and reports stages as unavailable when that structure cannot be rebuilt safely
 - older saved runs that predate the prompt-target fields should default preview planning to the current shard-v1 target count (`5`) for each enabled phase instead of falling back to legacy shard-size defaults
 - retrospective “what did this completed run actually cost?” reporting lives in the finished-run `prompt_budget_summary.json` / `actual_costs_json` artifact, not in prompt preview
 - when `--run` points at a benchmark root, preview follows `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it reaches the processed stage run with the real staged outputs
@@ -205,15 +209,15 @@ Prompt/debug artifacts:
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
   - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live knowledge harvest and preview reconstruction
-  - line-role prompt text from `build_canonical_line_role_prompt`
+  - line-role file-backed wrapper prompts plus the deposited per-phase input JSON files
 - knowledge preview now follows the live bundle contract exactly: prompt counts come from contiguous bundled `chunks[*]` payloads, not one chunk per prompt
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
 - when explicit `knowledge_prompt_target_count` is driving the shard plan, knowledge bundling should not split again on the older per-bundle char cap
-- line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
+- line-role preview must batch the full ordered candidate set, write a full `recipe_region_gate` pass first, then derive the `recipe_structure_label` pass from those seeded region decisions so preview matches live shard ownership and phase counts
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
-- line-role row transport is now minimal: `atomic_index|label_code|current_line` in the live prompt, and the debug shard JSON keeps only `atomic_index`, `deterministic_label`, and `current_line`
+- line-role row transport is now file-backed: the live call sees a short wrapper prompt plus a deposited JSON task file, and prompt/debug surfaces record `prompt_input_mode=path` plus `request_input_file` metadata so wrapper size and input-file size stay distinguishable
 - prompt/actual cost reporting for the direct phases now also carries a shared cost-breakdown vocabulary: `visible_input_tokens`, `cached_input_tokens`, `visible_output_tokens`, and `wrapper_overhead_tokens`
-- live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, sends the built prompt text itself through direct `codex exec`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.
+- live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, writes per-phase worker input files, sends short wrapper prompts through direct `codex exec`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.

@@ -8,7 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,7 +28,9 @@ from cookimport.labelstudio.label_config_freeform import (
 )
 from cookimport.llm.canonical_line_role_prompt import (
     LineRolePromptFormat,
-    build_canonical_line_role_prompt,
+    RecipeRegionStatus,
+    build_canonical_line_role_file_prompt,
+    build_recipe_region_gate_file_prompt,
 )
 from cookimport.llm.codex_exec_runner import (
     DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
@@ -228,10 +230,12 @@ _YIELD_COUNT_HINT_RE = re.compile(
 )
 _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT = 4
 _LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
-_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v3"
+_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v4"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
+_LINE_ROLE_RECIPE_REGION_GATE_PIPELINE_ID = "line-role.recipe-region-gate.v1"
+_LINE_ROLE_RECIPE_STRUCTURE_PIPELINE_ID = "line-role.recipe-structure-label.v1"
 _LINE_ROLE_CODEX_EXEC_DEFAULT_CMD = "codex exec"
 _LINE_ROLE_DIRECT_RUNTIME_ARTIFACT_SCHEMA = "line_role.direct_worker_runtime.v1"
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
@@ -256,6 +260,13 @@ class CanonicalLineRolePrediction(BaseModel):
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
         return self
+
+
+class RecipeRegionGatePrediction(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    atomic_index: int
+    region_status: RecipeRegionStatus
 
 
 def _unique_string_list(values: Sequence[Any]) -> list[str]:
@@ -322,23 +333,35 @@ def _apply_prediction_decision_metadata(
 
 @dataclass(frozen=True)
 class _LineRoleShardPlan:
+    phase_key: str
+    phase_label: str
+    runtime_pipeline_id: str
+    prompt_stem: str
     shard_id: str
     prompt_index: int
     candidates: tuple[AtomicLineCandidate, ...]
     baseline_predictions: tuple[CanonicalLineRolePrediction, ...]
-    prompt_text: str
     manifest_entry: ShardManifestEntryV1
+
+
+@dataclass(frozen=True)
+class _LineRolePhaseRuntimeResult:
+    phase_key: str
+    phase_label: str
+    shard_plans: tuple[_LineRoleShardPlan, ...]
+    worker_reports: tuple[WorkerExecutionReportV1, ...]
+    runner_results_by_shard_id: dict[str, dict[str, Any]]
+    response_payloads_by_shard_id: dict[str, dict[str, Any]]
+    invalid_shard_count: int
+    missing_output_shard_count: int
+    runtime_root: Path | None
 
 
 @dataclass(frozen=True)
 class _LineRoleRuntimeResult:
     predictions_by_atomic_index: dict[int, CanonicalLineRolePrediction]
-    shard_plans: tuple[_LineRoleShardPlan, ...]
-    worker_reports: tuple[WorkerExecutionReportV1, ...]
-    runner_results_by_shard_id: dict[str, dict[str, Any]]
-    invalid_shard_count: int
-    missing_output_shard_count: int
-    runtime_root: Path | None
+    region_status_by_atomic_index: dict[int, RecipeRegionStatus]
+    phase_results: tuple[_LineRolePhaseRuntimeResult, ...]
 
 
 @dataclass(frozen=True)
@@ -441,6 +464,7 @@ def _label_atomic_lines_internal(
 
     codex_targets = ordered if mode == LINE_ROLE_PIPELINE_SHARD_V1 else []
     runtime_result: _LineRoleRuntimeResult | None = None
+    region_status_by_atomic_index: dict[int, RecipeRegionStatus] = {}
     if codex_targets:
         runtime_result = _run_line_role_shard_runtime(
             ordered_candidates=codex_targets,
@@ -456,12 +480,20 @@ def _label_atomic_lines_internal(
             progress_callback=progress_callback,
         )
         predictions.update(runtime_result.predictions_by_atomic_index)
+        region_status_by_atomic_index.update(runtime_result.region_status_by_atomic_index)
 
     for candidate in ordered:
         if candidate.atomic_index not in predictions:
             predictions[candidate.atomic_index] = deterministic_baseline[
                 candidate.atomic_index
             ]
+    if mode == LINE_ROLE_PIPELINE_SHARD_V1 and region_status_by_atomic_index:
+        predictions = _apply_recipe_region_constraints(
+            ordered_candidates=ordered,
+            predictions=predictions,
+            deterministic_baseline=deterministic_baseline,
+            region_status_by_atomic_index=region_status_by_atomic_index,
+        )
 
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
     sanitized_baseline_by_index: dict[int, CanonicalLineRolePrediction] = {}
@@ -591,28 +623,38 @@ def build_line_role_codex_execution_plan(
     deterministic_baseline = _build_line_role_deterministic_baseline(
         ordered_candidates=ordered
     )
-    shard_plans = _build_line_role_shard_plans(
+    gate_plans = _build_line_role_recipe_region_gate_plans(
         ordered_candidates=ordered,
         deterministic_baseline=deterministic_baseline,
         settings=settings,
         codex_batch_size=codex_batch_size,
     )
-    planned_shards = [
-        {
-            "shard_id": plan.shard_id,
-            "prompt_index": plan.prompt_index,
-            "candidate_count": len(plan.candidates),
-            "atomic_indices": [int(candidate.atomic_index) for candidate in plan.candidates],
-            "owned_ids": list(plan.manifest_entry.owned_ids),
-            "rows": [
-                _line_role_plan_row(
-                    candidate=candidate,
-                    baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
-                )
-                for candidate in plan.candidates
-            ],
-        }
-        for plan in shard_plans
+    structure_candidates = _select_recipe_structure_targets(
+        ordered_candidates=ordered,
+        region_status_by_atomic_index={
+            int(candidate.atomic_index): _seed_region_status_for_candidate(
+                candidate,
+                baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
+            )
+            for candidate in ordered
+        },
+    )
+    structure_plans = _build_line_role_recipe_structure_plans(
+        ordered_candidates=structure_candidates,
+        deterministic_baseline=deterministic_baseline,
+        settings=settings,
+        codex_batch_size=codex_batch_size,
+        region_status_by_atomic_index={
+            int(candidate.atomic_index): _seed_region_status_for_candidate(
+                candidate,
+                baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
+            )
+            for candidate in ordered
+        },
+    )
+    internal_phases = [
+        _line_role_execution_plan_phase(plan_group)
+        for plan_group in (gate_plans, structure_plans)
     ]
 
     return {
@@ -620,13 +662,16 @@ def build_line_role_codex_execution_plan(
         "pipeline": mode,
         "candidate_count": len(ordered),
         "planned_candidate_count": len(ordered),
-        "planned_shard_count": len(planned_shards),
+        "planned_shard_count": sum(
+            int(phase["planned_shard_count"]) for phase in internal_phases
+        ),
         "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
             settings=settings,
             codex_batch_size=codex_batch_size,
             total_candidates=len(ordered),
         ),
-        "shards": planned_shards,
+        "internal_phases": internal_phases,
+        "shards": internal_phases[0]["shards"] if internal_phases else [],
     }
 
 
@@ -689,7 +734,7 @@ def _line_role_plan_row(
     }
 
 
-def _build_line_role_shard_plans(
+def _build_line_role_recipe_region_gate_plans(
     *,
     ordered_candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: dict[int, CanonicalLineRolePrediction],
@@ -713,22 +758,10 @@ def _build_line_role_shard_plans(
             deterministic_baseline[int(candidate.atomic_index)]
             for candidate in shard_candidates
         )
-        prompt_text = build_canonical_line_role_prompt(
-            shard_candidates,
-            prompt_format=prompt_format,
-            deterministic_labels_by_atomic_index={
-                int(prediction.atomic_index): prediction.label
-                for prediction in baseline_batch
-            },
-            escalation_reasons_by_atomic_index={
-                int(prediction.atomic_index): list(prediction.escalation_reasons)
-                for prediction in baseline_batch
-            },
-        )
         first_atomic_index = int(shard_candidates[0].atomic_index)
         last_atomic_index = int(shard_candidates[-1].atomic_index)
         shard_id = (
-            f"line-role-shard-{prompt_index:04d}-"
+            f"line-role-recipe-region-gate-{prompt_index:04d}-"
             f"a{first_atomic_index:06d}-a{last_atomic_index:06d}"
         )
         manifest_entry = ShardManifestEntryV1(
@@ -739,7 +772,7 @@ def _build_line_role_shard_plans(
             ),
             input_payload={
                 "shard_id": shard_id,
-                "phase_key": "line_role",
+                "phase_key": "recipe_region_gate",
                 "rows": [
                     _line_role_plan_row(
                         candidate=candidate,
@@ -748,25 +781,190 @@ def _build_line_role_shard_plans(
                     for candidate in shard_candidates
                 ],
             },
-            input_text=prompt_text,
             metadata={
                 "prompt_index": prompt_index,
+                "prompt_stem": "recipe_region_gate_prompt",
                 "first_atomic_index": first_atomic_index,
                 "last_atomic_index": last_atomic_index,
                 "owned_row_count": len(shard_candidates),
+                "prompt_format": prompt_format,
             },
         )
         plans.append(
             _LineRoleShardPlan(
+                phase_key="recipe_region_gate",
+                phase_label="Recipe Region Gate",
+                runtime_pipeline_id=_LINE_ROLE_RECIPE_REGION_GATE_PIPELINE_ID,
+                prompt_stem="recipe_region_gate_prompt",
                 shard_id=shard_id,
                 prompt_index=prompt_index,
                 candidates=tuple(shard_candidates),
                 baseline_predictions=baseline_batch,
-                prompt_text=prompt_text,
                 manifest_entry=manifest_entry,
             )
         )
     return tuple(plans)
+
+
+def _build_line_role_recipe_structure_plans(
+    *,
+    ordered_candidates: Sequence[AtomicLineCandidate],
+    deterministic_baseline: dict[int, CanonicalLineRolePrediction],
+    settings: RunSettings,
+    codex_batch_size: int,
+    region_status_by_atomic_index: Mapping[int, RecipeRegionStatus],
+) -> tuple[_LineRoleShardPlan, ...]:
+    if not ordered_candidates:
+        return ()
+    shard_target_lines = _resolve_line_role_shard_target_lines(
+        settings=settings,
+        codex_batch_size=codex_batch_size,
+        total_candidates=len(ordered_candidates),
+    )
+    prompt_format = _resolve_line_role_prompt_format()
+    plans: list[_LineRoleShardPlan] = []
+    for prompt_index, shard_candidates in enumerate(
+        _batch(ordered_candidates, max(1, int(shard_target_lines))),
+        start=1,
+    ):
+        if not shard_candidates:
+            continue
+        baseline_batch = tuple(
+            deterministic_baseline[int(candidate.atomic_index)]
+            for candidate in shard_candidates
+        )
+        first_atomic_index = int(shard_candidates[0].atomic_index)
+        last_atomic_index = int(shard_candidates[-1].atomic_index)
+        shard_id = (
+            f"line-role-recipe-structure-label-{prompt_index:04d}-"
+            f"a{first_atomic_index:06d}-a{last_atomic_index:06d}"
+        )
+        manifest_entry = ShardManifestEntryV1(
+            shard_id=shard_id,
+            owned_ids=tuple(str(int(candidate.atomic_index)) for candidate in shard_candidates),
+            evidence_refs=tuple(
+                dict.fromkeys(str(candidate.block_id) for candidate in shard_candidates)
+            ),
+            input_payload={
+                "shard_id": shard_id,
+                "phase_key": "recipe_structure_label",
+                "rows": [
+                    {
+                        **_line_role_plan_row(
+                            candidate=candidate,
+                            baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
+                        ),
+                        "region_status": region_status_by_atomic_index.get(
+                            int(candidate.atomic_index),
+                            "boundary_uncertain",
+                        ),
+                    }
+                    for candidate in shard_candidates
+                ],
+            },
+            metadata={
+                "prompt_index": prompt_index,
+                "prompt_stem": "recipe_structure_label_prompt",
+                "first_atomic_index": first_atomic_index,
+                "last_atomic_index": last_atomic_index,
+                "owned_row_count": len(shard_candidates),
+                "prompt_format": prompt_format,
+            },
+        )
+        plans.append(
+            _LineRoleShardPlan(
+                phase_key="recipe_structure_label",
+                phase_label="Recipe Structure Label",
+                runtime_pipeline_id=_LINE_ROLE_RECIPE_STRUCTURE_PIPELINE_ID,
+                prompt_stem="recipe_structure_label_prompt",
+                shard_id=shard_id,
+                prompt_index=prompt_index,
+                candidates=tuple(shard_candidates),
+                baseline_predictions=baseline_batch,
+                manifest_entry=manifest_entry,
+            )
+        )
+    return tuple(plans)
+
+
+def _line_role_execution_plan_phase(
+    shard_plans: Sequence[_LineRoleShardPlan],
+) -> dict[str, Any]:
+    if not shard_plans:
+        return {
+            "phase_key": None,
+            "phase_label": None,
+            "runtime_pipeline_id": None,
+            "planned_shard_count": 0,
+            "planned_candidate_count": 0,
+            "shards": [],
+        }
+    return {
+        "phase_key": shard_plans[0].phase_key,
+        "phase_label": shard_plans[0].phase_label,
+        "runtime_pipeline_id": shard_plans[0].runtime_pipeline_id,
+        "planned_shard_count": len(shard_plans),
+        "planned_candidate_count": sum(len(plan.candidates) for plan in shard_plans),
+        "shards": [
+            {
+                "shard_id": plan.shard_id,
+                "prompt_index": plan.prompt_index,
+                "candidate_count": len(plan.candidates),
+                "atomic_indices": [int(candidate.atomic_index) for candidate in plan.candidates],
+                "owned_ids": list(plan.manifest_entry.owned_ids),
+                "rows": list(plan.manifest_entry.input_payload.get("rows") or []),
+            }
+            for plan in shard_plans
+        ],
+    }
+
+
+def _seed_region_status_for_candidate(
+    candidate: AtomicLineCandidate,
+    *,
+    baseline_prediction: CanonicalLineRolePrediction,
+) -> RecipeRegionStatus:
+    label = str(baseline_prediction.label or "OTHER")
+    if candidate.within_recipe_span is True:
+        return "recipe"
+    if candidate.within_recipe_span is False:
+        return "outside_recipe"
+    if label in {
+        "RECIPE_TITLE",
+        "RECIPE_VARIANT",
+        "HOWTO_SECTION",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "YIELD_LINE",
+        "TIME_LINE",
+        "RECIPE_NOTES",
+    }:
+        return "recipe"
+    return "boundary_uncertain"
+
+
+def _select_recipe_structure_targets(
+    *,
+    ordered_candidates: Sequence[AtomicLineCandidate],
+    region_status_by_atomic_index: Mapping[int, RecipeRegionStatus],
+) -> list[AtomicLineCandidate]:
+    if not ordered_candidates:
+        return []
+    selected: list[AtomicLineCandidate] = []
+    recipe_like_indices = {
+        int(candidate.atomic_index)
+        for candidate in ordered_candidates
+        if region_status_by_atomic_index.get(int(candidate.atomic_index)) in {"recipe", "boundary_uncertain"}
+    }
+    for candidate in ordered_candidates:
+        atomic_index = int(candidate.atomic_index)
+        status = region_status_by_atomic_index.get(atomic_index, "boundary_uncertain")
+        if status in {"recipe", "boundary_uncertain"}:
+            selected.append(candidate)
+            continue
+        if {atomic_index - 1, atomic_index + 1} & recipe_like_indices:
+            selected.append(candidate)
+    return selected
 
 
 def _resolve_line_role_shard_target_lines(
@@ -841,42 +1039,20 @@ def _run_line_role_shard_runtime(
     codex_runner: CodexExecRunner | None,
     progress_callback: Callable[[str], None] | None,
 ) -> _LineRoleRuntimeResult:
-    shard_plans = _build_line_role_shard_plans(
+    gate_plans = _build_line_role_recipe_region_gate_plans(
         ordered_candidates=ordered_candidates,
         deterministic_baseline=deterministic_baseline,
         settings=settings,
         codex_batch_size=codex_batch_size,
     )
-    if not shard_plans:
+    if not gate_plans:
         return _LineRoleRuntimeResult(
             predictions_by_atomic_index={},
-            shard_plans=(),
-            worker_reports=(),
-            runner_results_by_shard_id={},
-            invalid_shard_count=0,
-            missing_output_shard_count=0,
-            runtime_root=None,
+            region_status_by_atomic_index={},
+            phase_results=(),
         )
 
     prompt_state = _PromptArtifactState(artifact_root=artifact_root)
-    for shard_plan in shard_plans:
-        prompt_state.write_prompt(
-            prompt_index=shard_plan.prompt_index,
-            prompt_text=shard_plan.prompt_text,
-        )
-
-    if not live_llm_allowed:
-        prompt_state.finalize(parse_error_count=len(shard_plans))
-        return _LineRoleRuntimeResult(
-            predictions_by_atomic_index={},
-            shard_plans=shard_plans,
-            worker_reports=(),
-            runner_results_by_shard_id={},
-            invalid_shard_count=len(shard_plans),
-            missing_output_shard_count=0,
-            runtime_root=None,
-        )
-
     codex_exec_cmd = _resolve_line_role_codex_exec_cmd(
         settings=settings,
         codex_cmd_override=codex_cmd,
@@ -889,28 +1065,11 @@ def _run_line_role_shard_runtime(
     codex_farm_reasoning_effort = _resolve_line_role_codex_farm_reasoning_effort(
         settings=settings
     )
-    output_schema_path = resolve_codex_farm_output_schema_path(
-        root_dir=codex_farm_root,
-        pipeline_id=_LINE_ROLE_CODEX_FARM_PIPELINE_ID,
-    )
     if codex_runner is None:
         runner: CodexExecRunner = SubprocessCodexExecRunner(cmd=codex_exec_cmd)
     else:
         runner = codex_runner
 
-    total_shards = len(shard_plans)
-    worker_count = _resolve_line_role_worker_count(
-        settings=settings,
-        codex_max_inflight=codex_max_inflight,
-        shard_count=total_shards,
-    )
-    _notify_line_role_progress(
-        progress_callback=progress_callback,
-        completed_tasks=0,
-        total_tasks=total_shards,
-        running_tasks=min(worker_count, total_shards),
-        worker_total=worker_count,
-    )
     runtime_root = (
         artifact_root / "line-role-pipeline" / "runtime"
         if artifact_root is not None
@@ -920,85 +1079,86 @@ def _run_line_role_shard_runtime(
             else Path.cwd() / ".tmp" / "line-role-pipeline-runtime"
         )
     )
-    manifest, worker_reports, runner_results_by_shard_id = _run_line_role_direct_workers_v1(
-        phase_key="line_role",
-        pipeline_id=_LINE_ROLE_CODEX_FARM_PIPELINE_ID,
-        run_root=runtime_root,
-        shards=[plan.manifest_entry for plan in shard_plans],
+    gate_phase_result = _run_line_role_phase_runtime(
+        shard_plans=gate_plans,
+        artifact_root=artifact_root,
+        runtime_root=runtime_root / "recipe_region_gate",
+        live_llm_allowed=live_llm_allowed,
+        prompt_state=prompt_state,
         runner=runner,
-        worker_count=worker_count,
-        env={"CODEX_FARM_ROOT": str(codex_farm_root)},
-        model=codex_farm_model,
-        reasoning_effort=codex_farm_reasoning_effort,
-        output_schema_path=output_schema_path,
-        timeout_seconds=max(1, int(codex_timeout_seconds)),
-        settings={
-            "line_role_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
-            "codex_timeout_seconds": int(codex_timeout_seconds),
-            "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
-                settings=settings,
-                codex_batch_size=codex_batch_size,
-                total_candidates=len(ordered_candidates),
-            ),
-        },
-        runtime_metadata={
-            "surface_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
-            "workspace_root": (
-                str(codex_farm_workspace_root)
-                if codex_farm_workspace_root is not None
-                else None
-            ),
-        },
+        codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_model=codex_farm_model,
+        codex_farm_reasoning_effort=codex_farm_reasoning_effort,
+        timeout_seconds=codex_timeout_seconds,
+        settings=settings,
+        codex_batch_size=codex_batch_size,
+        codex_max_inflight=codex_max_inflight,
         progress_callback=progress_callback,
+        validator=_validate_recipe_region_gate_shard_proposal,
     )
-    if worker_reports:
-        _notify_line_role_progress(
-            progress_callback=progress_callback,
-            completed_tasks=total_shards,
-            total_tasks=total_shards,
-            running_tasks=0,
-            worker_total=worker_count,
+    region_status_by_atomic_index = {
+        int(candidate.atomic_index): _seed_region_status_for_candidate(
+            candidate,
+            baseline_prediction=deterministic_baseline[int(candidate.atomic_index)],
         )
-
-    predictions_by_atomic_index: dict[int, CanonicalLineRolePrediction] = {}
-    invalid_shard_count = 0
-    missing_output_shard_count = 0
-    proposal_dir = Path(manifest.run_root) / "proposals"
-    for shard_plan in shard_plans:
-        proposal_path = proposal_dir / f"{shard_plan.shard_id}.json"
-        if not proposal_path.exists():
-            missing_output_shard_count += 1
-            prompt_state.write_failure(
-                prompt_index=shard_plan.prompt_index,
-                error="missing_output_file",
-            )
+        for candidate in ordered_candidates
+    }
+    for shard_plan in gate_plans:
+        response_payload = gate_phase_result.response_payloads_by_shard_id.get(shard_plan.shard_id)
+        if not isinstance(response_payload, dict):
             continue
-        try:
-            proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            invalid_shard_count += 1
-            prompt_state.write_failure(
-                prompt_index=shard_plan.prompt_index,
-                error="invalid_proposal_payload",
-            )
-            continue
-        response_payload = proposal_payload.get("payload")
-        validation_errors = proposal_payload.get("validation_errors") or []
-        if validation_errors or not isinstance(response_payload, dict):
-            invalid_shard_count += 1
-            prompt_state.write_failure(
-                prompt_index=shard_plan.prompt_index,
-                error=";".join(str(item) for item in validation_errors) or "invalid_proposal",
-                response_payload=response_payload,
-            )
-            continue
-        prompt_state.write_response(
-            prompt_index=shard_plan.prompt_index,
-            response_payload=response_payload,
-        )
         rows = response_payload.get("rows")
         if not isinstance(rows, list):
-            invalid_shard_count += 1
+            continue
+        for row in rows:
+            try:
+                atomic_index = int(row.get("atomic_index"))
+            except (TypeError, ValueError):
+                continue
+            region_status_by_atomic_index[atomic_index] = _normalize_region_status(
+                row.get("region_status")
+            )
+
+    structure_candidates = _select_recipe_structure_targets(
+        ordered_candidates=ordered_candidates,
+        region_status_by_atomic_index=region_status_by_atomic_index,
+    )
+    structure_plans = _build_line_role_recipe_structure_plans(
+        ordered_candidates=structure_candidates,
+        deterministic_baseline=deterministic_baseline,
+        settings=settings,
+        codex_batch_size=codex_batch_size,
+        region_status_by_atomic_index=region_status_by_atomic_index,
+    )
+    structure_phase_result = _run_line_role_phase_runtime(
+        shard_plans=structure_plans,
+        artifact_root=artifact_root,
+        runtime_root=runtime_root / "recipe_structure_label",
+        live_llm_allowed=live_llm_allowed,
+        prompt_state=prompt_state,
+        runner=runner,
+        codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_model=codex_farm_model,
+        codex_farm_reasoning_effort=codex_farm_reasoning_effort,
+        timeout_seconds=codex_timeout_seconds,
+        settings=settings,
+        codex_batch_size=codex_batch_size,
+        codex_max_inflight=codex_max_inflight,
+        progress_callback=progress_callback,
+        validator=_validate_line_role_shard_proposal,
+    )
+
+    predictions_by_atomic_index: dict[int, CanonicalLineRolePrediction] = {}
+    for shard_plan in structure_plans:
+        response_payload = structure_phase_result.response_payloads_by_shard_id.get(
+            shard_plan.shard_id
+        )
+        if not isinstance(response_payload, dict):
+            continue
+        rows = response_payload.get("rows")
+        if not isinstance(rows, list):
             continue
         baseline_by_atomic_index = {
             int(prediction.atomic_index): prediction
@@ -1022,16 +1182,242 @@ def _run_line_role_shard_runtime(
                 decided_by="codex",
                 reason_tags=["codex_line_role"],
             )
-    prompt_state.finalize(parse_error_count=invalid_shard_count + missing_output_shard_count)
     return _LineRoleRuntimeResult(
         predictions_by_atomic_index=predictions_by_atomic_index,
-        shard_plans=shard_plans,
+        region_status_by_atomic_index=region_status_by_atomic_index,
+        phase_results=(gate_phase_result, structure_phase_result),
+    )
+
+
+def _run_line_role_phase_runtime(
+    *,
+    shard_plans: Sequence[_LineRoleShardPlan],
+    artifact_root: Path | None,
+    runtime_root: Path,
+    live_llm_allowed: bool,
+    prompt_state: "_PromptArtifactState",
+    runner: CodexExecRunner,
+    codex_farm_root: Path,
+    codex_farm_workspace_root: Path | None,
+    codex_farm_model: str | None,
+    codex_farm_reasoning_effort: str | None,
+    timeout_seconds: int,
+    settings: RunSettings,
+    codex_batch_size: int,
+    codex_max_inflight: int | None,
+    progress_callback: Callable[[str], None] | None,
+    validator: Callable[[ShardManifestEntryV1, dict[str, Any]], tuple[bool, Sequence[str], dict[str, Any] | None]],
+) -> _LineRolePhaseRuntimeResult:
+    if not shard_plans:
+        return _LineRolePhaseRuntimeResult(
+            phase_key="",
+            phase_label="",
+            shard_plans=(),
+            worker_reports=(),
+            runner_results_by_shard_id={},
+            response_payloads_by_shard_id={},
+            invalid_shard_count=0,
+            missing_output_shard_count=0,
+            runtime_root=None,
+        )
+    if not live_llm_allowed:
+        for shard_plan in shard_plans:
+            prompt_state.write_failure(
+                phase_key=shard_plan.phase_key,
+                prompt_stem=shard_plan.prompt_stem,
+                prompt_index=shard_plan.prompt_index,
+                error="live_llm_not_allowed",
+            )
+        prompt_state.finalize(
+            phase_key=shard_plans[0].phase_key,
+            parse_error_count=len(shard_plans),
+        )
+        return _LineRolePhaseRuntimeResult(
+            phase_key=shard_plans[0].phase_key,
+            phase_label=shard_plans[0].phase_label,
+            shard_plans=tuple(shard_plans),
+            worker_reports=(),
+            runner_results_by_shard_id={},
+            response_payloads_by_shard_id={},
+            invalid_shard_count=len(shard_plans),
+            missing_output_shard_count=0,
+            runtime_root=None,
+        )
+    worker_count = _resolve_line_role_worker_count(
+        settings=settings,
+        codex_max_inflight=codex_max_inflight,
+        shard_count=len(shard_plans),
+    )
+    _notify_line_role_progress(
+        progress_callback=progress_callback,
+        completed_tasks=0,
+        total_tasks=len(shard_plans),
+        running_tasks=min(worker_count, len(shard_plans)),
+        worker_total=worker_count,
+    )
+    output_schema_path = resolve_codex_farm_output_schema_path(
+        root_dir=codex_farm_root,
+        pipeline_id=shard_plans[0].runtime_pipeline_id,
+    )
+    manifest, worker_reports, runner_results_by_shard_id = _run_line_role_direct_workers_v1(
+        phase_key=shard_plans[0].phase_key,
+        pipeline_id=shard_plans[0].runtime_pipeline_id,
+        run_root=runtime_root,
+        shards=[plan.manifest_entry for plan in shard_plans],
+        runner=runner,
+        worker_count=worker_count,
+        env={"CODEX_FARM_ROOT": str(codex_farm_root)},
+        model=codex_farm_model,
+        reasoning_effort=codex_farm_reasoning_effort,
+        output_schema_path=output_schema_path,
+        timeout_seconds=max(1, int(timeout_seconds)),
+        settings={
+            "line_role_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
+            "codex_timeout_seconds": int(timeout_seconds),
+            "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
+                settings=settings,
+                codex_batch_size=codex_batch_size,
+                total_candidates=sum(len(plan.candidates) for plan in shard_plans),
+            ),
+        },
+        runtime_metadata={
+            "surface_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
+            "phase_label": shard_plans[0].phase_label,
+            "workspace_root": (
+                str(codex_farm_workspace_root)
+                if codex_farm_workspace_root is not None
+                else None
+            ),
+        },
+        progress_callback=progress_callback,
+        prompt_state=prompt_state,
+        validator=validator,
+    )
+    invalid_shard_count = 0
+    missing_output_shard_count = 0
+    response_payloads_by_shard_id: dict[str, dict[str, Any]] = {}
+    proposal_dir = Path(manifest.run_root) / "proposals"
+    for shard_plan in shard_plans:
+        proposal_path = proposal_dir / f"{shard_plan.shard_id}.json"
+        if not proposal_path.exists():
+            missing_output_shard_count += 1
+            prompt_state.write_failure(
+                phase_key=shard_plan.phase_key,
+                prompt_stem=shard_plan.prompt_stem,
+                prompt_index=shard_plan.prompt_index,
+                error="missing_output_file",
+            )
+            continue
+        try:
+            proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            invalid_shard_count += 1
+            prompt_state.write_failure(
+                phase_key=shard_plan.phase_key,
+                prompt_stem=shard_plan.prompt_stem,
+                prompt_index=shard_plan.prompt_index,
+                error="invalid_proposal_payload",
+            )
+            continue
+        response_payload = proposal_payload.get("payload")
+        validation_errors = proposal_payload.get("validation_errors") or []
+        if validation_errors or not isinstance(response_payload, dict):
+            invalid_shard_count += 1
+            prompt_state.write_failure(
+                phase_key=shard_plan.phase_key,
+                prompt_stem=shard_plan.prompt_stem,
+                prompt_index=shard_plan.prompt_index,
+                error=";".join(str(item) for item in validation_errors) or "invalid_proposal",
+                response_payload=response_payload,
+            )
+            continue
+        valid, validator_errors, _ = validator(shard_plan.manifest_entry, response_payload)
+        if not valid:
+            invalid_shard_count += 1
+            prompt_state.write_failure(
+                phase_key=shard_plan.phase_key,
+                prompt_stem=shard_plan.prompt_stem,
+                prompt_index=shard_plan.prompt_index,
+                error=";".join(str(item) for item in validator_errors) or "invalid_proposal",
+                response_payload=response_payload,
+            )
+            continue
+        prompt_state.write_response(
+            phase_key=shard_plan.phase_key,
+            prompt_stem=shard_plan.prompt_stem,
+            prompt_index=shard_plan.prompt_index,
+            response_payload=response_payload,
+        )
+        response_payloads_by_shard_id[shard_plan.shard_id] = response_payload
+    prompt_state.finalize(
+        phase_key=shard_plans[0].phase_key,
+        parse_error_count=invalid_shard_count + missing_output_shard_count,
+    )
+    return _LineRolePhaseRuntimeResult(
+        phase_key=shard_plans[0].phase_key,
+        phase_label=shard_plans[0].phase_label,
+        shard_plans=tuple(shard_plans),
         worker_reports=tuple(worker_reports),
         runner_results_by_shard_id=runner_results_by_shard_id,
+        response_payloads_by_shard_id=response_payloads_by_shard_id,
         invalid_shard_count=invalid_shard_count,
         missing_output_shard_count=missing_output_shard_count,
         runtime_root=Path(manifest.run_root),
     )
+
+
+def _normalize_region_status(value: Any) -> RecipeRegionStatus:
+    normalized = str(value or "").strip().lower()
+    if normalized == "recipe":
+        return "recipe"
+    if normalized == "outside_recipe":
+        return "outside_recipe"
+    return "boundary_uncertain"
+
+
+def _validate_recipe_region_gate_shard_proposal(
+    shard: ShardManifestEntryV1,
+    payload: dict[str, Any],
+) -> tuple[bool, Sequence[str], dict[str, Any] | None]:
+    if not isinstance(payload, dict):
+        return False, ("proposal_not_a_json_object",), None
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return False, ("rows_missing_or_not_a_list",), None
+    owned_atomic_indices = [int(value) for value in shard.owned_ids]
+    expected_owned = set(owned_atomic_indices)
+    seen_owned: set[int] = set()
+    errors: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            errors.append("row_not_a_json_object")
+            continue
+        try:
+            atomic_index = int(row.get("atomic_index"))
+        except (TypeError, ValueError):
+            errors.append("atomic_index_missing")
+            continue
+        region_status = _normalize_region_status(row.get("region_status"))
+        if region_status not in {"recipe", "outside_recipe", "boundary_uncertain"}:
+            errors.append(f"invalid_region_status:{atomic_index}:{row.get('region_status')}")
+        if atomic_index not in expected_owned:
+            errors.append(f"unowned_atomic_index:{atomic_index}")
+            continue
+        if atomic_index in seen_owned:
+            errors.append(f"duplicate_atomic_index:{atomic_index}")
+            continue
+        seen_owned.add(atomic_index)
+    missing_owned = sorted(expected_owned - seen_owned)
+    if missing_owned:
+        errors.append(
+            "missing_owned_atomic_indices:" + ",".join(str(value) for value in missing_owned)
+        )
+    metadata = {
+        "owned_row_count": len(expected_owned),
+        "returned_row_count": len(rows),
+        "validated_row_count": len(seen_owned),
+    }
+    return len(errors) == 0, tuple(errors), metadata
 
 
 def _validate_line_role_shard_proposal(
@@ -1199,6 +1585,8 @@ def _run_line_role_direct_worker_assignment_v1(
     output_schema_path: Path | None,
     timeout_seconds: int,
     shard_completed_callback: Callable[..., None] | None,
+    prompt_state: "_PromptArtifactState" | None,
+    validator: Callable[[ShardManifestEntryV1, dict[str, Any]], tuple[bool, Sequence[str], dict[str, Any] | None]],
 ) -> _DirectLineRoleWorkerResult:
     worker_root = Path(assignment.workspace_root)
     in_dir = worker_root / "in"
@@ -1230,8 +1618,18 @@ def _run_line_role_direct_worker_assignment_v1(
         )
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
-        prompt_text = str(shard.input_text or "")
+        prompt_text = _build_line_role_file_prompt_for_shard(
+            shard=shard,
+            input_path=input_path,
+        )
         (shard_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
+        if prompt_state is not None:
+            prompt_state.write_prompt(
+                phase_key=str((shard.input_payload or {}).get("phase_key") or "").strip(),
+                prompt_stem=str((shard.metadata or {}).get("prompt_stem") or "prompt").strip(),
+                prompt_index=int((shard.metadata or {}).get("prompt_index") or 0),
+                prompt_text=prompt_text,
+            )
 
         try:
             run_result = runner.run_structured_prompt(
@@ -1283,6 +1681,7 @@ def _run_line_role_direct_worker_assignment_v1(
             run_result=run_result,
             model=model,
             reasoning_effort=reasoning_effort,
+            request_input_file=input_path,
         )
         runner_results_by_shard_id[shard.shard_id] = dict(runner_payload)
         worker_runner_results.append(dict(runner_payload))
@@ -1317,7 +1716,7 @@ def _run_line_role_direct_worker_assignment_v1(
             else:
                 if isinstance(parsed_payload, dict):
                     payload = parsed_payload
-                    valid, validation_errors, validation_metadata = _validate_line_role_shard_proposal(
+                    valid, validation_errors, validation_metadata = validator(
                         shard,
                         parsed_payload,
                     )
@@ -1436,6 +1835,8 @@ def _run_line_role_direct_workers_v1(
     settings: dict[str, Any],
     runtime_metadata: dict[str, Any],
     progress_callback: Callable[[str], None] | None,
+    prompt_state: "_PromptArtifactState" | None,
+    validator: Callable[[ShardManifestEntryV1, dict[str, Any]], tuple[bool, Sequence[str], dict[str, Any] | None]],
 ) -> tuple[PhaseManifestV1, list[WorkerExecutionReportV1], dict[str, dict[str, Any]]]:
     artifacts = {
         "phase_manifest": "phase_manifest.json",
@@ -1515,6 +1916,8 @@ def _run_line_role_direct_workers_v1(
                 output_schema_path=output_schema_path,
                 timeout_seconds=timeout_seconds,
                 shard_completed_callback=_mark_shard_completed,
+                prompt_state=prompt_state,
+                validator=validator,
             )
             for assignment in assignments
         }
@@ -1602,16 +2005,68 @@ def _build_line_role_runner_payload(
     run_result: CodexExecRunResult,
     model: str | None,
     reasoning_effort: str | None,
+    request_input_file: Path | None,
 ) -> dict[str, Any]:
     payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
     payload["pipeline_id"] = pipeline_id
+    request_input_file_str = (
+        str(request_input_file)
+        if request_input_file is not None
+        else None
+    )
+    request_input_file_bytes = (
+        request_input_file.stat().st_size
+        if request_input_file is not None and request_input_file.exists()
+        else None
+    )
+    telemetry = payload.get("telemetry")
+    row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+    if isinstance(row_payloads, list):
+        for row_payload in row_payloads:
+            if not isinstance(row_payload, dict):
+                continue
+            row_payload["prompt_input_mode"] = "path"
+            row_payload["request_input_file"] = request_input_file_str
+            row_payload["request_input_file_bytes"] = request_input_file_bytes
+    summary_payload = telemetry.get("summary") if isinstance(telemetry, dict) else None
+    if isinstance(summary_payload, dict):
+        summary_payload["prompt_input_mode"] = "path"
+        summary_payload["request_input_file_bytes_total"] = request_input_file_bytes
     payload["process_payload"] = {
         "pipeline_id": pipeline_id,
         "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
+        "prompt_input_mode": "path",
+        "request_input_file": request_input_file_str,
+        "request_input_file_bytes": request_input_file_bytes,
     }
     return payload
+
+
+def _build_line_role_file_prompt_for_shard(
+    *,
+    shard: ShardManifestEntryV1,
+    input_path: Path,
+) -> str:
+    prompt_format = str((shard.metadata or {}).get("prompt_format") or "compact_v1")
+    owned_atomic_indices = [
+        int(owned_id)
+        for owned_id in shard.owned_ids
+        if str(owned_id).strip()
+    ]
+    phase_key = str((shard.input_payload or {}).get("phase_key") or "").strip()
+    if phase_key == "recipe_region_gate":
+        return build_recipe_region_gate_file_prompt(
+            input_path=input_path,
+            owned_atomic_indices=owned_atomic_indices,
+            prompt_format=prompt_format,
+        )
+    return build_canonical_line_role_file_prompt(
+        input_path=input_path,
+        owned_atomic_indices=owned_atomic_indices,
+        prompt_format=prompt_format,
+    )
 
 
 def _aggregate_line_role_worker_runner_payload(
@@ -1723,24 +2178,49 @@ class _PromptArtifactState:
         if self._prompt_dir is not None:
             self._prompt_dir.mkdir(parents=True, exist_ok=True)
 
-    def _path(self, stem: str, prompt_index: int, suffix: str) -> Path | None:
+    def _phase_dir(self, phase_key: str) -> Path | None:
         if self._prompt_dir is None:
             return None
-        return self._prompt_dir / f"{stem}_{prompt_index:04d}{suffix}"
+        path = self._prompt_dir / phase_key
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
-    def write_prompt(self, *, prompt_index: int, prompt_text: str) -> None:
-        path = self._path("prompt", prompt_index, ".txt")
+    def _path(
+        self,
+        phase_key: str,
+        stem: str,
+        prompt_index: int,
+        suffix: str,
+    ) -> Path | None:
+        if self._prompt_dir is None:
+            return None
+        phase_dir = self._phase_dir(phase_key)
+        if phase_dir is None:
+            return None
+        return phase_dir / f"{stem}_{prompt_index:04d}{suffix}"
+
+    def write_prompt(
+        self,
+        *,
+        phase_key: str,
+        prompt_stem: str,
+        prompt_index: int,
+        prompt_text: str,
+    ) -> None:
+        path = self._path(phase_key, prompt_stem, prompt_index, ".txt")
         if path is not None:
             path.write_text(prompt_text, encoding="utf-8")
 
     def write_response(
         self,
         *,
+        phase_key: str,
+        prompt_stem: str,
         prompt_index: int,
         response_payload: Mapping[str, Any],
     ) -> None:
-        response_path = self._path("response", prompt_index, ".txt")
-        parsed_path = self._path("parsed", prompt_index, ".json")
+        response_path = self._path(phase_key, f"{prompt_stem}_response", prompt_index, ".txt")
+        parsed_path = self._path(phase_key, f"{prompt_stem}_parsed", prompt_index, ".json")
         response_text = json.dumps(
             response_payload.get("rows") if isinstance(response_payload.get("rows"), list) else response_payload,
             ensure_ascii=False,
@@ -1754,6 +2234,8 @@ class _PromptArtifactState:
                 encoding="utf-8",
             )
         self._append_dedup(
+            phase_key=phase_key,
+            prompt_stem=prompt_stem,
             prompt_index=prompt_index,
             response_text=response_text,
         )
@@ -1761,11 +2243,13 @@ class _PromptArtifactState:
     def write_failure(
         self,
         *,
+        phase_key: str,
+        prompt_stem: str,
         prompt_index: int,
         error: str,
         response_payload: Any | None = None,
     ) -> None:
-        parsed_path = self._path("parsed", prompt_index, ".json")
+        parsed_path = self._path(phase_key, f"{prompt_stem}_parsed", prompt_index, ".json")
         if parsed_path is not None:
             parsed_path.write_text(
                 json.dumps(
@@ -1780,6 +2264,8 @@ class _PromptArtifactState:
                 encoding="utf-8",
             )
         self._append_dedup(
+            phase_key=phase_key,
+            prompt_stem=prompt_stem,
             prompt_index=prompt_index,
             response_text=json.dumps(
                 {"error": str(error).strip() or "invalid_proposal"},
@@ -1787,12 +2273,19 @@ class _PromptArtifactState:
             ),
         )
 
-    def _append_dedup(self, *, prompt_index: int, response_text: str) -> None:
+    def _append_dedup(
+        self,
+        *,
+        phase_key: str,
+        prompt_stem: str,
+        prompt_index: int,
+        response_text: str,
+    ) -> None:
         if self._prompt_dir is None:
             return
-        prompt_path = self._path("prompt", prompt_index, ".txt")
+        prompt_path = self._path(phase_key, prompt_stem, prompt_index, ".txt")
         prompt_text = prompt_path.read_text(encoding="utf-8") if prompt_path is not None and prompt_path.exists() else ""
-        dedup_path = self._prompt_dir / "codex_prompt_log.dedup.txt"
+        dedup_path = self._phase_dir(phase_key) / "codex_prompt_log.dedup.txt"
         stable_hash = hashlib.sha256(
             f"{prompt_text}\n---\n{response_text}".encode("utf-8")
         ).hexdigest()
@@ -1808,12 +2301,13 @@ class _PromptArtifactState:
         if stable_hash in existing_hashes:
             return
         with dedup_path.open("a", encoding="utf-8") as handle:
-            handle.write(f"{stable_hash}\tprompt_{prompt_index:04d}\n")
+            handle.write(f"{stable_hash}\t{prompt_stem}_{prompt_index:04d}\n")
 
-    def finalize(self, *, parse_error_count: int) -> None:
-        if self._prompt_dir is None:
+    def finalize(self, *, phase_key: str, parse_error_count: int) -> None:
+        phase_dir = self._phase_dir(phase_key)
+        if phase_dir is None:
             return
-        (self._prompt_dir / "parse_errors.json").write_text(
+        (phase_dir / "parse_errors.json").write_text(
             json.dumps(
                 {
                     "parse_error_count": int(parse_error_count),
@@ -1836,68 +2330,73 @@ def _write_line_role_telemetry_summary(
     pipeline_dir = artifact_root / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
     summary_path = pipeline_dir / "telemetry_summary.json"
-    telemetry_rows: list[dict[str, Any]] = []
-    batch_payloads: list[dict[str, Any]] = []
-    for report in runtime_result.worker_reports:
-        runner_result = report.runner_result or {}
-        telemetry_payload = runner_result.get("telemetry")
-        if not isinstance(telemetry_payload, dict):
-            continue
-        rows = telemetry_payload.get("rows")
-        if isinstance(rows, list):
-            telemetry_rows.extend(
-                dict(row) for row in rows if isinstance(row, dict)
+    all_rows: list[dict[str, Any]] = []
+    phase_payloads: list[dict[str, Any]] = []
+    for phase_result in runtime_result.phase_results:
+        telemetry_rows: list[dict[str, Any]] = []
+        batch_payloads: list[dict[str, Any]] = []
+        for report in phase_result.worker_reports:
+            runner_result = report.runner_result or {}
+            telemetry_payload = runner_result.get("telemetry")
+            if not isinstance(telemetry_payload, dict):
+                continue
+            rows = telemetry_payload.get("rows")
+            if isinstance(rows, list):
+                telemetry_rows.extend(
+                    dict(row) for row in rows if isinstance(row, dict)
+                )
+        all_rows.extend(telemetry_rows)
+        phase_totals = _sum_runtime_usage(telemetry_rows)
+        for plan in phase_result.shard_plans:
+            runner_payload = phase_result.runner_results_by_shard_id.get(plan.shard_id) or {}
+            attempt_usage: dict[str, Any] | None = None
+            telemetry_payload = runner_payload.get("telemetry")
+            runner_rows = (
+                telemetry_payload.get("rows") if isinstance(telemetry_payload, dict) else None
             )
-    totals = _sum_runtime_usage(telemetry_rows)
-    for plan in runtime_result.shard_plans:
-        runner_payload = runtime_result.runner_results_by_shard_id.get(plan.shard_id) or {}
-        attempt_usage: dict[str, Any] | None = None
-        telemetry_payload = runner_payload.get("telemetry")
-        runner_rows = telemetry_payload.get("rows") if isinstance(telemetry_payload, dict) else None
-        if isinstance(runner_rows, list) and runner_rows:
-            first_row = runner_rows[0]
-            if isinstance(first_row, dict):
-                attempt_usage = {
-                    "tokens_input": _safe_int_value(first_row.get("tokens_input")),
-                    "tokens_cached_input": _safe_int_value(first_row.get("tokens_cached_input")),
-                    "tokens_output": _safe_int_value(first_row.get("tokens_output")),
-                    "tokens_reasoning": _safe_int_value(first_row.get("tokens_reasoning")),
-                    "tokens_total": _safe_int_value(first_row.get("tokens_total")),
-                }
-        batch_payloads.append(
-            {
-                "prompt_index": plan.prompt_index,
-                "shard_id": plan.shard_id,
-                "candidate_count": len(plan.candidates),
-                "requested_atomic_indices": [
-                    int(candidate.atomic_index) for candidate in plan.candidates
-                ],
-                "attempt_count": 1,
-                "attempts_with_usage": 1 if attempt_usage is not None else 0,
-                "attempts": [
-                    {
-                        "attempt_index": 1,
-                        "response_present": bool(str(runner_payload.get("response_text") or "").strip()),
-                        "returncode": _safe_int_value(runner_payload.get("subprocess_exit_code")),
-                        "turn_failed_message": runner_payload.get("turn_failed_message"),
-                        "usage": attempt_usage,
-                        "process_run": runner_payload,
+            if isinstance(runner_rows, list) and runner_rows:
+                first_row = runner_rows[0]
+                if isinstance(first_row, dict):
+                    attempt_usage = {
+                        "tokens_input": _safe_int_value(first_row.get("tokens_input")),
+                        "tokens_cached_input": _safe_int_value(first_row.get("tokens_cached_input")),
+                        "tokens_output": _safe_int_value(first_row.get("tokens_output")),
+                        "tokens_reasoning": _safe_int_value(first_row.get("tokens_reasoning")),
+                        "tokens_total": _safe_int_value(first_row.get("tokens_total")),
                     }
-                ],
-            }
-        )
-    summary_path.write_text(
-        json.dumps(
+            batch_payloads.append(
+                {
+                    "prompt_index": plan.prompt_index,
+                    "shard_id": plan.shard_id,
+                    "candidate_count": len(plan.candidates),
+                    "requested_atomic_indices": [
+                        int(candidate.atomic_index) for candidate in plan.candidates
+                    ],
+                    "attempt_count": 1,
+                    "attempts_with_usage": 1 if attempt_usage is not None else 0,
+                    "attempts": [
+                        {
+                            "attempt_index": 1,
+                            "response_present": bool(
+                                str(runner_payload.get("response_text") or "").strip()
+                            ),
+                            "returncode": _safe_int_value(
+                                runner_payload.get("subprocess_exit_code")
+                            ),
+                            "turn_failed_message": runner_payload.get("turn_failed_message"),
+                            "usage": attempt_usage,
+                            "process_run": runner_payload,
+                        }
+                    ],
+                }
+            )
+        phase_payloads.append(
             {
-                "schema_version": 1,
-                "pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
-                "codex_backend": "codex_exec_direct",
-                "codex_farm_pipeline_id": _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
-                "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
-                "token_usage_enabled": bool(telemetry_rows),
+                "phase_key": phase_result.phase_key,
+                "phase_label": phase_result.phase_label,
                 "summary": {
-                    "batch_count": len(runtime_result.shard_plans),
-                    "attempt_count": len(telemetry_rows) or len(runtime_result.shard_plans),
+                    "batch_count": len(phase_result.shard_plans),
+                    "attempt_count": len(telemetry_rows) or len(phase_result.shard_plans),
                     "attempts_with_usage": sum(
                         1
                         for row in telemetry_rows
@@ -1911,12 +2410,74 @@ def _write_line_role_telemetry_summary(
                             )
                         )
                     ),
+                    "tokens_input": phase_totals.get("tokens_input"),
+                    "tokens_cached_input": phase_totals.get("tokens_cached_input"),
+                    "tokens_output": phase_totals.get("tokens_output"),
+                    "tokens_reasoning": phase_totals.get("tokens_reasoning"),
+                    "tokens_total": phase_totals.get("tokens_total"),
+                    "visible_input_tokens": phase_totals.get("visible_input_tokens"),
+                    "visible_output_tokens": phase_totals.get("visible_output_tokens"),
+                    "wrapper_overhead_tokens": phase_totals.get("wrapper_overhead_tokens"),
+                    "prompt_input_mode": "path",
+                    "request_input_file_bytes_total": phase_totals.get(
+                        "request_input_file_bytes_total"
+                    ),
+                },
+                "batches": batch_payloads,
+                "runtime_artifacts": {
+                    "runtime_root": (
+                        str(phase_result.runtime_root.relative_to(artifact_root))
+                        if phase_result.runtime_root is not None
+                        else None
+                    ),
+                    "invalid_shard_count": phase_result.invalid_shard_count,
+                    "missing_output_shard_count": phase_result.missing_output_shard_count,
+                    "worker_count": len(phase_result.worker_reports),
+                },
+            }
+        )
+    totals = _sum_runtime_usage(all_rows)
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
+                "codex_backend": "codex_exec_direct",
+                "codex_farm_pipeline_id": _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
+                "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "token_usage_enabled": bool(all_rows),
+                "summary": {
+                    "batch_count": sum(
+                        len(phase_result.shard_plans)
+                        for phase_result in runtime_result.phase_results
+                    ),
+                    "attempt_count": len(all_rows)
+                    or sum(len(phase_result.shard_plans) for phase_result in runtime_result.phase_results),
+                    "attempts_with_usage": sum(
+                        1
+                        for row in all_rows
+                        if any(
+                            _safe_int_value(row.get(key)) is not None
+                            for key in (
+                                "tokens_input",
+                                "tokens_cached_input",
+                                "tokens_output",
+                                "tokens_reasoning",
+                            )
+                        )
+                    ),
                     "attempts_without_usage": max(
                         0,
-                        (len(telemetry_rows) or len(runtime_result.shard_plans))
+                        (
+                            len(all_rows)
+                            or sum(
+                                len(phase_result.shard_plans)
+                                for phase_result in runtime_result.phase_results
+                            )
+                        )
                         - sum(
                             1
-                            for row in telemetry_rows
+                            for row in all_rows
                             if any(
                                 _safe_int_value(row.get(key)) is not None
                                 for key in (
@@ -1933,17 +2494,18 @@ def _write_line_role_telemetry_summary(
                     "tokens_output": totals.get("tokens_output"),
                     "tokens_reasoning": totals.get("tokens_reasoning"),
                     "tokens_total": totals.get("tokens_total"),
-                },
-                "batches": batch_payloads,
-                "runtime_artifacts": {
-                    "runtime_root": (
-                        str(runtime_result.runtime_root.relative_to(artifact_root))
-                        if runtime_result.runtime_root is not None
-                        else None
+                    "visible_input_tokens": totals.get("visible_input_tokens"),
+                    "visible_output_tokens": totals.get("visible_output_tokens"),
+                    "wrapper_overhead_tokens": totals.get("wrapper_overhead_tokens"),
+                    "prompt_input_mode": "path",
+                    "request_input_file_bytes_total": totals.get(
+                        "request_input_file_bytes_total"
                     ),
-                    "invalid_shard_count": runtime_result.invalid_shard_count,
-                    "missing_output_shard_count": runtime_result.missing_output_shard_count,
-                    "worker_count": len(runtime_result.worker_reports),
+                },
+                "phases": phase_payloads,
+                "runtime_artifacts": {
+                    "runtime_root": "line-role-pipeline/runtime",
+                    "phase_count": len(runtime_result.phase_results),
                 },
             },
             indent=2,
@@ -1960,6 +2522,10 @@ def _sum_runtime_usage(rows: Sequence[dict[str, Any]]) -> dict[str, int | None]:
         "tokens_output": None,
         "tokens_reasoning": None,
         "tokens_total": None,
+        "visible_input_tokens": None,
+        "visible_output_tokens": None,
+        "wrapper_overhead_tokens": None,
+        "request_input_file_bytes_total": None,
     }
     for row in rows:
         tokens_input = _safe_int_value(row.get("tokens_input"))
@@ -1984,6 +2550,12 @@ def _sum_runtime_usage(rows: Sequence[dict[str, Any]]) -> dict[str, int | None]:
                     )
                 )
                 else None
+            ),
+            "visible_input_tokens": _safe_int_value(row.get("visible_input_tokens")),
+            "visible_output_tokens": _safe_int_value(row.get("visible_output_tokens")),
+            "wrapper_overhead_tokens": _safe_int_value(row.get("wrapper_overhead_tokens")),
+            "request_input_file_bytes_total": _safe_int_value(
+                row.get("request_input_file_bytes")
             ),
         }
         for key, value in values.items():
@@ -2369,6 +2941,75 @@ def _fallback_prediction(
         decided_by="fallback",
         reason_tags=reason_tags,
     )
+
+
+def _apply_recipe_region_constraints(
+    *,
+    ordered_candidates: Sequence[AtomicLineCandidate],
+    predictions: Mapping[int, CanonicalLineRolePrediction],
+    deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
+    region_status_by_atomic_index: Mapping[int, RecipeRegionStatus],
+) -> dict[int, CanonicalLineRolePrediction]:
+    constrained: dict[int, CanonicalLineRolePrediction] = {}
+    for candidate in ordered_candidates:
+        atomic_index = int(candidate.atomic_index)
+        current = predictions[atomic_index]
+        baseline = deterministic_baseline[atomic_index]
+        region_status = region_status_by_atomic_index.get(
+            atomic_index,
+            _seed_region_status_for_candidate(
+                candidate,
+                baseline_prediction=baseline,
+            ),
+        )
+        reason_tags = list(current.reason_tags)
+        reason_tags.append(f"recipe_region_gate_{region_status}")
+        if region_status != "outside_recipe":
+            constrained[atomic_index] = current.model_copy(
+                update={"reason_tags": _unique_string_list(reason_tags)}
+            )
+            continue
+        fallback_label = _outside_recipe_safe_label(
+            candidate=candidate,
+            preferred=str(current.label or "OTHER"),
+            baseline=str(baseline.label or "OTHER"),
+        )
+        decided_by = current.decided_by if fallback_label == current.label else "fallback"
+        if fallback_label != current.label:
+            reason_tags.append("outside_recipe_recipe_label_blocked")
+        constrained[atomic_index] = current.model_copy(
+            update={
+                "label": fallback_label,
+                "decided_by": decided_by,
+                "reason_tags": _unique_string_list(reason_tags),
+            }
+        )
+    return constrained
+
+
+def _outside_recipe_safe_label(
+    *,
+    candidate: AtomicLineCandidate,
+    preferred: str,
+    baseline: str,
+) -> str:
+    allowed_labels = {"OTHER", "KNOWLEDGE", "RECIPE_NOTES"}
+    preferred_label = str(preferred or "OTHER").strip().upper() or "OTHER"
+    baseline_label = str(baseline or "OTHER").strip().upper() or "OTHER"
+    if preferred_label in allowed_labels:
+        return preferred_label
+    if baseline_label in allowed_labels:
+        return baseline_label
+    if _looks_recipe_note_prose(str(candidate.text or "")) or _looks_storage_or_serving_note(
+        str(candidate.text or "")
+    ):
+        return "RECIPE_NOTES"
+    if _looks_knowledge_heading_with_context(candidate, by_atomic_index=None) or _looks_knowledge_prose_with_context(
+        candidate,
+        by_atomic_index=None,
+    ):
+        return "KNOWLEDGE"
+    return "OTHER"
 
 
 def _sanitize_prediction(
