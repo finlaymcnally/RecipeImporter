@@ -41,6 +41,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 ownership for all outside-recipe blocks.
   - Builds a deterministic seed non-recipe authority and preserves the final refined authority when the optional knowledge stage changes `knowledge` versus `other`.
+  - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
 - `cookimport/staging/writer.py`
   - Writes intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
@@ -56,6 +57,10 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Defines/stores `run_manifest.json` written by stage/pred-run flows for source identity + artifact indexing.
 - `cookimport/labelstudio/ingest.py`
   - Reuses same writer flow for processed output snapshots used in LS workflows.
+
+Progress telemetry note:
+
+- `cookimport/staging/import_session.py` now emits structured stage-progress snapshots for label-first authority building, knowledge chunk generation, and multi-step output writing, so stage/benchmark spinners and `processing_timeseries.jsonl` retain more than a single status line during those phases.
 
 ## Canonical Naming Conventions (User-Facing)
 

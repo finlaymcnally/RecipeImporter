@@ -540,6 +540,103 @@ def test_label_atomic_lines_outside_recipe_food_note_prose_is_recipe_notes() -> 
     assert predictions[0].label == "RECIPE_NOTES"
 
 
+def test_label_atomic_lines_unknown_pre_grouping_storage_note_is_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:note:storage:1",
+            "block_index": 1,
+            "text": "Store leftover slaw covered, in the fridge, for up to two days.",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_unknown_pre_grouping_refrigerate_leftovers_is_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:note:storage:2",
+            "block_index": 1,
+            "text": "Refrigerate leftovers, covered, for up to 3 days.",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_unknown_pre_grouping_ideal_for_serving_suggestion_is_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:note:serving:1",
+            "block_index": 1,
+            "text": (
+                "Ideal for garden lettuces, arugula, chicories, Belgian endive, "
+                "Little Gem and romaine lettuce, beets, tomatoes, blanched, "
+                "grilled, or roasted vegetables of any kind."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_unknown_pre_grouping_serve_with_suggestion_is_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:note:serving:2",
+            "block_index": 1,
+            "text": "Serve with grilled fish, roast chicken, or ripe tomatoes.",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_science_prose_with_internal_ideal_for_is_not_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:ideal-for:1",
+            "block_index": 1,
+            "text": (
+                "Fine or medium-size crystals of this type are ideal for everyday "
+                "cooking. Use this type of sea salt to season foods from within."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label != "RECIPE_NOTES"
+
+
 def test_label_atomic_lines_outside_recipe_contents_heading_is_not_recipe_variant() -> None:
     blocks = [
         {
@@ -1081,6 +1178,119 @@ def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
     assert predictions[0].decided_by == "rule"
 
 
+def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragments() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:1",
+            block_index=1,
+            atomic_index=0,
+            text="How Salt Works",
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:2",
+            block_index=2,
+            atomic_index=1,
+            text="FAT",
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:3",
+            block_index=3,
+            atomic_index=2,
+            text="acid, which brightens and balances",
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:4",
+            block_index=4,
+            atomic_index=3,
+            text="and heat, which ultimately determines the texture of food",
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+    assert [prediction.label for prediction in predictions] == [
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+    ]
+
+
+def test_label_atomic_lines_recovers_outside_recipe_pedagogical_and_endorsement_prose() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:5",
+            block_index=5,
+            atomic_index=0,
+            text=(
+                "Whether you've never picked up a knife and fork or you cook every "
+                "day, mastering these four elements will make every meal better."
+            ),
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:6",
+            block_index=6,
+            atomic_index=1,
+            text="-Alice Waters , New York Times bestselling author of The Art of Simple Food",
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+    assert [prediction.label for prediction in predictions] == [
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+    ]
+
+
+def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:outside-title:1",
+            block_index=1,
+            atomic_index=0,
+            text="A Panzanella for Every Season",
+            within_recipe_span=False,
+            prev_text=None,
+            next_text=None,
+            rule_tags=[],
+        )
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "OTHER"
+
+
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     tmp_path,
 ) -> None:
@@ -1142,8 +1352,11 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
+    assert "Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status" in prompt
     assert "No prior recipe-span authority is provided for this batch." in prompt
-    assert "0|L0|SERVES 4" in prompt
+    assert "Grounding windows:" in prompt
+    assert "ctx:0|prev=_|line=SERVES 4|next=2 tablespoons olive oil" in prompt
+    assert "0|L0|R|yield,needs_review|SERVES 4" in prompt
 
 
 def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> None:
@@ -1177,20 +1390,20 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
         prompt_format="compact_v1",
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
     )
-    assert "atomic_index|label_code|current_line" in prompt
-    assert prompt.count("atomic_index|label_code|current_line") == 1
+    assert "atomic_index|label_code|span_code|hint_codes|current_line" in prompt
+    assert prompt.count("atomic_index|label_code|span_code|hint_codes|current_line") == 1
     assert "No prior recipe-span authority is provided for this batch." in prompt
     assert "ordered contiguous slice of the book" in prompt
-    assert "0|L1|SERVES 4" in prompt
-    assert "1|L1|2 tablespoons olive oil" in prompt
+    assert "0|L1|R|yield|SERVES 4" in prompt
+    assert "1|L1|R|ingredient|2 tablespoons olive oil" in prompt
 
     compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
     )
     assert compact_rows.splitlines() == [
-        "0|L1|SERVES 4",
-        "1|L1|2 tablespoons olive oil",
+        "0|L1|R|yield|SERVES 4",
+        "1|L1|R|ingredient|2 tablespoons olive oil",
     ]
 
 
@@ -1229,8 +1442,10 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
         },
     ).splitlines()
 
-    assert compact_rows[0] == "0|L1|Praise for SALT FAT ACID HEAT"
-    assert compact_rows[1] == "1|L1|SERVES 4"
+    assert compact_rows[0] == (
+        "0|L1|N|outside,outside_structure|Praise for SALT FAT ACID HEAT"
+    )
+    assert compact_rows[1] == "1|L1|R|yield,needs_review|SERVES 4"
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -1722,7 +1937,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     prompt_text = (tmp_path / "line-role-pipeline" / "prompts" / "prompt_0001.txt").read_text(
         encoding="utf-8"
     )
-    assert "atomic_index|label_code|current_line" in prompt_text
+    assert "atomic_index|label_code|span_code|hint_codes|current_line" in prompt_text
     assert "Label codes:" in prompt_text
     assert "No prior recipe-span authority is provided for this batch." in prompt_text
     assert "ordered contiguous slice of the book" in prompt_text

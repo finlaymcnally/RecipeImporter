@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
+from cookimport.core.progress_messages import format_stage_progress
 from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
 from cookimport.runs import RECIPE_MANIFEST_FILE_NAME, stage_artifact_stem
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
@@ -33,10 +36,19 @@ from .codex_farm_runner import (
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
+from .codex_exec_runner import (
+    DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+    CodexExecRunner,
+    SubprocessCodexExecRunner,
+    summarize_direct_telemetry_rows,
+)
 from .phase_worker_runtime import (
+    PhaseManifestV1,
     ShardManifestEntryV1,
     resolve_phase_worker_count,
-    run_phase_workers_v1,
+    ShardProposalV1,
+    WorkerAssignmentV1,
+    WorkerExecutionReportV1,
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import resolve_items_per_shard
@@ -169,6 +181,83 @@ class _RecipeShardPlan:
     prepared_inputs: tuple[_PreparedRecipeInput, ...]
     evidence_refs: tuple[str, ...]
     shard_input: RecipeCorrectionShardInput
+
+
+@dataclass(frozen=True)
+class _DirectRecipeWorkerResult:
+    report: WorkerExecutionReportV1
+    proposals: tuple[ShardProposalV1, ...]
+    failures: tuple[dict[str, Any], ...]
+    stage_rows: tuple[dict[str, Any], ...]
+
+
+@dataclass
+class _LegacyRecipeRunnerAdapter:
+    legacy_runner: CodexFarmRunner
+    pipeline_id: str
+    call_index: int = 0
+
+    def run_structured_prompt(
+        self,
+        *,
+        prompt_text: str,
+        input_payload: Mapping[str, Any] | None,
+        working_dir: Path,
+        env: Mapping[str, str],
+        output_schema_path: Path | None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+        timeout_seconds: int | None = None,
+    ):
+        del prompt_text
+        del output_schema_path
+        del timeout_seconds
+        self.call_index += 1
+        run_root = working_dir / ".legacy_recipe_runner" / f"call-{self.call_index:04d}"
+        in_dir = run_root / "in"
+        out_dir = run_root / "out"
+        in_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        normalized_input = RecipeCorrectionShardInput.model_validate(
+            dict(input_payload or {})
+        ).model_dump(mode="json", by_alias=False)
+        input_path = in_dir / "payload.json"
+        input_path.write_text(
+            json.dumps(normalized_input, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        self.legacy_runner.run_pipeline(
+            self.pipeline_id,
+            in_dir,
+            out_dir,
+            env,
+            root_dir=Path(str(env.get("CODEX_FARM_ROOT") or working_dir)),
+            workspace_root=working_dir,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            runtime_mode=DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+            process_worker_count=1,
+        )
+        output_path = next(iter(sorted(out_dir.glob("*.json"))), None)
+        response_text = output_path.read_text(encoding="utf-8") if output_path else "{}"
+        usage = {
+            "input_tokens": max(1, len(json.dumps(normalized_input, sort_keys=True)) // 4),
+            "cached_input_tokens": 0,
+            "output_tokens": max(1, len(response_text) // 4),
+            "reasoning_tokens": 0,
+        }
+        from .codex_exec_runner import CodexExecRunResult
+
+        return CodexExecRunResult(
+            command=["legacy-codex-farm-adapter"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text=json.dumps(normalized_input, indent=2, sort_keys=True),
+            response_text=response_text,
+            turn_failed_message=None,
+            events=(),
+            usage=usage,
+        )
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -505,7 +594,9 @@ def _aggregate_recipe_phase_process_run(
     pipeline_id = str(phase_manifest.get("pipeline_id") or SINGLE_CORRECTION_STAGE_PIPELINE_ID)
     return {
         "pipeline_id": pipeline_id,
-        "runtime_mode": "phase_worker_runtime.v1",
+        "runtime_mode": str(
+            phase_manifest.get("runtime_mode") or DIRECT_CODEX_EXEC_RUNTIME_MODE_V1
+        ),
         "worker_run_count": len(worker_runs),
         "worker_runs": worker_runs,
         "runtime_mode_audits": runtime_mode_audits,
@@ -513,6 +604,41 @@ def _aggregate_recipe_phase_process_run(
         "promotion_report": dict(promotion_report),
         "telemetry_report": dict(telemetry),
     }
+
+
+def _load_pipeline_assets(*, pipeline_root: Path, pipeline_id: str) -> dict[str, Any]:
+    pipeline_path = pipeline_root / "pipelines" / f"{pipeline_id}.json"
+    if not pipeline_path.exists():
+        fallback_root = Path(__file__).resolve().parents[2] / "llm_pipelines"
+        fallback_path = fallback_root / "pipelines" / f"{pipeline_id}.json"
+        if fallback_path.exists():
+            pipeline_root = fallback_root
+            pipeline_path = fallback_path
+    pipeline_payload = json.loads(pipeline_path.read_text(encoding="utf-8"))
+    prompt_template_rel = str(pipeline_payload.get("prompt_template_path") or "").strip()
+    output_schema_rel = str(pipeline_payload.get("output_schema_path") or "").strip()
+    prompt_template_path = pipeline_root / prompt_template_rel
+    output_schema_path = pipeline_root / output_schema_rel
+    return {
+        "pipeline_payload": pipeline_payload,
+        "prompt_template_text": prompt_template_path.read_text(encoding="utf-8"),
+        "prompt_template_path": str(prompt_template_path),
+        "output_schema_path": output_schema_path,
+    }
+
+
+def render_recipe_direct_prompt(
+    *,
+    pipeline_assets: Mapping[str, Any],
+    input_text: str,
+    input_path: Path,
+) -> str:
+    rendered = str(pipeline_assets.get("prompt_template_text") or "")
+    rendered = rendered.replace("{{INPUT_TEXT}}", input_text)
+    rendered = rendered.replace("{{ INPUT_TEXT }}", input_text)
+    rendered = rendered.replace("{{INPUT_PATH}}", str(input_path))
+    rendered = rendered.replace("{{ INPUT_PATH }}", str(input_path))
+    return rendered
 
 
 def _build_single_correction_manifest(
@@ -622,13 +748,439 @@ def _build_single_correction_manifest(
     }
 
 
+def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(dict(row), sort_keys=True))
+            handle.write("\n")
+
+
+def _write_worker_input(path: Path, *, payload: Any, input_text: str | None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if input_text is not None:
+        path.write_text(str(input_text), encoding="utf-8")
+        return
+    if isinstance(payload, str):
+        path.write_text(payload, encoding="utf-8")
+        return
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _relative_path(base: Path, path: Path) -> str:
+    try:
+        return str(path.relative_to(base))
+    except ValueError:
+        return str(path)
+
+
+def _render_events_jsonl(events: Sequence[dict[str, Any]]) -> str:
+    if not events:
+        return ""
+    return "".join(json.dumps(event, sort_keys=True) + "\n" for event in events)
+
+
+def _assign_recipe_workers_v1(
+    *,
+    run_root: Path,
+    shards: Sequence[ShardManifestEntryV1],
+    worker_count: int,
+) -> list[WorkerAssignmentV1]:
+    effective_workers = resolve_phase_worker_count(
+        requested_worker_count=worker_count,
+        shard_count=len(shards),
+    )
+    buckets: list[list[str]] = [[] for _ in range(effective_workers)]
+    for index, shard in enumerate(shards):
+        buckets[index % effective_workers].append(shard.shard_id)
+    return [
+        WorkerAssignmentV1(
+            worker_id=f"worker-{index + 1:03d}",
+            shard_ids=tuple(bucket),
+            workspace_root=str(run_root / "workers" / f"worker-{index + 1:03d}"),
+        )
+        for index, bucket in enumerate(buckets)
+    ]
+
+
+def _run_direct_recipe_worker_assignment_v1(
+    *,
+    run_root: Path,
+    assignment: WorkerAssignmentV1,
+    artifacts: Mapping[str, str],
+    shard_by_id: Mapping[str, ShardManifestEntryV1],
+    runner: CodexExecRunner,
+    pipeline_id: str,
+    env: Mapping[str, str],
+    model: str | None,
+    reasoning_effort: str | None,
+    output_schema_path: Path | None,
+    pipeline_assets: Mapping[str, Any],
+    shard_completed_callback: Callable[..., None] | None,
+) -> _DirectRecipeWorkerResult:
+    worker_root = Path(assignment.workspace_root)
+    in_dir = worker_root / "in"
+    shard_dir = worker_root / "shards"
+    logs_dir = worker_root / "logs"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
+    _write_json([asdict(shard) for shard in assigned_shards], worker_root / "assigned_shards.json")
+
+    worker_failure_count = 0
+    worker_proposal_count = 0
+    worker_failures: list[dict[str, Any]] = []
+    worker_proposals: list[ShardProposalV1] = []
+    worker_runner_results: list[dict[str, Any]] = []
+    stage_rows: list[dict[str, Any]] = []
+
+    for shard in assigned_shards:
+        input_path = in_dir / f"{shard.shard_id}.json"
+        serialized_input = json.dumps(shard.input_payload, indent=2, sort_keys=True) + "\n"
+        _write_worker_input(path=input_path, payload=shard.input_payload, input_text=serialized_input)
+        shard_root = shard_dir / shard.shard_id
+        shard_root.mkdir(parents=True, exist_ok=True)
+        prompt_text = render_recipe_direct_prompt(
+            pipeline_assets=pipeline_assets,
+            input_text=serialized_input,
+            input_path=input_path,
+        )
+        (shard_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
+
+        run_result = runner.run_structured_prompt(
+            prompt_text=prompt_text,
+            input_payload=dict(shard.input_payload or {}),
+            working_dir=worker_root,
+            env=env,
+            output_schema_path=output_schema_path,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        worker_runner_payload = run_result.to_payload(
+            worker_id=assignment.worker_id,
+            shard_id=shard.shard_id,
+        )
+        worker_runner_payload["pipeline_id"] = pipeline_id
+        worker_runner_results.append(worker_runner_payload)
+        stage_row = run_result.telemetry_row(
+            worker_id=assignment.worker_id,
+            shard_id=shard.shard_id,
+        )
+        stage_rows.append(stage_row)
+        (shard_root / "events.jsonl").write_text(
+            _render_events_jsonl(run_result.events),
+            encoding="utf-8",
+        )
+        _write_json({"text": run_result.response_text}, shard_root / "last_message.json")
+        _write_json(dict(run_result.usage or {}), shard_root / "usage.json")
+        _write_json(
+            dict(stage_row.get("cost_breakdown") or {}),
+            shard_root / "cost_breakdown.json",
+        )
+
+        payload: dict[str, Any] | None = None
+        validation_errors: tuple[str, ...] = ()
+        validation_metadata: dict[str, Any] = {}
+        proposal_status = "validated"
+        response_text = str(run_result.response_text or "").strip()
+        if not response_text:
+            validation_errors = ("missing_output_file",)
+            proposal_status = "missing_output"
+        else:
+            try:
+                parsed_payload = json.loads(response_text)
+            except json.JSONDecodeError as exc:
+                validation_errors = ("response_json_invalid",)
+                validation_metadata = {"parse_error": str(exc)}
+                proposal_status = "invalid"
+            else:
+                if isinstance(parsed_payload, dict):
+                    payload = parsed_payload
+                    valid, validation_errors, validation_metadata = _validate_recipe_shard_output(
+                        shard,
+                        parsed_payload,
+                    )
+                    proposal_status = "validated" if valid else "invalid"
+                else:
+                    validation_errors = ("response_not_json_object",)
+                    validation_metadata = {"response_type": type(parsed_payload).__name__}
+                    proposal_status = "invalid"
+
+        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        _write_json(
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": assignment.worker_id,
+                "payload": payload,
+                "validation_errors": list(validation_errors),
+                "validation_metadata": dict(validation_metadata or {}),
+            },
+            proposal_path,
+        )
+        _write_json(
+            {
+                "status": proposal_status,
+                "validation_errors": list(validation_errors),
+                "validation_metadata": dict(validation_metadata or {}),
+                "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+            },
+            shard_root / "status.json",
+        )
+
+        if proposal_status != "validated":
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": (
+                        "proposal_validation_failed"
+                        if proposal_status == "invalid"
+                        else "missing_output_file"
+                    ),
+                    "validation_errors": list(validation_errors),
+                }
+            )
+        else:
+            worker_proposal_count += 1
+
+        worker_proposals.append(
+            ShardProposalV1(
+                shard_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                status=proposal_status,
+                proposal_path=_relative_path(run_root, proposal_path),
+                payload=payload,
+                validation_errors=validation_errors,
+                metadata=dict(validation_metadata or {}),
+            )
+        )
+        if shard_completed_callback is not None:
+            shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+
+    worker_summary = summarize_direct_telemetry_rows(stage_rows)
+    worker_runner_payload = {
+        "runner_kind": "codex_exec_direct",
+        "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+        "pipeline_id": pipeline_id,
+        "worker_runs": worker_runner_results,
+        "telemetry": {
+            "rows": stage_rows,
+            "summary": worker_summary,
+        },
+        "runtime_mode_audit": {
+            "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+            "status": "ok",
+            "output_schema_enforced": output_schema_path is not None,
+            "tool_affordances_requested": False,
+        },
+    }
+    _write_json(worker_runner_payload, worker_root / "status.json")
+    return _DirectRecipeWorkerResult(
+        report=WorkerExecutionReportV1(
+            worker_id=assignment.worker_id,
+            shard_ids=assignment.shard_ids,
+            workspace_root=_relative_path(run_root, worker_root),
+            status="ok" if worker_failure_count == 0 else "partial_failure",
+            proposal_count=worker_proposal_count,
+            failure_count=worker_failure_count,
+            runtime_mode_audit={
+                "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "status": "ok",
+                "output_schema_enforced": output_schema_path is not None,
+                "tool_affordances_requested": False,
+            },
+            runner_result=worker_runner_payload,
+            metadata={
+                "in_dir": _relative_path(run_root, in_dir),
+                "shards_dir": _relative_path(run_root, shard_dir),
+                "log_dir": _relative_path(run_root, logs_dir),
+            },
+        ),
+        proposals=tuple(worker_proposals),
+        failures=tuple(worker_failures),
+        stage_rows=tuple(stage_rows),
+    )
+
+
+def _run_direct_recipe_workers_v1(
+    *,
+    phase_key: str,
+    pipeline_id: str,
+    run_root: Path,
+    shards: Sequence[ShardManifestEntryV1],
+    runner: CodexExecRunner,
+    worker_count: int,
+    env: Mapping[str, str],
+    model: str | None,
+    reasoning_effort: str | None,
+    output_schema_path: Path | None,
+    settings: Mapping[str, Any],
+    runtime_metadata: Mapping[str, Any],
+    pipeline_assets: Mapping[str, Any],
+    progress_callback: Callable[[str], None] | None = None,
+) -> tuple[PhaseManifestV1, list[WorkerExecutionReportV1]]:
+    artifacts = {
+        "phase_manifest": "phase_manifest.json",
+        "shard_manifest": "shard_manifest.jsonl",
+        "worker_assignments": "worker_assignments.json",
+        "promotion_report": "promotion_report.json",
+        "telemetry": "telemetry.json",
+        "failures": "failures.json",
+        "proposals_dir": "proposals",
+    }
+    run_root.mkdir(parents=True, exist_ok=True)
+    shard_by_id = {shard.shard_id: shard for shard in shards}
+    assignments = _assign_recipe_workers_v1(
+        run_root=run_root,
+        shards=shards,
+        worker_count=worker_count,
+    )
+    _write_jsonl(
+        run_root / artifacts["shard_manifest"],
+        [asdict(shard) for shard in shards],
+    )
+    _write_json(
+        [asdict(assignment) for assignment in assignments],
+        run_root / artifacts["worker_assignments"],
+    )
+
+    all_proposals: list[ShardProposalV1] = []
+    failures: list[dict[str, Any]] = []
+    worker_reports: list[WorkerExecutionReportV1] = []
+    stage_rows: list[dict[str, Any]] = []
+    completed_shards = 0
+    total_shards = len(shards)
+    progress_lock = threading.Lock()
+    pending_shards_by_worker = {
+        assignment.worker_id: list(assignment.shard_ids)
+        for assignment in assignments
+    }
+    if progress_callback is not None and total_shards > 0:
+        active_tasks = [
+            assignment.shard_ids[0]
+            for assignment in assignments
+            if assignment.shard_ids
+        ]
+        progress_callback(
+            format_stage_progress(
+                "Running recipe correction... task 0/" + str(total_shards),
+                stage_label="recipe pipeline",
+                task_current=0,
+                task_total=total_shards,
+                running_workers=min(len(active_tasks), total_shards),
+                worker_total=len(assignments),
+                active_tasks=active_tasks[:total_shards],
+            )
+        )
+
+    def _mark_shard_completed(*, worker_id: str, shard_id: str) -> None:
+        nonlocal completed_shards
+        if progress_callback is None:
+            return
+        with progress_lock:
+            pending = pending_shards_by_worker.get(worker_id) or []
+            if shard_id in pending:
+                pending.remove(shard_id)
+            completed_shards += 1
+            remaining = max(0, total_shards - completed_shards)
+            active_tasks = [
+                worker_pending[0]
+                for worker_pending in pending_shards_by_worker.values()
+                if worker_pending
+            ]
+            progress_callback(
+                format_stage_progress(
+                    f"Running recipe correction... task {completed_shards}/{total_shards}",
+                    stage_label="recipe pipeline",
+                    task_current=completed_shards,
+                    task_total=total_shards,
+                    running_workers=min(len(active_tasks), remaining),
+                    worker_total=len(assignments),
+                    active_tasks=active_tasks[:remaining] if remaining > 0 else [],
+                )
+            )
+
+    with ThreadPoolExecutor(
+        max_workers=max(1, len(assignments)),
+        thread_name_prefix="recipe-worker",
+    ) as executor:
+        futures_by_worker_id = {
+            assignment.worker_id: executor.submit(
+                _run_direct_recipe_worker_assignment_v1,
+                run_root=run_root,
+                assignment=assignment,
+                artifacts=artifacts,
+                shard_by_id=shard_by_id,
+                runner=runner,
+                pipeline_id=pipeline_id,
+                env=env,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                output_schema_path=output_schema_path,
+                pipeline_assets=pipeline_assets,
+                shard_completed_callback=_mark_shard_completed,
+            )
+            for assignment in assignments
+        }
+        for assignment in assignments:
+            result = futures_by_worker_id[assignment.worker_id].result()
+            worker_reports.append(result.report)
+            all_proposals.extend(result.proposals)
+            failures.extend(result.failures)
+            stage_rows.extend(result.stage_rows)
+
+    promotion_report = {
+        "schema_version": "phase_worker_runtime.promotion_report.v1",
+        "phase_key": phase_key,
+        "pipeline_id": pipeline_id,
+        "validated_shards": sum(1 for proposal in all_proposals if proposal.status == "validated"),
+        "invalid_shards": sum(1 for proposal in all_proposals if proposal.status == "invalid"),
+        "missing_output_shards": sum(1 for proposal in all_proposals if proposal.status == "missing_output"),
+    }
+    telemetry = {
+        "schema_version": "phase_worker_runtime.telemetry.v1",
+        "phase_key": phase_key,
+        "pipeline_id": pipeline_id,
+        "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+        "worker_count": len(assignments),
+        "shard_count": len(shards),
+        "proposal_count": sum(report.proposal_count for report in worker_reports),
+        "failure_count": len(failures),
+        "fresh_agent_count": len(assignments),
+        "rows": stage_rows,
+        "summary": summarize_direct_telemetry_rows(stage_rows),
+    }
+    _write_json(promotion_report, run_root / artifacts["promotion_report"])
+    _write_json(telemetry, run_root / artifacts["telemetry"])
+    _write_json(failures, run_root / artifacts["failures"])
+
+    manifest = PhaseManifestV1(
+        schema_version="phase_worker_runtime.phase_manifest.v1",
+        phase_key=phase_key,
+        pipeline_id=pipeline_id,
+        run_root=str(run_root),
+        worker_count=len(assignments),
+        shard_count=len(shards),
+        assignment_strategy="round_robin_v1",
+        runtime_mode=DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+        max_turns_per_shard=1,
+        settings=dict(settings or {}),
+        artifact_paths=dict(artifacts),
+        runtime_metadata=dict(runtime_metadata or {}),
+    )
+    _write_json(asdict(manifest), run_root / artifacts["phase_manifest"])
+    return manifest, worker_reports
+
+
 def _run_single_correction_recipe_pipeline(
     *,
     conversion_result: ConversionResult,
     run_settings: RunSettings,
     run_root: Path,
     workbook_slug: str,
-    runner: CodexFarmRunner | None = None,
+    runner: CodexExecRunner | CodexFarmRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmApplyResult:
@@ -686,15 +1238,32 @@ def _run_single_correction_recipe_pipeline(
         )
 
     pipeline_root = _resolve_pipeline_root(run_settings)
+    pipeline_assets = _load_pipeline_assets(
+        pipeline_root=pipeline_root,
+        pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
+    )
     env = {
         "CODEX_FARM_ROOT": str(pipeline_root),
         _CODEX_FARM_RECIPE_MODE_ENV: run_settings.codex_farm_recipe_mode.value,
     }
-    codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
-        cmd=run_settings.codex_farm_cmd,
-        progress_callback=progress_callback,
-    )
+    if runner is None:
+        raw_runner_cmd = str(run_settings.codex_farm_cmd or "").strip()
+        if Path(raw_runner_cmd).name == "fake-codex-farm.py":
+            codex_runner = _LegacyRecipeRunnerAdapter(
+                legacy_runner=SubprocessCodexFarmRunner(cmd=raw_runner_cmd),
+                pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
+            )
+        else:
+            codex_runner = SubprocessCodexExecRunner(cmd="codex exec")
+    elif hasattr(runner, "run_structured_prompt"):
+        codex_runner = runner
+    else:
+        codex_runner = _LegacyRecipeRunnerAdapter(
+            legacy_runner=runner,  # type: ignore[arg-type]
+            pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
+        )
     output_schema_paths: dict[str, str] = {}
+    resolved_output_schema_path = Path(pipeline_assets["output_schema_path"])
     if runner is None:
         ensure_codex_farm_pipelines_exist(
             cmd=run_settings.codex_farm_cmd,
@@ -702,12 +1271,11 @@ def _run_single_correction_recipe_pipeline(
             pipeline_ids=(SINGLE_CORRECTION_STAGE_PIPELINE_ID,),
             env=env,
         )
-        output_schema_paths["recipe_correction"] = str(
-            resolve_codex_farm_output_schema_path(
-                root_dir=pipeline_root,
-                pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
-            )
+        resolved_output_schema_path = resolve_codex_farm_output_schema_path(
+            root_dir=pipeline_root,
+            pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
         )
+    output_schema_paths["recipe_correction"] = str(resolved_output_schema_path)
     codex_model = run_settings.codex_farm_model
     codex_reasoning_effort = _effort_override_value(
         run_settings.codex_farm_reasoning_effort
@@ -748,7 +1316,7 @@ def _run_single_correction_recipe_pipeline(
     correction_started = time.perf_counter()
     phase_runtime_summary: dict[str, Any] = {}
     if recipe_shards:
-        phase_manifest, worker_reports = run_phase_workers_v1(
+        phase_manifest, worker_reports = _run_direct_recipe_workers_v1(
             phase_key="recipe_llm_correct_and_link",
             pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
             run_root=phase_runtime_dir,
@@ -771,25 +1339,23 @@ def _run_single_correction_recipe_pipeline(
                 run_settings,
                 shard_count=len(recipe_shards),
             ),
-            root_dir=pipeline_root,
             env=env,
             model=codex_model,
             reasoning_effort=codex_reasoning_effort,
-            max_turns_per_shard=run_settings.recipe_shard_max_turns,
-            proposal_validator=_validate_recipe_shard_output,
+            output_schema_path=resolved_output_schema_path,
             settings={
                 "llm_recipe_pipeline": run_settings.llm_recipe_pipeline.value,
+                "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
                 "recipe_worker_count": run_settings.recipe_worker_count,
+                "recipe_prompt_target_count": run_settings.recipe_prompt_target_count,
                 "recipe_shard_target_recipes": run_settings.recipe_shard_target_recipes,
-                "recipe_shard_max_turns": run_settings.recipe_shard_max_turns,
             },
             runtime_metadata={
                 "workbook_slug": workbook_slug,
                 "compatibility_recipe_artifacts_dir": str(correction_stage_dir),
             },
+            pipeline_assets=pipeline_assets,
             progress_callback=progress_callback,
-            progress_message_prefix="Running codex-farm recipe pipeline...",
-            progress_stage_label="recipe pipeline",
         )
         phase_manifest_payload = json.loads(
             (phase_runtime_dir / "phase_manifest.json").read_text(encoding="utf-8")
@@ -1071,7 +1637,7 @@ def run_codex_farm_recipe_pipeline(
     run_settings: RunSettings,
     run_root: Path,
     workbook_slug: str,
-    runner: CodexFarmRunner | None = None,
+    runner: CodexExecRunner | CodexFarmRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmApplyResult:

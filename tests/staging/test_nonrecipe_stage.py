@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
-from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
+from cookimport.staging.nonrecipe_stage import (
+    build_nonrecipe_stage_result,
+    refine_nonrecipe_stage_result,
+)
 from cookimport.staging.writer import (
     OutputStats,
     write_knowledge_outputs_artifact,
@@ -112,3 +115,34 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     assert knowledge_payload["counts"]["snippets_written"] == 0
     assert knowledge_payload["knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"
     assert knowledge_payload["seed_knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"
+
+
+def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal() -> None:
+    seed = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "SALT"},
+        ],
+        final_block_labels=[_block_label(0, "KNOWLEDGE")],
+        recipe_spans=[],
+    )
+
+    refined = refine_nonrecipe_stage_result(
+        stage_result=seed,
+        full_blocks=[{"index": 0, "block_id": "b0", "text": "SALT"}],
+        block_category_updates={0: "other"},
+        reviewer_categories_by_block={0: "chapter_taxonomy"},
+    )
+
+    assert refined.block_category_by_index == {0: "other"}
+    assert refined.refinement_report["reviewer_category_counts"] == {
+        "chapter_taxonomy": 1
+    }
+    assert refined.refinement_report["changed_blocks"] == [
+        {
+            "block_index": 0,
+            "seed_category": "knowledge",
+            "final_category": "other",
+            "reviewer_category": "chapter_taxonomy",
+            "applied_chunk_ids": [],
+        }
+    ]

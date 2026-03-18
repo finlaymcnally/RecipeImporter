@@ -6,8 +6,9 @@ Rules:
 - Use only the JSON file at `{{INPUT_PATH}}`.
 - Only `chunks[*].blocks` may supply evidence.
 - `context.*` is local hint only; never cite it.
+- `source_spans[*]` describes the bounded non-recipe review units that the chunks came from.
 - `guardrails.context_recipe_block_indices` marks nearby recipe context. Do not let recipe content leak into outside-recipe decisions.
-- `chunks[*].heuristics` are hints only.
+- `chunks[*].heuristics` and `chunks[*].review_hints` are hints only.
 - If `table_hint` exists, use it only for structure; quotes must still come from block text.
 - Return one result per input chunk.
 
@@ -15,10 +16,21 @@ Meaning:
 - `knowledge` = reusable technique, definition, substitution, do/don't guidance, or durable cooking reference.
 - `other` = narrative, memoir, scene-setting, blurb, front/back matter, decorative heading, or non-reusable prose.
 
+Internal reviewer categories for `d[*].rc`:
+- `knowledge`
+- `chapter_taxonomy`
+- `decorative_heading`
+- `front_matter`
+- `toc_navigation`
+- `endorsement_or_marketing`
+- `memoir_or_scene_setting`
+- `reference_back_matter`
+- `other`
+
 Short output keys:
 - top level: `v`, `bid`, `r`
 - per result: `cid`, `u`, `d`, `s`
-- decision: `i`, `c`
+- decision: `i`, `c`, `rc`
 - snippet: `t`, `b`, `g`, `e`
 - evidence: `i`, `q`
 
@@ -26,6 +38,7 @@ Per chunk:
 - `u=false` and `s=[]` if no reusable knowledge exists.
 - `d` must include every block in order.
 - `c` must be `knowledge` or `other`.
+- `rc` should explain the coarse reviewer reason. If `c=knowledge`, then `rc` must be `knowledge`.
 - snippets must stay self-contained and chunk-local.
 - every snippet needs at least one evidence quote from that same chunk.
 

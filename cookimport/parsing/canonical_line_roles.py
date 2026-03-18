@@ -35,6 +35,7 @@ from cookimport.llm.codex_exec_runner import (
     CodexExecRunResult,
     CodexExecRunner,
     SubprocessCodexExecRunner,
+    summarize_direct_telemetry_rows,
 )
 from cookimport.llm.codex_farm_runner import (
     CodexFarmRunnerError,
@@ -125,6 +126,14 @@ _HOWTO_PREFIX_RE = re.compile(
     r"^\s*(?:to make|to serve|for serving|for garnish|for the)\b",
     re.IGNORECASE,
 )
+_STORAGE_NOTE_PREFIX_RE = re.compile(
+    r"^\s*(?:cover and )?(?:refrigerate|freeze|store)\s+leftover(?:s|\b| dressing\b)",
+    re.IGNORECASE,
+)
+_SERVING_NOTE_PREFIX_RE = re.compile(
+    r"^\s*(?:ideal for|serve with)\b",
+    re.IGNORECASE,
+)
 _VARIANT_EXPLICIT_HEADINGS = {"variation", "for a crowd"}
 _VARIANT_RECIPE_SUFFIXES = (
     "OMELET",
@@ -189,6 +198,20 @@ _KNOWLEDGE_EXPLANATION_CUE_RE = re.compile(
     r"determine|determines|enhance|enhances|explained by|explains|improve|"
     r"improves|means|modify|modifies|relationship|role|this is why|"
     r"without|why)\b",
+    re.IGNORECASE,
+)
+_PEDAGOGICAL_KNOWLEDGE_CUE_RE = re.compile(
+    r"\b(?:better cook|cook every day|fundamental|fundamentals|lesson|lessons|"
+    r"master|mastering|principle|principles|teach|teaches|teaching)\b",
+    re.IGNORECASE,
+)
+_PEDAGOGICAL_KNOWLEDGE_HEADING_RE = re.compile(
+    r"^(?:how to use\b|using recipes\b|kitchen basics\b|cooking lessons\b|"
+    r"what to cook\b)$",
+    re.IGNORECASE,
+)
+_KNOWLEDGE_HEADING_FORM_RE = re.compile(
+    r"^(?:what is\b|how .+ works\b|using\b|.+ and flavor\b)$",
     re.IGNORECASE,
 )
 _RECIPEISH_OUTSIDE_SPAN_LABELS = {
@@ -657,9 +680,12 @@ def _line_role_plan_row(
         "block_id": str(candidate.block_id),
         "recipe_id": candidate.recipe_id,
         "within_recipe_span": candidate.within_recipe_span,
-        "text": str(candidate.text),
         "deterministic_label": str(baseline_prediction.label or "OTHER"),
+        "rule_tags": list(candidate.rule_tags),
         "escalation_reasons": list(baseline_prediction.escalation_reasons),
+        "prev_text": candidate.prev_text,
+        "current_line": str(candidate.text),
+        "next_text": candidate.next_text,
     }
 
 
@@ -1111,6 +1137,8 @@ def _resolve_line_role_codex_exec_cmd(
         return override
     configured = str(getattr(settings, "codex_farm_cmd", "") or "").strip()
     if configured and _looks_like_codex_exec_command(configured):
+        return configured
+    if configured and Path(configured).name == "fake-codex-farm.py":
         return configured
     return _LINE_ROLE_CODEX_EXEC_DEFAULT_CMD
 
@@ -1620,21 +1648,7 @@ def _aggregate_line_role_worker_runner_payload(
 
 
 def _summarize_direct_rows(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    summary = {
-        "call_count": len(rows),
-        "tokens_input": 0,
-        "tokens_cached_input": 0,
-        "tokens_output": 0,
-        "tokens_reasoning": 0,
-        "tokens_total": 0,
-    }
-    for row in rows:
-        summary["tokens_input"] += int(row.get("tokens_input") or 0)
-        summary["tokens_cached_input"] += int(row.get("tokens_cached_input") or 0)
-        summary["tokens_output"] += int(row.get("tokens_output") or 0)
-        summary["tokens_reasoning"] += int(row.get("tokens_reasoning") or 0)
-        summary["tokens_total"] += int(row.get("tokens_total") or 0)
-    return summary
+    return summarize_direct_telemetry_rows(rows)
 
 
 def _render_codex_events_jsonl(events: Sequence[dict[str, Any]]) -> str:
@@ -2174,6 +2188,8 @@ def _deterministic_label(
     tags = {str(tag) for tag in candidate.rule_tags}
     if "note_prefix" in tags or _looks_note_text(candidate.text):
         return "RECIPE_NOTES", ["note_prefix"]
+    if _looks_storage_or_serving_note(candidate.text):
+        return "RECIPE_NOTES", ["storage_or_serving_note"]
     if "variant_heading" in tags or _looks_variant_heading_text(candidate.text):
         if (
             _is_outside_recipe_span(candidate)
@@ -2274,12 +2290,22 @@ def _deterministic_label(
         return "INSTRUCTION_LINE", ["instruction_like"]
     if "time_metadata" in tags and _is_primary_time_line(candidate.text):
         return "TIME_LINE", ["time_metadata"]
-    if "outside_recipe_span" in tags:
+    if _is_outside_recipe_span(candidate):
         if _looks_knowledge_heading_with_context(
             candidate,
             by_atomic_index=by_atomic_index,
         ):
             return "KNOWLEDGE", ["outside_recipe_span", "knowledge_heading_context"]
+        if _looks_knowledge_prose_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            return "KNOWLEDGE", [
+                "outside_recipe_span",
+                "prose_like",
+                "knowledge_context",
+            ]
+    if "outside_recipe_span" in tags:
         if _looks_recipe_title_with_context(
             candidate,
             by_atomic_index=by_atomic_index,
@@ -2927,6 +2953,8 @@ def _looks_recipe_note_prose(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped:
         return False
+    if _looks_storage_or_serving_note(stripped):
+        return True
     lowered = stripped.lower()
     if any(lowered.startswith(prefix) for prefix in _NON_RECIPE_PROSE_PREFIXES):
         return False
@@ -2951,6 +2979,52 @@ def _looks_recipe_note_prose(text: str) -> bool:
     return False
 
 
+def _looks_storage_or_serving_note(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _QUANTITY_LINE_RE.match(stripped):
+        return False
+    lowered = stripped.lower()
+    if _STORAGE_NOTE_PREFIX_RE.match(stripped):
+        return True
+    if not _SERVING_NOTE_PREFIX_RE.match(stripped):
+        return False
+    words = _PROSE_WORD_RE.findall(stripped)
+    if not words or len(words) > 40:
+        return False
+    if "ideal for everyday cooking" in lowered:
+        return False
+    if "ideal for use in food" in lowered:
+        return False
+    return any(
+        cue in lowered
+        for cue in (
+            "salad",
+            "slaw",
+            "lettuce",
+            "lettuces",
+            "vegetable",
+            "vegetables",
+            "fish",
+            "chicken",
+            "bread",
+            "dip",
+            "dipping",
+            "drizzling",
+            "drizzle",
+            "sauce",
+            "steak",
+            "cucumber",
+            "cucumbers",
+            "tomato",
+            "tomatoes",
+            "leftover",
+            "leftovers",
+        )
+    )
+
+
 def _looks_narrative_prose(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped or not _looks_prose(stripped):
@@ -2969,16 +3043,65 @@ def _knowledge_domain_cue_count(text: str) -> int:
 
 def _looks_domain_knowledge_prose(text: str) -> bool:
     stripped = str(text or "").strip()
-    if not stripped or not _looks_prose(stripped):
+    if not stripped:
         return False
     if _looks_editorial_note(stripped) or _looks_recipe_note_prose(stripped):
         return False
     domain_cues = _knowledge_domain_cue_count(stripped)
     if domain_cues <= 0:
         return False
+    if _looks_prose(stripped) and _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped):
+        return True
+    words = _PROSE_WORD_RE.findall(stripped)
+    if (
+        3 <= len(words) <= 10
+        and _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped)
+        and not _INSTRUCTION_VERB_RE.match(stripped)
+        and not _QUANTITY_LINE_RE.match(stripped)
+    ):
+        return True
+    if not _looks_prose(stripped):
+        return False
     if _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped):
         return True
     return domain_cues >= 3
+
+
+def _looks_knowledge_heading_shape(text: str) -> bool:
+    stripped = str(text or "").strip()
+    words = _PROSE_WORD_RE.findall(stripped)
+    if not (1 <= len(words) <= 6):
+        return False
+    if _QUANTITY_LINE_RE.match(stripped):
+        return False
+    if _NOTE_PREFIX_RE.match(stripped):
+        return False
+    if _YIELD_PREFIX_RE.match(stripped):
+        return False
+    if stripped[-1:] in {".", "!"}:
+        return False
+    uppercase_words = sum(1 for word in words if word.upper() == word)
+    title_case_words = sum(1 for word in words if word[:1].isupper())
+    lowercase_connector_words = sum(
+        1
+        for word in words
+        if word.islower() and word.lower() in _TITLE_CONNECTOR_WORDS
+    )
+    return uppercase_words == len(words) or (
+        title_case_words + lowercase_connector_words
+    ) == len(words)
+
+
+def _looks_obvious_knowledge_heading(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or not _looks_knowledge_heading_shape(stripped):
+        return False
+    lowered = stripped.rstrip("?").lower()
+    if _PEDAGOGICAL_KNOWLEDGE_HEADING_RE.match(lowered):
+        return True
+    if _KNOWLEDGE_HEADING_FORM_RE.match(lowered):
+        return True
+    return _knowledge_domain_cue_count(stripped) > 0
 
 
 def _looks_knowledge_heading_with_context(
@@ -2986,12 +3109,16 @@ def _looks_knowledge_heading_with_context(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate] | None,
 ) -> bool:
-    if _is_within_recipe_span(candidate) or by_atomic_index is None:
+    if _is_within_recipe_span(candidate):
         return False
     text = str(candidate.text or "").strip()
-    if not text or not _looks_compact_heading(text):
+    if not text:
         return False
-    if _knowledge_domain_cue_count(text) <= 0:
+    if _looks_obvious_knowledge_heading(text):
+        return True
+    if by_atomic_index is None:
+        return False
+    if not _looks_knowledge_heading_shape(text):
         return False
     for offset in (-1, 1):
         neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
@@ -3005,13 +3132,59 @@ def _looks_knowledge_heading_with_context(
     return False
 
 
+def _looks_endorsement_credit(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if not stripped.startswith("-"):
+        return False
+    words = _PROSE_WORD_RE.findall(stripped)
+    if not (5 <= len(words) <= 18):
+        return False
+    lowered = stripped.lower()
+    return any(
+        cue in lowered
+        for cue in (
+            "author of",
+            "bestselling author",
+            "chef",
+            "co-founder",
+            "cofounder",
+            "editor",
+            "founder",
+            "steward of",
+            "stewards of",
+        )
+    )
+
+
+def _looks_pedagogical_knowledge_prose(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or not _looks_prose(stripped):
+        return False
+    if _looks_editorial_note(stripped) or _looks_recipe_note_prose(stripped):
+        return False
+    lowered = stripped.lower()
+    if not any(
+        cue in lowered
+        for cue in ("book", "cook", "cooking", "kitchen", "meal", "recipe")
+    ):
+        return False
+    return bool(_PEDAGOGICAL_KNOWLEDGE_CUE_RE.search(stripped))
+
+
 def _looks_knowledge_prose_with_context(
     candidate: AtomicLineCandidate,
     *,
     by_atomic_index: dict[int, AtomicLineCandidate] | None,
 ) -> bool:
     text = str(candidate.text or "").strip()
-    if _looks_explicit_knowledge_cue(text) or _looks_domain_knowledge_prose(text):
+    if (
+        _looks_explicit_knowledge_cue(text)
+        or _looks_domain_knowledge_prose(text)
+        or _looks_endorsement_credit(text)
+        or _looks_pedagogical_knowledge_prose(text)
+    ):
         return True
     if by_atomic_index is None:
         return False

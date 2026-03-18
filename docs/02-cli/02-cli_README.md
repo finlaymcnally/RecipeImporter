@@ -89,6 +89,15 @@ Startup behavior:
 Important divergence to remember:
 - interactive file selection is top-level only, but `cookimport stage <folder>` is recursive when a folder path is passed directly.
 
+### Shared Progress Contract
+
+Current spinner/status rule:
+- shared CLI status rendering accepts either plain text or the serialized `stage_progress` payload from `cookimport/core/progress_messages.py`
+- plain `task X/Y` updates are still valid and now infer `stage:` / `progress:` lines in the shared spinner even before a stage emits richer worker metadata
+- generic messages shaped like `task X/Y | running N` now expand into `active workers: N` rows just like the older codex-farm-specific worker surface
+- stage-specific emitters for recipe shard work, line-role, knowledge harvest, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
+- `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, task counts, active tasks, worker counts, and detail lines when present
+
 ### [C] Main Menu
 
 Menu options:
@@ -323,6 +332,7 @@ Developer note:
    - It prepares freeform segment tasks (`freeform-spans`) from extracted source blocks.
    - Before per-task AI labeling starts, it runs a single Codex model-access preflight call and fails fast when the selected model/account combination is invalid.
    - A status spinner shows live phase updates with `task X/Y` progress for known-size loops (including freeform prelabeling when AI prelabel is enabled), adds ETA once enough `X/Y` progress is observed, and shows per-worker activity lines under the main status when worker telemetry is available.
+   - Plain counter updates now also render inferred `stage:` and `progress:` summary lines, so long-running stages stay informative even before they have custom worker metadata.
    - It also writes status telemetry under `<output_dir>/.history/processing_timeseries/<timestamp>__labelstudio_import__<source>.jsonl`.
    - It writes run files under `data/golden/sent-to-labelstudio`:
    - `label_studio_tasks.jsonl`
@@ -902,6 +912,7 @@ Behavior note:
   - `<eval_output_dir>/processing_timeseries_prediction.jsonl`
   - `<eval_output_dir>/processing_timeseries_evaluation.jsonl` (when evaluation runs)
 - Those per-phase time-series rows now also persist stage-centric fields (`stage_label`, `active_tasks`, `detail_lines`, effective worker counts) when a stage emits structured progress snapshots, so line-role/knowledge debugging does not depend on terminal screenshots.
+- Recipe phase workers, label-first authority building, and staged output writing now emit the same structured progress payload family too, so benchmark/import spinners stay rich outside the original line-role + knowledge stages.
 - Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
 - Single benchmark runs auto-refresh dashboard artifacts after CSV append.
 - All-method benchmark internals suppress per-config refresh and refresh once per source batch.

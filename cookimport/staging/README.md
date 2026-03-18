@@ -14,6 +14,7 @@ Durable output-path and section/report contracts live in `cookimport/staging/CON
   - `import_session.py` is the shared stage-backed post-conversion runner used by single-file stage, split-merge stage, and benchmark-backed processed outputs.
   - `group_recipe_spans/<workbook_slug>/recipe_spans.json` now contains accepted spans only; `span_decisions.json` carries both accepted and rejected grouping decisions so titleless pseudo-recipes and empty title-only shells stay debuggable without becoming recipes.
   - `nonrecipe_stage.py` is the Stage 7 non-recipe authority seam: it records deterministic seed ownership, and the knowledge stage can refine the final `knowledge` versus `other` result before writer emits `08_nonrecipe_spans.json` and `09_knowledge_outputs.json`.
+  - Internal reviewer categories such as `chapter_taxonomy` stay inside the refinement report; staged outputs still expose only final `knowledge` or `other`.
   - Outputs are flattened under the per-file folder as `r{index}.json[ld]` (no sheet subfolders).
   - When a candidate lacks `row_index` provenance (text/PDF/EPUB), `writer.py` falls back to `location.chunk_index` for stable IDs.
   - Writer helpers can optionally collect per-output file counts/bytes for inclusion in conversion reports (`outputStats`).

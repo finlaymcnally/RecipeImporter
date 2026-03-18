@@ -1199,12 +1199,16 @@ def _apply_nonrecipe_authority_to_predictions(
         if getattr(prediction, "within_recipe_span", False) or block_index is None:
             adjusted_predictions.append(prediction)
             continue
+        current_label = str(getattr(prediction, "label", "") or "").upper()
+        if current_label not in {"OTHER", "KNOWLEDGE"}:
+            adjusted_predictions.append(prediction)
+            continue
         category = final_categories.get(int(block_index))
         if category not in {"knowledge", "other"}:
             adjusted_predictions.append(prediction)
             continue
         target_label = "KNOWLEDGE" if category == "knowledge" else "OTHER"
-        if str(prediction.label or "").upper() == target_label:
+        if current_label == target_label:
             adjusted_predictions.append(prediction)
             continue
         reason_tags = list(getattr(prediction, "reason_tags", []) or [])

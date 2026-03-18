@@ -82,8 +82,8 @@ _TOP_TIER_VANILLA_PATCH: dict[str, Any] = {
     **_TOP_TIER_PARSER_STACK_PATCH,
     "llm_recipe_pipeline": "off",
     "llm_knowledge_pipeline": "off",
-    "line_role_pipeline": LINE_ROLE_DETERMINISTIC_PIPELINE,
-    "atomic_block_splitter": "atomic-v1",
+    "line_role_pipeline": "off",
+    "atomic_block_splitter": "off",
 }
 _BENCHMARK_BASELINE_PATCH: dict[str, Any] = dict(_TOP_TIER_VANILLA_PATCH)
 _BENCHMARK_CODEXFARM_PATCH: dict[str, Any] = {

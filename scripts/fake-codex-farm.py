@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner  # noqa: E402
+from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output  # noqa: E402
 from cookimport.llm.codex_farm_runner import (  # noqa: E402
     resolve_codex_farm_output_schema_path,
 )
@@ -65,6 +66,20 @@ def _fake_models() -> list[dict[str, Any]]:
 def _sanitize_slug(value: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
     return cleaned.strip("-") or "pipeline"
+
+
+def _extract_first_json_object(raw: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(raw):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(raw[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def _emit_progress(
@@ -162,6 +177,41 @@ def _run_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pipeline_id_for_exec_schema(output_schema_path: str) -> str:
+    file_name = Path(output_schema_path).name
+    if file_name == "recipe.correction.v1.output.schema.json":
+        return "recipe.correction.compact.v1"
+    if file_name == "recipe.knowledge.v1.output.schema.json":
+        return "recipe.knowledge.compact.v1"
+    if file_name == "line-role.canonical.v1.output.schema.json":
+        return "line-role.canonical.v1"
+    return "line-role.canonical.v1"
+
+
+def _run_exec(args: argparse.Namespace) -> int:
+    prompt_text = sys.stdin.read()
+    output_schema_path = str(args.output_schema or "").strip()
+    pipeline_id = _pipeline_id_for_exec_schema(output_schema_path)
+    parsed_payload = _extract_first_json_object(prompt_text)
+    payload = parsed_payload if parsed_payload is not None else prompt_text
+    response_payload = build_structural_pipeline_output(pipeline_id, payload)
+    response_text = json.dumps(response_payload, sort_keys=True)
+    usage = {
+        "input_tokens": max(1, len(prompt_text) // 4),
+        "cached_input_tokens": 0,
+        "output_tokens": max(1, len(response_text) // 4),
+        "reasoning_tokens": 0,
+    }
+    for event in (
+        {"type": "thread.started"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": response_text}},
+        {"type": "turn.completed", "usage": usage},
+    ):
+        sys.stdout.write(json.dumps(event, sort_keys=True))
+        sys.stdout.write("\n")
+    return 0
+
+
 def _run_autotune(args: argparse.Namespace) -> int:
     payload = {
         "schema_version": 1,
@@ -223,6 +273,16 @@ def _build_parser() -> argparse.ArgumentParser:
     errors.add_argument("--run-id", required=True)
     errors.add_argument("--json", action="store_true")
 
+    exec_parser = subparsers.add_parser("exec")
+    exec_parser.add_argument("--json", action="store_true")
+    exec_parser.add_argument("--ephemeral", action="store_true")
+    exec_parser.add_argument("--sandbox")
+    exec_parser.add_argument("--cd")
+    exec_parser.add_argument("--output-schema")
+    exec_parser.add_argument("--model")
+    exec_parser.add_argument("-c", dest="config_overrides", action="append", default=[])
+    exec_parser.add_argument("stdin_marker", nargs="?")
+
     return parser
 
 
@@ -240,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "process":
         return _run_process(args)
+    if args.command == "exec":
+        return _run_exec(args)
     if args.command == "run" and args.run_command == "autotune":
         return _run_autotune(args)
     if args.command == "run" and args.run_command == "errors":

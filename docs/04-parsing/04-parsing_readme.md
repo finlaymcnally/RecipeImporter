@@ -77,9 +77,10 @@ Unstructured adapter note:
 Canonical line-role prompt seam note:
 - prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
 - `codex-line-role-shard-v1` now plans contiguous local shards in `canonical_line_roles.py`, writes shard/runtime artifacts under `line-role-pipeline/runtime/`, and still preserves legacy prompt artifact files under `line-role-pipeline/prompts/` for reviewer/export surfaces.
-- each line-role shard still uses the compact canonical prompt text, but worker execution now goes through `phase_worker_runtime.py` with raw prompt-text shard inputs plus JSON shard manifests, so one worker can process multiple shards in sequence.
-- the current compact row transport is pipe-delimited `atomic_index|label_code|current_line`; per-row escalation reasons are no longer serialized into the Codex prompt path.
-- outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose and compact domain headings can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
+- each line-role shard still uses the compact canonical prompt text, but live execution now sends that prompt once per shard through direct `codex exec` and mirrors the shard-worker artifact contract under `line-role-pipeline/runtime/workers/.../shards/<shard_id>/`.
+- the current compact row transport is pipe-delimited `atomic_index|label_code|span_code|hint_codes|current_line`, and the prompt now adds selective `ctx:<atomic_index>|prev=...|line=...|next=...` windows for ambiguous or outside-recipe rows instead of repeating neighbor text for every row.
+- line-role planning now defaults to prompt-target control instead of old per-batch mental models: the live and preview paths both aim for `line_role_prompt_target_count=5` unless a caller overrides shard sizing explicitly.
+- outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose, short explanatory domain fragments, title-case pedagogical/domain headings, and endorsement-credit lines can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
 - validated Codex line-role labels are no longer rolled back by the old outside-span ownership vetoes or the run-level do-no-harm fallback; only invalid-shape sanitizers still override returned labels.
 - low-risk knowledge prompt suppression belongs in parser-owned chunking, not preview-only code. `chunks.py` is the place to route obvious blurbs, navigation, attribution-only fragments, and similar junk to `noise` so live harvest and prompt preview skip the same material.
 
@@ -105,13 +106,14 @@ Major call sites:
 
 Label-first recipe-span note:
 
+- pre-grouping line-role candidates no longer inherit importer recipe provenance. `within_recipe_span` is now `None` until corrected labels are grouped back into spans, and prompt-preview plus Label Studio ingest mirror that same span-free contract.
 - `cookimport/parsing/recipe_span_grouping.py` now treats title-like anchoring as a hard acceptance boundary.
 - Titleless structured runs remain visible in staging diagnostics as rejected pseudo-recipes, but they are not emitted into `recipe_spans.json` or downstream recipe drafting.
 - Title-only shells with no ingredients, instructions, or yield/time metadata are also rejected after span-to-recipe conversion; title-plus-yield/time stubs still survive so short real recipes are not dropped.
 - Outside importer-held recipe spans, deterministic `INGREDIENT_LINE` and `INSTRUCTION_LINE` labels now require nearby recipe-anchor evidence instead of allowing a small structured cluster to self-justify.
 - Deterministic title recall is intentionally broader than it was before March 2026: long mixed-case titles containing `with`, all-caps verb-led headings, and `TITLE -> NOTE: -> recipe body` starts can stay `RECIPE_TITLE` when nearby recipe-start evidence exists.
 - Outside-span title rescue and in-span title retention are intentionally different seams. The outside-span path stays strict to avoid TOC/how-to false positives; once a span is already accepted, immediate note prose should not eject a real title.
-- `label_source_of_truth.py` still seeds `within_recipe_span` from `conversion_result.recipes[*].provenance.location` before canonical line-role correction runs. If obvious ingredients or instructions are already outside recipe, inspect importer span boundaries and grouping first; prompt tuning alone will not rescue that cleanly.
+- if obvious ingredients or instructions are already outside recipe, debug atomizer heuristics, deterministic labeling, and later grouping before reintroducing any importer-span hinting. Pre-Codex recipe-span seeding is now treated as a bug, not a fallback seam.
 - In EPUBs, a short unquantified singleton ingredient such as `Salt` can still look title-like enough to cut a recipe early in `cookimport/plugins/epub.py`. When a recipe title and ingredients are in-span but the first method paragraphs fall just outside, treat candidate-boundary detection as the first debugging seam.
 
 ## End-to-End Data Flow (Current)
@@ -498,6 +500,7 @@ Gates include:
 - `TIME_LINE` is only used for primary time metadata; non-primary `TIME_LINE` predictions are sanitized to `INSTRUCTION_LINE` unless a later stage has explicitly established that the row is outside recipe.
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
 - In the pre-grouping `within_recipe_span=None` state, explanatory cooking-science prose and compact domain headings can still promote directly to `KNOWLEDGE`; otherwise unknown-span prose falls back to `OTHER`.
+- Short storage/use/serving-note lines such as `Store leftover...`, `Refrigerate leftovers...`, `Cover and refrigerate leftovers...`, and leading `Ideal for ...` suggestions now promote directly to `RECIPE_NOTES`.
 - Outside recipe spans, prose now defaults to `OTHER`; `KNOWLEDGE` is used only when explicit knowledge cues are present.
 - Final non-recipe authority can still arbitrate outside-span `KNOWLEDGE` versus `OTHER` after recipe-local projection; this seam stays binary only and does not override recipe-structural labels.
 - `RECIPE_TITLE` now requires supportive near-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion; inside accepted recipe spans, immediate note prose is enough to retain the title.

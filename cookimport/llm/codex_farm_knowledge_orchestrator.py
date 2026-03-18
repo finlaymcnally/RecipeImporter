@@ -33,6 +33,7 @@ from .codex_exec_runner import (
     CodexExecRunResult,
     CodexExecRunner,
     SubprocessCodexExecRunner,
+    summarize_direct_telemetry_rows,
 )
 from .codex_farm_runner import (
     CodexFarmRunnerError,
@@ -183,7 +184,15 @@ def run_codex_farm_knowledge_harvest(
     pipeline_root = _resolve_pipeline_root(run_settings)
     workspace_root = _resolve_workspace_root(run_settings)
     env = {"CODEX_FARM_ROOT": str(pipeline_root)}
-    codex_runner: CodexExecRunner = runner or SubprocessCodexExecRunner(cmd="codex exec")
+    configured_runner_cmd = str(run_settings.codex_farm_cmd or "").strip()
+    if runner is None:
+        codex_runner: CodexExecRunner = SubprocessCodexExecRunner(
+            cmd=configured_runner_cmd
+            if Path(configured_runner_cmd).name == "fake-codex-farm.py"
+            else "codex exec"
+        )
+    else:
+        codex_runner = runner
     codex_model = run_settings.codex_farm_model
     codex_reasoning_effort = _effort_override_value(
         run_settings.codex_farm_reasoning_effort
@@ -318,6 +327,7 @@ def run_codex_farm_knowledge_harvest(
     missing_chunk_ids = sorted(set(build_report.chunk_ids) - set(outputs))
     (
         block_category_updates,
+        reviewer_categories_by_block,
         applied_chunk_ids_by_block,
         conflicts,
         ignored_block_indices,
@@ -332,6 +342,7 @@ def run_codex_farm_knowledge_harvest(
         stage_result=nonrecipe_stage_result,
         full_blocks=full_blocks_payload,
         block_category_updates=block_category_updates,
+        reviewer_categories_by_block=reviewer_categories_by_block,
         applied_chunk_ids_by_block=applied_chunk_ids_by_block,
         conflicts=conflicts,
         ignored_block_indices=ignored_block_indices,
@@ -975,21 +986,7 @@ def _render_events_jsonl(events: tuple[dict[str, Any], ...]) -> str:
 
 
 def _summarize_direct_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
-    summary = {
-        "call_count": len(rows),
-        "tokens_input": 0,
-        "tokens_cached_input": 0,
-        "tokens_output": 0,
-        "tokens_reasoning": 0,
-        "tokens_total": 0,
-    }
-    for row in rows:
-        summary["tokens_input"] += int(row.get("tokens_input") or 0)
-        summary["tokens_cached_input"] += int(row.get("tokens_cached_input") or 0)
-        summary["tokens_output"] += int(row.get("tokens_output") or 0)
-        summary["tokens_reasoning"] += int(row.get("tokens_reasoning") or 0)
-        summary["tokens_total"] += int(row.get("tokens_total") or 0)
-    return summary
+    return summarize_direct_telemetry_rows(rows)
 
 
 def _aggregate_worker_runner_payload(
@@ -1123,12 +1120,18 @@ def _collect_block_category_updates(
     *,
     outputs: Mapping[str, Any],
     allowed_block_indices: Mapping[int, str],
-) -> tuple[dict[int, str], dict[int, list[str]], list[dict[str, Any]], list[int]]:
+) -> tuple[
+    dict[int, str],
+    dict[int, str],
+    dict[int, list[str]],
+    list[dict[str, Any]],
+    list[int],
+]:
     normalized_allowed = {
         int(block_index): str(category or "other")
         for block_index, category in allowed_block_indices.items()
     }
-    decisions_by_block: dict[int, list[tuple[str, str]]] = {}
+    decisions_by_block: dict[int, list[tuple[str, str, str | None]]] = {}
     ignored_block_indices: list[int] = []
     for chunk_id, output in outputs.items():
         for decision in output.block_decisions:
@@ -1137,33 +1140,50 @@ def _collect_block_category_updates(
                 ignored_block_indices.append(block_index)
                 continue
             decisions_by_block.setdefault(block_index, []).append(
-                (str(chunk_id), str(decision.category))
+                (
+                    str(chunk_id),
+                    str(decision.category),
+                    str(decision.reviewer_category or "").strip() or None,
+                )
             )
 
     block_category_updates: dict[int, str] = {}
+    reviewer_categories_by_block: dict[int, str] = {}
     applied_chunk_ids_by_block: dict[int, list[str]] = {}
     conflicts: list[dict[str, Any]] = []
     for block_index, decision_rows in sorted(decisions_by_block.items()):
-        categories = {category for _, category in decision_rows}
+        categories = {category for _, category, _ in decision_rows}
         if len(categories) > 1:
             conflicts.append(
                 {
                     "block_index": int(block_index),
                     "seed_category": normalized_allowed.get(block_index),
                     "decisions": [
-                        {"chunk_id": chunk_id, "category": category}
-                        for chunk_id, category in decision_rows
+                        {
+                            "chunk_id": chunk_id,
+                            "category": category,
+                            "reviewer_category": reviewer_category,
+                        }
+                        for chunk_id, category, reviewer_category in decision_rows
                     ],
                     "resolution": "kept_seed_category",
                 }
             )
             continue
         block_category_updates[block_index] = next(iter(categories))
+        reviewer_categories = [
+            reviewer_category
+            for _, _, reviewer_category in decision_rows
+            if reviewer_category is not None
+        ]
+        if reviewer_categories:
+            reviewer_categories_by_block[block_index] = reviewer_categories[0]
         applied_chunk_ids_by_block[block_index] = [
-            chunk_id for chunk_id, _ in decision_rows
+            chunk_id for chunk_id, _, _ in decision_rows
         ]
     return (
         block_category_updates,
+        reviewer_categories_by_block,
         applied_chunk_ids_by_block,
         conflicts,
         ignored_block_indices,

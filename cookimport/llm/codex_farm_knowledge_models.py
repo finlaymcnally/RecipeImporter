@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _BUNDLE_VERSION_V2: Literal["2"] = "2"
 
@@ -65,11 +65,37 @@ class KnowledgeBlockDecisionV1(BaseModel):
 
     block_index: int = Field(alias="i")
     category: Literal["knowledge", "other"] = Field(alias="c")
+    reviewer_category: Literal[
+        "knowledge",
+        "chapter_taxonomy",
+        "decorative_heading",
+        "front_matter",
+        "toc_navigation",
+        "endorsement_or_marketing",
+        "memoir_or_scene_setting",
+        "reference_back_matter",
+        "other",
+    ] | None = Field(default=None, alias="rc")
 
     @field_validator("block_index", mode="before")
     @classmethod
     def _coerce_block_index(cls, value: object) -> object:
         return int(value)
+
+    @model_validator(mode="after")
+    def _validate_reviewer_category(self) -> "KnowledgeBlockDecisionV1":
+        if self.reviewer_category is None:
+            self.reviewer_category = "knowledge" if self.category == "knowledge" else "other"
+            return self
+        if self.category == "knowledge" and self.reviewer_category != "knowledge":
+            raise ValueError(
+                "reviewer_category must be 'knowledge' when final category is 'knowledge'."
+            )
+        if self.category == "other" and self.reviewer_category == "knowledge":
+            raise ValueError(
+                "reviewer_category 'knowledge' is invalid when final category is 'other'."
+            )
+        return self
 
 
 class KnowledgeChunkResultV2(BaseModel):

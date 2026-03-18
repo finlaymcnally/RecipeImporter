@@ -163,9 +163,9 @@ def test_fake_codex_farm_process_writes_recipe_outputs(tmp_path: Path) -> None:
     assert process_payload["output_schema_path"].endswith(
         "schemas/recipe.correction.v1.output.schema.json"
     )
-    assert output_payload["shard_id"] == "recipe-shard-0000"
-    assert output_payload["recipes"][0]["recipe_id"] == "r0001"
-    assert output_payload["recipes"][0]["canonical_recipe"]["title"] == "Skillet Eggs"
+    assert output_payload["sid"] == "recipe-shard-0000"
+    assert output_payload["r"][0]["rid"] == "r0001"
+    assert output_payload["r"][0]["cr"]["t"] == "Skillet Eggs"
 
 
 def test_fake_codex_farm_process_handles_text_prompt_inputs(tmp_path: Path) -> None:

@@ -182,8 +182,8 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         correction_input_paths[0].read_text(encoding="utf-8")
     )
     assert "draft_hint" not in correction_input
-    assert "provenance" not in correction_input["recipe_candidate_hint"]
-    assert correction_input["tagging_guide"]["version"] == "recipe_tagging_guide.v1"
+    assert "provenance" not in correction_input["h"]
+    assert correction_input["tg"]["version"] == "recipe_tagging_guide.v1"
     assert apply_result.updated_conversion_result.recipes[0].tags == [
         "breakfast",
         "toasted",

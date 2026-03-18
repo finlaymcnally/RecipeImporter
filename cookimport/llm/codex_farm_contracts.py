@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 _BUNDLE_VERSION: Literal["1"] = "1"
 _NULL_HEX_PAIR_RE = re.compile(r"\x00([0-9a-fA-F]{2})")
@@ -183,11 +183,11 @@ def _normalize_ingredient_step_mapping_payload(
                     f"{field_name}[{index}] must be an object with ingredient_index and step_indexes"
                 )
             ingredient_index = _coerce_nonnegative_int(
-                item.get("ingredient_index"),
+                item.get("ingredient_index", item.get("i")),
                 f"{field_name}[{index}].ingredient_index",
             )
             step_indexes = _coerce_nonnegative_int_list(
-                item.get("step_indexes"),
+                item.get("step_indexes", item.get("s")),
                 f"{field_name}[{index}].step_indexes",
             )
             key = str(ingredient_index)
@@ -250,13 +250,17 @@ def _sanitize_text_list_field(value: Any, field_name: str) -> list[str]:
 
 
 class MergedCanonicalRecipe(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    title: str
-    ingredients: list[str] = Field(default_factory=list)
-    steps: list[str] = Field(default_factory=list)
-    description: str | None = None
-    recipe_yield: str | None = Field(default=None, alias="recipeYield")
+    title: str = Field(alias="t")
+    ingredients: list[str] = Field(default_factory=list, alias="i")
+    steps: list[str] = Field(default_factory=list, alias="s")
+    description: str | None = Field(default=None, alias="d")
+    recipe_yield: str | None = Field(
+        default=None,
+        alias="y",
+        validation_alias=AliasChoices("recipe_yield", "recipeYield", "y"),
+    )
 
     @field_validator("title", "description", "recipe_yield", mode="before")
     @classmethod
@@ -272,18 +276,18 @@ class MergedCanonicalRecipe(BaseModel):
 
 
 class MergedRecipeRepairInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    bundle_version: Literal["1"] = _BUNDLE_VERSION
-    recipe_id: str
-    workbook_slug: str
-    source_hash: str
-    canonical_text: str
-    evidence_rows: list[tuple[int, str]] = Field(default_factory=list)
-    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict)
-    draft_hint: dict[str, Any] = Field(default_factory=dict)
-    tagging_guide: dict[str, Any] = Field(default_factory=dict)
-    authority_notes: list[str] = Field(default_factory=list)
+    bundle_version: Literal["1"] = Field(default=_BUNDLE_VERSION, alias="v")
+    recipe_id: str = Field(alias="rid")
+    workbook_slug: str = Field(alias="wb")
+    source_hash: str = Field(alias="sh")
+    canonical_text: str = Field(alias="txt")
+    evidence_rows: list[tuple[int, str]] = Field(default_factory=list, alias="ev")
+    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict, alias="h")
+    draft_hint: dict[str, Any] = Field(default_factory=dict, alias="dh")
+    tagging_guide: dict[str, Any] = Field(default_factory=dict, alias="tg")
+    authority_notes: list[str] = Field(default_factory=list, alias="an")
 
     @field_validator("canonical_text", mode="before")
     @classmethod
@@ -311,13 +315,13 @@ def serialize_merged_recipe_repair_input(
 
 
 class RecipeCorrectionShardRecipeInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    recipe_id: str
-    canonical_text: str
-    evidence_rows: list[tuple[int, str]] = Field(default_factory=list)
-    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict)
-    warnings: list[str] = Field(default_factory=list)
+    recipe_id: str = Field(alias="rid")
+    canonical_text: str = Field(alias="txt")
+    evidence_rows: list[tuple[int, str]] = Field(default_factory=list, alias="ev")
+    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict, alias="h")
+    warnings: list[str] = Field(default_factory=list, alias="w")
 
     @field_validator("canonical_text", mode="before")
     @classmethod
@@ -336,16 +340,16 @@ class RecipeCorrectionShardRecipeInput(BaseModel):
 
 
 class RecipeCorrectionShardInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    bundle_version: Literal["1"] = _BUNDLE_VERSION
-    shard_id: str
-    workbook_slug: str
-    source_hash: str
-    owned_recipe_ids: list[str] = Field(default_factory=list)
-    recipes: list[RecipeCorrectionShardRecipeInput] = Field(default_factory=list)
-    tagging_guide: dict[str, Any] = Field(default_factory=dict)
-    authority_notes: list[str] = Field(default_factory=list)
+    bundle_version: Literal["1"] = Field(default=_BUNDLE_VERSION, alias="v")
+    shard_id: str = Field(alias="sid")
+    workbook_slug: str = Field(alias="wb")
+    source_hash: str = Field(alias="sh")
+    owned_recipe_ids: list[str] = Field(default_factory=list, alias="ids")
+    recipes: list[RecipeCorrectionShardRecipeInput] = Field(default_factory=list, alias="r")
+    tagging_guide: dict[str, Any] = Field(default_factory=dict, alias="tg")
+    authority_notes: list[str] = Field(default_factory=list, alias="an")
 
     @field_validator("owned_recipe_ids", mode="before")
     @classmethod
@@ -370,15 +374,15 @@ def serialize_recipe_correction_shard_input(
 
 
 class MergedRecipeRepairOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    bundle_version: Literal["1"] = _BUNDLE_VERSION
-    recipe_id: str
-    canonical_recipe: MergedCanonicalRecipe
-    ingredient_step_mapping: dict[str, Any]
-    ingredient_step_mapping_reason: str | None = None
-    selected_tags: list["RecipeSelectedTag"] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    bundle_version: Literal["1"] = Field(default=_BUNDLE_VERSION, alias="v")
+    recipe_id: str = Field(alias="rid")
+    canonical_recipe: MergedCanonicalRecipe = Field(alias="cr")
+    ingredient_step_mapping: dict[str, Any] = Field(alias="m")
+    ingredient_step_mapping_reason: str | None = Field(default=None, alias="mr")
+    selected_tags: list["RecipeSelectedTag"] = Field(default_factory=list, alias="g")
+    warnings: list[str] = Field(default_factory=list, alias="w")
 
     @field_validator("canonical_recipe", mode="before")
     @classmethod
@@ -392,19 +396,19 @@ class MergedRecipeRepairOutput(BaseModel):
 
 
 class RecipeCorrectionShardOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    bundle_version: Literal["1"] = _BUNDLE_VERSION
-    shard_id: str
-    recipes: list[MergedRecipeRepairOutput] = Field(default_factory=list)
+    bundle_version: Literal["1"] = Field(default=_BUNDLE_VERSION, alias="v")
+    shard_id: str = Field(alias="sid")
+    recipes: list[MergedRecipeRepairOutput] = Field(default_factory=list, alias="r")
 
 
 class RecipeSelectedTag(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    category: str
-    label: str
-    confidence: float | None = None
+    category: str = Field(alias="c")
+    label: str = Field(alias="l")
+    confidence: float | None = Field(default=None, alias="f")
 
     @field_validator("category", "label", mode="before")
     @classmethod

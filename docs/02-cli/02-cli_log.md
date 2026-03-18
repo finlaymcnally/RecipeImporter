@@ -211,3 +211,18 @@ Current rule:
 
 Anti-loop note:
 - if a benchmark-only prompt seems to duplicate one of the shared recipe / line-role / knowledge toggles, it probably belongs in the shared chooser instead
+
+### 2026-03-17 structured stage-progress payloads and generic running rows
+
+Preserved finding:
+- benchmark/import status panels were only as informative as the latest plain string, and line-role/knowledge worker activity could collapse back to one stale line.
+
+Current rule:
+- the shared CLI progress seam accepts the repo-owned serialized `stage_progress` payload in addition to plain strings
+- plain `task X/Y` messages still work, but the spinner now infers `stage:` / `progress:` rows from them
+- generic `task X/Y | running N` messages expand to `active workers: N` plus worker rows; this is no longer limited to one old codex-farm message shape
+- legacy codex-farm `run=... queued=... running=...` stderr snapshots are progress noise and should be dropped at the runner boundary instead of surfaced as ordinary stderr
+- processing timeseries artifacts should preserve structured progress metadata when the emitter provides it
+
+Anti-loop note:
+- if a long-running stage still looks blank, fix the stage emitter to publish structured progress rather than adding another spinner-only special case

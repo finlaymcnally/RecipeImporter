@@ -360,13 +360,13 @@ Problem:
 - canonical benchmark structure misses kept looking like line-role prompt or model failures even when the bad inside/outside recipe decision had already happened upstream
 
 What stuck:
-- `label_source_of_truth.py` seeds `within_recipe_span` from existing `conversion_result.recipes[*].provenance.location` before canonical line-role correction runs
-- if obvious ingredient or instruction rows are already outside accepted recipe spans, treat importer boundary detection and grouping as the first debugging seam
+- if obvious ingredient or instruction rows are already outside accepted recipe spans after deterministic/Codex review, treat importer boundary detection, atomizer heuristics, and grouping as the first debugging seam
+- the old provenance-backed pre-Codex `within_recipe_span` seed was the bug, not the safety rail; current pre-grouping candidates should stay span-free until corrected labels are grouped back into spans
 - benchmark structure gaps on books like `saltfatacidheatcutdown` are often recipe-span acceptance failures first, not "Codex could not read the recipe"
 
 Evidence worth keeping:
-- on the 2026-03-17 `saltfatacidheatcutdown` run, almost every missed `INGREDIENT_LINE` / `INSTRUCTION_LINE` row was already outside recipe spans before final line-role scoring
-- the first persisted bad decision on `Bright Cabbage Slaw` happened when method blocks were absent from the provenance-backed recipe ranges, so those lines were already `outside_recipe_span` in `label_det`
+- on the 2026-03-17 `saltfatacidheatcutdown` run, almost every missed `INGREDIENT_LINE` / `INSTRUCTION_LINE` row that motivated this work traced back to bad recipe-span ownership assumptions rather than a pure prompt/model failure
+- the first persisted bad decision on `Bright Cabbage Slaw` happened when method blocks were absent from the provenance-backed recipe ranges, which is why the later fix removed that seeding path entirely
 
 Anti-loop note:
 - if structure labels collapse to `OTHER` or `KNOWLEDGE`, inspect span ownership before retuning line-role prompts or swapping models
@@ -382,6 +382,23 @@ What stuck:
 
 Anti-loop note:
 - if a future fix proposal wants to restore broad outside-span or run-level rollback logic, it is more likely to recreate the old false-negative behavior than to add safety
+
+## 2026-03-17 span-free pre-grouping replaced importer recipe-span hints
+
+Problem:
+- line-role still had one architectural violation left after the rollback removals: pre-grouping candidates inherited importer recipe provenance before deterministic/Codex review, so method lines could already be outside recipe before line-role even started.
+
+What stuck:
+- pre-grouping `AtomicLineCandidate.within_recipe_span` is now three-state and defaults to `None`
+- `label_source_of_truth.py`, `cookimport/labelstudio/ingest.py`, and `cookimport/llm/prompt_preview.py` now share that same span-free contract
+- prompt text must not advertise prior recipe atomic ranges
+- debugging obvious recipe misses should start with atomizer heuristics, deterministic labeling, and later grouping behavior rather than restoring provenance-backed span hints
+
+Evidence worth keeping:
+- the `Bright Cabbage Slaw` failure path was traced to importer provenance stopping before the method blocks, which made those rows `outside_recipe_span` in `label_det` before Codex correction
+
+Anti-loop note:
+- do not restore importer-backed `within_recipe_span` seeding as a quick fix; that was the bug
 
 ## 2026-03-17 EPUB singleton-ingredient boundary trap
 

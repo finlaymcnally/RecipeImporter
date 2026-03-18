@@ -146,10 +146,11 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     assert manifest["counts"]["recipe_workers_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 3
     assert manifest["counts"]["build_final_recipe_ok"] == 3
-    assert manifest["process_runs"]["recipe_correction"]["runtime_mode"] == "phase_worker_runtime.v1"
+    assert manifest["process_runs"]["recipe_correction"]["runtime_mode"] == "direct_codex_exec_v1"
 
     assert phase_manifest["worker_count"] == 1
     assert phase_manifest["shard_count"] == 2
+    assert phase_manifest["runtime_mode"] == "direct_codex_exec_v1"
     assert worker_assignments[0]["worker_id"] == "worker-001"
     assert len(worker_assignments[0]["shard_ids"]) == 2
     assert len(shard_manifest) == 2

@@ -5,33 +5,48 @@
       "atomic_index": 0,
       "block_id": "block:ingredient:0",
       "block_index": 0,
+      "current_line": "1 cup",
       "deterministic_label": "INGREDIENT_LINE",
       "escalation_reasons": [],
+      "next_text": "flour",
+      "prev_text": null,
       "recipe_id": "recipe:0",
-      "text": "1 cup",
+      "rule_tags": [
+        "ingredient_like"
+      ],
       "within_recipe_span": true
     },
     {
       "atomic_index": 1,
       "block_id": "block:ingredient:1",
       "block_index": 1,
+      "current_line": "flour",
       "deterministic_label": "OTHER",
       "escalation_reasons": [
         "deterministic_unresolved",
         "fallback_decision"
       ],
+      "next_text": "2 tablespoons sugar",
+      "prev_text": "1 cup",
       "recipe_id": "recipe:0",
-      "text": "flour",
+      "rule_tags": [
+        "recipe_span_fallback"
+      ],
       "within_recipe_span": true
     },
     {
       "atomic_index": 2,
       "block_id": "block:ingredient:2",
       "block_index": 2,
+      "current_line": "2 tablespoons sugar",
       "deterministic_label": "INGREDIENT_LINE",
       "escalation_reasons": [],
+      "next_text": null,
+      "prev_text": "flour",
       "recipe_id": "recipe:0",
-      "text": "2 tablespoons sugar",
+      "rule_tags": [
+        "ingredient_like"
+      ],
       "within_recipe_span": true
     }
   ],

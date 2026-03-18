@@ -56,6 +56,8 @@ Interactive benchmark wrap-up behavior:
 - That detached launch directory is also the persistent staging root for any temporary sharded upload files, so the Oracle subprocess can keep reading them after benchmark wrap-up returns.
 - Interactive terminal wrap-up should stay short and point operators at `oracle_upload.log`; detailed launch metadata already lives beside it in the same launch directory.
 - `cookimport bench oracle-upload <session root or upload_bundle_v1>` remains the manual retry/replay path.
+- benchmark-side Oracle upload now bypasses the drifted local headless wrapper and calls the real Oracle CLI with the known Linux xvfb Chromium launcher plus `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`.
+- the default Oracle browser model target for benchmark upload is now `gpt-5.2`; `--model ...` remains the manual override seam.
 
 Important current constraints:
 
@@ -112,6 +114,7 @@ Current interactive contracts:
   - `single_offline_summary.md`
   - `upload_bundle_v1/`
 - benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log volume only
+- benchmark status panels now treat generic `task X/Y | running N` progress strings as worker activity, so shard-backed line-role and similar phases do not collapse back to one stale status line
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
 - interactive single-offline writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
@@ -143,6 +146,9 @@ Structure-only triage is now a first-class follow-up seam:
 - the report separates `structure_core` labels (`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`) from `nonrecipe_core` (`KNOWLEDGE`, `OTHER`)
 - it also includes boundary exactness so reviewers can tell whether a low score is mostly a segmentation problem or a label-semantics problem
 - high canonical boundary/alignment scores do not imply near-perfect overall accuracy; current single-offline misses can still be dominated by hard `KNOWLEDGE` vs `OTHER` disagreements even when recipe boundaries are mostly correct
+
+Benchmark transport note:
+- benchmark-mode recipe subprocesses now use CodexFarm's current flag name `--recipeimport-benchmark-mode line_label_v1`; the retired `--benchmark-mode` flag is no longer part of the active contract
 
 ## 3. Scoring And Artifact Contracts
 

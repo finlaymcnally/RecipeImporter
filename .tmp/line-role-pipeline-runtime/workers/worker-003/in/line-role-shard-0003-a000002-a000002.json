@@ -5,13 +5,18 @@
       "atomic_index": 2,
       "block_id": "block:default-workers:2",
       "block_index": 2,
+      "current_line": "Ambiguous line 2",
       "deterministic_label": "OTHER",
       "escalation_reasons": [
         "deterministic_unresolved",
         "fallback_decision"
       ],
+      "next_text": null,
+      "prev_text": null,
       "recipe_id": "recipe:0",
-      "text": "Ambiguous line 2",
+      "rule_tags": [
+        "recipe_span_fallback"
+      ],
       "within_recipe_span": true
     }
   ],

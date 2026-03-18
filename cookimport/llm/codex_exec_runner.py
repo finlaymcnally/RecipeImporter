@@ -4,8 +4,11 @@ import json
 import shlex
 import subprocess
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol, Sequence
+
+import tiktoken
 
 from .codex_farm_runner import CodexFarmRunnerError, _merge_env
 
@@ -49,6 +52,15 @@ class CodexExecRunResult:
         tokens_cached_input = _coerce_nonnegative_int(usage.get("cached_input_tokens"))
         tokens_output = _coerce_nonnegative_int(usage.get("output_tokens"))
         tokens_reasoning = _coerce_nonnegative_int(usage.get("reasoning_tokens"))
+        model_name = _model_name_from_command(self.command)
+        visible_input_tokens = _count_tokens(prompt_text, model_name=model_name)
+        visible_output_tokens = _count_tokens(response_text, model_name=model_name)
+        wrapper_overhead_tokens = max(
+            int(_sum_ints(tokens_input, tokens_output, tokens_reasoning) or 0)
+            - visible_input_tokens
+            - visible_output_tokens,
+            0,
+        )
         return {
             "worker_id": worker_id,
             "task_id": shard_id,
@@ -68,6 +80,22 @@ class CodexExecRunResult:
                 tokens_output,
                 tokens_reasoning,
             ),
+            "visible_input_tokens": visible_input_tokens,
+            "visible_output_tokens": visible_output_tokens,
+            "wrapper_overhead_tokens": wrapper_overhead_tokens,
+            "cost_breakdown": {
+                "visible_input_tokens": visible_input_tokens,
+                "cached_input_tokens": tokens_cached_input,
+                "visible_output_tokens": visible_output_tokens,
+                "wrapper_overhead_tokens": wrapper_overhead_tokens,
+                "reasoning_tokens": tokens_reasoning,
+                "billed_total_tokens": _sum_ints(
+                    tokens_input,
+                    tokens_cached_input,
+                    tokens_output,
+                    tokens_reasoning,
+                ),
+            },
             "codex_event_count": len(self.events),
             "codex_event_types": [
                 str(event.get("type") or "").strip()
@@ -89,6 +117,9 @@ class CodexExecRunResult:
                 "tokens_output": row.get("tokens_output"),
                 "tokens_reasoning": row.get("tokens_reasoning"),
                 "tokens_total": row.get("tokens_total"),
+                "visible_input_tokens": row.get("visible_input_tokens"),
+                "visible_output_tokens": row.get("visible_output_tokens"),
+                "wrapper_overhead_tokens": row.get("wrapper_overhead_tokens"),
                 "codex_event_count_total": row.get("codex_event_count"),
             },
         }
@@ -282,6 +313,38 @@ def _build_codex_exec_command(
     return command
 
 
+def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    summary = {
+        "call_count": len(rows),
+        "tokens_input": 0,
+        "tokens_cached_input": 0,
+        "tokens_output": 0,
+        "tokens_reasoning": 0,
+        "tokens_total": 0,
+        "visible_input_tokens": 0,
+        "visible_output_tokens": 0,
+        "wrapper_overhead_tokens": 0,
+    }
+    for row in rows:
+        summary["tokens_input"] += int(row.get("tokens_input") or 0)
+        summary["tokens_cached_input"] += int(row.get("tokens_cached_input") or 0)
+        summary["tokens_output"] += int(row.get("tokens_output") or 0)
+        summary["tokens_reasoning"] += int(row.get("tokens_reasoning") or 0)
+        summary["tokens_total"] += int(row.get("tokens_total") or 0)
+        summary["visible_input_tokens"] += int(row.get("visible_input_tokens") or 0)
+        summary["visible_output_tokens"] += int(row.get("visible_output_tokens") or 0)
+        summary["wrapper_overhead_tokens"] += int(row.get("wrapper_overhead_tokens") or 0)
+    summary["cost_breakdown"] = {
+        "visible_input_tokens": summary["visible_input_tokens"],
+        "cached_input_tokens": summary["tokens_cached_input"],
+        "visible_output_tokens": summary["visible_output_tokens"],
+        "wrapper_overhead_tokens": summary["wrapper_overhead_tokens"],
+        "reasoning_tokens": summary["tokens_reasoning"],
+        "billed_total_tokens": summary["tokens_total"],
+    }
+    return summary
+
+
 def _parse_codex_json_events(stdout_text: str | None, stderr_text: str | None) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for stream in (stdout_text or "", stderr_text or ""):
@@ -390,3 +453,38 @@ def _sum_ints(*values: int | None) -> int | None:
         total += int(value)
         seen = True
     return total if seen else None
+
+
+def _model_name_from_command(command: Sequence[str]) -> str:
+    tokens = list(command)
+    for index, value in enumerate(tokens):
+        if value == "--model" and index + 1 < len(tokens):
+            return str(tokens[index + 1] or "").strip()
+    return ""
+
+
+def _count_tokens(text: str, *, model_name: str) -> int:
+    if not text:
+        return 0
+    if len(text) <= 100_000:
+        return _count_tokens_cached(model_name, text)
+    total = 0
+    for index in range(0, len(text), 50_000):
+        total += _count_tokens_cached(model_name, text[index : index + 50_000])
+    return total
+
+
+@lru_cache(maxsize=None)
+def _count_tokens_cached(model_name: str, text: str) -> int:
+    return len(_encoding_for_model(model_name).encode(text))
+
+
+@lru_cache(maxsize=None)
+def _encoding_for_model(model_name: str):
+    normalized_model = str(model_name or "").strip()
+    if normalized_model:
+        try:
+            return tiktoken.encoding_for_model(normalized_model)
+        except KeyError:
+            pass
+    return tiktoken.get_encoding("o200k_base")

@@ -641,4 +641,17 @@ Evidence worth keeping:
 Anti-loop note:
 - if canonical benchmark accuracy looks "too low for a solved structure problem," inspect wrong-label distribution before chasing scorer or boundary changes
 
+### 2026-03-17 benchmark transport and operator surfaces
+
+Problem captured:
+- benchmark upload and transport still had a few stale seams after the main shard-runtime cutover: drifted Oracle wrapper usage, stale default model/picker assumptions, and one retired CodexFarm benchmark flag.
+
+Durable decisions:
+- benchmark upload bypasses the drifted local wrapper and invokes the real Oracle CLI with the known Linux xvfb Chromium path plus `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`
+- benchmark Oracle default model is `gpt-5.2`; manual `--model` override remains supported
+- recipe benchmark subprocesses use CodexFarm's current `--recipeimport-benchmark-mode line_label_v1` flag and do not send benchmark-only flags for extract mode
+
+Anti-loop note:
+- if a benchmark subprocess or Oracle upload breaks again, verify the active local transport contract before editing bundle format or interactive wrap-up flow
+
 If an older artifact references one of those surfaces, treat it as historical context only, not current contract guidance.

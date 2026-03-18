@@ -18,8 +18,9 @@ _PROMPT_TEMPLATE_PATH = (
 _PROMPT_TEMPLATE_FALLBACK = """You are reviewing deterministic canonical line-role labels for cookbook atomic lines.
 
 TASK BOUNDARY
-- This is line-role label correction only.
+- This is a grounded line-role correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
+- Use local context to correct structure. Do not treat an isolated heading or blur as a recipe just because it looks title-like.
 - Never perform schema.org extraction.
 - Never invent lines or labels.
 
@@ -28,9 +29,11 @@ Allowed labels (global):
 
 Compact input legends:
 - Label codes: {{LABEL_CODE_LEGEND}}
+- Span codes: {{SPAN_CODE_LEGEND}}
 - No prior recipe-span authority is provided for this batch.
 - Treat the targets as one ordered contiguous slice of the book.
-- Infer recipe structure only from the supplied ordered lines; do not expect inline neighbor duplicates.
+- `hint_codes` are compact deterministic heuristic tags, not final truth.
+- Review outside-recipe `KNOWLEDGE` versus `OTHER` only when the local context windows support it.
 
 Tie-break precedence (highest to lowest):
 {{PRECEDENCE_ORDER}}
@@ -91,6 +94,9 @@ Hard output rules:
 Target row format:
 {{TARGET_ROW_FORMAT}}
 
+Grounding windows:
+{{LOCAL_CONTEXT_ROWS}}
+
 Targets:
 {{TARGETS_ROWS}}
 """
@@ -125,6 +131,10 @@ def build_canonical_line_role_prompt(
         _render_label_code_legend(label_code_by_label),
     )
     rendered = rendered.replace(
+        "{{SPAN_CODE_LEGEND}}",
+        "R=in_recipe, N=outside_recipe, U=unknown_recipe_status",
+    )
+    rendered = rendered.replace(
         "{{PRECEDENCE_ORDER}}",
         "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION > "
         "INGREDIENT_LINE > INSTRUCTION_LINE > TIME_LINE > RECIPE_NOTES > "
@@ -133,6 +143,14 @@ def build_canonical_line_role_prompt(
     rendered = rendered.replace(
         "{{TARGET_ROW_FORMAT}}",
         _target_row_format_text(resolved_format),
+    )
+    rendered = rendered.replace(
+        "{{LOCAL_CONTEXT_ROWS}}",
+        _render_local_context_rows(
+            targets,
+            deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
+            escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
+        ),
     )
     rendered = rendered.replace("{{TARGETS_ROWS}}", rendered_targets)
     return rendered.strip() + "\n"
@@ -147,13 +165,12 @@ def serialize_line_role_targets(
     label_code_by_label: Mapping[str, str] | None = None,
     reason_code_by_reason: Mapping[str, str] | None = None,
 ) -> str:
-    allowed_label_set = {str(label).strip() for label in allowed_labels}
+    allowed_label_set = {str(label).strip().upper() for label in allowed_labels}
     resolved_label_codes = (
         dict(label_code_by_label)
         if label_code_by_label is not None
         else _build_label_code_by_label(allowed_labels)
     )
-    del escalation_reasons_by_atomic_index
     del reason_code_by_reason
     lines: list[str] = []
     for candidate in targets:
@@ -164,12 +181,22 @@ def serialize_line_role_targets(
             else None,
             allowed_labels=allowed_label_set,
         )
+        escalation_reasons = (
+            escalation_reasons_by_atomic_index.get(atomic_index)
+            if escalation_reasons_by_atomic_index is not None
+            else ()
+        )
         lines.append(
             _serialize_compact_target_row(
                 atomic_index=atomic_index,
                 label_code=resolved_label_codes.get(
                     deterministic_label,
                     resolved_label_codes.get("OTHER", "L0"),
+                ),
+                span_code=_span_code(candidate.within_recipe_span),
+                hint_codes=_render_hint_codes(
+                    candidate.rule_tags,
+                    escalation_reasons,
                 ),
                 current_line=str(candidate.text),
             )
@@ -200,8 +227,9 @@ def _target_row_format_text(prompt_format: LineRolePromptFormat) -> str:
     del prompt_format
     return (
         "One pipe-delimited row per line: "
-        "atomic_index|label_code|current_line. "
-        "Only the current line text is included; there is no per-row reason or inline neighbor payload."
+        "atomic_index|label_code|span_code|hint_codes|current_line. "
+        "Grounding windows are separate rows shaped like "
+        "`ctx:<atomic_index>|prev=...|line=...|next=...` for selected ambiguous lines."
     )
 
 
@@ -241,9 +269,131 @@ def _serialize_compact_target_row(
     *,
     atomic_index: int,
     label_code: str,
+    span_code: str,
+    hint_codes: str,
     current_line: str,
 ) -> str:
-    return f"{int(atomic_index)}|{str(label_code)}|{_escape_compact_text(current_line)}"
+    return (
+        f"{int(atomic_index)}|{str(label_code)}|{str(span_code)}|"
+        f"{_escape_compact_text(hint_codes)}|{_escape_compact_text(current_line)}"
+    )
+
+
+def _span_code(within_recipe_span: bool | None) -> str:
+    if within_recipe_span is True:
+        return "R"
+    if within_recipe_span is False:
+        return "N"
+    return "U"
+
+
+def _render_hint_codes(
+    rule_tags: Sequence[str] | None,
+    escalation_reasons: Sequence[str] | None,
+) -> str:
+    seen: list[str] = []
+    for values in (rule_tags or (), escalation_reasons or ()):
+        for raw_value in values:
+            normalized = _normalize_hint_code(raw_value)
+            if not normalized or normalized in seen:
+                continue
+            seen.append(normalized)
+            if len(seen) >= 4:
+                return ",".join(seen)
+    return ",".join(seen) if seen else "-"
+
+
+def _normalize_hint_code(raw_value: str | None) -> str:
+    normalized = str(raw_value or "").strip().lower()
+    if not normalized:
+        return ""
+    aliases = {
+        "title_like": "title",
+        "ingredient_like": "ingredient",
+        "instruction_like": "instruction",
+        "instruction_with_time": "instruction_time",
+        "yield_prefix": "yield",
+        "note_prefix": "note",
+        "note_like_prose": "note_prose",
+        "howto_heading": "howto",
+        "variant_heading": "variant",
+        "time_metadata": "time",
+        "outside_recipe": "outside",
+        "outside_recipe_span": "outside",
+        "recipe_span_fallback": "in_recipe",
+        "explicit_prose": "prose",
+        "deterministic_unresolved": "needs_review",
+        "fallback_decision": "fallback",
+        "outside_span_structured_label": "outside_structure",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    cleaned = normalized.replace("-", "_").replace(" ", "_")
+    cleaned = "".join(
+        char for char in cleaned if char.isalnum() or char == "_"
+    ).strip("_")
+    return cleaned[:18]
+
+
+def _render_local_context_rows(
+    targets: Sequence[AtomicLineCandidate],
+    *,
+    deterministic_labels_by_atomic_index: Mapping[int, str] | None,
+    escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None,
+) -> str:
+    allowed_labels = {str(label).strip().upper() for label in FREEFORM_LABELS}
+    rows: list[str] = []
+    for candidate in targets:
+        atomic_index = int(candidate.atomic_index)
+        deterministic_label = _prompt_deterministic_label(
+            deterministic_labels_by_atomic_index.get(atomic_index)
+            if deterministic_labels_by_atomic_index is not None
+            else None,
+            allowed_labels=allowed_labels,
+        )
+        escalation_reasons = (
+            escalation_reasons_by_atomic_index.get(atomic_index)
+            if escalation_reasons_by_atomic_index is not None
+            else ()
+        )
+        if not _should_render_context_window(
+            candidate,
+            deterministic_label=deterministic_label,
+            escalation_reasons=escalation_reasons,
+        ):
+            continue
+        rows.append(
+            "ctx:"
+            f"{atomic_index}|prev={_escape_compact_text(_context_text(candidate.prev_text))}"
+            f"|line={_escape_compact_text(_context_text(candidate.text))}"
+            f"|next={_escape_compact_text(_context_text(candidate.next_text))}"
+        )
+    return "\n".join(rows) if rows else "(none)"
+
+
+def _should_render_context_window(
+    candidate: AtomicLineCandidate,
+    *,
+    deterministic_label: str,
+    escalation_reasons: Sequence[str],
+) -> bool:
+    if escalation_reasons:
+        return True
+    if candidate.within_recipe_span is not True:
+        return True
+    return deterministic_label in {
+        "OTHER",
+        "KNOWLEDGE",
+        "RECIPE_TITLE",
+        "RECIPE_VARIANT",
+        "HOWTO_SECTION",
+        "RECIPE_NOTES",
+    }
+
+
+def _context_text(value: str | None) -> str:
+    text = str(value or "").strip()
+    return text or "_"
 
 
 def _escape_compact_text(value: str) -> str:

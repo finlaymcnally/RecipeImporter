@@ -14,7 +14,7 @@ The deterministic classifier runs first and always writes:
 - `08_nonrecipe_spans.json`
 - `09_knowledge_outputs.json`
 
-Those files are the authoritative outside-recipe ownership boundary. They now preserve both the deterministic seed and the final post-knowledge authority. The LLM stage no longer publishes `block_classifications.jsonl`; instead it returns `block_decisions` that merge into the final authority recorded in those artifacts.
+Those files are the authoritative outside-recipe ownership boundary. They now preserve both the deterministic seed and the final post-knowledge authority. The LLM stage no longer publishes `block_classifications.jsonl`; instead it returns `block_decisions` that merge into the final authority recorded in those artifacts while keeping richer internal reviewer categories inside the refinement seam.
 
 It is **off by default** and does nothing unless explicitly enabled.
 
@@ -86,5 +86,5 @@ Local default pack files:
 - Evidence still must quote verbatim from `chunk.blocks[*].text`.
 
 Bundle contract note:
-- shard-owned compact knowledge input is now `bundle_version = "2"` with `bundle_id`, shared local context, and `chunks[*]`.
-- compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead.
+- shard-owned compact knowledge input is now `bundle_version = "2"` with `bundle_id`, `source_spans[*]`, shared local context, and `chunks[*]`. Each chunk can also carry `source_span_id` plus `review_hints` such as `text_form` and `semantic_hint`.
+- compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead. `block_decisions[*].rc` carries the internal reviewer category, while `block_decisions[*].c` stays the final `knowledge|other` authority that staging writes out.

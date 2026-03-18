@@ -771,7 +771,7 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
                 {
                     "cid": payload["chunks"][0]["chunk_id"],
                     "u": True,
-                    "d": [{"i": 8, "c": "knowledge"}],
+                    "d": [{"i": 8, "c": "knowledge", "rc": "knowledge"}],
                     "s": [
                         {
                             "t": "Acid and browning",
@@ -821,8 +821,115 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
     assert apply_result.refined_stage_result.seed_block_category_by_index == {8: "other"}
     assert apply_result.refined_stage_result.block_category_by_index == {8: "knowledge"}
     assert apply_result.refined_stage_result.refinement_report["changed_block_count"] == 1
+    assert apply_result.refined_stage_result.refinement_report["reviewer_category_counts"] == {
+        "knowledge": 1
+    }
     assert apply_result.llm_report["authority_mode"] == "knowledge_refined_final"
     assert apply_result.llm_report["scored_effect"] == "final_authority"
+
+
+def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        lambda _sequence, overrides=None: [
+            KnowledgeChunk(
+                id="chunk-0",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Salt",
+                text="SALT",
+                blockIds=[0],
+            )
+        ],
+    )
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={"blocks": [{"index": 4, "text": "SALT"}]},
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "v": "2",
+            "bid": payload["bundle_id"],
+            "r": [
+                {
+                    "cid": payload["chunks"][0]["chunk_id"],
+                    "u": False,
+                    "d": [{"i": 4, "c": "other", "rc": "chapter_taxonomy"}],
+                    "s": [],
+                }
+            ],
+        }
+    )
+
+    apply_result = run_codex_farm_knowledge_harvest(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={4: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert apply_result.refined_stage_result.block_category_by_index == {4: "other"}
+    assert apply_result.refined_stage_result.refinement_report["reviewer_category_counts"] == {
+        "chapter_taxonomy": 1
+    }
 
 
 def test_knowledge_orchestrator_rejects_off_surface_worker_output(

@@ -16,6 +16,11 @@ _TOKEN_KEYS = (
     "tokens_reasoning",
     "tokens_total",
 )
+_BREAKDOWN_KEYS = (
+    "visible_input_tokens",
+    "visible_output_tokens",
+    "wrapper_overhead_tokens",
+)
 
 _PREVIEW_STAGE_LABELS = {
     "recipe_llm_correct_and_link": "Recipe Correction",
@@ -91,6 +96,7 @@ def build_prediction_run_prompt_budget_summary(
         "call_count": None,
         "duration_total_ms": None,
         **{key: None for key in _TOKEN_KEYS},
+        **{key: None for key in _BREAKDOWN_KEYS},
     }
     for payload in by_stage.values():
         totals["call_count"] = _sum_optional_ints(
@@ -106,6 +112,19 @@ def build_prediction_run_prompt_budget_summary(
                 totals.get(key),
                 _nonnegative_int(payload.get(key)),
             )
+        for key in _BREAKDOWN_KEYS:
+            totals[key] = _sum_optional_ints(
+                totals.get(key),
+                _nonnegative_int(payload.get(key)),
+            )
+    totals["cost_breakdown"] = {
+        "visible_input_tokens": totals.get("visible_input_tokens"),
+        "cached_input_tokens": totals.get("tokens_cached_input"),
+        "visible_output_tokens": totals.get("visible_output_tokens"),
+        "wrapper_overhead_tokens": totals.get("wrapper_overhead_tokens"),
+        "reasoning_tokens": totals.get("tokens_reasoning"),
+        "billed_total_tokens": totals.get("tokens_total"),
+    }
 
     return {
         "schema_version": "prompt_budget_summary.v1",
@@ -169,6 +188,9 @@ def build_prompt_preview_budget_summary(
                 "estimated_cached_input_tokens": None,
                 "estimated_output_tokens": None,
                 "estimated_total_tokens": None,
+                "visible_input_tokens": None,
+                "visible_output_tokens": None,
+                "wrapper_overhead_tokens": None,
                 "estimation_basis": "unavailable",
             },
         )
@@ -199,6 +221,9 @@ def build_prompt_preview_budget_summary(
         "estimated_cached_input_tokens": None,
         "estimated_output_tokens": None,
         "estimated_total_tokens": None,
+        "visible_input_tokens": None,
+        "visible_output_tokens": None,
+        "wrapper_overhead_tokens": None,
     }
     for stage_key, payload in by_stage.items():
         call_count = int(payload.get("call_count") or 0)
@@ -238,6 +263,17 @@ def build_prompt_preview_budget_summary(
         payload["estimated_cached_input_tokens"] = estimated_cached_input_tokens
         payload["estimated_output_tokens"] = estimated_output_tokens
         payload["estimated_total_tokens"] = estimated_total_tokens
+        payload["visible_input_tokens"] = estimated_input_tokens
+        payload["visible_output_tokens"] = estimated_output_tokens
+        payload["wrapper_overhead_tokens"] = 0 if estimated_total_tokens is not None else None
+        payload["cost_breakdown"] = {
+            "visible_input_tokens": payload.get("visible_input_tokens"),
+            "cached_input_tokens": payload.get("estimated_cached_input_tokens"),
+            "visible_output_tokens": payload.get("visible_output_tokens"),
+            "wrapper_overhead_tokens": payload.get("wrapper_overhead_tokens"),
+            "reasoning_tokens": 0,
+            "billed_total_tokens": estimated_total_tokens,
+        }
         if estimated_total_tokens is None:
             unavailable_stage_count += 1
         if isinstance(phase_plans, Mapping):
@@ -289,11 +325,31 @@ def build_prompt_preview_budget_summary(
             totals.get("estimated_total_tokens"),
             estimated_total_tokens,
         )
+        totals["visible_input_tokens"] = _sum_optional_ints(
+            totals.get("visible_input_tokens"),
+            estimated_input_tokens,
+        )
+        totals["visible_output_tokens"] = _sum_optional_ints(
+            totals.get("visible_output_tokens"),
+            estimated_output_tokens,
+        )
+        totals["wrapper_overhead_tokens"] = _sum_optional_ints(
+            totals.get("wrapper_overhead_tokens"),
+            0 if estimated_total_tokens is not None else None,
+        )
     if totals["call_count"] > 0:
         totals["task_prompt_chars_avg"] = int(
             round(totals["task_prompt_chars_total"] / totals["call_count"])
         )
         totals["prompt_chars_avg"] = int(round(totals["prompt_chars_total"] / totals["call_count"]))
+    totals["cost_breakdown"] = {
+        "visible_input_tokens": totals.get("visible_input_tokens"),
+        "cached_input_tokens": totals.get("estimated_cached_input_tokens"),
+        "visible_output_tokens": totals.get("visible_output_tokens"),
+        "wrapper_overhead_tokens": totals.get("wrapper_overhead_tokens"),
+        "reasoning_tokens": 0,
+        "billed_total_tokens": totals.get("estimated_total_tokens"),
+    }
 
     warnings = _build_prompt_preview_budget_warnings(
         by_stage=by_stage,
@@ -353,6 +409,7 @@ def _build_codex_farm_stage_summary(
     telemetry_rows = _extract_telemetry_rows(stage_payload=stage_payload)
 
     token_totals: dict[str, int | None] = {key: None for key in _TOKEN_KEYS}
+    breakdown_totals: dict[str, int | None] = {key: None for key in _BREAKDOWN_KEYS}
     row_count = 0
     if isinstance(telemetry_rows, list):
         for row in telemetry_rows:
@@ -364,6 +421,11 @@ def _build_codex_farm_stage_summary(
                     token_totals.get(key),
                     _nonnegative_int(row.get(key)),
                 )
+            for key in _BREAKDOWN_KEYS:
+                breakdown_totals[key] = _sum_optional_ints(
+                    breakdown_totals.get(key),
+                    _nonnegative_int(row.get(key)),
+                )
 
     summary_payload = _extract_summary_payload(stage_payload=stage_payload)
     if isinstance(summary_payload, Mapping):
@@ -373,6 +435,9 @@ def _build_codex_farm_stage_summary(
                 fallback_value = summary_payload.get("tokens_reasoning_total")
             if token_totals.get(key) is None:
                 token_totals[key] = _nonnegative_int(fallback_value)
+        for key in _BREAKDOWN_KEYS:
+            if breakdown_totals.get(key) is None:
+                breakdown_totals[key] = _nonnegative_int(summary_payload.get(key))
 
     call_count = (
         _extract_call_count(summary_payload)
@@ -402,6 +467,15 @@ def _build_codex_farm_stage_summary(
         "call_count": call_count,
         "duration_total_ms": duration_total_ms,
         **token_totals,
+        **breakdown_totals,
+        "cost_breakdown": {
+            "visible_input_tokens": breakdown_totals.get("visible_input_tokens"),
+            "cached_input_tokens": token_totals.get("tokens_cached_input"),
+            "visible_output_tokens": breakdown_totals.get("visible_output_tokens"),
+            "wrapper_overhead_tokens": breakdown_totals.get("wrapper_overhead_tokens"),
+            "reasoning_tokens": token_totals.get("tokens_reasoning"),
+            "billed_total_tokens": token_totals.get("tokens_total"),
+        },
     }
 
 
@@ -481,6 +555,10 @@ def _build_line_role_stage_summary(
             )
             for key in _TOKEN_KEYS
         }
+        breakdown_totals = {
+            key: _nonnegative_int(summary.get(key)) if isinstance(summary, Mapping) else None
+            for key in _BREAKDOWN_KEYS
+        }
 
         call_count = _nonnegative_int(summary.get("call_count")) if isinstance(summary, Mapping) else None
         batch_count = _nonnegative_int(summary.get("batch_count")) if isinstance(summary, Mapping) else None
@@ -514,6 +592,15 @@ def _build_line_role_stage_summary(
             "attempt_count": attempt_count,
             "duration_total_ms": duration_total_ms,
             **token_totals,
+            **breakdown_totals,
+            "cost_breakdown": {
+                "visible_input_tokens": breakdown_totals.get("visible_input_tokens"),
+                "cached_input_tokens": token_totals.get("tokens_cached_input"),
+                "visible_output_tokens": breakdown_totals.get("visible_output_tokens"),
+                "wrapper_overhead_tokens": breakdown_totals.get("wrapper_overhead_tokens"),
+                "reasoning_tokens": token_totals.get("tokens_reasoning"),
+                "billed_total_tokens": token_totals.get("tokens_total"),
+            },
         }
     return None
 

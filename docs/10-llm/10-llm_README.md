@@ -9,7 +9,7 @@ read_when:
 
 # LLM Section Reference
 
-LLM usage in this repo is optional. Recipe still runs through a CodexFarm-backed transport; knowledge and line-role now use one direct `codex exec` structured call per shard.
+LLM usage in this repo is optional. Recipe, knowledge, and line-role now each use one direct `codex exec` structured call per shard.
 
 ## Runtime surface
 
@@ -28,8 +28,8 @@ Primary entrypoints:
 
 Shared shard-runtime foundation:
 
-- `cookimport/llm/phase_worker_runtime.py` writes phase/shard manifests, per-worker sandboxes, per-shard proposals, promotion summaries, and runtime telemetry for the active shard-v1 recipe, line-role, and knowledge cutovers.
-- `cookimport/llm/codex_exec_runner.py` is the repo-owned direct structured Codex subprocess seam used by the live knowledge and line-role transports.
+- `cookimport/llm/phase_worker_runtime.py` is the shared shard-worker foundation and still defines the manifest/assignment/promotion artifact contract that the direct recipe, knowledge, and line-role runtimes mirror.
+- `cookimport/llm/codex_exec_runner.py` is the repo-owned direct structured Codex subprocess seam used by the live recipe, knowledge, and line-role transports.
 
 Recipe CodexFarm path:
 
@@ -62,8 +62,10 @@ Migration note:
 - the shard-v1 work is a runtime refactor over the existing label-first staged importer, not a new pipeline
 - shards are ownership units and workers are bounded execution contexts; preview, prompt exports, and reviewer artifacts should describe both instead of pretending one prompt equals one independent task
 - the foundation plan froze the ids and runtime contracts first; recipe, knowledge, and line-role now all execute through shard-owned runtime artifacts, and the preview/export cutover has landed on top of those artifacts
-- knowledge and line-role no longer use the path-mode CodexFarm `process` transport; each now sends one inline prompt per shard through `codex exec`
-- current limitation: recipe still shells out through CodexFarm `process`, so true multi-shard live session reuse is not yet guaranteed on that surface
+- prompt planning now defaults to direct per-phase prompt-count controls (`recipe_prompt_target_count`, `knowledge_prompt_target_count`, `line_role_prompt_target_count`) with current default `5` per enabled phase; lower-level shard-size knobs remain explicit overrides
+- knowledge and line-role no longer use the path-mode CodexFarm `process` transport; each sends one inline prompt per shard through `codex exec`
+- recipe no longer uses the classic `codex-farm process` transport either; it now renders the shard JSON inline into the checked-in recipe prompt and sends one direct structured call per shard through `codex exec`
+- recipe shard JSON and recipe shard outputs now use compact aliases on the live model-facing seam (`sid`, `rid`, `cr`, `tg`, etc.), while deterministic promotion still normalizes the result back into the existing staged outputs
 
 ## Policy boundary
 
@@ -78,6 +80,7 @@ Migration note:
 - plan mode is a planning stop, not a real shard-runtime rehearsal. If you need zero-token validation of worker sandboxes, in/out folders, proposal validation, or promotion wiring, redirect `SubprocessCodexFarmRunner` through a fake `codex-farm` executable via `--codex-farm-cmd` so the live subprocess path still runs.
 - `labelstudio-import --prelabel` is its own Codex surface; recipe settings do not implicitly approve it.
 - `COOKIMPORT_ALLOW_LLM` still blocks unapproved live Codex execution by default.
+- current runner behavior assumes current local `codex-farm` support; older benchmark-flag and stderr/progress fallback compatibility paths were intentionally removed during the legacy purge
 
 Benchmark split:
 
@@ -113,9 +116,11 @@ Recipe passes write under:
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/proposals/*.json`
 
 Recipe runtime note:
-- the live recipe implementation now groups nearby recipes into explicit shard payloads, executes them through `phase_worker_runtime.py`, validates exact owned `recipe_id` coverage, and promotes only validated per-recipe outputs
+- the live recipe implementation now groups nearby recipes into explicit shard payloads, executes them through the repo-owned direct recipe worker runtime in `codex_farm_orchestrator.py`, validates exact owned `recipe_id` coverage, and promotes only validated per-recipe outputs
+- worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still builds the intermediate `RecipeCandidate`, Codex still emits `ingredient_step_mapping` plus raw `selected_tags`, and deterministic code still rebuilds the final cookbook3 draft locally and normalizes tags before write-out
 - runtime artifacts now live under `recipe_phase_runtime/`, while compatibility per-recipe artifacts for prompt/debug readers still bridge through `recipe_correction/{in,out}/`; keep those two artifact families separate so runtime truth does not depend on reviewer/export compatibility files
+- recipe worker shard folders now also write `prompt.txt`, `events.jsonl`, `usage.json`, `last_message.json`, and `cost_breakdown.json`, so prompt-preview and actual-cost reporting can talk about the same visible request/response surface
 - `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
 
 Knowledge-stage writes:
@@ -141,10 +146,11 @@ Knowledge runtime note:
 - the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
 - deterministic chunking still decides eligibility, pruning, and local grouping
 - `codex_farm_knowledge_jobs.py` now writes stable shard payload files plus shard-manifest metadata with owned `chunk_id`s and owned block indices
-- `phase_worker_runtime.py` still owns the shared shard manifest / worker assignment artifact contract, while the live knowledge model call now goes through `codex_exec_runner.py`
+- the live knowledge model call now goes through `codex_exec_runner.py`, but it keeps the same shard-manifest / worker-assignment artifact shape the shared runtime established
 - `codex_farm_knowledge_ingest.py` validates exact owned `chunk_id` coverage and rejects any `block_decisions` or snippet evidence that point outside the shard's eligible block surface
 - prompt/debug readers now pair `knowledge/in/*.json` with validated `knowledge/proposals/*.json`; there is no compatibility `knowledge/out/` mirror anymore
 - the runtime cutover did not require a brand-new pack immediately; `codex-knowledge-shard-v1` still reuses the compact knowledge pack underneath, and the important authority seam is shard ownership plus validation, not a new prompt asset family
+- knowledge worker assignments now launch concurrently and merge back in planned order so `running N` reflects real in-flight work
 - prompt-cost control for this stage lives before worker execution:
   - `cookimport/parsing/chunks.py` routes obvious blurbs, navigation fragments, attribution-only text, and similar low-value prose to `noise`
   - `build_knowledge_jobs(...)` bundles surviving nearby chunks into local jobs instead of writing one prompt per chunk
@@ -167,8 +173,10 @@ Line-role prediction artifacts live under:
 Line-role runtime note:
 - live line-role execution no longer uses `phase_worker_runtime.py` or `codex-farm process`
 - `canonical_line_roles.py` now assigns shard ownership directly, sends each shard prompt body once on stdin through `codex_exec_runner.py`, validates exact owned `atomic_index` coverage, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/workers/.../shards/<shard_id>/`
+- line-role pre-grouping candidates now default to `within_recipe_span=None`; importer recipe provenance is no longer supplied before deterministic/Codex labeling, and prompt-preview reconstruction mirrors that same span-free contract
 - `workers/*/in/*.json` remain debug copies of the shard payload, but the model evidence is the inline prompt text in `prompt.txt`
 - `telemetry_summary.json` remains the prompt/debug and post-run cost seam for line-role, but its runtime metadata now describe direct exec instead of CodexFarm `process`
+- line-role worker launches are concurrent and then re-collected in planned order so stable artifacts and real worker fan-out coexist
 
 Prompt/debug artifacts:
 
@@ -182,6 +190,7 @@ Prompt/debug artifacts:
 - when line-role telemetry only exposes nested batch/attempt summaries, `prompt_budget_summary.json` should still recover those `tokens_total` values so the finished-run whole-run drain is not understated
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - preview budget estimation is predictive-only: it rebuilds deterministic/`vanilla` shard payloads locally, estimates tokens from reconstructable prompt/output structure, and never reuses Codex-backed run telemetry
+- predictive preview is now structural rather than ratio-based: it tokenizes the reconstructed prompt wrapper plus deposited task-file body with `tiktoken`, estimates output tokens from schema-shaped JSON built from the planned shard input, and reports stages as unavailable when that structure cannot be rebuilt safely
 - older saved runs that predate the prompt-target fields should default preview planning to the current shard-v1 target count (`5`) for each enabled phase instead of falling back to legacy shard-size defaults
 - retrospective “what did this completed run actually cost?” reporting lives in the finished-run `prompt_budget_summary.json` / `actual_costs_json` artifact, not in prompt preview
 - when `--run` points at a benchmark root, preview follows `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it reaches the processed stage run with the real staged outputs
@@ -201,7 +210,8 @@ Prompt/debug artifacts:
 - when explicit `knowledge_prompt_target_count` is driving the shard plan, knowledge bundling should not split again on the older per-bundle char cap
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
-- line-role row transport is now minimal: `atomic_index|label_code|current_line`. Per-row escalation reasons are no longer serialized into the Codex prompt, so row metadata stays close to “need to know” rather than repeating review-only hints on every line.
+- line-role row transport is now minimal: `atomic_index|label_code|current_line` in the live prompt, and the debug shard JSON keeps only `atomic_index`, `deterministic_label`, and `current_line`
+- prompt/actual cost reporting for the direct phases now also carries a shared cost-breakdown vocabulary: `visible_input_tokens`, `cached_input_tokens`, `visible_output_tokens`, and `wrapper_overhead_tokens`
 - live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, sends the built prompt text itself through direct `codex exec`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
@@ -270,6 +280,7 @@ Shard-runtime observability note:
 - When callers provide progress callbacks, runner requires `codex-farm process --progress-events --json`.
 - Current runners must emit structured progress events plus JSON stdout when `--json` is requested; older stderr-only progress and missing-flag fallbacks are no longer supported.
 - Direct line-role and knowledge runtimes now also emit repo-owned structured stage-progress callback payloads (task counters, effective worker counts, active shard labels, queued-shard detail) so CLI benchmark/import spinners and `processing_timeseries*.jsonl` capture the same stage metadata.
+- The shared recipe `phase_worker_runtime.py` seam now emits the same outer structured progress snapshots for recipe shard work, reporting configured workers, queued shards, and active worker buckets even though each worker still runs one classic CodexFarm `process` call for its assigned shard set.
 - Recoverable partial-output failures include `no last agent message` and `nonzero_exit_no_payload`.
 - In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing recipe-correction bundles.
 - Recipe pass block extraction falls back to `full_text.lines` when cached payloads are missing `full_text.blocks`.

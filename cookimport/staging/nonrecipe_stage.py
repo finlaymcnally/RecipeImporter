@@ -69,6 +69,8 @@ class NonRecipeStageResult:
                     "seed_nonrecipe_span_count": len(self.seed_nonrecipe_spans or []),
                     "final_nonrecipe_span_count": len(self.nonrecipe_spans),
                     "changed_block_count": 0,
+                    "reviewed_block_count": 0,
+                    "reviewer_category_counts": {},
                     "changed_blocks": [],
                     "conflicts": [],
                     "ignored_block_indices": [],
@@ -127,6 +129,7 @@ def refine_nonrecipe_stage_result(
     stage_result: NonRecipeStageResult,
     full_blocks: Sequence[Mapping[str, Any]],
     block_category_updates: Mapping[int, str],
+    reviewer_categories_by_block: Mapping[int, str] | None = None,
     applied_chunk_ids_by_block: Mapping[int, Sequence[str]] | None = None,
     conflicts: Sequence[Mapping[str, Any]] | None = None,
     ignored_block_indices: Sequence[int] | None = None,
@@ -138,9 +141,13 @@ def refine_nonrecipe_stage_result(
     final_block_category_by_index = dict(seed_block_category_by_index)
     changed_blocks: list[dict[str, Any]] = []
     warnings = list(stage_result.warnings)
+    reviewer_counts: dict[str, int] = {}
 
     for block_index, raw_category in sorted(block_category_updates.items()):
         normalized_category, warning = _normalize_stage7_category(str(raw_category))
+        reviewer_category = str(
+            (reviewer_categories_by_block or {}).get(block_index) or ""
+        ).strip() or None
         if block_index not in final_block_category_by_index:
             if warning is not None:
                 warnings.append(f"block {block_index}: {warning}")
@@ -149,6 +156,8 @@ def refine_nonrecipe_stage_result(
             warnings.append(f"block {block_index}: {warning}")
         seed_category = seed_block_category_by_index[block_index]
         final_block_category_by_index[block_index] = normalized_category
+        if reviewer_category is not None:
+            reviewer_counts[reviewer_category] = reviewer_counts.get(reviewer_category, 0) + 1
         if normalized_category == seed_category:
             continue
         changed_blocks.append(
@@ -156,6 +165,7 @@ def refine_nonrecipe_stage_result(
                 "block_index": int(block_index),
                 "seed_category": seed_category,
                 "final_category": normalized_category,
+                "reviewer_category": reviewer_category,
                 "applied_chunk_ids": list(applied_chunk_ids_by_block.get(block_index) or [])
                 if applied_chunk_ids_by_block is not None
                 else [],
@@ -191,6 +201,8 @@ def refine_nonrecipe_stage_result(
             "seed_knowledge_span_count": len(stage_result.seed_knowledge_spans or stage_result.knowledge_spans),
             "final_knowledge_span_count": len(knowledge_spans),
             "changed_block_count": len(changed_blocks),
+            "reviewed_block_count": sum(reviewer_counts.values()),
+            "reviewer_category_counts": reviewer_counts,
             "changed_blocks": changed_blocks,
             "conflicts": conflict_rows,
             "ignored_block_indices": ignored_indices,

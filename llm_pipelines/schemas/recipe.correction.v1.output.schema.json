@@ -3,99 +3,72 @@
   "title": "recipe.correction.v1 output",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "bundle_version",
-    "shard_id",
-    "recipes"
-  ],
+  "required": ["v", "sid", "r"],
   "properties": {
-    "bundle_version": {
+    "v": {
       "type": "string",
       "const": "1"
     },
-    "shard_id": {
+    "sid": {
       "type": "string",
       "minLength": 1
     },
-    "recipes": {
+    "r": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "bundle_version",
-          "recipe_id",
-          "canonical_recipe",
-          "ingredient_step_mapping",
-          "ingredient_step_mapping_reason",
-          "selected_tags",
-          "warnings"
-        ],
+        "required": ["v", "rid", "cr", "m", "mr", "g", "w"],
         "properties": {
-          "bundle_version": {
+          "v": {
             "type": "string",
             "const": "1"
           },
-          "recipe_id": {
+          "rid": {
             "type": "string",
             "minLength": 1
           },
-          "canonical_recipe": {
+          "cr": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "title",
-              "ingredients",
-              "steps",
-              "description",
-              "recipeYield"
-            ],
+            "required": ["t", "i", "s", "d", "y"],
             "properties": {
-              "title": {
+              "t": {
                 "type": "string",
                 "minLength": 1
               },
-              "ingredients": {
+              "i": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
               },
-              "steps": {
+              "s": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
               },
-              "description": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+              "d": {
+                "type": ["string", "null"]
               },
-              "recipeYield": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+              "y": {
+                "type": ["string", "null"]
               }
             }
           },
-          "ingredient_step_mapping": {
+          "m": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "ingredient_index",
-                "step_indexes"
-              ],
+              "required": ["i", "s"],
               "properties": {
-                "ingredient_index": {
+                "i": {
                   "type": "integer",
                   "minimum": 0
                 },
-                "step_indexes": {
+                "s": {
                   "type": "array",
                   "items": {
                     "type": "integer",
@@ -105,41 +78,31 @@
               }
             }
           },
-          "ingredient_step_mapping_reason": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "mr": {
+            "type": ["string", "null"]
           },
-          "selected_tags": {
+          "g": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "category",
-                "label",
-                "confidence"
-              ],
+              "required": ["c", "l", "f"],
               "properties": {
-                "category": {
+                "c": {
                   "type": "string",
                   "minLength": 1
                 },
-                "label": {
+                "l": {
                   "type": "string",
                   "minLength": 1
                 },
-                "confidence": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
+                "f": {
+                  "type": ["number", "null"]
                 }
               }
             }
           },
-          "warnings": {
+          "w": {
             "type": "array",
             "items": {
               "type": "string"

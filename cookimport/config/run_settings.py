@@ -324,7 +324,6 @@ class AtomicBlockSplitter(str, Enum):
 
 class LineRolePipeline(str, Enum):
     off = "off"
-    deterministic_v1 = "deterministic-v1"
     codex_line_role_shard_v1 = LINE_ROLE_PIPELINE_SHARD_V1
 
 
@@ -364,18 +363,14 @@ def normalize_line_role_pipeline_value(value: Any) -> str:
     normalized = str(getattr(value, "value", value) or "").strip().lower().replace("_", "-")
     if normalized in {"", "off", "none", "default"}:
         return LineRolePipeline.off.value
-    if normalized in {"deterministic-v1", "deterministic"}:
-        return LineRolePipeline.deterministic_v1.value
     allowed = {
         LineRolePipeline.off.value,
-        LineRolePipeline.deterministic_v1.value,
         LINE_ROLE_PIPELINE_SHARD_V1,
     }
     if normalized not in allowed:
         raise ValueError(
             "Invalid line_role_pipeline. Expected one of: "
-            f"{LineRolePipeline.off.value}, {LineRolePipeline.deterministic_v1.value}, "
-            f"{LINE_ROLE_PIPELINE_SHARD_V1}."
+            f"{LineRolePipeline.off.value}, {LINE_ROLE_PIPELINE_SHARD_V1}."
         )
     return normalized
 
@@ -1053,8 +1048,8 @@ class RunSettings(BaseModel):
             label="Line Role Pipeline",
             order=112,
             description=(
-                "Optional canonical line-role labeling path used for benchmark-native "
-                "experiments. Off keeps deterministic behavior."
+                "Canonical line-role labeling path used for benchmark-native "
+                "experiments. Off keeps the fully vanilla label-first output."
             ),
         ),
     )
@@ -1125,7 +1120,7 @@ class RunSettings(BaseModel):
             order=115,
             description=(
                 "Optional non-recipe knowledge harvesting pipeline. "
-                "Off keeps deterministic behavior."
+                "Off keeps the fully vanilla nonrecipe authority."
             ),
         ),
     )

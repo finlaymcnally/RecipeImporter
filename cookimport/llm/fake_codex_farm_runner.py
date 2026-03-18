@@ -70,13 +70,15 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
     if pipeline_id == "recipe.correction.compact.v1":
         if not isinstance(payload, dict):
             raise ValueError("recipe correction fake payload must be a JSON object")
-        if isinstance(payload.get("recipes"), list):
+        recipes_payload = payload.get("recipes", payload.get("r"))
+        shard_id = payload.get("shard_id", payload.get("sid"))
+        if isinstance(recipes_payload, list):
             return {
-                "bundle_version": "1",
-                "shard_id": payload.get("shard_id"),
-                "recipes": [
+                "v": "1",
+                "sid": shard_id,
+                "r": [
                     _default_recipe_correction_output(recipe_payload)
-                    for recipe_payload in payload.get("recipes") or []
+                    for recipe_payload in recipes_payload
                     if isinstance(recipe_payload, dict)
                 ],
             }
@@ -140,6 +142,11 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                 int(value)
                 for value in re.findall(r"(?m)^\[(\d+),", prompt_text)
             ]
+        if not atomic_indices:
+            atomic_indices = [
+                int(value)
+                for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
+            ]
         return {
             "rows": [
                 {"atomic_index": atomic_index, "label": "OTHER"}
@@ -158,8 +165,8 @@ def build_structural_pipeline_output(
 
 
 def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]:
-    canonical_text = str(payload.get("canonical_text") or "").strip()
-    evidence_rows = payload.get("evidence_rows")
+    canonical_text = str(payload.get("canonical_text", payload.get("txt")) or "").strip()
+    evidence_rows = payload.get("evidence_rows", payload.get("ev"))
     first_line = canonical_text.splitlines()[0].strip() if canonical_text else ""
     if not first_line and isinstance(evidence_rows, list):
         for row in evidence_rows:
@@ -168,7 +175,9 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
             first_line = str(row[1] or "").strip()
             if first_line:
                 break
-    recipe_name = first_line or str(payload.get("recipe_id") or "Untitled Recipe")
+    recipe_name = first_line or str(
+        payload.get("recipe_id", payload.get("rid")) or "Untitled Recipe"
+    )
     recipe_lines = [line.strip() for line in canonical_text.splitlines() if line.strip()]
     if len(recipe_lines) <= 1 and isinstance(evidence_rows, list):
         recipe_lines = [
@@ -181,24 +190,24 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
     steps = body_lines[1:] if len(body_lines) > 1 else body_lines[:1]
     selected_tags = _select_recipe_tags(payload)
     return {
-        "bundle_version": "1",
-        "recipe_id": payload.get("recipe_id"),
-        "canonical_recipe": {
-            "title": recipe_name,
-            "description": None,
-            "recipeYield": None,
-            "ingredients": ingredients,
-            "steps": steps,
+        "v": "1",
+        "rid": payload.get("recipe_id", payload.get("rid")),
+        "cr": {
+            "t": recipe_name,
+            "d": None,
+            "y": None,
+            "i": ingredients,
+            "s": steps,
         },
-        "ingredient_step_mapping": [],
-        "ingredient_step_mapping_reason": "unclear_alignment",
-        "selected_tags": selected_tags,
-        "warnings": [],
+        "m": [],
+        "mr": "unclear_alignment",
+        "g": selected_tags,
+        "w": [],
     }
 
 
 def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    guide = payload.get("tagging_guide")
+    guide = payload.get("tagging_guide", payload.get("tg"))
     if not isinstance(guide, dict):
         guide = build_recipe_tagging_guide()
     categories = guide.get("categories")
@@ -207,8 +216,11 @@ def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
     combined_text = " ".join(
         [
-            str(payload.get("canonical_text") or ""),
-            json.dumps(payload.get("recipe_candidate_hint") or {}, sort_keys=True),
+            str(payload.get("canonical_text", payload.get("txt")) or ""),
+            json.dumps(
+                payload.get("recipe_candidate_hint", payload.get("h")) or {},
+                sort_keys=True,
+            ),
         ]
     ).lower()
     selected: list[dict[str, Any]] = []
@@ -231,12 +243,6 @@ def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:
             if candidate in seen:
                 continue
             seen.add(candidate)
-            selected.append(
-                {
-                    "category": key,
-                    "label": rendered,
-                    "confidence": 0.74,
-                }
-            )
+            selected.append({"c": key, "l": rendered, "f": 0.74})
             break
     return selected

@@ -42,7 +42,7 @@ _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
 _WORKER_UTILIZATION_DEFAULT = 1.0
 _TOP_TIER_PROFILE_ENV = "COOKIMPORT_TOP_TIER_PROFILE"
 _INTERACTIVE_RECIPE_PIPELINE_LABELS: dict[str, str] = {
-    "off": "Vanilla / deterministic only",
+    "off": "Vanilla / no Codex",
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1: "CodexFarm",
 }
 _CODEX_SURFACE_OPTION_LABELS: dict[str, str] = {
@@ -199,7 +199,7 @@ def _choose_interactive_recipe_pipeline(
             default=default_codex_enabled,
             instruction=(
                 "Yes: codexfarm top-tier profile (winner settings if available). "
-                "No: deterministic vanilla top-tier profile."
+                "No: fully vanilla top-tier profile."
             ),
         )
         if use_codex_farm is None:
@@ -217,13 +217,13 @@ def _choose_interactive_recipe_pipeline(
         menu_help = (
             "Pick the high-level workflow first.\n"
             f"CodexFarm opens one follow-up menu where you can toggle {codex_surface_list} together.\n"
-            "Vanilla keeps this run on the deterministic top-tier profile."
+            "Vanilla keeps this run on the fully vanilla top-tier profile."
         )
     else:
         menu_help = (
             "Pick the high-level workflow first.\n"
             "CodexFarm uses the codex top-tier profile.\n"
-            "Vanilla keeps recipe Codex off and uses the deterministic top-tier profile."
+            "Vanilla keeps every Codex surface off."
         )
     selection = menu_select(
         "Workflow for this run:",
@@ -480,12 +480,12 @@ def _choose_interactive_codex_surfaces(
         line_role_pipeline=(
             LINE_ROLE_PIPELINE_SHARD_V1
             if "line_role" in selected_step_ids
-            else "deterministic-v1"
+            else "off"
         ),
         llm_knowledge_pipeline=(
             KNOWLEDGE_CODEX_PIPELINE_SHARD_V1 if "knowledge" in selected_step_ids else "off"
         ),
-        atomic_block_splitter="atomic-v1",
+        atomic_block_splitter=("atomic-v1" if "line_role" in selected_step_ids else "off"),
     )
     if prompt_text is None or not selected_step_ids:
         return selected_settings

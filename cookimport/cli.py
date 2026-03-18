@@ -9119,7 +9119,7 @@ def _normalize_line_role_pipeline(value: str) -> str:
     except ValueError:
         _fail(
             f"Invalid line role pipeline: {value!r}. "
-            f"Expected one of: off, deterministic-v1, {LINE_ROLE_PIPELINE_SHARD_V1}."
+            f"Expected one of: off, {LINE_ROLE_PIPELINE_SHARD_V1}."
         )
         return "off"
 
@@ -27308,7 +27308,7 @@ def labelstudio_benchmark(
         "--line-role-pipeline",
         help=(
             "Optional canonical line-role labeling pipeline for benchmark "
-            f"experiments: off, deterministic-v1, or {LINE_ROLE_PIPELINE_SHARD_V1}."
+            f"experiments: off or {LINE_ROLE_PIPELINE_SHARD_V1}."
         ),
     )] = "off",
     line_role_gated: Annotated[bool, typer.Option(

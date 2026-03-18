@@ -22,6 +22,7 @@ from cookimport.labelstudio.archive import (
 )
 from cookimport.labelstudio.ingest import (
     _acquire_split_phase_slot,
+    _apply_nonrecipe_authority_to_predictions,
     _normalize_llm_recipe_pipeline,
     _write_authoritative_line_role_artifacts,
     generate_pred_run_artifacts,
@@ -2425,6 +2426,43 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
     )
     assert telemetry_payload["mode"] == "final_authority_projection"
     assert telemetry_payload["changed_block_indices"] == [2]
+
+
+def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() -> None:
+    predictions = [
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:10",
+            block_index=10,
+            atomic_index=10,
+            text="Refrigerate leftovers, covered, for up to 3 days.",
+            within_recipe_span=False,
+            label="RECIPE_NOTES",
+            decided_by="rule",
+            reason_tags=["storage_or_serving_note"],
+        )
+    ]
+    nonrecipe_stage_result = NonRecipeStageResult(
+        nonrecipe_spans=[],
+        knowledge_spans=[],
+        other_spans=[],
+        block_category_by_index={10: "other"},
+        refinement_report={
+            "authority_mode": "deterministic_seed_only",
+            "scored_effect": "seed_only",
+            "changed_blocks": [{"block_index": 10}],
+        },
+    )
+
+    adjusted, summary = _apply_nonrecipe_authority_to_predictions(
+        predictions=predictions,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    assert summary["changed_block_count"] == 1
+    assert len(adjusted) == 1
+    assert adjusted[0].label == "RECIPE_NOTES"
+    assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
 
 
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(

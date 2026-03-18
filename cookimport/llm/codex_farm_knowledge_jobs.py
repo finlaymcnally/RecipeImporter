@@ -22,9 +22,11 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeCompactContextBlockV1,
     KnowledgeCompactContextPayloadV1,
     KnowledgeCompactGuardrailsPayloadV1,
+    KnowledgeChunkReviewHintsV1,
     KnowledgeCompactTableHintV1,
     KnowledgeHeuristicsPayloadV1,
     KnowledgeJobSourceV1,
+    KnowledgeSourceSpanV1,
     KnowledgeTableHintV1,
     SpanV1,
 )
@@ -86,6 +88,16 @@ def build_knowledge_jobs(
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
+    source_spans_by_id = {
+        str(span.span_id): KnowledgeSourceSpanV1(
+            span_id=str(span.span_id),
+            seed_category=str(span.category or "other"),
+            block_start_index=int(span.block_start_index),
+            block_end_index=int(span.block_end_index),
+            block_indices=[int(index) for index in span.block_indices],
+        )
+        for span in candidate_spans
+    }
 
     recipe_spans_payload = [
         SpanV1(
@@ -148,6 +160,7 @@ def build_knowledge_jobs(
             payload, absolute_indices = _build_chunk_payload(
                 chunk_id=chunk_id,
                 chunk=chunk,
+                stage_span=stage_span,
                 absolute_indices=absolute_indices,
                 full_blocks_by_index=full_blocks_by_index,
                 table_hints_by_index=table_hints_by_index,
@@ -180,6 +193,7 @@ def build_knowledge_jobs(
             full_blocks_by_index=full_blocks_by_index,
             recipe_spans_payload=recipe_spans_payload,
             context_blocks=context_blocks,
+            source_spans_by_id=source_spans_by_id,
         )
         bundle_payload_json = bundle_payload.model_dump(
             mode="json",
@@ -262,6 +276,7 @@ def _build_chunk_payload(
     *,
     chunk_id: str,
     chunk: KnowledgeChunk,
+    stage_span: NonRecipeSpan,
     absolute_indices: Sequence[int],
     full_blocks_by_index: dict[int, dict[str, Any]],
     table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
@@ -301,11 +316,16 @@ def _build_chunk_payload(
             chunk_id=chunk_id,
             block_start_index=int(block_start_index),
             block_end_index=int(block_end_index),
+            source_span_id=str(stage_span.span_id),
             blocks=chunk_blocks_payload,
             heuristics=KnowledgeHeuristicsPayloadV1(
                 suggested_lane=suggested_lane,
                 suggested_highlights=suggested_highlights[:6],
                 suggested_skip_reason=suggested_skip_reason,
+            ),
+            review_hints=_build_review_hints(
+                chunk=chunk,
+                chunk_blocks_payload=chunk_blocks_payload,
             ),
         ),
         absolute_indices,
@@ -321,6 +341,7 @@ def _build_bundle_job_payload(
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     recipe_spans_payload: list[SpanV1],
     context_blocks: int,
+    source_spans_by_id: Mapping[str, KnowledgeSourceSpanV1],
 ) -> KnowledgeCompactBundleJobInputV2:
     if not prepared_chunks:
         raise ValueError(f"Bundle {bundle_id} has no prepared chunks.")
@@ -354,6 +375,13 @@ def _build_bundle_job_payload(
     return KnowledgeCompactBundleJobInputV2(
         source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
         bundle_id=bundle_id,
+        source_spans=[
+            source_spans_by_id[source_span_id]
+            for source_span_id in dict.fromkeys(
+                str(chunk.source_span_id) for chunk in prepared_chunks
+            )
+            if source_span_id in source_spans_by_id
+        ],
         chunks=[chunk.payload for chunk in prepared_chunks],
         context=KnowledgeCompactContextPayloadV1(
             blocks_before=blocks_before,
@@ -364,6 +392,58 @@ def _build_bundle_job_payload(
             must_use_evidence=True,
         ),
     )
+
+
+def _build_review_hints(
+    *,
+    chunk: KnowledgeChunk,
+    chunk_blocks_payload: Sequence[KnowledgeCompactChunkBlockV1],
+) -> KnowledgeChunkReviewHintsV1:
+    text_form = _review_text_form(chunk_blocks_payload)
+    suggested_lane = (
+        chunk.lane.value if isinstance(chunk.lane, ChunkLane) else str(chunk.lane or "").strip()
+    ).lower()
+    if suggested_lane == ChunkLane.KNOWLEDGE.value:
+        semantic_hint = "instructional"
+    elif suggested_lane == ChunkLane.NARRATIVE.value:
+        semantic_hint = "narrative_or_front_matter"
+    elif text_form == "heading_like":
+        semantic_hint = "heading_or_taxonomy"
+    else:
+        semantic_hint = "mixed"
+    return KnowledgeChunkReviewHintsV1(
+        text_form=text_form,
+        semantic_hint=semantic_hint,
+    )
+
+
+def _review_text_form(
+    chunk_blocks_payload: Sequence[KnowledgeCompactChunkBlockV1],
+) -> str:
+    if any(block.table_hint is not None for block in chunk_blocks_payload):
+        return "table_like"
+    heading_like_blocks = [
+        block
+        for block in chunk_blocks_payload
+        if block.heading_level is not None or _looks_heading_like_text(block.text)
+    ]
+    if heading_like_blocks and len(heading_like_blocks) == len(chunk_blocks_payload):
+        return "heading_like"
+    prose_blocks = [
+        block for block in chunk_blocks_payload if len(str(block.text or "").strip()) >= 80
+    ]
+    if prose_blocks or len(chunk_blocks_payload) > 1:
+        return "prose_like"
+    return "mixed"
+
+
+def _looks_heading_like_text(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if len(stripped) <= 60 and stripped.upper() == stripped and any(char.isalpha() for char in stripped):
+        return True
+    return len(stripped.split()) <= 6 and stripped.endswith(":")
 
 
 def _bundle_prepared_chunks(

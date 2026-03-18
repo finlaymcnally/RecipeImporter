@@ -165,7 +165,7 @@ def test_recipe_correction_shard_input_accepts_multi_recipe_payload() -> None:
     serialized = serialize_recipe_correction_shard_input(payload)
 
     assert payload.recipes[1].warnings == ["sparse_evidence"]
-    assert serialized["owned_recipe_ids"] == ["urn:recipe:test:1", "urn:recipe:test:2"]
+    assert serialized["ids"] == ["urn:recipe:test:1", "urn:recipe:test:2"]
 
 
 def test_recipe_correction_shard_output_accepts_nested_recipe_outputs() -> None:

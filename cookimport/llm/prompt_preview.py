@@ -18,6 +18,7 @@ from cookimport.llm.codex_farm_contracts import (
 from cookimport.llm.codex_farm_orchestrator import (
     _RecipeState,
     _build_recipe_correction_input,
+    render_recipe_direct_prompt,
 )
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
 from cookimport.llm.knowledge_prompt_builder import build_knowledge_direct_prompt
@@ -505,28 +506,34 @@ def _build_recipe_shard_preview_rows(
         tagging_guide: dict[str, Any] = {}
         for row in shard_rows:
             payload = _coerce_dict(row.get("input_payload"))
-            recipe_id = str(row.get("recipe_id") or payload.get("recipe_id") or "").strip()
+            recipe_id = str(
+                row.get("recipe_id") or payload.get("recipe_id") or payload.get("rid") or ""
+            ).strip()
             if recipe_id:
                 owned_recipe_ids.append(recipe_id)
             shard_recipe_inputs.append(
                 RecipeCorrectionShardRecipeInput(
                     recipe_id=recipe_id,
-                    canonical_text=str(payload.get("canonical_text") or ""),
+                    canonical_text=str(
+                        payload.get("canonical_text", payload.get("txt")) or ""
+                    ),
                     evidence_rows=[
                         tuple(item)
-                        for item in payload.get("evidence_rows") or []
+                        for item in payload.get("evidence_rows", payload.get("ev")) or []
                         if isinstance(item, (list, tuple)) and len(item) == 2
                     ],
-                    recipe_candidate_hint=_coerce_dict(payload.get("recipe_candidate_hint")),
+                    recipe_candidate_hint=_coerce_dict(
+                        payload.get("recipe_candidate_hint", payload.get("h"))
+                    ),
                     warnings=[],
                 )
             )
             if not tagging_guide:
-                tagging_guide = _coerce_dict(payload.get("tagging_guide"))
+                tagging_guide = _coerce_dict(payload.get("tagging_guide", payload.get("tg")))
             if not authority_notes:
                 authority_notes = [
                     str(note).strip()
-                    for note in payload.get("authority_notes") or []
+                    for note in payload.get("authority_notes", payload.get("an")) or []
                     if str(note).strip()
                 ]
         shard_payload = serialize_recipe_correction_shard_input(
@@ -560,6 +567,13 @@ def _build_recipe_shard_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
+                task_prompt_text=serialized_input,
+                rendered_prompt_override=render_recipe_direct_prompt(
+                    pipeline_assets=pipeline_assets,
+                    input_text=serialized_input,
+                    input_path=input_path,
+                ),
+                prompt_input_mode_override="inline",
             )
         )
     return rows
@@ -721,18 +735,11 @@ def _build_line_role_preview_rows(
             "rows": [
                 {
                     "atomic_index": int(candidate.atomic_index),
-                    "block_id": str(candidate.block_id),
-                    "block_index": int(candidate.block_index),
-                    "recipe_id": candidate.recipe_id,
-                    "within_recipe_span": candidate.within_recipe_span,
-                    "text": str(candidate.text),
                     "deterministic_label": deterministic_labels_by_atomic_index.get(
                         int(candidate.atomic_index),
                         "OTHER",
                     ),
-                    "escalation_reasons": list(
-                        escalation_reasons_by_atomic_index.get(int(candidate.atomic_index), [])
-                    ),
+                    "current_line": str(candidate.text),
                 }
                 for candidate in batch_candidates
             ],

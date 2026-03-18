@@ -1,8 +1,9 @@
 You are reviewing deterministic canonical line-role labels for cookbook atomic lines.
 
 TASK BOUNDARY
-- This is line-role label correction only.
+- This is a grounded line-role correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
+- Use local context to correct structure. Do not treat an isolated heading or blurb as a recipe just because it looks title-like.
 - Never perform schema.org extraction.
 - Never invent lines or labels.
 
@@ -11,9 +12,11 @@ Allowed labels (global):
 
 Compact input legends:
 - Label codes: {{LABEL_CODE_LEGEND}}
+- Span codes: {{SPAN_CODE_LEGEND}}
 - No prior recipe-span authority is provided for this batch.
 - Treat the targets as one ordered contiguous slice of the book.
-- Infer recipe structure only from the supplied ordered lines; do not expect inline neighbor duplicates.
+- `hint_codes` are compact deterministic heuristic tags, not final truth.
+- Review outside-recipe `KNOWLEDGE` versus `OTHER` only when the local context windows support it.
 
 Tie-break precedence (highest to lowest):
 {{PRECEDENCE_ORDER}}
@@ -73,6 +76,9 @@ Hard output rules:
 
 Target row format:
 {{TARGET_ROW_FORMAT}}
+
+Grounding windows:
+{{LOCAL_CONTEXT_ROWS}}
 
 Targets:
 {{TARGETS_ROWS}}

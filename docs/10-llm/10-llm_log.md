@@ -473,3 +473,15 @@ Durable decisions:
 
 Anti-loop note:
 - if knowledge token costs or behavior drift again, check transport first; the safe cut here was dropping path-mode shell replay without inventing a second planner or validator
+
+## 2026-03-17 shard-runtime documentation consolidation
+
+Problem captured:
+- the March 17 shard-runtime work had been spread across many temporary task files, which made the durable current contract harder to recover than the code itself.
+
+Durable decisions:
+- keep the lasting runtime story in this section log/readme: shard-runtime foundation plus recipe/knowledge/line-role cutovers, prompt-target defaults, structural predictive preview, concurrent worker launch, and the burn-the-boats legacy cleanup
+- treat deleted task files as implementation scaffolding, not a second permanent source of truth
+
+Anti-loop note:
+- if a future refactor needs the current shard-runtime contract, start here and the section README rather than reviving `docs/tasks`

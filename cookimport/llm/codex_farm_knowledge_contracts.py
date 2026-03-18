@@ -72,8 +72,12 @@ class KnowledgeCompactBundleChunkPayloadV2(BaseModel):
     chunk_id: str
     block_start_index: int
     block_end_index: int
+    source_span_id: str | None = None
     blocks: list[KnowledgeCompactChunkBlockV1] = Field(default_factory=list)
     heuristics: "KnowledgeHeuristicsPayloadV1" = Field(default_factory=lambda: KnowledgeHeuristicsPayloadV1())
+    review_hints: "KnowledgeChunkReviewHintsV1" = Field(
+        default_factory=lambda: KnowledgeChunkReviewHintsV1()
+    )
 
 
 class KnowledgeCompactContextPayloadV1(BaseModel):
@@ -89,6 +93,42 @@ class KnowledgeHeuristicsPayloadV1(BaseModel):
     suggested_lane: str | None = None
     suggested_highlights: list[str] = Field(default_factory=list)
     suggested_skip_reason: str | None = None
+
+
+class KnowledgeChunkReviewHintsV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text_form: Literal["heading_like", "prose_like", "mixed", "table_like"] | None = None
+    semantic_hint: Literal[
+        "instructional",
+        "heading_or_taxonomy",
+        "narrative_or_front_matter",
+        "mixed",
+    ] | None = None
+
+
+class KnowledgeSourceSpanV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    span_id: str
+    seed_category: Literal["knowledge", "other"]
+    block_start_index: int
+    block_end_index: int
+    block_indices: list[int] = Field(default_factory=list)
+
+    @field_validator("block_start_index", "block_end_index", mode="before")
+    @classmethod
+    def _coerce_index(cls, value: Any) -> Any:
+        return int(value)
+
+    @field_validator("block_indices", mode="before")
+    @classmethod
+    def _coerce_block_indices(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [int(item) for item in value]
+        return value
 
 
 class KnowledgeCompactGuardrailsPayloadV1(BaseModel):
@@ -121,6 +161,7 @@ class KnowledgeCompactBundleJobInputV2(BaseModel):
     job_version: Literal["recipe.knowledge.bundle_job.v2"] = _JOB_VERSION_V2
     source: KnowledgeJobSourceV1
     bundle_id: str
+    source_spans: list[KnowledgeSourceSpanV1] = Field(default_factory=list)
     chunks: list[KnowledgeCompactBundleChunkPayloadV2] = Field(default_factory=list)
     context: KnowledgeCompactContextPayloadV1
     guardrails: KnowledgeCompactGuardrailsPayloadV1

@@ -362,8 +362,8 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         "recipe_llm_correct_and_link",
     }
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
-    assert "Read the authoritative shard JSON file at" in recipe_row["rendered_prompt_text"]
-    assert "recipe-preview-shard-0001-r0.json" in recipe_row["rendered_prompt_text"]
+    assert "The authoritative shard JSON is included inline below." in recipe_row["rendered_prompt_text"]
+    assert '"sid": "recipe-preview-shard-0001-r0"' in recipe_row["rendered_prompt_text"]
     assert recipe_row["runtime_shard_id"] == "recipe-preview-shard-0001-r0"
     assert recipe_row["runtime_worker_id"] == "worker-001"
     assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
@@ -379,9 +379,9 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         ).read_text(encoding="utf-8")
     )
     assert "draft_hint" not in recipe_input_payload
-    assert "provenance" not in recipe_input_payload["recipes"][0]["recipe_candidate_hint"]
-    assert recipe_input_payload["tagging_guide"]["version"] == "recipe_tagging_guide.v1"
-    assert recipe_input_payload["owned_recipe_ids"] == ["urn:recipe:test:r0"]
+    assert "provenance" not in recipe_input_payload["r"][0]["h"]
+    assert recipe_input_payload["tg"]["version"] == "recipe_tagging_guide.v1"
+    assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
     assert "Execute the line-role labeling task exactly." in line_role_row["rendered_prompt_text"]
@@ -423,8 +423,8 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     )
     assert budget_summary["totals"]["call_count"] == 2
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
-    assert budget_summary["totals"]["estimated_request_chars_total"] > budget_summary["totals"]["prompt_chars_total"]
-    assert budget_summary["totals"]["transport_overhead_chars_total"] == 0
+    assert budget_summary["totals"]["estimated_request_chars_total"] >= budget_summary["totals"]["prompt_chars_total"]
+    assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
     line_role_budget = budget_summary["by_stage"]["line_role"]
     assert line_role_budget["worker_count"] == 1
     assert line_role_budget["shard_count"] == 1
@@ -448,13 +448,13 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
     workbook_slug = "fixturebook"
     live_recipe_input = run_dir / "raw" / "llm" / workbook_slug / "recipe_correction" / "in" / "live_recipe.json"
     live_recipe_payload = {
-        "bundle_version": "1",
-        "recipe_id": "urn:recipe:test:live",
-        "workbook_slug": workbook_slug,
-        "source_hash": "fixture-source-hash",
-        "canonical_text": "LIVE canonical text",
-        "evidence_rows": [[42, "LIVE canonical text"]],
-        "recipe_candidate_hint": {
+        "v": "1",
+        "rid": "urn:recipe:test:live",
+        "wb": workbook_slug,
+        "sh": "fixture-source-hash",
+        "txt": "LIVE canonical text",
+        "ev": [[42, "LIVE canonical text"]],
+        "h": {
             "identifier": "urn:recipe:test:live",
             "name": "Live Recipe Name",
             "recipeIngredient": ["2 tbsp butter"],
@@ -462,8 +462,8 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
             "description": None,
             "recipeYield": None,
         },
-        "tagging_guide": {"version": "custom-live-guide"},
-        "authority_notes": ["live_artifact_reuse"],
+        "tg": {"version": "custom-live-guide"},
+        "an": ["live_artifact_reuse"],
     }
     _write_json(live_recipe_input, live_recipe_payload)
 
@@ -500,7 +500,7 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
         if line.strip()
     ]
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
-    assert "Read the authoritative shard JSON file at" in recipe_row["rendered_prompt_text"]
+    assert "The authoritative shard JSON is included inline below." in recipe_row["rendered_prompt_text"]
     assert "LIVE canonical text" not in recipe_row["request_input_text"]
     assert recipe_row["recipe_id"] == "urn:recipe:test:r0"
     assert not any(
