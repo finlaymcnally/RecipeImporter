@@ -9,13 +9,6 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-
-
-@pytest.fixture(autouse=True)
-def _benchmark_codex_execution_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_benchmark_call_kwargs_codex_policy(monkeypatch)
-
-
 def test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -636,7 +629,7 @@ def test_run_all_method_benchmark_dedupes_eval_by_signature(
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = _benchmark_test_run_settings()
-    base_payload = base_settings.to_run_config_dict()
+    base_payload = _run_settings_model_payload(base_settings)
     extractors = ("unstructured", "beautifulsoup", "markdown")
     variants = [
         cli.AllMethodVariant(
@@ -724,11 +717,11 @@ def test_run_all_method_benchmark_dedupes_eval_by_signature(
     )
 
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
-    assert payload["evaluation_signatures_unique"] == 2
-    assert payload["evaluation_runs_executed"] == 2
-    assert payload["evaluation_results_reused_in_run"] == 1
+    assert payload["evaluation_signatures_unique"] == 1
+    assert payload["evaluation_runs_executed"] == 1
+    assert payload["evaluation_results_reused_in_run"] == 2
     assert payload["evaluation_results_reused_cross_run"] == 0
-    assert len(eval_calls) == 2
+    assert len(eval_calls) == 1
 
     rows_by_slug = {
         row.get("slug"): row
@@ -737,12 +730,17 @@ def test_run_all_method_benchmark_dedupes_eval_by_signature(
     }
     shared_rep = rows_by_slug["extractor_unstructured"]
     shared_dup = rows_by_slug["extractor_beautifulsoup"]
+    shared_third = rows_by_slug["extractor_markdown"]
     assert shared_rep["evaluation_result_source"] == "executed"
     assert shared_dup["evaluation_result_source"] == "reused_in_run"
+    assert shared_third["evaluation_result_source"] == "reused_in_run"
     assert shared_rep["eval_signature"] == shared_dup["eval_signature"]
+    assert shared_rep["eval_signature"] == shared_third["eval_signature"]
     assert shared_rep["evaluation_representative_config_dir"] == shared_rep["config_dir"]
     assert shared_dup["evaluation_representative_config_dir"] == shared_rep["config_dir"]
+    assert shared_third["evaluation_representative_config_dir"] == shared_rep["config_dir"]
     assert shared_rep["f1"] == pytest.approx(shared_dup["f1"])
+    assert shared_rep["f1"] == pytest.approx(shared_third["f1"])
 
 def test_run_all_method_benchmark_reuses_signature_cache_across_runs(
     monkeypatch: pytest.MonkeyPatch,

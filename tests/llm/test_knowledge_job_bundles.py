@@ -83,43 +83,40 @@ def test_build_knowledge_jobs_writes_seed_nonrecipe_spans_and_is_idempotent(tmp_
     first_bytes = {path.name: path.read_bytes() for path in job_paths}
     payloads = _load_all_jobs(in_dir)
 
-    assert "context_recipe_block_indices" in payloads[0]["guardrails"]
-    assert payloads[0]["bundle_version"] == "2"
+    assert payloads[0]["v"] == "2"
+    assert payloads[0]["g"]["r"] == [2, 3]
 
     for payload in payloads:
-        assert "chunks" in payload
-        for chunk_payload in payload["chunks"]:
-            chunk_blocks = chunk_payload["blocks"]
-            chunk_indices = {block["block_index"] for block in chunk_blocks}
+        assert "c" in payload
+        for chunk_payload in payload["c"]:
+            chunk_blocks = chunk_payload["b"]
+            chunk_indices = {block["i"] for block in chunk_blocks}
             assert 2 not in chunk_indices
             assert 3 not in chunk_indices
-            assert "heuristics" in chunk_payload
-            assert "suggested_lane" in chunk_payload["heuristics"]
-            suggested_highlights = chunk_payload["heuristics"].get("suggested_highlights", [])
-            assert isinstance(suggested_highlights, list)
-            suggested_skip_reason = chunk_payload["heuristics"].get("suggested_skip_reason")
-            assert suggested_skip_reason is None or isinstance(suggested_skip_reason, str)
+            assert chunk_payload["h"]["l"] == "knowledge"
+            assert chunk_payload["h"]["f"] == "table_like"
+            assert "s" not in chunk_payload["h"]
 
     table_hints = [
-        block.get("table_hint")
+        block.get("th")
         for payload in payloads
-        for chunk_payload in payload["chunks"]
-        for block in chunk_payload["blocks"]
-        if block["block_index"] in {4, 5}
+        for chunk_payload in payload["c"]
+        for block in chunk_payload["b"]
+        if block["i"] in {4, 5}
     ]
-    assert any(isinstance(hint, dict) and hint.get("table_id") == "tbl_demo" for hint in table_hints)
+    assert any(isinstance(hint, dict) and hint.get("id") == "tbl_demo" for hint in table_hints)
 
     # Context may include recipe blocks; ensure we captured at least one.
     context_indices = {
-        block["block_index"]
+        block["i"]
         for payload in payloads
-        for block in payload["context"].get("blocks_before", [])
+        for block in payload["x"].get("p", [])
     }
     assert 2 in context_indices or 3 in context_indices
     context_recipe_indices = {
         index
         for payload in payloads
-        for index in payload["guardrails"]["context_recipe_block_indices"]
+        for index in payload["g"]["r"]
     }
     assert 2 in context_recipe_indices or 3 in context_recipe_indices
 
@@ -199,13 +196,12 @@ def test_build_knowledge_jobs_writes_compact_bundle_shape(tmp_path: Path) -> Non
     )
 
     compact_payloads = _load_all_jobs(compact_dir)
-    compact_payload = next(payload for payload in compact_payloads if payload["chunks"][0]["block_start_index"] == 4)
+    compact_payload = next(payload for payload in compact_payloads if payload["c"][0]["b"][0]["i"] == 4)
 
-    assert "context_recipe_block_indices" in compact_payload["guardrails"]
-    assert compact_payload["guardrails"]["context_recipe_block_indices"] == [2, 3]
-    assert "block_id" not in compact_payload["chunks"][0]["blocks"][0]
-    assert "features_subset" not in compact_payload["context"]["blocks_before"][0]
-    table_hint = compact_payload["chunks"][0]["blocks"][0]["table_hint"]
+    assert compact_payload["g"]["r"] == [2, 3]
+    assert "block_id" not in compact_payload["c"][0]["b"][0]
+    assert "features_subset" not in compact_payload["x"]["p"][0]
+    table_hint = compact_payload["c"][0]["b"][0]["th"]
     assert "markdown" not in table_hint
 
 
@@ -267,7 +263,7 @@ def test_build_knowledge_jobs_bundles_neighboring_chunks_into_one_prompt(
     payloads = _load_all_jobs(in_dir)
     assert report.chunks_written >= 2
     assert report.shards_written < report.chunks_written
-    assert any(len(payload["chunks"]) >= 2 for payload in payloads)
+    assert any(len(payload["c"]) >= 2 for payload in payloads)
 
 
 def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
@@ -339,10 +335,10 @@ def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
     assert report.chunks_written == 2
     assert report.shards_written == 1
     assert len(payloads) == 1
-    assert len(payloads[0]["chunks"]) == 2
+    assert len(payloads[0]["c"]) == 2
 
 
-def test_build_knowledge_jobs_target_prompt_count_overrides_char_cap(
+def test_build_knowledge_jobs_keeps_char_cap_when_target_prompt_count_is_set(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -389,9 +385,122 @@ def test_build_knowledge_jobs_target_prompt_count_overrides_char_cap(
     )
 
     payloads = _load_all_jobs(in_dir)
-    assert report.shards_written == 5
-    assert len(payloads) == 5
-    assert all(len(payload["chunks"]) == 2 for payload in payloads)
+    assert report.shards_written == 10
+    assert len(payloads) == 10
+    assert all(len(payload["c"]) == 1 for payload in payloads)
+
+
+def test_build_knowledge_jobs_can_exceed_target_prompt_count_to_respect_char_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id=f"chunk-{index}",
+                lane=ChunkLane.KNOWLEDGE,
+                title=f"Topic {index}",
+                text="X" * 5000,
+                blockIds=[index],
+            )
+            for index in range(6)
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    in_dir = tmp_path / "prompt-target-overflow"
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": f"Block {index} " + ("X" * 5000)}
+            for index in range(6)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.knowledge.0.6",
+                category="knowledge",
+                block_start_index=0,
+                block_end_index=6,
+                block_indices=list(range(6)),
+                block_ids=[f"b{index}" for index in range(6)],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=in_dir,
+        context_blocks=0,
+        target_prompt_count=2,
+    )
+
+    payloads = _load_all_jobs(in_dir)
+    assert report.shards_written == 3
+    assert len(payloads) == 3
+    assert [len(payload["c"]) for payload in payloads] == [2, 2, 2]
+
+
+def test_build_knowledge_jobs_omits_weak_suggested_lane_hints(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-weak-knowledge",
+                lane=ChunkLane.KNOWLEDGE,
+                text=(
+                    "This short explanatory paragraph mentions seasoning in passing without "
+                    "tables, headings, or explicit tip structure, so the reviewer should see "
+                    "the text without an overconfident deterministic lane. It keeps describing "
+                    "the same idea in plain prose, but it never becomes a structured table, a "
+                    "tip list, or a clearly signposted technique section, so the transport "
+                    "should avoid turning that mild deterministic guess into model-facing fact."
+                ),
+                blockIds=[0],
+            )
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    build_knowledge_jobs(
+        full_blocks=[
+            {
+                "index": 4,
+                "text": (
+                    "This short explanatory paragraph mentions seasoning in passing without "
+                    "tables, headings, or explicit tip structure, so the reviewer should see "
+                    "the text without an overconfident deterministic lane. It keeps describing "
+                    "the same idea in plain prose, but it never becomes a structured table, a "
+                    "tip list, or a clearly signposted technique section, so the transport "
+                    "should avoid turning that mild deterministic guess into model-facing fact."
+                ),
+            },
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.knowledge.4.5",
+                category="knowledge",
+                block_start_index=4,
+                block_end_index=5,
+                block_indices=[4],
+                block_ids=["b4"],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=tmp_path / "in",
+    )
+
+    payload = _load_all_jobs(tmp_path / "in")[0]
+    assert payload["c"][0]["h"] == {"f": "prose_like"}
 
 
 def test_build_knowledge_jobs_skips_noise_lane_chunks(
@@ -473,6 +582,57 @@ def test_build_knowledge_jobs_skips_tiny_low_signal_knowledge_chunks(
                 block_end_index=5,
                 block_indices=[4],
                 block_ids=["b4"],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=tmp_path / "in",
+    )
+
+    assert report.shards_written == 0
+    assert report.chunks_written == 0
+    assert report.skipped_chunk_count == 1
+    assert report.skipped_lane_counts == {"low_signal": 1}
+    assert sorted((tmp_path / "in").glob("*.json")) == []
+
+
+def test_build_knowledge_jobs_skips_heading_menu_fragments_even_with_heading_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-heading-menu",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Recipes and Recommendations",
+                text="Recipes and Recommendations\nRoast Chicken\nPan Sauce\nBraised Lamb",
+                blockIds=[0, 1, 2, 3],
+            )
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": 10, "text": "Recipes and Recommendations"},
+            {"index": 11, "text": "Roast Chicken"},
+            {"index": 12, "text": "Pan Sauce"},
+            {"index": 13, "text": "Braised Lamb"},
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.knowledge.10.14",
+                category="knowledge",
+                block_start_index=10,
+                block_end_index=14,
+                block_indices=[10, 11, 12, 13],
+                block_ids=["b10", "b11", "b12", "b13"],
             )
         ],
         recipe_spans=[],

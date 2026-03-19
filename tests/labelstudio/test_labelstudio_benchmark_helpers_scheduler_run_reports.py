@@ -9,13 +9,6 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-
-
-@pytest.fixture(autouse=True)
-def _benchmark_codex_execution_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_benchmark_call_kwargs_codex_policy(monkeypatch)
-
-
 def test_run_all_method_benchmark_writes_ranked_summary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -23,7 +16,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     base_settings = _benchmark_test_run_settings()
     markdown_settings = cli.RunSettings.from_dict(
         {
-            **base_settings.to_run_config_dict(),
+            **_run_settings_model_payload(base_settings),
             "epub_extractor": "markdown",
         },
         warn_context="test",
@@ -110,12 +103,12 @@ def test_run_all_method_benchmark_writes_ranked_summary(
     payload = json.loads(report_json_path.read_text(encoding="utf-8"))
     assert payload["variant_count"] == 2
     assert payload["successful_variants"] == 2
-    assert payload["winner_by_f1"]["run_config_hash"] == "hash-markdown"
+    assert payload["winner_by_f1"]["slug"] == "extractor_markdown"
     assert payload["timing_summary"]["source_wall_seconds"] >= 0.0
     assert payload["timing_summary"]["config_total_seconds"] == pytest.approx(13.0)
     assert payload["timing_summary"]["slowest_config_dir"] == payload["winner_by_f1"]["config_dir"]
     assert payload["variants"][0]["rank"] == 1
-    assert payload["variants"][0]["run_config_hash"] == "hash-markdown"
+    assert payload["variants"][0]["slug"] == "extractor_markdown"
     assert payload["variants"][0]["timing"]["total_seconds"] == pytest.approx(8.0)
     assert captured_processed_dirs
     assert captured_alignment_cache_dirs
@@ -129,7 +122,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = _benchmark_test_run_settings()
-    base_payload = base_settings.to_run_config_dict()
+    base_payload = _run_settings_model_payload(base_settings)
     extractors = ("unstructured", "beautifulsoup", "markdown", "markitdown")
     variants = [
         cli.AllMethodVariant(
@@ -228,17 +221,17 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
     assert max_active >= 2
     assert payload["successful_variants"] == 4
     assert payload["failed_variants"] == 0
-    assert payload["winner_by_f1"]["run_config_hash"] == "hash-markitdown"
-    ranked_hashes = [
-        row["run_config_hash"]
+    assert payload["winner_by_f1"]["slug"] == "extractor_markitdown"
+    ranked_slugs = [
+        row["slug"]
         for row in payload["variants"]
         if row.get("status") == "ok"
     ]
-    assert ranked_hashes == [
-        "hash-markitdown",
-        "hash-markdown",
-        "hash-beautifulsoup",
-        "hash-unstructured",
+    assert ranked_slugs == [
+        "extractor_markitdown",
+        "extractor_markdown",
+        "extractor_beautifulsoup",
+        "extractor_unstructured",
     ]
 
 def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
@@ -246,7 +239,7 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = _benchmark_test_run_settings()
-    base_payload = base_settings.to_run_config_dict()
+    base_payload = _run_settings_model_payload(base_settings)
     variants = [
         cli.AllMethodVariant(
             slug="extractor_unstructured",
@@ -337,7 +330,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = _benchmark_test_run_settings()
-    base_payload = base_settings.to_run_config_dict()
+    base_payload = _run_settings_model_payload(base_settings)
     variants = [
         cli.AllMethodVariant(
             slug="extractor_unstructured",
@@ -449,7 +442,7 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     tmp_path: Path,
 ) -> None:
     base_settings = _benchmark_test_run_settings()
-    base_payload = base_settings.to_run_config_dict()
+    base_payload = _run_settings_model_payload(base_settings)
     variants = [
         cli.AllMethodVariant(
             slug=f"config_{index:02d}",
@@ -709,7 +702,7 @@ def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_wor
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
     base_settings = _benchmark_test_run_settings()
-    base_payload = base_settings.to_run_config_dict()
+    base_payload = _run_settings_model_payload(base_settings)
     variants = [
         cli.AllMethodVariant(
             slug="extractor_unstructured",

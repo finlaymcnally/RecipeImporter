@@ -39,6 +39,8 @@ Chunking note:
 - table chunks are intentionally excluded from consolidation and remain isolated.
 - deterministic `noise` routing is intentionally stricter for obvious junk such as blurbs, navigation fragments, attribution-only lines, and ad copy; explanatory cooking prose should still survive into bundled review.
 - a second deterministic savings pass now drops tiny low-signal knowledge chunks (`<=240` chars with no heading context, no highlights, and no table content) before Codex job writing.
+- knowledge-facing hints are now intentionally weaker: `text_form` stays as structure shorthand, but `suggested_lane` is only exposed for strong `knowledge` evidence and is omitted for noisy/menu-like chunks.
+- `knowledge_prompt_target_count` is only a soft planning hint now. Hard shard safety limits still win, so long books may produce more shards than the prompt target when the char cap or locality cap requires it.
 
 ## Output locations
 
@@ -86,5 +88,9 @@ Local default pack files:
 - Evidence still must quote verbatim from `chunk.blocks[*].text`.
 
 Bundle contract note:
-- shard-owned compact knowledge input is now `bundle_version = "2"` with `bundle_id`, `source_spans[*]`, shared local context, and `chunks[*]`. Each chunk can also carry `source_span_id` plus `review_hints` such as `text_form` and `semantic_hint`.
+- shard-owned compact knowledge input is now `bundle_version = "2"` with short keys `v`, `bid`, and `c`, plus optional `x` local context and optional `g` guardrails.
+- each chunk now carries `cid`, `b`, and optional `h`.
+- `h.f` is the structural `text_form` hint. `h.l` is an optional weak `suggested_lane`, but it is only emitted when deterministic evidence is strong enough to justify exposing `knowledge` as a soft prior.
+- the model-facing payload no longer emits `semantic_hint`, `source_spans`, or `source_span_id`. Those remain local runtime/planning concerns, not reviewer-model guidance.
 - compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead. `block_decisions[*].rc` carries the internal reviewer category, while `block_decisions[*].c` stays the final `knowledge|other` authority that staging writes out.
+- prompt contract is intentionally strict: when input `c` is non-empty, output `r` must contain exactly one row per input chunk in input order, must echo the same `cid` values, and must not collapse to `r: []` or a synthetic fallback row.

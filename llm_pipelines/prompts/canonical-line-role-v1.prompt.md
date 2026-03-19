@@ -23,6 +23,10 @@ Negative rules (must-not-do):
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
 - Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
+- `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
+- Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
+- Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
+- If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -60,6 +64,14 @@ Few-shot examples:
 9) Context: inside recipe, primary recipe heading
    Line: `A PORRIDGE OF LOVAGE STEMS`
    Label: `RECIPE_TITLE`
+
+10) Context: cookbook concept heading introducing explanatory prose
+    Line: `Cooking Acids`
+    Label: `KNOWLEDGE`
+
+11) Context: front matter or navigation heading
+    Line: `Acknowledgments`
+    Label: `OTHER`
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:

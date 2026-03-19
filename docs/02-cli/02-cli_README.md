@@ -528,9 +528,8 @@ Use `--require-process-workers` to fail fast instead of using any fallback backe
 When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
 Stage completion also prints a compact `Quick run summary` block (books, codex-farm on/off state, selected major settings, topline metrics) and always writes `<run_dir>/run_summary.json`.
 When `--write-markdown` is enabled (default), stage also writes `<run_dir>/run_summary.md`; `--no-write-markdown` suppresses the markdown summary file.
-Codex-backed stage runs also support `--codex-execution-policy execute|plan` (default `execute`).
-`plan` writes `codex_execution_plan.json` plus `run_manifest.json` and exits before live processing.
-For `stage`, this remains a command-boundary preview of the requested Codex-backed surfaces rather than an extraction-backed work plan.
+Codex-backed stage runs now have a single live execution mode.
+For zero-token inspection, use prompt preview to inspect prompt text/costs or run the normal execute path through `scripts/fake-codex-farm.py` to rehearse file handoffs without model spend.
 
 Arguments:
 
@@ -578,7 +577,6 @@ Options:
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-recipe-shard-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-knowledge-shard-v1`.
 - `--allow-codex / --no-allow-codex` (default disabled): required for execute-mode Codex-backed stage runs.
-- `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` writes a zero-token `codex_execution_plan.json` and returns before stage processing.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -815,8 +813,6 @@ Options:
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
 - `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload.
-- `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` writes pred-run manifests plus `codex_execution_plan.json` and exits before upload/prelabel/live Codex work.
-  In prediction-run flows, plan mode still performs deterministic extraction first so `codex_execution_plan.json` can enumerate planned line-role batches and recipe CodexFarm pass work without spending tokens.
 - `--limit, -n INTEGER>=1`: cap chunks generated.
 - `--sample INTEGER>=1`: randomly sample chunks.
 - `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.
@@ -845,7 +841,7 @@ Prelabel behavior notes:
 Hard requirement:
 
 - Upload is blocked unless `--allow-labelstudio-write` is set.
-- Execute-mode Codex-backed import work still requires explicit `--allow-codex`; plan mode does not.
+- Codex-backed import work still requires explicit `--allow-codex`.
 
 ### `cookimport labelstudio-export`
 
@@ -895,8 +891,9 @@ Behavior note:
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
 - Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
 - Benchmark execution is fixed to `pipelined`.
-- Codex execution policy is configurable via `--codex-execution-policy execute|plan` (default `execute`).
-  - `plan` is offline-only, writes a zero-token Codex preview artifact, and exits before extraction/eval/upload.
+- Codex-backed benchmark runs now have a single live execution mode.
+  - For prompt/cost inspection, use prompt preview.
+  - For zero-token handoff rehearsal, run the normal execute path with `--codex-farm-cmd scripts/fake-codex-farm.py`.
 - Single-offline split-cache controls:
   - `--single-offline-split-cache-mode off|auto` toggles split cache usage.
   - `--single-offline-split-cache-dir PATH` overrides cache root.
@@ -938,7 +935,6 @@ Options:
 - Canonical-text benchmark matching is fixed to `dmp`; `--sequence-matcher` is no longer part of the normal help surface.
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
-- `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` requires `--no-upload` and writes a zero-token Codex preview artifact instead of running extraction/eval/upload.
 - `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.
 - `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for offline benchmark prediction generation.
 - `--single-offline-split-cache-dir PATH`: optional root for single-offline split-cache entries.

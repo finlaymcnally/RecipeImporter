@@ -234,29 +234,19 @@ Execution modes:
 
 - `pipelined` (fixed)
 
-### 5.4 Codex plan/approval boundary notes
+### 5.4 Codex approval and zero-token checks
 
-- `labelstudio-benchmark --codex-execution-policy plan` belongs at the benchmark command boundary:
-  - writes `codex_execution_plan.json` plus manifests,
-  - runs deterministic extraction/planning first so the plan artifact can list the pending recipe-pass work and codex line-role batches,
-  - requires `--no-upload`,
-  - stops before task generation, benchmark evaluation, upload, and live Codex work.
-- `labelstudio-import --codex-execution-policy plan` now offers the same zero-token preview shape for direct import runs:
-  - writes pred-run manifests plus `codex_execution_plan.json`,
-  - includes concrete planned work rows derived from deterministic extraction,
-  - skips task generation, upload, prelabel execution, and other live Codex work,
-  - does not require `--allow-codex`.
+- `labelstudio-benchmark` and `labelstudio-import` now only expose live execute mode for Codex-backed surfaces.
+- Use prompt preview when you need the exact prompt text and token-budget estimate.
+- Use the normal execute path with `--codex-farm-cmd scripts/fake-codex-farm.py` when you need a zero-token rehearsal of worker directories, file handoffs, validation, and promotion wiring.
 - `labelstudio-import --prelabel` is a separate Codex-backed surface from recipe/line-role benchmark settings.
   - Do not assume recipe/line-role decision metadata or approval checks automatically cover prelabel behavior.
   - If operator-intent policy changes, review prelabel command wiring separately.
 
-Codex preview mode:
+Codex execution notes:
 
-- `--codex-execution-policy execute|plan` is available on `labelstudio-benchmark`.
-- `execute` now has a stricter live-benchmark gate for non-interactive runs: `--allow-codex` is still required when Codex-backed surfaces are enabled, `labelstudio-benchmark` also requires `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`, and agent-run environments are blocked from that non-interactive live path. Interactive CLI benchmark runs are treated as human-confirmed and may proceed directly.
-- `plan` is offline-only (`--no-upload`), skips task generation/upload/benchmark eval/live Codex work, and writes a prediction-run `codex_execution_plan.json` plus benchmark/pred-run manifests so a later execute-mode rerun can be inspected before spending tokens.
-- plan mode still performs deterministic extraction so the preview includes concrete pending line-role and recipe-pass work instead of only the requested Codex surfaces.
-- `labelstudio-import` also accepts `--codex-execution-policy execute|plan`; its `plan` mode writes the same pred-run plan artifact and exits before task upload or prelabel execution.
+- Non-interactive live benchmark runs still require `--allow-codex` when Codex-backed surfaces are enabled.
+- `labelstudio-benchmark` also requires `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` for that non-interactive live path, and agent-run environments are blocked from that live benchmark path.
 
 Eval modes:
 

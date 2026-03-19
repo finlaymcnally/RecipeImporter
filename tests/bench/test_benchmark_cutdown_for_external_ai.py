@@ -395,22 +395,18 @@ def _write_prediction_run_knowledge_stage_outputs(
     _write_json(
         llm_run_dir / "knowledge" / "in" / "r0000.json",
         {
-            "bundle_version": "2",
-            "bundle_id": "knowledge:bundle0",
-            "chunks": [
+            "v": "2",
+            "bid": "knowledge:bundle0",
+            "c": [
                 {
-                    "chunk_id": chunk_id,
-                    "block_start_index": 1,
-                    "block_end_index": 3,
-                    "blocks": [
-                        {"block_index": 1, "text": "Roast until deeply browned."},
-                        {"block_index": 2, "text": "Let the pan stay hot for 2 minutes."},
+                    "cid": chunk_id,
+                    "b": [
+                        {"i": 1, "t": "Roast until deeply browned."},
+                        {"i": 2, "t": "Let the pan stay hot for 2 minutes."},
                     ],
-                    "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
+                    "h": {"l": "knowledge", "f": "prose_like"},
                 }
             ],
-            "context": {"blocks_before": [], "blocks_after": []},
-            "guardrails": {"context_recipe_block_indices": []},
         },
     )
     _write_json(
@@ -2720,19 +2716,14 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
     assert row["pipeline_id"] == "recipe.knowledge.compact.v1"
     assert row["process_run_id"] == "run-knowledge-reconstruct"
     assert row["recipe_id"] is None
-    assert row["request_input_payload"]["chunks"] == [
+    assert row["request_input_payload"]["c"] == [
         {
-            "chunk_id": "knowledge:c0",
-            "block_start_index": 1,
-            "block_end_index": 3,
-            "blocks": [
-                {"block_index": 1, "text": "Roast until deeply browned."},
-                {"block_index": 2, "text": "Let the pan stay hot for 2 minutes."},
+            "cid": "knowledge:c0",
+            "b": [
+                {"i": 1, "t": "Roast until deeply browned."},
+                {"i": 2, "t": "Let the pan stay hot for 2 minutes."},
             ],
-            "heuristics": {
-                "suggested_lane": "knowledge",
-                "suggested_highlights": [],
-            },
+            "h": {"l": "knowledge", "f": "prose_like"},
         }
     ]
     assert row["parsed_response"] == {

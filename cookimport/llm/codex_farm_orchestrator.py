@@ -156,6 +156,10 @@ class _RecipeState:
     heuristic_end: int | None
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    single_correction_status: str = "pending"
+    final_assembly_status: str = "pending"
+    correction_output_status: str | None = None
+    correction_output_reason: str | None = None
     structural_status: str = "ok"
     structural_reason_codes: list[str] = field(default_factory=list)
     correction_mapping_status: str | None = None
@@ -166,6 +170,7 @@ class _RecipeState:
 class _PreparedRecipeInput:
     state: _RecipeState
     correction_input: MergedRecipeRepairInput
+    candidate_quality_hint: dict[str, Any]
     evidence_refs: tuple[str, ...]
     block_indices: tuple[int, ...]
 
@@ -236,6 +241,7 @@ def _build_recipe_correction_input(
         exclude_none=True,
     )
     recipe_candidate_hint.pop("provenance", None)
+    compact_recipe_candidate_hint = _compact_recipe_candidate_hint(recipe_candidate_hint)
     return MergedRecipeRepairInput(
         recipe_id=state.recipe_id,
         workbook_slug=workbook_slug,
@@ -247,7 +253,7 @@ def _build_recipe_correction_input(
             (int(block.get("index", 0)), str(block.get("text") or "").strip())
             for block in included_blocks
         ],
-        recipe_candidate_hint=recipe_candidate_hint,
+        recipe_candidate_hint=compact_recipe_candidate_hint,
         tagging_guide=build_recipe_tagging_guide(),
         authority_notes=[
             "authoritative_source=recipe_span_blocks",
@@ -260,6 +266,7 @@ def _build_recipe_correction_input(
 def _build_recipe_shard_recipe_input(
     *,
     correction_input: MergedRecipeRepairInput,
+    candidate_quality_hint: Mapping[str, Any],
     warnings: Sequence[str],
 ) -> RecipeCorrectionShardRecipeInput:
     return RecipeCorrectionShardRecipeInput(
@@ -267,6 +274,7 @@ def _build_recipe_shard_recipe_input(
         canonical_text=correction_input.canonical_text,
         evidence_rows=list(correction_input.evidence_rows),
         recipe_candidate_hint=dict(correction_input.recipe_candidate_hint),
+        candidate_quality_hint=dict(candidate_quality_hint or {}),
         warnings=list(warnings),
     )
 
@@ -289,9 +297,14 @@ def _build_prepared_recipe_input(
         for block in included_blocks
     )
     block_indices = tuple(int(block.get("index", 0)) for block in included_blocks)
+    candidate_quality_hint = _build_recipe_candidate_quality_hint(
+        included_blocks=included_blocks,
+        recipe_candidate_hint=correction_input.recipe_candidate_hint,
+    )
     return _PreparedRecipeInput(
         state=state,
         correction_input=correction_input,
+        candidate_quality_hint=candidate_quality_hint,
         evidence_refs=evidence_refs,
         block_indices=block_indices,
     )
@@ -323,8 +336,6 @@ def _build_recipe_shard_plans(
     *,
     prepared_inputs: Sequence[_PreparedRecipeInput],
     run_settings: RunSettings,
-    workbook_slug: str,
-    source_hash: str,
 ) -> list[_RecipeShardPlan]:
     target_recipes = resolve_items_per_shard(
         total_items=len(prepared_inputs),
@@ -350,23 +361,16 @@ def _build_recipe_shard_plans(
         )
         shard_input = RecipeCorrectionShardInput(
             shard_id=shard_id,
-            workbook_slug=workbook_slug,
-            source_hash=source_hash,
             owned_recipe_ids=list(shard_recipe_ids),
             recipes=[
                 _build_recipe_shard_recipe_input(
                     correction_input=prepared.correction_input,
+                    candidate_quality_hint=prepared.candidate_quality_hint,
                     warnings=prepared.state.warnings,
                 )
                 for prepared in shard_prepared_inputs
             ],
             tagging_guide=build_recipe_tagging_guide(),
-            authority_notes=[
-                "authoritative_source=recipe_span_blocks",
-                "correct_intermediate_recipe_candidates",
-                "emit_linkage_payloads_for_deterministic_final_assembly",
-                "preserve_owned_recipe_ids_exactly",
-            ],
         )
         evidence_refs = tuple(
             ref
@@ -383,6 +387,138 @@ def _build_recipe_shard_plans(
             )
         )
     return plans
+
+
+def _compact_recipe_candidate_hint(recipe_candidate_hint: Mapping[str, Any]) -> dict[str, Any]:
+    payload = dict(recipe_candidate_hint or {})
+    compact: dict[str, Any] = {}
+
+    name = str(payload.get("name") or "").strip()
+    if name:
+        compact["n"] = name
+
+    ingredients = [
+        str(item).strip()
+        for item in payload.get("recipeIngredient") or []
+        if str(item).strip()
+    ]
+    if ingredients:
+        compact["i"] = ingredients
+
+    steps = _compact_recipe_step_hints(payload.get("recipeInstructions") or [])
+    if steps:
+        compact["s"] = steps
+
+    description = str(payload.get("description") or "").strip()
+    if description:
+        compact["d"] = description
+
+    recipe_yield = str(payload.get("recipeYield") or "").strip()
+    if recipe_yield:
+        compact["y"] = recipe_yield
+
+    tags = [str(item).strip() for item in payload.get("tags") or [] if str(item).strip()]
+    if tags:
+        compact["g"] = tags
+
+    return compact
+
+
+def _compact_recipe_step_hints(raw_steps: Sequence[Any]) -> list[str]:
+    steps: list[str] = []
+    for item in raw_steps:
+        rendered = _coerce_compact_step_hint_text(item)
+        if rendered:
+            steps.append(rendered)
+    return steps
+
+
+def _coerce_compact_step_hint_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return str(value).strip()
+    if isinstance(value, Mapping):
+        for key in ("text", "name"):
+            rendered = str(value.get(key) or "").strip()
+            if rendered:
+                return rendered
+        return ""
+    return ""
+
+
+def _build_recipe_candidate_quality_hint(
+    *,
+    included_blocks: Sequence[Mapping[str, Any]],
+    recipe_candidate_hint: Mapping[str, Any],
+) -> dict[str, Any]:
+    evidence_lines = [
+        str(block.get("text") or "").strip()
+        for block in included_blocks
+        if str(block.get("text") or "").strip()
+    ]
+    evidence_row_count = len(evidence_lines)
+    evidence_ingredient_count = sum(
+        1 for line in evidence_lines if _looks_like_ingredient_line(line)
+    )
+    evidence_step_count = sum(1 for line in evidence_lines if _looks_like_step_line(line))
+    hint_ingredient_count = sum(
+        1
+        for item in recipe_candidate_hint.get("i") or []
+        if str(item or "").strip()
+    )
+    hint_step_count = sum(
+        1
+        for item in recipe_candidate_hint.get("s") or []
+        if str(item or "").strip()
+    )
+    title_hint = str(recipe_candidate_hint.get("n") or "").strip()
+    suspicion_flags: list[str] = []
+    if evidence_row_count <= 2:
+        suspicion_flags.append("short_span")
+    if evidence_ingredient_count == 0:
+        suspicion_flags.append("source_no_ingredient_lines")
+    if evidence_step_count == 0:
+        suspicion_flags.append("source_no_instruction_lines")
+    if hint_ingredient_count == 0:
+        suspicion_flags.append("hint_no_ingredients")
+    if hint_step_count == 0:
+        suspicion_flags.append("hint_no_steps")
+    if not title_hint:
+        suspicion_flags.append("hint_no_title")
+    elif (
+        _ELIGIBILITY_TITLE_LIKE_RE.fullmatch(title_hint)
+        and evidence_ingredient_count == 0
+        and evidence_step_count == 0
+    ):
+        suspicion_flags.append("title_looks_sectional")
+    return {
+        "e": evidence_row_count,
+        "ei": evidence_ingredient_count,
+        "es": evidence_step_count,
+        "hi": hint_ingredient_count,
+        "hs": hint_step_count,
+        "f": suspicion_flags,
+    }
+
+
+def _looks_like_ingredient_line(text: str) -> bool:
+    rendered = str(text or "").strip()
+    if not rendered:
+        return False
+    if _ELIGIBILITY_YIELD_PREFIX_RE.search(rendered):
+        return False
+    return bool(
+        _ELIGIBILITY_INGREDIENT_LEAD_RE.search(rendered)
+        or _ELIGIBILITY_INGREDIENT_UNIT_RE.search(rendered)
+    )
+
+
+def _looks_like_step_line(text: str) -> bool:
+    rendered = str(text or "").strip()
+    if not rendered:
+        return False
+    return bool(_ELIGIBILITY_INSTRUCTION_VERB_RE.search(rendered))
 
 
 def _corrected_candidate_from_output(
@@ -416,12 +552,14 @@ def _build_recipe_correction_audit(
     state: _RecipeState,
     correction_input: MergedRecipeRepairInput,
     correction_output: MergedRecipeRepairOutput,
-    corrected_candidate: RecipeCandidate,
-    final_payload: dict[str, Any],
+    corrected_candidate: RecipeCandidate | None,
+    final_payload: dict[str, Any] | None,
+    final_assembly_status: str,
     structural_audit: StructuralAuditResult,
     mapping_status: str | None,
     mapping_reason: str | None,
 ) -> dict[str, Any]:
+    canonical_recipe = correction_output.canonical_recipe
     return {
         "schema_version": "recipe_correction_audit.v1",
         "recipe_id": state.recipe_id,
@@ -434,9 +572,13 @@ def _build_recipe_correction_audit(
             "payload": serialize_merged_recipe_repair_input(correction_input),
         },
         "output": {
-            "title": correction_output.canonical_recipe.title,
-            "ingredient_count": len(correction_output.canonical_recipe.ingredients),
-            "step_count": len(correction_output.canonical_recipe.steps),
+            "repair_status": correction_output.repair_status,
+            "status_reason": correction_output.status_reason,
+            "title": canonical_recipe.title if canonical_recipe is not None else None,
+            "ingredient_count": (
+                len(canonical_recipe.ingredients) if canonical_recipe is not None else 0
+            ),
+            "step_count": len(canonical_recipe.steps) if canonical_recipe is not None else 0,
             "selected_tags": [
                 {
                     "category": tag.category,
@@ -451,8 +593,11 @@ def _build_recipe_correction_audit(
             "payload": _serialize_recipe_correction_output(correction_output),
         },
         "deterministic_final_assembly": {
-            "corrected_candidate_title": corrected_candidate.name,
-            "final_step_count": len(list(final_payload.get("steps") or [])),
+            "status": final_assembly_status,
+            "corrected_candidate_title": (
+                corrected_candidate.name if corrected_candidate is not None else None
+            ),
+            "final_step_count": len(list((final_payload or {}).get("steps") or [])),
             "mapping_status": mapping_status,
             "mapping_reason": mapping_reason,
         },
@@ -462,6 +607,12 @@ def _build_recipe_correction_audit(
 
 def _serialize_recipe_correction_output(
     output: MergedRecipeRepairOutput,
+) -> dict[str, Any]:
+    return output.model_dump(mode="json", by_alias=True)
+
+
+def _serialize_recipe_correction_shard_output(
+    output: RecipeCorrectionShardOutput,
 ) -> dict[str, Any]:
     return output.model_dump(mode="json", by_alias=True)
 
@@ -534,6 +685,25 @@ def _aggregate_recipe_phase_process_run(
     }
 
 
+def _recipe_result_rows_from_proposals(
+    proposals: Sequence[ShardProposalV1],
+) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for proposal in proposals:
+        if proposal.status != "validated" or not isinstance(proposal.payload, dict):
+            continue
+        try:
+            shard_output = RecipeCorrectionShardOutput.model_validate(proposal.payload)
+        except Exception:  # noqa: BLE001
+            continue
+        for recipe_output in shard_output.recipes:
+            rows[recipe_output.recipe_id] = {
+                "repair_status": recipe_output.repair_status,
+                "status_reason": recipe_output.status_reason,
+            }
+    return rows
+
+
 def _load_pipeline_assets(*, pipeline_root: Path, pipeline_id: str) -> dict[str, Any]:
     pipeline_path = pipeline_root / "pipelines" / f"{pipeline_id}.json"
     if not pipeline_path.exists():
@@ -588,21 +758,17 @@ def _build_single_correction_manifest(
     for state in states:
         row = {
             "build_intermediate_det": "ok",
-            "recipe_llm_correct_and_link": getattr(
-                state,
-                "single_correction_status",
-                "pending",
-            ),
-            "build_final_recipe": getattr(
-                state,
-                "final_assembly_status",
-                "pending",
-            ),
+            "recipe_llm_correct_and_link": state.single_correction_status,
+            "build_final_recipe": state.final_assembly_status,
             "warnings": list(state.warnings),
             "errors": list(state.errors),
             "structural_status": state.structural_status,
             "structural_reason_codes": list(state.structural_reason_codes),
         }
+        if state.correction_output_status:
+            row["correction_output_status"] = state.correction_output_status
+        if state.correction_output_reason:
+            row["correction_output_reason"] = state.correction_output_reason
         mapping_status = getattr(state, "correction_mapping_status", None)
         mapping_reason = getattr(state, "correction_mapping_reason", None)
         if mapping_status:
@@ -634,22 +800,34 @@ def _build_single_correction_manifest(
             "recipe_correction_ok": sum(
                 1
                 for state in states
-                if getattr(state, "single_correction_status", None) == "ok"
+                if state.single_correction_status == "ok"
             ),
             "recipe_correction_error": sum(
                 1
                 for state in states
-                if getattr(state, "single_correction_status", None) == "error"
+                if state.single_correction_status == "error"
+            ),
+            "recipe_correction_repaired": sum(
+                1 for state in states if state.correction_output_status == "repaired"
+            ),
+            "recipe_correction_fragmentary": sum(
+                1 for state in states if state.correction_output_status == "fragmentary"
+            ),
+            "recipe_correction_not_a_recipe": sum(
+                1 for state in states if state.correction_output_status == "not_a_recipe"
             ),
             "build_final_recipe_ok": sum(
                 1
                 for state in states
-                if getattr(state, "final_assembly_status", None) == "ok"
+                if state.final_assembly_status == "ok"
             ),
             "build_final_recipe_error": sum(
                 1
                 for state in states
-                if getattr(state, "final_assembly_status", None) == "error"
+                if state.final_assembly_status == "error"
+            ),
+            "build_final_recipe_skipped": sum(
+                1 for state in states if state.final_assembly_status == "skipped"
             ),
         },
         "timing": {
@@ -684,6 +862,15 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         for row in rows:
             handle.write(json.dumps(dict(row), sort_keys=True))
             handle.write("\n")
+
+
+def _serialize_compact_prompt_json(payload: Any) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ) + "\n"
 
 
 def _write_worker_input(path: Path, *, payload: Any, input_text: str | None) -> None:
@@ -767,7 +954,7 @@ def _run_direct_recipe_worker_assignment_v1(
 
     for shard in assigned_shards:
         input_path = in_dir / f"{shard.shard_id}.json"
-        serialized_input = json.dumps(shard.input_payload, indent=2, sort_keys=True) + "\n"
+        serialized_input = _serialize_compact_prompt_json(shard.input_payload)
         _write_worker_input(path=input_path, payload=shard.input_payload, input_text=serialized_input)
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
@@ -831,6 +1018,10 @@ def _run_direct_recipe_worker_assignment_v1(
                         shard,
                         parsed_payload,
                     )
+                    if valid:
+                        payload = _serialize_recipe_correction_shard_output(
+                            RecipeCorrectionShardOutput.model_validate(parsed_payload)
+                        )
                     proposal_status = "validated" if valid else "invalid"
                 else:
                     validation_errors = ("response_not_json_object",)
@@ -1061,6 +1252,7 @@ def _run_direct_recipe_workers_v1(
             failures.extend(result.failures)
             stage_rows.extend(result.stage_rows)
 
+    recipe_result_rows = _recipe_result_rows_from_proposals(all_proposals)
     promotion_report = {
         "schema_version": "phase_worker_runtime.promotion_report.v1",
         "phase_key": phase_key,
@@ -1068,6 +1260,24 @@ def _run_direct_recipe_workers_v1(
         "validated_shards": sum(1 for proposal in all_proposals if proposal.status == "validated"),
         "invalid_shards": sum(1 for proposal in all_proposals if proposal.status == "invalid"),
         "missing_output_shards": sum(1 for proposal in all_proposals if proposal.status == "missing_output"),
+        "recipe_results": recipe_result_rows,
+        "recipe_result_counts": {
+            "repaired": sum(
+                1
+                for row in recipe_result_rows.values()
+                if row.get("repair_status") == "repaired"
+            ),
+            "fragmentary": sum(
+                1
+                for row in recipe_result_rows.values()
+                if row.get("repair_status") == "fragmentary"
+            ),
+            "not_a_recipe": sum(
+                1
+                for row in recipe_result_rows.values()
+                if row.get("repair_status") == "not_a_recipe"
+            ),
+        },
     }
     telemetry = {
         "schema_version": "phase_worker_runtime.telemetry.v1",
@@ -1196,8 +1406,8 @@ def _run_single_correction_recipe_pipeline(
             full_blocks_by_index=full_blocks_by_index,
         )
         if not included_blocks:
-            state.single_correction_status = "error"  # type: ignore[attr-defined]
-            state.final_assembly_status = "error"  # type: ignore[attr-defined]
+            state.single_correction_status = "error"
+            state.final_assembly_status = "error"
             state.errors.append("recipe span has no authoritative blocks.")
             continue
         prepared_input = _build_prepared_recipe_input(
@@ -1212,13 +1422,12 @@ def _run_single_correction_recipe_pipeline(
     recipe_shards = _build_recipe_shard_plans(
         prepared_inputs=prepared_inputs,
         run_settings=run_settings,
-        workbook_slug=workbook_slug,
-        source_hash=source_hash,
     )
     for recipe_shard in recipe_shards:
-        _write_json(
-            serialize_recipe_correction_shard_input(recipe_shard.shard_input),
-            phase_input_dir / f"{recipe_shard.shard_id}.json",
+        payload = serialize_recipe_correction_shard_input(recipe_shard.shard_input)
+        (phase_input_dir / f"{recipe_shard.shard_id}.json").write_text(
+            _serialize_compact_prompt_json(payload),
+            encoding="utf-8",
         )
     process_runs: dict[str, dict[str, Any]] = {}
     correction_started = time.perf_counter()
@@ -1298,6 +1507,7 @@ def _run_single_correction_recipe_pipeline(
     }
     intermediate_overrides: dict[str, dict[str, Any]] = {}
     final_overrides: dict[str, dict[str, Any]] = {}
+    explicitly_rejected_recipe_ids: set[str] = set()
     proposals_by_shard_id: dict[str, dict[str, Any]] = {}
     proposals_dir = phase_runtime_dir / "proposals"
     for proposal_path in sorted(proposals_dir.glob("*.json")):
@@ -1306,22 +1516,22 @@ def _run_single_correction_recipe_pipeline(
         proposals_by_shard_id[shard_id] = proposal_payload
 
     for state in states:
-        if getattr(state, "single_correction_status", None) == "error":
+        if state.single_correction_status == "error":
             continue
     for shard_plan in recipe_shards:
         proposal_payload = proposals_by_shard_id.get(shard_plan.shard_id)
         if proposal_payload is None:
             for state in shard_plan.states:
-                state.single_correction_status = "error"  # type: ignore[attr-defined]
-                state.final_assembly_status = "error"  # type: ignore[attr-defined]
+                state.single_correction_status = "error"
+                state.final_assembly_status = "error"
                 state.errors.append("missing validated recipe shard proposal.")
             continue
 
         validation_errors = proposal_payload.get("validation_errors")
         if isinstance(validation_errors, list) and validation_errors:
             for state in shard_plan.states:
-                state.single_correction_status = "error"  # type: ignore[attr-defined]
-                state.final_assembly_status = "error"  # type: ignore[attr-defined]
+                state.single_correction_status = "error"
+                state.final_assembly_status = "error"
                 state.errors.append(
                     "invalid recipe shard proposal: " + ", ".join(str(item) for item in validation_errors)
                 )
@@ -1333,8 +1543,8 @@ def _run_single_correction_recipe_pipeline(
             )
         except Exception as exc:  # noqa: BLE001
             for state in shard_plan.states:
-                state.single_correction_status = "error"  # type: ignore[attr-defined]
-                state.final_assembly_status = "error"  # type: ignore[attr-defined]
+                state.single_correction_status = "error"
+                state.final_assembly_status = "error"
                 state.errors.append(f"invalid recipe shard output: {exc}")
             continue
 
@@ -1345,9 +1555,36 @@ def _run_single_correction_recipe_pipeline(
             state = prepared.state
             correction_output = outputs_by_recipe_id.get(state.recipe_id)
             if correction_output is None:
-                state.single_correction_status = "error"  # type: ignore[attr-defined]
-                state.final_assembly_status = "error"  # type: ignore[attr-defined]
+                state.single_correction_status = "error"
+                state.final_assembly_status = "error"
                 state.errors.append("recipe missing from validated shard output.")
+                continue
+            state.correction_output_status = correction_output.repair_status
+            state.correction_output_reason = correction_output.status_reason
+            state.warnings.extend(list(correction_output.warnings))
+
+            if correction_output.repair_status != "repaired":
+                explicitly_rejected_recipe_ids.add(state.recipe_id)
+                state.single_correction_status = "ok"
+                state.final_assembly_status = "skipped"
+                _write_json(
+                    _build_recipe_correction_audit(
+                        state=state,
+                        correction_input=correction_inputs_by_recipe_id[state.recipe_id],
+                        correction_output=correction_output,
+                        corrected_candidate=None,
+                        final_payload=None,
+                        final_assembly_status="skipped",
+                        structural_audit=StructuralAuditResult(
+                            status="ok",
+                            severity="none",
+                            reason_codes=[],
+                        ),
+                        mapping_status=None,
+                        mapping_reason=None,
+                    ),
+                    correction_audit_dir / _recipe_artifact_filename(state.recipe_id),
+                )
                 continue
 
             corrected_candidate = _corrected_candidate_from_output(
@@ -1375,41 +1612,68 @@ def _run_single_correction_recipe_pipeline(
                 ingredient_step_mapping=correction_output.ingredient_step_mapping,
                 ingredient_step_mapping_reason=correction_output.ingredient_step_mapping_reason,
             )
-            audit_payload = _build_recipe_correction_audit(
-                state=state,
-                correction_input=correction_inputs_by_recipe_id[state.recipe_id],
-                correction_output=correction_output,
-                corrected_candidate=corrected_candidate,
-                final_payload=final_payload,
-                structural_audit=structural_audit,
-                mapping_status=state.correction_mapping_status,
-                mapping_reason=state.correction_mapping_reason,
-            )
-            _write_json(
-                audit_payload,
-                correction_audit_dir / _recipe_artifact_filename(state.recipe_id),
-            )
             if structural_audit.status == "failed":
-                state.single_correction_status = "error"  # type: ignore[attr-defined]
-                state.final_assembly_status = "error"  # type: ignore[attr-defined]
+                state.single_correction_status = "error"
+                state.final_assembly_status = "error"
                 state.errors.append(
                     "recipe correction output rejected: "
                     + "; ".join(structural_audit.reason_codes)
+                )
+                _write_json(
+                    _build_recipe_correction_audit(
+                        state=state,
+                        correction_input=correction_inputs_by_recipe_id[state.recipe_id],
+                        correction_output=correction_output,
+                        corrected_candidate=corrected_candidate,
+                        final_payload=final_payload,
+                        final_assembly_status="error",
+                        structural_audit=structural_audit,
+                        mapping_status=state.correction_mapping_status,
+                        mapping_reason=state.correction_mapping_reason,
+                    ),
+                    correction_audit_dir / _recipe_artifact_filename(state.recipe_id),
                 )
                 continue
             try:
                 draft_model = RecipeDraftV1.model_validate(final_payload)
             except Exception as exc:  # noqa: BLE001
-                state.single_correction_status = "error"  # type: ignore[attr-defined]
-                state.final_assembly_status = "error"  # type: ignore[attr-defined]
+                state.single_correction_status = "error"
+                state.final_assembly_status = "error"
                 state.errors.append(
                     f"deterministic final assembly validation failed: {exc}"
                 )
+                _write_json(
+                    _build_recipe_correction_audit(
+                        state=state,
+                        correction_input=correction_inputs_by_recipe_id[state.recipe_id],
+                        correction_output=correction_output,
+                        corrected_candidate=corrected_candidate,
+                        final_payload=final_payload,
+                        final_assembly_status="error",
+                        structural_audit=structural_audit,
+                        mapping_status=state.correction_mapping_status,
+                        mapping_reason=state.correction_mapping_reason,
+                    ),
+                    correction_audit_dir / _recipe_artifact_filename(state.recipe_id),
+                )
                 continue
 
-            state.single_correction_status = "ok"  # type: ignore[attr-defined]
-            state.final_assembly_status = "ok"  # type: ignore[attr-defined]
-            state.warnings.extend(list(correction_output.warnings))
+            state.single_correction_status = "ok"
+            state.final_assembly_status = "ok"
+            _write_json(
+                _build_recipe_correction_audit(
+                    state=state,
+                    correction_input=correction_inputs_by_recipe_id[state.recipe_id],
+                    correction_output=correction_output,
+                    corrected_candidate=corrected_candidate,
+                    final_payload=final_payload,
+                    final_assembly_status="ok",
+                    structural_audit=structural_audit,
+                    mapping_status=state.correction_mapping_status,
+                    mapping_reason=state.correction_mapping_reason,
+                ),
+                correction_audit_dir / _recipe_artifact_filename(state.recipe_id),
+            )
             intermediate_overrides[state.recipe_id] = corrected_candidate.model_dump(
                 mode="json",
                 by_alias=True,
@@ -1425,6 +1689,7 @@ def _run_single_correction_recipe_pipeline(
     updated_result.recipes = [
         updated_recipes_by_id.get(str(recipe.identifier or ""), recipe)
         for recipe in updated_result.recipes
+        if str(recipe.identifier or "") not in explicitly_rejected_recipe_ids
     ]
     manifest_path = llm_raw_dir / RECIPE_MANIFEST_FILE_NAME
     manifest = _build_single_correction_manifest(

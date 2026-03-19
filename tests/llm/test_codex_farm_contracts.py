@@ -61,14 +61,14 @@ def test_merged_recipe_repair_input_accepts_tagging_guide_object() -> None:
             "evidence_rows": [[1, "Toast"], [2, "1 slice bread"]],
             "recipe_candidate_hint": {"name": "Toast"},
             "tagging_guide": {
-                "version": "recipe_tagging_guide.v1",
-                "categories": [{"key": "meal", "examples": ["breakfast"]}],
+                "v": "recipe_tagging_guide.v2",
+                "c": [{"k": "meal", "x": ["breakfast"]}],
             },
             "authority_notes": ["authoritative_source=recipe_span_blocks"],
         }
     )
 
-    assert payload.tagging_guide["version"] == "recipe_tagging_guide.v1"
+    assert payload.tagging_guide["v"] == "recipe_tagging_guide.v2"
 
 
 def test_merged_repair_output_accepts_native_object_fields() -> None:
@@ -138,34 +138,49 @@ def test_recipe_correction_shard_input_accepts_multi_recipe_payload() -> None:
         {
             "bundle_version": "1",
             "shard_id": "recipe-shard-0000-r0000-r0001",
-            "workbook_slug": "book",
-            "source_hash": "hash",
             "owned_recipe_ids": ["urn:recipe:test:1", "urn:recipe:test:2"],
             "recipes": [
                 {
                     "recipe_id": "urn:recipe:test:1",
                     "canonical_text": "Toast",
                     "evidence_rows": [[1, "Toast"]],
-                    "recipe_candidate_hint": {"name": "Toast"},
+                    "recipe_candidate_hint": {"n": "Toast"},
+                    "candidate_quality_hint": {
+                        "evidence_row_count": 1,
+                        "evidence_ingredient_count": 0,
+                        "evidence_step_count": 0,
+                        "hint_ingredient_count": 0,
+                        "hint_step_count": 0,
+                        "suspicion_flags": ["short_span"],
+                    },
                     "warnings": [],
                 },
                 {
                     "recipe_id": "urn:recipe:test:2",
                     "canonical_text": "Tea",
                     "evidence_rows": [[2, "Tea"]],
-                    "recipe_candidate_hint": {"name": "Tea"},
+                    "recipe_candidate_hint": {"n": "Tea"},
+                    "candidate_quality_hint": {
+                        "evidence_row_count": 1,
+                        "evidence_ingredient_count": 0,
+                        "evidence_step_count": 0,
+                        "hint_ingredient_count": 0,
+                        "hint_step_count": 0,
+                        "suspicion_flags": ["short_span"],
+                    },
                     "warnings": ["sparse_evidence"],
                 },
             ],
-            "tagging_guide": {"version": "recipe_tagging_guide.v1"},
-            "authority_notes": ["preserve_owned_recipe_ids_exactly"],
+            "tagging_guide": {"v": "recipe_tagging_guide.v2"},
         }
     )
 
     serialized = serialize_recipe_correction_shard_input(payload)
 
     assert payload.recipes[1].warnings == ["sparse_evidence"]
+    assert payload.recipes[0].candidate_quality_hint.suspicion_flags == ["short_span"]
     assert serialized["ids"] == ["urn:recipe:test:1", "urn:recipe:test:2"]
+    assert serialized["r"][0]["q"]["f"] == ["short_span"]
 
 
 def test_recipe_correction_shard_output_accepts_nested_recipe_outputs() -> None:
@@ -177,6 +192,8 @@ def test_recipe_correction_shard_output_accepts_nested_recipe_outputs() -> None:
                 {
                     "bundle_version": "1",
                     "recipe_id": "urn:recipe:test:1",
+                    "repair_status": "repaired",
+                    "status_reason": None,
                     "canonical_recipe": {
                         "title": "Toast",
                         "ingredients": ["1 slice bread"],
@@ -195,6 +212,56 @@ def test_recipe_correction_shard_output_accepts_nested_recipe_outputs() -> None:
 
     assert output.shard_id == "recipe-shard-0000-r0000-r0001"
     assert output.recipes[0].recipe_id == "urn:recipe:test:1"
+    assert output.recipes[0].repair_status == "repaired"
+
+
+def test_recipe_correction_shard_output_accepts_explicit_not_a_recipe_status() -> None:
+    output = RecipeCorrectionShardOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "shard_id": "recipe-shard-0000-r0000-r0001",
+            "recipes": [
+                {
+                    "bundle_version": "1",
+                    "recipe_id": "urn:recipe:test:1",
+                    "repair_status": "not_a_recipe",
+                    "status_reason": "chapter_heading",
+                    "canonical_recipe": None,
+                    "ingredient_step_mapping": [],
+                    "ingredient_step_mapping_reason": "not_applicable_not_a_recipe",
+                    "selected_tags": [],
+                    "warnings": ["candidate_rejected"],
+                }
+            ],
+        }
+    )
+
+    assert output.recipes[0].repair_status == "not_a_recipe"
+    assert output.recipes[0].canonical_recipe is None
+    assert output.recipes[0].status_reason == "chapter_heading"
+
+
+def test_recipe_correction_shard_output_rejects_unknown_repair_status() -> None:
+    with pytest.raises(ValidationError):
+        RecipeCorrectionShardOutput.model_validate(
+            {
+                "bundle_version": "1",
+                "shard_id": "recipe-shard-0000-r0000-r0001",
+                "recipes": [
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": "urn:recipe:test:1",
+                        "repair_status": "maybe_recipe",
+                        "status_reason": None,
+                        "canonical_recipe": None,
+                        "ingredient_step_mapping": [],
+                        "ingredient_step_mapping_reason": "unknown",
+                        "selected_tags": [],
+                        "warnings": [],
+                    }
+                ],
+            }
+        )
 
 
 def test_load_contract_json_validates_against_model(tmp_path) -> None:

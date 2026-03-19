@@ -1349,6 +1349,8 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     )
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
+    assert "`HOWTO_SECTION` is recipe-internal only." in prompt
+    assert "Cooking Acids" in prompt
     assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
     assert "Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status" in prompt
     assert "Grounding windows:" in prompt
@@ -1491,9 +1493,17 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     )
 
     assert '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}' in prompt
+    assert (
+        "Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth."
+        in prompt
+    )
     assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
     assert "Label codes:" in prompt
+    assert "Return one result for every input row." in prompt
     assert "Use each row's tuple slot 2 (`current_line`) as the line to label." in prompt
+    assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
+    assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
+    assert "Salt and Pepper" in prompt
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -1627,80 +1637,6 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "codex"
     assert predictions[0].escalation_reasons == []
-
-
-def test_build_line_role_codex_execution_plan_covers_all_rows_in_codex_mode() -> None:
-    candidates = [
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:0",
-            block_index=0,
-            atomic_index=0,
-            text="Ambiguous title-ish line",
-            within_recipe_span=True,
-            rule_tags=[],
-        ),
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:1",
-            block_index=1,
-            atomic_index=1,
-            text="1 cup flour",
-            within_recipe_span=True,
-            rule_tags=["ingredient_like"],
-        ),
-    ]
-
-    plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
-        candidates,
-        _settings("codex-line-role-shard-v1", line_role_prompt_target_count=None),
-        codex_batch_size=10,
-    )
-
-    assert plan["enabled"] is True
-    assert plan["planned_shard_count"] == 1
-    assert plan["planned_candidate_count"] == 2
-    assert plan["line_role_shard_target_lines"] == 10
-    assert plan["shards"][0]["atomic_indices"] == [0, 1]
-    assert plan["shards"][0]["rows"][0]["deterministic_label"] == "OTHER"
-    assert plan["shards"][0]["rows"][1]["deterministic_label"] == "INGREDIENT_LINE"
-    assert plan["shards"][0]["rows"][0]["escalation_reasons"] == [
-        "deterministic_unresolved",
-        "fallback_decision",
-    ]
-    assert [phase["phase_key"] for phase in plan["internal_phases"]] == ["line_role"]
-
-
-def test_build_line_role_codex_execution_plan_uses_shared_default_batch_size() -> None:
-    candidates = [
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id=f"block:{index}",
-            block_index=index,
-            atomic_index=index,
-            text=f"Line {index}",
-            within_recipe_span=False,
-            rule_tags=[],
-        )
-        for index in range(canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT + 1)
-    ]
-
-    plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
-        candidates,
-        _settings("codex-line-role-shard-v1", line_role_prompt_target_count=None),
-    )
-
-    assert (
-        plan["line_role_shard_target_lines"]
-        == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
-    )
-    assert plan["planned_candidate_count"] == len(candidates)
-    assert plan["planned_shard_count"] == 2
-    assert (
-        plan["shards"][0]["candidate_count"]
-        == canonical_line_roles_module.LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT
-    )
-    assert plan["shards"][1]["candidate_count"] == 1
 
 
 def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
@@ -1964,8 +1900,8 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role"
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
-    assert "Execute the line-role labeling task exactly." in prompt_text
-    assert "Read the task file already placed in the worker folder" in prompt_text
+    assert "You are reviewing deterministic canonical line-role labels" in prompt_text
+    assert "Read the worker-local task file" in prompt_text
     assert "Ambiguous line 0" not in prompt_text
     worker_prompt_text = (
         tmp_path
@@ -1978,8 +1914,8 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line-role-canonical-0001-a000000-a000000"
         / "prompt.txt"
     ).read_text(encoding="utf-8")
-    assert "Execute the line-role labeling task exactly." in worker_prompt_text
-    assert "Read the task file already placed in the worker folder" in worker_prompt_text
+    assert "You are reviewing deterministic canonical line-role labels" in worker_prompt_text
+    assert "Read the worker-local task file" in worker_prompt_text
     assert "Ambiguous line 0" not in worker_prompt_text
     input_payload = json.loads(
         (

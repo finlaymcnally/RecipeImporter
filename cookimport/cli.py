@@ -64,10 +64,8 @@ from cookimport.config.codex_decision import (
     codex_surfaces_enabled,
     format_codex_command_summary,
     format_codex_execution_policy_summary,
-    normalize_codex_execution_policy_mode,
     resolve_codex_command_decision,
     resolve_codex_execution_policy,
-    write_codex_execution_plan,
 )
 from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
@@ -9715,20 +9713,19 @@ def _should_default_plain_progress_for_agent() -> bool:
 
 def _enforce_live_labelstudio_benchmark_codex_guardrails(
     *,
-    codex_execution_policy: str,
     any_codex_enabled: bool,
     benchmark_codex_confirmation: str | None,
 ) -> None:
-    if codex_execution_policy != "execute" or not any_codex_enabled:
+    if not any_codex_enabled:
         return
     if _INTERACTIVE_CLI_ACTIVE.get():
         return
     if _is_agent_execution_environment():
         _fail(
             "labelstudio-benchmark with live Codex-backed surfaces is blocked in "
-            "agent-run environments. Use --codex-execution-policy plan for a zero-token "
-            "preview, or have a human run the live benchmark manually outside the agent "
-            "environment."
+            "agent-run environments. Use prompt preview or a fake-codex-farm rehearsal "
+            "for zero-token validation, or have a human run the live benchmark manually "
+            "outside the agent environment."
         )
     if (
         str(benchmark_codex_confirmation or "").strip()
@@ -16420,9 +16417,7 @@ def _run_all_method_prediction_once(
                                 "codex_farm_failure_mode"
                             ],
                             "allow_codex": benchmark_kwargs["allow_codex"],
-                            "codex_execution_policy": benchmark_kwargs[
-                                "codex_execution_policy"
-                            ],
+                            "codex_execution_policy": "execute",
                             "processed_output_root": benchmark_kwargs[
                                 "processed_output_dir"
                             ],
@@ -23173,14 +23168,6 @@ def stage(
             "or knowledge surface."
         ),
     ),
-    codex_execution_policy: str = typer.Option(
-        "execute",
-        "--codex-execution-policy",
-        help=(
-            "Codex execution policy: execute runs approved live Codex-backed surfaces; "
-            "plan writes a zero-token preview artifact and stops before processing."
-        ),
-    ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
         "--codex-farm-cmd",
@@ -23325,7 +23312,6 @@ def stage(
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
     allow_codex = _unwrap_typer_option_default(allow_codex)
-    codex_execution_policy = _unwrap_typer_option_default(codex_execution_policy)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
@@ -23442,9 +23428,6 @@ def stage(
     )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_llm_knowledge_pipeline = _normalize_llm_knowledge_pipeline(llm_knowledge_pipeline)
-    selected_codex_execution_policy = normalize_codex_execution_policy_mode(
-        codex_execution_policy
-    )
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
@@ -23567,7 +23550,7 @@ def stage(
     stage_codex_execution = resolve_codex_execution_policy(
         "stage",
         run_settings.to_run_config_dict(),
-        execution_policy_mode=selected_codex_execution_policy,
+        execution_policy_mode="execute",
         allow_codex=bool(allow_codex),
     )
     if stage_codex_execution.blocked:
@@ -23589,40 +23572,6 @@ def stage(
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
     run_config["require_process_workers"] = bool(require_process_workers)
-    if stage_codex_execution.plan_only and stage_codex_execution.surface.any_codex_enabled:
-        source_hash: str | None = None
-        if path.is_file():
-            try:
-                source_hash = compute_file_hash(path)
-            except Exception:
-                source_hash = None
-        write_codex_execution_plan(
-            run_root=out,
-            policy=stage_codex_execution,
-            run_config=run_config,
-            source_path=str(path),
-            source_hash=source_hash,
-            notes=(
-                "Plan-only stage run. No files were processed and no live Codex-backed "
-                "work was executed."
-            ),
-        )
-        _write_run_manifest_best_effort(
-            out,
-            RunManifest(
-                run_kind="stage",
-                run_id=out.name,
-                created_at=run_dt.isoformat(timespec="seconds"),
-                source=RunSource(
-                    path=str(path),
-                    source_hash=source_hash,
-                ),
-                run_config=run_config,
-                artifacts={"codex_execution_plan_json": "codex_execution_plan.json"},
-                notes="Plan-only stage preview. No source files were processed.",
-            ),
-        )
-        return out
     if warm_models:
         with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
             _warm_all_models(ocr_device=selected_ocr_device)
@@ -26077,14 +26026,6 @@ def labelstudio_import(
         "--allow-codex/--no-allow-codex",
         help="Required when Label Studio import enables Codex-backed recipe parsing.",
     ),
-    codex_execution_policy: str = typer.Option(
-        "execute",
-        "--codex-execution-policy",
-        help=(
-            "Codex execution policy: execute runs approved live Codex-backed work; "
-            "plan writes a zero-token preview artifact and skips upload."
-        ),
-    ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
         "--codex-farm-cmd",
@@ -26142,7 +26083,6 @@ def labelstudio_import(
     prelabel_allow_partial = _unwrap_typer_option_default(prelabel_allow_partial)
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     allow_codex = _unwrap_typer_option_default(allow_codex)
-    codex_execution_policy = _unwrap_typer_option_default(codex_execution_policy)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
@@ -26176,9 +26116,6 @@ def labelstudio_import(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_execution_policy = normalize_codex_execution_policy_mode(
-        codex_execution_policy
-    )
     import_codex_execution = resolve_codex_execution_policy(
         "labelstudio_import",
         {
@@ -26186,7 +26123,7 @@ def labelstudio_import(
             "prelabel_enabled": bool(prelabel),
             "prelabel_provider": prelabel_provider,
         },
-        execution_policy_mode=selected_codex_execution_policy,
+        execution_policy_mode="execute",
         allow_codex=bool(allow_codex),
     )
     if import_codex_execution.blocked:
@@ -26198,49 +26135,6 @@ def labelstudio_import(
             "positive user approval."
         )
     _print_codex_decision(import_codex_execution)
-    if import_codex_execution.plan_only and import_codex_execution.surface.any_codex_enabled:
-        try:
-            result = generate_pred_run_artifacts(
-                path=path,
-                output_dir=output_dir,
-                pipeline=pipeline,
-                segment_blocks=segment_blocks,
-                segment_overlap=segment_overlap,
-                segment_focus_blocks=resolved_segment_focus_blocks,
-                target_task_count=target_task_count,
-                limit=limit,
-                sample=sample,
-                prelabel=prelabel,
-                prelabel_provider=prelabel_provider,
-                codex_cmd=codex_cmd,
-                codex_model=codex_model,
-                codex_reasoning_effort=normalized_codex_reasoning_effort,
-                prelabel_timeout_seconds=prelabel_timeout_seconds,
-                prelabel_cache_dir=prelabel_cache_dir,
-                prelabel_workers=prelabel_workers,
-                prelabel_granularity=normalized_prelabel_granularity,
-                prelabel_allow_partial=prelabel_allow_partial,
-                prelabel_track_token_usage=False,
-                llm_recipe_pipeline=selected_llm_recipe_pipeline,
-                codex_farm_cmd=codex_farm_cmd,
-                codex_farm_root=codex_farm_root,
-                codex_farm_workspace_root=codex_farm_workspace_root,
-                codex_farm_context_blocks=codex_farm_context_blocks,
-                codex_farm_failure_mode=selected_codex_farm_failure_mode,
-                allow_codex=bool(allow_codex),
-                codex_execution_policy=selected_codex_execution_policy,
-                write_label_studio_tasks=False,
-                run_manifest_kind="labelstudio_import",
-            )
-        except Exception as exc:  # noqa: BLE001
-            _fail(str(exc))
-        typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
-        if result.get("codex_execution_plan_path") is not None:
-            typer.secho(
-                f"Codex plan: {result['codex_execution_plan_path']}",
-                fg=typer.colors.CYAN,
-            )
-        return
     _require_labelstudio_write_consent(allow_labelstudio_write)
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     import_timeseries_path = _processing_timeseries_history_path(
@@ -26288,7 +26182,7 @@ def labelstudio_import(
                 codex_farm_context_blocks=codex_farm_context_blocks,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_codex=bool(allow_codex),
-                codex_execution_policy=selected_codex_execution_policy,
+                codex_execution_policy="execute",
                 allow_labelstudio_write=True,
             ),
         )
@@ -27306,13 +27200,6 @@ def labelstudio_benchmark(
             "I_HAVE_EXPLICIT_USER_CONFIRMATION only after explicit positive user approval."
         ),
     ),
-    codex_execution_policy: Annotated[str, typer.Option(
-        "--codex-execution-policy",
-        help=(
-            "Codex execution policy: execute runs live Codex-backed surfaces after "
-            "explicit approval; plan writes a zero-token preview artifact instead."
-        ),
-    )] = "execute",
     atomic_block_splitter: Annotated[str, typer.Option(
         "--atomic-block-splitter",
         help=(
@@ -27602,9 +27489,6 @@ def labelstudio_benchmark(
         # Line-role/atomic paths are canonical-text benchmark features.
         selected_atomic_block_splitter = "off"
         selected_line_role_pipeline = "off"
-    selected_codex_execution_policy = normalize_codex_execution_policy_mode(
-        codex_execution_policy
-    )
     benchmark_codex_confirmation = _unwrap_typer_option_default(
         benchmark_codex_confirmation
     )
@@ -27615,7 +27499,7 @@ def labelstudio_benchmark(
             "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
             "line_role_pipeline": selected_line_role_pipeline,
         },
-        execution_policy_mode=selected_codex_execution_policy,
+        execution_policy_mode="execute",
         allow_codex=bool(allow_codex),
     )
     if benchmark_codex_execution.blocked:
@@ -27629,7 +27513,6 @@ def labelstudio_benchmark(
         )
     _print_codex_decision(benchmark_codex_execution)
     _enforce_live_labelstudio_benchmark_codex_guardrails(
-        codex_execution_policy=selected_codex_execution_policy,
         any_codex_enabled=benchmark_codex_execution.surface.any_codex_enabled,
         benchmark_codex_confirmation=benchmark_codex_confirmation,
     )
@@ -27684,11 +27567,6 @@ def labelstudio_benchmark(
         selected_single_offline_split_cache_mode = "off"
         selected_single_offline_split_cache_dir = None
         selected_single_offline_split_cache_key = None
-    if benchmark_codex_execution.plan_only:
-        if should_upload_predictions:
-            _fail("--codex-execution-policy plan requires --no-upload.")
-        if predictions_in_path is not None:
-            _fail("--codex-execution-policy plan cannot be combined with --predictions-in.")
 
     if should_upload_predictions and not write_label_studio_tasks:
         _fail("--no-write-labelstudio-tasks can only be used with --no-upload.")
@@ -27716,167 +27594,6 @@ def labelstudio_benchmark(
     # Keep benchmark prediction scratch inside the resolved eval root so one
     # benchmark session does not spill sibling timestamp folders.
     benchmark_prediction_output_dir = eval_output_dir
-    if benchmark_codex_execution.plan_only and benchmark_codex_execution.surface.any_codex_enabled:
-        plan_prediction_result = generate_pred_run_artifacts(
-            path=selected_source,
-            output_dir=benchmark_prediction_output_dir,
-            pipeline=pipeline,
-            segment_blocks=40,
-            segment_overlap=5,
-            limit=None,
-            sample=None,
-            workers=workers,
-            pdf_split_workers=pdf_split_workers,
-            epub_split_workers=epub_split_workers,
-            pdf_pages_per_job=pdf_pages_per_job,
-            epub_spine_items_per_job=epub_spine_items_per_job,
-            epub_extractor=selected_epub_extractor,
-            epub_unstructured_html_parser_version=selected_html_parser_version,
-            epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
-            epub_unstructured_preprocess_mode=selected_preprocess_mode,
-            ocr_device=selected_ocr_device,
-            pdf_ocr_policy=selected_pdf_ocr_policy,
-            ocr_batch_size=ocr_batch_size,
-            pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
-            warm_models=False,
-            section_detector_backend=selected_section_detector_backend,
-            multi_recipe_splitter=selected_multi_recipe_splitter,
-            multi_recipe_trace=selected_multi_recipe_trace,
-            multi_recipe_min_ingredient_lines=selected_multi_recipe_min_ingredient_lines,
-            multi_recipe_min_instruction_lines=selected_multi_recipe_min_instruction_lines,
-            multi_recipe_for_the_guardrail=selected_multi_recipe_for_the_guardrail,
-            instruction_step_segmentation_policy=selected_instruction_step_segmentation_policy,
-            instruction_step_segmenter=selected_instruction_step_segmenter,
-            web_schema_extractor=selected_web_schema_extractor,
-            web_schema_normalizer=selected_web_schema_normalizer,
-            web_html_text_extractor=selected_web_html_text_extractor,
-            web_schema_policy=selected_web_schema_policy,
-            web_schema_min_confidence=selected_web_schema_min_confidence,
-            web_schema_min_ingredients=selected_web_schema_min_ingredients,
-            web_schema_min_instruction_steps=selected_web_schema_min_instruction_steps,
-            ingredient_text_fix_backend=selected_ingredient_text_fix_backend,
-            ingredient_pre_normalize_mode=selected_ingredient_pre_normalize_mode,
-            ingredient_packaging_mode=selected_ingredient_packaging_mode,
-            ingredient_parser_backend=selected_ingredient_parser_backend,
-            ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
-            ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
-            p6_time_backend=selected_p6_time_backend,
-            p6_time_total_strategy=selected_p6_time_total_strategy,
-            p6_temperature_backend=selected_p6_temperature_backend,
-            p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
-            p6_ovenlike_mode=selected_p6_ovenlike_mode,
-            p6_yield_mode=selected_p6_yield_mode,
-            p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
-            recipe_scorer_backend=selected_recipe_scorer_backend,
-            recipe_score_gold_min=selected_recipe_score_gold_min,
-            recipe_score_silver_min=selected_recipe_score_silver_min,
-            recipe_score_bronze_min=selected_recipe_score_bronze_min,
-            recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
-            recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
-            llm_recipe_pipeline=selected_llm_recipe_pipeline,
-            llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
-            atomic_block_splitter=selected_atomic_block_splitter,
-            line_role_pipeline=selected_line_role_pipeline,
-            codex_farm_cmd=codex_farm_cmd,
-            codex_farm_model=selected_codex_farm_model,
-            codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
-            codex_farm_root=codex_farm_root,
-            codex_farm_workspace_root=codex_farm_workspace_root,
-            codex_farm_pipeline_knowledge=selected_codex_farm_pipeline_knowledge,
-            codex_farm_context_blocks=codex_farm_context_blocks,
-            codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
-            codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
-            codex_farm_failure_mode=selected_codex_farm_failure_mode,
-            allow_codex=bool(allow_codex),
-            codex_execution_policy=selected_codex_execution_policy,
-            processed_output_root=processed_output_dir,
-            write_markdown=write_markdown,
-            write_label_studio_tasks=write_label_studio_tasks,
-            scheduler_event_callback=scheduler_event_callback,
-            progress_callback=(
-                _emit_external_progress if external_progress_callback is not None else None
-            ),
-            run_manifest_kind="bench_pred_run",
-            run_root_override=eval_output_dir,
-            mirror_stage_artifacts_into_run_root=False,
-        )
-        plan_pred_run = Path(plan_prediction_result["run_root"])
-        benchmark_plan_run_config = apply_bucket1_fixed_behavior_metadata(
-            apply_codex_execution_policy_metadata(
-                {
-                "eval_mode": selected_eval_mode,
-                "upload": False,
-                "write_markdown": bool(write_markdown),
-                "write_label_studio_tasks": bool(write_label_studio_tasks),
-                "llm_recipe_pipeline": selected_llm_recipe_pipeline,
-                "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
-                "atomic_block_splitter": selected_atomic_block_splitter,
-                "line_role_pipeline": selected_line_role_pipeline,
-                "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
-                "codex_farm_cmd": codex_farm_cmd,
-                "codex_farm_model": selected_codex_farm_model,
-                "codex_farm_reasoning_effort": (
-                    selected_codex_farm_reasoning_effort
-                    if selected_codex_farm_reasoning_effort is not None
-                    else None
-                ),
-                },
-                benchmark_codex_execution,
-            )
-        )
-        if plan_prediction_result.get("run_config") is not None:
-            benchmark_plan_run_config["prediction_run_config"] = plan_prediction_result[
-                "run_config"
-            ]
-        if plan_prediction_result.get("run_config_hash"):
-            benchmark_plan_run_config["prediction_run_config_hash"] = (
-                plan_prediction_result["run_config_hash"]
-            )
-        if plan_prediction_result.get("run_config_summary"):
-            benchmark_plan_run_config["prediction_run_config_summary"] = (
-                plan_prediction_result["run_config_summary"]
-            )
-        benchmark_plan_artifacts = {
-            "artifact_root_dir": _path_for_manifest(eval_output_dir, plan_pred_run),
-            "prediction_manifest_json": _path_for_manifest(
-                eval_output_dir,
-                plan_prediction_result.get("manifest_path"),
-            ),
-            "prediction_codex_execution_plan_json": _path_for_manifest(
-                eval_output_dir,
-                plan_prediction_result.get("codex_execution_plan_path"),
-            ),
-        }
-        _write_eval_run_manifest(
-            run_root=eval_output_dir,
-            run_kind="labelstudio_benchmark",
-            source_path=str(selected_source),
-            source_hash=str(plan_prediction_result.get("source_hash") or "") or None,
-            importer_name=(
-                str(plan_prediction_result.get("importer_name") or "") or None
-            ),
-            run_config=benchmark_plan_run_config,
-            artifacts=benchmark_plan_artifacts,
-            notes=(
-                "Plan-only benchmark preview. No extraction, upload, evaluation, or "
-                "live Codex-backed execution was performed."
-            ),
-        )
-        if not suppress_summary:
-            typer.secho(
-                "Benchmark plan-only preview complete.",
-                fg=typer.colors.CYAN,
-            )
-            if plan_prediction_result.get("codex_execution_plan_path") is not None:
-                typer.secho(
-                    f"Codex plan: {plan_prediction_result['codex_execution_plan_path']}",
-                    fg=typer.colors.CYAN,
-                )
-            typer.secho(
-                f"Benchmark manifest: {eval_output_dir / 'run_manifest.json'}",
-                fg=typer.colors.CYAN,
-            )
-        return
     if selected_single_offline_split_cache_mode != "off":
         if selected_single_offline_split_cache_dir is None:
             selected_single_offline_split_cache_dir = eval_output_dir / ".split-cache"
@@ -28070,7 +27787,7 @@ def labelstudio_benchmark(
                                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                                 allow_codex=bool(allow_codex),
-                                codex_execution_policy=selected_codex_execution_policy,
+                                codex_execution_policy="execute",
                                 processed_output_root=processed_output_dir,
                                 write_markdown=write_markdown,
                                 write_label_studio_tasks=write_label_studio_tasks,

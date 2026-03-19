@@ -20,6 +20,8 @@ _RECIPE_LOCAL_LABELS = {
     "RECIPE_VARIANT",
 }
 _TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
+_RECIPE_BODY_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_LIKE_LABELS
+_NONRECIPE_GAP_LABELS = {"KNOWLEDGE", "OTHER"}
 
 
 def group_recipe_spans_from_labels(
@@ -52,7 +54,7 @@ def group_recipe_spans_from_labels(
             spans.append(_decision_to_recipe_span(decision))
         pending = []
 
-    for block in ordered_blocks:
+    for position, block in enumerate(ordered_blocks):
         label = str(block.final_label or "OTHER")
         if label in _TITLE_LIKE_LABELS:
             if pending:
@@ -63,6 +65,13 @@ def group_recipe_spans_from_labels(
             if not pending:
                 pending = [block]
                 continue
+            pending.append(block)
+            continue
+        if _should_bridge_nonrecipe_gap(
+            pending=pending,
+            ordered_blocks=ordered_blocks,
+            gap_position=position,
+        ):
             pending.append(block)
             continue
         if pending:
@@ -158,6 +167,40 @@ def _build_span_decision(
         escalation_reasons=escalation_reasons,
         decision_notes=decision_notes,
     )
+
+
+def _should_bridge_nonrecipe_gap(
+    *,
+    pending: Sequence[AuthoritativeBlockLabel],
+    ordered_blocks: Sequence[AuthoritativeBlockLabel],
+    gap_position: int,
+) -> bool:
+    if not pending:
+        return False
+    if gap_position < 0 or gap_position >= len(ordered_blocks):
+        return False
+    if not _has_title_anchor(pending):
+        return False
+    if not _has_recipe_body(pending):
+        return False
+
+    current_label = str(ordered_blocks[gap_position].final_label or "OTHER")
+    if current_label not in _NONRECIPE_GAP_LABELS:
+        return False
+
+    next_position = gap_position + 1
+    if next_position >= len(ordered_blocks):
+        return False
+    next_label = str(ordered_blocks[next_position].final_label or "OTHER")
+    return next_label in _RECIPE_BODY_LABELS
+
+
+def _has_title_anchor(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
+    return any(str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS for row in block_rows)
+
+
+def _has_recipe_body(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
+    return any(str(row.final_label or "OTHER") in _RECIPE_BODY_LABELS for row in block_rows)
 
 
 def _decision_to_recipe_span(decision: RecipeSpanDecision) -> RecipeSpan:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 
 def build_recipe_tagging_guide() -> dict[str, Any]:
@@ -12,58 +12,75 @@ def build_recipe_tagging_guide() -> dict[str, Any]:
     """
 
     return {
-        "version": "recipe_tagging_guide.v1",
-        "rules": [
-            "Use only grounded tags that are obvious from the recipe text.",
+        "v": "recipe_tagging_guide.v2",
+        "r": [
+            "Use only grounded tags obvious from the recipe text.",
             "Zero tags in a category is valid.",
             "Prefer short human-readable labels.",
             "Avoid near-duplicates inside one recipe.",
         ],
-        "categories": [
+        "c": [
             {
-                "key": "dish_type",
-                "description": "What kind of dish or recipe this is.",
-                "examples": ["soup", "stew", "salad", "sandwich", "cake"],
+                "k": "dish_type",
+                "x": ["soup", "stew", "salad", "sandwich", "cake"],
             },
             {
-                "key": "protein",
-                "description": "Primary protein or centerpiece ingredient when clear.",
-                "examples": ["chicken", "beef", "tofu", "shrimp", "beans"],
+                "k": "protein",
+                "x": ["chicken", "beef", "tofu", "shrimp", "beans"],
             },
             {
-                "key": "produce",
-                "description": "Primary fruit or vegetable when it strongly defines the dish.",
-                "examples": ["mushroom", "tomato", "potato", "apple", "corn"],
+                "k": "produce",
+                "x": ["mushroom", "tomato", "potato", "apple", "corn"],
             },
             {
-                "key": "method",
-                "description": "Main cooking method or preparation style.",
-                "examples": ["roasted", "grilled", "braised", "stir fry", "pressure cooker"],
+                "k": "method",
+                "x": ["roasted", "grilled", "braised", "stir fry", "pressure cooker"],
             },
             {
-                "key": "equipment",
-                "description": "Notable tool or vessel required by the recipe.",
-                "examples": ["slow cooker", "instant pot", "sheet pan", "blender", "cast iron"],
+                "k": "equipment",
+                "x": ["slow cooker", "instant pot", "sheet pan", "blender", "cast iron"],
             },
             {
-                "key": "meal",
-                "description": "Meal slot or serving context when obvious.",
-                "examples": ["breakfast", "brunch", "lunch", "dinner", "dessert"],
+                "k": "meal",
+                "x": ["breakfast", "brunch", "lunch", "dinner", "dessert"],
             },
             {
-                "key": "diet",
-                "description": "Dietary fit stated directly or strongly implied by ingredients.",
-                "examples": ["vegetarian", "vegan", "gluten free", "dairy free", "low carb"],
+                "k": "diet",
+                "x": ["vegetarian", "vegan", "gluten free", "dairy free", "low carb"],
             },
             {
-                "key": "occasion",
-                "description": "Typical use case or social context when obvious from the recipe.",
-                "examples": ["weeknight", "holiday", "party", "picnic", "make ahead"],
+                "k": "occasion",
+                "x": ["weeknight", "holiday", "party", "picnic", "make ahead"],
             },
             {
-                "key": "flavor_profile",
-                "description": "Dominant flavor or mood when strongly signaled by the recipe.",
-                "examples": ["spicy", "smoky", "herby", "citrusy", "comfort food"],
+                "k": "flavor_profile",
+                "x": ["spicy", "smoky", "herby", "citrusy", "comfort food"],
             },
         ],
     }
+
+
+def recipe_tagging_guide_categories(guide: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    payload = dict(guide or {})
+    categories = payload.get("c")
+    if not isinstance(categories, list):
+        categories = payload.get("categories")
+    normalized: list[dict[str, Any]] = []
+    if not isinstance(categories, list):
+        return normalized
+    for item in categories:
+        if not isinstance(item, Mapping):
+            continue
+        key = str(item.get("k") or item.get("key") or "").strip()
+        examples = item.get("x")
+        if not isinstance(examples, list):
+            examples = item.get("examples")
+        if not key or not isinstance(examples, list):
+            continue
+        normalized.append(
+            {
+                "key": key,
+                "examples": [str(example).strip() for example in examples if str(example).strip()],
+            }
+        )
+    return normalized

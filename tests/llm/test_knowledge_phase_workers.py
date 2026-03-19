@@ -95,10 +95,10 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
         output_builders={
             "recipe.knowledge.compact.v1": lambda shard_payload: {
                 "bundle_version": "2",
-                "bundle_id": shard_payload["bundle_id"],
+                "bundle_id": shard_payload["bid"],
                 "chunk_results": [
                     {
-                        "chunk_id": shard_payload["chunks"][0]["chunk_id"],
+                        "chunk_id": shard_payload["c"][0]["cid"],
                         "is_useful": True,
                         "block_decisions": [{"block_index": 99, "category": "knowledge"}],
                         "snippets": [
@@ -125,22 +125,15 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
                 owned_ids=("book.c0000.nr",),
                 evidence_refs=("block:4",),
                 input_payload={
-                    "bundle_version": "2",
-                    "bundle_id": "book.ks0000.nr",
-                    "chunks": [
+                    "v": "2",
+                    "bid": "book.ks0000.nr",
+                    "c": [
                         {
-                            "chunk_id": "book.c0000.nr",
-                            "block_start_index": 4,
-                            "block_end_index": 5,
-                            "blocks": [{"block_index": 4, "text": "Whisk constantly."}],
-                            "heuristics": {"suggested_lane": "knowledge"},
+                            "cid": "book.c0000.nr",
+                            "b": [{"i": 4, "t": "Whisk constantly."}],
+                            "h": {"l": "knowledge", "f": "mixed"},
                         }
                     ],
-                    "context": {"blocks_before": [], "blocks_after": []},
-                    "guardrails": {
-                        "context_recipe_block_indices": [],
-                        "must_use_evidence": True,
-                    },
                 },
                 metadata={"owned_block_indices": [4]},
             )
@@ -176,5 +169,93 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
     ]
     assert proposal["validation_errors"] == [
         "block_decision_out_of_surface",
+        "snippet_evidence_out_of_surface",
+    ]
+
+
+def test_knowledge_phase_workers_reject_processing_error_fallback_with_out_of_surface_evidence(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            "recipe.knowledge.compact.v1": lambda shard_payload: {
+                "bundle_version": "2",
+                "bundle_id": shard_payload["bid"],
+                "chunk_results": [
+                    {
+                        "chunk_id": "processing_error",
+                        "is_useful": False,
+                        "block_decisions": [{"block_index": 4, "category": "other"}],
+                        "snippets": [
+                            {
+                                "title": "Fallback",
+                                "body": "Could not process.",
+                                "tags": ["invalid"],
+                                "evidence": [{"block_index": 0, "quote": "bad"}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    )
+
+    manifest, reports = run_phase_workers_v1(
+        phase_key="nonrecipe_knowledge_review",
+        pipeline_id="recipe.knowledge.compact.v1",
+        run_root=runtime_root,
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0001.nr",
+                owned_ids=("book.c0007.nr",),
+                evidence_refs=("block:4",),
+                input_payload={
+                    "v": "2",
+                    "bid": "book.ks0001.nr",
+                    "c": [
+                        {
+                            "cid": "book.c0007.nr",
+                            "b": [{"i": 4, "t": "Whisk constantly."}],
+                            "h": {"l": "knowledge", "f": "mixed"},
+                        }
+                    ],
+                },
+                metadata={"owned_block_indices": [4]},
+            )
+        ],
+        runner=runner,
+        worker_count=1,
+        proposal_validator=validate_knowledge_shard_output,
+    )
+
+    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(
+        Path(manifest.run_root) / "proposals"
+    )
+    failures = json.loads((Path(manifest.run_root) / "failures.json").read_text(encoding="utf-8"))
+    proposal = json.loads(
+        (Path(manifest.run_root) / "proposals" / "book.ks0001.nr.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert reports[0].failure_count == 1
+    assert outputs == {}
+    assert payloads_by_shard_id == {}
+    assert failures == [
+        {
+            "reason": "proposal_validation_failed",
+            "shard_id": "book.ks0001.nr",
+            "validation_errors": [
+                "missing_owned_chunk_results",
+                "unexpected_chunk_results",
+                "snippet_evidence_out_of_surface",
+            ],
+            "worker_id": "worker-001",
+        }
+    ]
+    assert proposal["validation_errors"] == [
+        "missing_owned_chunk_results",
+        "unexpected_chunk_results",
         "snippet_evidence_out_of_surface",
     ]

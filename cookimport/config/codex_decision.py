@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import datetime as dt
-import hashlib
-import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal, Mapping
 
 from cookimport.config.run_settings import (
@@ -16,7 +12,7 @@ from cookimport.config.run_settings import (
 
 TopTierProfileKind = Literal["codexfarm", "vanilla"]
 BenchmarkVariantKind = Literal["vanilla", "codexfarm"]
-CodexExecutionPolicyMode = Literal["execute", "plan"]
+CodexExecutionPolicyMode = Literal["execute"]
 
 RECIPE_CODEX_PIPELINE = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 RECIPE_CODEX_PIPELINES = frozenset(RECIPE_CODEX_FARM_EXECUTION_PIPELINES)
@@ -146,7 +142,6 @@ class CodexExecutionPolicy:
     command_decision: CodexCommandDecision
     requested_mode: CodexExecutionPolicyMode
     resolved_mode: str
-    plan_only: bool
     live_llm_allowed: bool
 
     @property
@@ -338,10 +333,8 @@ def normalize_codex_execution_policy_mode(
     raw = _normalize_text(value)
     if raw in {"", "execute", "run", "live"}:
         return "execute"
-    if raw in {"plan", "preview", "dry-run", "dryrun"}:
-        return "plan"
     raise ValueError(
-        "Invalid codex execution policy. Expected one of: execute, plan."
+        "Invalid codex execution policy. Only 'execute' is supported; plan mode was removed."
     )
 
 
@@ -364,27 +357,17 @@ def resolve_codex_execution_policy(
         explicit_confirmation_granted=explicit_confirmation_granted,
         benchmark_variant=benchmark_variant,
     )
-    if requested_mode == "plan" and command_decision.surface.any_codex_enabled:
-        return CodexExecutionPolicy(
-            command_decision=command_decision,
-            requested_mode=requested_mode,
-            resolved_mode="plan",
-            plan_only=True,
-            live_llm_allowed=False,
-        )
     if requested_mode == "execute" and command_decision.surface.any_codex_enabled:
         return CodexExecutionPolicy(
             command_decision=command_decision,
             requested_mode=requested_mode,
             resolved_mode="execute" if command_decision.allowed else "blocked",
-            plan_only=False,
             live_llm_allowed=command_decision.allowed,
         )
     return CodexExecutionPolicy(
         command_decision=command_decision,
         requested_mode=requested_mode,
         resolved_mode="not_required",
-        plan_only=False,
         live_llm_allowed=False,
     )
 
@@ -422,11 +405,6 @@ def format_codex_command_summary(decision: CodexCommandDecision) -> str:
 
 
 def format_codex_execution_policy_summary(policy: CodexExecutionPolicy) -> str:
-    if policy.plan_only:
-        return (
-            "Codex execution policy: plan only; live Codex disabled; planned surfaces: "
-            f"{format_codex_surface_summary(policy.surface)}."
-        )
     return format_codex_command_summary(policy.command_decision)
 
 
@@ -477,7 +455,6 @@ def codex_execution_policy_metadata(policy: CodexExecutionPolicy) -> dict[str, A
         {
             "codex_execution_policy_requested_mode": policy.requested_mode,
             "codex_execution_policy_resolved_mode": policy.resolved_mode,
-            "codex_execution_plan_only": policy.plan_only,
             "codex_execution_live_llm_allowed": policy.live_llm_allowed,
             "codex_execution_summary": format_codex_execution_policy_summary(policy),
         }
@@ -492,55 +469,3 @@ def apply_codex_execution_policy_metadata(
     annotated = dict(payload)
     annotated.update(codex_execution_policy_metadata(policy))
     return annotated
-
-
-def write_codex_execution_plan(
-    *,
-    run_root: Path,
-    policy: CodexExecutionPolicy,
-    run_config: Mapping[str, Any],
-    planned_work: Mapping[str, Any] | None = None,
-    source_path: str | None = None,
-    source_hash: str | None = None,
-    importer_name: str | None = None,
-    notes: str | None = None,
-) -> Path:
-    canonical_run_config = json.dumps(
-        dict(run_config),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    )
-    payload: dict[str, Any] = {
-        "schema_version": "codex_execution_plan.v1",
-        "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="seconds"),
-        "context": policy.command_decision.context,
-        "requested_mode": policy.requested_mode,
-        "resolved_mode": policy.resolved_mode,
-        "plan_only": policy.plan_only,
-        "live_llm_allowed": policy.live_llm_allowed,
-        "summary": format_codex_execution_policy_summary(policy),
-        "ai_assistance_profile": policy.surface.ai_assistance_profile,
-        "codex_surfaces": list(policy.surface.codex_surfaces),
-        "deterministic_surfaces": list(policy.surface.deterministic_surfaces),
-        "run_config_hash": hashlib.sha256(
-            canonical_run_config.encode("utf-8")
-        ).hexdigest(),
-        "run_config": dict(run_config),
-    }
-    if source_path or source_hash or importer_name:
-        payload["source"] = {
-            "path": source_path,
-            "source_hash": source_hash,
-            "importer_name": importer_name,
-        }
-    if planned_work:
-        payload["planned_work"] = dict(planned_work)
-    if notes:
-        payload["notes"] = str(notes).strip()
-    plan_path = run_root / "codex_execution_plan.json"
-    plan_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return plan_path

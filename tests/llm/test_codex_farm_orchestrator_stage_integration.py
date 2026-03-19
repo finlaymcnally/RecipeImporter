@@ -72,6 +72,8 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
                 {
                     "bundle_version": "1",
                     "recipe_id": payload["r"][0]["rid"],
+                    "repair_status": "repaired",
+                    "status_reason": None,
                     "canonical_recipe": {
                         "title": "Toast",
                         "ingredients": ["1 slice bread"],

@@ -773,10 +773,10 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: {
             "v": "2",
-            "bid": payload["bundle_id"],
+            "bid": payload["bid"],
             "r": [
                 {
-                    "cid": payload["chunks"][0]["chunk_id"],
+                    "cid": payload["c"][0]["cid"],
                     "u": True,
                     "d": [{"i": 8, "c": "knowledge", "rc": "knowledge"}],
                     "s": [
@@ -888,10 +888,10 @@ def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: {
             "v": "2",
-            "bid": payload["bundle_id"],
+            "bid": payload["bid"],
             "r": [
                 {
-                    "cid": payload["chunks"][0]["chunk_id"],
+                    "cid": payload["c"][0]["cid"],
                     "u": False,
                     "d": [{"i": 4, "c": "other", "rc": "chapter_taxonomy"}],
                     "s": [],
@@ -996,10 +996,10 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: {
             "v": "2",
-            "bid": payload["bundle_id"],
+            "bid": payload["bid"],
             "r": [
                 {
-                    "cid": payload["chunks"][0]["chunk_id"],
+                    "cid": payload["c"][0]["cid"],
                     "u": True,
                     "d": [{"i": 99, "c": "knowledge"}],
                     "s": [
@@ -1056,6 +1056,264 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
     assert apply_result.llm_report["stage_status"] == "completed_with_failures"
     assert apply_result.write_report is not None
     assert apply_result.write_report.snippets_written == 0
+
+
+def test_knowledge_orchestrator_counts_valid_and_invalid_shards_in_same_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-0",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Sauce Basics",
+                text="Always whisk constantly when adding butter.",
+                blockIds=[0],
+            ),
+            KnowledgeChunk(
+                id="chunk-1",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Seasoning",
+                text="Salt in layers for better control.",
+                blockIds=[1],
+            ),
+            KnowledgeChunk(
+                id="chunk-2",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Storage",
+                text="Cool leftovers quickly before refrigeration.",
+                blockIds=[2],
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_shard_target_chunks": 2,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Always whisk constantly when adding butter."},
+                        {"index": 1, "text": "Salt in layers for better control."},
+                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: (
+            {
+                "v": "2",
+                "bid": payload["bid"],
+                "r": [
+                    {
+                        "cid": chunk["cid"],
+                        "u": True,
+                        "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
+                        "s": [
+                            {
+                                "t": "Useful note",
+                                "b": block["t"],
+                                "g": ["knowledge"],
+                                "e": [{"i": block["i"], "q": block["t"]}],
+                            }
+                        ],
+                    }
+                    for chunk in payload["c"]
+                    for block in chunk["b"][:1]
+                ],
+            }
+            if payload["bid"] == "book.ks0000.nr"
+            else {
+                "v": "2",
+                "bid": payload["bid"],
+                "r": [],
+            }
+        )
+    )
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.3",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=3,
+                    block_indices=[0, 1, 2],
+                    block_ids=["b0", "b1", "b2"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.3",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=3,
+                    block_indices=[0, 1, 2],
+                    block_ids=["b0", "b1", "b2"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert apply_result.llm_report["stage_status"] == "completed_with_failures"
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 2
+    assert apply_result.llm_report["review_summary"]["validated_shard_count"] == 1
+    assert apply_result.llm_report["review_summary"]["invalid_shard_count"] == 1
+    assert apply_result.llm_report["counts"]["outputs_parsed"] == 2
+    assert apply_result.llm_report["counts"]["invalid_shards"] == 1
+    assert apply_result.llm_report["counts"]["chunks_missing"] == 1
+    assert apply_result.llm_report["missing_chunk_ids"] == ["book.c0002.nr"]
+
+
+def test_knowledge_orchestrator_can_exceed_prompt_target_when_char_cap_requires_more_shards(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id=f"chunk-{index}",
+                lane=ChunkLane.KNOWLEDGE,
+                title=f"Topic {index}",
+                text="X" * 8000,
+                blockIds=[index],
+            )
+            for index in range(10)
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 5,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_failure_mode": "fail",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": index, "text": f"Block {index} " + ("X" * 8000)}
+                        for index in range(10)
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.10",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=10,
+                    block_indices=list(range(10)),
+                    block_ids=[f"b{index}" for index in range(10)],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.10",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=10,
+                    block_indices=list(range(10)),
+                    block_ids=[f"b{index}" for index in range(10)],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={index: "knowledge" for index in range(10)},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=FakeCodexExecRunner(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                "recipe.knowledge.compact.v1",
+                dict(payload or {}),
+            )
+        ),
+    )
+
+    assert apply_result.llm_report["counts"]["shards_written"] == 10
+    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 10
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 10
 
 
 def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(

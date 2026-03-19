@@ -103,6 +103,8 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
                 {
                     "bundle_version": "1",
                     "recipe_id": payload["r"][0]["rid"],
+                    "repair_status": "repaired",
+                    "status_reason": None,
                     "canonical_recipe": {
                         "title": "Toast",
                         "ingredients": [
@@ -175,8 +177,15 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     assert sorted(manifest["process_runs"].keys()) == ["recipe_correction"]
     correction_input = runner.calls[0]["input_payload"]
     assert "draft_hint" not in correction_input
-    assert "provenance" not in correction_input["r"][0]["h"]
-    assert correction_input["tg"]["version"] == "recipe_tagging_guide.v1"
+    assert correction_input["r"][0]["h"] == {
+        "n": "Toast",
+        "i": ["1 slice bread", "1 tablespoon butter"],
+        "s": [
+            "Toast the bread until golden.",
+            "Spread with butter and serve hot.",
+        ],
+    }
+    assert correction_input["tg"]["v"] == "recipe_tagging_guide.v2"
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert apply_result.updated_conversion_result.recipes[0].tags == [
         "breakfast",
@@ -253,3 +262,74 @@ def test_stage_one_file_skips_codex_farm_when_pipeline_off(
 
     assert response["status"] == "success"
     assert orchestrator_called["value"] is False
+
+
+def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "bundle_version": "1",
+            "shard_id": payload.get("sid"),
+            "recipes": [
+                {
+                    "bundle_version": "1",
+                    "recipe_id": payload["r"][0]["rid"],
+                    "repair_status": "not_a_recipe",
+                    "status_reason": "reference_table",
+                    "canonical_recipe": None,
+                    "ingredient_step_mapping": [],
+                    "ingredient_step_mapping_reason": "not_applicable_not_a_recipe",
+                    "selected_tags": [],
+                    "warnings": ["candidate_rejected"],
+                }
+            ],
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = "urn:recipe:test:toast"
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
+    )
+    proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0000-r0000-r0000.json"
+        ).read_text(encoding="utf-8")
+    )
+    audit = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_correction_audit"
+            / "urn_recipe_test_toast.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert apply_result.intermediate_overrides_by_recipe_id == {}
+    assert apply_result.final_overrides_by_recipe_id == {}
+    assert apply_result.updated_conversion_result.recipes == []
+    assert manifest["counts"]["recipe_correction_ok"] == 1
+    assert manifest["counts"]["build_final_recipe_ok"] == 0
+    assert manifest["counts"]["build_final_recipe_skipped"] == 1
+    assert manifest["recipes"][recipe_id]["correction_output_status"] == "not_a_recipe"
+    assert manifest["recipes"][recipe_id]["correction_output_reason"] == "reference_table"
+    assert proposal["payload"]["r"][0]["st"] == "not_a_recipe"
+    assert audit["output"]["repair_status"] == "not_a_recipe"
+    assert audit["deterministic_final_assembly"]["status"] == "skipped"

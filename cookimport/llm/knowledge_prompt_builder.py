@@ -16,8 +16,17 @@ _INPUT_JSON_END = "<END_INPUT_JSON>"
 
 
 def build_knowledge_direct_prompt(input_payload: Mapping[str, Any]) -> str:
-    template_text = _load_template_text().strip()
-    serialized_input = json.dumps(dict(input_payload), ensure_ascii=False, indent=2, sort_keys=True)
+    template_text = (
+        _load_template_text()
+        .replace("{{INPUT_PATH}}", "<BEGIN_INPUT_JSON>...<END_INPUT_JSON>")
+        .strip()
+    )
+    serialized_input = json.dumps(
+        dict(input_payload),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
     return (
         f"{template_text}\n\n"
         "Use the following JSON as the complete and only task input. "

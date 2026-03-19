@@ -171,7 +171,8 @@ Default posture is safe/off:
 
 - deterministic-first behavior is the baseline
 - execute mode requires explicit approval at the command boundary
-- plan mode writes a Codex execution plan without running live Codex work
+- prompt preview is the zero-token prompt/cost inspection surface
+- fake execute via `--codex-farm-cmd scripts/fake-codex-farm.py` is the zero-token runtime rehearsal surface
 
 ## 5. Label Studio and benchmark model
 

@@ -9,13 +9,6 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-
-
-@pytest.fixture(autouse=True)
-def _benchmark_codex_execution_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_benchmark_call_kwargs_codex_policy(monkeypatch)
-
-
 @pytest.fixture(autouse=True)
 def _legacy_prediction_stage_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_prediction_stage(**kwargs):  # type: ignore[no-untyped-def]

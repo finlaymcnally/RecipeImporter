@@ -16,7 +16,6 @@ from cookimport.config.run_settings_adapters import (
 def main() -> None:
     args = sys.argv[1:]
     allow_codex = False
-    codex_execution_policy = "execute"
     filtered_args: list[str] = []
     index = 0
     while index < len(args):
@@ -24,10 +23,6 @@ def main() -> None:
         if arg == "--allow-codex":
             allow_codex = True
             index += 1
-            continue
-        if arg == "--codex-execution-policy" and index + 1 < len(args):
-            codex_execution_policy = str(args[index + 1]).strip() or "execute"
-            index += 2
             continue
         filtered_args.append(arg)
         index += 1
@@ -46,7 +41,6 @@ def main() -> None:
         write_markdown=True,
     )
     common_args["allow_codex"] = allow_codex
-    common_args["codex_execution_policy"] = codex_execution_policy
     if not args:
         stage(path=DEFAULT_INPUT, **common_args)
         return

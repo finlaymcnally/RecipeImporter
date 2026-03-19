@@ -53,19 +53,11 @@ def _benchmark_test_run_settings(
     return cli.RunSettings.from_dict(run_settings_payload, warn_context=warn_context)
 
 
-def _patch_benchmark_call_kwargs_codex_policy(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    default_policy: str = "auto",
-) -> None:
-    real = cli.build_benchmark_call_kwargs_from_run_settings
-
-    def _wrapped(*args, **kwargs):  # type: ignore[no-untyped-def]
-        payload = real(*args, **kwargs)
-        payload.setdefault("codex_execution_policy", default_policy)
-        return payload
-
-    monkeypatch.setattr(cli, "build_benchmark_call_kwargs_from_run_settings", _wrapped)
+def _run_settings_model_payload(settings: cli.RunSettings) -> dict[str, object]:
+    payload = settings.to_run_config_dict()
+    return {
+        key: value for key, value in payload.items() if key in cli.RunSettings.model_fields
+    }
 
 
 def _write_fake_all_method_prediction_phase_artifacts(

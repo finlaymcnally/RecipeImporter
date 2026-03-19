@@ -2356,8 +2356,10 @@ def render_prompt_artifacts_from_descriptors(
                     runtime_context = _resolve_runtime_context(
                         runtime_index=runtime_index,
                         shard_id=(
-                            _clean_text(_coerce_dict(parsed_input).get("bundle_id"))
+                            _clean_text(_coerce_dict(parsed_input).get("bid"))
+                            or _clean_text(_coerce_dict(parsed_input).get("bundle_id"))
                             or _clean_text(_coerce_dict(parsed_input).get("shard_id"))
+                            or _clean_text(_coerce_dict(parsed_output).get("bid"))
                             or _clean_text(_coerce_dict(parsed_output).get("bundle_id"))
                             or _clean_text(_coerce_dict(parsed_output).get("shard_id"))
                             or (

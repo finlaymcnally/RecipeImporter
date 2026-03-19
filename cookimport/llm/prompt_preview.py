@@ -19,10 +19,16 @@ from cookimport.llm.codex_farm_contracts import (
 )
 from cookimport.llm.codex_farm_orchestrator import (
     _RecipeState,
+    _build_recipe_candidate_quality_hint,
     _build_recipe_correction_input,
     render_recipe_direct_prompt,
 )
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
+from cookimport.llm.codex_farm_knowledge_contracts import (
+    knowledge_input_bundle_id,
+    knowledge_input_chunk_id,
+    knowledge_input_chunks,
+)
 from cookimport.llm.knowledge_prompt_builder import build_knowledge_direct_prompt
 from cookimport.llm.phase_worker_runtime import resolve_phase_worker_count
 from cookimport.llm.prompt_budget import (
@@ -57,6 +63,17 @@ _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
 _DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 3
 _DEFAULT_KNOWLEDGE_SHARD_TARGET_CHUNKS = 12
+
+
+def _serialize_compact_prompt_json(payload: Any) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ) + "\n"
+
+
 @dataclass(frozen=True)
 class PreviewShardAssignment:
     shard_id: str
@@ -471,8 +488,12 @@ def _build_recipe_preview_rows(
             {
                 "call_id": f"r{recipe_index}",
                 "recipe_id": recipe_id,
+                "candidate_quality_hint": _build_recipe_candidate_quality_hint(
+                    included_blocks=included_blocks,
+                    recipe_candidate_hint=input_payload.recipe_candidate_hint,
+                ),
                 "input_payload": serialized_input,
-                "input_text": json.dumps(serialized_input, indent=2, sort_keys=True) + "\n",
+                "input_text": _serialize_compact_prompt_json(serialized_input),
             }
         )
     return _build_recipe_shard_preview_rows(
@@ -516,7 +537,6 @@ def _build_recipe_shard_preview_rows(
         shard_id = f"recipe-preview-shard-{index:04d}-{first_call_id}"
         shard_recipe_inputs: list[RecipeCorrectionShardRecipeInput] = []
         owned_recipe_ids: list[str] = []
-        authority_notes: list[str] = []
         tagging_guide: dict[str, Any] = {}
         for row in shard_rows:
             payload = _coerce_dict(row.get("input_payload"))
@@ -539,30 +559,24 @@ def _build_recipe_shard_preview_rows(
                     recipe_candidate_hint=_coerce_dict(
                         payload.get("recipe_candidate_hint", payload.get("h"))
                     ),
+                    candidate_quality_hint=_coerce_dict(
+                        row.get("candidate_quality_hint")
+                    ),
                     warnings=[],
                 )
             )
             if not tagging_guide:
                 tagging_guide = _coerce_dict(payload.get("tagging_guide", payload.get("tg")))
-            if not authority_notes:
-                authority_notes = [
-                    str(note).strip()
-                    for note in payload.get("authority_notes", payload.get("an")) or []
-                    if str(note).strip()
-                ]
         shard_payload = serialize_recipe_correction_shard_input(
             RecipeCorrectionShardInput(
                 shard_id=shard_id,
-                workbook_slug=context.workbook_slug,
-                source_hash=context.source_hash,
                 owned_recipe_ids=owned_recipe_ids,
                 recipes=shard_recipe_inputs,
                 tagging_guide=tagging_guide,
-                authority_notes=authority_notes,
             )
         )
         input_path = in_dir / f"{shard_id}.json"
-        serialized_input = json.dumps(shard_payload, indent=2, sort_keys=True) + "\n"
+        serialized_input = _serialize_compact_prompt_json(shard_payload)
         input_path.write_text(serialized_input, encoding="utf-8")
         rows.append(
             _prompt_row(
@@ -670,17 +684,15 @@ def _knowledge_preview_row_id(
     input_payload: Mapping[str, Any],
     fallback: str,
 ) -> str:
-    chunks_payload = input_payload.get("chunks")
-    if isinstance(chunks_payload, list) and chunks_payload:
-        first_chunk = _coerce_dict(chunks_payload[0])
-        first_chunk_id = str(first_chunk.get("chunk_id") or "").strip()
-        last_chunk = _coerce_dict(chunks_payload[-1])
-        last_chunk_id = str(last_chunk.get("chunk_id") or "").strip()
+    chunks_payload = knowledge_input_chunks(input_payload)
+    if chunks_payload:
+        first_chunk_id = knowledge_input_chunk_id(chunks_payload[0])
+        last_chunk_id = knowledge_input_chunk_id(chunks_payload[-1])
         if first_chunk_id and last_chunk_id and first_chunk_id != last_chunk_id:
             return f"{first_chunk_id}..{last_chunk_id}"
         if first_chunk_id:
             return first_chunk_id
-    return str(input_payload.get("bundle_id") or fallback).strip() or fallback
+    return knowledge_input_bundle_id(input_payload) or fallback
 
 
 def _build_line_role_preview_rows(
@@ -1076,6 +1088,7 @@ def _build_direct_shard_phase_plan(
             {
                 "shard_id": str(
                     payload.get("shard_id")
+                    or payload.get("bid")
                     or payload.get("bundle_id")
                     or row.get("call_id")
                     or ""
@@ -1197,13 +1210,11 @@ def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> lis
         if isinstance(owned_recipe_ids, list):
             return [str(item).strip() for item in owned_recipe_ids if str(item).strip()]
     if stage_key == "nonrecipe_knowledge_review":
-        chunks = payload.get("chunks")
-        if isinstance(chunks, list):
-            return [
-                str(_coerce_dict(chunk).get("chunk_id") or "").strip()
-                for chunk in chunks
-                if str(_coerce_dict(chunk).get("chunk_id") or "").strip()
-            ]
+        return [
+            knowledge_input_chunk_id(chunk)
+            for chunk in knowledge_input_chunks(payload)
+            if knowledge_input_chunk_id(chunk)
+        ]
     if stage_key == "line_role" or stage_key.startswith("line_role_"):
         rows = payload.get("rows")
         if isinstance(rows, list):

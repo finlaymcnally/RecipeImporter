@@ -82,10 +82,12 @@ def _build_recipe_shard_output(payload: dict[str, object] | None) -> dict[str, o
             {
                 "bundle_version": "1",
                 "recipe_id": recipe_payload["rid"],
+                "repair_status": "repaired",
+                "status_reason": None,
                 "canonical_recipe": {
-                    "title": recipe_hint["name"],
-                    "ingredients": recipe_hint.get("recipeIngredient", []),
-                    "steps": recipe_hint.get("recipeInstructions", []),
+                    "title": recipe_hint.get("n"),
+                    "ingredients": recipe_hint.get("i", []),
+                    "steps": recipe_hint.get("s", []),
                     "description": None,
                     "recipeYield": None,
                 },

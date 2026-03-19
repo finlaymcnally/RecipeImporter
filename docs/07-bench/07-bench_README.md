@@ -83,7 +83,7 @@ Important current constraints:
 - `--predictions-out` / `--predictions-in` for replayable evaluation-only reruns
 - `--baseline` / `--candidate` compare inputs
 - offline runs via `--no-upload`
-- plan-only Codex preview via `--codex-execution-policy plan`
+- zero-token Codex handoff rehearsal by pointing `--codex-farm-cmd` at `scripts/fake-codex-farm.py`
 
 Current behavior notes:
 
@@ -96,8 +96,7 @@ Current behavior notes:
 - non-interactive live Codex-backed benchmark runs require:
   - `--allow-codex`
   - `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
-- agent-run environments are blocked from that live non-interactive Codex path and must use `--codex-execution-policy plan`
-- `--codex-execution-policy plan` requires `--no-upload`, skips live Codex/eval, and still writes `codex_execution_plan.json`
+- agent-run environments are blocked from that live non-interactive Codex path; use prompt preview or a fake-codex-farm rehearsal instead
 
 Interactive benchmark modes are still active and remain offline canonical-text workflows:
 

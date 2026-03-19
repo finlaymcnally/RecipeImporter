@@ -77,8 +77,8 @@ Migration note:
 - fully Codex-backed runs now come from enabling those surfaces explicitly, not from a separate deterministic line-role middle mode
 - `cookimport/config/codex_decision.py` is the shared approval and metadata layer.
 - Execute mode requires explicit approval at the command boundary.
-- `--codex-execution-policy plan` writes `codex_execution_plan.json` and returns before live Codex work.
-- plan mode is a planning stop, not a real shard-runtime rehearsal. If you need zero-token validation of worker sandboxes, in/out folders, proposal validation, or promotion wiring, redirect `SubprocessCodexFarmRunner` through a fake `codex-farm` executable via `--codex-farm-cmd` so the live subprocess path still runs.
+- Zero-token prompt inspection lives in prompt preview.
+- Zero-token runtime rehearsal lives on the real execute path with `--codex-farm-cmd scripts/fake-codex-farm.py`; that path exercises worker sandboxes, `in/` and `out/` folders, proposal validation, and promotion wiring without spending model tokens.
 - for path-backed direct-exec phases such as line-role, the fake exec shim must read the deposited task file named in the wrapper prompt; answering from the example JSON embedded in the prompt text will produce false `atomic_index:123` validation failures.
 - `labelstudio-import --prelabel` is its own Codex surface; recipe settings do not implicitly approve it.
 - `COOKIMPORT_ALLOW_LLM` still blocks unapproved live Codex execution by default.
@@ -94,12 +94,11 @@ Benchmark split:
 
 - Stage/import runs can execute recipe Codex and optional knowledge extraction.
 - Inline recipe tags are part of the recipe correction call and ride along with normal recipe processing.
-- Prediction-run generation can plan or execute:
+- Prediction-run generation can execute:
   - recipe Codex passes
   - optional knowledge refinement/extraction over seed Stage 7 non-recipe spans
   - canonical line-role Codex labeling
   - freeform prelabel
-- Prediction-run plan mode happens after deterministic conversion and archive preparation so the plan artifact can enumerate concrete recipe bundles, knowledge jobs, and line-role batches.
 - `prompt_budget_summary.json` should preserve CodexFarm split token totals (`tokens_input`, `tokens_cached_input`, `tokens_output`) from per-call telemetry rows when they are present in the prediction manifest.
 
 ## Plain-English Pipeline
@@ -141,6 +140,7 @@ Recipe runtime note:
 - the live recipe implementation now groups nearby recipes into explicit shard payloads, executes them through the repo-owned direct recipe worker runtime in `codex_farm_orchestrator.py`, validates exact owned `recipe_id` coverage, and promotes only validated per-recipe outputs
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still builds the intermediate `RecipeCandidate`, Codex still emits `ingredient_step_mapping` plus raw `selected_tags`, and deterministic code still rebuilds the final cookbook3 draft locally and normalizes tags before write-out
+- the model-facing recipe shard now includes a compact candidate-quality hint `q` alongside weak deterministic parse hint `h`, and each recipe result now carries compact status fields (`st`, `sr`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits but only `repaired` results promote into final recipe outputs
 - the authoritative recipe contract is now: `recipe_phase_runtime/inputs/*.json` immutable shard payloads, `recipe_phase_runtime/proposals/*.json` validated shard proposals, then deterministic promotion into staged outputs; `recipe_correction_audit/` remains only the per-recipe human/debug summary surface
 - recipe worker shard folders now also write `prompt.txt`, `events.jsonl`, `usage.json`, `last_message.json`, and `cost_breakdown.json`, so prompt-preview and actual-cost reporting can talk about the same visible request/response surface
 - `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
@@ -173,9 +173,10 @@ Knowledge runtime note:
 - the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, `knowledge/proposals/*.json` validated shard proposals, then deterministic promotion into `08_nonrecipe_spans.json`, `09_knowledge_outputs.json`, and reviewer-facing knowledge artifacts
 - the runtime cutover did not require a brand-new pack immediately; `codex-knowledge-shard-v1` still reuses the compact knowledge pack underneath, and the important authority seam is shard ownership plus validation, not a new prompt asset family
 - knowledge worker assignments now launch concurrently and merge back in planned order so `running N` reflects real in-flight work
+- the model-facing hint seam is intentionally weak: `h.f` is structural shorthand, `h.l` is only exposed for strong `knowledge` evidence, and `semantic_hint` is retired from the billed payload
 - prompt-cost control for this stage lives before worker execution:
   - `cookimport/parsing/chunks.py` routes obvious blurbs, navigation fragments, attribution-only text, and similar low-value prose to `noise`
-  - `build_knowledge_jobs(...)` bundles surviving nearby chunks into local jobs instead of writing one prompt per chunk
+  - `build_knowledge_jobs(...)` bundles surviving nearby chunks into local jobs instead of writing one prompt per chunk, and suppresses `suggested_lane` on menu-like or high-noise chunks
   - table-heavy chunks stay isolated, soft-gap packing can cross small outside-recipe gaps, and tiny low-signal chunks can be pruned when they have no heading/highlight/table evidence
   - the shared default knowledge context is now `0` blocks
 
@@ -216,7 +217,7 @@ Prompt/debug artifacts:
 - `prediction-run/prompt_budget_summary.json` now also falls back to current shard-runtime worker telemetry plus the linked processed-run `line-role-pipeline/telemetry_summary.json` when a benchmark/prediction manifest only carries lightweight phase summaries or a metadata-only benchmark copy
 - when line-role telemetry only exposes nested batch/attempt summaries, `prompt_budget_summary.json` should still recover those `tokens_total` values so the finished-run whole-run drain is not understated
 - for line-role, requested-vs-actual run-count reporting is surface-level: compare the requested line-role target against the actual shard count on the single live `line_role` phase
-- `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
+- `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run, or from a benchmark root that resolves to a predictive-safe processed run, and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - preview budget estimation is predictive-only: it rebuilds deterministic/`vanilla` shard payloads locally, estimates tokens from reconstructable prompt/output structure, and never reuses Codex-backed run telemetry
 - predictive preview is now structural rather than ratio-based: it tokenizes the reconstructed prompt wrapper plus deposited task-file body with `tiktoken`, estimates output tokens from schema-shaped JSON built from the planned shard input, and reports stages as unavailable when that structure cannot be rebuilt safely
 - older saved runs that predate the prompt-target fields should default preview planning to the current shard-v1 target count (`5`) for each enabled phase instead of falling back to legacy shard-size defaults
@@ -238,6 +239,7 @@ Prompt/debug artifacts:
 - when explicit `knowledge_prompt_target_count` is driving the shard plan, knowledge bundling should not split again on the older per-bundle char cap
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
+- the active line-role wrapper now teaches `HOWTO_SECTION` as recipe-internal subsection structure only (`FOR THE SAUCE`, `TO FINISH`, `FOR SERVING`) and explicitly fences chapter/topic/cookbook-lesson headings back to `KNOWLEDGE` or `OTHER`
 - line-role row transport is now split cleanly by seam: the inline compact prompt uses pipe-delimited target rows plus selective `ctx:` windows, the file-backed billed shard JSON is the tuple-based `v=1` transport, and a parallel debug copy keeps the richer local object rows
 - prompt/actual cost reporting for the direct phases now also carries a shared cost-breakdown vocabulary: `visible_input_tokens`, `cached_input_tokens`, `visible_output_tokens`, and `wrapper_overhead_tokens`
 - live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, sends the built prompt text itself through direct `codex exec`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.

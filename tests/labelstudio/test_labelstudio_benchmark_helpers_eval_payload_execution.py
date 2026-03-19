@@ -219,7 +219,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     assert captured["processed_output_root"] == processed_root
     assert captured["auto_project_name_on_scope_mismatch"] is True
 
-def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_plan_mode(
+def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -330,13 +330,10 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
 
     captured_generate: dict[str, object] = {}
     llm_manifest_path = prediction_run / "raw" / "llm" / "book" / "llm_manifest.json"
-    codex_execution_plan_path = prediction_run / "codex_execution_plan.json"
-
     def fake_generate_pred_run_artifacts(**kwargs):
         captured_generate.update(kwargs)
         llm_manifest_path.parent.mkdir(parents=True, exist_ok=True)
         llm_manifest_path.write_text("{}", encoding="utf-8")
-        codex_execution_plan_path.write_text("{}", encoding="utf-8")
         (prediction_run / "manifest.json").write_text(
             json.dumps(
                 {
@@ -376,7 +373,6 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
             "processed_report_path": "",
             "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
-            "codex_execution_plan_path": codex_execution_plan_path,
             "run_config": {
                 "selective_retry_attempted": True,
                 "selective_retry_recipe_correction_attempts": 1,
@@ -404,10 +400,6 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        llm_recipe_pipeline="codex-recipe-shard-v1",
-        codex_execution_policy="plan",
-        codex_farm_model="gpt-5.3-codex-spark",
-        codex_farm_reasoning_effort="low",
         write_markdown=False,
         write_label_studio_tasks=False,
         pdf_ocr_policy="always",
@@ -421,11 +413,9 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     assert captured_generate["write_label_studio_tasks"] is False
     assert captured_generate["pdf_ocr_policy"] == "always"
     assert captured_generate["pdf_column_gap_ratio"] == 0.21
-    assert captured_generate["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert captured_generate["llm_recipe_pipeline"] == "off"
     assert captured_generate["allow_codex"] is False
-    assert captured_generate["codex_execution_policy"] == "plan"
-    assert captured_generate["codex_farm_model"] == "gpt-5.3-codex-spark"
-    assert captured_generate["codex_farm_reasoning_effort"] == "low"
+    assert captured_generate["codex_execution_policy"] == "execute"
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
     run_manifest_path = eval_root / "run_manifest.json"
@@ -435,21 +425,16 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
-    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
-    assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "plan"
-    assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "plan"
-    assert run_manifest["run_config"]["codex_execution_plan_only"] is True
+    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "off"
+    assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "execute"
+    assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "not_required"
     assert run_manifest["run_config"]["codex_execution_live_llm_allowed"] is False
     assert run_manifest["run_config"]["codex_decision_context"] == "labelstudio_benchmark"
-    assert run_manifest["run_config"]["codex_decision_allowed"] is False
-    assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == ["recipe"]
-    assert run_manifest["run_config"]["codex_farm_model"] == "gpt-5.3-codex-spark"
-    assert run_manifest["run_config"]["codex_farm_reasoning_effort"] == "low"
+    assert run_manifest["run_config"]["codex_decision_allowed"] is True
+    assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == []
     assert run_manifest["run_config"]["atomic_block_splitter"] == "off"
     assert run_manifest["run_config"]["line_role_pipeline"] == "off"
-    assert run_manifest["artifacts"]["prediction_codex_execution_plan_json"].endswith(
-        "codex_execution_plan.json"
-    )
+    assert "prediction_codex_execution_plan_json" not in run_manifest["artifacts"]
     assert (
         run_manifest["run_config"]["prediction_run_config"]["selective_retry_attempted"]
         is True
@@ -466,11 +451,13 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
         ]
         == 1
     )
-    assert "recipe_manifest_json" not in run_manifest["artifacts"]
+    assert run_manifest["artifacts"]["recipe_manifest_json"].endswith(
+        "raw/llm/book/llm_manifest.json"
+    )
     assert "eval_report_md" not in run_manifest["artifacts"]
     assert not (eval_root / "eval_report.md").exists()
     upload_bundle_dir = eval_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
-    assert not upload_bundle_dir.exists()
+    assert upload_bundle_dir.exists()
 
 def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

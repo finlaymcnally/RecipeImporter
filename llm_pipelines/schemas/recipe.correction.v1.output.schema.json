@@ -18,7 +18,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["v", "rid", "cr", "m", "mr", "g", "w"],
+        "required": ["v", "rid", "st", "sr", "cr", "m", "mr", "g", "w"],
         "properties": {
           "v": {
             "type": "string",
@@ -28,8 +28,15 @@
             "type": "string",
             "minLength": 1
           },
+          "st": {
+            "type": "string",
+            "enum": ["repaired", "fragmentary", "not_a_recipe"]
+          },
+          "sr": {
+            "type": ["string", "null"]
+          },
           "cr": {
-            "type": "object",
+            "type": ["object", "null"],
             "additionalProperties": false,
             "required": ["t", "i", "s", "d", "y"],
             "properties": {

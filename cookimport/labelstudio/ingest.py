@@ -39,7 +39,6 @@ from cookimport.config.codex_decision import (
     apply_codex_execution_policy_metadata,
     bucket1_fixed_behavior,
     resolve_codex_execution_policy,
-    write_codex_execution_plan,
 )
 from cookimport.core.progress_messages import (
     format_task_counter,
@@ -57,10 +56,7 @@ from cookimport.core.reporting import (
     finalize_report_totals,
 )
 from cookimport.core.scoring import summarize_recipe_likeness
-from cookimport.llm.codex_farm_orchestrator import (
-    build_codex_farm_recipe_execution_plan,
-    run_codex_farm_recipe_pipeline,
-)
+from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
     run_codex_farm_nonrecipe_knowledge_review,
 )
@@ -68,9 +64,6 @@ from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.prompt_budget import (
     build_prediction_run_prompt_budget_summary,
     write_prediction_run_prompt_budget_summary,
-)
-from cookimport.parsing.canonical_line_roles import (
-    build_line_role_codex_execution_plan,
 )
 from cookimport.parsing.label_source_of_truth import (
     LabelFirstStageResult,
@@ -2322,11 +2315,10 @@ def generate_pred_run_artifacts(
     )
     archive = list(prepared_archive.blocks)
     book_id = result.workbook or path.stem
-    imported_result = result
     authoritative_label_result: LabelFirstStageResult | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     stage7_block_rows: list[dict[str, Any]] = []
-    if processed_output_root is None or codex_execution.plan_only:
+    if processed_output_root is None:
         authoritative_label_result = build_label_first_stage_result(
             conversion_result=result,
             source_file=path,
@@ -2358,135 +2350,6 @@ def generate_pred_run_artifacts(
             result=result,
             atomic_block_splitter=run_settings.atomic_block_splitter.value,
         )
-    if codex_execution.plan_only and codex_execution.surface.any_codex_enabled:
-        planned_work: dict[str, Any] = {
-            "source_analysis": {
-                "archive_block_count": len(archive),
-                "recipe_count": len(result.recipes),
-            }
-        }
-        if run_settings.llm_recipe_pipeline.value != "off":
-            recipe_plan_result = (
-                imported_result
-                if not result.recipes and imported_result.recipes
-                else result
-            )
-            planned_work["recipe_codex_farm"] = build_codex_farm_recipe_execution_plan(
-                conversion_result=recipe_plan_result,
-                run_settings=run_settings,
-                workbook_slug=book_slug,
-            )
-        if run_settings.llm_knowledge_pipeline.value != "off":
-            if stage7_block_rows:
-                result.chunks = chunks_from_non_recipe_blocks(stage7_block_rows)
-            elif result.topic_candidates:
-                result.chunks = chunks_from_topic_candidates(result.topic_candidates)
-            planned_work["nonrecipe_knowledge_review"] = {
-                "enabled": True,
-                "pipeline": run_settings.llm_knowledge_pipeline.value,
-                "pipeline_id": run_settings.codex_farm_pipeline_knowledge,
-                "context_blocks": run_settings.codex_farm_knowledge_context_blocks,
-                "chunk_count": len(result.chunks),
-                "non_recipe_block_count": len(stage7_block_rows),
-                "knowledge_span_count": (
-                    len(nonrecipe_stage_result.knowledge_spans)
-                    if nonrecipe_stage_result is not None
-                    else 0
-                ),
-            }
-        if run_settings.line_role_pipeline.value != "off":
-            planned_work["line_role"] = build_line_role_codex_execution_plan(
-                line_role_candidates,
-                run_settings,
-            )
-        if prelabel:
-            planned_work["prelabel"] = {
-                "enabled": True,
-                "provider": normalized_prelabel_provider,
-                "codex_backend": "codexfarm",
-                "codex_farm_pipeline_id": "prelabel.freeform.v1",
-                "granularity": normalized_prelabel_granularity,
-                "archive_block_count": len(archive),
-            }
-        codex_plan_path = write_codex_execution_plan(
-            run_root=run_root,
-            policy=codex_execution,
-            run_config=run_config,
-            planned_work=planned_work,
-            source_path=str(path),
-            source_hash=file_hash,
-            importer_name=importer.name,
-            notes=(
-                "Prediction-run planning preview only. Deterministic extraction and "
-                "planning completed, but no live Codex calls or Label Studio task "
-                "generation were performed."
-            ),
-        )
-        manifest = {
-            "schema_version": 1,
-            "path": str(path),
-            "file_hash": file_hash,
-            "pipeline": importer.name,
-            "run_started_at": timestamp,
-            "codex_execution_plan_only": True,
-            "tasks_total": 0,
-            "tasks_jsonl_status": "skipped_plan_only",
-            "coverage": None,
-            "timing": {
-                "prediction_seconds": max(0.0, time.monotonic() - run_started),
-                "total_seconds": max(0.0, time.monotonic() - run_started),
-            },
-            "run_config": run_config,
-            "run_config_hash": run_config_hash,
-            "run_config_summary": run_config_summary,
-            "codex_execution_plan_path": str(codex_plan_path),
-        }
-        manifest_path = run_root / "manifest.json"
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        run_manifest_payload = RunManifest(
-            run_kind=run_manifest_kind,
-            run_id=run_root.name,
-            created_at=run_dt.isoformat(timespec="seconds"),
-            source=RunSource(
-                path=str(path),
-                source_hash=file_hash,
-                importer_name=importer.name,
-            ),
-            run_config=run_config,
-            artifacts={
-                "prediction_manifest_json": "manifest.json",
-                "tasks_jsonl_status": "skipped_plan_only",
-                "codex_execution_plan_json": "codex_execution_plan.json",
-            },
-            notes=(
-                "Plan-only Codex preview run. Deterministic extraction completed, "
-                "but no live Codex execution or task-generation artifacts were produced."
-            ),
-        )
-        _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
-        return {
-            "run_root": run_root,
-            "processed_run_root": None,
-            "processed_report_path": None,
-            "stage_block_predictions_path": None,
-            "line_role_pipeline_line_role_predictions_path": None,
-            "line_role_pipeline_projected_spans_path": None,
-            "tasks_total": 0,
-            "tasks_jsonl_status": "skipped_plan_only",
-            "manifest_path": manifest_path,
-            "run_config": run_config,
-            "run_config_hash": run_config_hash,
-            "run_config_summary": run_config_summary,
-            "source_hash": file_hash,
-            "importer_name": importer.name,
-            "timing": manifest["timing"],
-            "codex_execution_plan_only": True,
-            "codex_execution_plan_path": codex_plan_path,
-        }
-
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
     _notify_scheduler_event_callback(
         scheduler_event_callback,

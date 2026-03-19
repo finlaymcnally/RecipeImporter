@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .codex_farm_runner import CodexFarmPipelineRunResult
-from .recipe_tagging_guide import build_recipe_tagging_guide
+from .codex_farm_knowledge_contracts import (
+    knowledge_input_block_index,
+    knowledge_input_block_text,
+    knowledge_input_blocks,
+    knowledge_input_bundle_id,
+    knowledge_input_chunk_id,
+    knowledge_input_chunks,
+)
+from .recipe_tagging_guide import build_recipe_tagging_guide, recipe_tagging_guide_categories
 
 OutputBuilder = Callable[[dict[str, Any] | str], dict[str, Any]]
 
@@ -86,18 +94,16 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
     if pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1"}:
         if not isinstance(payload, dict):
             raise ValueError("knowledge fake payload must be a JSON object")
-        chunks = payload.get("chunks") or []
+        chunks = knowledge_input_chunks(payload)
         chunk_results = []
         for chunk in chunks:
-            if not isinstance(chunk, dict):
-                continue
-            chunk_id = chunk.get("chunk_id")
-            chunk_blocks = chunk.get("blocks") or []
+            chunk_id = knowledge_input_chunk_id(chunk)
+            chunk_blocks = knowledge_input_blocks(chunk)
             first_block = (
                 chunk_blocks[0] if isinstance(chunk_blocks, list) and chunk_blocks else {}
             )
-            block_index = first_block.get("block_index", 0)
-            block_text = str(first_block.get("text") or "").strip()
+            block_index = knowledge_input_block_index(first_block) or 0
+            block_text = knowledge_input_block_text(first_block).strip()
             quote = block_text[:80].strip() or "evidence"
             chunk_results.append(
                 {
@@ -105,7 +111,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                     "u": True,
                     "d": [
                         {
-                            "i": int(block.get("block_index", 0)),
+                            "i": int(knowledge_input_block_index(block) or 0),
                             "c": "knowledge",
                         }
                         for block in chunk_blocks
@@ -128,7 +134,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             )
         return {
             "v": "2",
-            "bid": payload.get("bundle_id"),
+            "bid": knowledge_input_bundle_id(payload),
             "r": chunk_results,
         }
     if pipeline_id == "line-role.canonical.v1":
@@ -188,6 +194,7 @@ def _extract_atomic_indices(payload: dict[str, Any] | str) -> list[int]:
 def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]:
     canonical_text = str(payload.get("canonical_text", payload.get("txt")) or "").strip()
     evidence_rows = payload.get("evidence_rows", payload.get("ev"))
+    recipe_hint = payload.get("recipe_candidate_hint", payload.get("h")) or {}
     first_line = canonical_text.splitlines()[0].strip() if canonical_text else ""
     if not first_line and isinstance(evidence_rows, list):
         for row in evidence_rows:
@@ -196,8 +203,10 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
             first_line = str(row[1] or "").strip()
             if first_line:
                 break
-    recipe_name = first_line or str(
-        payload.get("recipe_id", payload.get("rid")) or "Untitled Recipe"
+    recipe_name = (
+        str((recipe_hint or {}).get("n") or (recipe_hint or {}).get("name") or "").strip()
+        or first_line
+        or str(payload.get("recipe_id", payload.get("rid")) or "Untitled Recipe")
     )
     recipe_lines = [line.strip() for line in canonical_text.splitlines() if line.strip()]
     if len(recipe_lines) <= 1 and isinstance(evidence_rows, list):
@@ -207,12 +216,14 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
             if isinstance(row, list | tuple) and len(row) >= 2 and str(row[1] or "").strip()
         ]
     body_lines = recipe_lines[1:] if len(recipe_lines) > 1 else recipe_lines[:]
-    ingredients = body_lines[:1]
-    steps = body_lines[1:] if len(body_lines) > 1 else body_lines[:1]
+    ingredients = list((recipe_hint or {}).get("i") or (recipe_hint or {}).get("recipeIngredient") or body_lines[:1])
+    steps = list((recipe_hint or {}).get("s") or (recipe_hint or {}).get("recipeInstructions") or (body_lines[1:] if len(body_lines) > 1 else body_lines[:1]))
     selected_tags = _select_recipe_tags(payload)
     return {
         "v": "1",
         "rid": payload.get("recipe_id", payload.get("rid")),
+        "st": "repaired",
+        "sr": None,
         "cr": {
             "t": recipe_name,
             "d": None,
@@ -231,28 +242,22 @@ def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:
     guide = payload.get("tagging_guide", payload.get("tg"))
     if not isinstance(guide, dict):
         guide = build_recipe_tagging_guide()
-    categories = guide.get("categories")
-    if not isinstance(categories, list):
+    categories = recipe_tagging_guide_categories(guide)
+    if not categories:
         return []
 
+    recipe_hint = payload.get("recipe_candidate_hint", payload.get("h")) or {}
     combined_text = " ".join(
         [
             str(payload.get("canonical_text", payload.get("txt")) or ""),
-            json.dumps(
-                payload.get("recipe_candidate_hint", payload.get("h")) or {},
-                sort_keys=True,
-            ),
+            json.dumps(recipe_hint, sort_keys=True),
         ]
     ).lower()
     selected: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for category in categories:
-        if not isinstance(category, dict):
-            continue
         key = str(category.get("key") or "").strip()
         examples = category.get("examples")
-        if not key or not isinstance(examples, list):
-            continue
         for example in examples:
             rendered = str(example or "").strip()
             if not rendered:

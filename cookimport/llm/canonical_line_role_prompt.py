@@ -41,6 +41,10 @@ Negative rules (must-not-do):
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
 - Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
+- `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
+- Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
+- Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
+- If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -78,6 +82,14 @@ Few-shot examples:
 9) Context: inside recipe, primary recipe heading
    Line: `A PORRIDGE OF LOVAGE STEMS`
    Label: `RECIPE_TITLE`
+
+10) Context: cookbook concept heading introducing explanatory prose
+    Line: `Cooking Acids`
+    Label: `KNOWLEDGE`
+
+11) Context: front matter or navigation heading
+    Line: `Acknowledgments`
+    Label: `OTHER`
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:
@@ -193,7 +205,13 @@ def build_canonical_line_role_file_prompt(
     template = _load_prompt_template(
         template_path=_FILE_PROMPT_TEMPLATE_PATH,
         fallback=(
-            "Execute the line-role labeling task exactly.\n\n"
+            "You are reviewing deterministic canonical line-role labels for cookbook atomic lines.\n\n"
+            "Task boundary:\n"
+            "- This is a grounded label-correction pass over one ordered contiguous slice of the book.\n"
+            "- Read the worker-local task file at `{{INPUT_PATH}}`.\n"
+            "- Use only that task file as evidence.\n"
+            "- Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth.\n"
+            "- Never invent lines or labels.\n\n"
             "Return strict JSON with this exact shape:\n"
             '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
             "Task file shape:\n"
@@ -201,6 +219,7 @@ def build_canonical_line_role_file_prompt(
             "Rules:\n"
             "- Output only JSON.\n"
             "- Use only the keys `rows`, `atomic_index`, and `label`.\n"
+            "- Return one result for every input row.\n"
             "- Keep row order exactly as requested by the task file.\n"
             "- Treat the task file as one ordered contiguous slice of the book.\n"
             "- The task file has one version marker `v`, one `shard_id`, and compact `rows` tuples.\n"
@@ -208,8 +227,22 @@ def build_canonical_line_role_file_prompt(
             "- Label codes: {{LABEL_CODE_LEGEND}}.\n"
             "- Use each row's tuple slot 2 (`current_line`) as the line to label.\n"
             "- Use neighboring rows in `rows[*]` for local context when needed.\n"
-            "- Read the task file already placed in the worker folder at `{{INPUT_PATH}}`.\n"
-            "- Use only that task file as evidence.\n\n"
+            "- Label distinctions that matter:\n"
+            "  - `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
+            "  - `INSTRUCTION_LINE`: imperative action sentences, even when they include time.\n"
+            "  - `TIME_LINE`: stand-alone timing/temperature lines, not full instruction sentences.\n"
+            "  - `HOWTO_SECTION`: recipe-internal subsection headings that split one recipe into component ingredient lists or step families, such as `FOR THE SAUCE`, `FOR THE DRESSING`, `TO FINISH`, or `FOR SERVING`.\n"
+            "  - `RECIPE_VARIANT`: alternate recipe names or variant headers inside a recipe.\n"
+            "  - `KNOWLEDGE`: explanatory/reference prose, not ordinary recipe structure.\n"
+            "  - `OTHER`: navigation, memoir, marketing, dedications, table of contents, or decorative matter.\n"
+            "- Negative rules:\n"
+            "  - Never label a quantity/unit ingredient line as `KNOWLEDGE`.\n"
+            "  - Never label an imperative instruction sentence as `KNOWLEDGE`.\n"
+            "  - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.\n"
+            "  - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.\n"
+            "  - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.\n"
+            "  - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.\n"
+            "  - Dedications, front matter, and table-of-contents entries are usually `OTHER`.\n\n"
             "Task file path:\n"
             "{{INPUT_PATH}}\n"
         ),

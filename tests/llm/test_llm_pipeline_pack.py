@@ -12,18 +12,24 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
     pack_root = repo_root / "llm_pipelines"
     pipelines_dir = pack_root / "pipelines"
 
-    pipeline_ids = (
-        "recipe.correction.compact.v1",
-        RunSettings().codex_farm_pipeline_knowledge,
-    )
+    pipeline_expectations = {
+        "recipe.correction.compact.v1": {
+            "prompt_input_mode": "inline",
+            "prompt_contains": "{{INPUT_TEXT}}",
+        },
+        RunSettings().codex_farm_pipeline_knowledge: {
+            "prompt_input_mode": "path",
+            "prompt_contains": "Review non-recipe cookbook text",
+        },
+    }
 
-    for pipeline_id in pipeline_ids:
+    for pipeline_id, expected in pipeline_expectations.items():
         pipeline_path = pipelines_dir / f"{pipeline_id}.json"
         assert pipeline_path.exists(), f"Missing pipeline spec: {pipeline_path}"
 
         payload = json.loads(pipeline_path.read_text(encoding="utf-8"))
         assert payload.get("pipeline_id") == pipeline_id
-        assert payload.get("prompt_input_mode") == "path"
+        assert payload.get("prompt_input_mode") == expected["prompt_input_mode"]
 
         prompt_rel = payload.get("prompt_template_path")
         schema_rel = payload.get("output_schema_path")
@@ -36,4 +42,4 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
         assert schema_path.exists(), f"Missing output schema: {schema_path}"
 
         prompt_text = prompt_path.read_text(encoding="utf-8")
-        assert "{{INPUT_PATH}}" in prompt_text
+        assert expected["prompt_contains"] in prompt_text

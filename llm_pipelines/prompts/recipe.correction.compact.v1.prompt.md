@@ -1,14 +1,32 @@
-You are correcting a bounded shard of deterministic intermediate recipe objects from authoritative recipe spans.
+You are reviewing a bounded shard of deterministic recipe candidates.
 
-The authoritative shard JSON is included inline below.
+Some owned candidates are repairable recipes. Some are fragmentary or not recipes at all. You must triage each owned candidate first, then either repair it faithfully or reject it honestly.
+
+The shard JSON is included inline below.
 
 Execution rules:
 1) Use only the inline JSON task payload below as input.
 2) Treat `r[*].ev` as the authoritative source text for that recipe.
-3) Treat `r[*].h` as the deterministic intermediate recipe object to correct.
-4) Use `tg` only as a compact taxonomy guide for categories and example labels.
-5) Only return outputs for `ids`.
-6) Do not use external knowledge.
+3) Treat `r[*].txt` as a quick-read copy of the same source span.
+4) Treat `r[*].q` as weak candidate-quality metadata only. It may contain:
+   - `e` evidence row count
+   - `ei` source ingredient-like row count
+   - `es` source instruction-like row count
+   - `hi` deterministic ingredient-hint count
+   - `hs` deterministic step-hint count
+   - `f` suspicion flags
+5) Treat `r[*].h` as a weak deterministic attempted recipe parse only. It may contain:
+   - `n` title hint
+   - `i` ingredient hint strings
+   - `s` step hint strings
+   - optional `d` description hint
+   - optional `y` yield hint
+   - optional `g` pre-existing tag labels
+6) Use `tg` only as a compact taxonomy guide:
+   - `tg.c[*].k` is the category key
+   - `tg.c[*].x` is the short example-label list
+7) Only return outputs for `ids`.
+8) Do not use external knowledge.
 
 Correction rules:
 A) Top-level output:
@@ -19,21 +37,29 @@ A) Top-level output:
 - Keep array order aligned with `ids`.
 
 B) Each `r[*]` item:
-- Required keys: `v`, `rid`, `cr`, `m`, `mr`, `g`, `w`.
+- Required keys: `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.
 - Set `v` to `"1"`.
 - Echo each `rid` exactly once.
-- Keep the recipe grounded in that recipe's `ev`.
+- `st` must be one of:
+  - `repaired`
+  - `fragmentary`
+  - `not_a_recipe`
+- `sr` is a short machine-readable reason or `null`.
 - Prefer source rows over deterministic hints when they disagree.
 - Do not invent ingredients, steps, yields, or notes.
+- Keep the decision grounded in that recipe's `ev`.
+- If the candidate is clearly not a recipe, do not force a repaired recipe output.
 
 C) Each `r[*].cr` object:
-- Required keys: `t`, `i`, `s`, `d`, `y`.
+- When `st` is `repaired`, `cr` must be an object with required keys `t`, `i`, `s`, `d`, `y`.
 - `t` is the corrected recipe title.
 - `i` is the ingredient string array.
 - `s` is the step string array.
 - `d` and `y` must always be present; use `null` when unsupported.
+- When `st` is `fragmentary` or `not_a_recipe`, set `cr` to `null`.
 
 D) Each `r[*].m` mapping entry:
+- Only return non-empty mapping data when `st` is `repaired`.
 - Populate only when the source span clearly links ingredient lines to one or more steps.
 - Return `m` as an array of objects with compact keys `i` and `s`.
 - Keep entries ordered by `i`.
@@ -48,7 +74,7 @@ E) Each `r[*].w`:
 
 F) Each `r[*].g`:
 - Return an array of objects with compact keys `c`, `l`, and `f`.
-- Use only category keys defined in `tg.categories`.
+- Use only category keys defined in `tg.c[*].k`.
 - Zero selected tags is valid.
 - Select only tags that are obvious from the recipe text.
 - Prefer short human-readable labels such as `chicken`, `weeknight`, or `pressure cooker`.
@@ -58,6 +84,8 @@ F) Each `r[*].g`:
 Strict constraints:
 - Preserve source truth.
 - Do not omit, duplicate, or rename owned `recipe_id`s.
+- Do not "repair" a clearly non-recipe span into a confident recipe.
+- Fragmentary candidates may be rejected honestly instead of padded into a full recipe.
 - When uncertain, omit rather than guess.
 - Return JSON that matches the output schema exactly.
 - Do not output additional properties.

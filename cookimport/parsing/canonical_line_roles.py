@@ -590,50 +590,6 @@ def label_atomic_lines_with_baseline(
     )
 
 
-def build_line_role_codex_execution_plan(
-    candidates: Sequence[AtomicLineCandidate],
-    settings: RunSettings,
-    *,
-    codex_batch_size: int = LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
-) -> dict[str, Any]:
-    ordered = list(candidates)
-    mode = _line_role_pipeline_name(settings)
-    if mode != LINE_ROLE_PIPELINE_SHARD_V1:
-        return {
-            "enabled": False,
-            "pipeline": mode,
-            "candidate_count": len(ordered),
-            "planned_shard_count": 0,
-            "planned_candidate_count": 0,
-            "shards": [],
-        }
-    deterministic_baseline = _build_line_role_deterministic_baseline(
-        ordered_candidates=ordered
-    )
-    shard_plans = _build_line_role_canonical_plans(
-        ordered_candidates=ordered,
-        deterministic_baseline=deterministic_baseline,
-        settings=settings,
-        codex_batch_size=codex_batch_size,
-    )
-    internal_phases = [_line_role_execution_plan_phase(shard_plans)]
-
-    return {
-        "enabled": True,
-        "pipeline": mode,
-        "candidate_count": len(ordered),
-        "planned_candidate_count": len(ordered),
-        "planned_shard_count": int(internal_phases[0]["planned_shard_count"]),
-        "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
-            settings=settings,
-            codex_batch_size=codex_batch_size,
-            total_candidates=len(ordered),
-        ),
-        "internal_phases": internal_phases,
-        "shards": internal_phases[0]["shards"] if internal_phases else [],
-    }
-
-
 def _build_line_role_deterministic_baseline(
     *,
     ordered_candidates: Sequence[AtomicLineCandidate],

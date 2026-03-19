@@ -367,8 +367,10 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         "recipe_llm_correct_and_link",
     }
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
-    assert "The authoritative shard JSON is included inline below." in recipe_row["rendered_prompt_text"]
-    assert '"sid": "recipe-preview-shard-0001-r0"' in recipe_row["rendered_prompt_text"]
+    assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
+    assert "authoritative recipe spans" not in recipe_row["rendered_prompt_text"]
+    assert "triage each owned candidate first" in recipe_row["rendered_prompt_text"]
+    assert '"sid":"recipe-preview-shard-0001-r0"' in recipe_row["rendered_prompt_text"]
     assert recipe_row["runtime_shard_id"] == "recipe-preview-shard-0001-r0"
     assert recipe_row["runtime_worker_id"] == "worker-001"
     assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
@@ -384,13 +386,20 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         ).read_text(encoding="utf-8")
     )
     assert "draft_hint" not in recipe_input_payload
-    assert "provenance" not in recipe_input_payload["r"][0]["h"]
-    assert recipe_input_payload["tg"]["version"] == "recipe_tagging_guide.v1"
+    assert recipe_input_payload["r"][0]["h"] == {
+        "n": "Ambiguous title-ish line",
+        "i": ["1 cup flour"],
+    }
+    assert recipe_input_payload["r"][0]["q"]["e"] == 2
+    assert recipe_input_payload["r"][0]["q"]["es"] == 0
+    assert "source_no_instruction_lines" in recipe_input_payload["r"][0]["q"]["f"]
+    assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v2"
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
-    assert "Execute the line-role labeling task exactly." in line_role_row["rendered_prompt_text"]
+    assert "You are reviewing deterministic canonical line-role labels" in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
+    assert "Return one result for every input row." in line_role_row["rendered_prompt_text"]
     assert line_role_row["request_input_payload"]["v"] == 1
     assert [row[0] for row in line_role_row["request_input_payload"]["rows"]] == [
         0,
@@ -482,19 +491,15 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
 
     live_knowledge_input = run_dir / "raw" / "llm" / workbook_slug / "knowledge" / "in" / "live_knowledge.json"
     live_knowledge_payload = {
-        "bundle_version": "2",
-        "bundle_id": "fixturebook.kb9999.nr",
-        "chunks": [
+        "v": "2",
+        "bid": "fixturebook.kb9999.nr",
+        "c": [
             {
-                "chunk_id": "fixturebook.c9999.nr",
-                "block_start_index": 7,
-                "block_end_index": 8,
-                "blocks": [{"block_index": 7, "text": "Live knowledge block."}],
-                "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
+                "cid": "fixturebook.c9999.nr",
+                "b": [{"i": 7, "t": "Live knowledge block."}],
+                "h": {"l": "knowledge", "f": "mixed"},
             }
         ],
-        "context": {"blocks_before": [], "blocks_after": []},
-        "guardrails": {"context_recipe_block_indices": []},
     }
     _write_json(live_knowledge_input, live_knowledge_payload)
 
@@ -513,7 +518,7 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
         if line.strip()
     ]
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
-    assert "The authoritative shard JSON is included inline below." in recipe_row["rendered_prompt_text"]
+    assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
     assert "LIVE canonical text" not in recipe_row["request_input_text"]
     assert recipe_row["recipe_id"] == "urn:recipe:test:r0"
     assert not any(

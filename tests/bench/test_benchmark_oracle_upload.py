@@ -15,10 +15,54 @@ from cookimport.bench import oracle_upload
 runner = CliRunner()
 
 
-def _make_bundle(bundle_dir: Path) -> Path:
+def _make_bundle(
+    bundle_dir: Path,
+    *,
+    run_count: int = 1,
+    pair_count: int = 0,
+    changed_lines_total: int = 0,
+) -> Path:
     bundle_dir.mkdir(parents=True, exist_ok=True)
-    for file_name in oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
-        (bundle_dir / file_name).write_text(f"{file_name}\n", encoding="utf-8")
+    source_root = bundle_dir.parent
+    (bundle_dir / "upload_bundle_overview.md").write_text(
+        "\n".join(
+            [
+                "# Upload Bundle Overview",
+                "",
+                f"- benchmark root: `{source_root}`",
+                f"- run_count = {run_count}",
+                f"- pair_count = {pair_count}",
+                f"- changed_lines_total = {changed_lines_total}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (bundle_dir / "upload_bundle_index.json").write_text(
+        json.dumps(
+            {
+                "topline": {
+                    "run_count": run_count,
+                    "pair_count": pair_count,
+                    "changed_lines_total": changed_lines_total,
+                },
+                "self_check": {
+                    "run_count_verified": True,
+                    "pair_count_verified": True,
+                    "changed_lines_verified": True,
+                    "topline_consistent": True,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
+        '{"path":"row","payload":"benchmark payload"}\n',
+        encoding="utf-8",
+    )
     return bundle_dir
 
 
@@ -113,7 +157,17 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         "--browser-input-timeout",
         "90s",
     ]
-    assert command[10:14] == [
+    assert command[10:24] == [
+        "--browser-reuse-wait",
+        oracle_upload.ORACLE_BROWSER_REUSE_WAIT,
+        "--browser-profile-lock-timeout",
+        oracle_upload.ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT,
+        "--browser-auto-reattach-delay",
+        oracle_upload.ORACLE_BROWSER_AUTO_REATTACH_DELAY,
+        "--browser-auto-reattach-interval",
+        oracle_upload.ORACLE_BROWSER_AUTO_REATTACH_INTERVAL,
+        "--browser-auto-reattach-timeout",
+        oracle_upload.ORACLE_BROWSER_AUTO_REATTACH_TIMEOUT,
         "--browser-attachments",
         "always",
         "--browser-bundle-files",
@@ -136,6 +190,37 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
     assert env["ORACLE_HOME_DIR"] == str(resolved_profile.parent)
     assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(resolved_profile)
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
+
+
+def test_run_oracle_benchmark_upload_adds_chatgpt_target_url_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    monkeypatch.setenv(
+        "COOKIMPORT_ORACLE_CHATGPT_URL",
+        "https://chatgpt.com/g/g-123/project",
+    )
+    captured: dict[str, object] = {}
+
+    def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        return subprocess.CompletedProcess(command, 0, stdout="browser ok\n", stderr="")
+
+    result = oracle_upload.run_oracle_benchmark_upload(
+        target=target,
+        mode="browser",
+        runner=fake_runner,
+    )
+
+    assert result.success is True
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "--chatgpt-url" in command
+    assert "https://chatgpt.com/g/g-123/project" in command
 
 
 def test_run_oracle_benchmark_upload_assembles_dry_run_command(tmp_path: Path) -> None:
@@ -210,7 +295,17 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
         "--browser-input-timeout",
         "90s",
     ]
-    assert result.command[10:14] == [
+    assert result.command[10:24] == [
+        "--browser-reuse-wait",
+        oracle_upload.ORACLE_BROWSER_REUSE_WAIT,
+        "--browser-profile-lock-timeout",
+        oracle_upload.ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT,
+        "--browser-auto-reattach-delay",
+        oracle_upload.ORACLE_BROWSER_AUTO_REATTACH_DELAY,
+        "--browser-auto-reattach-interval",
+        oracle_upload.ORACLE_BROWSER_AUTO_REATTACH_INTERVAL,
+        "--browser-auto-reattach-timeout",
+        oracle_upload.ORACLE_BROWSER_AUTO_REATTACH_TIMEOUT,
         "--browser-attachments",
         "always",
         "--browser-bundle-files",
@@ -290,6 +385,7 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
 
 
 def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
@@ -308,10 +404,18 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
 
     captured: dict[str, object] = {}
 
+    monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+
     class FakePopen:
         def __init__(self, command: list[str], **kwargs: object) -> None:
             captured["command"] = command
             captured["kwargs"] = kwargs
+            log_handle = kwargs["stdout"]
+            assert log_handle is not None
+            log_handle.write(
+                "Session running in background. Reattach via: oracle session test-session-123\n"
+            )
+            log_handle.flush()
             self.pid = 4242
 
     launch = oracle_upload.start_oracle_benchmark_upload_background(
@@ -337,6 +441,16 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     assert metadata["log_path"] == str(launch.log_path)
     assert metadata["mode"] == "browser"
     assert metadata["browser_profile_dir"] == str(launch.browser_profile_dir)
+    assert metadata["oracle_version"] == "0.8.6-test"
+    assert metadata["session_id"] == "test-session-123"
+    assert metadata["reattach_command"] == "oracle session test-session-123"
+    assert metadata["status"] == "running"
+    assert metadata["status_reason"] == "Oracle session launched and awaiting completion."
+    assert launch.oracle_version == "0.8.6-test"
+    assert launch.session_id == "test-session-123"
+    assert launch.reattach_command == "oracle session test-session-123"
+    assert launch.status == "running"
+    assert launch.status_reason == "Oracle session launched and awaiting completion."
     command = captured["command"]
     assert isinstance(command, list)
     file_args = [

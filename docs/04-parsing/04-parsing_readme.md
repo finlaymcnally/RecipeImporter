@@ -111,6 +111,7 @@ Label-first recipe-span note:
 
 - pre-grouping line-role candidates no longer inherit importer recipe provenance. `within_recipe_span` is now `None` until corrected labels are grouped back into spans, and prompt-preview plus Label Studio ingest mirror that same span-free contract.
 - `cookimport/parsing/recipe_span_grouping.py` now treats title-like anchoring as a hard acceptance boundary.
+- Title-anchored spans can now survive one intervening `OTHER`/`KNOWLEDGE` block when the very next block returns to strong recipe-body structure. This preserves real recipes through a single stray misclassified ingredient/prose block without reviving titleless pseudo-recipes.
 - Titleless structured runs remain visible in staging diagnostics as rejected pseudo-recipes, but they are not emitted into `recipe_spans.json` or downstream recipe drafting.
 - Title-only shells with no ingredients, instructions, or yield/time metadata are also rejected after span-to-recipe conversion; title-plus-yield/time stubs still survive so short real recipes are not dropped.
 - Outside importer-held recipe spans, deterministic `INGREDIENT_LINE` and `INSTRUCTION_LINE` labels now require nearby recipe-anchor evidence instead of allowing a small structured cluster to self-justify.

@@ -30,6 +30,9 @@ Output schemas:
 - `schemas/line-role.canonical.v1.output.schema.json`
 - `schemas/prelabel.freeform.v1.output.schema.json`
 
+Structured-output schema rule:
+- At every object level, every key listed in `properties` must also appear in `required`; model optionality with nullable types instead of omitting keys.
+
 To tune pass behavior, edit prompt text files in `prompts/`. The recipe path now uses one compact correction asset, `recipe.correction.compact.v1`, plus the optional knowledge pack.
 
 Recipe correction schemas use native nested JSON objects for recipe payload fields (`canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
