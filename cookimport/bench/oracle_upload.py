@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 
-ORACLE_BROWSER_CMD = "/home/mcnal/.nvm/versions/node/v20.19.6/bin/oracle"
+ORACLE_BROWSER_CMD = "/home/mcnal/.local/bin/oracle"
 ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-oracle-auto"
 ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
 ORACLE_BROWSER_MODEL_STRATEGY = "ignore"
@@ -19,9 +21,26 @@ ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")
 ORACLE_BROWSER_PROFILE_DIR = str(Path(ORACLE_HOME_DIR) / "browser-profile")
 ORACLE_LEGACY_HOME_DIR = str(Path.home() / ".oracle")
 ORACLE_LEGACY_BROWSER_PROFILE_DIR = str(Path(ORACLE_LEGACY_HOME_DIR) / "browser-profile")
-ORACLE_DEFAULT_MODEL = "gpt-5.2"
+ORACLE_DEFAULT_MODEL = os.environ.get(
+    "ORACLE_GENUINE_MODEL",
+    os.environ.get(
+        "ORACLE_PRO_MODEL",
+        os.environ.get(
+            "ORACLE_REVIEW_MODEL",
+            os.environ.get("ORACLE_DEEP_REVIEW_MODEL", "gpt-5.4"),
+        ),
+    ),
+)
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
 ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
+ORACLE_BROWSER_REUSE_WAIT = "5m"
+ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT = "30m"
+ORACLE_BROWSER_AUTO_REATTACH_DELAY = "30s"
+ORACLE_BROWSER_AUTO_REATTACH_INTERVAL = "30s"
+ORACLE_BROWSER_AUTO_REATTACH_TIMEOUT = "120s"
+ORACLE_BACKGROUND_SESSION_POLL_SECONDS = 3.0
+ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS = 0.1
+ORACLE_CHATGPT_URL_ENV = "COOKIMPORT_ORACLE_CHATGPT_URL"
 ORACLE_DRY_RUN_BASE_COMMAND = (
     "npx",
     "-y",
@@ -39,6 +58,16 @@ BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
 ORACLE_UPLOAD_RUNS_DIR_NAME = ".oracle_upload_runs"
 ORACLE_UPLOAD_LOG_FILE_NAME = "oracle_upload.log"
 ORACLE_UPLOAD_METADATA_FILE_NAME = "oracle_upload.json"
+ORACLE_UPLOAD_STATUS_FILE_NAME = "oracle_upload_status.json"
+_ORACLE_SESSION_RE = re.compile(r"oracle session (?P<session_id>[A-Za-z0-9._-]+)")
+_ORACLE_COUNT_RE = re.compile(
+    r"\b(?P<name>run_count|pair_count|changed_lines_total)\s*[:=]\s*(?P<value>\d+)",
+    re.IGNORECASE,
+)
+_ORACLE_ROOT_REF_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}/(?:single-profile-benchmark|single-offline-benchmark)(?:/[A-Za-z0-9._-]+)?"
+)
+_TIMESTAMP_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}")
 
 
 @dataclass(frozen=True)
@@ -58,6 +87,13 @@ class OracleUploadResult:
     returncode: int
     stdout: str
     stderr: str
+    oracle_version: str = ""
+    status: str = ""
+    status_reason: str = ""
+    session_id: str = ""
+    reattach_command: str = ""
+    conversation_url: str = ""
+    conversation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -79,6 +115,33 @@ class OracleBackgroundUploadLaunch:
     pid: int
     note: str = ""
     browser_profile_dir: Path | None = None
+    oracle_version: str = ""
+    status: str = ""
+    status_reason: str = ""
+    session_id: str = ""
+    reattach_command: str = ""
+    conversation_url: str = ""
+    conversation_id: str = ""
+
+
+@dataclass(frozen=True)
+class OracleUploadAudit:
+    status: str
+    status_reason: str
+    session_id: str = ""
+    reattach_command: str = ""
+    conversation_url: str = ""
+    conversation_id: str = ""
+
+
+@dataclass(frozen=True)
+class OracleSessionSnapshot:
+    session_id: str
+    status: str
+    prompt: str
+    created_at: str
+    conversation_url: str = ""
+    conversation_id: str = ""
 
 
 def _infer_bundle_scope(source_root: Path) -> str:
@@ -308,13 +371,20 @@ def _oracle_command(
             ORACLE_BROWSER_CMD,
             "--engine",
             "browser",
-            "--browser-manual-login",
-            "--browser-chrome-path",
-            ORACLE_BROWSER_CHROME_PATH,
             "--browser-model-strategy",
             ORACLE_BROWSER_MODEL_STRATEGY,
             "--browser-input-timeout",
             "90s",
+            "--browser-reuse-wait",
+            ORACLE_BROWSER_REUSE_WAIT,
+            "--browser-profile-lock-timeout",
+            ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT,
+            "--browser-auto-reattach-delay",
+            ORACLE_BROWSER_AUTO_REATTACH_DELAY,
+            "--browser-auto-reattach-interval",
+            ORACLE_BROWSER_AUTO_REATTACH_INTERVAL,
+            "--browser-auto-reattach-timeout",
+            ORACLE_BROWSER_AUTO_REATTACH_TIMEOUT,
             "--browser-attachments",
             "always",
             "--browser-bundle-files",
@@ -323,6 +393,9 @@ def _oracle_command(
             "-p",
             prompt,
         ]
+        chatgpt_url = str(os.environ.get(ORACLE_CHATGPT_URL_ENV) or "").strip()
+        if chatgpt_url:
+            command.extend(["--chatgpt-url", chatgpt_url])
         for file_argument in file_arguments:
             command.extend(["--file", file_argument])
         return command
@@ -385,6 +458,395 @@ def _oracle_browser_env() -> dict[str, str]:
     return env
 
 
+def _detect_oracle_version() -> str:
+    try:
+        completed = subprocess.run(
+            [ORACLE_BROWSER_CMD, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return ""
+    version = str(completed.stdout or completed.stderr or "").strip()
+    return version.splitlines()[0].strip() if version else ""
+
+
+def _read_oracle_upload_bundle_topline(target: OracleBenchmarkBundleTarget) -> dict[str, int]:
+    index_path = target.bundle_dir / "upload_bundle_index.json"
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    topline = payload.get("topline") if isinstance(payload, dict) else None
+    if not isinstance(topline, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for key in ("run_count", "pair_count", "changed_lines_total"):
+        value = topline.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            counts[key] = value
+            continue
+        if isinstance(value, float) and value.is_integer():
+            counts[key] = int(value)
+    return counts
+
+
+def _expected_root_aliases(source_root: Path) -> set[str]:
+    aliases = {str(source_root).strip().replace("\\", "/")}
+    parts = list(source_root.parts)
+    for index, part in enumerate(parts):
+        if _TIMESTAMP_DIR_RE.fullmatch(part):
+            aliases.add("/".join(parts[index:]))
+            break
+    aliases.add(source_root.as_posix())
+    aliases.add(source_root.name)
+    return {alias for alias in aliases if alias}
+
+
+def _parse_oracle_session_metadata(log_text: str) -> tuple[str, str]:
+    matches = list(_ORACLE_SESSION_RE.finditer(log_text))
+    if not matches:
+        return "", ""
+    session_id = matches[-1].group("session_id").strip()
+    if not session_id:
+        return "", ""
+    return session_id, f"oracle session {session_id}"
+
+
+def _extract_answer_block(log_text: str) -> str:
+    marker = "Answer:"
+    index = log_text.rfind(marker)
+    if index < 0:
+        return ""
+    return log_text[index + len(marker) :].strip()
+
+
+def audit_oracle_upload_log(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    log_text: str,
+) -> OracleUploadAudit:
+    session_id, reattach_command = _parse_oracle_session_metadata(log_text)
+    lower_text = log_text.lower()
+    answer_block = _extract_answer_block(log_text)
+
+    if (
+        "chrome disconnected before completion" in lower_text
+        or "assistant response timed out; keeping session running for reattach" in lower_text
+    ):
+        if reattach_command:
+            return OracleUploadAudit(
+                status="reattachable",
+                status_reason="Oracle reported a recoverable browser/session interruption.",
+                session_id=session_id,
+                reattach_command=reattach_command,
+            )
+        return OracleUploadAudit(
+            status="failed",
+            status_reason="Oracle reported a browser/session interruption without a reattach command.",
+        )
+
+    if reattach_command and (
+        "a session with the same prompt is already running" in lower_text
+        or "rerun with --force to start another run" in lower_text
+    ):
+        return OracleUploadAudit(
+            status="reattachable",
+            status_reason="Oracle found an already-running matching session; reattach instead of launching a duplicate.",
+            session_id=session_id,
+            reattach_command=reattach_command,
+        )
+
+    if answer_block:
+        expected_counts = _read_oracle_upload_bundle_topline(target)
+        expected_root_aliases = _expected_root_aliases(target.source_root)
+        observed_roots = {
+            match.group(0).strip().replace("\\", "/")
+            for match in _ORACLE_ROOT_REF_RE.finditer(answer_block)
+        }
+        unexpected_roots = sorted(
+            observed_root
+            for observed_root in observed_roots
+            if not any(
+                alias in observed_root or observed_root in alias
+                for alias in expected_root_aliases
+            )
+        )
+        if unexpected_roots:
+            return OracleUploadAudit(
+                status="invalid_grounding",
+                status_reason=(
+                    "Expected benchmark root "
+                    f"{target.source_root}, but Oracle cited {unexpected_roots[0]}."
+                ),
+                session_id=session_id,
+                reattach_command=reattach_command,
+            )
+
+        observed_counts: dict[str, int] = {}
+        for match in _ORACLE_COUNT_RE.finditer(answer_block):
+            observed_counts[match.group("name").lower()] = int(match.group("value"))
+        for key, expected_value in expected_counts.items():
+            observed_value = observed_counts.get(key)
+            if observed_value is not None and observed_value != expected_value:
+                return OracleUploadAudit(
+                    status="invalid_grounding",
+                    status_reason=(
+                        f"Expected {key} = {expected_value}, but Oracle reported {key} = {observed_value}."
+                    ),
+                    session_id=session_id,
+                    reattach_command=reattach_command,
+                )
+
+        return OracleUploadAudit(
+            status="succeeded",
+            status_reason="Answer block present and grounded in the local bundle.",
+            session_id=session_id,
+            reattach_command=reattach_command,
+        )
+
+    if reattach_command and (
+        "session running in background" in lower_text
+        or "reattach via:" in lower_text
+        or "reattach later with:" in lower_text
+    ):
+        return OracleUploadAudit(
+            status="running",
+            status_reason="Oracle session launched and awaiting completion.",
+            session_id=session_id,
+            reattach_command=reattach_command,
+        )
+
+    return OracleUploadAudit(
+        status="failed",
+        status_reason="Oracle did not produce a grounded answer or recovery path.",
+        session_id=session_id,
+        reattach_command=reattach_command,
+    )
+
+
+def _oracle_upload_status_path(metadata_path: Path) -> Path:
+    return metadata_path.with_name(ORACLE_UPLOAD_STATUS_FILE_NAME)
+
+
+def _persist_oracle_upload_metadata(
+    *,
+    metadata_path: Path,
+    payload: Mapping[str, Any],
+    audit: OracleUploadAudit,
+) -> None:
+    merged_payload = dict(payload)
+    merged_payload["status"] = audit.status
+    merged_payload["status_reason"] = audit.status_reason
+    merged_payload["session_id"] = audit.session_id
+    merged_payload["reattach_command"] = audit.reattach_command
+    merged_payload["conversation_url"] = audit.conversation_url
+    merged_payload["conversation_id"] = audit.conversation_id
+    metadata_path.write_text(
+        json.dumps(merged_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _oracle_upload_status_path(metadata_path).write_text(
+        json.dumps(
+            {
+                "status": audit.status,
+                "status_reason": audit.status_reason,
+                "session_id": audit.session_id,
+                "reattach_command": audit.reattach_command,
+                "conversation_url": audit.conversation_url,
+                "conversation_id": audit.conversation_id,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_oracle_upload_log(
+    *,
+    log_path: Path,
+    note: str,
+    browser_profile_dir: Path | None,
+    command: list[str],
+    stdout: str,
+    stderr: str,
+) -> None:
+    parts: list[str] = []
+    if note:
+        parts.append(note.rstrip())
+    if browser_profile_dir is not None:
+        parts.append(f"Oracle browser profile: {browser_profile_dir}")
+    parts.append(f"Oracle command: {shlex.join(command)}")
+    if stdout:
+        parts.append(stdout.rstrip())
+    if stderr:
+        parts.append(stderr.rstrip())
+    log_text = "\n".join(part for part in parts if part).rstrip()
+    log_path.write_text(log_text + ("\n" if log_text else ""), encoding="utf-8")
+
+
+def _read_log_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+
+def _poll_oracle_background_audit(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    log_path: Path,
+) -> OracleUploadAudit:
+    deadline = time.monotonic() + ORACLE_BACKGROUND_SESSION_POLL_SECONDS
+    latest_log_text = ""
+    while time.monotonic() < deadline:
+        latest_log_text = _read_log_text(log_path)
+        audit = audit_oracle_upload_log(target=target, log_text=latest_log_text)
+        if audit.session_id or audit.status in {"succeeded", "invalid_grounding", "reattachable"}:
+            return audit
+        time.sleep(ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS)
+    return audit_oracle_upload_log(target=target, log_text=latest_log_text)
+
+
+def _background_process_still_running(proc: subprocess.Popen[str]) -> bool:
+    try:
+        return proc.poll() is None
+    except Exception:
+        return False
+
+
+def _oracle_sessions_dir(browser_profile_dir: Path | None) -> Path:
+    if browser_profile_dir is not None:
+        return browser_profile_dir.parent / "sessions"
+    return Path(ORACLE_HOME_DIR).expanduser() / "sessions"
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        normalized = text.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _find_matching_oracle_session_snapshot(
+    *,
+    prompt: str,
+    cwd: Path,
+    sessions_dir: Path,
+    created_after: datetime,
+) -> OracleSessionSnapshot | None:
+    if not sessions_dir.is_dir():
+        return None
+    matches: list[tuple[datetime, OracleSessionSnapshot]] = []
+    for meta_path in sessions_dir.glob("*/meta.json"):
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        created_at_text = str(payload.get("createdAt") or "")
+        created_at = _parse_iso_datetime(created_at_text)
+        if created_at is None or created_at < created_after:
+            continue
+        options_payload = payload.get("options")
+        if not isinstance(options_payload, dict):
+            continue
+        session_prompt = str(options_payload.get("prompt") or "")
+        if session_prompt != prompt:
+            continue
+        session_cwd = str(payload.get("cwd") or "")
+        if session_cwd and Path(session_cwd).resolve(strict=False) != cwd.resolve(strict=False):
+            continue
+        browser_payload = payload.get("browser")
+        runtime_payload = browser_payload.get("runtime") if isinstance(browser_payload, dict) else None
+        conversation_url = (
+            str(runtime_payload.get("tabUrl") or "")
+            if isinstance(runtime_payload, dict)
+            else ""
+        )
+        conversation_id = (
+            str(runtime_payload.get("conversationId") or "")
+            if isinstance(runtime_payload, dict)
+            else ""
+        )
+        snapshot = OracleSessionSnapshot(
+            session_id=str(payload.get("id") or ""),
+            status=str(payload.get("status") or ""),
+            prompt=session_prompt,
+            created_at=created_at_text,
+            conversation_url=conversation_url,
+            conversation_id=conversation_id,
+        )
+        if snapshot.session_id:
+            matches.append((created_at, snapshot))
+    if not matches:
+        return None
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return matches[0][1]
+
+
+def _read_oracle_session_snapshot_by_id(
+    *,
+    session_id: str,
+    sessions_dir: Path,
+) -> OracleSessionSnapshot | None:
+    normalized_id = str(session_id or "").strip()
+    if not normalized_id:
+        return None
+    meta_path = sessions_dir / normalized_id / "meta.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    options_payload = payload.get("options")
+    session_prompt = (
+        str(options_payload.get("prompt") or "")
+        if isinstance(options_payload, dict)
+        else ""
+    )
+    browser_payload = payload.get("browser")
+    runtime_payload = browser_payload.get("runtime") if isinstance(browser_payload, dict) else None
+    conversation_url = (
+        str(
+            (browser_payload.get("conversationUrl") if isinstance(browser_payload, dict) else "")
+            or (runtime_payload.get("tabUrl") if isinstance(runtime_payload, dict) else "")
+            or ""
+        )
+    )
+    conversation_id = (
+        str(
+            (browser_payload.get("conversationId") if isinstance(browser_payload, dict) else "")
+            or (runtime_payload.get("conversationId") if isinstance(runtime_payload, dict) else "")
+            or ""
+        )
+    )
+    return OracleSessionSnapshot(
+        session_id=str(payload.get("id") or normalized_id),
+        status=str(payload.get("status") or ""),
+        prompt=session_prompt,
+        created_at=str(payload.get("createdAt") or ""),
+        conversation_url=conversation_url,
+        conversation_id=conversation_id,
+    )
+
+
 def start_oracle_benchmark_upload_background(
     *,
     target: OracleBenchmarkBundleTarget,
@@ -393,12 +855,14 @@ def start_oracle_benchmark_upload_background(
     popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
 ) -> OracleBackgroundUploadLaunch:
     normalized_mode = mode.strip().lower()
+    launch_started_at = datetime.now(timezone.utc)
     launch_dir = _oracle_background_launch_dir(target.bundle_dir)
     launch_dir.mkdir(parents=True, exist_ok=True)
     log_path = launch_dir / ORACLE_UPLOAD_LOG_FILE_NAME
     metadata_path = launch_dir / ORACLE_UPLOAD_METADATA_FILE_NAME
 
     note = ""
+    session_prompt = build_oracle_benchmark_prompt(target=target)
     if normalized_mode == "browser":
         oversized_files = _oversized_bundle_files(target.bundle_dir)
         if oversized_files:
@@ -415,11 +879,12 @@ def start_oracle_benchmark_upload_background(
                 file_paths=prepared.file_paths,
             )
             note = prepared.note
+            session_prompt = prepared.prompt
         else:
             command = _oracle_command(
                 mode=normalized_mode,
                 model=model,
-                prompt=build_oracle_benchmark_prompt(target=target),
+                prompt=session_prompt,
                 file_paths=[
                     target.bundle_dir / file_name
                     for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
@@ -429,7 +894,7 @@ def start_oracle_benchmark_upload_background(
         command = _oracle_command(
             mode=normalized_mode,
             model=model,
-            prompt=build_oracle_benchmark_prompt(target=target),
+            prompt=session_prompt,
             file_paths=[
                 target.bundle_dir / file_name
                 for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
@@ -444,6 +909,7 @@ def start_oracle_benchmark_upload_background(
         if env is not None and str(env.get("ORACLE_BROWSER_PROFILE_DIR") or "").strip()
         else None
     )
+    oracle_version = _detect_oracle_version()
     with log_path.open("w", encoding="utf-8") as log_handle:
         if note:
             log_handle.write(f"{note}\n")
@@ -461,26 +927,75 @@ def start_oracle_benchmark_upload_background(
             cwd=str(Path.cwd()),
             start_new_session=True,
         )
-    metadata_path.write_text(
-        json.dumps(
-            {
-                "bundle_dir": str(target.bundle_dir),
-                "source_root": str(target.source_root),
-                "scope": target.scope,
-                "mode": normalized_mode,
-                "model": model,
-                "pid": int(proc.pid),
-                "command": command,
-                "log_path": str(log_path),
-                "started_at": _oracle_upload_timestamp(),
-                "note": note,
-                "browser_profile_dir": str(browser_profile_dir) if browser_profile_dir else "",
-            },
-            indent=2,
-            sort_keys=True,
+    metadata_payload = {
+        "bundle_dir": str(target.bundle_dir),
+        "source_root": str(target.source_root),
+        "scope": target.scope,
+        "mode": normalized_mode,
+        "model": model,
+        "pid": int(proc.pid),
+        "command": command,
+        "log_path": str(log_path),
+        "metadata_path": str(metadata_path),
+        "status_path": str(_oracle_upload_status_path(metadata_path)),
+        "started_at": _oracle_upload_timestamp(),
+        "note": note,
+        "browser_profile_dir": str(browser_profile_dir) if browser_profile_dir else "",
+        "oracle_version": oracle_version,
+    }
+    audit = _poll_oracle_background_audit(target=target, log_path=log_path)
+    session_snapshot = _find_matching_oracle_session_snapshot(
+        prompt=session_prompt,
+        cwd=Path.cwd(),
+        sessions_dir=_oracle_sessions_dir(browser_profile_dir),
+        created_after=launch_started_at,
+    )
+    if session_snapshot is not None:
+        if not audit.session_id:
+            audit = OracleUploadAudit(
+                status=audit.status,
+                status_reason=audit.status_reason,
+                session_id=session_snapshot.session_id,
+                reattach_command=f"oracle session {session_snapshot.session_id}",
+                conversation_url=session_snapshot.conversation_url,
+                conversation_id=session_snapshot.conversation_id,
+            )
+        if audit.status == "failed" and session_snapshot.status == "running":
+            audit = OracleUploadAudit(
+                status="running",
+                status_reason="Oracle session is running; session store metadata is available.",
+                session_id=session_snapshot.session_id,
+                reattach_command=f"oracle session {session_snapshot.session_id}",
+                conversation_url=session_snapshot.conversation_url,
+                conversation_id=session_snapshot.conversation_id,
+            )
+    if audit.session_id and not audit.conversation_url:
+        session_snapshot_by_id = _read_oracle_session_snapshot_by_id(
+            session_id=audit.session_id,
+            sessions_dir=_oracle_sessions_dir(browser_profile_dir),
         )
-        + "\n",
-        encoding="utf-8",
+        if session_snapshot_by_id is not None and session_snapshot_by_id.conversation_url:
+            audit = OracleUploadAudit(
+                status=audit.status,
+                status_reason=audit.status_reason,
+                session_id=audit.session_id,
+                reattach_command=audit.reattach_command,
+                conversation_url=session_snapshot_by_id.conversation_url,
+                conversation_id=session_snapshot_by_id.conversation_id,
+            )
+    if audit.status == "failed" and _background_process_still_running(proc):
+        audit = OracleUploadAudit(
+            status="running",
+            status_reason="Oracle process is still running; awaiting session hint or answer.",
+            session_id=audit.session_id,
+            reattach_command=audit.reattach_command,
+            conversation_url=audit.conversation_url,
+            conversation_id=audit.conversation_id,
+        )
+    _persist_oracle_upload_metadata(
+        metadata_path=metadata_path,
+        payload=metadata_payload,
+        audit=audit,
     )
     return OracleBackgroundUploadLaunch(
         mode=normalized_mode,
@@ -493,6 +1008,13 @@ def start_oracle_benchmark_upload_background(
         pid=int(proc.pid),
         note=note,
         browser_profile_dir=browser_profile_dir,
+        oracle_version=oracle_version,
+        status=audit.status,
+        status_reason=audit.status_reason,
+        session_id=audit.session_id,
+        reattach_command=audit.reattach_command,
+        conversation_url=audit.conversation_url,
+        conversation_id=audit.conversation_id,
     )
 
 
@@ -532,38 +1054,131 @@ def run_oracle_benchmark_upload(
                 "the real upload."
             ),
             stderr="",
+            oracle_version=_detect_oracle_version(),
         )
 
     if normalized_mode == "browser":
-        with tempfile.TemporaryDirectory(prefix="oracle-benchmark-upload-") as staging_dir_str:
-            prepared = _prepare_browser_upload_inputs(
-                target=target,
-                staging_dir=Path(staging_dir_str),
-            )
-            command = _oracle_command(
-                mode=normalized_mode,
-                model=model,
-                prompt=prepared.prompt,
-                file_paths=prepared.file_paths,
-            )
-            completed = runner(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                env=_oracle_browser_env(),
-            )
+        oracle_version = _detect_oracle_version()
+        launch_started_at = datetime.now(timezone.utc)
+        launch_dir = _oracle_background_launch_dir(target.bundle_dir)
+        launch_dir.mkdir(parents=True, exist_ok=True)
+        log_path = launch_dir / ORACLE_UPLOAD_LOG_FILE_NAME
+        metadata_path = launch_dir / ORACLE_UPLOAD_METADATA_FILE_NAME
+        staging_dir = launch_dir / "staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        prepared = _prepare_browser_upload_inputs(
+            target=target,
+            staging_dir=staging_dir,
+        )
+        command = _oracle_command(
+            mode=normalized_mode,
+            model=model,
+            prompt=prepared.prompt,
+            file_paths=prepared.file_paths,
+        )
+        env = _oracle_browser_env()
+        browser_profile_dir = (
+            Path(str(env.get("ORACLE_BROWSER_PROFILE_DIR") or "")).expanduser()
+            if str(env.get("ORACLE_BROWSER_PROFILE_DIR") or "").strip()
+            else None
+        )
+        completed = runner(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
         stdout = completed.stdout or ""
         if prepared.note:
             stdout = f"{prepared.note}\n{stdout}" if stdout else prepared.note
+        combined_log = "\n".join(part for part in (stdout, completed.stderr or "") if part)
+        audit = audit_oracle_upload_log(target=target, log_text=combined_log)
+        session_snapshot = _find_matching_oracle_session_snapshot(
+            prompt=prepared.prompt,
+            cwd=Path.cwd(),
+            sessions_dir=_oracle_sessions_dir(browser_profile_dir),
+            created_after=launch_started_at,
+        )
+        if session_snapshot is not None:
+            if not audit.session_id:
+                audit = OracleUploadAudit(
+                    status=audit.status,
+                    status_reason=audit.status_reason,
+                    session_id=session_snapshot.session_id,
+                    reattach_command=f"oracle session {session_snapshot.session_id}",
+                    conversation_url=session_snapshot.conversation_url,
+                    conversation_id=session_snapshot.conversation_id,
+                )
+            elif not audit.conversation_url and session_snapshot.conversation_url:
+                audit = OracleUploadAudit(
+                    status=audit.status,
+                    status_reason=audit.status_reason,
+                    session_id=audit.session_id,
+                    reattach_command=audit.reattach_command,
+                    conversation_url=session_snapshot.conversation_url,
+                    conversation_id=session_snapshot.conversation_id,
+                )
+        if audit.session_id and not audit.conversation_url:
+            session_snapshot_by_id = _read_oracle_session_snapshot_by_id(
+                session_id=audit.session_id,
+                sessions_dir=_oracle_sessions_dir(browser_profile_dir),
+            )
+            if session_snapshot_by_id is not None and session_snapshot_by_id.conversation_url:
+                audit = OracleUploadAudit(
+                    status=audit.status,
+                    status_reason=audit.status_reason,
+                    session_id=audit.session_id,
+                    reattach_command=audit.reattach_command,
+                    conversation_url=session_snapshot_by_id.conversation_url,
+                    conversation_id=session_snapshot_by_id.conversation_id,
+                )
+        _write_oracle_upload_log(
+            log_path=log_path,
+            note=prepared.note,
+            browser_profile_dir=browser_profile_dir,
+            command=command,
+            stdout=completed.stdout or "",
+            stderr=completed.stderr or "",
+        )
+        metadata_payload = {
+            "bundle_dir": str(target.bundle_dir),
+            "source_root": str(target.source_root),
+            "scope": target.scope,
+            "mode": normalized_mode,
+            "model": model,
+            "pid": None,
+            "command": command,
+            "log_path": str(log_path),
+            "metadata_path": str(metadata_path),
+            "status_path": str(_oracle_upload_status_path(metadata_path)),
+            "started_at": _oracle_upload_timestamp(),
+            "note": prepared.note,
+            "browser_profile_dir": str(browser_profile_dir) if browser_profile_dir else "",
+            "oracle_version": oracle_version,
+            "returncode": int(completed.returncode),
+            "launch_dir": str(launch_dir),
+        }
+        _persist_oracle_upload_metadata(
+            metadata_path=metadata_path,
+            payload=metadata_payload,
+            audit=audit,
+        )
         return OracleUploadResult(
-            success=completed.returncode == 0,
+            success=completed.returncode == 0 and audit.status == "succeeded",
             mode=normalized_mode,
             command=command,
             bundle_dir=target.bundle_dir,
             returncode=int(completed.returncode),
             stdout=stdout,
             stderr=completed.stderr or "",
+            oracle_version=oracle_version,
+            status=audit.status,
+            status_reason=audit.status_reason,
+            session_id=audit.session_id,
+            reattach_command=audit.reattach_command,
+            conversation_url=audit.conversation_url,
+            conversation_id=audit.conversation_id,
         )
 
     command = _oracle_command(
@@ -572,6 +1187,7 @@ def run_oracle_benchmark_upload(
         prompt=build_oracle_benchmark_prompt(target=target),
         file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
     )
+    oracle_version = _detect_oracle_version()
     completed = runner(
         command,
         check=False,
@@ -586,4 +1202,5 @@ def run_oracle_benchmark_upload(
         returncode=int(completed.returncode),
         stdout=completed.stdout or "",
         stderr=completed.stderr or "",
+        oracle_version=oracle_version,
     )

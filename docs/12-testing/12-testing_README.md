@@ -155,3 +155,6 @@ Design intent:
 - 2026-03-15: benchmark-helper tests that only need local artifact wiring should stub the offline execute path directly, and mixed `RunSettings` payloads must be projected to live model fields before `RunSettings.from_dict(...)`.
 - 2026-03-16: direct helper seams on live Codex paths need their own fast regression anchors; relying only on slow benchmark coverage leaves routine `fast` runs blind to simple import/env crashes.
 - 2026-03-16: CLI tests like `tests/bench/test_benchmark_oracle_upload.py` should build a minimal `upload_bundle_v1` fixture under `tmp_path` rather than pinning to one checked-in benchmark directory.
+- LLM pack/schema tests now carry two important anti-drift contracts:
+  - strict nested JSON-schema validity has to be checked recursively, not only at the top level
+  - prompt-pack tests must assert per-pipeline transport reality (`inline` versus `path`) instead of freezing one legacy `{{INPUT_PATH}}` expectation across every pipeline

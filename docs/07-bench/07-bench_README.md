@@ -52,12 +52,14 @@ Interactive benchmark wrap-up behavior:
 
 - Single-offline benchmark runs now auto-start Oracle in the background after writing `upload_bundle_v1`, then return immediately instead of waiting on Oracle.
 - Multi-book single-profile benchmark runs do the same for the top-level group `upload_bundle_v1`; per-book bundles are still written but are not auto-uploaded.
-- Detached Oracle runs write `oracle_upload.log` and `oracle_upload.json` under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`. The actual Oracle response, if the run succeeds, is in `oracle_upload.log`.
+- Detached Oracle runs write `oracle_upload.log`, `oracle_upload.json`, and `oracle_upload_status.json` under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`. The actual Oracle response, if the run succeeds, is in `oracle_upload.log`. When the log stays quiet, the wrapper now also falls back to Oracle's own session store under `~/.local/share/oracle/sessions/` to recover the session slug and conversation URL.
 - That detached launch directory is also the persistent staging root for any temporary sharded upload files, so the Oracle subprocess can keep reading them after benchmark wrap-up returns.
-- Interactive terminal wrap-up should stay short and point operators at `oracle_upload.log`; detailed launch metadata already lives beside it in the same launch directory.
-- `cookimport bench oracle-upload <session root or upload_bundle_v1>` remains the manual retry/replay path.
-- benchmark-side Oracle upload now bypasses the drifted local headless wrapper and calls the real Oracle CLI with the known Linux xvfb Chromium launcher plus `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`.
-- the default Oracle browser model target for benchmark upload is now `gpt-5.2`; `--model ...` remains the manual override seam.
+- Interactive terminal wrap-up should stay short and point operators at `oracle_upload.log`, but it should also surface the current Oracle status, `oracle session <id>` reattach command, and conversation URL when available; detailed launch metadata already lives beside it in the same launch directory.
+- `cookimport bench oracle-upload <session root or upload_bundle_v1>` remains the manual retry/replay path, and browser-mode manual runs now persist the same `upload_bundle_v1/.oracle_upload_runs/<timestamp>/` artifact set as the auto-background uploader.
+- benchmark-side Oracle upload now calls the canonical local Oracle wrapper at `/home/mcnal/.local/bin/oracle`, which in turn routes browser runs through the Oracle-owned wrapper stack and the editable `oracle-dev/package` mirror before falling back to the global install.
+- the default Oracle browser model target for benchmark upload now follows `ORACLE_GENUINE_MODEL` and currently falls back to `gpt-5.4`; `ORACLE_PRO_MODEL`, `ORACLE_REVIEW_MODEL`, and `ORACLE_DEEP_REVIEW_MODEL` remain compatibility aliases, and `--model ...` is still the manual override seam.
+- benchmark-side Oracle upload also passes hidden Oracle browser recovery flags (`--browser-reuse-wait`, `--browser-profile-lock-timeout`, `--browser-auto-reattach-*`) and honors `COOKIMPORT_ORACLE_CHATGPT_URL` when set so benchmark uploads can target a dedicated ChatGPT project URL.
+- benchmark-side Oracle trust does not come from exit code alone anymore: the wrapper audits the saved answer against the local bundle root and topline counts and can mark a completed run as `invalid_grounding`.
 
 Important current constraints:
 
@@ -293,6 +295,7 @@ Current bundle rules:
   - prompt budget summaries from `<run>/prompt_budget_summary.json` or `<run>/prediction-run/prompt_budget_summary.json`
   - knowledge manifests from either prediction-run raw LLM outputs or processed-output `raw/llm/*/knowledge_manifest.json`
   - when a required knowledge manifest lives outside the session root, the bundle should mirror it into a derived payload row so `navigation.row_locators.knowledge_by_run` still resolves bundle-locally
+- upload-bundle runtime snapshots should prefer row-level prompt telemetry when it is present, but they must fall back to aggregate prompt-budget stage totals when archived/full-prompt rows are missing token coverage or omit whole stages such as `line_role`
 - new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
@@ -307,7 +310,7 @@ Oracle upload contract:
 
 - the user-facing target can be a session root or an `upload_bundle_v1/` directory
 - the actual upload code targets the three concrete bundle files; browser uploads may temporarily shard oversized files into ordered `partNNN` attachments to get past Oracle's per-file cap without changing the on-disk bundle format
-- the browser upload path now calls Oracle with one machine-wide auto Chromium launcher, `/home/mcnal/.local/bin/chromium-oracle-auto`, plus `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`
+- the browser upload path now enters through the canonical local Oracle wrapper at `/home/mcnal/.local/bin/oracle`; the browser wrapper layer still uses one machine-wide auto Chromium launcher, `/home/mcnal/.local/bin/chromium-oracle-auto`, plus `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`
 - that launcher opens visible Chromium when a usable display exists and falls back to `chromium-nosandbox-xvfb` otherwise, so the same benchmark upload path works both from interactive shells and from the agent shell
 - browser uploads use the canonical Oracle browser profile at `~/.local/share/oracle/browser-profile`; the legacy `~/.oracle/browser-profile` path is now only a compatibility symlink to that same directory
 - browser uploads now pass `--browser-model-strategy ignore`, so Oracle stops failing on stale picker labels and leaves the current/manual ChatGPT model alone instead of trying to auto-switch it
@@ -429,3 +432,8 @@ Primary benchmark modules:
   - knowledge harvest
 - Reviewer-facing trace summaries should be derived from the merged `prompts/full_prompt_log.jsonl`, not from a second raw-trace discovery path.
 - Oracle shared-profile browser failures can look like a fresh-port `ECONNREFUSED` problem even when Chromium is already alive. If upload starts failing after bundle generation succeeds, inspect shared-profile reuse (`DevToolsActivePort`, stale `chrome.pid`, singleton locks, canonical browser profile) before redesigning the bundle or upload flow.
+- Benchmark Oracle upload trust is now multi-layered:
+  - empty-composer or launch failures should fail fast
+  - in-flight runs should persist `oracle_upload_status.json`, session id, reattach command, and conversation URL as early as possible
+  - completed answers that contradict the local bundle root or topline counts should be treated as `invalid_grounding`, not silent success
+- When validating Codex benchmark regressions, do not over-trust a stale run root after runtime/prompt changes land. The March 18 Salt Fat Acid Heat work established that some fixes were code-complete locally while live benchmark proof was still pending explicit approval for a fresh rerun.

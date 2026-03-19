@@ -674,4 +674,42 @@ Evidence worth keeping:
 Anti-loop note:
 - if Oracle fails on a new localhost port while the shared profile browser is visibly alive, debug profile reattach first, not upload bundle sharding or benchmark wrap-up
 
+### 2026-03-18 Oracle benchmark browser reliability needed both transport fixes and trust fixes
+
+Problem captured:
+- March 18 benchmark uploads exposed three different failure classes that looked similar from the outside:
+  - composer state / launch failures
+  - browser disconnects after a real session had started
+  - completed answers that were grounded badly enough to contradict the local bundle
+
+Durable decisions:
+- benchmark uploads should always start from an empty composer or fail fast
+- detached upload launches must persist `oracle_upload_status.json` beside `oracle_upload.json` and record Oracle version, session id, reattach command, and conversation URL as soon as that data exists
+- browser disconnects should classify as `reattachable` when the saved metadata is enough to resume
+- exit code `0` is not enough to trust an Oracle answer; benchmark upload must compare the answer against the local bundle root and key topline counts and classify contradictions as `invalid_grounding`
+
+Evidence worth keeping:
+- the repo-owned fix was only part of the story; there was also a local Oracle composer patch involved, which is why the durable lesson is "persist recovery metadata early and audit grounding" rather than "assume the browser transport is solved forever"
+
+Anti-loop note:
+- if Oracle upload "succeeds" but the answer reads like it reviewed a different bundle, debug grounding/trust checks before reopening browser transport or upload-bundle rendering
+
+### 2026-03-18 Salt Fat Acid Heat regression revalidation proved the stale-run trap
+
+Problem captured:
+- the latest measured Salt Fat Acid Heat Codex benchmark in the repo was already stale relative to later prompt/runtime fixes, which made it too easy to keep chasing an old diagnosis
+
+Durable decisions:
+- revalidate locally first when benchmark evidence predates prompt/runtime changes
+- keep the benchmark story honest when live reruns are blocked by explicit-approval policy: code/tests/docs can be complete while benchmark proof is still pending
+- for this specific seam, the lasting policy outcome was:
+  - recipe and line-role keep literal prompt-target overrides
+  - knowledge returns to a soft prompt-target policy because hard bundle safety caps are correctness-critical
+
+Evidence worth keeping:
+- the stale `2026-03-18_22.19.18` run still mattered because it showed the failure family (`missing_owned_chunk_results`, one schema-invalid contradictory row), but it was not enough to prove the later workspace fixes
+
+Anti-loop note:
+- if a benchmark diagnosis depends on a run that predates the current workspace changes, treat that run as historical evidence, not final proof
+
 If an older artifact references one of those surfaces, treat it as historical context only, not current contract guidance.

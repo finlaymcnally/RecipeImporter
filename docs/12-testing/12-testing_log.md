@@ -180,3 +180,16 @@ Still-active outcomes:
 Anti-loop note:
 
 - if a per-line shard test suddenly starts seeing grouped shards, inspect prompt-target defaults before debugging the planner
+
+### 2026-03-18 pack/schema regressions had to guard current LLM transport truth, not legacy prompt markers
+
+Still-active outcomes:
+
+- `tests/llm/test_llm_pipeline_pack_assets.py` now needs recursive nested-schema coverage because the live knowledge schema broke on a missing nested `required` key (`rc`) that top-level checks would not catch
+- `tests/llm/test_llm_pipeline_pack.py` must assert transport expectations per pipeline:
+  - recipe is inline now
+  - file-backed `{{INPUT_PATH}}` markers are not a universal pack contract anymore
+
+Anti-loop note:
+
+- if one pack test starts failing after a transport change, first ask whether the test froze a legacy cross-pipeline assumption before "fixing" the runtime back toward the old contract

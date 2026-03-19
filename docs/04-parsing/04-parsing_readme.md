@@ -696,3 +696,6 @@ Under a run output folder:
   - chapter/front-matter headings being over-promoted into recipe structure
   - short explanatory fragments that now need the widened unknown-span knowledge path
 - Empty-shell rejection must stay narrower than "zero ingredients and zero instructions". Title-plus-yield/time stubs are still real recipes and should survive even when the grouped span body is short or split awkwardly.
+- `HOWTO_SECTION` now means recipe-internal subsection structure only. Keep chapter/topic/book headings and explanatory cookbook section headers out of that label even when the text looks like a heading.
+- `INSTRUCTION_LINE` now means recipe-local procedural steps for the current recipe only. Cookbook advice, explanatory prose, and action-verb guidance outside a concrete recipe procedure should stay `KNOWLEDGE` or `OTHER`.
+- If line-role prompt work starts drifting, keep the checked-in prompt assets and Python fallback strings aligned; preview/live mismatch here is a documentation/runtime bug, not a scoring nuance.

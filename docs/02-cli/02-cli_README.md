@@ -1223,6 +1223,12 @@ Precedence notes:
 - All interactive benchmark callers that expose CodexFarm should reuse that same shared submenu, including all-method benchmark flows.
 - All-method benchmark Codex variants inherit the full benchmark Codex contract, so a generic `Include Codex Farm permutations?` prompt is misleading. The correct surface is explicit recipe / line-role / knowledge selection.
 - Interactive benchmark pickers should reuse one concise book identity across flows. The matched-books picker should not drift back to `source filename + [gold label]` formatting noise.
+- `--codex-execution-policy plan` is not part of the current CLI anymore. The zero-token story is now split cleanly between:
+  - `cf-debug preview-prompts` for predictive prompt/cost inspection
+  - real execute-path rehearsal with `scripts/fake-codex-farm.py` when you need runtime artifact coverage without live spend
+- Interactive prompt-count entry should be read as a surface request, not one universal planner law:
+  - recipe and line-role use the chosen count as a literal shard-count override
+  - knowledge still records the chosen count but may exceed it when hard bundle safety caps win
 
 
 ## CLI History Log

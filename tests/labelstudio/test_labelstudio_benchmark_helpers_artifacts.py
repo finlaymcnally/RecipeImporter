@@ -411,6 +411,132 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert "- total_rows: `2`" in trace_summary_md
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in trace_summary_md
 
+
+def test_build_codex_farm_prompt_response_log_backfills_direct_runtime_telemetry_without_csv(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    run_dir = pred_run / "raw" / "llm" / "book"
+    recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
+    correction_in = recipe_phase_runtime_dir / "inputs"
+    correction_out = recipe_phase_runtime_dir / "proposals"
+    worker_in = recipe_phase_runtime_dir / "workers" / "worker-001" / "in"
+    worker_debug = recipe_phase_runtime_dir / "workers" / "worker-001" / "debug"
+    for folder in (correction_in, correction_out, worker_in, worker_debug):
+        folder.mkdir(parents=True, exist_ok=True)
+
+    (correction_in / "r0000.json").write_text(
+        json.dumps(
+            {
+                "recipe_id": "recipe:c0",
+                "evidence_rows": [[0, "Dish Title"], [1, "1 cup flour"]],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (correction_out / "r0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "canonical_recipe": {"title": "Dish Title"}}),
+        encoding="utf-8",
+    )
+    (worker_in / "recipe-shard-0000.json").write_text(
+        json.dumps({"ids": ["recipe:c0"]}),
+        encoding="utf-8",
+    )
+    (worker_debug / "recipe-shard-0000.json").write_text(
+        json.dumps({"ids": ["recipe:c0"], "phase": "recipe"}),
+        encoding="utf-8",
+    )
+    (recipe_phase_runtime_dir / "phase_manifest.json").write_text(
+        json.dumps({"pipeline_id": "recipe.correction.compact.v1"}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (recipe_phase_runtime_dir / "worker_assignments.json").write_text(
+        json.dumps([{"worker_id": "worker-001", "shard_ids": ["recipe-shard-0000"]}]),
+        encoding="utf-8",
+    )
+    (recipe_phase_runtime_dir / "shard_manifest.jsonl").write_text(
+        json.dumps(
+            {
+                "shard_id": "recipe-shard-0000",
+                "owned_ids": ["recipe:c0"],
+                "metadata": {},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (recipe_phase_runtime_dir / "telemetry.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "task_id": "recipe-shard-0000",
+                        "worker_id": "worker-001",
+                        "status": "ok",
+                        "duration_ms": 456,
+                        "tokens_input": 700,
+                        "tokens_cached_input": 70,
+                        "tokens_output": 89,
+                        "tokens_reasoning": 0,
+                        "tokens_total": 859,
+                        "prompt_text": "Runtime telemetry prompt body",
+                        "finished_at_utc": "2026-03-19T12:34:56Z",
+                    }
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    (run_dir / "recipe_manifest.json").write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "pipeline": "codex-recipe-shard-v1",
+                "process_runs": {
+                    "recipe_correction": {
+                        "run_id": "run-recipe-correction",
+                        "pipeline_id": "recipe.correction.compact.v1",
+                    }
+                },
+                "paths": {
+                    "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                    "recipe_phase_input_dir": str(correction_in),
+                    "recipe_phase_proposals_dir": str(correction_out),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+    )
+
+    assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
+    full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
+    full_prompt_rows = [
+        json.loads(line)
+        for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 1
+    row = full_prompt_rows[0]
+    assert row["request_payload_source"] == "runtime_telemetry"
+    assert row["request_messages"][0]["content"] == "Runtime telemetry prompt body"
+    assert row["timestamp_utc"] == "2026-03-19T12:34:56Z"
+    assert row["runtime_shard_id"] == "recipe-shard-0000"
+    assert row["request_telemetry"]["duration_ms"] == 456
+    assert row["request_telemetry"]["tokens_total"] == 859
+    assert row["request_telemetry"]["worker_id"] == "worker-001"
+
 def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     tmp_path: Path,
 ) -> None:
@@ -1505,6 +1631,75 @@ def test_prompt_budget_summary_reads_top_level_codex_farm_telemetry_rows(
     assert summary["totals"]["tokens_cached_input"] == 55
     assert summary["totals"]["tokens_output"] == 33
     assert summary["totals"]["tokens_total"] == 383
+
+
+def test_prompt_budget_summary_surfaces_pathological_spend_metrics(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    pred_manifest = {
+        "llm_codex_farm": {
+            "knowledge": {
+                "counts": {
+                    "validated_shards": 1,
+                    "invalid_shards": 0,
+                    "missing_output_shards": 0,
+                },
+                "process_run": {
+                    "telemetry": {
+                        "rows": [
+                            {
+                                "task_id": "knowledge.ks0001",
+                                "tokens_input": 100,
+                                "tokens_cached_input": 10,
+                                "tokens_output": 20,
+                                "tokens_total": 130,
+                                "command_execution_count": 2,
+                                "reasoning_item_count": 1,
+                                "proposal_status": "invalid",
+                                "repair_status": "repaired",
+                            },
+                            {
+                                "task_id": "knowledge.ks0001",
+                                "tokens_input": 20,
+                                "tokens_cached_input": 0,
+                                "tokens_output": 5,
+                                "tokens_total": 25,
+                                "command_execution_count": 0,
+                                "reasoning_item_count": 0,
+                                "proposal_status": "validated",
+                                "repair_status": "repaired",
+                                "is_repair_attempt": True,
+                            },
+                        ]
+                    },
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 2,
+                            "duration_total_ms": 500,
+                            "tokens_total": 155,
+                        }
+                    },
+                },
+            }
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    knowledge = summary["by_stage"]["knowledge"]
+    assert knowledge["command_executing_shard_count"] == 1
+    assert knowledge["reasoning_heavy_shard_count"] == 1
+    assert knowledge["invalid_output_shard_count"] == 1
+    assert knowledge["invalid_output_tokens_total"] == 130
+    assert knowledge["repaired_shard_count"] == 1
+    assert knowledge["validated_shard_count"] == 1
+    assert knowledge["invalid_shard_count"] == 0
+    assert "command_execution_detected" in knowledge["pathological_flags"]
+    assert summary["totals"]["command_executing_shard_count"] == 1
+    assert summary["totals"]["invalid_output_tokens_total"] == 130
 
 
 def test_prompt_budget_summary_recovers_current_shard_runtime_recipe_and_processed_line_role(

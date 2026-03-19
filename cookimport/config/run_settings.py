@@ -975,11 +975,11 @@ class RunSettings(BaseModel):
         ge=1,
         json_schema_extra=_ui_meta(
             group="LLM",
-            label="Recipe Prompt Count Target",
+            label="Recipe Shard Count",
             order=110,
             description=(
-                "Approximate prompt-count target for shard-v1 recipe runtime. "
-                "The planner derives recipes per shard from this before lower-level shard sizing."
+                "Direct shard-count override for shard-v1 recipe runtime. "
+                "When set, the planner partitions the ordered recipe list into this many shards."
             ),
             step=1,
             minimum=1,
@@ -1058,11 +1058,11 @@ class RunSettings(BaseModel):
         ge=1,
         json_schema_extra=_ui_meta(
             group="LLM",
-            label="Line Role Prompt Count Target",
+            label="Line Role Shard Count",
             order=112,
             description=(
-                "Approximate prompt-count target for shard-v1 line-role runtime. "
-                "The planner derives rows per shard from this before lower-level shard sizing."
+                "Direct shard-count override for shard-v1 line-role runtime. "
+                "When set, the planner partitions the ordered line list into this many shards."
             ),
             step=1,
             minimum=1,
@@ -1129,11 +1129,11 @@ class RunSettings(BaseModel):
         ge=1,
         json_schema_extra=_ui_meta(
             group="LLM",
-            label="Knowledge Review Prompt Count Target",
+            label="Knowledge Review Shard Count",
             order=115,
             description=(
-                "Approximate prompt-count target for shard-v1 knowledge runtime. "
-                "The planner derives chunks per shard from this before lower-level shard sizing."
+                "Direct shard-count override for shard-v1 knowledge runtime. "
+                "When set, the planner partitions ordered non-recipe chunks into this many shards."
             ),
             step=1,
             minimum=1,

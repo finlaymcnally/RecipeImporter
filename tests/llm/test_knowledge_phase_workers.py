@@ -103,9 +103,7 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
                         "block_decisions": [{"block_index": 99, "category": "knowledge"}],
                         "snippets": [
                             {
-                                "title": "Bad pointer",
                                 "body": "This should be rejected.",
-                                "tags": ["invalid"],
                                 "evidence": [{"block_index": 99, "quote": "bad"}],
                             }
                         ],
@@ -131,7 +129,6 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
                         {
                             "cid": "book.c0000.nr",
                             "b": [{"i": 4, "t": "Whisk constantly."}],
-                            "h": {"l": "knowledge", "f": "mixed"},
                         }
                     ],
                 },
@@ -189,9 +186,7 @@ def test_knowledge_phase_workers_reject_processing_error_fallback_with_out_of_su
                         "block_decisions": [{"block_index": 4, "category": "other"}],
                         "snippets": [
                             {
-                                "title": "Fallback",
                                 "body": "Could not process.",
-                                "tags": ["invalid"],
                                 "evidence": [{"block_index": 0, "quote": "bad"}],
                             }
                         ],
@@ -217,7 +212,6 @@ def test_knowledge_phase_workers_reject_processing_error_fallback_with_out_of_su
                         {
                             "cid": "book.c0007.nr",
                             "b": [{"i": 4, "t": "Whisk constantly."}],
-                            "h": {"l": "knowledge", "f": "mixed"},
                         }
                     ],
                 },

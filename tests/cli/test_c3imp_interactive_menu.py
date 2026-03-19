@@ -772,7 +772,7 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
             prompt_messages.append(message)
             or (
                 "3"
-                if message == "Recipe correction prompt target count for this run:"
+                if message == "Recipe correction shard count for this run:"
                 else "6"
             )
         ),
@@ -782,8 +782,8 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
 
     assert selected is not None
     assert prompt_messages == [
-        "Recipe correction prompt target count for this run:",
-        "Knowledge harvest prompt target count for this run:",
+        "Recipe correction shard count for this run:",
+        "Non-recipe knowledge review shard count for this run:",
     ]
     assert selected.recipe_prompt_target_count == 3
     assert selected.knowledge_prompt_target_count == 6
@@ -815,7 +815,7 @@ def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_
     )
 
     assert result is not None
-    assert prompt_messages == ["Block labelling prompt target count for this run:"]
+    assert prompt_messages == ["Block labelling shard count for this run:"]
     assert result.recipe_prompt_target_count == selected_settings.recipe_prompt_target_count
     assert result.line_role_prompt_target_count == 4
     assert result.knowledge_prompt_target_count == selected_settings.knowledge_prompt_target_count

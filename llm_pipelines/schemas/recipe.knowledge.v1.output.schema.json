@@ -64,20 +64,11 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["t", "b", "g", "e"],
+              "required": ["b", "e"],
               "properties": {
-                "t": {
-                  "type": ["string", "null"]
-                },
                 "b": {
                   "type": "string",
                   "minLength": 1
-                },
-                "g": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
                 },
                 "e": {
                   "type": "array",

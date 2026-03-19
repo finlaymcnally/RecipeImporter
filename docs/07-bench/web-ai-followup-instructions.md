@@ -86,16 +86,21 @@ If the question is "is recipe structure mostly solved, and are the remaining los
 
 When present, these are the highest-value things to reason from before asking for more data:
 
-- `analysis.triage_packet`: JSONL-first per-case triage rows
+- `analysis.turn1_summary`: one-screen severity/span/blame/runtime summary
+- `analysis.benchmark_pair_inventory`
+- `analysis.active_recipe_span_breakout`
 - `analysis.net_error_blame_summary`: where net regressions seem to originate
+- `analysis.top_confusion_deltas`
+- `analysis.changed_lines_stratified_sample`
+- `analysis.triage_packet`: JSONL-first per-case triage rows
 - `analysis.config_version_metadata`: whether comparisons are config-compatible
+- `analysis.stage_observability_summary`
 - `analysis.structure_label_report`
 - `analysis.per_label_metrics`
 - `analysis.per_recipe_breakdown`
 - `analysis.stage_separated_comparison`
 - `analysis.failure_ledger`
 - `analysis.regression_casebook`
-- `analysis.changed_lines_stratified_sample`
 - `analysis.explicit_escalation_changed_lines_packet`
 - `analysis.call_inventory_runtime`
 - `analysis.line_role_escalation`

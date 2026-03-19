@@ -36,8 +36,8 @@ from cookimport.llm.prompt_budget import (
     write_prompt_preview_budget_summary,
 )
 from cookimport.llm.shard_prompt_targets import (
-    DEFAULT_PHASE_PROMPT_TARGET_COUNT,
-    resolve_items_per_shard,
+    partition_contiguous_items,
+    resolve_shard_count,
 )
 from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
@@ -132,22 +132,16 @@ def write_prompt_preview_for_existing_run(
         if recipe_prompt_target_count is not None
         else _coerce_int(context.run_config.get("recipe_prompt_target_count"))
     )
-    if resolved_recipe_prompt_target_count is None:
-        resolved_recipe_prompt_target_count = DEFAULT_PHASE_PROMPT_TARGET_COUNT
     resolved_knowledge_prompt_target_count = (
         knowledge_prompt_target_count
         if knowledge_prompt_target_count is not None
         else _coerce_int(context.run_config.get("knowledge_prompt_target_count"))
     )
-    if resolved_knowledge_prompt_target_count is None:
-        resolved_knowledge_prompt_target_count = DEFAULT_PHASE_PROMPT_TARGET_COUNT
     resolved_line_role_prompt_target_count = (
         line_role_prompt_target_count
         if line_role_prompt_target_count is not None
         else _coerce_int(context.run_config.get("line_role_prompt_target_count"))
     )
-    if resolved_line_role_prompt_target_count is None:
-        resolved_line_role_prompt_target_count = DEFAULT_PHASE_PROMPT_TARGET_COUNT
 
     pipeline_root = (
         codex_farm_root.expanduser().resolve(strict=False)
@@ -523,14 +517,20 @@ def _build_recipe_shard_preview_rows(
     shard_target_recipes: int | None,
     recipe_inputs: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    effective_target = resolve_items_per_shard(
+    requested_shard_count = resolve_shard_count(
         total_items=len(recipe_inputs),
         prompt_target_count=prompt_target_count,
         items_per_shard=shard_target_recipes,
         default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
     )
     rows: list[dict[str, Any]] = []
-    for index, shard_rows in enumerate(_batch(list(recipe_inputs), size=effective_target), start=1):
+    for index, shard_rows in enumerate(
+        partition_contiguous_items(
+            recipe_inputs,
+            shard_count=requested_shard_count,
+        ),
+        start=1,
+    ):
         if not shard_rows:
             continue
         first_call_id = str(shard_rows[0].get("call_id") or f"recipe-shard-{index:04d}")
@@ -728,8 +728,8 @@ def _build_line_role_preview_rows(
     escalation_reasons_by_atomic_index = _line_role_preview_escalation_reasons(
         labeled_line_rows=context.labeled_line_rows,
     )
-    effective_target_lines = (
-        resolve_items_per_shard(
+    requested_shard_count = (
+        resolve_shard_count(
             total_items=len(candidates),
             prompt_target_count=prompt_target_count,
             items_per_shard=shard_target_lines,
@@ -742,7 +742,10 @@ def _build_line_role_preview_rows(
     debug_in_dir = out_dir / "line-role-pipeline" / "debug_in"
     debug_in_dir.mkdir(parents=True, exist_ok=True)
     for prompt_index, batch_candidates in enumerate(
-        _batch(candidates, size=effective_target_lines),
+        partition_contiguous_items(
+            candidates,
+            shard_count=requested_shard_count,
+        ),
         start=1,
     ):
         if not batch_candidates:

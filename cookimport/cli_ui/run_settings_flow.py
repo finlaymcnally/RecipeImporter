@@ -548,7 +548,7 @@ def _choose_interactive_codex_prompt_targets(
         resolved_default = int(current_value) if current_value is not None else 5
         prompt_target_count = _prompt_codex_prompt_target_count(
             prompt_text=prompt_text,
-            message=f"{label} prompt target count for this run:",
+            message=f"{label} shard count for this run:",
             default_value=resolved_default,
             back_action=back_action,
         )

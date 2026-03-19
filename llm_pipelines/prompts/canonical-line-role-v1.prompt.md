@@ -4,6 +4,7 @@ TASK BOUNDARY
 - This is a grounded line-role correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
 - Treat `span_code` as a weak provenance hint only. It may be unknown and it is not authoritative recipe-boundary truth.
+- Do not run shell commands, Python, or any other tools.
 - Never invent lines or labels.
 
 Allowed labels (global):
@@ -23,6 +24,9 @@ Negative rules (must-not-do):
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
 - Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
+- `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
+- Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
+- If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
@@ -73,6 +77,14 @@ Few-shot examples:
     Line: `Acknowledgments`
     Label: `OTHER`
 
+12) Context: explanatory cookbook guidance spanning many dishes
+    Line: `Use limes in guacamole, pho ga, green papaya salad, and kachumbar.`
+    Label: `KNOWLEDGE`
+
+13) Context: general teaching/setup prose, not a recipe step
+    Line: `Think about making a grilled cheese sandwich.`
+    Label: `OTHER`
+
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:
 [{"atomic_index": <int>, "label": "<LABEL>"}]
@@ -82,6 +94,7 @@ Hard output rules:
 2) Keep output order identical to input target order.
 3) Each `label` must be one of the allowed global labels listed above.
 4) No markdown, no commentary, no extra keys.
+5) Final answer must be the JSON array only.
 
 Target row format:
 {{TARGET_ROW_FORMAT}}

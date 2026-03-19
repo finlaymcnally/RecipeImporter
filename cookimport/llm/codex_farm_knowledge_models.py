@@ -29,28 +29,15 @@ class EvidencePointerV1(BaseModel):
 class KnowledgeSnippetV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    title: str | None = Field(default=None, alias="t")
     body: str = Field(alias="b")
-    tags: list[str] = Field(default_factory=list, alias="g")
     evidence: list[EvidencePointerV1] = Field(default_factory=list, alias="e")
 
-    @field_validator("title", "body", mode="before")
+    @field_validator("body", mode="before")
     @classmethod
     def _normalize_text(cls, value: object) -> object:
         if value is None:
             return value
         return str(value).strip()
-
-    @field_validator("tags", mode="before")
-    @classmethod
-    def _coerce_tags(cls, value: object) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, str):
-            return [value]
-        if not isinstance(value, list):
-            return [str(value)]
-        return [str(item).strip() for item in value if str(item).strip()]
 
     @field_validator("evidence")
     @classmethod

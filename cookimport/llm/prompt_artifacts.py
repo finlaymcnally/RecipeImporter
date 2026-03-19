@@ -1519,6 +1519,17 @@ def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
     shard_by_id: dict[str, dict[str, Any]] = {}
     shard_by_owned_id: dict[str, dict[str, Any]] = {}
     shard_by_prompt_index: dict[int, dict[str, Any]] = {}
+    telemetry_by_shard_id: dict[str, dict[str, Any]] = {}
+    telemetry_payload = _load_json_dict(stage_root / "telemetry.json") or {}
+    telemetry_rows = (
+        telemetry_payload.get("rows") if isinstance(telemetry_payload.get("rows"), list) else []
+    )
+    for row in telemetry_rows:
+        if not isinstance(row, dict):
+            continue
+        shard_id = _clean_text(row.get("task_id"))
+        if shard_id is not None:
+            telemetry_by_shard_id[shard_id] = dict(row)
     for row in shard_rows:
         shard_id = _clean_text(row.get("shard_id"))
         if shard_id is None:
@@ -1533,6 +1544,7 @@ def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
             "worker_id": worker_by_shard_id.get(shard_id),
             "input_file": None,
             "debug_input_file": None,
+            "telemetry_row": telemetry_by_shard_id.get(shard_id),
             "metadata": dict(row.get("metadata") or {})
             if isinstance(row.get("metadata"), dict)
             else {},
@@ -1556,6 +1568,7 @@ def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
         "shard_by_id": shard_by_id,
         "shard_by_owned_id": shard_by_owned_id,
         "shard_by_prompt_index": shard_by_prompt_index,
+        "telemetry_by_shard_id": telemetry_by_shard_id,
     }
 
 
@@ -1584,6 +1597,11 @@ def _resolve_runtime_context(
         "runtime_owned_ids": list(shard_row.get("owned_ids") or []),
         "request_input_file": shard_row.get("input_file"),
         "debug_input_file": shard_row.get("debug_input_file"),
+        "runtime_telemetry_row": (
+            dict(shard_row.get("telemetry_row"))
+            if isinstance(shard_row.get("telemetry_row"), Mapping)
+            else None
+        ),
     }
 
 
@@ -1788,6 +1806,11 @@ def _build_line_role_prompt_rows(
                 runtime_index=runtime_index,
                 prompt_index=prompt_index,
             )
+            runtime_telemetry_row = (
+                dict(runtime_context.get("runtime_telemetry_row"))
+                if isinstance(runtime_context.get("runtime_telemetry_row"), dict)
+                else {}
+            )
             input_file = (
                 Path(str(runtime_context.get("request_input_file")))
                 if _clean_text(runtime_context.get("request_input_file")) is not None
@@ -1965,19 +1988,41 @@ def _build_line_role_prompt_rows(
                     else None
                 ),
                 "request_telemetry": {
-                    "status": _clean_text(process_payload.get("status")),
+                    "status": (
+                        _clean_text(process_payload.get("status"))
+                        or _clean_text(runtime_telemetry_row.get("status"))
+                    ),
+                    "duration_ms": _coerce_int(runtime_telemetry_row.get("duration_ms")),
                     "attempt_index": _coerce_int(attempt_payload.get("attempt_index")),
                     "prompt_index": prompt_index,
                     "candidate_count": _coerce_int(batch_payload.get("candidate_count")),
                     "requested_atomic_indices": list(batch_payload.get("requested_atomic_indices") or []),
                     "returncode": _coerce_int(attempt_payload.get("returncode")),
                     "response_present": _coerce_bool(attempt_payload.get("response_present")),
-                    "turn_failed_message": _clean_text(attempt_payload.get("turn_failed_message")),
-                    "tokens_input": _coerce_int(usage_payload.get("tokens_input")),
-                    "tokens_cached_input": _coerce_int(usage_payload.get("tokens_cached_input")),
-                    "tokens_output": _coerce_int(usage_payload.get("tokens_output")),
-                    "tokens_reasoning": _coerce_int(usage_payload.get("tokens_reasoning")),
-                    "tokens_total": _coerce_int(usage_payload.get("tokens_total")),
+                    "turn_failed_message": (
+                        _clean_text(attempt_payload.get("turn_failed_message"))
+                        or _clean_text(runtime_telemetry_row.get("turn_failed_message"))
+                    ),
+                    "tokens_input": (
+                        _coerce_int(usage_payload.get("tokens_input"))
+                        or _coerce_int(runtime_telemetry_row.get("tokens_input"))
+                    ),
+                    "tokens_cached_input": (
+                        _coerce_int(usage_payload.get("tokens_cached_input"))
+                        or _coerce_int(runtime_telemetry_row.get("tokens_cached_input"))
+                    ),
+                    "tokens_output": (
+                        _coerce_int(usage_payload.get("tokens_output"))
+                        or _coerce_int(runtime_telemetry_row.get("tokens_output"))
+                    ),
+                    "tokens_reasoning": (
+                        _coerce_int(usage_payload.get("tokens_reasoning"))
+                        or _coerce_int(runtime_telemetry_row.get("tokens_reasoning"))
+                    ),
+                    "tokens_total": (
+                        _coerce_int(usage_payload.get("tokens_total"))
+                        or _coerce_int(runtime_telemetry_row.get("tokens_total"))
+                    ),
                     "worker_id": runtime_context.get("runtime_worker_id"),
                     "shard_id": runtime_context.get("runtime_shard_id"),
                     "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
@@ -2338,11 +2383,6 @@ def render_prompt_artifacts_from_descriptors(
 
                     parsed_input = _parse_json_text(input_text)
                     parsed_output = _parse_json_text(output_text)
-                    timestamp_utc = (
-                        telemetry_timestamp_utc
-                        or _timestamp_utc_for_path(output_file)
-                        or _timestamp_utc_for_path(input_file)
-                    )
                     call_stem = (
                         input_file.stem
                         if input_file is not None
@@ -2370,6 +2410,27 @@ def render_prompt_artifacts_from_descriptors(
                         ),
                         owned_id=recipe_id,
                     )
+                    runtime_telemetry_row = (
+                        dict(runtime_context.get("runtime_telemetry_row"))
+                        if isinstance(runtime_context.get("runtime_telemetry_row"), dict)
+                        else {}
+                    )
+                    if telemetry_row is None and runtime_telemetry_row:
+                        telemetry_row = runtime_telemetry_row
+                    if telemetry_timestamp_utc is None and runtime_telemetry_row:
+                        telemetry_timestamp_utc = (
+                            _clean_text(runtime_telemetry_row.get("finished_at_utc"))
+                            or _clean_text(runtime_telemetry_row.get("logged_at_utc"))
+                        )
+                    if telemetry_output_path is None and runtime_telemetry_row:
+                        output_path_text = _clean_text(runtime_telemetry_row.get("output_path"))
+                        if output_path_text is not None:
+                            telemetry_output_path = Path(output_path_text)
+                    timestamp_utc = (
+                        telemetry_timestamp_utc
+                        or _timestamp_utc_for_path(output_file)
+                        or _timestamp_utc_for_path(input_file)
+                    )
 
                     rendered_prompt_text = _render_prompt_text(
                         template_text=pass_assets.get("prompt_template_text")
@@ -2382,6 +2443,9 @@ def render_prompt_artifacts_from_descriptors(
                     if telemetry_prompt_text:
                         rendered_prompt_text = telemetry_prompt_text
                         request_payload_source = "telemetry_csv"
+                    elif runtime_telemetry_row.get("prompt_text"):
+                        rendered_prompt_text = str(runtime_telemetry_row.get("prompt_text"))
+                        request_payload_source = "runtime_telemetry"
                     request_messages = [{"role": "user", "content": rendered_prompt_text}]
 
                     response_format_payload: dict[str, Any] | None = None

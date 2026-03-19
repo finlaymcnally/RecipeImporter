@@ -5369,6 +5369,18 @@ def _print_oracle_upload_summary(
 ) -> None:
     typer.secho(f"Oracle benchmark bundle: {target.bundle_dir}", fg=typer.colors.CYAN)
     typer.secho(f"Oracle mode: {result.mode}", fg=typer.colors.CYAN)
+    if result.oracle_version:
+        typer.secho(f"Oracle version: {result.oracle_version}", fg=typer.colors.BRIGHT_BLACK)
+    if result.status:
+        typer.secho(
+            f"Oracle status: {result.status}"
+            + (f" ({result.status_reason})" if result.status_reason else ""),
+            fg=success_color,
+        )
+    if result.reattach_command:
+        typer.secho(f"Reattach: {result.reattach_command}", fg=typer.colors.BRIGHT_BLACK)
+    if result.conversation_url:
+        typer.secho(f"Conversation: {result.conversation_url}", fg=typer.colors.BRIGHT_BLACK)
     typer.secho(
         f"Oracle command: {shlex.join(result.command)}",
         fg=typer.colors.BRIGHT_BLACK,
@@ -5398,6 +5410,24 @@ def _print_background_oracle_upload_summary(
     if launch.browser_profile_dir is not None:
         typer.secho(
             f"Oracle browser profile: {launch.browser_profile_dir}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    if launch.oracle_version:
+        typer.secho(f"Oracle version: {launch.oracle_version}", fg=typer.colors.BRIGHT_BLACK)
+    if launch.status:
+        typer.secho(
+            f"Oracle status: {launch.status}"
+            + (f" ({launch.status_reason})" if launch.status_reason else ""),
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    if launch.reattach_command:
+        typer.secho(
+            f"Reattach: {launch.reattach_command}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    if launch.conversation_url:
+        typer.secho(
+            f"Conversation: {launch.conversation_url}",
             fg=typer.colors.BRIGHT_BLACK,
         )
     if launch.note:
@@ -5497,10 +5527,16 @@ def _maybe_upload_benchmark_bundle_to_oracle(
             f"Retry manually: cookimport bench oracle-upload {bundle_dir}",
             fg=typer.colors.BRIGHT_BLACK,
         )
-        typer.secho(
-            "If the Oracle session detached, inspect it with `oracle status --hours 72`.",
-            fg=typer.colors.BRIGHT_BLACK,
-        )
+        if result.reattach_command:
+            typer.secho(
+                f"Reattach directly: {result.reattach_command}",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+        else:
+            typer.secho(
+                "If the Oracle session detached, inspect it with `oracle status --hours 72`.",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
 
 
 def _write_single_offline_summary_markdown(
@@ -29081,7 +29117,11 @@ def bench_oracle_upload(
 
     status_color = typer.colors.GREEN if result.success else typer.colors.RED
     typer.secho(
-        f"Oracle benchmark upload {'completed' if result.success else 'failed'}.",
+        (
+            "Oracle benchmark upload "
+            f"{'completed' if result.success else 'failed'}."
+            + (f" Status: {result.status}." if result.status else "")
+        ),
         fg=status_color,
     )
     _print_oracle_upload_summary(

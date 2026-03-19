@@ -37,10 +37,10 @@ Chunking note:
 - compact knowledge jobs now bundle surviving chunks across neighboring seed spans when they stay local, including small bridged gaps up to 10 blocks, so prompt count tracks broader outside-recipe regions instead of one chunk per prompt.
 - standalone heading fragments and tiny bridge chunks are collapsed before bundling so decorative section seams do not become their own Codex jobs.
 - table chunks are intentionally excluded from consolidation and remain isolated.
-- deterministic `noise` routing is intentionally stricter for obvious junk such as blurbs, navigation fragments, attribution-only lines, and ad copy; explanatory cooking prose should still survive into bundled review.
-- a second deterministic savings pass now drops tiny low-signal knowledge chunks (`<=240` chars with no heading context, no highlights, and no table content) before Codex job writing.
-- knowledge-facing hints are now intentionally weaker: `text_form` stays as structure shorthand, but `suggested_lane` is only exposed for strong `knowledge` evidence and is omitted for noisy/menu-like chunks.
-- `knowledge_prompt_target_count` is only a soft planning hint now. Hard shard safety limits still win, so long books may produce more shards than the prompt target when the char cap or locality cap requires it.
+- deterministic semantic lane judgments no longer decide whether a chunk reaches the LLM reviewer, and the old low-signal prefilter is gone too. If deterministic chunking produces a non-recipe chunk at all, the reviewer now sees its raw chunk text.
+- the model-facing payload now avoids deterministic semantic chunk hints entirely; it carries raw block text plus mechanically true structure only.
+- `knowledge_prompt_target_count` is only a soft planning hint now. Hard shard safety limits still win, so long books may produce more shards than the prompt target when the chunk cap, char cap, locality cap, or table-isolation rule requires it.
+- When that happens, the planner records a warning in the knowledge manifest / LLM report so the requested-vs-actual shard count mismatch is explicit.
 
 ## Output locations
 
@@ -89,8 +89,7 @@ Local default pack files:
 
 Bundle contract note:
 - shard-owned compact knowledge input is now `bundle_version = "2"` with short keys `v`, `bid`, and `c`, plus optional `x` local context and optional `g` guardrails.
-- each chunk now carries `cid`, `b`, and optional `h`.
-- `h.f` is the structural `text_form` hint. `h.l` is an optional weak `suggested_lane`, but it is only emitted when deterministic evidence is strong enough to justify exposing `knowledge` as a soft prior.
-- the model-facing payload no longer emits `semantic_hint`, `source_spans`, or `source_span_id`. Those remain local runtime/planning concerns, not reviewer-model guidance.
-- compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead. `block_decisions[*].rc` carries the internal reviewer category, while `block_decisions[*].c` stays the final `knowledge|other` authority that staging writes out.
+- each chunk now carries only `cid` and `b` in the billed payload, with optional mechanically true block-level structure such as `hl` and `th`.
+- the model-facing payload no longer emits chunk-level semantic hint objects. Deterministic routing and provenance remain local runtime concerns, not reviewer-model guidance.
+- compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead. Snippets now carry only grounded body text plus evidence pointers, while `block_decisions[*].rc` carries the internal reviewer category and `block_decisions[*].c` stays the final `knowledge|other` authority that staging writes out.
 - prompt contract is intentionally strict: when input `c` is non-empty, output `r` must contain exactly one row per input chunk in input order, must echo the same `cid` values, and must not collapse to `r: []` or a synthetic fallback row.

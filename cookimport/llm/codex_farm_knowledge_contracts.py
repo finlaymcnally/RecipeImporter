@@ -65,22 +65,11 @@ class KnowledgeCompactContextBlockV1(BaseModel):
         return int(value)
 
 
-class KnowledgeCompactChunkHintsV2(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    suggested_lane: Literal["knowledge"] | None = Field(default=None, alias="l")
-    text_form: Literal["heading_like", "prose_like", "mixed", "table_like"] | None = Field(
-        default=None,
-        alias="f",
-    )
-
-
 class KnowledgeCompactBundleChunkPayloadV2(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     chunk_id: str = Field(alias="cid")
     blocks: list[KnowledgeCompactChunkBlockV1] = Field(default_factory=list, alias="b")
-    hints: KnowledgeCompactChunkHintsV2 | None = Field(default=None, alias="h")
 
 
 class KnowledgeCompactContextPayloadV1(BaseModel):

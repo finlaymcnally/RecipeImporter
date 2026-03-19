@@ -324,7 +324,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"] == {
-        "knowledge_interaction_count": 0,
+        "knowledge_interaction_count": 1,
         "line_role_interaction_count": 1,
         "recipe_interaction_count": 1,
     }
@@ -364,6 +364,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     ]
     assert {row["stage_key"] for row in full_prompt_rows} == {
         "line_role",
+        "nonrecipe_knowledge_review",
         "recipe_llm_correct_and_link",
     }
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
@@ -395,6 +396,17 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert "source_no_instruction_lines" in recipe_input_payload["r"][0]["q"]["f"]
     assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v2"
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
+
+    knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review")
+    assert "Only mechanically true structure is provided." in knowledge_row["rendered_prompt_text"]
+    assert "compact minified JSON on a single line" in knowledge_row["rendered_prompt_text"]
+    assert knowledge_row["request_input_payload"]["v"] == "2"
+    assert [chunk["cid"] for chunk in knowledge_row["request_input_payload"]["c"]] == [
+        "fixturebook.c0000.nr",
+        "fixturebook.c0001.nr",
+    ]
+    assert knowledge_row["request_input_payload"]["c"][0]["b"][0]["i"] == 2
+    assert knowledge_row["request_input_payload"]["c"][1]["b"][0]["i"] == 3
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
     assert "You are reviewing deterministic canonical line-role labels" in line_role_row["rendered_prompt_text"]
@@ -444,7 +456,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert budget_summary["totals"]["call_count"] == 2
+    assert budget_summary["totals"]["call_count"] == 3
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
     assert budget_summary["totals"]["estimated_request_chars_total"] >= budget_summary["totals"]["prompt_chars_total"]
     assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
@@ -453,6 +465,10 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert line_role_budget["shard_count"] == 1
     assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
     assert line_role_budget["task_prompt_chars_total"] > 0
+    knowledge_budget = budget_summary["by_stage"]["nonrecipe_knowledge_review"]
+    assert knowledge_budget["worker_count"] == 1
+    assert knowledge_budget["shard_count"] == 1
+    assert knowledge_budget["owned_ids_per_shard"]["avg"] == 2.0
     assert budget_summary["estimation_method"]["type"] == "structural_prompt_tokenization"
     assert budget_summary["estimation_method"]["mode"] == "predictive"
     assert budget_summary["totals"]["estimated_total_tokens"] is not None
@@ -497,7 +513,6 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
             {
                 "cid": "fixturebook.c9999.nr",
                 "b": [{"i": 7, "t": "Live knowledge block."}],
-                "h": {"l": "knowledge", "f": "mixed"},
             }
         ],
     }
@@ -521,15 +536,17 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
     assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
     assert "LIVE canonical text" not in recipe_row["request_input_text"]
     assert recipe_row["recipe_id"] == "urn:recipe:test:r0"
-    assert not any(
-        row["stage_key"] == "nonrecipe_knowledge_review"
-        for row in full_prompt_rows
-    )
+    knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review")
+    assert "Live knowledge block." not in knowledge_row["request_input_text"]
+    assert [chunk["cid"] for chunk in knowledge_row["request_input_payload"]["c"]] == [
+        "fixturebook.c0000.nr",
+        "fixturebook.c0001.nr",
+    ]
 
     budget_summary = json.loads(
         (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
     )
-    assert "nonrecipe_knowledge_review" not in budget_summary["by_stage"]
+    assert "nonrecipe_knowledge_review" in budget_summary["by_stage"]
 
 
 def test_prompt_preview_budget_uses_structural_prompt_tokenization_when_live_missing() -> None:

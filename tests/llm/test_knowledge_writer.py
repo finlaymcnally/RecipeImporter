@@ -21,9 +21,7 @@ def test_write_knowledge_artifacts_writes_jsonl_and_md(tmp_path: Path) -> None:
                 ],
                 "snippets": [
                     {
-                        "title": "Prevent curdling",
                         "body": "Whisk constantly and use low heat.",
-                        "tags": ["technique"],
                         "evidence": [{"block_index": 4, "quote": "whisk constantly"}],
                     }
                 ],
@@ -50,7 +48,7 @@ def test_write_knowledge_artifacts_writes_jsonl_and_md(tmp_path: Path) -> None:
     jsonl = report.snippets_path.read_text(encoding="utf-8")
     assert "book.c0000.nr.s00" in jsonl
     md = report.preview_path.read_text(encoding="utf-8")
-    assert "Prevent curdling" in md
+    assert "Snippet 1" in md
     assert "block 4" in md
 
 
@@ -64,9 +62,7 @@ def test_write_knowledge_artifacts_fails_on_missing_block_index(tmp_path: Path) 
                 "is_useful": True,
                 "snippets": [
                     {
-                        "title": None,
                         "body": "Whisk constantly.",
-                        "tags": [],
                         "evidence": [{"block_index": 999, "quote": "whisk"}],
                     }
                 ],

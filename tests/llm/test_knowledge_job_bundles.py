@@ -93,9 +93,7 @@ def test_build_knowledge_jobs_writes_seed_nonrecipe_spans_and_is_idempotent(tmp_
             chunk_indices = {block["i"] for block in chunk_blocks}
             assert 2 not in chunk_indices
             assert 3 not in chunk_indices
-            assert chunk_payload["h"]["l"] == "knowledge"
-            assert chunk_payload["h"]["f"] == "table_like"
-            assert "s" not in chunk_payload["h"]
+            assert "h" not in chunk_payload
 
     table_hints = [
         block.get("th")
@@ -338,7 +336,7 @@ def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
     assert len(payloads[0]["c"]) == 2
 
 
-def test_build_knowledge_jobs_keeps_char_cap_when_target_prompt_count_is_set(
+def test_build_knowledge_jobs_can_exceed_prompt_target_to_respect_char_cap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -387,10 +385,12 @@ def test_build_knowledge_jobs_keeps_char_cap_when_target_prompt_count_is_set(
     payloads = _load_all_jobs(in_dir)
     assert report.shards_written == 10
     assert len(payloads) == 10
-    assert all(len(payload["c"]) == 1 for payload in payloads)
+    assert [len(payload["c"]) for payload in payloads] == [1] * 10
+    assert report.planning_warnings
+    assert "requested 5 shard(s), but the planner emitted 10 shard(s)" in report.planning_warnings[0]
 
 
-def test_build_knowledge_jobs_can_exceed_target_prompt_count_to_respect_char_cap(
+def test_build_knowledge_jobs_warns_when_it_must_exceed_prompt_target(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -440,9 +440,11 @@ def test_build_knowledge_jobs_can_exceed_target_prompt_count_to_respect_char_cap
     assert report.shards_written == 3
     assert len(payloads) == 3
     assert [len(payload["c"]) for payload in payloads] == [2, 2, 2]
+    assert report.planning_warnings
+    assert "requested 2 shard(s), but the planner emitted 3 shard(s)" in report.planning_warnings[0]
 
 
-def test_build_knowledge_jobs_omits_weak_suggested_lane_hints(
+def test_build_knowledge_jobs_omits_chunk_hint_objects_from_model_payload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -500,10 +502,10 @@ def test_build_knowledge_jobs_omits_weak_suggested_lane_hints(
     )
 
     payload = _load_all_jobs(tmp_path / "in")[0]
-    assert payload["c"][0]["h"] == {"f": "prose_like"}
+    assert "h" not in payload["c"][0]
 
 
-def test_build_knowledge_jobs_skips_noise_lane_chunks(
+def test_build_knowledge_jobs_keeps_noise_lane_chunks_for_llm_review(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -513,8 +515,11 @@ def test_build_knowledge_jobs_skips_noise_lane_chunks(
             KnowledgeChunk(
                 id="chunk-noise",
                 lane=ChunkLane.NOISE,
-                text="Advertisement copy.",
-                blockIds=[4],
+                text=(
+                    "Advertisement copy that a deterministic lane might label as noise, but "
+                    "the LLM stage should still review it because semantic pruning is not trusted."
+                ),
+                blockIds=[0],
             )
         ]
 
@@ -525,7 +530,13 @@ def test_build_knowledge_jobs_skips_noise_lane_chunks(
 
     report = build_knowledge_jobs(
         full_blocks=[
-            {"index": 4, "text": "Advertisement copy."},
+            {
+                "index": 4,
+                "text": (
+                    "Advertisement copy that a deterministic lane might label as noise, but "
+                    "the LLM stage should still review it because semantic pruning is not trusted."
+                ),
+            },
         ],
         candidate_spans=[
             NonRecipeSpan(
@@ -543,14 +554,15 @@ def test_build_knowledge_jobs_skips_noise_lane_chunks(
         out_dir=tmp_path / "in",
     )
 
-    assert report.shards_written == 0
-    assert report.chunks_written == 0
-    assert report.skipped_chunk_count == 1
-    assert report.skipped_lane_counts == {"noise": 1}
-    assert sorted((tmp_path / "in").glob("*.json")) == []
+    assert report.shards_written == 1
+    assert report.chunks_written == 1
+    assert report.skipped_chunk_count == 0
+    assert report.skipped_lane_counts == {}
+    payload = _load_all_jobs(tmp_path / "in")[0]
+    assert payload["c"][0]["cid"] == "book.c0000.nr"
 
 
-def test_build_knowledge_jobs_skips_tiny_low_signal_knowledge_chunks(
+def test_build_knowledge_jobs_keeps_tiny_knowledge_chunks_for_llm_review(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -590,14 +602,15 @@ def test_build_knowledge_jobs_skips_tiny_low_signal_knowledge_chunks(
         out_dir=tmp_path / "in",
     )
 
-    assert report.shards_written == 0
-    assert report.chunks_written == 0
-    assert report.skipped_chunk_count == 1
-    assert report.skipped_lane_counts == {"low_signal": 1}
-    assert sorted((tmp_path / "in").glob("*.json")) == []
+    assert report.shards_written == 1
+    assert report.chunks_written == 1
+    assert report.skipped_chunk_count == 0
+    assert report.skipped_lane_counts == {}
+    payload = _load_all_jobs(tmp_path / "in")[0]
+    assert payload["c"][0]["cid"] == "book.c0000.nr"
 
 
-def test_build_knowledge_jobs_skips_heading_menu_fragments_even_with_heading_context(
+def test_build_knowledge_jobs_keeps_heading_menu_fragments_for_llm_review(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -641,8 +654,9 @@ def test_build_knowledge_jobs_skips_heading_menu_fragments_even_with_heading_con
         out_dir=tmp_path / "in",
     )
 
-    assert report.shards_written == 0
-    assert report.chunks_written == 0
-    assert report.skipped_chunk_count == 1
-    assert report.skipped_lane_counts == {"low_signal": 1}
-    assert sorted((tmp_path / "in").glob("*.json")) == []
+    assert report.shards_written == 1
+    assert report.chunks_written == 1
+    assert report.skipped_chunk_count == 0
+    assert report.skipped_lane_counts == {}
+    payload = _load_all_jobs(tmp_path / "in")[0]
+    assert payload["c"][0]["cid"] == "book.c0000.nr"

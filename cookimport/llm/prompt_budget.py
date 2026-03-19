@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 import tiktoken
 
+from cookimport.llm.codex_exec_runner import summarize_direct_telemetry_rows
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 
 _TOKEN_KEYS = (
@@ -20,6 +21,25 @@ _BREAKDOWN_KEYS = (
     "visible_input_tokens",
     "visible_output_tokens",
     "wrapper_overhead_tokens",
+)
+_PATHOLOGY_KEYS = (
+    "preflight_rejected_shard_count",
+    "watchdog_killed_shard_count",
+    "command_execution_count_total",
+    "command_executing_shard_count",
+    "command_execution_tokens_total",
+    "reasoning_item_count_total",
+    "reasoning_heavy_shard_count",
+    "reasoning_heavy_tokens_total",
+    "invalid_output_shard_count",
+    "invalid_output_tokens_total",
+    "repaired_shard_count",
+    "pathological_shard_count",
+)
+_STATUS_COUNT_KEYS = (
+    "validated_shard_count",
+    "invalid_shard_count",
+    "missing_output_shard_count",
 )
 
 _PREVIEW_STAGE_LABELS = {
@@ -72,33 +92,18 @@ def build_prediction_run_prompt_budget_summary(
                 by_stage["recipe_correction"] = recipe_summary
         knowledge_payload = llm_payload.get("knowledge")
         if isinstance(knowledge_payload, Mapping):
-            process_run = knowledge_payload.get("process_run")
-            if isinstance(process_run, Mapping):
-                knowledge_summary = _build_codex_farm_stage_summary(
-                    stage_name="knowledge",
-                    stage_payload=process_run,
-                )
-                if knowledge_summary is not None:
-                    authority_mode = str(knowledge_payload.get("authority_mode") or "").strip()
-                    scored_effect = str(knowledge_payload.get("scored_effect") or "").strip()
-                    if authority_mode:
-                        knowledge_summary["authority_mode"] = authority_mode
-                    if scored_effect:
-                        knowledge_summary["scored_effect"] = scored_effect
-                    by_stage["knowledge"] = knowledge_summary
-            if "knowledge" not in by_stage:
-                knowledge_summary = _build_codex_farm_stage_summary(
-                    stage_name="knowledge",
-                    stage_payload=knowledge_payload,
-                )
-                if knowledge_summary is not None:
-                    authority_mode = str(knowledge_payload.get("authority_mode") or "").strip()
-                    scored_effect = str(knowledge_payload.get("scored_effect") or "").strip()
-                    if authority_mode:
-                        knowledge_summary["authority_mode"] = authority_mode
-                    if scored_effect:
-                        knowledge_summary["scored_effect"] = scored_effect
-                    by_stage["knowledge"] = knowledge_summary
+            knowledge_summary = _build_codex_farm_stage_summary(
+                stage_name="knowledge",
+                stage_payload=knowledge_payload,
+            )
+            if knowledge_summary is not None:
+                authority_mode = str(knowledge_payload.get("authority_mode") or "").strip()
+                scored_effect = str(knowledge_payload.get("scored_effect") or "").strip()
+                if authority_mode:
+                    knowledge_summary["authority_mode"] = authority_mode
+                if scored_effect:
+                    knowledge_summary["scored_effect"] = scored_effect
+                by_stage["knowledge"] = knowledge_summary
 
     line_role_summary = _build_line_role_stage_summary(
         pred_manifest=pred_manifest,
@@ -149,7 +154,10 @@ def build_prediction_run_prompt_budget_summary(
         "duration_total_ms": None,
         **{key: None for key in _TOKEN_KEYS},
         **{key: None for key in _BREAKDOWN_KEYS},
+        **{key: None for key in _PATHOLOGY_KEYS},
+        **{key: None for key in _STATUS_COUNT_KEYS},
     }
+    total_pathological_flags: set[str] = set()
     for payload in by_stage.values():
         totals["call_count"] = _sum_optional_ints(
             totals.get("call_count"),
@@ -169,6 +177,21 @@ def build_prediction_run_prompt_budget_summary(
                 totals.get(key),
                 _nonnegative_int(payload.get(key)),
             )
+        for key in _PATHOLOGY_KEYS:
+            totals[key] = _sum_optional_ints(
+                totals.get(key),
+                _nonnegative_int(payload.get(key)),
+            )
+        for key in _STATUS_COUNT_KEYS:
+            totals[key] = _sum_optional_ints(
+                totals.get(key),
+                _nonnegative_int(payload.get(key)),
+            )
+        flags = payload.get("pathological_flags")
+        if isinstance(flags, list):
+            total_pathological_flags.update(
+                str(flag).strip() for flag in flags if str(flag).strip()
+            )
     totals["cost_breakdown"] = {
         "visible_input_tokens": totals.get("visible_input_tokens"),
         "cached_input_tokens": totals.get("tokens_cached_input"),
@@ -177,6 +200,7 @@ def build_prediction_run_prompt_budget_summary(
         "reasoning_tokens": totals.get("tokens_reasoning"),
         "billed_total_tokens": totals.get("tokens_total"),
     }
+    totals["pathological_flags"] = sorted(total_pathological_flags)
 
     return {
         "schema_version": "prompt_budget_summary.v1",
@@ -461,6 +485,11 @@ def _build_codex_farm_stage_summary(
     stage_payload: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     telemetry_rows = _extract_telemetry_rows(stage_payload=stage_payload)
+    pathology_summary = (
+        summarize_direct_telemetry_rows(telemetry_rows)
+        if isinstance(telemetry_rows, list)
+        else {}
+    )
 
     token_totals: dict[str, int | None] = {key: None for key in _TOKEN_KEYS}
     breakdown_totals: dict[str, int | None] = {key: None for key in _BREAKDOWN_KEYS}
@@ -516,6 +545,11 @@ def _build_codex_farm_stage_summary(
         return None
 
     worker_count, shard_count = _extract_runtime_worker_and_shard_counts(stage_payload)
+    status_counts = _extract_stage_shard_status_counts(stage_payload)
+    pathological_flags = _pathological_flags_from_summary_payload(
+        summary_payload,
+        fallback=pathology_summary.get("pathological_flags"),
+    )
 
     return {
         "stage": stage_name,
@@ -524,8 +558,19 @@ def _build_codex_farm_stage_summary(
         "duration_total_ms": duration_total_ms,
         "worker_count": worker_count,
         "shard_count": shard_count,
+        **{
+            key: _nonnegative_int(pathology_summary.get(key))
+            or (
+                _nonnegative_int(summary_payload.get(key))
+                if isinstance(summary_payload, Mapping)
+                else None
+            )
+            for key in _PATHOLOGY_KEYS
+        },
+        **status_counts,
         **token_totals,
         **breakdown_totals,
+        "pathological_flags": pathological_flags,
         "cost_breakdown": {
             "visible_input_tokens": breakdown_totals.get("visible_input_tokens"),
             "cached_input_tokens": token_totals.get("tokens_cached_input"),
@@ -617,6 +662,10 @@ def _build_line_role_stage_summary(
             key: _nonnegative_int(summary.get(key)) if isinstance(summary, Mapping) else None
             for key in _BREAKDOWN_KEYS
         }
+        pathology_totals = {
+            key: _nonnegative_int(summary.get(key)) if isinstance(summary, Mapping) else None
+            for key in _PATHOLOGY_KEYS
+        }
 
         call_count = _nonnegative_int(summary.get("call_count")) if isinstance(summary, Mapping) else None
         batch_count = _nonnegative_int(summary.get("batch_count")) if isinstance(summary, Mapping) else None
@@ -645,6 +694,8 @@ def _build_line_role_stage_summary(
         phase_rows = payload.get("phases")
         internal_phase_run_counts: dict[str, int] = {}
         internal_phase_worker_counts: dict[str, int] = {}
+        invalid_shard_count_total = 0
+        missing_output_shard_count_total = 0
         if isinstance(phase_rows, list):
             for phase_payload in phase_rows:
                 if not isinstance(phase_payload, Mapping):
@@ -666,8 +717,18 @@ def _build_line_role_stage_summary(
                     internal_phase_run_counts[phase_key] = phase_batch_count
                 if phase_worker_count is not None:
                     internal_phase_worker_counts[phase_key] = phase_worker_count
+                invalid_shard_count_total += int(
+                    _nonnegative_int(phase_runtime_artifacts.get("invalid_shard_count")) or 0
+                )
+                missing_output_shard_count_total += int(
+                    _nonnegative_int(phase_runtime_artifacts.get("missing_output_shard_count")) or 0
+                )
         surface_shard_count = _common_int_value(internal_phase_run_counts.values())
         surface_worker_count = _common_int_value(internal_phase_worker_counts.values())
+        pathological_flags = _pathological_flags_from_summary_payload(
+            summary,
+            fallback=[],
+        )
 
         return {
             "stage": "line_role",
@@ -700,8 +761,13 @@ def _build_line_role_stage_summary(
                 if isinstance(summary, Mapping)
                 else None
             ),
+            **pathology_totals,
+            "validated_shard_count": None,
+            "invalid_shard_count": invalid_shard_count_total or None,
+            "missing_output_shard_count": missing_output_shard_count_total or None,
             **token_totals,
             **breakdown_totals,
+            "pathological_flags": pathological_flags,
             "cost_breakdown": {
                 "visible_input_tokens": breakdown_totals.get("visible_input_tokens"),
                 "cached_input_tokens": token_totals.get("tokens_cached_input"),
@@ -797,6 +863,68 @@ def _common_int_value(values: Any) -> int | None:
     if all(value == first for value in normalized):
         return first
     return None
+
+
+def _extract_stage_shard_status_counts(
+    stage_payload: Mapping[str, Any],
+) -> dict[str, int | None]:
+    candidates = (
+        (),
+        ("counts",),
+        ("review_summary",),
+        ("promotion_report",),
+        ("phase_worker_runtime", "promotion_report"),
+        ("phase_worker_runtime",),
+        ("process_run", "phase_worker_runtime", "promotion_report"),
+    )
+    result: dict[str, int | None] = {
+        "validated_shard_count": None,
+        "invalid_shard_count": None,
+        "missing_output_shard_count": None,
+    }
+    for path in candidates:
+        current: Any = stage_payload
+        for segment in path:
+            if not isinstance(current, Mapping):
+                current = None
+                break
+            current = current.get(segment)
+        if not isinstance(current, Mapping):
+            continue
+        for key, aliases in (
+            ("validated_shard_count", ("validated_shards", "validated_shard_count")),
+            ("invalid_shard_count", ("invalid_shards", "invalid_shard_count")),
+            (
+                "missing_output_shard_count",
+                ("missing_output_shards", "missing_output_shard_count"),
+            ),
+        ):
+            if result[key] is not None:
+                continue
+            for alias in aliases:
+                value = _nonnegative_int(current.get(alias))
+                if value is not None:
+                    result[key] = value
+                    break
+    return result
+
+
+def _pathological_flags_from_summary_payload(
+    summary_payload: Mapping[str, Any] | None,
+    *,
+    fallback: Any,
+) -> list[str]:
+    if isinstance(summary_payload, Mapping):
+        flags = summary_payload.get("pathological_flags")
+        if isinstance(flags, list):
+            cleaned = [
+                str(flag).strip() for flag in flags if str(flag).strip()
+            ]
+            if cleaned:
+                return cleaned
+    if isinstance(fallback, list):
+        return [str(flag).strip() for flag in fallback if str(flag).strip()]
+    return []
 
 
 def _build_stage_run_count_summary(

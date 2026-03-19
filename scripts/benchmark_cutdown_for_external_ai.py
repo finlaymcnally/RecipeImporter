@@ -8100,33 +8100,63 @@ def _upload_bundle_build_failure_ledger(
         build_final_status = str(triage_row.get("build_final_status") or "").strip()
         final_mapping_reason = str(triage_row.get("final_mapping_reason") or "").strip()
         delta = _coerce_float(triage_row.get("delta_codex_minus_baseline"))
+        build_intermediate_call_id = str(
+            triage_row.get("build_intermediate_call_id") or ""
+        ).strip()
+        correction_call_id = str(triage_row.get("correction_call_id") or "").strip()
+        build_final_call_id = str(triage_row.get("build_final_call_id") or "").strip()
 
         stage_rows = [
             {
                 "stage_key": "build_intermediate_det",
-                "call_id": "",
+                "call_id": build_intermediate_call_id,
                 "status": build_intermediate_status or "ok",
                 "reason": "",
                 "warning_buckets": [],
                 "fallback_target": None,
+                "call_observed": bool(build_intermediate_call_id),
+                "output_signal": bool(
+                    int(
+                        _coerce_int(
+                            triage_row.get("build_intermediate_selected_block_count")
+                        )
+                        or 0
+                    )
+                    > 0
+                ),
+                "empty_output_signal": False,
             },
             {
                 "stage_key": "recipe_llm_correct_and_link",
-                "call_id": str(triage_row.get("correction_call_id") or ""),
+                "call_id": correction_call_id,
                 "status": correction_status or "unknown",
                 "reason": "",
                 "warning_buckets": _coerce_str_list(
                     triage_row.get("correction_warning_buckets")
                 ),
                 "fallback_target": None,
+                "call_observed": bool(correction_call_id),
+                "output_signal": bool(
+                    int(_coerce_int(triage_row.get("correction_input_block_count")) or 0) > 0
+                    or int(_coerce_int(triage_row.get("correction_ingredient_count")) or 0) > 0
+                    or int(_coerce_int(triage_row.get("correction_step_count")) or 0) > 0
+                    or int(_coerce_int(triage_row.get("correction_mapping_count")) or 0) > 0
+                ),
+                "empty_output_signal": bool(triage_row.get("correction_empty_mapping")),
             },
             {
                 "stage_key": "build_final_recipe",
-                "call_id": "",
+                "call_id": build_final_call_id,
                 "status": build_final_status or "unknown",
                 "reason": final_mapping_reason,
                 "warning_buckets": [],
                 "fallback_target": None,
+                "call_observed": bool(build_final_call_id),
+                "output_signal": bool(
+                    int(_coerce_int(triage_row.get("final_recipe_step_count")) or 0) > 0
+                    or int(_coerce_int(triage_row.get("final_recipe_mapping_count")) or 0) > 0
+                ),
+                "empty_output_signal": bool(triage_row.get("final_recipe_empty_mapping")),
             },
             {
                 "stage_key": "final_result",
@@ -8143,6 +8173,17 @@ def _upload_bundle_build_failure_ledger(
                 ),
                 "warning_buckets": [],
                 "fallback_target": None,
+                "call_observed": bool(correction_call_id or build_final_call_id),
+                "output_signal": bool(
+                    int(_coerce_int(triage_row.get("final_recipe_step_count")) or 0) > 0
+                    or int(_coerce_int(triage_row.get("final_recipe_mapping_count")) or 0) > 0
+                    or int(_coerce_int(triage_row.get("correction_step_count")) or 0) > 0
+                    or int(_coerce_int(triage_row.get("correction_mapping_count")) or 0) > 0
+                ),
+                "empty_output_signal": bool(
+                    triage_row.get("final_recipe_empty_mapping")
+                    or triage_row.get("correction_empty_mapping")
+                ),
             },
         ]
 
@@ -8160,6 +8201,53 @@ def _upload_bundle_build_failure_ledger(
             parse_validation_error = _upload_bundle_parse_validation_error(
                 str(stage_row["reason"] or "")
             )
+            status_text = str(stage_row["status"] or "").strip()
+            stage_semantics = "recorded_status"
+            stage_semantics_explanation = (
+                "Stage status came from recorded runtime/manifest diagnostics."
+            )
+            if stage_key == "final_result":
+                if delta is not None:
+                    stage_semantics = "scored_result"
+                    stage_semantics_explanation = (
+                        "Final benchmark delta was computed for this recipe."
+                    )
+                elif bool(stage_row["call_observed"]) or bool(stage_row["output_signal"]):
+                    stage_semantics = "projection_or_scoring_gap"
+                    stage_semantics_explanation = (
+                        "Recipe-stage execution was observed, but the final benchmark result "
+                        "could not be projected/scored."
+                    )
+                else:
+                    stage_semantics = "runtime_missing_or_unobserved"
+                    stage_semantics_explanation = (
+                        "No recipe-stage execution or scored result was observed for this recipe."
+                    )
+            elif status_text.lower() in {"", "unknown"}:
+                if bool(stage_row["empty_output_signal"]) and (
+                    bool(stage_row["call_observed"]) or bool(stage_row["output_signal"])
+                ):
+                    stage_semantics = "empty_output_signal"
+                    stage_semantics_explanation = (
+                        "Stage execution was observed, but the available output signal is empty "
+                        "(for example an empty ingredient-step mapping)."
+                    )
+                elif bool(stage_row["call_observed"]) or bool(stage_row["output_signal"]):
+                    stage_semantics = "projection_or_scoring_gap"
+                    stage_semantics_explanation = (
+                        "Stage execution was observed, but the bundle could not project/score "
+                        "that stage into a concrete status."
+                    )
+                else:
+                    stage_semantics = "runtime_missing_or_unobserved"
+                    stage_semantics_explanation = (
+                        "The bundle has no runtime evidence that this stage executed."
+                    )
+            elif bool(stage_row["empty_output_signal"]):
+                stage_semantics = "recorded_status_with_empty_output_signal"
+                stage_semantics_explanation = (
+                    "Stage status was recorded, and the output signal is empty."
+                )
             rows.append(
                 {
                     "source_key": str(triage_row.get("source_key") or ""),
@@ -8176,12 +8264,21 @@ def _upload_bundle_build_failure_ledger(
                     "retry_attempted": bool(retry_attempted),
                     "fallback_target": stage_row["fallback_target"],
                     "parse_validation_error": parse_validation_error,
+                    "call_observed": bool(stage_row["call_observed"]),
+                    "output_signal": bool(stage_row["output_signal"]),
+                    "empty_output_signal": bool(stage_row["empty_output_signal"]),
+                    "status_semantics": stage_semantics,
+                    "status_semantics_explanation": stage_semantics_explanation,
                 }
             )
 
     stage_status_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    stage_semantics_counts: dict[str, Counter[str]] = defaultdict(Counter)
     for row in rows:
         stage_status_counts[str(row["stage_key"])][str(row["status"])] += 1
+        stage_semantics_counts[str(row["stage_key"])][
+            str(row.get("status_semantics") or "")
+        ] += 1
     return {
         "rows": rows,
         "summary": {
@@ -8196,6 +8293,10 @@ def _upload_bundle_build_failure_ledger(
             "stage_status_counts": {
                 stage_key: _counter_to_sorted_dict(counter)
                 for stage_key, counter in sorted(stage_status_counts.items())
+            },
+            "stage_semantics_counts": {
+                stage_key: _counter_to_sorted_dict(counter)
+                for stage_key, counter in sorted(stage_semantics_counts.items())
             },
         },
     }
@@ -8386,6 +8487,15 @@ def _upload_bundle_iter_unique_run_dirs(
     return unique
 
 
+def _upload_bundle_normalize_runtime_stage_key(stage_key: str | None) -> str:
+    rendered = str(stage_key or "").strip()
+    if rendered == "recipe_correction":
+        return "recipe_llm_correct_and_link"
+    if rendered == "knowledge":
+        return "nonrecipe_knowledge_review"
+    return rendered
+
+
 def _upload_bundle_collect_call_runtime_map(
     *,
     run_dirs: list[Path] | None = None,
@@ -8532,8 +8642,9 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
                 for pass_name, pass_payload in sorted(by_stage_payload.items()):
                     if not isinstance(pass_payload, dict):
                         continue
+                    normalized_stage_key = _upload_bundle_normalize_runtime_stage_key(pass_name)
                     bucket = aggregate_by_stage.setdefault(
-                        str(pass_name),
+                        normalized_stage_key,
                         {
                             "call_count": 0,
                             "calls_known": False,
@@ -8587,8 +8698,9 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             summary = telemetry_report.get("summary")
             if not isinstance(summary, dict):
                 continue
+            normalized_stage_key = _upload_bundle_normalize_runtime_stage_key(stage_key)
             bucket = aggregate_by_stage.setdefault(
-                stage_key,
+                normalized_stage_key,
                 {
                     "call_count": 0,
                     "calls_known": False,
@@ -8722,6 +8834,87 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
     }
 
 
+def _upload_bundle_runtime_inventory_needs_fallback(
+    *,
+    row_summary: dict[str, Any],
+    fallback_summary: dict[str, Any],
+) -> bool:
+    row_calls_with_runtime = int(_coerce_int(row_summary.get("calls_with_runtime")) or 0)
+    fallback_calls_with_runtime = int(
+        _coerce_int(fallback_summary.get("calls_with_runtime")) or 0
+    )
+    if fallback_calls_with_runtime > row_calls_with_runtime:
+        return True
+    row_total_tokens = _coerce_int(row_summary.get("total_tokens"))
+    fallback_total_tokens = _coerce_int(fallback_summary.get("total_tokens"))
+    if row_total_tokens is None and fallback_total_tokens is not None:
+        return True
+    row_stage_count = len(row_summary.get("by_stage") or {})
+    fallback_stage_count = len(fallback_summary.get("by_stage") or {})
+    if fallback_stage_count > row_stage_count:
+        return True
+    row_call_count = int(_coerce_int(row_summary.get("call_count")) or 0)
+    fallback_call_count = int(_coerce_int(fallback_summary.get("call_count")) or 0)
+    if fallback_call_count > row_call_count and (
+        fallback_total_tokens is not None or fallback_calls_with_runtime > 0
+    ):
+        return True
+    return False
+
+
+def _upload_bundle_merge_runtime_inventory_with_fallback(
+    *,
+    row_inventory: dict[str, Any],
+    fallback_inventory: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(fallback_inventory)
+    row_summary = row_inventory.get("summary")
+    row_summary = row_summary if isinstance(row_summary, dict) else {}
+    fallback_summary = fallback_inventory.get("summary")
+    fallback_summary = fallback_summary if isinstance(fallback_summary, dict) else {}
+    merged_summary = dict(fallback_summary)
+    merged_summary["calls_with_cost"] = int(_coerce_int(row_summary.get("calls_with_cost")) or 0)
+    merged_summary["calls_with_estimated_cost"] = int(
+        _coerce_int(row_summary.get("calls_with_estimated_cost")) or 0
+    )
+    merged_summary["total_cost_usd"] = _coerce_float(row_summary.get("total_cost_usd"))
+    merged_summary["total_estimated_cost_usd"] = _coerce_float(
+        row_summary.get("total_estimated_cost_usd")
+    )
+    merged_summary["cost_coverage_ratio"] = _coerce_float(row_summary.get("cost_coverage_ratio")) or 0.0
+    merged_summary["estimated_cost_coverage_ratio"] = _coerce_float(
+        row_summary.get("estimated_cost_coverage_ratio")
+    ) or 0.0
+    merged_summary["cost_signal"] = (
+        dict(row_summary.get("cost_signal"))
+        if isinstance(row_summary.get("cost_signal"), dict)
+        else dict(fallback_summary.get("cost_signal") or {})
+    )
+    merged_summary["estimated_cost_signal"] = (
+        dict(row_summary.get("estimated_cost_signal"))
+        if isinstance(row_summary.get("estimated_cost_signal"), dict)
+        else dict(fallback_summary.get("estimated_cost_signal") or {})
+    )
+    fallback_runtime_source = str(fallback_summary.get("runtime_source") or "").strip()
+    merged_summary["runtime_source"] = (
+        f"call_inventory_rows_plus_{fallback_runtime_source}"
+        if fallback_runtime_source
+        else "call_inventory_rows_plus_fallback"
+    )
+    merged["summary"] = merged_summary
+    for key in (
+        "top_slowest_calls",
+        "top_token_calls",
+        "top_cost_calls",
+        "top_estimated_cost_calls",
+    ):
+        merged[key] = list(row_inventory.get(key) or [])
+    row_by_source = row_inventory.get("by_source")
+    if isinstance(row_by_source, list) and row_by_source:
+        merged["by_source"] = row_by_source
+    return merged
+
+
 def _upload_bundle_build_call_runtime_inventory(
     *,
     call_inventory_rows: list[dict[str, Any]],
@@ -8729,6 +8922,10 @@ def _upload_bundle_build_call_runtime_inventory(
     run_dirs: list[Path] | None = None,
 ) -> dict[str, Any]:
     runtime_by_key = _upload_bundle_collect_call_runtime_map(
+        run_dirs=run_dirs,
+        run_dir_by_id=run_dir_by_id,
+    )
+    telemetry_fallback = _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
         run_dirs=run_dirs,
         run_dir_by_id=run_dir_by_id,
     )
@@ -8802,13 +8999,8 @@ def _upload_bundle_build_call_runtime_inventory(
             }
         )
 
-    if not enriched_rows:
-        telemetry_fallback = _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
-            run_dirs=run_dirs,
-            run_dir_by_id=run_dir_by_id,
-        )
-        if telemetry_fallback is not None:
-            return telemetry_fallback
+    if not enriched_rows and telemetry_fallback is not None:
+        return telemetry_fallback
 
     duration_values = [
         _coerce_int(row.get("duration_ms"))
@@ -9192,7 +9384,7 @@ def _upload_bundle_build_call_runtime_inventory(
         )
     )
 
-    return {
+    row_inventory = {
         "summary": summary,
         "by_source": by_source_rows,
         "top_slowest_calls": top_slowest,
@@ -9200,6 +9392,22 @@ def _upload_bundle_build_call_runtime_inventory(
         "top_cost_calls": top_cost,
         "top_estimated_cost_calls": top_estimated_cost,
     }
+    if telemetry_fallback is None:
+        return row_inventory
+    fallback_summary = (
+        telemetry_fallback.get("summary")
+        if isinstance(telemetry_fallback.get("summary"), dict)
+        else {}
+    )
+    if _upload_bundle_runtime_inventory_needs_fallback(
+        row_summary=summary,
+        fallback_summary=fallback_summary,
+    ):
+        return _upload_bundle_merge_runtime_inventory_with_fallback(
+            row_inventory=row_inventory,
+            fallback_inventory=telemetry_fallback,
+        )
+    return row_inventory
 
 
 def _upload_bundle_quantile(values: list[float], q: float) -> float | None:
@@ -9508,16 +9716,41 @@ def _upload_bundle_build_regression_casebook(
             correction_call_id=None,
         ),
     )
+    found_targets = [
+        str(row.get("recipe_id") or "")
+        for row in selected_rows
+        if any(
+            _upload_bundle_matches_recipe_target(str(row.get("recipe_id") or ""), target)
+            for target in requested_targets
+        )
+    ]
+    missing_targets = [
+        target
+        for target in requested_targets
+        if not any(
+            _upload_bundle_matches_recipe_target(recipe_id, target)
+            for recipe_id in found_targets
+        )
+    ]
+    suggested_targets: list[str] = []
+    for row in sorted_worst:
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        if not recipe_id or recipe_id in suggested_targets:
+            continue
+        suggested_targets.append(recipe_id)
+        if len(suggested_targets) >= 4:
+            break
     return {
         "requested_targets": requested_targets,
-        "found_targets": [
-            str(row.get("recipe_id") or "")
-            for row in selected_rows
-            if any(
-                _upload_bundle_matches_recipe_target(str(row.get("recipe_id") or ""), target)
-                for target in requested_targets
-            )
-        ],
+        "found_targets": found_targets,
+        "missing_targets": missing_targets,
+        "target_request_status": (
+            "all_found"
+            if requested_targets and not missing_targets
+            else ("partial" if found_targets else "none_found")
+        ),
+        "suggested_targets": suggested_targets,
+        "suggested_target_source": "top_negative_delta_recipes",
         "packet_count": len(packets),
         "packets": packets,
     }
@@ -9599,15 +9832,47 @@ def _upload_bundle_build_changed_line_stratified_sample(
 def _upload_bundle_sort_recipe_triage_rows(
     recipe_triage_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    return sorted(
-        [row for row in recipe_triage_rows if isinstance(row, dict)],
-        key=lambda row: (
-            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
-            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
+    def _sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
+        changed_lines = int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0)
+        outside_span_wrong_line_count = int(
+            _coerce_int(row.get("outside_span_wrong_line_count")) or 0
+        )
+        delta_abs = abs(_float_or_zero(row.get("delta_codex_minus_baseline")))
+        warning_count = (
+            int(_coerce_int(row.get("correction_warning_count")) or 0)
+            + int(_coerce_int(row.get("recipe_warning_count")) or 0)
+            + int(_coerce_int(row.get("final_recipe_warning_count")) or 0)
+        )
+        line_total = int(_coerce_int(row.get("line_total")) or 0)
+        empty_mapping_only = (
+            bool(row.get("final_recipe_empty_mapping") or row.get("correction_empty_mapping"))
+            and changed_lines <= 0
+            and outside_span_wrong_line_count <= 0
+            and delta_abs <= 0.0
+            and warning_count <= 0
+        )
+        has_turn1_signal = (
+            changed_lines > 0
+            or outside_span_wrong_line_count > 0
+            or delta_abs > 0.0
+            or warning_count > 0
+        )
+        return (
+            -int(has_turn1_signal),
+            int(empty_mapping_only),
+            -changed_lines,
+            -outside_span_wrong_line_count,
+            -delta_abs,
+            -warning_count,
+            -line_total,
             str(row.get("recipe_id") or ""),
             str(row.get("source_key") or ""),
             str(row.get("codex_run_id") or ""),
-        ),
+        )
+
+    return sorted(
+        [row for row in recipe_triage_rows if isinstance(row, dict)],
+        key=_sort_key,
     )
 
 
@@ -9917,6 +10182,487 @@ def _upload_bundle_build_triage_packet_rows(
             }
         )
     return rows
+
+
+def _upload_bundle_triage_packet_row_has_signal(row: dict[str, Any]) -> bool:
+    return bool(
+        int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0) > 0
+        or int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0) > 0
+        or _coerce_float(row.get("delta_codex_minus_baseline")) is not None
+        or int(_coerce_int(row.get("line_total")) or 0) > 0
+        or int(_coerce_int(row.get("correction_warning_count")) or 0) > 0
+        or int(_coerce_int(row.get("final_recipe_warning_count")) or 0) > 0
+    )
+
+
+def _upload_bundle_select_triage_packet_sample_rows(
+    triage_packet_rows: list[dict[str, Any]],
+    *,
+    limit: int = 40,
+) -> tuple[list[dict[str, Any]], str]:
+    signal_rows = [
+        row
+        for row in triage_packet_rows
+        if isinstance(row, dict) and _upload_bundle_triage_packet_row_has_signal(row)
+    ]
+    if signal_rows:
+        return signal_rows[:limit], ""
+    return (
+        [],
+        (
+            "No triage rows had recipe-local signal. This usually means active recipe spans "
+            "were not discovered, so use `analysis.turn1_summary`, "
+            "`analysis.active_recipe_span_breakout`, `analysis.top_confusion_deltas`, and "
+            "`analysis.changed_lines_stratified_sample` first."
+        ),
+    )
+
+
+def _upload_bundle_build_active_recipe_span_breakout(
+    pair_breakdown_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    region_totals = {
+        "inside_active_recipe_span": {
+            "line_total": 0,
+            "codex_correct": 0,
+            "baseline_correct": 0,
+        },
+        "outside_active_recipe_span": {
+            "line_total": 0,
+            "codex_correct": 0,
+            "baseline_correct": 0,
+        },
+    }
+    pair_count = 0
+    total_recipe_span_count = 0
+    pairs_with_zero_recipe_spans = 0
+    for row in pair_breakdown_rows:
+        if not isinstance(row, dict):
+            continue
+        pair_count += 1
+        recipe_span_count = int(_coerce_int(row.get("recipe_span_count")) or 0)
+        total_recipe_span_count += recipe_span_count
+        if recipe_span_count <= 0:
+            pairs_with_zero_recipe_spans += 1
+        region_rows = row.get("region_breakdown")
+        region_rows = region_rows if isinstance(region_rows, list) else []
+        for region_row in region_rows:
+            if not isinstance(region_row, dict):
+                continue
+            region_name = str(region_row.get("region") or "").strip()
+            if region_name not in region_totals:
+                continue
+            region_totals[region_name]["line_total"] += int(
+                _coerce_int(region_row.get("line_total")) or 0
+            )
+            region_totals[region_name]["codex_correct"] += int(
+                _coerce_int(region_row.get("codex_correct")) or 0
+            )
+            region_totals[region_name]["baseline_correct"] += int(
+                _coerce_int(region_row.get("baseline_correct")) or 0
+            )
+
+    inside_total = int(region_totals["inside_active_recipe_span"]["line_total"] or 0)
+    outside_total = int(region_totals["outside_active_recipe_span"]["line_total"] or 0)
+    total_scored_lines = inside_total + outside_total
+
+    def _finalize(bucket: dict[str, int]) -> dict[str, Any]:
+        line_total = int(bucket.get("line_total") or 0)
+        codex_accuracy = _rate(int(bucket.get("codex_correct") or 0), line_total)
+        baseline_accuracy = _rate(int(bucket.get("baseline_correct") or 0), line_total)
+        return {
+            "line_total": line_total,
+            "codex_correct": int(bucket.get("codex_correct") or 0),
+            "baseline_correct": int(bucket.get("baseline_correct") or 0),
+            "codex_accuracy": codex_accuracy,
+            "baseline_accuracy": baseline_accuracy,
+            "delta_codex_minus_baseline": _delta(codex_accuracy, baseline_accuracy),
+        }
+
+    all_scored_lines_outside = total_scored_lines > 0 and inside_total <= 0 and outside_total > 0
+    return {
+        "schema_version": "upload_bundle_active_recipe_span_breakout.v1",
+        "pair_count": pair_count,
+        "recipe_span_count": total_recipe_span_count,
+        "pairs_with_zero_recipe_spans": pairs_with_zero_recipe_spans,
+        "total_scored_lines": total_scored_lines,
+        "all_scored_lines_outside_active_recipe_spans": all_scored_lines_outside,
+        "outside_share_of_scored_lines": (
+            round(outside_total / total_scored_lines, 6) if total_scored_lines > 0 else None
+        ),
+        "dominant_region": (
+            "outside_active_recipe_span"
+            if outside_total > inside_total
+            else (
+                "inside_active_recipe_span"
+                if inside_total > 0
+                else "no_scored_lines"
+            )
+        ),
+        "inside_active_recipe_span": _finalize(
+            region_totals["inside_active_recipe_span"]
+        ),
+        "outside_active_recipe_span": _finalize(
+            region_totals["outside_active_recipe_span"]
+        ),
+        "turn1_note": (
+            "All scored comparison mass is outside active recipe spans."
+            if all_scored_lines_outside
+            else (
+                "No active recipe spans were discovered for one or more compared pairs."
+                if pairs_with_zero_recipe_spans > 0
+                else ""
+            )
+        ),
+    }
+
+
+def _upload_bundle_build_pair_delta_summary(
+    pair_inventory: list[dict[str, Any]],
+) -> dict[str, Any]:
+    def _minimum(metric_key: str) -> float | None:
+        values = [
+            _coerce_float(row.get(metric_key))
+            for row in pair_inventory
+            if _coerce_float(row.get(metric_key)) is not None
+        ]
+        if not values:
+            return None
+        return min(values)
+
+    return {
+        "worst_pair_delta_overall_line_accuracy": _minimum(
+            "delta_overall_line_accuracy"
+        ),
+        "worst_pair_delta_macro_f1_excluding_other": _minimum(
+            "delta_macro_f1_excluding_other"
+        ),
+        "worst_pair_delta_practical_f1": _minimum("delta_practical_f1"),
+        "pairs_with_negative_overall_line_accuracy_delta": sum(
+            1
+            for row in pair_inventory
+            if (_coerce_float(row.get("delta_overall_line_accuracy")) or 0.0) < 0.0
+        ),
+        "pairs_with_negative_macro_f1_delta": sum(
+            1
+            for row in pair_inventory
+            if (_coerce_float(row.get("delta_macro_f1_excluding_other")) or 0.0) < 0.0
+        ),
+        "pairs_with_negative_practical_f1_delta": sum(
+            1
+            for row in pair_inventory
+            if (_coerce_float(row.get("delta_practical_f1")) or 0.0) < 0.0
+        ),
+    }
+
+
+def _upload_bundle_build_stage_observability_summary(
+    failure_ledger: dict[str, Any],
+) -> dict[str, Any]:
+    rows = failure_ledger.get("rows")
+    rows = rows if isinstance(rows, list) else []
+    by_stage: dict[str, dict[str, Any]] = {}
+    for stage_key in sorted(
+        {
+            str(row.get("stage_key") or "")
+            for row in rows
+            if isinstance(row, dict) and str(row.get("stage_key") or "")
+        }
+    ):
+        stage_rows = [
+            row
+            for row in rows
+            if isinstance(row, dict) and str(row.get("stage_key") or "") == stage_key
+        ]
+        status_semantics_counts: Counter[str] = Counter()
+        status_unknown_count = 0
+        for row in stage_rows:
+            status_semantics_counts[str(row.get("status_semantics") or "")] += 1
+            if str(row.get("status") or "").strip().lower() in {"", "unknown"}:
+                status_unknown_count += 1
+        by_stage[stage_key] = {
+            "recipe_count": len(stage_rows),
+            "status_unknown_count": status_unknown_count,
+            "call_observed_count": sum(
+                1 for row in stage_rows if bool(row.get("call_observed"))
+            ),
+            "output_signal_count": sum(
+                1 for row in stage_rows if bool(row.get("output_signal"))
+            ),
+            "empty_output_signal_count": sum(
+                1 for row in stage_rows if bool(row.get("empty_output_signal"))
+            ),
+            "status_semantics_counts": _counter_to_sorted_dict(status_semantics_counts),
+        }
+    return {
+        "schema_version": "upload_bundle_stage_observability_summary.v1",
+        "stage_count": len(by_stage),
+        "by_stage": by_stage,
+    }
+
+
+def _upload_bundle_bundle_prompt_log_summary(
+    *,
+    process_manifest_payload: dict[str, Any],
+    run_rows: list[dict[str, Any]],
+    run_diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    manifest_status = str(
+        process_manifest_payload.get("full_prompt_log_status") or ""
+    ).strip()
+    codex_run_ids = {
+        str(row.get("run_id") or "").strip()
+        for row in run_rows
+        if isinstance(row, dict)
+        and _upload_bundle_is_codex_pipeline_enabled(row.get("llm_recipe_pipeline"))
+    }
+    diagnostic_by_run_id = {
+        str(row.get("run_id") or "").strip(): row
+        for row in run_diagnostics
+        if isinstance(row, dict) and str(row.get("run_id") or "").strip()
+    }
+    codex_statuses = [
+        str((diagnostic_by_run_id.get(run_id) or {}).get("full_prompt_log_status") or "").strip()
+        for run_id in sorted(codex_run_ids)
+    ]
+    non_empty_codex_statuses = [status for status in codex_statuses if status]
+
+    if manifest_status and manifest_status.lower() != "unknown":
+        effective_status = manifest_status
+        source = "process_manifest"
+    elif not codex_run_ids:
+        effective_status = "not_applicable"
+        source = "derived_from_run_diagnostics"
+    elif non_empty_codex_statuses and all(status == "complete" for status in non_empty_codex_statuses):
+        effective_status = "complete"
+        source = "derived_from_run_diagnostics"
+    elif any(status == "complete" for status in non_empty_codex_statuses):
+        effective_status = "partial"
+        source = "derived_from_run_diagnostics"
+    elif non_empty_codex_statuses:
+        effective_status = "missing"
+        source = "derived_from_run_diagnostics"
+    else:
+        effective_status = "unknown"
+        source = "derived_from_run_diagnostics"
+
+    full_prompt_log_rows = _coerce_int(process_manifest_payload.get("full_prompt_log_rows"))
+    if full_prompt_log_rows is None:
+        full_prompt_log_rows = sum(
+            int(_coerce_int(row.get("full_prompt_log_rows")) or 0)
+            for row in run_rows
+            if isinstance(row, dict)
+        )
+
+    return {
+        "status": effective_status,
+        "status_source": source,
+        "full_prompt_log_rows": int(full_prompt_log_rows or 0),
+        "codex_run_count": len(codex_run_ids),
+        "codex_runs_complete": sum(1 for status in codex_statuses if status == "complete"),
+    }
+
+
+def _upload_bundle_build_turn1_summary(
+    *,
+    pair_delta_summary: dict[str, Any],
+    active_recipe_span_breakout: dict[str, Any],
+    net_error_blame_summary: dict[str, Any],
+    top_confusion_deltas: list[dict[str, Any]],
+    triage_packet_rows: list[dict[str, Any]],
+    triage_packet_sample_note: str,
+    runtime_summary_payload: dict[str, Any],
+    stage_observability_summary: dict[str, Any],
+    regression_casebook: dict[str, Any],
+) -> dict[str, Any]:
+    bucket_rows = (
+        net_error_blame_summary.get("bucket_rows")
+        if isinstance(net_error_blame_summary.get("bucket_rows"), list)
+        else []
+    )
+    ranked_buckets = [
+        row
+        for row in bucket_rows
+        if isinstance(row, dict)
+    ]
+    ranked_buckets.sort(
+        key=lambda row: (
+            -int(_coerce_int(row.get("net_error_count")) or 0),
+            -int(_coerce_int(row.get("new_error_count")) or 0),
+            str(row.get("bucket") or ""),
+        )
+    )
+    top_blame_buckets = ranked_buckets[:3]
+
+    stage_rows = (
+        stage_observability_summary.get("by_stage")
+        if isinstance(stage_observability_summary.get("by_stage"), dict)
+        else {}
+    )
+    stage_rows = stage_rows if isinstance(stage_rows, dict) else {}
+
+    def _stage_gap_count(stage_key: str) -> int:
+        payload = stage_rows.get(stage_key)
+        payload = payload if isinstance(payload, dict) else {}
+        semantics = payload.get("status_semantics_counts")
+        semantics = semantics if isinstance(semantics, dict) else {}
+        return int(_coerce_int(semantics.get("projection_or_scoring_gap")) or 0)
+
+    diagnosis_flags: list[str] = []
+    if bool(active_recipe_span_breakout.get("all_scored_lines_outside_active_recipe_spans")):
+        diagnosis_flags.append("outside_span_contamination_dominant")
+    if _stage_gap_count("recipe_llm_correct_and_link") > 0 or _stage_gap_count(
+        "build_final_recipe"
+    ) > 0:
+        diagnosis_flags.append("stage_projection_gap_present")
+    if _coerce_float(pair_delta_summary.get("worst_pair_delta_overall_line_accuracy")) is not None:
+        if (
+            float(
+                _coerce_float(pair_delta_summary.get("worst_pair_delta_overall_line_accuracy"))
+                or 0.0
+            )
+            < 0.0
+        ):
+            diagnosis_flags.append("pair_level_regression_present")
+
+    top_triage_rows = (
+        []
+        if str(triage_packet_sample_note or "").strip()
+        else [
+            {
+                "recipe_id": str(row.get("recipe_id") or ""),
+                "short_title": str(row.get("short_title") or ""),
+                "changed_lines_codex_vs_baseline": int(
+                    _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
+                ),
+                "delta_codex_minus_baseline": _coerce_float(
+                    row.get("delta_codex_minus_baseline")
+                ),
+                "outside_span_wrong_line_count": int(
+                    _coerce_int(row.get("outside_span_wrong_line_count")) or 0
+                ),
+                "final_recipe_empty_mapping": bool(row.get("final_recipe_empty_mapping")),
+                "correction_warning_count": int(
+                    _coerce_int(row.get("correction_warning_count")) or 0
+                ),
+            }
+            for row in triage_packet_rows[:5]
+            if isinstance(row, dict)
+        ]
+    )
+
+    return {
+        "schema_version": "upload_bundle_turn1_summary.v1",
+        "diagnosis_flags": diagnosis_flags,
+        "recommended_read_order": [
+            "analysis.benchmark_pair_inventory",
+            "analysis.active_recipe_span_breakout",
+            "analysis.net_error_blame_summary",
+            "analysis.top_confusion_deltas",
+            "analysis.changed_lines_stratified_sample",
+            "analysis.triage_packet",
+        ],
+        "severity": {
+            "changed_lines_total_topline_context": int(
+                _coerce_int(sum(
+                    int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0)
+                    for row in triage_packet_rows
+                    if isinstance(row, dict)
+                ))
+                or 0
+            ),
+            "worst_pair_delta_overall_line_accuracy": _coerce_float(
+                pair_delta_summary.get("worst_pair_delta_overall_line_accuracy")
+            ),
+            "worst_pair_delta_macro_f1_excluding_other": _coerce_float(
+                pair_delta_summary.get("worst_pair_delta_macro_f1_excluding_other")
+            ),
+            "worst_pair_delta_practical_f1": _coerce_float(
+                pair_delta_summary.get("worst_pair_delta_practical_f1")
+            ),
+        },
+        "active_recipe_span_breakout": {
+            "recipe_span_count": int(
+                _coerce_int(active_recipe_span_breakout.get("recipe_span_count")) or 0
+            ),
+            "pairs_with_zero_recipe_spans": int(
+                _coerce_int(active_recipe_span_breakout.get("pairs_with_zero_recipe_spans"))
+                or 0
+            ),
+            "all_scored_lines_outside_active_recipe_spans": bool(
+                active_recipe_span_breakout.get("all_scored_lines_outside_active_recipe_spans")
+            ),
+            "outside_share_of_scored_lines": _coerce_float(
+                active_recipe_span_breakout.get("outside_share_of_scored_lines")
+            ),
+            "turn1_note": str(active_recipe_span_breakout.get("turn1_note") or ""),
+        },
+        "top_blame_buckets": [
+            {
+                "bucket": str(row.get("bucket") or ""),
+                "net_error_count": int(_coerce_int(row.get("net_error_count")) or 0),
+                "share_of_net_error": _coerce_float(row.get("share_of_net_error")),
+            }
+            for row in top_blame_buckets
+        ],
+        "top_confusion_deltas": [
+            {
+                "gold_label": str(row.get("gold_label") or ""),
+                "pred_label": str(row.get("pred_label") or ""),
+                "delta_count": int(_coerce_int(row.get("delta_count")) or 0),
+            }
+            for row in top_confusion_deltas[:5]
+            if isinstance(row, dict)
+        ],
+        "top_triage_rows_note": triage_packet_sample_note,
+        "top_triage_rows": top_triage_rows,
+        "runtime_snapshot": {
+            "call_count": int(_coerce_int(runtime_summary_payload.get("call_count")) or 0),
+            "calls_with_runtime": int(
+                _coerce_int(runtime_summary_payload.get("calls_with_runtime")) or 0
+            ),
+            "calls_with_estimated_cost": int(
+                _coerce_int(runtime_summary_payload.get("calls_with_estimated_cost")) or 0
+            ),
+            "total_duration_ms": _coerce_int(runtime_summary_payload.get("total_duration_ms")),
+            "total_tokens": _coerce_int(runtime_summary_payload.get("total_tokens")),
+            "estimated_cost_coverage_ratio": _coerce_float(
+                runtime_summary_payload.get("estimated_cost_coverage_ratio")
+            ),
+        },
+        "stage_observability": {
+            stage_key: {
+                "status_unknown_count": int(
+                    _coerce_int((payload or {}).get("status_unknown_count")) or 0
+                ),
+                "call_observed_count": int(
+                    _coerce_int((payload or {}).get("call_observed_count")) or 0
+                ),
+                "empty_output_signal_count": int(
+                    _coerce_int((payload or {}).get("empty_output_signal_count")) or 0
+                ),
+                "status_semantics_counts": (
+                    dict((payload or {}).get("status_semantics_counts"))
+                    if isinstance((payload or {}).get("status_semantics_counts"), dict)
+                    else {}
+                ),
+            }
+            for stage_key, payload in sorted(stage_rows.items())
+            if isinstance(payload, dict)
+        },
+        "targeted_regression_affordance": {
+            "target_request_status": str(
+                regression_casebook.get("target_request_status") or "unknown"
+            ),
+            "requested_targets": list(regression_casebook.get("requested_targets") or []),
+            "found_targets": list(regression_casebook.get("found_targets") or []),
+            "missing_targets": list(regression_casebook.get("missing_targets") or []),
+            "suggested_targets": list(regression_casebook.get("suggested_targets") or []),
+            "suggested_target_source": str(
+                regression_casebook.get("suggested_target_source") or ""
+            ),
+        },
+    }
 
 
 def _upload_bundle_status_is_problem(value: Any) -> bool:
@@ -11684,6 +12430,12 @@ def _write_upload_bundle_three_files(
         changed_line_rows
     )
     triage_packet_rows = _upload_bundle_build_triage_packet_rows(recipe_triage_rows)
+    (
+        triage_packet_sample_rows,
+        triage_packet_sample_note,
+    ) = _upload_bundle_select_triage_packet_sample_rows(
+        triage_packet_rows,
+    )
     triage_packet_summary = {
         "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
         "row_count": len(triage_packet_rows),
@@ -11692,7 +12444,15 @@ def _write_upload_bundle_three_files(
             if triage_packet_rows
             else "No triage rows were available from source or derived comparison artifacts."
         ),
-        "sample_rows": triage_packet_rows[:40],
+        "signal_row_count": len(
+            [
+                row
+                for row in triage_packet_rows
+                if isinstance(row, dict) and _upload_bundle_triage_packet_row_has_signal(row)
+            ]
+        ),
+        "sample_rows_note": triage_packet_sample_note,
+        "sample_rows": triage_packet_sample_rows,
     }
     net_error_blame_summary = _upload_bundle_build_net_error_blame_summary(
         changed_line_rows=changed_line_rows,
@@ -12188,34 +12948,6 @@ def _write_upload_bundle_three_files(
     )
     topline_consistent = bool(run_count_match and pair_count_match and changed_lines_match)
 
-    full_prompt_log_rows = _coerce_int(process_manifest_payload.get("full_prompt_log_rows"))
-    if full_prompt_log_rows is None:
-        full_prompt_log_rows = len(
-            [
-                row
-                for row in run_diagnostics
-                if str(row.get("full_prompt_log_status") or "").strip() == "complete"
-            ]
-        )
-
-    topline = {
-        "run_count": run_count_verified,
-        "pair_count": pair_count_verified_count,
-        "changed_lines_total": changed_lines_verified_count,
-        "full_prompt_log_status": str(
-            process_manifest_payload.get("full_prompt_log_status") or "unknown"
-        ),
-        "full_prompt_log_rows": int(full_prompt_log_rows or 0),
-        "largest_practical_f1_regressions": largest_regressions,
-        "pair_count_sufficient_for_generalization": (
-            pair_count_verified_count >= UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION
-        ),
-        "additional_pairs_needed_for_generalization": max(
-            UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION - pair_count_verified_count,
-            0,
-        ),
-    }
-
     self_check = {
         "starter_pack_present": starter_pack_physical_present,
         "starter_pack_physical_dir_present": starter_pack_physical_present,
@@ -12657,6 +13389,81 @@ def _write_upload_bundle_three_files(
             str(row.get("source_key") or ""),
         )
     )
+    pair_delta_summary = _upload_bundle_build_pair_delta_summary(pair_inventory)
+    active_recipe_span_breakout = _upload_bundle_build_active_recipe_span_breakout(
+        pair_breakdown_rows
+    )
+    prompt_log_summary = _upload_bundle_bundle_prompt_log_summary(
+        process_manifest_payload=process_manifest_payload,
+        run_rows=run_rows,
+        run_diagnostics=run_diagnostics,
+    )
+    runtime_summary_payload = (
+        call_runtime_inventory.get("summary")
+        if isinstance(call_runtime_inventory.get("summary"), dict)
+        else {}
+    )
+    stage_observability_summary = _upload_bundle_build_stage_observability_summary(
+        failure_ledger
+    )
+    top_confusion_deltas = _aggregate_confusion_deltas(
+        {"pairs": comparison_pairs},
+        top_k=20,
+    )
+    turn1_summary = _upload_bundle_build_turn1_summary(
+        pair_delta_summary=pair_delta_summary,
+        active_recipe_span_breakout=active_recipe_span_breakout,
+        net_error_blame_summary=net_error_blame_summary,
+        top_confusion_deltas=top_confusion_deltas,
+        triage_packet_rows=triage_packet_rows,
+        triage_packet_sample_note=triage_packet_sample_note,
+        runtime_summary_payload=runtime_summary_payload,
+        stage_observability_summary=stage_observability_summary,
+        regression_casebook=regression_casebook,
+    )
+    topline = {
+        "run_count": run_count_verified,
+        "pair_count": pair_count_verified_count,
+        "changed_lines_total": changed_lines_verified_count,
+        "full_prompt_log_status": str(prompt_log_summary.get("status") or "unknown"),
+        "full_prompt_log_status_source": str(
+            prompt_log_summary.get("status_source") or "unknown"
+        ),
+        "full_prompt_log_rows": int(prompt_log_summary.get("full_prompt_log_rows") or 0),
+        "full_prompt_log_codex_run_count": int(
+            prompt_log_summary.get("codex_run_count") or 0
+        ),
+        "full_prompt_log_complete_codex_run_count": int(
+            prompt_log_summary.get("codex_runs_complete") or 0
+        ),
+        "largest_practical_f1_regressions": largest_regressions,
+        "pair_count_sufficient_for_generalization": (
+            pair_count_verified_count >= UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION
+        ),
+        "additional_pairs_needed_for_generalization": max(
+            UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION - pair_count_verified_count,
+            0,
+        ),
+        **pair_delta_summary,
+        "active_recipe_span_breakout": active_recipe_span_breakout,
+        "call_runtime_call_count": int(runtime_summary_payload.get("call_count") or 0),
+        "call_runtime_coverage_ratio": round(
+            (
+                int(runtime_summary_payload.get("calls_with_runtime") or 0)
+                / int(runtime_summary_payload.get("call_count") or 1)
+            ),
+            6,
+        )
+        if int(runtime_summary_payload.get("call_count") or 0) > 0
+        else 0.0,
+        "call_runtime_estimated_cost_coverage_ratio": _coerce_float(
+            runtime_summary_payload.get("estimated_cost_coverage_ratio")
+        ),
+        "call_runtime_total_duration_ms": _coerce_int(
+            runtime_summary_payload.get("total_duration_ms")
+        ),
+        "call_runtime_total_tokens": _coerce_int(runtime_summary_payload.get("total_tokens")),
+    }
     structure_label_report = build_structure_label_report(
         per_label_metrics=per_label_metrics,
         pair_rows=pair_inventory,
@@ -12666,10 +13473,16 @@ def _write_upload_bundle_three_files(
     default_initial_views = [
         "topline",
         "self_check",
-        "analysis.triage_packet",
+        "analysis.turn1_summary",
+        "analysis.benchmark_pair_inventory",
+        "analysis.active_recipe_span_breakout",
         "analysis.net_error_blame_summary",
+        "analysis.top_confusion_deltas",
+        "analysis.changed_lines_stratified_sample",
+        "analysis.triage_packet",
         "analysis.config_version_metadata",
         "analysis.recipe_pipeline_context",
+        "analysis.stage_observability_summary",
         "analysis.structure_label_report",
         "analysis.knowledge",
         "analysis.per_label_metrics",
@@ -12677,7 +13490,6 @@ def _write_upload_bundle_three_files(
         "analysis.stage_separated_comparison",
         "analysis.failure_ledger",
         "analysis.regression_casebook",
-        "analysis.changed_lines_stratified_sample",
         "analysis.explicit_escalation_changed_lines_packet",
         "analysis.call_inventory_runtime",
         "analysis.line_role_escalation",
@@ -12772,8 +13584,10 @@ def _write_upload_bundle_three_files(
             "full_payload_companion": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
         },
         "analysis": {
+            "turn1_summary": turn1_summary,
             "benchmark_pair_inventory": {
                 "pair_count": len(pair_inventory),
+                "delta_summary": pair_delta_summary,
                 "generalization_readiness": {
                     "minimum_pairs_for_generalization": (
                         UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION
@@ -12790,18 +13604,17 @@ def _write_upload_bundle_three_files(
                 },
                 "pairs": pair_inventory,
             },
+            "active_recipe_span_breakout": active_recipe_span_breakout,
             "triage_packet": triage_packet_summary,
             "net_error_blame_summary": net_error_blame_summary,
             "config_version_metadata": config_version_metadata,
             "recipe_pipeline_context": recipe_pipeline_context,
+            "stage_observability_summary": stage_observability_summary,
             "structure_label_report": structure_label_report,
             "knowledge": knowledge_summary,
             "group_high_level": group_high_level_packet_summary,
             "per_label_metrics": per_label_metrics,
-            "top_confusion_deltas": _aggregate_confusion_deltas(
-                {"pairs": comparison_pairs},
-                top_k=20,
-            ),
+            "top_confusion_deltas": top_confusion_deltas,
             "per_recipe_breakdown": {
                 "pair_breakdown_count": len(pair_breakdown_rows),
                 "pairs": pair_breakdown_rows,
@@ -12858,9 +13671,11 @@ def _write_upload_bundle_three_files(
         "## Quick Start",
         "",
         "1. Read `topline` and `self_check` in `upload_bundle_index.json`.",
-        "2. Start with `analysis.triage_packet` (JSONL-first triage rows).",
-        "3. Open `navigation.default_initial_views` in order for first-pass triage.",
-        "4. Use `navigation.row_locators` to jump into `upload_bundle_payload.jsonl` rows.",
+        "2. Read `analysis.turn1_summary` for the one-screen severity, span, blame, runtime, and targeted-regression summary.",
+        "3. Read `analysis.benchmark_pair_inventory` and `analysis.active_recipe_span_breakout` for the pair-delta and span story.",
+        "4. Use `analysis.net_error_blame_summary`, `analysis.top_confusion_deltas`, and `analysis.changed_lines_stratified_sample` before drilling into recipe rows.",
+        "5. Open `navigation.default_initial_views` in order for first-pass triage.",
+        "6. Use `navigation.row_locators` to jump into `upload_bundle_payload.jsonl` rows.",
         "",
         "## Topline",
         "",
@@ -12876,7 +13691,43 @@ def _write_upload_bundle_three_files(
             f"{int(topline['additional_pairs_needed_for_generalization'])}"
         ),
         f"- full_prompt_log_status: {topline['full_prompt_log_status']}",
+        (
+            "- full_prompt_log_status_source: "
+            f"{str(topline.get('full_prompt_log_status_source') or 'unknown')}"
+        ),
         f"- full_prompt_log_rows: {topline['full_prompt_log_rows']}",
+        (
+            "- worst_pair_delta_overall_line_accuracy: "
+            f"{_serialize_float(_coerce_float(topline.get('worst_pair_delta_overall_line_accuracy')))}"
+        ),
+        (
+            "- worst_pair_delta_macro_f1_excluding_other: "
+            f"{_serialize_float(_coerce_float(topline.get('worst_pair_delta_macro_f1_excluding_other')))}"
+        ),
+        (
+            "- worst_pair_delta_practical_f1: "
+            f"{_serialize_float(_coerce_float(topline.get('worst_pair_delta_practical_f1')))}"
+        ),
+        (
+            "- recipe_span_count: "
+            f"{int(_coerce_int(active_recipe_span_breakout.get('recipe_span_count')) or 0)}"
+        ),
+        (
+            "- all_scored_lines_outside_active_recipe_spans: "
+            f"{'true' if bool(active_recipe_span_breakout.get('all_scored_lines_outside_active_recipe_spans')) else 'false'}"
+        ),
+        (
+            "- outside_active_recipe_span_line_total: "
+            f"{int(_coerce_int(((active_recipe_span_breakout.get('outside_active_recipe_span') or {}).get('line_total'))) or 0)}"
+        ),
+        (
+            "- inside_active_recipe_span_line_total: "
+            f"{int(_coerce_int(((active_recipe_span_breakout.get('inside_active_recipe_span') or {}).get('line_total'))) or 0)}"
+        ),
+        (
+            "- call_runtime_coverage_ratio: "
+            f"{_serialize_float(_coerce_float(topline.get('call_runtime_coverage_ratio')))}"
+        ),
         "",
     ]
     overview_lines.extend(
@@ -12906,6 +13757,55 @@ def _write_upload_bundle_three_files(
             "",
         ]
     )
+    turn1_target_summary = (
+        turn1_summary.get("targeted_regression_affordance")
+        if isinstance(turn1_summary.get("targeted_regression_affordance"), dict)
+        else {}
+    )
+    overview_lines.extend(
+        [
+            "## Turn-1 Summary",
+            "",
+            (
+                "- diagnosis_flags: "
+                + (
+                    ", ".join(
+                        f"`{str(flag)}`" for flag in turn1_summary.get("diagnosis_flags") or []
+                    )
+                    if isinstance(turn1_summary.get("diagnosis_flags"), list)
+                    and (turn1_summary.get("diagnosis_flags") or [])
+                    else "none"
+                )
+            ),
+            (
+                "- targeted_regression_status: "
+                f"{str(turn1_target_summary.get('target_request_status') or 'unknown')}"
+            ),
+            (
+                "- suggested_targets: "
+                + (
+                    ", ".join(
+                        f"`{str(item)}`"
+                        for item in turn1_target_summary.get("suggested_targets") or []
+                    )
+                    if isinstance(turn1_target_summary.get("suggested_targets"), list)
+                    and (turn1_target_summary.get("suggested_targets") or [])
+                    else "none"
+                )
+            ),
+            "",
+        ]
+    )
+    if str(turn1_summary.get("top_triage_rows_note") or "").strip():
+        overview_lines.extend(
+            [
+                (
+                    "- triage_row_note: "
+                    f"{str(turn1_summary.get('top_triage_rows_note') or '').strip()}"
+                ),
+                "",
+            ]
+        )
     recipe_stage_rows = (
         recipe_pipeline_context.get("recipe_stages")
         if isinstance(recipe_pipeline_context.get("recipe_stages"), list)
@@ -13030,13 +13930,18 @@ def _write_upload_bundle_three_files(
         )
 
     included_views = [
+        "- turn-1 summary (severity, span breakout, blame, runtime, and targeted regression hints)",
+        "- benchmark pair inventory (per-pair deltas + generalization readiness)",
+        "- active recipe span breakout (inside vs outside active recipe spans)",
         "- triage packet (JSONL-first row navigation; CSV remains legacy-compatible)",
         (
             "- net-error blame summary "
             f"(line-role / {recipe_stage_display} / routing-fallback buckets)"
         ),
+        "- top confusion deltas",
         "- config/version parity metadata",
         "- recipe pipeline context (active recipe pipeline ids + semantic recipe-stage labels)",
+        "- stage observability summary (recorded status vs projection gap vs empty output)",
         "- per-label metrics + confusion deltas",
         "- per-recipe breakdown",
         (
@@ -13106,6 +14011,48 @@ def _write_upload_bundle_three_files(
                 )
             overview_lines.append("")
 
+    overview_lines.extend(
+        [
+            "## Active Recipe Span Breakout",
+            "",
+            (
+                "- recipe_span_count: "
+                f"{int(_coerce_int(active_recipe_span_breakout.get('recipe_span_count')) or 0)}"
+            ),
+            (
+                "- pairs_with_zero_recipe_spans: "
+                f"{int(_coerce_int(active_recipe_span_breakout.get('pairs_with_zero_recipe_spans')) or 0)}"
+            ),
+            (
+                "- total_scored_lines: "
+                f"{int(_coerce_int(active_recipe_span_breakout.get('total_scored_lines')) or 0)}"
+            ),
+            (
+                "- outside_share_of_scored_lines: "
+                f"{_serialize_float(_coerce_float(active_recipe_span_breakout.get('outside_share_of_scored_lines')))}"
+            ),
+            (
+                "- dominant_region: "
+                f"{str(active_recipe_span_breakout.get('dominant_region') or 'unknown')}"
+            ),
+            (
+                "- turn1_note: "
+                f"{str(active_recipe_span_breakout.get('turn1_note') or 'none')}"
+            ),
+            (
+                "- inside_active_recipe_span: "
+                f"line_total={int(_coerce_int(((active_recipe_span_breakout.get('inside_active_recipe_span') or {}).get('line_total'))) or 0)} "
+                f"delta={_serialize_float(_coerce_float(((active_recipe_span_breakout.get('inside_active_recipe_span') or {}).get('delta_codex_minus_baseline'))))}"
+            ),
+            (
+                "- outside_active_recipe_span: "
+                f"line_total={int(_coerce_int(((active_recipe_span_breakout.get('outside_active_recipe_span') or {}).get('line_total'))) or 0)} "
+                f"delta={_serialize_float(_coerce_float(((active_recipe_span_breakout.get('outside_active_recipe_span') or {}).get('delta_codex_minus_baseline'))))}"
+            ),
+            "",
+        ]
+    )
+
     runtime_summary_payload = (
         call_runtime_inventory.get("summary")
         if isinstance(call_runtime_inventory.get("summary"), dict)
@@ -13124,6 +14071,41 @@ def _write_upload_bundle_three_files(
     )
     estimated_cost_signal = (
         estimated_cost_signal if isinstance(estimated_cost_signal, dict) else {}
+    )
+    overview_lines.extend(
+        [
+            "## Runtime / Cost Snapshot",
+            "",
+            (
+                "- call_count: "
+                f"{int(_coerce_int(runtime_summary_payload.get('call_count')) or 0)}"
+            ),
+            (
+                "- calls_with_runtime: "
+                f"{int(_coerce_int(runtime_summary_payload.get('calls_with_runtime')) or 0)}"
+            ),
+            (
+                "- runtime_coverage_ratio: "
+                f"{_serialize_float(_coerce_float(topline.get('call_runtime_coverage_ratio')))}"
+            ),
+            (
+                "- calls_with_estimated_cost: "
+                f"{int(_coerce_int(runtime_summary_payload.get('calls_with_estimated_cost')) or 0)}"
+            ),
+            (
+                "- estimated_cost_coverage_ratio: "
+                f"{_serialize_float(_coerce_float(runtime_summary_payload.get('estimated_cost_coverage_ratio')))}"
+            ),
+            (
+                "- total_duration_ms: "
+                f"{int(_coerce_int(runtime_summary_payload.get('total_duration_ms')) or 0)}"
+            ),
+            (
+                "- total_tokens: "
+                f"{int(_coerce_int(runtime_summary_payload.get('total_tokens')) or 0)}"
+            ),
+            "",
+        ]
     )
     overview_lines.extend(
         [
@@ -13191,7 +14173,7 @@ def _write_upload_bundle_three_files(
                     f"{int(_coerce_int(net_error_blame_summary.get('net_error_delta_lines')) or 0)}"
                 ),
             ]
-        )
+            )
         for row in blame_bucket_rows:
             if not isinstance(row, dict):
                 continue
@@ -13202,6 +14184,25 @@ def _write_upload_bundle_three_files(
                 f"fixed={int(_coerce_int(row.get('fixed_error_count')) or 0)} "
                 f"net={int(_coerce_int(row.get('net_error_count')) or 0)} "
                 f"(share_of_net_error={_serialize_float(_coerce_float(row.get('share_of_net_error')))})"
+            )
+        overview_lines.append("")
+
+    top_confusion_rows = index_payload["analysis"].get("top_confusion_deltas")
+    top_confusion_rows = top_confusion_rows if isinstance(top_confusion_rows, list) else []
+    if top_confusion_rows:
+        overview_lines.extend(
+            [
+                "## Top Confusion Deltas",
+                "",
+            ]
+        )
+        for row in top_confusion_rows[:5]:
+            if not isinstance(row, dict):
+                continue
+            overview_lines.append(
+                "- "
+                f"{str(row.get('gold_label') or '')} -> {str(row.get('pred_label') or '')}: "
+                f"delta_count={int(_coerce_int(row.get('delta_count')) or 0)}"
             )
         overview_lines.append("")
 
@@ -13252,6 +14253,56 @@ def _write_upload_bundle_three_files(
             )
         overview_lines.append("")
 
+    stage_observability_by_stage = (
+        stage_observability_summary.get("by_stage")
+        if isinstance(stage_observability_summary.get("by_stage"), dict)
+        else {}
+    )
+    overview_lines.extend(
+        [
+            "## Stage Observability",
+            "",
+            "This separates recorded runtime status from projection/scoring gaps and empty-output signals.",
+            "",
+        ]
+    )
+    for stage_key in (
+        "build_intermediate_det",
+        "recipe_llm_correct_and_link",
+        "build_final_recipe",
+        "final_result",
+    ):
+        stage_payload = (
+            stage_observability_by_stage.get(stage_key)
+            if isinstance(stage_observability_by_stage, dict)
+            else {}
+        )
+        stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
+        semantics_counts = (
+            stage_payload.get("status_semantics_counts")
+            if isinstance(stage_payload.get("status_semantics_counts"), dict)
+            else {}
+        )
+        semantics_text = (
+            ", ".join(
+                f"{key}={int(_coerce_int(value) or 0)}"
+                for key, value in sorted(semantics_counts.items())
+                if key
+            )
+            if semantics_counts
+            else "none"
+        )
+        overview_lines.append(
+            "- "
+            f"{stage_key}: "
+            f"recipes={int(_coerce_int(stage_payload.get('recipe_count')) or 0)} "
+            f"unknown={int(_coerce_int(stage_payload.get('status_unknown_count')) or 0)} "
+            f"call_observed={int(_coerce_int(stage_payload.get('call_observed_count')) or 0)} "
+            f"empty_output_signal={int(_coerce_int(stage_payload.get('empty_output_signal_count')) or 0)} "
+            f"semantics={semantics_text}"
+        )
+    overview_lines.append("")
+
     requested_target_ids = regression_casebook.get("requested_targets")
     requested_target_ids = (
         requested_target_ids if isinstance(requested_target_ids, list) else []
@@ -13265,11 +14316,37 @@ def _write_upload_bundle_three_files(
         )
         found_targets = regression_casebook.get("found_targets")
         found_targets = found_targets if isinstance(found_targets, list) else []
+        missing_targets = regression_casebook.get("missing_targets")
+        missing_targets = missing_targets if isinstance(missing_targets, list) else []
+        suggested_targets = regression_casebook.get("suggested_targets")
+        suggested_targets = (
+            suggested_targets if isinstance(suggested_targets, list) else []
+        )
         overview_lines.append(
             "- found: "
             + (
                 ", ".join(f"`{str(item)}`" for item in found_targets)
                 if found_targets
+                else "none"
+            )
+        )
+        overview_lines.append(
+            "- status: "
+            + str(regression_casebook.get("target_request_status") or "unknown")
+        )
+        overview_lines.append(
+            "- missing: "
+            + (
+                ", ".join(f"`{str(item)}`" for item in missing_targets)
+                if missing_targets
+                else "none"
+            )
+        )
+        overview_lines.append(
+            "- suggested_available_targets: "
+            + (
+                ", ".join(f"`{str(item)}`" for item in suggested_targets)
+                if suggested_targets
                 else "none"
             )
         )

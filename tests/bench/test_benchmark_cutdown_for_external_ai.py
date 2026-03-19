@@ -1887,6 +1887,14 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert int(index_payload["topline"]["pair_count"]) == 1
     assert int(index_payload["topline"]["changed_lines_total"]) >= 1
     assert int(index_payload["topline"]["additional_pairs_needed_for_generalization"]) == 1
+    assert index_payload["topline"]["full_prompt_log_status"] == "complete"
+    assert index_payload["topline"]["full_prompt_log_status_source"] in {
+        "process_manifest",
+        "derived_from_run_diagnostics",
+    }
+    assert index_payload["topline"]["worst_pair_delta_overall_line_accuracy"] is not None
+    assert index_payload["topline"]["worst_pair_delta_macro_f1_excluding_other"] is not None
+    assert isinstance(index_payload["topline"].get("active_recipe_span_breakout"), dict)
     self_check = index_payload.get("self_check")
     assert isinstance(self_check, dict)
     assert set(
@@ -1902,6 +1910,11 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert self_check["starter_pack_physical_dir_present"] is False
     assert isinstance(index_payload.get("analysis"), dict)
     assert isinstance(index_payload["analysis"].get("triage_packet"), dict)
+    turn1_summary = index_payload["analysis"].get("turn1_summary")
+    assert isinstance(turn1_summary, dict)
+    assert isinstance(turn1_summary.get("recommended_read_order"), list)
+    assert turn1_summary["recommended_read_order"][0] == "analysis.benchmark_pair_inventory"
+    assert isinstance(turn1_summary.get("targeted_regression_affordance"), dict)
     blame_summary = index_payload["analysis"].get("net_error_blame_summary")
     assert isinstance(blame_summary, dict)
     share_semantics = blame_summary.get("share_semantics")
@@ -2012,6 +2025,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
             in str(runtime_summary["estimated_cost_signal"].get("note") or "")
         )
     pair_inventory = index_payload["analysis"]["benchmark_pair_inventory"]
+    assert isinstance(pair_inventory.get("delta_summary"), dict)
     assert isinstance(pair_inventory.get("generalization_readiness"), dict)
     assert (
         pair_inventory["generalization_readiness"][
@@ -2019,10 +2033,29 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         ]
         == 1
     )
+    active_span_breakout = index_payload["analysis"]["active_recipe_span_breakout"]
+    assert isinstance(active_span_breakout, dict)
+    assert active_span_breakout["pair_count"] == 1
+    assert isinstance(active_span_breakout.get("inside_active_recipe_span"), dict)
+    assert isinstance(active_span_breakout.get("outside_active_recipe_span"), dict)
+    stage_observability = index_payload["analysis"]["stage_observability_summary"]
+    assert isinstance(stage_observability, dict)
+    assert isinstance(stage_observability.get("by_stage"), dict)
+    correction_stage = stage_observability["by_stage"]["recipe_llm_correct_and_link"]
+    assert isinstance(correction_stage.get("status_semantics_counts"), dict)
     navigation_payload = index_payload.get("navigation")
     assert isinstance(navigation_payload, dict)
     default_views = navigation_payload.get("default_initial_views")
     assert isinstance(default_views, list)
+    assert default_views.index("analysis.turn1_summary") < default_views.index(
+        "analysis.benchmark_pair_inventory"
+    )
+    assert default_views.index("analysis.benchmark_pair_inventory") < default_views.index(
+        "analysis.triage_packet"
+    )
+    assert default_views.index("analysis.active_recipe_span_breakout") < default_views.index(
+        "analysis.triage_packet"
+    )
     assert "analysis.triage_packet" in default_views
     assert "analysis.explicit_escalation_changed_lines_packet" in default_views
     assert "analysis.recipe_pipeline_context" in default_views
@@ -2086,6 +2119,15 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert baseline_diag["prompt_warning_aggregate_status"] == "not_applicable"
     assert baseline_diag["projection_trace_status"] == "not_applicable"
     assert baseline_diag["preprocess_trace_failures_status"] == "not_applicable"
+    overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert "## Turn-1 Summary" in overview_text
+    assert "## Active Recipe Span Breakout" in overview_text
+    assert "## Runtime / Cost Snapshot" in overview_text
+    assert "## Stage Observability" in overview_text
+    assert "## Top Confusion Deltas" in overview_text
+    assert "suggested_available_targets" in overview_text
 
 
 def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cutdown_summary(
@@ -2142,6 +2184,15 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
     )
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    assert index_payload["topline"]["full_prompt_log_status"] == "complete"
+    assert (
+        index_payload["topline"]["full_prompt_log_status_source"]
+        == "derived_from_run_diagnostics"
+    )
+    regression_casebook = index_payload["analysis"]["regression_casebook"]
+    assert regression_casebook["target_request_status"] == "none_found"
+    assert isinstance(regression_casebook.get("suggested_targets"), list)
+    assert regression_casebook["suggested_target_source"] == "top_negative_delta_recipes"
     run_diagnostics = index_payload.get("run_diagnostics")
     assert isinstance(run_diagnostics, list)
     codex_diag = next(
@@ -2170,6 +2221,70 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
         f"{derived_prefix}{module.PREPROCESS_TRACE_FAILURES_FILE_NAME.replace('.gz', '')}"
         in artifact_paths
     )
+
+
+def test_upload_bundle_sort_recipe_triage_rows_deprioritizes_zero_change_empty_mapping_rows() -> None:
+    module = _load_cutdown_module()
+    triage_rows = [
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:empty-zero",
+            "changed_lines_codex_vs_baseline": 0,
+            "delta_codex_minus_baseline": 0.0,
+            "final_recipe_empty_mapping": True,
+            "correction_empty_mapping": True,
+            "outside_span_wrong_line_count": 0,
+            "line_total": 0,
+            "correction_warning_count": 0,
+            "recipe_warning_count": 0,
+            "final_recipe_warning_count": 0,
+        },
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:changed",
+            "changed_lines_codex_vs_baseline": 3,
+            "delta_codex_minus_baseline": -0.25,
+            "final_recipe_empty_mapping": False,
+            "correction_empty_mapping": False,
+            "outside_span_wrong_line_count": 1,
+            "line_total": 10,
+            "correction_warning_count": 1,
+            "recipe_warning_count": 0,
+            "final_recipe_warning_count": 0,
+        },
+    ]
+
+    sorted_rows = module._upload_bundle_sort_recipe_triage_rows(triage_rows)
+
+    assert [row["recipe_id"] for row in sorted_rows] == [
+        "recipe:changed",
+        "recipe:empty-zero",
+    ]
+
+
+def test_upload_bundle_select_triage_packet_sample_rows_omits_zero_signal_rows() -> None:
+    module = _load_cutdown_module()
+    triage_packet_rows = [
+        {
+            "recipe_id": "recipe:empty-zero",
+            "changed_lines_codex_vs_baseline": 0,
+            "outside_span_wrong_line_count": 0,
+            "delta_codex_minus_baseline": None,
+            "line_total": 0,
+            "correction_warning_count": 0,
+            "final_recipe_warning_count": 0,
+            "final_recipe_empty_mapping": True,
+        }
+    ]
+
+    sample_rows, sample_note = module._upload_bundle_select_triage_packet_sample_rows(
+        triage_packet_rows
+    )
+
+    assert sample_rows == []
+    assert "No triage rows had recipe-local signal" in sample_note
 
 
 def test_build_upload_bundle_stage_separated_comparison_scores_recipe_correction_and_final_recipe(
@@ -2420,9 +2535,9 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
     assert int(runtime_summary["call_count"]) == 2
     assert int(runtime_summary["calls_with_runtime"]) == 2
     assert int(runtime_summary["total_tokens"]) == 120000
-    assert float(runtime_summary["recipe_correction_token_share"]) == 1.0
+    assert float(runtime_summary["recipe_llm_correct_and_link_token_share"]) == 1.0
     by_stage = runtime_summary["by_stage"]
-    assert int(by_stage["recipe_correction"]["total_tokens"]) == 120000
+    assert int(by_stage["recipe_llm_correct_and_link"]["total_tokens"]) == 120000
     assert runtime_summary["estimated_cost_signal"]["available"] is False
 
 
@@ -2474,6 +2589,119 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
     assert int(runtime_summary["total_tokens"]) == 170000
     assert float(runtime_summary["line_role_token_share"]) == round(50000 / 170000, 4)
     assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 50000
+    assert (
+        int(runtime_summary["by_stage"]["recipe_llm_correct_and_link"]["total_tokens"]) == 120000
+    )
+
+
+def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_runtime_signal(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="vanilla",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="codexfarm",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=[
+            {
+                "stage_key": "recipe_llm_correct_and_link",
+                "call_id": "recipe-001",
+                "recipe_id": "recipe:c0",
+                "timestamp_utc": "2026-03-03T10:00:05Z",
+                "model": "gpt-test",
+                "parsed_response": {"canonical_recipe": {"ingredients": [], "steps": []}},
+                "request_input_payload": {"evidence_rows": [[0, "Dish Title"]]},
+                "request_telemetry": None,
+            },
+            {
+                "stage_key": "nonrecipe_knowledge_review",
+                "call_id": "knowledge-001",
+                "recipe_id": "knowledge:c0",
+                "timestamp_utc": "2026-03-03T10:00:10Z",
+                "model": "gpt-test",
+                "parsed_response": {},
+                "request_input_payload": {"bid": "bundle-001"},
+                "request_telemetry": None,
+            },
+        ],
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+    codex_run_dir = session_root / "codexfarm"
+    _write_json(
+        codex_run_dir / "prompt_budget_summary.json",
+        {
+            "schema_version": "prompt_budget_summary.v1",
+            "by_stage": {
+                "recipe_correction": {
+                    "call_count": 5,
+                    "duration_total_ms": None,
+                    "tokens_total": 120000,
+                },
+                "knowledge": {
+                    "call_count": 37,
+                    "duration_total_ms": None,
+                    "tokens_total": 1141186,
+                },
+                "line_role": {
+                    "call_count": 5,
+                    "duration_total_ms": None,
+                    "tokens_total": 6535006,
+                },
+            },
+        },
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
+    assert (
+        runtime_summary["runtime_source"]
+        == "call_inventory_rows_plus_prediction_run_prompt_budget_summary"
+    )
+    assert int(runtime_summary["call_count"]) == 47
+    assert int(runtime_summary["calls_with_runtime"]) == 0
+    assert int(runtime_summary["total_tokens"]) == 7796192
+    assert set(runtime_summary["by_stage"].keys()) == {
+        "recipe_llm_correct_and_link",
+        "nonrecipe_knowledge_review",
+        "line_role",
+    }
+    assert (
+        int(runtime_summary["by_stage"]["recipe_llm_correct_and_link"]["total_tokens"])
+        == 120000
+    )
+    assert (
+        int(runtime_summary["by_stage"]["nonrecipe_knowledge_review"]["total_tokens"])
+        == 1141186
+    )
+    assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 6535006
 
 
 def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(

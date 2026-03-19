@@ -130,7 +130,17 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="browser ok\n",
+            stdout="\n".join(
+                [
+                    "oracle (gpt-5.2)",
+                    "Answer:",
+                    f"Top regressions\n- Benchmark root: {target.source_root}",
+                    "- run_count = 1",
+                    "- pair_count = 0",
+                    "Likely cause buckets\n- none",
+                    "Immediate next checks\n- none",
+                ]
+            ),
             stderr="",
         )
 
@@ -145,21 +155,18 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
     assert result.bundle_dir == bundle_dir
     command = captured["command"]
     assert isinstance(command, list)
-    assert command[:10] == [
+    assert command[:9] == [
         oracle_upload.ORACLE_BROWSER_CMD,
         "--engine",
         "browser",
-        "--browser-manual-login",
-        "--browser-chrome-path",
-        oracle_upload.ORACLE_BROWSER_CHROME_PATH,
         "--browser-model-strategy",
         oracle_upload.ORACLE_BROWSER_MODEL_STRATEGY,
         "--browser-input-timeout",
         "90s",
-    ]
-    assert command[10:24] == [
         "--browser-reuse-wait",
         oracle_upload.ORACLE_BROWSER_REUSE_WAIT,
+    ]
+    assert command[9:21] == [
         "--browser-profile-lock-timeout",
         oracle_upload.ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT,
         "--browser-auto-reattach-delay",
@@ -208,7 +215,22 @@ def test_run_oracle_benchmark_upload_adds_chatgpt_target_url_when_configured(
 
     def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         captured["command"] = command
-        return subprocess.CompletedProcess(command, 0, stdout="browser ok\n", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="\n".join(
+                [
+                    "oracle (gpt-5.2)",
+                    "Answer:",
+                    f"Top regressions\n- Benchmark root: {target.source_root}",
+                    "- run_count = 1",
+                    "- pair_count = 0",
+                    "Likely cause buckets\n- none",
+                    "Immediate next checks\n- none",
+                ]
+            ),
+            stderr="",
+        )
 
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
@@ -283,21 +305,18 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
     assert result.returncode == 0
     assert "Local dry-run preview only" in result.stdout
     assert "upload_bundle_payload.jsonl" in result.stdout
-    assert result.command[:10] == [
+    assert result.command[:9] == [
         oracle_upload.ORACLE_BROWSER_CMD,
         "--engine",
         "browser",
-        "--browser-manual-login",
-        "--browser-chrome-path",
-        oracle_upload.ORACLE_BROWSER_CHROME_PATH,
         "--browser-model-strategy",
         oracle_upload.ORACLE_BROWSER_MODEL_STRATEGY,
         "--browser-input-timeout",
         "90s",
-    ]
-    assert result.command[10:24] == [
         "--browser-reuse-wait",
         oracle_upload.ORACLE_BROWSER_REUSE_WAIT,
+    ]
+    assert result.command[9:21] == [
         "--browser-profile-lock-timeout",
         oracle_upload.ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT,
         "--browser-auto-reattach-delay",
@@ -350,7 +369,17 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="browser ok\n",
+            stdout="\n".join(
+                [
+                    "oracle (gpt-5.2)",
+                    "Answer:",
+                    f"Top regressions\n- Benchmark root: {target.source_root}",
+                    "- run_count = 1",
+                    "- pair_count = 0",
+                    "Likely cause buckets\n- none",
+                    "Immediate next checks\n- none",
+                ]
+            ),
             stderr="",
         )
 
@@ -382,6 +411,178 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     assert env["ORACLE_HOME_DIR"] == str(resolved_profile.parent)
     assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(resolved_profile)
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
+
+
+def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_session_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+    monkeypatch.setattr(
+        oracle_upload,
+        "_find_matching_oracle_session_snapshot",
+        lambda **_kwargs: oracle_upload.OracleSessionSnapshot(
+            session_id="you-are-reviewing-a-benchmark-999",
+            status="completed",
+            prompt="prompt",
+            created_at="2026-03-19T16:06:12.548Z",
+            conversation_url="https://chatgpt.com/c/test-benchmark-999",
+            conversation_id="test-benchmark-999",
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="\n".join(
+                [
+                    "oracle (gpt-5.4)",
+                    "Answer:",
+                    f"Top regressions\n- Benchmark root: {target.source_root}",
+                    "- run_count = 1",
+                    "- pair_count = 0",
+                    "Likely cause buckets\n- none",
+                    "Immediate next checks\n- none",
+                    "Conversation URL: https://chatgpt.com/c/test-benchmark-999",
+                ]
+            ),
+            stderr="",
+        )
+
+    result = oracle_upload.run_oracle_benchmark_upload(
+        target=target,
+        mode="browser",
+        runner=fake_runner,
+    )
+
+    assert result.success is True
+    assert result.status == "succeeded"
+    assert result.session_id == "you-are-reviewing-a-benchmark-999"
+    assert result.reattach_command == "oracle session you-are-reviewing-a-benchmark-999"
+    assert result.conversation_url == "https://chatgpt.com/c/test-benchmark-999"
+    runs_dir = bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME
+    launch_dirs = sorted(path for path in runs_dir.iterdir() if path.is_dir())
+    assert len(launch_dirs) == 1
+    launch_dir = launch_dirs[0]
+    log_path = launch_dir / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME
+    metadata_path = launch_dir / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME
+    status_path = launch_dir / oracle_upload.ORACLE_UPLOAD_STATUS_FILE_NAME
+    assert log_path.is_file()
+    assert metadata_path.is_file()
+    assert status_path.is_file()
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "Oracle command:" in log_text
+    assert "Oracle browser profile:" in log_text
+    assert "Conversation URL: https://chatgpt.com/c/test-benchmark-999" in log_text
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["oracle_version"] == "0.8.6-test"
+    assert metadata["returncode"] == 0
+    assert metadata["mode"] == "browser"
+    assert metadata["launch_dir"] == str(launch_dir)
+    assert metadata["session_id"] == "you-are-reviewing-a-benchmark-999"
+    assert metadata["reattach_command"] == "oracle session you-are-reviewing-a-benchmark-999"
+    assert metadata["conversation_url"] == "https://chatgpt.com/c/test-benchmark-999"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    assert status["status"] == "succeeded"
+    assert status["conversation_url"] == "https://chatgpt.com/c/test-benchmark-999"
+
+
+def test_run_oracle_benchmark_upload_browser_duplicate_guard_backfills_conversation_url_from_session_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+
+    session_dir = tmp_path / "oracle-home" / "sessions" / "you-are-reviewing-a-benchmark-286"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "id": "you-are-reviewing-a-benchmark-286",
+                "status": "running",
+                "createdAt": "2026-03-19T16:39:28.000Z",
+                "browser": {
+                    "conversationUrl": "https://chatgpt.com/c/from-session-store-286",
+                    "conversationId": "from-session-store-286",
+                    "runtime": {
+                        "tabUrl": "https://chatgpt.com/c/from-session-store-286",
+                        "conversationId": "from-session-store-286",
+                    },
+                },
+                "options": {
+                    "prompt": "duplicate prompt",
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        oracle_upload,
+        "_oracle_browser_env",
+        lambda: {
+            "ORACLE_HOME_DIR": str(session_dir.parent.parent),
+            "ORACLE_BROWSER_PROFILE_DIR": str(session_dir.parent.parent / "browser-profile"),
+            "ORACLE_BROWSER_REMOTE_DEBUG_HOST": oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST,
+        },
+    )
+    monkeypatch.setattr(
+        oracle_upload,
+        "_find_matching_oracle_session_snapshot",
+        lambda **_kwargs: None,
+    )
+
+    def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout=(
+                "🧿 oracle 0.8.6 — duplicate guard.\n"
+                'A session with the same prompt is already running (you-are-reviewing-a-benchmark-286). '
+                'Reattach with "oracle session you-are-reviewing-a-benchmark-286" or rerun with --force to start another run.\n'
+            ),
+            stderr="",
+        )
+
+    result = oracle_upload.run_oracle_benchmark_upload(
+        target=target,
+        mode="browser",
+        runner=fake_runner,
+    )
+
+    assert result.success is False
+    assert result.status == "reattachable"
+    assert (
+        result.status_reason
+        == "Oracle found an already-running matching session; reattach instead of launching a duplicate."
+    )
+    assert result.session_id == "you-are-reviewing-a-benchmark-286"
+    assert result.reattach_command == "oracle session you-are-reviewing-a-benchmark-286"
+    assert result.conversation_url == "https://chatgpt.com/c/from-session-store-286"
+    runs_dir = bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME
+    launch_dir = next(path for path in runs_dir.iterdir() if path.is_dir())
+    metadata = json.loads((launch_dir / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME).read_text(encoding="utf-8"))
+    assert metadata["status"] == "reattachable"
+    assert metadata["conversation_url"] == "https://chatgpt.com/c/from-session-store-286"
+    status = json.loads((launch_dir / oracle_upload.ORACLE_UPLOAD_STATUS_FILE_NAME).read_text(encoding="utf-8"))
+    assert status["status"] == "reattachable"
+    assert status["conversation_url"] == "https://chatgpt.com/c/from-session-store-286"
 
 
 def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
@@ -478,6 +679,99 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
 
 
+def test_start_oracle_benchmark_upload_background_marks_running_when_process_alive_but_no_session_hint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+
+    class FakePopen:
+        def __init__(self, command: list[str], **kwargs: object) -> None:
+            log_handle = kwargs["stdout"]
+            assert log_handle is not None
+            log_handle.write(
+                "🧿 oracle 0.8.6 — Background magic with foreground receipts.\n"
+                "Launching browser mode (gpt-5.2) with ~123 tokens.\n"
+            )
+            log_handle.flush()
+            self.pid = 4243
+
+        def poll(self) -> None:
+            return None
+
+    launch = oracle_upload.start_oracle_benchmark_upload_background(
+        target=target,
+        mode="browser",
+        popen=FakePopen,
+    )
+
+    assert launch.status == "running"
+    assert launch.status_reason == "Oracle process is still running; awaiting session hint or answer."
+    assert launch.session_id == ""
+    assert launch.reattach_command == ""
+    metadata = json.loads(launch.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["status"] == "running"
+    assert metadata["status_reason"] == "Oracle process is still running; awaiting session hint or answer."
+
+
+def test_start_oracle_benchmark_upload_background_recovers_session_from_oracle_store_when_log_is_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+    monkeypatch.setattr(
+        oracle_upload,
+        "_find_matching_oracle_session_snapshot",
+        lambda **_kwargs: oracle_upload.OracleSessionSnapshot(
+            session_id="you-are-reviewing-a-benchmark-269",
+            status="running",
+            prompt="prompt",
+            created_at="2026-03-19T02:47:52.108Z",
+            conversation_url="https://chatgpt.com/c/69bb6568-072c-832f-80b7-8588419c1e27",
+            conversation_id="69bb6568-072c-832f-80b7-8588419c1e27",
+        ),
+    )
+
+    class FakePopen:
+        def __init__(self, command: list[str], **kwargs: object) -> None:
+            log_handle = kwargs["stdout"]
+            assert log_handle is not None
+            log_handle.write(
+                "🧿 oracle 0.8.6 — Background magic with foreground receipts.\n"
+                "Launching browser mode (gpt-5.2) with ~123 tokens.\n"
+            )
+            log_handle.flush()
+            self.pid = 4244
+
+        def poll(self) -> None:
+            return None
+
+    launch = oracle_upload.start_oracle_benchmark_upload_background(
+        target=target,
+        mode="browser",
+        popen=FakePopen,
+    )
+
+    assert launch.status == "running"
+    assert launch.status_reason == "Oracle session is running; session store metadata is available."
+    assert launch.session_id == "you-are-reviewing-a-benchmark-269"
+    assert launch.reattach_command == "oracle session you-are-reviewing-a-benchmark-269"
+    assert launch.conversation_url == "https://chatgpt.com/c/69bb6568-072c-832f-80b7-8588419c1e27"
+    assert launch.conversation_id == "69bb6568-072c-832f-80b7-8588419c1e27"
+    metadata = json.loads(launch.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["session_id"] == "you-are-reviewing-a-benchmark-269"
+    assert metadata["reattach_command"] == "oracle session you-are-reviewing-a-benchmark-269"
+    assert metadata["conversation_url"] == "https://chatgpt.com/c/69bb6568-072c-832f-80b7-8588419c1e27"
+
+
 def test_print_background_oracle_upload_summary_points_to_log_without_full_command(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -497,6 +791,13 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
         pid=4242,
         note="Prepared sharded Oracle browser upload for oversized bundle files: upload_bundle_payload.jsonl (37675212 bytes).",
         browser_profile_dir=Path("/tmp/oracle-profile"),
+        oracle_version="0.8.6-test",
+        status="running",
+        status_reason="Oracle session launched and awaiting completion.",
+        session_id="test-session-123",
+        reattach_command="oracle session test-session-123",
+        conversation_url="https://chatgpt.com/c/test-session-123",
+        conversation_id="test-session-123",
     )
 
     messages: list[str] = []
@@ -519,10 +820,101 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
         for message in messages
     )
     assert any("Oracle browser profile: /tmp/oracle-profile" in message for message in messages)
+    assert any("Oracle version: 0.8.6-test" in message for message in messages)
+    assert any("Oracle status: running" in message for message in messages)
+    assert any("Reattach: oracle session test-session-123" in message for message in messages)
+    assert any("Conversation: https://chatgpt.com/c/test-session-123" in message for message in messages)
     assert any("When Oracle finishes, open that log file to read the response." in message for message in messages)
     assert any("oversized bundle files were sharded for upload" in message for message in messages)
     assert not any(message.startswith("Oracle command:") for message in messages)
     assert not any(message.startswith("Oracle launch metadata:") for message in messages)
+
+
+def test_oracle_upload_log_audit_accepts_grounded_single_profile_answer(tmp_path: Path) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "2026-03-18_19.42.18" / "single-profile-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+        run_count=3,
+        pair_count=0,
+        changed_lines_total=0,
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    audit = oracle_upload.audit_oracle_upload_log(
+        target=target,
+        log_text="\n".join(
+            [
+                "oracle (gpt-5.2)",
+                "Reattach via: oracle session grounded-123",
+                "Answer:",
+                f"Top regressions\n- Benchmark root: {target.source_root}",
+                "- run_count = 3",
+                "- pair_count = 0",
+                "Likely cause buckets\n- none",
+                "Immediate next checks\n- none",
+            ]
+        ),
+    )
+
+    assert audit.status == "succeeded"
+    assert audit.status_reason == "Answer block present and grounded in the local bundle."
+    assert audit.session_id == "grounded-123"
+    assert audit.reattach_command == "oracle session grounded-123"
+
+
+def test_oracle_upload_log_audit_rejects_wrong_bundle_identity(tmp_path: Path) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "2026-03-18_21.10.12" / "single-offline-benchmark" / "dinnerfor2cutdown" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+        run_count=2,
+        pair_count=1,
+        changed_lines_total=202,
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    audit = oracle_upload.audit_oracle_upload_log(
+        target=target,
+        log_text="\n".join(
+            [
+                "oracle (gpt-5.2)",
+                "Answer:",
+                "Top regressions",
+                "- I could not verify the requested 2026-03-18_21.10.12/single-offline-benchmark root.",
+                "- The attached packet appears to be 2026-03-18_19.42.18/single-profile-benchmark with pair_count = 0.",
+                "Likely cause buckets",
+                "- stale bundle identity",
+                "Immediate next checks",
+                "- verify bundle root",
+            ]
+        ),
+    )
+
+    assert audit.status == "invalid_grounding"
+    assert "Expected benchmark root" in audit.status_reason
+
+
+def test_oracle_upload_log_audit_marks_disconnect_as_reattachable_when_session_id_known(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "2026-03-18_21.17.59" / "single-offline-benchmark" / "saltfatacidheatcutdown" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    audit = oracle_upload.audit_oracle_upload_log(
+        target=target,
+        log_text="\n".join(
+            [
+                "oracle (gpt-5.2)",
+                "Reattach via: oracle session disconnected-123",
+                "ERROR: Chrome window closed before oracle finished. Please keep it open until completion.",
+                "Chrome disconnected before completion; keeping session running for reattach.",
+            ]
+        ),
+    )
+
+    assert audit.status == "reattachable"
+    assert audit.status_reason == "Oracle reported a recoverable browser/session interruption."
+    assert audit.session_id == "disconnected-123"
+    assert audit.reattach_command == "oracle session disconnected-123"
 
 
 def test_bench_oracle_upload_command_resolves_existing_single_profile_root(

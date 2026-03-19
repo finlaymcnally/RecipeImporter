@@ -2,6 +2,8 @@
 
 This file explains how RecipeImport forces CodexFarm to use the dedicated recipe Codex profile.
 
+Important limit: `CODEX_HOME` only changes which Codex profile/home is used. It does not, by itself, stop direct shard workers from discovering repo `AGENTS.md` if their `--cd` still points inside the repository tree.
+
 ## What this is
 
 This is the RecipeImport -> CodexFarm session-isolation seam.
@@ -41,6 +43,8 @@ Because of that, the most reliable place to force the home is the RecipeImport r
 ## Practical meaning
 
 If RecipeImport launches CodexFarm normally, it should use the dedicated recipe profile without relying on shell aliases or the pipeline pack declaring `codex_home_profile`.
+
+For direct `codex exec` shard workers, RecipeImport now also launches from a sterile external worker directory under `~/.codex-recipe/recipeimport-direct-exec-workspaces/`. That second seam is what prevents repo `AGENTS.md` inheritance during recipe, knowledge, and canonical line-role shard calls. The Codex home and the direct worker cwd are now intentionally separate concerns.
 
 If you are debugging a RecipeImport CodexFarm run and it seems to be using the wrong Codex session, the first place to inspect is `cookimport/llm/codex_farm_runner.py`, not the pipeline JSON.
 

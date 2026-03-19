@@ -4,9 +4,11 @@ import hashlib
 import json
 import os
 import re
+import statistics
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
@@ -33,9 +35,11 @@ from cookimport.llm.canonical_line_role_prompt import (
     serialize_line_role_model_row,
 )
 from cookimport.llm.codex_exec_runner import (
+    CodexExecLiveSnapshot,
     DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
     CodexExecRunResult,
     CodexExecRunner,
+    CodexExecSupervisionDecision,
     SubprocessCodexExecRunner,
     summarize_direct_telemetry_rows,
 )
@@ -51,7 +55,10 @@ from cookimport.llm.phase_worker_runtime import (
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
 )
-from cookimport.llm.shard_prompt_targets import resolve_items_per_shard
+from cookimport.llm.shard_prompt_targets import (
+    partition_contiguous_items,
+    resolve_shard_count,
+)
 from cookimport.parsing.recipe_block_atomizer import (
     AtomicLineCandidate,
     build_atomic_index_lookup,
@@ -85,6 +92,11 @@ _INGREDIENT_FRAGMENT_STOPWORDS = {
     "to",
     "with",
 }
+_STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
+_LINE_ROLE_COHORT_WATCHDOG_MIN_COMPLETED_SHARDS = 3
+_LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS = 1_000
+_LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR = 4.0
+_LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _TITLE_CONNECTOR_WORDS = {
     "a",
     "an",
@@ -367,6 +379,48 @@ class _DirectLineRoleWorkerResult:
     failures: tuple[dict[str, Any], ...]
     stage_rows: tuple[dict[str, Any], ...]
     runner_results_by_shard_id: dict[str, dict[str, Any]]
+
+
+@dataclass(slots=True)
+class _LineRoleCohortWatchdogState:
+    durations_ms: list[int] = field(default_factory=list)
+    successful_examples: list[dict[str, Any]] = field(default_factory=list)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            durations_ms = list(self.durations_ms)
+            examples = [
+                dict(example_payload)
+                for example_payload in self.successful_examples[-_LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES :]
+            ]
+        median_duration_ms = (
+            int(statistics.median(durations_ms))
+            if durations_ms
+            else None
+        )
+        return {
+            "completed_successful_shards": len(durations_ms),
+            "median_duration_ms": median_duration_ms,
+            "successful_examples": examples,
+        }
+
+    def record_validated_result(
+        self,
+        *,
+        duration_ms: int | None,
+        example_payload: Mapping[str, Any] | None,
+    ) -> None:
+        normalized_duration_ms = int(duration_ms or 0)
+        if normalized_duration_ms <= 0:
+            return
+        with self.lock:
+            self.durations_ms.append(normalized_duration_ms)
+            if isinstance(example_payload, Mapping):
+                self.successful_examples.append(dict(example_payload))
+                self.successful_examples = self.successful_examples[
+                    -_LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES :
+                ]
 
 
 def _label_atomic_lines_internal(
@@ -707,7 +761,7 @@ def _build_line_role_canonical_plans(
 ) -> tuple[_LineRoleShardPlan, ...]:
     if not ordered_candidates:
         return ()
-    shard_target_lines = _resolve_line_role_shard_target_lines(
+    requested_shard_count = _resolve_line_role_requested_shard_count(
         settings=settings,
         codex_batch_size=codex_batch_size,
         total_candidates=len(ordered_candidates),
@@ -715,7 +769,10 @@ def _build_line_role_canonical_plans(
     prompt_format = _resolve_line_role_prompt_format()
     plans: list[_LineRoleShardPlan] = []
     for prompt_index, shard_candidates in enumerate(
-        _batch(ordered_candidates, max(1, int(shard_target_lines))),
+        partition_contiguous_items(
+            ordered_candidates,
+            shard_count=requested_shard_count,
+        ),
         start=1,
     ):
         if not shard_candidates:
@@ -807,14 +864,14 @@ def _line_role_execution_plan_phase(
     }
 
 
-def _resolve_line_role_shard_target_lines(
+def _resolve_line_role_requested_shard_count(
     *,
     settings: RunSettings,
     codex_batch_size: int,
     total_candidates: int | None = None,
 ) -> int:
     if total_candidates is not None and total_candidates > 0:
-        return resolve_items_per_shard(
+        return resolve_shard_count(
             total_items=total_candidates,
             prompt_target_count=getattr(settings, "line_role_prompt_target_count", None),
             items_per_shard=getattr(settings, "line_role_shard_target_lines", None),
@@ -824,10 +881,17 @@ def _resolve_line_role_shard_target_lines(
     resolved = getattr(configured, "value", configured)
     if resolved is not None:
         try:
-            return max(1, int(resolved))
+            return 1
         except (TypeError, ValueError):
             pass
-    return max(1, int(codex_batch_size))
+    prompt_target = getattr(settings, "line_role_prompt_target_count", None)
+    resolved_prompt_target = getattr(prompt_target, "value", prompt_target)
+    if resolved_prompt_target is not None:
+        try:
+            return max(1, int(resolved_prompt_target))
+        except (TypeError, ValueError):
+            pass
+    return 1
 
 
 def _resolve_line_role_worker_count(
@@ -1067,7 +1131,7 @@ def _run_line_role_phase_runtime(
                 None,
             ),
             "line_role_worker_count": getattr(settings, "line_role_worker_count", None),
-            "line_role_shard_target_lines": _resolve_line_role_shard_target_lines(
+            "line_role_shard_target_lines": _resolve_line_role_requested_shard_count(
                 settings=settings,
                 codex_batch_size=codex_batch_size,
                 total_candidates=sum(len(plan.candidates) for plan in shard_plans),
@@ -1324,6 +1388,7 @@ def _run_line_role_direct_worker_assignment_v1(
     reasoning_effort: str | None,
     output_schema_path: Path | None,
     timeout_seconds: int,
+    cohort_watchdog_state: _LineRoleCohortWatchdogState,
     shard_completed_callback: Callable[..., None] | None,
     prompt_state: "_PromptArtifactState" | None,
     validator: Callable[[ShardManifestEntryV1, dict[str, Any]], tuple[bool, Sequence[str], dict[str, Any] | None]],
@@ -1376,48 +1441,84 @@ def _run_line_role_direct_worker_assignment_v1(
                 prompt_text=prompt_text,
             )
 
-        try:
-            run_result = runner.run_structured_prompt(
+        preflight_failure = _preflight_line_role_shard(shard)
+        if preflight_failure is not None:
+            run_result = _build_preflight_rejected_run_result(
                 prompt_text=prompt_text,
-                input_payload=_coerce_mapping_dict(shard.input_payload),
-                working_dir=worker_root,
-                env=env,
                 output_schema_path=output_schema_path,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                timeout_seconds=timeout_seconds,
-            )
-        except CodexFarmRunnerError as exc:
-            worker_failure_count += 1
-            worker_failures.append(
-                {
-                    "worker_id": assignment.worker_id,
-                    "shard_id": shard.shard_id,
-                    "reason": "runner_failed",
-                    "error": str(exc),
-                }
-            )
-            worker_proposals.append(
-                ShardProposalV1(
-                    shard_id=shard.shard_id,
-                    worker_id=assignment.worker_id,
-                    status="missing_output",
-                    proposal_path=None,
-                    validation_errors=("runner_failed",),
-                    metadata={"error": str(exc)},
-                )
+                working_dir=worker_root,
+                reason_code=str(preflight_failure.get("reason_code") or "preflight_rejected"),
+                reason_detail=str(
+                    preflight_failure.get("reason_detail") or "line-role shard failed preflight"
+                ),
             )
             _write_runtime_json(
-                shard_root / "status.json",
+                shard_root / "live_status.json",
                 {
-                    "status": "runner_failed",
-                    "error": str(exc),
-                    "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                    "state": "preflight_rejected",
+                    "reason_code": run_result.supervision_reason_code,
+                    "reason_detail": run_result.supervision_reason_detail,
+                    "retryable": run_result.supervision_retryable,
+                    "watchdog_policy": _STRICT_JSON_WATCHDOG_POLICY,
+                    "elapsed_seconds": 0.0,
+                    "last_event_seconds_ago": None,
+                    "command_execution_count": 0,
+                    "reasoning_item_count": 0,
                 },
             )
-            if shard_completed_callback is not None:
-                shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
-            continue
+        else:
+            try:
+                run_result = runner.run_structured_prompt(
+                    prompt_text=prompt_text,
+                    input_payload=_coerce_mapping_dict(shard.input_payload),
+                    working_dir=worker_root,
+                    env=env,
+                    output_schema_path=output_schema_path,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    timeout_seconds=timeout_seconds,
+                    workspace_task_label="canonical line-role shard",
+                    supervision_callback=_build_strict_json_watchdog_callback(
+                        live_status_path=shard_root / "live_status.json",
+                        cohort_watchdog_state=cohort_watchdog_state,
+                        shard_id=shard.shard_id,
+                    ),
+                )
+            except CodexFarmRunnerError as exc:
+                worker_failure_count += 1
+                worker_failures.append(
+                    {
+                        "worker_id": assignment.worker_id,
+                        "shard_id": shard.shard_id,
+                        "reason": "runner_failed",
+                        "error": str(exc),
+                    }
+                )
+                worker_proposals.append(
+                    ShardProposalV1(
+                        shard_id=shard.shard_id,
+                        worker_id=assignment.worker_id,
+                        status="missing_output",
+                        proposal_path=None,
+                        validation_errors=("runner_failed",),
+                        metadata={"error": str(exc)},
+                    )
+                )
+                _write_runtime_json(
+                    shard_root / "status.json",
+                    {
+                        "status": "runner_failed",
+                        "error": str(exc),
+                        "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                    },
+                )
+                if shard_completed_callback is not None:
+                    shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+                continue
+        _finalize_live_status(
+            shard_root / "live_status.json",
+            run_result=run_result,
+        )
 
         runner_payload = _build_line_role_runner_payload(
             pipeline_id=pipeline_id,
@@ -1437,40 +1538,262 @@ def _run_line_role_direct_worker_assignment_v1(
             for row_payload in row_payloads:
                 if isinstance(row_payload, dict):
                     stage_rows.append(dict(row_payload))
+        primary_row = stage_rows[-1] if stage_rows else None
+        primary_runner_row = (
+            row_payloads[0]
+            if isinstance(row_payloads, list) and row_payloads and isinstance(row_payloads[0], dict)
+            else None
+        )
         (shard_root / "events.jsonl").write_text(
             _render_codex_events_jsonl(run_result.events),
             encoding="utf-8",
         )
         _write_runtime_json(shard_root / "last_message.json", {"text": run_result.response_text})
         _write_runtime_json(shard_root / "usage.json", dict(run_result.usage or {}))
+        _write_runtime_json(
+            shard_root / "workspace_manifest.json",
+            run_result.workspace_manifest(),
+        )
 
-        payload: dict[str, Any] | None = None
-        validation_errors: tuple[str, ...] = ()
-        validation_metadata: dict[str, Any] = {}
-        proposal_status = "validated"
-        response_text = str(run_result.response_text or "").strip()
-        if not response_text:
-            validation_errors = ("missing_output_file",)
-            proposal_status = "missing_output"
-        else:
-            try:
-                parsed_payload = json.loads(response_text)
-            except json.JSONDecodeError as exc:
-                validation_errors = ("response_json_invalid",)
-                validation_metadata = {"parse_error": str(exc)}
-                proposal_status = "invalid"
+        payload, validation_errors, validation_metadata, proposal_status = (
+            _evaluate_line_role_response(
+                shard=shard,
+                response_text=run_result.response_text,
+                validator=validator,
+            )
+        )
+        active_run_result = run_result
+        final_success_run_result = run_result
+        initial_proposal_status = proposal_status
+        watchdog_retry_attempted = False
+        watchdog_retry_status = "not_attempted"
+        watchdog_retry_examples: list[dict[str, Any]] = []
+        if _should_attempt_line_role_watchdog_retry(run_result=run_result):
+            watchdog_retry_attempted = True
+            watchdog_retry_examples = (
+                cohort_watchdog_state.snapshot().get("successful_examples") or []
+            )
+            watchdog_retry_run_result = _run_line_role_watchdog_retry_attempt(
+                runner=runner,
+                worker_root=worker_root,
+                shard=shard,
+                env=env,
+                output_schema_path=output_schema_path,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                original_reason_code=str(run_result.supervision_reason_code or ""),
+                original_reason_detail=str(run_result.supervision_reason_detail or ""),
+                successful_examples=watchdog_retry_examples,
+                timeout_seconds=timeout_seconds,
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                live_status_path=shard_root / "watchdog_retry_live_status.json",
+            )
+            _finalize_live_status(
+                shard_root / "watchdog_retry_live_status.json",
+                run_result=watchdog_retry_run_result,
+            )
+            watchdog_retry_payload = _build_line_role_inline_attempt_runner_payload(
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                shard_id=shard.shard_id,
+                run_result=watchdog_retry_run_result,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                prompt_input_mode="inline_watchdog_retry",
+            )
+            worker_runner_results.append(dict(watchdog_retry_payload))
+            watchdog_retry_rows = (
+                watchdog_retry_payload.get("telemetry", {}).get("rows")
+                if isinstance(watchdog_retry_payload.get("telemetry"), dict)
+                else None
+            )
+            if isinstance(watchdog_retry_rows, list):
+                for row_payload in watchdog_retry_rows:
+                    if isinstance(row_payload, dict):
+                        row_payload["is_watchdog_retry_attempt"] = True
+                        row_payload["watchdog_retry_attempt_index"] = 1
+                        stage_rows.append(dict(row_payload))
+            (shard_root / "watchdog_retry_events.jsonl").write_text(
+                _render_codex_events_jsonl(watchdog_retry_run_result.events),
+                encoding="utf-8",
+            )
+            _write_runtime_json(
+                shard_root / "watchdog_retry_last_message.json",
+                {"text": watchdog_retry_run_result.response_text},
+            )
+            _write_runtime_json(
+                shard_root / "watchdog_retry_usage.json",
+                dict(watchdog_retry_run_result.usage or {}),
+            )
+            _write_runtime_json(
+                shard_root / "watchdog_retry_workspace_manifest.json",
+                watchdog_retry_run_result.workspace_manifest(),
+            )
+            payload, validation_errors, validation_metadata, proposal_status = (
+                _evaluate_line_role_response(
+                    shard=shard,
+                    response_text=watchdog_retry_run_result.response_text,
+                    validator=validator,
+                )
+            )
+            if stage_rows:
+                watchdog_retry_row = stage_rows[-1]
+                watchdog_retry_row["proposal_status"] = proposal_status
+            if isinstance(watchdog_retry_rows, list) and watchdog_retry_rows:
+                watchdog_retry_runner_row = watchdog_retry_rows[0]
+                if isinstance(watchdog_retry_runner_row, dict):
+                    watchdog_retry_runner_row["proposal_status"] = proposal_status
+            _write_runtime_json(
+                shard_root / "watchdog_retry_status.json",
+                {
+                    "status": proposal_status,
+                    "validation_errors": list(validation_errors),
+                    "validation_metadata": dict(validation_metadata or {}),
+                    "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                    "watchdog_retry_reason_code": run_result.supervision_reason_code,
+                    "watchdog_retry_reason_detail": run_result.supervision_reason_detail,
+                    "state": watchdog_retry_run_result.supervision_state or "completed",
+                    "reason_code": watchdog_retry_run_result.supervision_reason_code,
+                    "reason_detail": watchdog_retry_run_result.supervision_reason_detail,
+                    "retryable": watchdog_retry_run_result.supervision_retryable,
+                },
+            )
+            watchdog_retry_status = (
+                "recovered" if proposal_status == "validated" else "failed"
+            )
+            active_run_result = watchdog_retry_run_result
+            final_success_run_result = watchdog_retry_run_result
+        repair_attempted = False
+        repair_status = "not_attempted"
+        if _should_attempt_line_role_repair(
+            proposal_status=proposal_status,
+            validation_errors=validation_errors,
+        ):
+            repair_attempted = True
+            repair_run_result = _run_line_role_repair_attempt(
+                runner=runner,
+                worker_root=worker_root,
+                shard=shard,
+                env=env,
+                output_schema_path=output_schema_path,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                original_response_text=str(active_run_result.response_text or ""),
+                validation_errors=validation_errors,
+                timeout_seconds=timeout_seconds,
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                live_status_path=shard_root / "repair_live_status.json",
+            )
+            _finalize_live_status(
+                shard_root / "repair_live_status.json",
+                run_result=repair_run_result,
+            )
+            repair_payload = _build_line_role_inline_attempt_runner_payload(
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                shard_id=shard.shard_id,
+                run_result=repair_run_result,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                prompt_input_mode="inline_repair",
+            )
+            worker_runner_results.append(dict(repair_payload))
+            repair_rows = (
+                repair_payload.get("telemetry", {}).get("rows")
+                if isinstance(repair_payload.get("telemetry"), dict)
+                else None
+            )
+            if isinstance(repair_rows, list):
+                for row_payload in repair_rows:
+                    if isinstance(row_payload, dict):
+                        row_payload["is_repair_attempt"] = True
+                        row_payload["repair_attempt_index"] = 1
+                        stage_rows.append(dict(row_payload))
+            (shard_root / "repair_events.jsonl").write_text(
+                _render_codex_events_jsonl(repair_run_result.events),
+                encoding="utf-8",
+            )
+            _write_runtime_json(
+                shard_root / "repair_last_message.json",
+                {"text": repair_run_result.response_text},
+            )
+            _write_runtime_json(
+                shard_root / "repair_usage.json",
+                dict(repair_run_result.usage or {}),
+            )
+            _write_runtime_json(
+                shard_root / "repair_workspace_manifest.json",
+                repair_run_result.workspace_manifest(),
+            )
+            repair_payload_candidate, repair_errors, repair_metadata, repair_proposal_status = (
+                _evaluate_line_role_response(
+                    shard=shard,
+                    response_text=repair_run_result.response_text,
+                    validator=validator,
+                )
+            )
+            repair_status = (
+                "repaired" if repair_proposal_status == "validated" else "failed"
+            )
+            if stage_rows:
+                repair_row = stage_rows[-1]
+                repair_row["proposal_status"] = repair_proposal_status
+                repair_row["repair_attempted"] = True
+                repair_row["repair_status"] = repair_status
+            if isinstance(repair_rows, list) and repair_rows:
+                repair_runner_row = repair_rows[0]
+                if isinstance(repair_runner_row, dict):
+                    repair_runner_row["proposal_status"] = repair_proposal_status
+                    repair_runner_row["repair_attempted"] = True
+                    repair_runner_row["repair_status"] = repair_status
+            _write_runtime_json(
+                shard_root / "repair_status.json",
+                {
+                    "attempted": True,
+                    "status": repair_status,
+                    "original_validation_errors": list(validation_errors),
+                    "repair_validation_errors": list(repair_errors),
+                    "state": repair_run_result.supervision_state or "completed",
+                    "reason_code": repair_run_result.supervision_reason_code,
+                    "reason_detail": repair_run_result.supervision_reason_detail,
+                    "retryable": repair_run_result.supervision_retryable,
+                },
+            )
+            if repair_proposal_status == "validated":
+                payload = repair_payload_candidate
+                validation_errors = repair_errors
+                validation_metadata = dict(repair_metadata or {})
+                proposal_status = "validated"
+                final_success_run_result = repair_run_result
             else:
-                if isinstance(parsed_payload, dict):
-                    payload = parsed_payload
-                    valid, validation_errors, validation_metadata = validator(
-                        shard,
-                        parsed_payload,
-                    )
-                    proposal_status = "validated" if valid else "invalid"
-                else:
-                    validation_errors = ("response_not_json_object",)
-                    validation_metadata = {"response_type": type(parsed_payload).__name__}
-                    proposal_status = "invalid"
+                validation_metadata = {
+                    **dict(validation_metadata or {}),
+                    "repair_validation_errors": list(repair_errors),
+                }
+        if primary_row is not None:
+            primary_row["proposal_status"] = (
+                initial_proposal_status
+                if watchdog_retry_attempted or repair_attempted
+                else proposal_status
+            )
+            primary_row["final_proposal_status"] = proposal_status
+            primary_row["watchdog_retry_attempted"] = watchdog_retry_attempted
+            primary_row["watchdog_retry_status"] = watchdog_retry_status
+            primary_row["repair_attempted"] = repair_attempted
+            primary_row["repair_status"] = repair_status
+        if primary_runner_row is not None:
+            primary_runner_row["proposal_status"] = (
+                initial_proposal_status
+                if watchdog_retry_attempted or repair_attempted
+                else proposal_status
+            )
+            primary_runner_row["final_proposal_status"] = proposal_status
+            primary_runner_row["watchdog_retry_attempted"] = watchdog_retry_attempted
+            primary_runner_row["watchdog_retry_status"] = watchdog_retry_status
+            primary_runner_row["repair_attempted"] = repair_attempted
+            primary_runner_row["repair_status"] = repair_status
 
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         wrapper_payload = {
@@ -1479,6 +1802,10 @@ def _run_line_role_direct_worker_assignment_v1(
             "payload": payload,
             "validation_errors": list(validation_errors),
             "validation_metadata": dict(validation_metadata or {}),
+            "watchdog_retry_attempted": watchdog_retry_attempted,
+            "watchdog_retry_status": watchdog_retry_status,
+            "repair_attempted": repair_attempted,
+            "repair_status": repair_status,
         }
         _write_runtime_json(proposal_path, wrapper_payload)
         _write_runtime_json(
@@ -1498,6 +1825,14 @@ def _run_line_role_direct_worker_assignment_v1(
                 "validation_errors": list(validation_errors),
                 "validation_metadata": dict(validation_metadata or {}),
                 "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "watchdog_retry_attempted": watchdog_retry_attempted,
+                "watchdog_retry_status": watchdog_retry_status,
+                "repair_attempted": repair_attempted,
+                "repair_status": repair_status,
+                "state": run_result.supervision_state or "completed",
+                "reason_code": run_result.supervision_reason_code,
+                "reason_detail": run_result.supervision_reason_detail,
+                "retryable": run_result.supervision_retryable,
             },
         )
 
@@ -1507,12 +1842,13 @@ def _run_line_role_direct_worker_assignment_v1(
                 {
                     "worker_id": assignment.worker_id,
                     "shard_id": shard.shard_id,
-                    "reason": (
-                        "proposal_validation_failed"
-                        if proposal_status == "invalid"
-                        else "missing_output_file"
+                    "reason": _failure_reason_from_run_result(
+                        run_result=run_result,
+                        proposal_status=proposal_status,
                     ),
                     "validation_errors": list(validation_errors),
+                    "state": run_result.supervision_state or "completed",
+                    "reason_code": run_result.supervision_reason_code,
                 }
             )
         else:
@@ -1526,11 +1862,26 @@ def _run_line_role_direct_worker_assignment_v1(
                 proposal_path=_relative_runtime_path(run_root, proposal_path),
                 payload=payload,
                 validation_errors=validation_errors,
-                metadata=dict(validation_metadata or {}),
+                metadata={
+                    **dict(validation_metadata or {}),
+                    "watchdog_retry_attempted": watchdog_retry_attempted,
+                    "watchdog_retry_status": watchdog_retry_status,
+                    "repair_attempted": repair_attempted,
+                    "repair_status": repair_status,
+                },
             )
         )
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+
+        if proposal_status == "validated":
+            cohort_watchdog_state.record_validated_result(
+                duration_ms=final_success_run_result.duration_ms,
+                example_payload=_build_line_role_watchdog_example(
+                    shard=shard,
+                    payload=payload,
+                ),
+            )
 
     worker_runner_payload = _aggregate_line_role_worker_runner_payload(
         pipeline_id=pipeline_id,
@@ -1619,6 +1970,7 @@ def _run_line_role_direct_workers_v1(
     completed_shards = 0
     total_shards = len(shards)
     progress_lock = threading.Lock()
+    cohort_watchdog_state = _LineRoleCohortWatchdogState()
     pending_shards_by_worker = {
         assignment.worker_id: list(assignment.shard_ids)
         for assignment in assignments
@@ -1664,6 +2016,7 @@ def _run_line_role_direct_workers_v1(
                 reasoning_effort=reasoning_effort,
                 output_schema_path=output_schema_path,
                 timeout_seconds=timeout_seconds,
+                cohort_watchdog_state=cohort_watchdog_state,
                 shard_completed_callback=_mark_shard_completed,
                 prompt_state=prompt_state,
                 validator=validator,
@@ -1853,6 +2206,517 @@ def _render_codex_events_jsonl(events: Sequence[dict[str, Any]]) -> str:
 
 def _coerce_mapping_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _evaluate_line_role_response(
+    *,
+    shard: ShardManifestEntryV1,
+    response_text: str | None,
+    validator: Callable[[ShardManifestEntryV1, dict[str, Any]], tuple[bool, Sequence[str], dict[str, Any] | None]],
+) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
+    payload: dict[str, Any] | None = None
+    validation_errors: tuple[str, ...] = ()
+    validation_metadata: dict[str, Any] = {}
+    proposal_status = "validated"
+    cleaned_response_text = str(response_text or "").strip()
+    if not cleaned_response_text:
+        return None, ("missing_output_file",), {}, "missing_output"
+    try:
+        parsed_payload = json.loads(cleaned_response_text)
+    except json.JSONDecodeError as exc:
+        return None, ("response_json_invalid",), {"parse_error": str(exc)}, "invalid"
+    if not isinstance(parsed_payload, dict):
+        return (
+            None,
+            ("response_not_json_object",),
+            {"response_type": type(parsed_payload).__name__},
+            "invalid",
+        )
+    payload = parsed_payload
+    valid, validation_errors, validation_metadata = validator(
+        shard,
+        parsed_payload,
+    )
+    proposal_status = "validated" if valid else "invalid"
+    return payload, tuple(validation_errors), dict(validation_metadata or {}), proposal_status
+
+
+def _preflight_line_role_shard(
+    shard: ShardManifestEntryV1,
+) -> dict[str, Any] | None:
+    payload = _coerce_mapping_dict(shard.input_payload)
+    owned_ids = [str(value).strip() for value in shard.owned_ids if str(value).strip()]
+    rows = payload.get("rows")
+    if not owned_ids:
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "line-role shard has no owned row ids",
+        }
+    if not isinstance(rows, list) or not rows:
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "line-role shard has no model-facing rows",
+        }
+    row_ids: list[str] = []
+    for row in rows:
+        if not isinstance(row, list | tuple) or len(row) < 1:
+            return {
+                "reason_code": "preflight_invalid_shard_payload",
+                "reason_detail": "line-role shard contains an invalid row tuple",
+            }
+        row_ids.append(str(row[0]).strip())
+    if sorted(row_ids) != sorted(owned_ids):
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "line-role shard owned ids do not match row tuple ids",
+        }
+    return None
+
+
+def _build_preflight_rejected_run_result(
+    *,
+    prompt_text: str,
+    output_schema_path: Path | None,
+    working_dir: Path,
+    reason_code: str,
+    reason_detail: str,
+) -> CodexExecRunResult:
+    timestamp = _format_utc_now()
+    return CodexExecRunResult(
+        command=[],
+        subprocess_exit_code=0,
+        output_schema_path=str(output_schema_path) if output_schema_path is not None else None,
+        prompt_text=prompt_text,
+        response_text=None,
+        turn_failed_message=reason_detail,
+        events=(),
+        usage={
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+        },
+        source_working_dir=str(working_dir),
+        execution_working_dir=None,
+        execution_agents_path=None,
+        duration_ms=0,
+        started_at_utc=timestamp,
+        finished_at_utc=timestamp,
+        supervision_state="preflight_rejected",
+        supervision_reason_code=reason_code,
+        supervision_reason_detail=reason_detail,
+        supervision_retryable=False,
+    )
+
+
+def _build_strict_json_watchdog_callback(
+    *,
+    live_status_path: Path,
+    cohort_watchdog_state: _LineRoleCohortWatchdogState | None = None,
+    shard_id: str | None = None,
+) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
+    def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
+        decision: CodexExecSupervisionDecision | None = None
+        cohort_snapshot = (
+            cohort_watchdog_state.snapshot()
+            if cohort_watchdog_state is not None
+            else {}
+        )
+        cohort_completed_successful_shards = int(
+            cohort_snapshot.get("completed_successful_shards") or 0
+        )
+        cohort_median_duration_ms = cohort_snapshot.get("median_duration_ms")
+        cohort_elapsed_ratio = None
+        if int(cohort_median_duration_ms or 0) > 0:
+            cohort_elapsed_ratio = round(
+                (snapshot.elapsed_seconds * 1000.0) / float(cohort_median_duration_ms),
+                3,
+            )
+        if snapshot.command_execution_count > 0:
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="watchdog_command_execution_forbidden",
+                reason_detail="strict JSON stage attempted tool use",
+                retryable=True,
+            )
+        elif snapshot.reasoning_item_count >= 2 and not snapshot.has_final_agent_message:
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="watchdog_reasoning_without_output",
+                reason_detail="strict JSON stage emitted repeated reasoning without a final answer",
+                retryable=True,
+            )
+        elif (
+            cohort_completed_successful_shards >= _LINE_ROLE_COHORT_WATCHDOG_MIN_COMPLETED_SHARDS
+            and int(cohort_median_duration_ms or 0) > 0
+            and (snapshot.elapsed_seconds * 1000.0) >= _LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS
+            and (snapshot.elapsed_seconds * 1000.0)
+            >= (float(cohort_median_duration_ms) * _LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR)
+            and not snapshot.has_final_agent_message
+        ):
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="watchdog_cohort_runtime_outlier",
+                reason_detail=(
+                    "strict JSON stage exceeded sibling median runtime without reaching final output"
+                ),
+                retryable=True,
+            )
+        _write_runtime_json(
+            live_status_path,
+            {
+                "state": (
+                    "watchdog_killed"
+                    if isinstance(decision, CodexExecSupervisionDecision)
+                    and decision.action == "terminate"
+                    else "running"
+                ),
+                "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
+                "last_event_seconds_ago": (
+                    round(snapshot.last_event_seconds_ago, 3)
+                    if snapshot.last_event_seconds_ago is not None
+                    else None
+                ),
+                "event_count": snapshot.event_count,
+                "command_execution_count": snapshot.command_execution_count,
+                "reasoning_item_count": snapshot.reasoning_item_count,
+                "last_command": snapshot.last_command,
+                "last_command_repeat_count": snapshot.last_command_repeat_count,
+                "has_final_agent_message": snapshot.has_final_agent_message,
+                "timeout_seconds": snapshot.timeout_seconds,
+                "watchdog_policy": _STRICT_JSON_WATCHDOG_POLICY,
+                "shard_id": shard_id,
+                "cohort_completed_successful_shards": cohort_completed_successful_shards,
+                "cohort_median_duration_ms": cohort_median_duration_ms,
+                "cohort_elapsed_ratio": cohort_elapsed_ratio,
+                "reason_code": decision.reason_code if decision is not None else None,
+                "reason_detail": decision.reason_detail if decision is not None else None,
+                "retryable": decision.retryable if decision is not None else False,
+            },
+        )
+        return decision
+
+    return _callback
+
+
+def _finalize_live_status(
+    live_status_path: Path,
+    *,
+    run_result: CodexExecRunResult,
+) -> None:
+    _write_runtime_json(
+        live_status_path,
+        {
+            "state": run_result.supervision_state or "completed",
+            "reason_code": run_result.supervision_reason_code,
+            "reason_detail": run_result.supervision_reason_detail,
+            "retryable": run_result.supervision_retryable,
+            "duration_ms": run_result.duration_ms,
+            "started_at_utc": run_result.started_at_utc,
+            "finished_at_utc": run_result.finished_at_utc,
+            "watchdog_policy": _STRICT_JSON_WATCHDOG_POLICY,
+        },
+    )
+
+
+def _failure_reason_from_run_result(
+    *,
+    run_result: CodexExecRunResult,
+    proposal_status: str,
+) -> str:
+    if str(run_result.supervision_reason_code or "").strip():
+        return str(run_result.supervision_reason_code)
+    if str(run_result.supervision_state or "").strip() in {
+        "preflight_rejected",
+        "watchdog_killed",
+    }:
+        return str(run_result.supervision_state)
+    return (
+        "proposal_validation_failed"
+        if proposal_status == "invalid"
+        else "missing_output_file"
+    )
+
+
+def _format_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _should_attempt_line_role_watchdog_retry(
+    *,
+    run_result: CodexExecRunResult,
+) -> bool:
+    if str(run_result.supervision_state or "").strip() != "watchdog_killed":
+        return False
+    if not run_result.supervision_retryable:
+        return False
+    return str(run_result.supervision_reason_code or "").strip() in {
+        "watchdog_command_execution_forbidden",
+        "watchdog_reasoning_without_output",
+        "watchdog_cohort_runtime_outlier",
+    }
+
+
+def _build_line_role_watchdog_example(
+    *,
+    shard: ShardManifestEntryV1,
+    payload: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return None
+    compact_rows = [
+        dict(row_payload)
+        for row_payload in rows[:2]
+        if isinstance(row_payload, Mapping)
+    ]
+    if not compact_rows:
+        return None
+    return {
+        "shard_id": shard.shard_id,
+        "owned_ids": list(shard.owned_ids),
+        "output": {
+            "rows": compact_rows,
+        },
+    }
+
+
+def _should_attempt_line_role_repair(
+    *,
+    proposal_status: str,
+    validation_errors: Sequence[str],
+) -> bool:
+    if proposal_status != "invalid":
+        return False
+    for error in validation_errors:
+        if error in {
+            "response_json_invalid",
+            "response_not_json_object",
+            "rows_missing_or_not_a_list",
+            "row_not_a_json_object",
+            "atomic_index_missing",
+        }:
+            return True
+        if str(error).startswith(
+            (
+                "missing_owned_atomic_indices:",
+                "duplicate_atomic_index:",
+                "invalid_label:",
+            )
+        ):
+            return True
+    return False
+
+
+def _run_line_role_repair_attempt(
+    *,
+    runner: CodexExecRunner,
+    worker_root: Path,
+    shard: ShardManifestEntryV1,
+    env: Mapping[str, str],
+    output_schema_path: Path | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    original_response_text: str,
+    validation_errors: Sequence[str],
+    timeout_seconds: int | None,
+    pipeline_id: str,
+    worker_id: str,
+    live_status_path: Path | None = None,
+) -> CodexExecRunResult:
+    prompt_text = _build_line_role_repair_prompt(
+        shard=shard,
+        original_response_text=original_response_text,
+        validation_errors=validation_errors,
+    )
+    shard_root = worker_root / "shards" / shard.shard_id
+    (shard_root / "repair_prompt.txt").write_text(prompt_text, encoding="utf-8")
+    return runner.run_structured_prompt(
+        prompt_text=prompt_text,
+        input_payload={
+            "repair_mode": "line_role",
+            "pipeline_id": pipeline_id,
+            "worker_id": worker_id,
+            "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
+            "shard_id": shard.shard_id,
+            "rows": list((shard.input_payload or {}).get("rows") or []),
+            "owned_ids": list(shard.owned_ids),
+            "validation_errors": list(validation_errors),
+            "previous_output": _truncate_repair_text(original_response_text),
+        },
+        working_dir=worker_root,
+        env=env,
+        output_schema_path=output_schema_path,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        timeout_seconds=timeout_seconds,
+        workspace_task_label="canonical line-role repair shard",
+        supervision_callback=(
+            _build_strict_json_watchdog_callback(live_status_path=live_status_path)
+            if live_status_path is not None
+            else None
+        ),
+    )
+
+
+def _run_line_role_watchdog_retry_attempt(
+    *,
+    runner: CodexExecRunner,
+    worker_root: Path,
+    shard: ShardManifestEntryV1,
+    env: Mapping[str, str],
+    output_schema_path: Path | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    original_reason_code: str,
+    original_reason_detail: str,
+    successful_examples: Sequence[Mapping[str, Any]],
+    timeout_seconds: int | None,
+    pipeline_id: str,
+    worker_id: str,
+    live_status_path: Path | None = None,
+) -> CodexExecRunResult:
+    prompt_text = _build_line_role_watchdog_retry_prompt(
+        shard=shard,
+        original_reason_code=original_reason_code,
+        original_reason_detail=original_reason_detail,
+        successful_examples=successful_examples,
+    )
+    shard_root = worker_root / "shards" / shard.shard_id
+    (shard_root / "watchdog_retry_prompt.txt").write_text(prompt_text, encoding="utf-8")
+    return runner.run_structured_prompt(
+        prompt_text=prompt_text,
+        input_payload={
+            "retry_mode": "line_role_watchdog",
+            "pipeline_id": pipeline_id,
+            "worker_id": worker_id,
+            "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
+            "shard_id": shard.shard_id,
+            "rows": list((shard.input_payload or {}).get("rows") or []),
+            "owned_ids": list(shard.owned_ids),
+            "retry_reason": {
+                "code": original_reason_code,
+                "detail": original_reason_detail,
+            },
+            "successful_examples": [dict(example_payload) for example_payload in successful_examples],
+        },
+        working_dir=worker_root,
+        env=env,
+        output_schema_path=output_schema_path,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        timeout_seconds=timeout_seconds,
+        workspace_task_label="canonical line-role watchdog retry shard",
+        supervision_callback=(
+            _build_strict_json_watchdog_callback(live_status_path=live_status_path)
+            if live_status_path is not None
+            else None
+        ),
+    )
+
+
+def _build_line_role_watchdog_retry_prompt(
+    *,
+    shard: ShardManifestEntryV1,
+    original_reason_code: str,
+    original_reason_detail: str,
+    successful_examples: Sequence[Mapping[str, Any]],
+) -> str:
+    owned_ids = ", ".join(str(value) for value in shard.owned_ids)
+    allowed_labels = ", ".join(FREEFORM_ALLOWED_LABELS)
+    example_rows = [
+        json.dumps(dict(example_payload), ensure_ascii=False, sort_keys=True)
+        for example_payload in successful_examples[:_LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES]
+        if isinstance(example_payload, Mapping)
+    ]
+    examples_block = (
+        "\n".join(example_rows)
+        if example_rows
+        else "[no sibling examples available]"
+    )
+    return (
+        "Retry the strict JSON canonical line-role shard after the previous attempt was stopped.\n\n"
+        "Rules:\n"
+        "- Return strict JSON only.\n"
+        "- Do not run shell commands, Python, or any other tools.\n"
+        "- Return exactly this shape: {\"rows\":[{\"atomic_index\":123,\"label\":\"INGREDIENT_LINE\"}]}.\n"
+        f"- Return each owned atomic_index exactly once, in input order: {owned_ids}\n"
+        f"- Allowed labels: {allowed_labels}\n"
+        "- Use only the keys `rows`, `atomic_index`, and `label`.\n\n"
+        f"Previous stop reason: {original_reason_code or '[unknown]'}\n"
+        f"Reason detail: {original_reason_detail or '[none recorded]'}\n\n"
+        "Successful sibling examples:\n"
+        "<BEGIN_SUCCESSFUL_SIBLING_EXAMPLES>\n"
+        f"{examples_block}\n"
+        "<END_SUCCESSFUL_SIBLING_EXAMPLES>\n"
+    )
+
+
+def _build_line_role_repair_prompt(
+    *,
+    shard: ShardManifestEntryV1,
+    original_response_text: str,
+    validation_errors: Sequence[str],
+) -> str:
+    owned_ids = ", ".join(str(value) for value in shard.owned_ids)
+    allowed_labels = ", ".join(FREEFORM_ALLOWED_LABELS)
+    return (
+        "Repair the invalid canonical line-role shard output.\n\n"
+        "Rules:\n"
+        "- Return strict JSON only.\n"
+        "- Do not run shell commands, Python, or any other tools.\n"
+        "- Return exactly this shape: {\"rows\":[{\"atomic_index\":123,\"label\":\"INGREDIENT_LINE\"}]}.\n"
+        f"- Return each owned atomic_index exactly once, in input order: {owned_ids}\n"
+        f"- Allowed labels: {allowed_labels}\n"
+        "- Use only the keys `rows`, `atomic_index`, and `label`.\n\n"
+        f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
+        "Previous invalid output:\n"
+        "<BEGIN_PREVIOUS_OUTPUT>\n"
+        f"{_truncate_repair_text(original_response_text)}\n"
+        "<END_PREVIOUS_OUTPUT>\n"
+    )
+
+
+def _build_line_role_inline_attempt_runner_payload(
+    *,
+    pipeline_id: str,
+    worker_id: str,
+    shard_id: str,
+    run_result: CodexExecRunResult,
+    model: str | None,
+    reasoning_effort: str | None,
+    prompt_input_mode: str,
+) -> dict[str, Any]:
+    payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
+    payload["pipeline_id"] = pipeline_id
+    telemetry = payload.get("telemetry")
+    row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+    if isinstance(row_payloads, list):
+        for row_payload in row_payloads:
+            if not isinstance(row_payload, dict):
+                continue
+            row_payload["prompt_input_mode"] = prompt_input_mode
+            row_payload["request_input_file"] = None
+            row_payload["request_input_file_bytes"] = None
+            row_payload["debug_input_file"] = None
+    summary_payload = telemetry.get("summary") if isinstance(telemetry, dict) else None
+    if isinstance(summary_payload, dict):
+        summary_payload["prompt_input_mode"] = prompt_input_mode
+        summary_payload["request_input_file_bytes_total"] = None
+    payload["process_payload"] = {
+        "pipeline_id": pipeline_id,
+        "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
+        "codex_model": model,
+        "codex_reasoning_effort": reasoning_effort,
+        "prompt_input_mode": prompt_input_mode,
+    }
+    return payload
+
+
+def _truncate_repair_text(text: str, *, max_chars: int = 20_000) -> str:
+    cleaned = str(text or "").strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 15].rstrip() + "\n...[truncated]"
 
 
 def _write_runtime_json(path: Path, payload: Any) -> None:
@@ -2085,10 +2949,16 @@ def _write_line_role_telemetry_summary(
                     dict(row) for row in rows if isinstance(row, dict)
                 )
         all_rows.extend(telemetry_rows)
+        phase_direct_summary = _summarize_direct_rows(telemetry_rows)
         phase_totals = _sum_runtime_usage(telemetry_rows)
         for plan in phase_result.shard_plans:
             runner_payload = phase_result.runner_results_by_shard_id.get(plan.shard_id) or {}
             attempt_usage: dict[str, Any] | None = None
+            matching_rows = [
+                row
+                for row in telemetry_rows
+                if str(row.get("task_id") or "").strip() == plan.shard_id
+            ]
             telemetry_payload = runner_payload.get("telemetry")
             runner_rows = (
                 telemetry_payload.get("rows") if isinstance(telemetry_payload, dict) else None
@@ -2111,7 +2981,7 @@ def _write_line_role_telemetry_summary(
                     "requested_atomic_indices": [
                         int(candidate.atomic_index) for candidate in plan.candidates
                     ],
-                    "attempt_count": 1,
+                    "attempt_count": len(matching_rows) or 1,
                     "attempts_with_usage": 1 if attempt_usage is not None else 0,
                     "attempts": [
                         {
@@ -2157,6 +3027,46 @@ def _write_line_role_telemetry_summary(
                     "visible_input_tokens": phase_totals.get("visible_input_tokens"),
                     "visible_output_tokens": phase_totals.get("visible_output_tokens"),
                     "wrapper_overhead_tokens": phase_totals.get("wrapper_overhead_tokens"),
+                    "command_execution_count_total": phase_direct_summary.get(
+                        "command_execution_count_total"
+                    ),
+                    "command_executing_shard_count": phase_direct_summary.get(
+                        "command_executing_shard_count"
+                    ),
+                    "command_execution_tokens_total": phase_direct_summary.get(
+                        "command_execution_tokens_total"
+                    ),
+                    "reasoning_item_count_total": phase_direct_summary.get(
+                        "reasoning_item_count_total"
+                    ),
+                    "reasoning_heavy_shard_count": phase_direct_summary.get(
+                        "reasoning_heavy_shard_count"
+                    ),
+                    "reasoning_heavy_tokens_total": phase_direct_summary.get(
+                        "reasoning_heavy_tokens_total"
+                    ),
+                    "invalid_output_shard_count": phase_direct_summary.get(
+                        "invalid_output_shard_count"
+                    ),
+                    "invalid_output_tokens_total": phase_direct_summary.get(
+                        "invalid_output_tokens_total"
+                    ),
+                    "missing_output_shard_count": phase_direct_summary.get(
+                        "missing_output_shard_count"
+                    ),
+                    "preflight_rejected_shard_count": phase_direct_summary.get(
+                        "preflight_rejected_shard_count"
+                    ),
+                    "watchdog_killed_shard_count": phase_direct_summary.get(
+                        "watchdog_killed_shard_count"
+                    ),
+                    "repaired_shard_count": phase_direct_summary.get(
+                        "repaired_shard_count"
+                    ),
+                    "pathological_shard_count": phase_direct_summary.get(
+                        "pathological_shard_count"
+                    ),
+                    "pathological_flags": phase_direct_summary.get("pathological_flags"),
                     "prompt_input_mode": "path",
                     "request_input_file_bytes_total": phase_totals.get(
                         "request_input_file_bytes_total"
@@ -2176,6 +3086,7 @@ def _write_line_role_telemetry_summary(
             }
         )
     totals = _sum_runtime_usage(all_rows)
+    direct_summary = _summarize_direct_rows(all_rows)
     summary_path.write_text(
         json.dumps(
             {
@@ -2236,6 +3147,44 @@ def _write_line_role_telemetry_summary(
                     "visible_input_tokens": totals.get("visible_input_tokens"),
                     "visible_output_tokens": totals.get("visible_output_tokens"),
                     "wrapper_overhead_tokens": totals.get("wrapper_overhead_tokens"),
+                    "command_execution_count_total": direct_summary.get(
+                        "command_execution_count_total"
+                    ),
+                    "command_executing_shard_count": direct_summary.get(
+                        "command_executing_shard_count"
+                    ),
+                    "command_execution_tokens_total": direct_summary.get(
+                        "command_execution_tokens_total"
+                    ),
+                    "reasoning_item_count_total": direct_summary.get(
+                        "reasoning_item_count_total"
+                    ),
+                    "reasoning_heavy_shard_count": direct_summary.get(
+                        "reasoning_heavy_shard_count"
+                    ),
+                    "reasoning_heavy_tokens_total": direct_summary.get(
+                        "reasoning_heavy_tokens_total"
+                    ),
+                    "invalid_output_shard_count": direct_summary.get(
+                        "invalid_output_shard_count"
+                    ),
+                    "invalid_output_tokens_total": direct_summary.get(
+                        "invalid_output_tokens_total"
+                    ),
+                    "missing_output_shard_count": direct_summary.get(
+                        "missing_output_shard_count"
+                    ),
+                    "preflight_rejected_shard_count": direct_summary.get(
+                        "preflight_rejected_shard_count"
+                    ),
+                    "watchdog_killed_shard_count": direct_summary.get(
+                        "watchdog_killed_shard_count"
+                    ),
+                    "repaired_shard_count": direct_summary.get("repaired_shard_count"),
+                    "pathological_shard_count": direct_summary.get(
+                        "pathological_shard_count"
+                    ),
+                    "pathological_flags": direct_summary.get("pathological_flags"),
                     "prompt_input_mode": "path",
                     "request_input_file_bytes_total": totals.get(
                         "request_input_file_bytes_total"

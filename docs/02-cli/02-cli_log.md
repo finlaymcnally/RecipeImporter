@@ -227,3 +227,28 @@ Current rule:
 
 Anti-loop note:
 - if a long-running stage still looks blank, fix the stage emitter to publish structured progress rather than adding another spinner-only special case
+
+### 2026-03-18 zero-token Codex plan mode was intentionally removed
+
+Preserved finding:
+- `--codex-execution-policy plan` was duplicating two clearer surfaces and teaching the wrong mental model for current direct-exec work
+
+Current rule:
+- use `cf-debug preview-prompts` when the question is "what would this prompt/cost shape look like?"
+- use execute-path rehearsal with `scripts/fake-codex-farm.py` when the question is "will the real runtime folders, validation, and promotion seams behave correctly without live spend?"
+
+Anti-loop note:
+- if someone asks for plan mode back, first prove that preview plus fake-run rehearsal fails to answer a real operator question. The old mode was removed because it was overlapping and stale, not because it lacked code.
+
+### 2026-03-18 interactive shard-count selection is split by surface on purpose
+
+Preserved finding:
+- the repo briefly moved toward "all prompt counts are literal hard overrides," but knowledge reliability proved that one shared policy was wrong
+
+Current rule:
+- the interactive chooser still asks for recipe / line-role / knowledge prompt targets in one place
+- recipe and line-role honor those values as literal shard-count overrides
+- knowledge records the operator request but may exceed it when hard chunk, char, locality, or table caps would otherwise be violated; the runtime should explain that mismatch in manifests/reports instead of silently pretending the request was met
+
+Anti-loop note:
+- if knowledge uses more shards than the interactive picker requested, do not start by debugging the chooser. Check whether the runtime is correctly obeying knowledge safety caps.

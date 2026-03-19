@@ -119,9 +119,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                     ],
                     "s": [
                         {
-                            "t": None,
                             "b": "Fake knowledge snippet.",
-                            "g": ["fake-runner"],
                             "e": [
                                 {
                                     "i": block_index,

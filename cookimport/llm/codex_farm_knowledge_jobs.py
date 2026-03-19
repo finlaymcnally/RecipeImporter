@@ -1,26 +1,28 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import ChunkLane, KnowledgeChunk, ParsingOverrides
-from cookimport.parsing.chunks import _noise_score, chunks_from_non_recipe_blocks
+from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
     block_rows_for_nonrecipe_span,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
-from cookimport.llm.shard_prompt_targets import resolve_items_per_shard
+from cookimport.llm.shard_prompt_targets import (
+    coerce_positive_int,
+    partition_contiguous_items,
+    resolve_items_per_shard,
+)
 
 from .codex_farm_knowledge_contracts import (
     KnowledgeCompactBundleChunkPayloadV2,
     KnowledgeCompactBundleJobInputV2,
     KnowledgeCompactChunkBlockV1,
-    KnowledgeCompactChunkHintsV2,
     KnowledgeCompactContextBlockV1,
     KnowledgeCompactContextPayloadV1,
     KnowledgeCompactGuardrailsPayloadV1,
@@ -32,8 +34,6 @@ from .codex_farm_knowledge_contracts import (
 _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS = 12
 _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS = 14000
 _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS = 10
-_DEFAULT_KNOWLEDGE_LOW_SIGNAL_MAX_CHARS = 240
-_LOW_SIGNAL_SKIP_KEY = "low_signal"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +46,7 @@ class KnowledgeJobBuildReport:
     chunk_lane_by_id: dict[str, str | None]
     skipped_chunk_count: int
     skipped_lane_counts: dict[str, int]
+    planning_warnings: list[str]
     shard_entries: list[ShardManifestEntryV1]
 
 
@@ -70,12 +71,12 @@ def build_knowledge_jobs(
     target_prompt_count: int | None = None,
     target_chunks_per_shard: int | None = None,
     overrides: ParsingOverrides | None = None,
-    skip_suggested_lanes: Sequence[str] = ("noise",),
+    skip_suggested_lanes: Sequence[str] = (),
 ) -> KnowledgeJobBuildReport:
     """Write knowledge-stage job bundles to out_dir and return a build report.
 
     Notes:
-    - Uses deterministic chunking/highlights as hints over seed Stage 7 non-recipe spans.
+    - Uses deterministic chunking over seed Stage 7 non-recipe spans.
     - Chunk blocks come only from seed non-recipe spans; context may overlap recipes.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -103,6 +104,7 @@ def build_knowledge_jobs(
     chunk_count_before_pruning = 0
     skipped_chunk_count = 0
     skipped_lane_counts: dict[str, int] = {}
+    planning_warnings: list[str] = []
     all_prepared_chunks: list[_PreparedKnowledgeBundleChunk] = []
     shard_entries: list[ShardManifestEntryV1] = []
 
@@ -132,18 +134,6 @@ def build_knowledge_jobs(
                 chunk_counter += 1
                 continue
             absolute_indices = _absolute_indices_for_chunk(chunk, sequence=sequence)
-            if _should_skip_low_signal_knowledge_chunk(
-                chunk,
-                absolute_indices=absolute_indices,
-                full_blocks_by_index=full_blocks_by_index,
-                table_hints_by_index=table_hints_by_index,
-            ):
-                skipped_chunk_count += 1
-                skipped_lane_counts[_LOW_SIGNAL_SKIP_KEY] = (
-                    int(skipped_lane_counts.get(_LOW_SIGNAL_SKIP_KEY) or 0) + 1
-                )
-                chunk_counter += 1
-                continue
             payload, absolute_indices = _build_chunk_payload(
                 chunk_id=chunk_id,
                 chunk=chunk,
@@ -165,11 +155,12 @@ def build_knowledge_jobs(
                 str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else suggested_lane
             )
             chunk_counter += 1
-    for bundle_chunks in _bundle_prepared_chunks(
+    planned_bundles, planning_warnings = _bundle_prepared_chunks(
         sorted(all_prepared_chunks, key=lambda chunk: chunk.absolute_indices[0]),
         target_bundle_count=target_prompt_count,
         max_chunks_per_bundle=target_chunks_per_shard,
-    ):
+    )
+    for bundle_chunks in planned_bundles:
         bundle_id = f"{workbook_slug}.ks{bundle_counter:04d}.nr"
         bundle_payload = _build_bundle_job_payload(
             bundle_id=bundle_id,
@@ -235,6 +226,7 @@ def build_knowledge_jobs(
         chunk_lane_by_id=chunk_lane_by_id,
         skipped_chunk_count=skipped_chunk_count,
         skipped_lane_counts=skipped_lane_counts,
+        planning_warnings=planning_warnings,
         shard_entries=shard_entries,
     )
 
@@ -288,11 +280,6 @@ def _build_chunk_payload(
         KnowledgeCompactBundleChunkPayloadV2(
             chunk_id=chunk_id,
             blocks=chunk_blocks_payload,
-            hints=_build_chunk_hints(
-                suggested_lane=suggested_lane,
-                chunk=chunk,
-                chunk_blocks_payload=chunk_blocks_payload,
-            ),
         ),
         absolute_indices,
     )
@@ -357,156 +344,31 @@ def _build_bundle_job_payload(
         ),
     )
 
-
-def _build_chunk_hints(
-    *,
-    suggested_lane: str | None,
-    chunk: KnowledgeChunk,
-    chunk_blocks_payload: Sequence[KnowledgeCompactChunkBlockV1],
-) -> KnowledgeCompactChunkHintsV2 | None:
-    text_form = _review_text_form(chunk_blocks_payload)
-    hints = KnowledgeCompactChunkHintsV2(
-        suggested_lane=_strong_suggested_lane(
-            suggested_lane=suggested_lane,
-            chunk=chunk,
-            chunk_blocks_payload=chunk_blocks_payload,
-            text_form=text_form,
-        ),
-        text_form=text_form,
-    )
-    if hints.suggested_lane is None and hints.text_form is None:
-        return None
-    return hints
-
-
-def _strong_suggested_lane(
-    *,
-    suggested_lane: str | None,
-    chunk: KnowledgeChunk,
-    chunk_blocks_payload: Sequence[KnowledgeCompactChunkBlockV1],
-    text_form: str,
-) -> str | None:
-    normalized_lane = str(suggested_lane or "").strip().lower() or None
-    if normalized_lane != ChunkLane.KNOWLEDGE.value:
-        return None
-    text = str(chunk.text or "").strip()
-    title = str(chunk.title or "").strip().lower().rstrip(":")
-    if _noise_score(text, title) >= 0.35:
-        return None
-    if _chunk_blocks_look_like_menu(chunk_blocks_payload):
-        return None
-    if text_form == "table_like":
-        return ChunkLane.KNOWLEDGE.value
-    if (chunk.highlight_count or 0) > 0 or bool(chunk.highlights):
-        return ChunkLane.KNOWLEDGE.value
-    role_counts = (
-        chunk.provenance.get("block_role_counts")
-        if isinstance(chunk.provenance, dict)
-        else {}
-    ) or {}
-    if any(int(role_counts.get(role) or 0) > 0 for role in ("ingredient_line", "instruction_line", "tip_like")):
-        return ChunkLane.KNOWLEDGE.value
-    if (
-        len(text) >= 420
-        and _chunk_has_named_structure(chunk)
-        and _chunk_has_sentence_like_block(chunk_blocks_payload)
-    ):
-        return ChunkLane.KNOWLEDGE.value
-    return None
-
-
-def _chunk_has_named_structure(chunk: KnowledgeChunk) -> bool:
-    if str(chunk.title or "").strip():
-        return True
-    return any(str(part or "").strip() for part in (chunk.section_path or []))
-
-
-def _chunk_has_sentence_like_block(
-    chunk_blocks_payload: Sequence[KnowledgeCompactChunkBlockV1],
-) -> bool:
-    return any(re.search(r"[.!?]", str(block.text or "").strip()) for block in chunk_blocks_payload)
-
-
-def _chunk_blocks_look_like_menu(
-    chunk_blocks_payload: Sequence[KnowledgeCompactChunkBlockV1],
-) -> bool:
-    lines = [str(block.text or "").strip() for block in chunk_blocks_payload if str(block.text or "").strip()]
-    if len(lines) < 2:
-        return False
-    heading_like_count = sum(1 for line in lines if _looks_menu_entry_line(line))
-    sentence_like_count = sum(1 for line in lines if re.search(r"[.!?]", line))
-    return (
-        heading_like_count >= max(2, len(lines) - 1)
-        and sentence_like_count <= 1
-    )
-
-
-def _looks_menu_entry_line(text: str) -> bool:
-    stripped = str(text or "").strip()
-    if not stripped or re.search(r"[.!?]", stripped):
-        return False
-    if _looks_short_title_like_line(stripped):
-        return True
-    words = stripped.split()
-    if len(words) > 20:
-        return False
-    if re.match(r"^\d+\s+[A-Z]", stripped):
-        return True
-    capitalized_words = sum(
-        1
-        for word in words
-        if word and word[0].isalpha() and word[0].isupper()
-    )
-    return capitalized_words >= max(2, len(words) - 2)
-
-
-def _review_text_form(
-    chunk_blocks_payload: Sequence[KnowledgeCompactChunkBlockV1],
-) -> str:
-    if any(block.table_hint is not None for block in chunk_blocks_payload):
-        return "table_like"
-    heading_like_blocks = [
-        block
-        for block in chunk_blocks_payload
-        if block.heading_level is not None or _looks_heading_like_text(block.text)
-    ]
-    if heading_like_blocks and len(heading_like_blocks) == len(chunk_blocks_payload):
-        return "heading_like"
-    prose_blocks = [
-        block for block in chunk_blocks_payload if len(str(block.text or "").strip()) >= 80
-    ]
-    if prose_blocks or len(chunk_blocks_payload) > 1:
-        return "prose_like"
-    return "mixed"
-
-
-def _looks_heading_like_text(text: str) -> bool:
-    stripped = str(text or "").strip()
-    if not stripped:
-        return False
-    if len(stripped) <= 60 and stripped.upper() == stripped and any(char.isalpha() for char in stripped):
-        return True
-    return len(stripped.split()) <= 6 and stripped.endswith(":")
-
-
 def _bundle_prepared_chunks(
     chunks: Sequence[_PreparedKnowledgeBundleChunk],
     *,
     target_bundle_count: int | None = None,
-    max_chunks_per_bundle: int | None = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
+    max_chunks_per_bundle: int | None = None,
     max_bundle_chars: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS,
     max_gap_blocks: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS,
-) -> list[list[_PreparedKnowledgeBundleChunk]]:
+) -> tuple[list[list[_PreparedKnowledgeBundleChunk]], list[str]]:
     if not chunks:
-        return []
-    effective_max_chunks = resolve_items_per_shard(
-        total_items=len(chunks),
-        prompt_target_count=target_bundle_count,
-        items_per_shard=max_chunks_per_bundle,
-        default_items_per_shard=_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
-    )
+        return [], []
     effective_max_bundle_chars = max(1, int(max_bundle_chars))
     effective_max_gap_blocks = max(0, int(max_gap_blocks))
+    explicit_max_chunks = coerce_positive_int(max_chunks_per_bundle)
+    requested_bundle_count = (
+        None
+        if explicit_max_chunks is not None
+        else coerce_positive_int(target_bundle_count)
+    )
+
+    effective_max_chunks = resolve_items_per_shard(
+        total_items=len(chunks),
+        prompt_target_count=requested_bundle_count,
+        items_per_shard=explicit_max_chunks,
+        default_items_per_shard=_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
+    )
 
     bundles: list[list[_PreparedKnowledgeBundleChunk]] = []
     current: list[_PreparedKnowledgeBundleChunk] = []
@@ -549,7 +411,11 @@ def _bundle_prepared_chunks(
         current_chars += chunk.char_count
 
     flush()
-    return bundles
+    planning_warnings = _knowledge_prompt_target_warnings(
+        bundles=bundles,
+        requested_bundle_count=requested_bundle_count,
+    )
+    return bundles, planning_warnings
 
 
 def _chunk_gap_size(
@@ -559,106 +425,21 @@ def _chunk_gap_size(
     return max(0, int(right.absolute_indices[0]) - int(left.absolute_indices[-1]) - 1)
 
 
-def _should_skip_low_signal_knowledge_chunk(
-    chunk: KnowledgeChunk,
+def _knowledge_prompt_target_warnings(
     *,
-    absolute_indices: Sequence[int],
-    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
-) -> bool:
-    lane = chunk.lane.value if isinstance(chunk.lane, ChunkLane) else str(chunk.lane or "")
-    if str(lane).strip().lower() != ChunkLane.KNOWLEDGE.value:
-        return False
-    if _chunk_has_table_content(
-        chunk,
-        absolute_indices=absolute_indices,
-        table_hints_by_index=table_hints_by_index,
-    ):
-        return False
-    if _chunk_is_heading_or_menu_fragment(
-        absolute_indices=absolute_indices,
-        full_blocks_by_index=full_blocks_by_index,
-    ):
-        return True
-    if _chunk_has_heading_context(
-        chunk,
-        absolute_indices=absolute_indices,
-        full_blocks_by_index=full_blocks_by_index,
-    ):
-        return False
-    if (chunk.highlight_count or 0) > 0 or bool(chunk.highlights):
-        return False
-    text = str(chunk.text or "").strip()
-    if not text or len(text) > _DEFAULT_KNOWLEDGE_LOW_SIGNAL_MAX_CHARS:
-        return False
-    return True
-
-
-def _chunk_is_heading_or_menu_fragment(
-    *,
-    absolute_indices: Sequence[int],
-    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-) -> bool:
-    block_texts = [
-        str((full_blocks_by_index.get(int(index)) or {}).get("text") or "").strip()
-        for index in absolute_indices
+    bundles: Sequence[Sequence[_PreparedKnowledgeBundleChunk]],
+    requested_bundle_count: int | None,
+) -> list[str]:
+    if requested_bundle_count is None:
+        return []
+    actual_bundle_count = len(bundles)
+    if actual_bundle_count <= requested_bundle_count:
+        return []
+    return [
+        "Knowledge prompt target requested "
+        f"{requested_bundle_count} shard(s), but the planner emitted "
+        f"{actual_bundle_count} shard(s) to respect hard chunk, char, locality, and table limits."
     ]
-    lines = [text for text in block_texts if text]
-    if not lines:
-        return False
-    if len(lines) >= 2 and all(_looks_short_title_like_line(text) for text in lines):
-        return True
-    if len(lines) < 3:
-        return False
-    short_line_count = sum(1 for line in lines if len(line.split()) <= 8)
-    heading_like_count = sum(1 for line in lines if _looks_short_title_like_line(line))
-    sentence_like_count = sum(1 for line in lines if re.search(r"[.!?]", line))
-    return (
-        short_line_count == len(lines)
-        and heading_like_count >= max(2, len(lines) - 1)
-        and sentence_like_count <= 1
-    )
-
-
-def _looks_short_title_like_line(text: str) -> bool:
-    stripped = str(text or "").strip()
-    if not stripped:
-        return False
-    if _looks_heading_like_text(stripped):
-        return True
-    words = stripped.split()
-    if len(words) > 8:
-        return False
-    return stripped.istitle()
-
-
-def _chunk_has_heading_context(
-    chunk: KnowledgeChunk,
-    *,
-    absolute_indices: Sequence[int],
-    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-) -> bool:
-    if str(chunk.title or "").strip():
-        return True
-    if any(str(part or "").strip() for part in (chunk.section_path or [])):
-        return True
-    return any(
-        _resolve_heading_level(full_blocks_by_index.get(int(index)) or {}) is not None
-        for index in absolute_indices
-    )
-
-
-def _chunk_has_table_content(
-    chunk: KnowledgeChunk,
-    *,
-    absolute_indices: Sequence[int],
-    table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
-) -> bool:
-    if any(int(index) in table_hints_by_index for index in absolute_indices):
-        return True
-    provenance = chunk.provenance if isinstance(chunk.provenance, dict) else {}
-    table_ids = provenance.get("table_ids")
-    return isinstance(table_ids, list) and any(str(value or "").strip() for value in table_ids)
 
 
 def _absolute_indices_for_chunk(

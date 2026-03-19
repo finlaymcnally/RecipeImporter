@@ -632,3 +632,105 @@ Durable decisions:
 
 Anti-loop note:
 - if Stage 7 docs feel right but the surface still feels vague, check labels and manifest/report summaries before redesigning the runtime
+
+## 2026-03-18 line-role transport compaction moved cost work onto the real billed seam
+
+Problem captured:
+- the first file-backed line-role cut removed wrapper bloat, but the worker task file still repeated too much metadata and hidden neighbor context
+- there was a real risk of cutting billed payloads so aggressively that local debugging would get worse
+
+Durable decisions:
+- keep the billed model payload minimal and separate from the local debug view:
+  - `workers/*/in/*.json` is the compact tuple transport
+  - `workers/*/debug/*.json` is the rich local copy
+- `prev_text` and `next_text` no longer belong on `AtomicLineCandidate`; prompt-local adjacency should come from explicit ordered lookup helpers instead
+- line-role prompt semantics now need to stay aligned across three layers:
+  - checked-in prompt assets
+  - Python fallback strings
+  - the file-backed wrapper prompt that explains the tuple contract
+
+Evidence worth keeping:
+- Food Lab preview work cut line-role cost in stages without changing call count:
+  - dropping repeated neighbor fields cut about `43%` of estimated line-role tokens on one apples-to-apples `5`-shard preview
+  - moving to need-to-know tuple payloads cut the same stage again from about `361,968` total tokens to about `181,980`
+- the saved lesson was that the remaining cost after wrapper cleanup lived mostly in repeated row metadata, not in output schema size
+
+Anti-loop note:
+- if line-role cost spikes again, inspect tuple payload size, neighbor-window reconstruction, and wrapper semantics before widening schemas or reintroducing rich row objects into the billed transport
+
+## 2026-03-18 recipe and knowledge prompt contracts were compacted instead of loosened
+
+Problem captured:
+- recipe and knowledge direct-exec prompts still carried stale transport wording, schema-shaped helper dumps, and metadata that cost tokens without improving grounded review
+
+Durable decisions:
+- knowledge direct prompts must teach inline JSON only; `{{INPUT_PATH}}` belongs to file-backed line-role, not knowledge
+- knowledge payloads should stay compact and skeptical:
+  - short aliases
+  - raw block text remains authoritative
+  - `semantic_hint` removed
+  - `suggested_lane` only when deterministic evidence is strong
+- recipe payloads should stay compact without dropping grounded evidence rows:
+  - minified shard JSON
+  - compact hint object
+  - compact tagging guide
+  - first-class bad-candidate triage surface (`fragmentary`, `not_a_recipe`, `repaired`)
+
+Evidence worth keeping:
+- Food Lab zero-token previews showed:
+  - knowledge stage total tokens down about `36%` after compact payload work
+  - full 3-stage preview total down about `19.6%` from the knowledge compaction alone
+  - recipe-stage input down by about one third across Dinner for 2, Salt Fat Acid Heat, and The Food Lab without changing call counts
+- fresh Food Lab / Salt Fat previews also confirmed the reviewer-facing knowledge prompt now teaches skepticism toward praise blurbs, signup copy, menus, and similar junk families instead of biasing toward `knowledge`
+
+Anti-loop note:
+- if future prompt work starts adding schema-shaped helper dumps, semantic priors, or duplicated metadata back into recipe/knowledge payloads, require new benchmark evidence first; the March 18 cuts already proved those fields were expensive and not structurally necessary
+
+## 2026-03-18 knowledge integrity required stricter safety caps, less deterministic trust, and bounded repair
+
+Problem captured:
+- the live knowledge schema had one strict-JSON incompatibility
+- a later broad shard-count override reopened the earlier giant-bundle risk for knowledge
+- some invalid knowledge responses returned outer JSON but omitted owned chunks or wasted output on whitespace, and deterministic low-signal pruning was still deciding too much before review
+
+Durable decisions:
+- keep strict schema-pack regression coverage for nested required fields; the `rc` omission bug was a real live structured-output failure, not a test-only nit
+- `knowledge_prompt_target_count` must remain a soft planning target even though recipe and line-role honor literal requested shard counts
+- keep hard knowledge bundle safety caps for chunk count, char count, locality, and table isolation
+- remove the low-signal deterministic prefilter and keep chunk-level semantic hints out of the billed payload
+- use bounded recovery instead of validator leniency:
+  - one repair pass for near-miss invalid outputs
+  - same-stage re-sharding for pathological missing-row responses
+
+Evidence worth keeping:
+- the failing benchmark pattern that motivated this work was mostly `missing_owned_chunk_results`, not transport crashes
+- focused tests now guard:
+  - empty or missing chunk coverage
+  - synthetic fallback chunk ids
+  - out-of-surface evidence
+  - long-book knowledge plans that must exceed the requested prompt target to stay within hard caps
+
+Anti-loop note:
+- if knowledge reliability regresses, do not respond by weakening ownership validation or restoring deterministic pruning. Re-check schema strictness, safety-cap obedience, and the repair/re-shard path first.
+
+## 2026-03-18 direct-exec hardening centered on worker isolation and pathological-spend observability
+
+Problem captured:
+- direct shard workers could still inherit too much repo context, and March 18-style token blowups were hard to diagnose from summary artifacts alone
+
+Durable decisions:
+- direct recipe / knowledge / line-role workers run from sterile mirrored workspaces under `~/.codex-recipe/recipeimport-direct-exec-workspaces/`
+- mirrored workspaces get shard-scoped `AGENTS.md` guidance and rewritten local paths so worker instructions stay task-local
+- prompt and telemetry surfaces should expose pathological spend directly:
+  - invalid-output spend
+  - repaired-shard counts
+  - command-executing shard counts
+  - reasoning-heavy shard counts
+  - merged pathology flags
+
+Evidence worth keeping:
+- this hardening pass intentionally shipped without a live benchmark rerun; the completed proof was focused local tests plus richer prompt-budget / telemetry artifacts
+- a stale variable in the recipe execution-plan helper surfaced during worker-isolation verification, which is a reminder that these runtime seams need focused regression anchors even for "docs-adjacent" hardening
+
+Anti-loop note:
+- if a future token blowup review starts from raw `events.jsonl`, you are already too low-level. Start from `prompt_budget_summary.json`, worker status payloads, and the direct-exec pathology counters first.

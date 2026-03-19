@@ -20,10 +20,15 @@ from cookimport.core.timing import TimingStats
 from cookimport.llm.codex_farm_orchestrator import (
     SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     SINGLE_CORRECTION_STAGE_PIPELINE_ID,
+    _preflight_recipe_shard,
     build_codex_farm_recipe_execution_plan,
     run_codex_farm_recipe_pipeline,
 )
-from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
+from cookimport.llm.codex_exec_runner import (
+    CodexExecLiveSnapshot,
+    FakeCodexExecRunner,
+)
+from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 
 
 def _build_conversion_result(source_path: Path) -> ConversionResult:
@@ -333,3 +338,214 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     assert proposal["payload"]["r"][0]["st"] == "not_a_recipe"
     assert audit["output"]["repair_status"] == "not_a_recipe"
     assert audit["deterministic_final_assembly"]["status"] == "skipped"
+
+
+def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+
+    def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
+        assert payload is not None
+        if payload.get("repair_mode") == "recipe":
+            authoritative_input = payload["authoritative_input"]
+            recipe_row = authoritative_input["r"][0]
+            return {
+                "bundle_version": "1",
+                "shard_id": authoritative_input["sid"],
+                "recipes": [
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": recipe_row["rid"],
+                        "repair_status": "repaired",
+                        "status_reason": None,
+                        "canonical_recipe": {
+                            "title": recipe_row["h"]["n"],
+                            "ingredients": recipe_row["h"]["i"],
+                            "steps": recipe_row["h"]["s"],
+                            "description": None,
+                            "recipeYield": None,
+                        },
+                        "ingredient_step_mapping": [],
+                        "ingredient_step_mapping_reason": "repair_pass",
+                        "selected_tags": [],
+                        "warnings": [],
+                    }
+                ],
+            }
+        return {
+            "bundle_version": "1",
+            "shard_id": payload.get("sid"),
+            "recipes": [],
+        }
+
+    runner = FakeCodexExecRunner(output_builder=_output_builder)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert len(runner.calls) == 2
+    assert "Authoritative shard input:" in runner.calls[1]["prompt_text"]
+    assert "Missing recipe ids: urn:recipe:test:toast" in runner.calls[1]["prompt_text"]
+
+    proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0000-r0000-r0000.json"
+        ).read_text(encoding="utf-8")
+    )
+    repair_status = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "recipe-shard-0000-r0000-r0000"
+            / "repair_status.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "repaired"
+    assert proposal["validation_errors"] == []
+    assert repair_status["status"] == "repaired"
+    assert repair_status["state"] == "completed"
+    assert (
+        apply_result.final_overrides_by_recipe_id["urn:recipe:test:toast"]["recipe"]["title"]
+        == "Toast"
+    )
+
+
+def test_preflight_recipe_shard_rejects_missing_model_facing_recipes() -> None:
+    shard = ShardManifestEntryV1(
+        shard_id="recipe-shard-0000-r0000-r0000",
+        owned_ids=("urn:recipe:test:toast",),
+        input_payload={"v": "1", "sid": "recipe-shard-0000-r0000-r0000", "r": []},
+    )
+
+    assert _preflight_recipe_shard(shard) == {
+        "reason_code": "preflight_invalid_shard_payload",
+        "reason_detail": "recipe shard has no model-facing recipes",
+    }
+
+
+def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+
+    class _WatchdogRunner(FakeCodexExecRunner):
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
+            supervision_callback = kwargs.get("supervision_callback")
+            if supervision_callback is not None:
+                supervision_callback(
+                    CodexExecLiveSnapshot(
+                        elapsed_seconds=0.1,
+                        last_event_seconds_ago=0.0,
+                        event_count=2,
+                        command_execution_count=1,
+                        reasoning_item_count=0,
+                        last_command="python -c 'print(1)'",
+                        last_command_repeat_count=1,
+                        has_final_agent_message=False,
+                        timeout_seconds=kwargs.get("timeout_seconds"),
+                    )
+                )
+            return result.__class__(
+                command=result.command,
+                subprocess_exit_code=result.subprocess_exit_code,
+                output_schema_path=result.output_schema_path,
+                prompt_text=result.prompt_text,
+                response_text=None,
+                turn_failed_message="strict JSON stage attempted tool use",
+                events=(
+                    {"type": "thread.started"},
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": "cmd-1",
+                            "command": "python -c 'print(1)'",
+                        },
+                    },
+                ),
+                usage={
+                    "input_tokens": 7,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                },
+                stderr_text=result.stderr_text,
+                stdout_text=result.stdout_text,
+                source_working_dir=result.source_working_dir,
+                execution_working_dir=result.execution_working_dir,
+                execution_agents_path=result.execution_agents_path,
+                duration_ms=result.duration_ms,
+                started_at_utc=result.started_at_utc,
+                finished_at_utc=result.finished_at_utc,
+                supervision_state="watchdog_killed",
+                supervision_reason_code="watchdog_command_execution_forbidden",
+                supervision_reason_detail="strict JSON stage attempted tool use",
+                supervision_retryable=False,
+            )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=_WatchdogRunner(
+            output_builder=lambda payload: {
+                "bundle_version": "1",
+                "shard_id": payload.get("sid") if payload is not None else None,
+                "recipes": [],
+            }
+        ),
+    )
+
+    process_summary = apply_result.llm_report["process_runs"]["recipe_correction"][
+        "telemetry_report"
+    ]["summary"]
+    assert process_summary["watchdog_killed_shard_count"] == 1
+    assert "watchdog_kills_detected" in process_summary["pathological_flags"]
+    assert "command_execution_detected" in process_summary["pathological_flags"]
+
+    shard_root = (
+        apply_result.llm_raw_dir
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "recipe-shard-0000-r0000-r0000"
+    )
+    status_payload = json.loads((shard_root / "status.json").read_text(encoding="utf-8"))
+    assert status_payload["status"] == "missing_output"
+    assert status_payload["state"] == "watchdog_killed"
+    assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+
+    live_status_payload = json.loads(
+        (shard_root / "live_status.json").read_text(encoding="utf-8")
+    )
+    assert live_status_payload["state"] == "watchdog_killed"
+    assert live_status_payload["reason_code"] == "watchdog_command_execution_forbidden"

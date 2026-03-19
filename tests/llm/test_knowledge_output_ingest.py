@@ -27,14 +27,12 @@ def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> Non
                     "chunk_id": "book.c0000.nr",
                     "is_useful": True,
                     "block_decisions": [{"block_index": 4, "category": "knowledge"}],
-                    "snippets": [
-                        {
-                            "title": None,
-                            "body": "Keep whisking.",
-                            "tags": [],
-                            "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
-                        }
-                    ],
+                        "snippets": [
+                            {
+                                "body": "Keep whisking.",
+                                "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
+                            }
+                        ],
                 }
             ],
         },
@@ -80,14 +78,12 @@ def test_validate_knowledge_shard_output_rejects_synthetic_processing_error_chun
                     "chunk_id": "processing_error",
                     "is_useful": False,
                     "block_decisions": [{"block_index": 4, "category": "other"}],
-                    "snippets": [
-                        {
-                            "title": "Fallback",
-                            "body": "Could not process.",
-                            "tags": ["invalid"],
-                            "evidence": [{"block_index": 0, "quote": "bad"}],
-                        }
-                    ],
+                        "snippets": [
+                            {
+                                "body": "Could not process.",
+                                "evidence": [{"block_index": 0, "quote": "bad"}],
+                            }
+                        ],
                 }
             ],
         },
@@ -127,9 +123,7 @@ def test_read_validated_knowledge_outputs_from_proposals_skips_invalid_rows(
                             ],
                             "snippets": [
                                 {
-                                    "title": None,
                                     "body": "Keep whisking.",
-                                    "tags": [],
                                     "evidence": [
                                         {"block_index": 4, "quote": "Keep whisking"}
                                     ],

@@ -442,3 +442,38 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if vanilla drops sharply while ingredient and instruction slices barely move, inspect outside-recipe knowledge heuristics first; do not start by retuning ingredient parsing or scorer code
+
+## 2026-03-18 line-role row-shape cleanup removed hidden neighbor state from parser records
+
+Problem:
+- file-backed line-role transport compaction exposed that `AtomicLineCandidate` was carrying prompt-specific neighbor state that really belonged to ordered lookup at render time
+
+What stuck:
+- `AtomicLineCandidate` is a single-row fact again; it does not own `prev_text` / `next_text`
+- adjacency-sensitive prompt behavior now depends on explicit helper seams such as `build_atomic_index_lookup(...)` and `get_atomic_line_neighbor_texts(...)`
+- cache identity still has to move when neighbor text changes, so neighbor-aware fingerprinting belongs in helper logic rather than by bloating candidate records
+
+Evidence worth keeping:
+- the focused proof for this cleanup included fingerprint coverage plus preview/worker/fake-runner tests, so the winning shape was not just a type cleanup; it preserved the real cache and prompt contracts
+
+Anti-loop note:
+- if someone proposes putting neighbor text back onto parser records "for convenience," treat that as prompt/render leakage into parsing state
+
+## 2026-03-18 line-role prompt semantics were tightened for cookbook-heading and advice-heavy books
+
+Problem:
+- `saltfatacidheatcutdown` showed two prompt-semantics failures in sequence:
+  - book/chapter/topic headings were being promoted into `HOWTO_SECTION`
+  - after that was tightened, cookbook advice and explanatory prose with verbs were still drifting into `INSTRUCTION_LINE`
+
+What stuck:
+- `HOWTO_SECTION` is recipe-internal subsection structure only (`FOR THE SAUCE`, `TO FINISH`, `FOR SERVING`, and similar recipe-local organization)
+- `INSTRUCTION_LINE` is recipe-local procedure for the current recipe only
+- chapter/topic/book headings, cookbook lesson headers, explanatory prose, and general culinary advice with verbs like `use`, `choose`, `let`, or `think about` are not enough for those recipe-structure labels
+- checked-in prompt assets and Python fallback strings need to move together so preview/live semantics do not drift
+
+Evidence worth keeping:
+- the motivating benchmark failure was not abstract. It included chapter/topic headings such as `Salt and Pepper` and `Cooking Acids`, plus prose guidance paragraphs that still looked procedural after the HOWTO cleanup
+
+Anti-loop note:
+- if prose-heavy books regress again, inspect label semantics before changing deterministic grouping or scorer code; these March 18 failures were prompt-contract problems first

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
@@ -11,9 +12,10 @@ from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_prompt,
     serialize_line_role_targets,
 )
-from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
+from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot, FakeCodexExecRunner
+from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
-from cookimport.parsing.canonical_line_roles import label_atomic_lines
+from cookimport.parsing.canonical_line_roles import _preflight_line_role_shard, label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import (
     AtomicLineCandidate,
     atomize_blocks,
@@ -1349,8 +1351,11 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     )
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
+    assert "Do not run shell commands, Python, or any other tools." in prompt
+    assert "`INSTRUCTION_LINE` means a recipe-local procedural step" in prompt
     assert "`HOWTO_SECTION` is recipe-internal only." in prompt
     assert "Cooking Acids" in prompt
+    assert "Use limes in guacamole" in prompt
     assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
     assert "Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status" in prompt
     assert "Grounding windows:" in prompt
@@ -1497,11 +1502,14 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         "Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth."
         in prompt
     )
+    assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
     assert "Label codes:" in prompt
+    assert "Convert each `label_code` into the correct full label string" in prompt
     assert "Return one result for every input row." in prompt
     assert "Use each row's tuple slot 2 (`current_line`) as the line to label." in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
+    assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
     assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
     assert "Salt and Pepper" in prompt
 
@@ -1747,6 +1755,312 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
         "line_role",
     ]
     assert telemetry_payload["phases"][0]["batches"][0]["attempts"][0]["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
+
+
+def test_preflight_line_role_shard_rejects_missing_model_facing_rows() -> None:
+    shard = ShardManifestEntryV1(
+        shard_id="line-role-0001",
+        owned_ids=("0",),
+        input_payload={"rows": []},
+    )
+
+    assert _preflight_line_role_shard(shard) == {
+        "reason_code": "preflight_invalid_shard_payload",
+        "reason_detail": "line-role shard has no model-facing rows",
+    }
+
+
+def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:watchdog:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    class _WatchdogRunner(FakeCodexExecRunner):
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
+            supervision_callback = kwargs.get("supervision_callback")
+            if supervision_callback is not None:
+                supervision_callback(
+                    CodexExecLiveSnapshot(
+                        elapsed_seconds=0.1,
+                        last_event_seconds_ago=0.0,
+                        event_count=2,
+                        command_execution_count=1,
+                        reasoning_item_count=0,
+                        last_command="python -c 'print(1)'",
+                        last_command_repeat_count=1,
+                        has_final_agent_message=False,
+                        timeout_seconds=kwargs.get("timeout_seconds"),
+                    )
+                )
+            return result.__class__(
+                command=result.command,
+                subprocess_exit_code=result.subprocess_exit_code,
+                output_schema_path=result.output_schema_path,
+                prompt_text=result.prompt_text,
+                response_text=None,
+                turn_failed_message="strict JSON stage attempted tool use",
+                events=(
+                    {"type": "thread.started"},
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": "cmd-1",
+                            "command": "python -c 'print(1)'",
+                        },
+                    },
+                ),
+                usage={
+                    "input_tokens": 7,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                },
+                stderr_text=result.stderr_text,
+                stdout_text=result.stdout_text,
+                source_working_dir=result.source_working_dir,
+                execution_working_dir=result.execution_working_dir,
+                execution_agents_path=result.execution_agents_path,
+                duration_ms=result.duration_ms,
+                started_at_utc=result.started_at_utc,
+                finished_at_utc=result.finished_at_utc,
+                supervision_state="watchdog_killed",
+                supervision_reason_code="watchdog_command_execution_forbidden",
+                supervision_reason_detail="strict JSON stage attempted tool use",
+                supervision_retryable=True,
+            )
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_WatchdogRunner(output_builder=_line_role_runner({0: "OTHER"}).output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].decided_by == "fallback"
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 1
+    assert "watchdog_kills_detected" in telemetry_payload["summary"]["pathological_flags"]
+    assert "command_execution_detected" in telemetry_payload["summary"]["pathological_flags"]
+
+    live_status_path = next((tmp_path / "line-role-pipeline" / "runtime").rglob("live_status.json"))
+    status_path = live_status_path.with_name("status.json")
+    status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+    assert status_payload["status"] == "missing_output"
+    assert status_payload["state"] == "watchdog_killed"
+    assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+
+    live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
+    assert live_status_payload["state"] == "watchdog_killed"
+    assert live_status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+
+
+def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS",
+        10,
+    )
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR",
+        2.0,
+    )
+
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:outlier:{atomic_index}",
+            block_index=atomic_index,
+            atomic_index=atomic_index,
+            text=f"Ambiguous line {atomic_index}",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+        for atomic_index in range(4)
+    ]
+
+    class _OutlierRetryRunner(FakeCodexExecRunner):
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            payload = dict(kwargs.get("input_payload") or {})
+            rows = payload.get("rows") or []
+            first_atomic_index = int(rows[0][0]) if rows else -1
+            if payload.get("retry_mode") == "line_role_watchdog":
+                return super().run_structured_prompt(*args, **kwargs)
+            if first_atomic_index == 3:
+                supervision_callback = kwargs.get("supervision_callback")
+                decision = None
+                if supervision_callback is not None:
+                    for _ in range(40):
+                        time.sleep(0.05)
+                        decision = supervision_callback(
+                            CodexExecLiveSnapshot(
+                                elapsed_seconds=0.2,
+                                last_event_seconds_ago=0.05,
+                                event_count=0,
+                                command_execution_count=0,
+                                reasoning_item_count=0,
+                                last_command=None,
+                                last_command_repeat_count=0,
+                                has_final_agent_message=False,
+                                timeout_seconds=kwargs.get("timeout_seconds"),
+                            )
+                        )
+                        if decision is not None:
+                            break
+                assert decision is not None
+                from cookimport.llm.codex_exec_runner import CodexExecRunResult
+
+                return CodexExecRunResult(
+                    command=["codex", "exec"],
+                    subprocess_exit_code=0,
+                    output_schema_path=str(kwargs.get("output_schema_path")),
+                    prompt_text=str(kwargs.get("prompt_text") or ""),
+                    response_text=None,
+                    turn_failed_message=str(decision.reason_detail or ""),
+                    events=(),
+                    usage={
+                        "input_tokens": 7,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "reasoning_tokens": 0,
+                    },
+                    source_working_dir=str(kwargs.get("working_dir")),
+                    execution_working_dir=str(kwargs.get("working_dir")),
+                    execution_agents_path=None,
+                    duration_ms=50,
+                    started_at_utc="2026-01-01T00:00:00Z",
+                    finished_at_utc="2026-01-01T00:00:00Z",
+                    supervision_state="watchdog_killed",
+                    supervision_reason_code=str(decision.reason_code),
+                    supervision_reason_detail=str(decision.reason_detail),
+                    supervision_retryable=bool(decision.retryable),
+                )
+            return super().run_structured_prompt(*args, **kwargs)
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_worker_count=4,
+            line_role_prompt_target_count=4,
+        ),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+        codex_runner=_OutlierRetryRunner(
+            output_builder=lambda payload: {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "OTHER"}
+                    for row in (payload.get("rows") or [])
+                ]
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+    ]
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 1
+    assert telemetry_payload["summary"]["attempt_count"] == 5
+
+    proposal_paths = list(
+        (tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "proposals").glob("*.json")
+    )
+    recovered_proposal = next(
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in proposal_paths
+        if json.loads(path.read_text(encoding="utf-8")).get("watchdog_retry_attempted")
+    )
+    assert recovered_proposal["watchdog_retry_status"] == "recovered"
+    assert recovered_proposal["validation_errors"] == []
+
+    retry_status_path = next(
+        (tmp_path / "line-role-pipeline" / "runtime").rglob("watchdog_retry_status.json")
+    )
+    retry_status = json.loads(retry_status_path.read_text(encoding="utf-8"))
+    assert retry_status["status"] == "validated"
+    assert retry_status["watchdog_retry_reason_code"] == "watchdog_cohort_runtime_outlier"
+
+    retry_prompt = (
+        retry_status_path.parent / "watchdog_retry_prompt.txt"
+    ).read_text(encoding="utf-8")
+    assert "Successful sibling examples:" in retry_prompt
+
+
+def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:repair:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    def _output_builder(payload):
+        if payload and payload.get("repair_mode") == "line_role":
+            return {"rows": [{"atomic_index": 0, "label": "OTHER"}]}
+        return {"rows": []}
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].label == "OTHER"
+
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["attempt_count"] == 2
+    assert telemetry_payload["summary"]["repaired_shard_count"] == 1
+    assert telemetry_payload["summary"]["invalid_output_shard_count"] == 1
+
+    repair_status_path = next(
+        (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
+    )
+    repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
+    assert repair_status["status"] == "repaired"
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(

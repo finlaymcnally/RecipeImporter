@@ -41,6 +41,9 @@ Negative rules (must-not-do):
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
 - Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
+- `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
+- Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
+- If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
@@ -89,6 +92,14 @@ Few-shot examples:
 
 11) Context: front matter or navigation heading
     Line: `Acknowledgments`
+    Label: `OTHER`
+
+12) Context: explanatory cookbook guidance spanning many dishes
+    Line: `Use limes in guacamole, pho ga, green papaya salad, and kachumbar.`
+    Label: `KNOWLEDGE`
+
+13) Context: general teaching/setup prose, not a recipe step
+    Line: `Think about making a grilled cheese sandwich.`
     Label: `OTHER`
 
 RETURN FORMAT (STRICT JSON ONLY)
@@ -239,6 +250,9 @@ def build_canonical_line_role_file_prompt(
             "  - Never label a quantity/unit ingredient line as `KNOWLEDGE`.\n"
             "  - Never label an imperative instruction sentence as `KNOWLEDGE`.\n"
             "  - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.\n"
+            "  - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.\n"
+            "  - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.\n"
+            "  - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.\n"
             "  - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.\n"
             "  - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.\n"
             "  - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.\n"

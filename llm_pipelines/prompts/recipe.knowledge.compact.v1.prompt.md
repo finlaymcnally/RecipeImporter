@@ -1,18 +1,16 @@
 Review non-recipe cookbook text and decide which chunks contain reusable cooking knowledge.
 
-You are a skeptical reviewer. The raw chunk text is authoritative. Deterministic hints are weak.
+You are a skeptical reviewer. The raw chunk text is authoritative. Only mechanically true structure is provided.
 
 Task input:
 - The authoritative shard JSON is included inline below.
 - The task JSON appears between `<BEGIN_INPUT_JSON>` and `<END_INPUT_JSON>`.
 - Use only that inline JSON payload.
 - Use only the inline JSON payload below.
+- Do not run shell commands, Python, or any other tools.
 
 Evidence rules:
 - Only `c[*].b[*].t` may supply evidence quotes.
-- `c[*].h` is weak guidance only. If hinting and text disagree, trust the text.
-- `c[*].h.l` is only a soft prior. It may be missing even for real knowledge.
-- `c[*].h.f` is structure shorthand, not meaning.
 - `x.*` is local context only; never cite it.
 - `g.r` marks nearby recipe blocks. Do not let recipe content leak into outside-recipe decisions.
 - If a block has `th`, use it only as structural context; quotes must still come from block text.
@@ -43,15 +41,14 @@ Short output keys:
 - top level: `v`, `bid`, `r`
 - per result: `cid`, `u`, `d`, `s`
 - decision: `i`, `c`, `rc`
-- snippet: `t`, `b`, `g`, `e`
+- snippet: `b`, `e`
 - evidence: `i`, `q`
 
 Input keys:
 - top level: `v` bundle version, `bid` bundle id, `c` chunks, optional `x` context, optional `g` guardrails
-- per chunk: `cid` chunk id, `b` blocks, optional `h` hints
+- per chunk: `cid` chunk id, `b` blocks
 - per block: `i` block index, `t` text, optional `hl` heading level, optional `th` compact table hint
 - block table hint: `id` table id, optional `c` caption, optional `r` row index
-- hints: optional `l` suggested lane, optional `f` text form
 - context: optional `p` previous blocks, optional `n` next blocks
 - guardrails: optional `r` nearby recipe block indices
 
@@ -69,7 +66,11 @@ Per chunk result:
 
 Strict:
 - return JSON only
+- final answer must be that JSON object only
+- return compact minified JSON on a single line
+- do not insert blank lines, indentation, or padding whitespace
 - no extra keys
 - `v` must be `"2"`
 - `bid` must echo input `bid`
 - each `cid` must echo input `cid`
+- count input chunks and return exactly that many rows

@@ -7,6 +7,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -34,7 +35,10 @@ from .codex_farm_runner import (
 )
 from .codex_exec_runner import (
     DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+    CodexExecLiveSnapshot,
+    CodexExecRunResult,
     CodexExecRunner,
+    CodexExecSupervisionDecision,
     SubprocessCodexExecRunner,
     summarize_direct_telemetry_rows,
 )
@@ -47,7 +51,7 @@ from .phase_worker_runtime import (
     WorkerExecutionReportV1,
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
-from .shard_prompt_targets import resolve_items_per_shard
+from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +132,7 @@ _ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS = (
 )
 _RECIPE_GUARDRAIL_REPORT_SCHEMA_VERSION = "recipe_codex_guardrail_report.v1"
 _DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 4
+_STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -337,15 +342,18 @@ def _build_recipe_shard_plans(
     prepared_inputs: Sequence[_PreparedRecipeInput],
     run_settings: RunSettings,
 ) -> list[_RecipeShardPlan]:
-    target_recipes = resolve_items_per_shard(
+    requested_shard_count = resolve_shard_count(
         total_items=len(prepared_inputs),
         prompt_target_count=run_settings.recipe_prompt_target_count,
         items_per_shard=run_settings.recipe_shard_target_recipes,
         default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
     )
     plans: list[_RecipeShardPlan] = []
-    for shard_index in range(0, len(prepared_inputs), target_recipes):
-        shard_prepared_inputs = tuple(prepared_inputs[shard_index : shard_index + target_recipes])
+    for shard_prepared_inputs_list in partition_contiguous_items(
+        prepared_inputs,
+        shard_count=requested_shard_count,
+    ):
+        shard_prepared_inputs = tuple(shard_prepared_inputs_list)
         if not shard_prepared_inputs:
             continue
         first_state = shard_prepared_inputs[0].state
@@ -617,6 +625,10 @@ def _serialize_recipe_correction_shard_output(
     return output.model_dump(mode="json", by_alias=True)
 
 
+def _coerce_mapping_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
 def _validate_recipe_shard_output(
     shard: ShardManifestEntryV1,
     payload: dict[str, Any],
@@ -651,6 +663,375 @@ def _validate_recipe_shard_output(
         "recipe_count": len(actual_ids),
     }
     return not validation_errors, tuple(validation_errors), metadata
+
+
+def _evaluate_recipe_response(
+    *,
+    shard: ShardManifestEntryV1,
+    response_text: str | None,
+) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
+    payload: dict[str, Any] | None = None
+    validation_errors: tuple[str, ...] = ()
+    validation_metadata: dict[str, Any] = {}
+    proposal_status = "validated"
+    cleaned_response_text = str(response_text or "").strip()
+    if not cleaned_response_text:
+        return None, ("missing_output_file",), {}, "missing_output"
+    try:
+        parsed_payload = json.loads(cleaned_response_text)
+    except json.JSONDecodeError as exc:
+        return None, ("response_json_invalid",), {"parse_error": str(exc)}, "invalid"
+    if not isinstance(parsed_payload, dict):
+        return (
+            None,
+            ("response_not_json_object",),
+            {"response_type": type(parsed_payload).__name__},
+            "invalid",
+        )
+    payload = parsed_payload
+    valid, validation_errors, validation_metadata = _validate_recipe_shard_output(
+        shard,
+        parsed_payload,
+    )
+    if valid:
+        payload = _serialize_recipe_correction_shard_output(
+            RecipeCorrectionShardOutput.model_validate(parsed_payload)
+        )
+    proposal_status = "validated" if valid else "invalid"
+    return payload, tuple(validation_errors), dict(validation_metadata or {}), proposal_status
+
+
+def _preflight_recipe_shard(
+    shard: ShardManifestEntryV1,
+) -> dict[str, Any] | None:
+    payload = _coerce_mapping_dict(shard.input_payload)
+    owned_ids = [str(value).strip() for value in shard.owned_ids if str(value).strip()]
+    recipe_rows = payload.get("r")
+    if not owned_ids:
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "recipe shard has no owned recipe ids",
+        }
+    if not isinstance(recipe_rows, list) or not recipe_rows:
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "recipe shard has no model-facing recipes",
+        }
+    payload_shard_id = str(payload.get("sid") or "").strip()
+    if payload_shard_id and payload_shard_id != shard.shard_id:
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "recipe shard input `sid` does not match the manifest shard id",
+        }
+    recipe_ids: list[str] = []
+    for recipe_row in recipe_rows:
+        if not isinstance(recipe_row, Mapping):
+            return {
+                "reason_code": "preflight_invalid_shard_payload",
+                "reason_detail": "recipe shard contains a non-object recipe payload",
+            }
+        recipe_id = str(recipe_row.get("rid") or "").strip()
+        if not recipe_id:
+            return {
+                "reason_code": "preflight_invalid_shard_payload",
+                "reason_detail": "recipe shard contains a recipe without `rid`",
+            }
+        recipe_ids.append(recipe_id)
+    if sorted(recipe_ids) != sorted(owned_ids):
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "recipe shard owned ids do not match model-facing recipe ids",
+        }
+    return None
+
+
+def _build_preflight_rejected_run_result(
+    *,
+    prompt_text: str,
+    output_schema_path: Path | None,
+    working_dir: Path,
+    reason_code: str,
+    reason_detail: str,
+) -> CodexExecRunResult:
+    timestamp = _format_utc_now()
+    return CodexExecRunResult(
+        command=[],
+        subprocess_exit_code=0,
+        output_schema_path=str(output_schema_path) if output_schema_path is not None else None,
+        prompt_text=prompt_text,
+        response_text=None,
+        turn_failed_message=reason_detail,
+        events=(),
+        usage={
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+        },
+        source_working_dir=str(working_dir),
+        execution_working_dir=None,
+        execution_agents_path=None,
+        duration_ms=0,
+        started_at_utc=timestamp,
+        finished_at_utc=timestamp,
+        supervision_state="preflight_rejected",
+        supervision_reason_code=reason_code,
+        supervision_reason_detail=reason_detail,
+        supervision_retryable=False,
+    )
+
+
+def _build_recipe_watchdog_callback(
+    *,
+    live_status_path: Path,
+    shard_id: str | None = None,
+) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
+    def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
+        decision: CodexExecSupervisionDecision | None = None
+        if snapshot.command_execution_count > 0:
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="watchdog_command_execution_forbidden",
+                reason_detail="strict JSON stage attempted tool use",
+                retryable=False,
+            )
+        elif snapshot.reasoning_item_count >= 2 and not snapshot.has_final_agent_message:
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="watchdog_reasoning_without_output",
+                reason_detail="strict JSON stage emitted repeated reasoning without a final answer",
+                retryable=False,
+            )
+        _write_live_status(
+            live_status_path,
+            {
+                "state": (
+                    "watchdog_killed"
+                    if isinstance(decision, CodexExecSupervisionDecision)
+                    and decision.action == "terminate"
+                    else "running"
+                ),
+                "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
+                "last_event_seconds_ago": (
+                    round(snapshot.last_event_seconds_ago, 3)
+                    if snapshot.last_event_seconds_ago is not None
+                    else None
+                ),
+                "event_count": snapshot.event_count,
+                "command_execution_count": snapshot.command_execution_count,
+                "reasoning_item_count": snapshot.reasoning_item_count,
+                "last_command": snapshot.last_command,
+                "last_command_repeat_count": snapshot.last_command_repeat_count,
+                "has_final_agent_message": snapshot.has_final_agent_message,
+                "timeout_seconds": snapshot.timeout_seconds,
+                "watchdog_policy": _STRICT_JSON_WATCHDOG_POLICY,
+                "shard_id": shard_id,
+                "reason_code": decision.reason_code if decision is not None else None,
+                "reason_detail": decision.reason_detail if decision is not None else None,
+                "retryable": decision.retryable if decision is not None else False,
+            },
+        )
+        return decision
+
+    return _callback
+
+
+def _finalize_live_status(
+    live_status_path: Path,
+    *,
+    run_result: CodexExecRunResult,
+) -> None:
+    _write_live_status(
+        live_status_path,
+        {
+            "state": run_result.supervision_state or "completed",
+            "reason_code": run_result.supervision_reason_code,
+            "reason_detail": run_result.supervision_reason_detail,
+            "retryable": run_result.supervision_retryable,
+            "duration_ms": run_result.duration_ms,
+            "started_at_utc": run_result.started_at_utc,
+            "finished_at_utc": run_result.finished_at_utc,
+            "watchdog_policy": _STRICT_JSON_WATCHDOG_POLICY,
+        },
+    )
+
+
+def _write_live_status(path: Path, payload: Mapping[str, Any]) -> None:
+    _write_json(dict(payload), path)
+
+
+def _failure_reason_from_run_result(
+    *,
+    run_result: CodexExecRunResult,
+    proposal_status: str,
+) -> str:
+    if str(run_result.supervision_reason_code or "").strip():
+        return str(run_result.supervision_reason_code)
+    if str(run_result.supervision_state or "").strip() in {
+        "preflight_rejected",
+        "watchdog_killed",
+    }:
+        return str(run_result.supervision_state)
+    return (
+        "proposal_validation_failed"
+        if proposal_status == "invalid"
+        else "missing_output_file"
+    )
+
+
+def _should_attempt_recipe_repair(
+    *,
+    proposal_status: str,
+    validation_errors: Sequence[str],
+) -> bool:
+    if proposal_status != "invalid":
+        return False
+    repairable_prefixes = ("invalid_shard_output:",)
+    repairable_errors = {
+        "response_json_invalid",
+        "response_not_json_object",
+        "shard_id_mismatch",
+        "missing_recipe_ids",
+        "duplicate_recipe_ids",
+    }
+    for error in validation_errors:
+        if error in repairable_errors or str(error).startswith(repairable_prefixes):
+            return True
+    return False
+
+
+def _format_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _run_recipe_repair_attempt(
+    *,
+    runner: CodexExecRunner,
+    worker_root: Path,
+    shard: ShardManifestEntryV1,
+    env: Mapping[str, str],
+    output_schema_path: Path | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    pipeline_id: str,
+    worker_id: str,
+    original_response_text: str,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+    live_status_path: Path,
+) -> CodexExecRunResult:
+    prompt_text = _build_recipe_repair_prompt(
+        shard=shard,
+        original_response_text=original_response_text,
+        validation_errors=validation_errors,
+        validation_metadata=validation_metadata,
+    )
+    shard_root = worker_root / "shards" / shard.shard_id
+    (shard_root / "repair_prompt.txt").write_text(prompt_text, encoding="utf-8")
+    return runner.run_structured_prompt(
+        prompt_text=prompt_text,
+        input_payload={
+            "repair_mode": "recipe",
+            "pipeline_id": pipeline_id,
+            "worker_id": worker_id,
+            "sid": shard.shard_id,
+            "shard_id": shard.shard_id,
+            "owned_ids": list(shard.owned_ids),
+            "validation_errors": list(validation_errors),
+            "validation_metadata": dict(validation_metadata or {}),
+            "authoritative_input": dict(shard.input_payload or {}),
+            "previous_output": _truncate_recipe_repair_text(original_response_text),
+        },
+        working_dir=worker_root,
+        env=env,
+        output_schema_path=output_schema_path,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        workspace_task_label="recipe correction repair shard",
+        supervision_callback=_build_recipe_watchdog_callback(
+            live_status_path=live_status_path,
+            shard_id=shard.shard_id,
+        ),
+    )
+
+
+def _build_recipe_repair_prompt(
+    *,
+    shard: ShardManifestEntryV1,
+    original_response_text: str,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+) -> str:
+    owned_recipe_ids = ", ".join(str(recipe_id) for recipe_id in shard.owned_ids)
+    missing_recipe_ids = ", ".join(
+        str(recipe_id)
+        for recipe_id in (validation_metadata.get("missing_recipe_ids") or [])
+    )
+    authoritative_input = json.dumps(
+        dict(shard.input_payload or {}),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return (
+        "Repair the invalid recipe correction shard output.\n\n"
+        "Rules:\n"
+        "- Return strict JSON only.\n"
+        "- Do not run shell commands, Python, or any other tools.\n"
+        f"- `sid` must be `{shard.shard_id}`.\n"
+        f"- Return exactly one recipe result for each owned recipe id: {owned_recipe_ids}\n"
+        "- Use only owned recipe ids and do not invent extra recipes.\n"
+        "- Preserve `not_a_recipe` and `fragmentary` when the candidate is truly unusable.\n\n"
+        f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
+        f"Missing recipe ids: {missing_recipe_ids or '[none recorded]'}\n\n"
+        "Authoritative shard input:\n"
+        "<BEGIN_INPUT_JSON>\n"
+        f"{authoritative_input}\n"
+        "<END_INPUT_JSON>\n\n"
+        "Previous invalid output:\n"
+        "<BEGIN_PREVIOUS_OUTPUT>\n"
+        f"{_truncate_recipe_repair_text(original_response_text)}\n"
+        "<END_PREVIOUS_OUTPUT>\n"
+    )
+
+
+def _build_recipe_repair_runner_payload(
+    *,
+    pipeline_id: str,
+    worker_id: str,
+    shard_id: str,
+    run_result: CodexExecRunResult,
+    model: str | None,
+    reasoning_effort: str | None,
+) -> dict[str, Any]:
+    payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
+    payload["pipeline_id"] = pipeline_id
+    telemetry = payload.get("telemetry")
+    row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+    if isinstance(row_payloads, list):
+        for row_payload in row_payloads:
+            if not isinstance(row_payload, dict):
+                continue
+            row_payload["prompt_input_mode"] = "inline_repair"
+            row_payload["request_input_file"] = None
+            row_payload["request_input_file_bytes"] = None
+    summary_payload = telemetry.get("summary") if isinstance(telemetry, dict) else None
+    if isinstance(summary_payload, dict):
+        summary_payload["prompt_input_mode"] = "inline_repair"
+        summary_payload["request_input_file_bytes_total"] = None
+    payload["process_payload"] = {
+        "pipeline_id": pipeline_id,
+        "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
+        "codex_model": model,
+        "codex_reasoning_effort": reasoning_effort,
+        "prompt_input_mode": "inline_repair",
+    }
+    return payload
+
+
+def _truncate_recipe_repair_text(text: str, *, max_chars: int = 20_000) -> str:
+    cleaned = str(text or "").strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 15].rstrip() + "\n...[truncated]"
 
 
 def _aggregate_recipe_phase_process_run(
@@ -964,15 +1345,49 @@ def _run_direct_recipe_worker_assignment_v1(
             input_path=input_path,
         )
         (shard_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
-
-        run_result = runner.run_structured_prompt(
-            prompt_text=prompt_text,
-            input_payload=dict(shard.input_payload or {}),
-            working_dir=worker_root,
-            env=env,
-            output_schema_path=output_schema_path,
-            model=model,
-            reasoning_effort=reasoning_effort,
+        preflight_failure = _preflight_recipe_shard(shard)
+        if preflight_failure is not None:
+            run_result = _build_preflight_rejected_run_result(
+                prompt_text=prompt_text,
+                output_schema_path=output_schema_path,
+                working_dir=worker_root,
+                reason_code=str(preflight_failure.get("reason_code") or "preflight_rejected"),
+                reason_detail=str(
+                    preflight_failure.get("reason_detail") or "recipe shard failed preflight"
+                ),
+            )
+            _write_live_status(
+                shard_root / "live_status.json",
+                {
+                    "state": "preflight_rejected",
+                    "reason_code": run_result.supervision_reason_code,
+                    "reason_detail": run_result.supervision_reason_detail,
+                    "retryable": run_result.supervision_retryable,
+                    "watchdog_policy": _STRICT_JSON_WATCHDOG_POLICY,
+                    "elapsed_seconds": 0.0,
+                    "last_event_seconds_ago": None,
+                    "command_execution_count": 0,
+                    "reasoning_item_count": 0,
+                },
+            )
+        else:
+            run_result = runner.run_structured_prompt(
+                prompt_text=prompt_text,
+                input_payload=_coerce_mapping_dict(shard.input_payload),
+                working_dir=worker_root,
+                env=env,
+                output_schema_path=output_schema_path,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                workspace_task_label="recipe correction shard",
+                supervision_callback=_build_recipe_watchdog_callback(
+                    live_status_path=shard_root / "live_status.json",
+                    shard_id=shard.shard_id,
+                ),
+            )
+        _finalize_live_status(
+            shard_root / "live_status.json",
+            run_result=run_result,
         )
         worker_runner_payload = run_result.to_payload(
             worker_id=assignment.worker_id,
@@ -985,6 +1400,19 @@ def _run_direct_recipe_worker_assignment_v1(
             shard_id=shard.shard_id,
         )
         stage_rows.append(stage_row)
+        primary_runner_telemetry = worker_runner_payload.get("telemetry")
+        primary_runner_rows = (
+            primary_runner_telemetry.get("rows")
+            if isinstance(primary_runner_telemetry, Mapping)
+            else None
+        )
+        primary_runner_row = (
+            primary_runner_rows[0]
+            if isinstance(primary_runner_rows, list)
+            and primary_runner_rows
+            and isinstance(primary_runner_rows[0], dict)
+            else None
+        )
         (shard_root / "events.jsonl").write_text(
             _render_events_jsonl(run_result.events),
             encoding="utf-8",
@@ -995,38 +1423,136 @@ def _run_direct_recipe_worker_assignment_v1(
             dict(stage_row.get("cost_breakdown") or {}),
             shard_root / "cost_breakdown.json",
         )
+        _write_json(run_result.workspace_manifest(), shard_root / "workspace_manifest.json")
 
-        payload: dict[str, Any] | None = None
-        validation_errors: tuple[str, ...] = ()
-        validation_metadata: dict[str, Any] = {}
-        proposal_status = "validated"
-        response_text = str(run_result.response_text or "").strip()
-        if not response_text:
-            validation_errors = ("missing_output_file",)
-            proposal_status = "missing_output"
-        else:
-            try:
-                parsed_payload = json.loads(response_text)
-            except json.JSONDecodeError as exc:
-                validation_errors = ("response_json_invalid",)
-                validation_metadata = {"parse_error": str(exc)}
-                proposal_status = "invalid"
+        payload, validation_errors, validation_metadata, proposal_status = (
+            _evaluate_recipe_response(
+                shard=shard,
+                response_text=run_result.response_text,
+            )
+        )
+        initial_proposal_status = proposal_status
+        repair_attempted = False
+        repair_status = "not_attempted"
+        if _should_attempt_recipe_repair(
+            proposal_status=proposal_status,
+            validation_errors=validation_errors,
+        ):
+            repair_attempted = True
+            repair_run_result = _run_recipe_repair_attempt(
+                runner=runner,
+                worker_root=worker_root,
+                shard=shard,
+                env=env,
+                output_schema_path=output_schema_path,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                original_response_text=str(run_result.response_text or ""),
+                validation_errors=validation_errors,
+                validation_metadata=validation_metadata,
+                live_status_path=shard_root / "repair_live_status.json",
+            )
+            _finalize_live_status(
+                shard_root / "repair_live_status.json",
+                run_result=repair_run_result,
+            )
+            repair_payload = _build_recipe_repair_runner_payload(
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                shard_id=shard.shard_id,
+                run_result=repair_run_result,
+                model=model,
+                reasoning_effort=reasoning_effort,
+            )
+            worker_runner_results.append(dict(repair_payload))
+            repair_rows = (
+                repair_payload.get("telemetry", {}).get("rows")
+                if isinstance(repair_payload.get("telemetry"), dict)
+                else None
+            )
+            if isinstance(repair_rows, list):
+                for row_payload in repair_rows:
+                    if isinstance(row_payload, dict):
+                        row_payload["is_repair_attempt"] = True
+                        row_payload["repair_attempt_index"] = 1
+                        stage_rows.append(dict(row_payload))
+            (shard_root / "repair_events.jsonl").write_text(
+                _render_events_jsonl(repair_run_result.events),
+                encoding="utf-8",
+            )
+            _write_json(
+                {"text": repair_run_result.response_text},
+                shard_root / "repair_last_message.json",
+            )
+            _write_json(
+                dict(repair_run_result.usage or {}),
+                shard_root / "repair_usage.json",
+            )
+            _write_json(
+                repair_run_result.workspace_manifest(),
+                shard_root / "repair_workspace_manifest.json",
+            )
+            (
+                repair_payload_candidate,
+                repair_errors,
+                repair_metadata,
+                repair_proposal_status,
+            ) = _evaluate_recipe_response(
+                shard=shard,
+                response_text=repair_run_result.response_text,
+            )
+            repair_status = (
+                "repaired" if repair_proposal_status == "validated" else "failed"
+            )
+            if stage_rows:
+                repair_row = stage_rows[-1]
+                repair_row["proposal_status"] = repair_proposal_status
+                repair_row["repair_attempted"] = True
+                repair_row["repair_status"] = repair_status
+            if isinstance(repair_rows, list) and repair_rows:
+                repair_runner_row = repair_rows[0]
+                if isinstance(repair_runner_row, dict):
+                    repair_runner_row["proposal_status"] = repair_proposal_status
+                    repair_runner_row["repair_attempted"] = True
+                    repair_runner_row["repair_status"] = repair_status
+            _write_json(
+                {
+                    "attempted": True,
+                    "status": repair_status,
+                    "original_validation_errors": list(validation_errors),
+                    "repair_validation_errors": list(repair_errors),
+                    "state": repair_run_result.supervision_state or "completed",
+                    "reason_code": repair_run_result.supervision_reason_code,
+                    "reason_detail": repair_run_result.supervision_reason_detail,
+                    "retryable": repair_run_result.supervision_retryable,
+                },
+                shard_root / "repair_status.json",
+            )
+            if repair_proposal_status == "validated":
+                payload = repair_payload_candidate
+                validation_errors = repair_errors
+                validation_metadata = dict(repair_metadata or {})
+                proposal_status = "validated"
             else:
-                if isinstance(parsed_payload, dict):
-                    payload = parsed_payload
-                    valid, validation_errors, validation_metadata = _validate_recipe_shard_output(
-                        shard,
-                        parsed_payload,
-                    )
-                    if valid:
-                        payload = _serialize_recipe_correction_shard_output(
-                            RecipeCorrectionShardOutput.model_validate(parsed_payload)
-                        )
-                    proposal_status = "validated" if valid else "invalid"
-                else:
-                    validation_errors = ("response_not_json_object",)
-                    validation_metadata = {"response_type": type(parsed_payload).__name__}
-                    proposal_status = "invalid"
+                validation_metadata = {
+                    **dict(validation_metadata or {}),
+                    "repair_validation_errors": list(repair_errors),
+                }
+        stage_row["proposal_status"] = (
+            initial_proposal_status if repair_attempted else proposal_status
+        )
+        stage_row["final_proposal_status"] = proposal_status
+        stage_row["repair_attempted"] = repair_attempted
+        stage_row["repair_status"] = repair_status
+        if primary_runner_row is not None:
+            primary_runner_row["proposal_status"] = (
+                initial_proposal_status if repair_attempted else proposal_status
+            )
+            primary_runner_row["final_proposal_status"] = proposal_status
+            primary_runner_row["repair_attempted"] = repair_attempted
+            primary_runner_row["repair_status"] = repair_status
 
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         _write_json(
@@ -1036,6 +1562,12 @@ def _run_direct_recipe_worker_assignment_v1(
                 "payload": payload,
                 "validation_errors": list(validation_errors),
                 "validation_metadata": dict(validation_metadata or {}),
+                "repair_attempted": repair_attempted,
+                "repair_status": repair_status,
+                "state": run_result.supervision_state or "completed",
+                "reason_code": run_result.supervision_reason_code,
+                "reason_detail": run_result.supervision_reason_detail,
+                "retryable": run_result.supervision_retryable,
             },
             proposal_path,
         )
@@ -1045,22 +1577,30 @@ def _run_direct_recipe_worker_assignment_v1(
                 "validation_errors": list(validation_errors),
                 "validation_metadata": dict(validation_metadata or {}),
                 "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "repair_attempted": repair_attempted,
+                "repair_status": repair_status,
+                "state": run_result.supervision_state or "completed",
+                "reason_code": run_result.supervision_reason_code,
+                "reason_detail": run_result.supervision_reason_detail,
+                "retryable": run_result.supervision_retryable,
             },
             shard_root / "status.json",
         )
 
         if proposal_status != "validated":
             worker_failure_count += 1
+            reason = _failure_reason_from_run_result(
+                run_result=run_result,
+                proposal_status=proposal_status,
+            )
             worker_failures.append(
                 {
                     "worker_id": assignment.worker_id,
                     "shard_id": shard.shard_id,
-                    "reason": (
-                        "proposal_validation_failed"
-                        if proposal_status == "invalid"
-                        else "missing_output_file"
-                    ),
+                    "reason": reason,
                     "validation_errors": list(validation_errors),
+                    "state": run_result.supervision_state or "completed",
+                    "reason_code": run_result.supervision_reason_code,
                 }
             )
         else:
@@ -1074,7 +1614,15 @@ def _run_direct_recipe_worker_assignment_v1(
                 proposal_path=_relative_path(run_root, proposal_path),
                 payload=payload,
                 validation_errors=validation_errors,
-                metadata=dict(validation_metadata or {}),
+                metadata={
+                    **dict(validation_metadata or {}),
+                    "repair_attempted": repair_attempted,
+                    "repair_status": repair_status,
+                    "state": run_result.supervision_state or "completed",
+                    "reason_code": run_result.supervision_reason_code,
+                    "reason_detail": run_result.supervision_reason_detail,
+                    "retryable": run_result.supervision_retryable,
+                },
             )
         )
         if shard_completed_callback is not None:
@@ -1731,7 +2279,7 @@ def _build_single_correction_execution_plan(
     workbook_slug: str,
 ) -> dict[str, Any]:
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
-    target_recipes = resolve_items_per_shard(
+    requested_shard_count = resolve_shard_count(
         total_items=len(states),
         prompt_target_count=run_settings.recipe_prompt_target_count,
         items_per_shard=run_settings.recipe_shard_target_recipes,
@@ -1740,13 +2288,16 @@ def _build_single_correction_execution_plan(
     planned_tasks: list[dict[str, Any]] = []
     planned_shards: list[dict[str, Any]] = []
     shard_ids_by_recipe_id: dict[str, str] = {}
-    for shard_index in range(0, len(states), target_recipes):
-        shard_states = states[shard_index : shard_index + target_recipes]
+    for shard_states in partition_contiguous_items(
+        states,
+        shard_count=requested_shard_count,
+    ):
         if not shard_states:
             continue
         shard_id = (
             f"recipe-shard-{len(planned_shards):04d}-"
-            f"r{shard_index:04d}-r{shard_index + len(shard_states) - 1:04d}"
+            f"r{_recipe_index_from_bundle_name(shard_states[0].bundle_name):04d}-"
+            f"r{_recipe_index_from_bundle_name(shard_states[-1].bundle_name):04d}"
         )
         recipe_ids = [state.recipe_id for state in shard_states]
         for recipe_id in recipe_ids:
@@ -1782,7 +2333,7 @@ def _build_single_correction_execution_plan(
         "pipeline": SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
         "recipe_count": len(states),
         "recipe_prompt_target_count": run_settings.recipe_prompt_target_count,
-        "recipe_shard_target_recipes": target_recipes,
+        "recipe_shard_target_recipes": _shard_target_recipe_count(run_settings),
         "worker_count": _recipe_worker_count(
             run_settings,
             shard_count=len(planned_shards),

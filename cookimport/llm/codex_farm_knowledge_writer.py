@@ -49,9 +49,9 @@ def write_knowledge_artifacts(
                 "snippet_id": snippet_id,
                 "chunk_id": chunk_id,
                 "chunk_is_useful": bool(output.is_useful),
-                "title": snippet.title,
+                "title": None,
                 "body": snippet.body,
-                "tags": list(snippet.tags),
+                "tags": [],
                 "evidence": [
                     {"block_index": int(pointer.block_index), "quote": pointer.quote}
                     for pointer in snippet.evidence
@@ -115,13 +115,6 @@ def _render_preview_md(
         if body:
             lines.append(body)
             lines.append("")
-
-        tags = record.get("tags")
-        if isinstance(tags, list) and tags:
-            tags_display = ", ".join(str(tag) for tag in tags if str(tag).strip())
-            if tags_display:
-                lines.append(f"Tags: {tags_display}")
-                lines.append("")
 
         evidence = record.get("evidence") or []
         lines.append("Evidence:")

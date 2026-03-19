@@ -244,3 +244,40 @@ def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> No
     assert payloads[0]["task_total"] == 2
     assert int(payloads[0]["worker_total"] or 0) >= 1
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
+
+
+def test_recipe_prompt_target_count_is_a_direct_shard_override(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 2,
+            "recipe_worker_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=FakeCodexExecRunner(output_builder=_build_recipe_shard_output),
+    )
+
+    runtime_dir = apply_result.llm_raw_dir / "recipe_phase_runtime"
+    phase_manifest = json.loads((runtime_dir / "phase_manifest.json").read_text(encoding="utf-8"))
+    shard_manifest = [
+        json.loads(line)
+        for line in (runtime_dir / "shard_manifest.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert phase_manifest["shard_count"] == 2
+    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]

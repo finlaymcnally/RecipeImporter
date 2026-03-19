@@ -260,3 +260,44 @@ def test_line_role_phase_workers_run_concurrently_when_multiple_workers_assigned
 
     assert [row.atomic_index for row in predictions] == [0, 1]
     assert state["max"] >= 2
+
+
+def test_line_role_prompt_target_count_is_a_direct_shard_override(
+    tmp_path: Path,
+) -> None:
+    runner = FakeCodexExecRunner(
+        output_builder=_line_role_builder({index: "OTHER" for index in range(5)})
+    )
+
+    label_atomic_lines(
+        [_candidate(index) for index in range(5)],
+        _settings(line_role_prompt_target_count=2, line_role_worker_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    phase_manifest = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "phase_manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    shard_manifest = [
+        json.loads(line)
+        for line in (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "shard_manifest.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert phase_manifest["shard_count"] == 2
+    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [3, 2]
