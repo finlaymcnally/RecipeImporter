@@ -255,6 +255,34 @@ def test_select_cases_is_byte_stable_for_same_arguments(tmp_path: Path) -> None:
     assert selector["end"] == 657
 
 
+def test_select_cases_accepts_legacy_hyphen_line_range_syntax(tmp_path: Path) -> None:
+    out_path = tmp_path / "selectors.json"
+    result = runner.invoke(
+        app,
+        [
+            "select-cases",
+            "--bundle",
+            str(SAMPLE_BUNDLE),
+            "--stage",
+            "line_role",
+            "--include-line-range",
+            f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628-657",
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    payload = _read_json(out_path)
+    selectors = payload["selectors"]
+    assert len(selectors) == 1
+    selector = selectors[0]
+    assert selector["case_id"] == "line_range_628_657"
+    assert selector["kind"] == "line_range"
+    assert selector["start"] == 628
+    assert selector["end"] == 657
+
+
 def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
     selectors_path = tmp_path / "selectors.json"
     line_range = f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628:657"

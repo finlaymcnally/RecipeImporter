@@ -1,7 +1,3 @@
-# Agent Guidelines — /docs
-
-This folder contains project documentation. Check folder-specific AGENTS.md files elsewhere for domain-specific guidance.
-
 ## Docs workflow
 
 - Run `npm run docs:list` or `./bin/docs-list` to see summaries and Read when hints. `docs:list` is an npm script name, not a shell command.

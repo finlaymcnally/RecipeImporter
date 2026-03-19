@@ -255,6 +255,32 @@ def _matches_case_id(recipe_id: str, expected_case_id: str, delta: float | None)
     return _recipe_case_id(recipe_id, delta) == expected_case_id
 
 
+def _parse_line_range_selector(text: str) -> tuple[str, int, int]:
+    raw = str(text or "").strip()
+    if not raw:
+        raise ValueError("Invalid --include-line-range value: <empty>")
+
+    parts = raw.split(":")
+    if len(parts) >= 3:
+        source_key = ":".join(parts[:-2]).strip()
+        start = _coerce_int(parts[-2])
+        end = _coerce_int(parts[-1])
+        if source_key and start is not None and end is not None:
+            return source_key, start, end
+
+    if len(parts) >= 2:
+        source_key = ":".join(parts[:-1]).strip()
+        start_end = parts[-1].strip()
+        if source_key and "-" in start_end:
+            start_text, end_text = start_end.split("-", 1)
+            start = _coerce_int(start_text)
+            end = _coerce_int(end_text)
+            if start is not None and end is not None:
+                return source_key, start, end
+
+    raise ValueError(f"Invalid --include-line-range value: {raw}")
+
+
 @dataclass(frozen=True)
 class PayloadArtifact:
     path: str
@@ -1058,14 +1084,7 @@ def build_selector_manifest(
         text = raw_value.strip()
         if not text:
             continue
-        parts = text.split(":")
-        if len(parts) < 3:
-            raise ValueError(f"Invalid --include-line-range value: {text}")
-        source_key = ":".join(parts[:-2]).strip()
-        start = _coerce_int(parts[-2])
-        end = _coerce_int(parts[-1])
-        if not source_key or start is None or end is None:
-            raise ValueError(f"Invalid --include-line-range value: {text}")
+        source_key, start, end = _parse_line_range_selector(text)
         if start > end:
             start, end = end, start
         selected_rows = context.changed_lines_for_range(source_key, start, end)

@@ -91,6 +91,51 @@ def test_resolve_oracle_benchmark_bundle_rejects_missing_files(tmp_path: Path) -
         oracle_upload.resolve_oracle_benchmark_bundle(session_root)
 
 
+def test_build_oracle_benchmark_prompt_describes_synthetic_attachment_transport(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    prompt = oracle_upload.build_oracle_benchmark_prompt(target=target)
+
+    assert "logical contents come from an existing `upload_bundle_v1` benchmark package" in prompt
+    assert "synthetic text attachment such as `attachments-bundle.txt`" in prompt
+    assert "Within that attachment, start with `upload_bundle_overview.md`" in prompt
+
+
+def test_build_oracle_benchmark_prompt_renders_editable_template_file_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-profile-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    template_path = tmp_path / "oracle-benchmark-upload.prompt.md"
+    template_path.write_text(
+        "\n".join(
+            [
+                "scope={{BUNDLE_SCOPE}}",
+                "root={{BENCHMARK_ROOT}}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        oracle_upload,
+        "ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH",
+        template_path,
+    )
+
+    prompt = oracle_upload.build_oracle_benchmark_prompt(target=target)
+
+    assert prompt == f"scope={target.scope}\nroot={target.source_root}"
+
+
 def test_resolve_oracle_browser_profile_dir_prefers_most_recent_populated_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

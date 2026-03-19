@@ -59,6 +59,23 @@ ORACLE_UPLOAD_RUNS_DIR_NAME = ".oracle_upload_runs"
 ORACLE_UPLOAD_LOG_FILE_NAME = "oracle_upload.log"
 ORACLE_UPLOAD_METADATA_FILE_NAME = "oracle_upload.json"
 ORACLE_UPLOAD_STATUS_FILE_NAME = "oracle_upload_status.json"
+ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "llm_pipelines"
+    / "prompts"
+    / "benchmark.oracle-upload.prompt.md"
+)
+ORACLE_BENCHMARK_PROMPT_TEMPLATE_FALLBACK = "\n".join(
+    [
+        "You are reviewing a benchmark upload bundle for the local `cookimport` CLI.",
+        "The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.",
+        "Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.",
+        "Within that attachment, start with `upload_bundle_overview.md`, then use `upload_bundle_index.json` and `upload_bundle_payload.jsonl` only as needed to verify details.",
+        "The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.",
+        "Return a concise review with exactly three sections: `Top regressions`, `Likely cause buckets`, and `Immediate next checks`.",
+        "Keep the response factual and grounded in the attached bundle. Do not suggest rerunning the benchmark unless the bundle is clearly missing required evidence.",
+    ]
+)
 _ORACLE_SESSION_RE = re.compile(r"oracle session (?P<session_id>[A-Za-z0-9._-]+)")
 _ORACLE_COUNT_RE = re.compile(
     r"\b(?P<name>run_count|pair_count|changed_lines_total)\s*[:=]\s*(?P<value>\d+)",
@@ -68,6 +85,7 @@ _ORACLE_ROOT_REF_RE = re.compile(
     r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}/(?:single-profile-benchmark|single-offline-benchmark)(?:/[A-Za-z0-9._-]+)?"
 )
 _TIMESTAMP_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}")
+_ORACLE_BENCHMARK_PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
 
 
 @dataclass(frozen=True)
@@ -191,16 +209,41 @@ def resolve_oracle_benchmark_bundle(path: Path) -> OracleBenchmarkBundleTarget:
 
 
 def build_oracle_benchmark_prompt(*, target: OracleBenchmarkBundleTarget) -> str:
-    return "\n".join(
-        [
-            "You are reviewing a benchmark upload bundle for the local `cookimport` CLI.",
-            "The attached directory is an existing `upload_bundle_v1` benchmark package, not raw repo source code.",
-            "Start with `upload_bundle_overview.md`, then use `upload_bundle_index.json` and `upload_bundle_payload.jsonl` only as needed to verify details.",
-            f"The bundle scope is `{target.scope}` and the benchmark root is `{target.source_root}`.",
-            "Return a concise review with exactly three sections: `Top regressions`, `Likely cause buckets`, and `Immediate next checks`.",
-            "Keep the response factual and grounded in the attached bundle. Do not suggest rerunning the benchmark unless the bundle is clearly missing required evidence.",
-        ]
+    return _render_oracle_benchmark_prompt_template(
+        path=ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH,
+        fallback=ORACLE_BENCHMARK_PROMPT_TEMPLATE_FALLBACK,
+        replacements={
+            "{{BUNDLE_SCOPE}}": target.scope,
+            "{{BENCHMARK_ROOT}}": str(target.source_root),
+        },
     )
+
+
+def _load_oracle_benchmark_prompt_template(path: Path, *, fallback: str) -> str:
+    cached = _ORACLE_BENCHMARK_PROMPT_TEMPLATE_CACHE.get(path)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+        if cached is not None and cached[0] == mtime_ns:
+            return cached[1]
+        text = path.read_text(encoding="utf-8").strip()
+        if text:
+            _ORACLE_BENCHMARK_PROMPT_TEMPLATE_CACHE[path] = (mtime_ns, text)
+            return text
+    except OSError:
+        pass
+    return fallback
+
+
+def _render_oracle_benchmark_prompt_template(
+    *,
+    path: Path,
+    fallback: str,
+    replacements: Mapping[str, str],
+) -> str:
+    rendered = _load_oracle_benchmark_prompt_template(path, fallback=fallback)
+    for token, value in replacements.items():
+        rendered = rendered.replace(token, value)
+    return rendered
 
 
 def _oracle_file_argument(path: Path) -> str:
@@ -326,6 +369,7 @@ def _prepare_browser_upload_inputs(
     prompt_lines = [
         prompt,
         "",
+        "Oracle transport note: browser upload may deliver the logical text files as one synthetic attachment such as `attachments-bundle.txt`.",
         "Oracle transport note: some attached bundle files were split into ordered shards to satisfy Oracle's per-file input limit before browser upload.",
         "Treat any `*.partNNN.*` attachments as the logical contents of the original file concatenated in lexical filename order.",
         *shard_notes,

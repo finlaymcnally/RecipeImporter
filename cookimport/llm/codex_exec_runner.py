@@ -640,7 +640,15 @@ def _build_codex_exec_command(
     if argv and argv[-1] == "-":
         argv = argv[:-1]
     command = [executable, *argv]
-    command.extend(["--json", "--ephemeral", "--sandbox", "read-only"])
+    command.extend(
+        [
+            "--json",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+        ]
+    )
     command.extend(["--cd", str(working_dir)])
     if output_schema_path is not None:
         command.extend(["--output-schema", str(output_schema_path)])

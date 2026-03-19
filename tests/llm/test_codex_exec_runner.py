@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from cookimport.llm.codex_exec_runner import (
+    _build_codex_exec_command,
     CodexExecRunResult,
     CodexExecSupervisionDecision,
     SubprocessCodexExecRunner,
@@ -166,6 +167,30 @@ def test_rewrite_direct_exec_prompt_paths_retargets_worker_root(tmp_path: Path) 
     assert "/tmp/nope" in rewritten
 
 
+def test_build_codex_exec_command_includes_required_direct_exec_flags(tmp_path: Path) -> None:
+    working_dir = tmp_path / "runtime-worker"
+    schema_path = tmp_path / "schema.json"
+
+    command = _build_codex_exec_command(
+        cmd="codex exec",
+        working_dir=working_dir,
+        output_schema_path=schema_path,
+        model="gpt-5.1-codex-mini",
+        reasoning_effort="medium",
+    )
+
+    assert command[:2] == ["codex", "exec"]
+    assert "--json" in command
+    assert "--ephemeral" in command
+    assert "--skip-git-repo-check" in command
+    assert command[command.index("--sandbox") + 1] == "read-only"
+    assert command[command.index("--cd") + 1] == str(working_dir)
+    assert command[command.index("--output-schema") + 1] == str(schema_path)
+    assert command[command.index("--model") + 1] == "gpt-5.1-codex-mini"
+    assert command[command.index("-c") + 1] == 'model_reasoning_effort="medium"'
+    assert command[-1] == "-"
+
+
 def test_subprocess_runner_uses_sterile_execution_workspace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -273,6 +298,7 @@ def test_subprocess_runner_uses_sterile_execution_workspace(
         str(tmp_path / ".codex-recipe" / "recipeimport-direct-exec-workspaces")
     )
     assert command[command.index("--cd") + 1] == str(cwd)
+    assert "--skip-git-repo-check" in command
     assert f"{cwd}/in/shard-001.json" in stdin_text
     assert (cwd / "AGENTS.md").exists()
     assert "knowledge review shard" in (cwd / "AGENTS.md").read_text(encoding="utf-8")

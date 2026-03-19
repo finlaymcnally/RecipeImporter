@@ -22,6 +22,7 @@ Editable prompt text:
 
 - `prompts/recipe.correction.compact.v1.prompt.md`
 - `prompts/recipe.knowledge.compact.v1.prompt.md`
+- `prompts/benchmark.oracle-upload.prompt.md` (post-benchmark Oracle review prompt for `cookimport bench oracle-upload` and benchmark auto-upload)
 
 Output schemas:
 

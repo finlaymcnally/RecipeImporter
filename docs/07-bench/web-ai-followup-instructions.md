@@ -32,12 +32,15 @@ The session root typically contains:
 Each per-run directory typically contains:
 
 - `run_manifest.json`: run identity, config, and artifact registry
-- `eval_report.json` and `eval_report.md`: aggregate evaluation metrics and readable summary
+- `eval_report.json`: aggregate evaluation metrics
 - `wrong_label_lines.jsonl`, `wrong_label_blocks.jsonl`
 - `missed_gold_lines.jsonl`, `missed_gold_blocks.jsonl`
 - `aligned_prediction_blocks.jsonl`, `alignment_gaps.jsonl`, `unmatched_pred_blocks.jsonl`
+- `prompt_budget_summary.json`: post-run cost/runtime rollup when available
+- `stage_observability.json`: stage status / observability summary when available
+- `.prediction-record-replay/`: replayable scored prediction snapshots when available
 - `prompts/`: prompt, response, and parsed prompt-linked artifacts
-- `prediction-run/`: prediction outputs and run-specific produced data
+- sometimes `prediction-run/` or `raw/llm/...` stage outputs, depending on how the run was produced
 - `line-role-pipeline/`: line-role stage artifacts
 - sometimes a per-run `upload_bundle_v1/`
 
@@ -137,6 +140,7 @@ Output:
 - a `cf.followup_request.v1` JSON document
 
 Use this when you want to fill in one or more precise asks but do not want to hand-author the whole manifest schema.
+It now pre-seeds one line-role-oriented ask and, when the bundle exposes knowledge evidence, one knowledge-oriented ask.
 
 ### `cf-debug select-cases`
 
@@ -150,16 +154,18 @@ Input knobs:
 - `--outside-span <N>`
 - `--include-case-id <case_id>` repeated
 - `--include-recipe-id <recipe_id>` repeated
-- `--include-line-range <source_key:start-end>` repeated
-- `--include-knowledge-source-key <book_slug>` repeated
-- `--include-knowledge-output-subdir <book_slug/variant>` repeated
+- `--include-line-range <source_key>:<start>:<end>` repeated
+- legacy `--include-line-range <source_key>:<start>-<end>` is also accepted
+- `--include-knowledge-source-key <source_key or bundle-local knowledge key>` repeated
+- `--include-knowledge-output-subdir <exact output_subdir from the bundle or request-template>` repeated
 
 Output:
 
-- a selector manifest with schema `cf.selector_manifest.v1`
+- a selector manifest with schema `cf.selector.v1`
 
 Use this when you know which cases or ranges you want, or when you want the top regressions/wins chosen deterministically.
-For knowledge-specific asks, prefer `--stage knowledge` plus either `--include-knowledge-source-key` or `--include-knowledge-output-subdir`.
+For knowledge-specific asks, prefer `--stage knowledge` plus `--include-knowledge-output-subdir` when you already have an exact value from `request-template` or `navigation.row_locators.knowledge_by_run`.
+Use `--include-knowledge-source-key` when you only know the source identity and want the bundle to resolve the matching knowledge run.
 
 ### `cf-debug structure-report`
 
@@ -316,8 +322,9 @@ Prefer these selector strategies, in order:
 1. `include_case_ids` when the bundle already exposes a stable case ID such as `regression_c6`, `win_c10`, or `outside_span_window_628_657`
 2. `include_recipe_ids` when the issue is recipe-scoped but case IDs are not stable enough
 3. `include_line_ranges` when the problem is a specific span or contamination window
-4. `include_knowledge_output_subdirs` or `include_knowledge_source_keys` when the issue is specifically a knowledge-stage run
-5. `top_neg`, `top_pos`, or `outside_span` when you want deterministic triage picks without choosing exact IDs yourself
+4. `include_knowledge_output_subdirs` when the issue is specifically a knowledge-stage run and you already have an exact run locator
+5. `include_knowledge_source_keys` when the issue is knowledge-stage but you only know the source identity
+6. `top_neg`, `top_pos`, or `outside_span` when you want deterministic triage picks without choosing exact IDs yourself
 
 Prefer these output combinations:
 
@@ -415,8 +422,8 @@ If the bundle already contains a row locator for the needed artifact, cite that 
         "include_case_ids": [],
         "include_recipe_ids": [],
         "include_line_ranges": [],
-        "include_knowledge_source_keys": ["02_saltfatacidheatcutdown"],
-        "include_knowledge_output_subdirs": []
+        "include_knowledge_source_keys": [],
+        "include_knowledge_output_subdirs": ["<copy exact output_subdir from request-template or navigation.row_locators.knowledge_by_run>"]
       }
     }
   ]
