@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
@@ -45,7 +46,9 @@ Negative rules (must-not-do):
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
+- If `span_code` is `N` (outside recipe), default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
+- A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
 
@@ -99,7 +102,15 @@ Few-shot examples:
     Label: `KNOWLEDGE`
 
 13) Context: general teaching/setup prose, not a recipe step
-    Line: `Think about making a grilled cheese sandwich.`
+   Line: `Think about making a grilled cheese sandwich.`
+   Label: `OTHER`
+
+14) Context: outside recipe, generic lesson heading
+    Line: `Gentle Cooking Methods`
+    Label: `KNOWLEDGE`
+
+15) Context: outside recipe, memoir or narrative prose
+    Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`
     Label: `OTHER`
 
 RETURN FORMAT (STRICT JSON ONLY)
@@ -209,22 +220,28 @@ def serialize_line_role_model_row(
 def build_canonical_line_role_file_prompt(
     *,
     input_path: Path,
+    input_payload: Mapping[str, Any] | None = None,
 ) -> str:
     label_code_legend = _render_label_code_legend(
         build_line_role_label_code_by_label()
     )
+    authoritative_rows = _render_authoritative_rows_for_prompt(input_payload)
     template = _load_prompt_template(
         template_path=_FILE_PROMPT_TEMPLATE_PATH,
         fallback=(
             "You are reviewing deterministic canonical line-role labels for cookbook atomic lines.\n\n"
             "Task boundary:\n"
             "- This is a grounded label-correction pass over one ordered contiguous slice of the book.\n"
-            "- Read the worker-local task file at `{{INPUT_PATH}}`.\n"
-            "- Use only that task file as evidence.\n"
+            "- The authoritative shard rows are embedded below.\n"
+            "- The mirrored worker-local file `{{INPUT_PATH}}` exists for traceability only; do not open it or inspect the workspace to answer.\n"
+            "- Use only the embedded shard rows as evidence.\n"
+            "- Do not run shell commands, Python, or any other tools.\n"
+            "- Do not describe your plan, reasoning, or heuristics.\n"
+            "- Your first response must be the final JSON object.\n"
             "- Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth.\n"
             "- Never invent lines or labels.\n\n"
-            "Return strict JSON with this exact shape:\n"
-            '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
+            "Return strict JSON as a JSON object with one `rows` array:\n"
+            '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}\n\n'
             "Task file shape:\n"
             '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}\n\n'
             "Rules:\n"
@@ -238,6 +255,7 @@ def build_canonical_line_role_file_prompt(
             "- Label codes: {{LABEL_CODE_LEGEND}}.\n"
             "- Use each row's tuple slot 2 (`current_line`) as the line to label.\n"
             "- Use neighboring rows in `rows[*]` for local context when needed.\n"
+            "- Recompute labels from the task file rows themselves; do not copy example labels from this prompt.\n"
             "- Label distinctions that matter:\n"
             "  - `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
             "  - `INSTRUCTION_LINE`: imperative action sentences, even when they include time.\n"
@@ -253,16 +271,21 @@ def build_canonical_line_role_file_prompt(
             "  - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.\n"
             "  - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.\n"
             "  - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.\n"
+            "  - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.\n"
             "  - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.\n"
+            "  - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.\n"
             "  - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.\n"
             "  - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.\n"
             "  - Dedications, front matter, and table-of-contents entries are usually `OTHER`.\n\n"
-            "Task file path:\n"
-            "{{INPUT_PATH}}\n"
+            "Authoritative shard rows (each row is [atomic_index, label_code, current_line]):\n"
+            "<BEGIN_AUTHORITATIVE_ROWS>\n"
+            "{{AUTHORITATIVE_ROWS}}\n"
+            "<END_AUTHORITATIVE_ROWS>\n"
         ),
     )
     rendered = template.replace("{{INPUT_PATH}}", str(input_path))
     rendered = rendered.replace("{{LABEL_CODE_LEGEND}}", label_code_legend)
+    rendered = rendered.replace("{{AUTHORITATIVE_ROWS}}", authoritative_rows)
     return rendered.strip() + "\n"
 
 
@@ -320,6 +343,21 @@ def _line_role_row_format_text(prompt_format: LineRolePromptFormat) -> str:
         "Grounding windows are separate rows shaped like "
         "`ctx:<atomic_index>|prev=...|line=...|next=...` for selected ambiguous lines."
     )
+
+
+def _render_authoritative_rows_for_prompt(
+    input_payload: Mapping[str, Any] | None,
+) -> str:
+    rows = list((dict(input_payload or {})).get("rows") or [])
+    rendered_rows: list[str] = []
+    for row in rows:
+        if isinstance(row, (list, tuple)):
+            rendered_rows.append(json.dumps(list(row), ensure_ascii=False))
+        elif isinstance(row, Mapping):
+            rendered_rows.append(
+                json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
+            )
+    return "\n".join(rendered_rows) if rendered_rows else "[no shard rows available]"
 
 
 def _build_label_code_by_label(labels: Sequence[str]) -> dict[str, str]:

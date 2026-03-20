@@ -1292,11 +1292,9 @@ def _select_prompt_rows_by_recipe(
     by_recipe: dict[str, dict[str, Any]] = {}
     fallback: dict[str, Any] | None = sorted_rows[0]
     for row in sorted_rows:
-        recipe_id = str(row.get("recipe_id") or "").strip()
-        if not recipe_id:
-            continue
-        if recipe_id not in by_recipe:
-            by_recipe[recipe_id] = row
+        for recipe_id in _prompt_row_owned_recipe_ids(row):
+            if recipe_id not in by_recipe:
+                by_recipe[recipe_id] = row
     return by_recipe, fallback
 
 
@@ -1649,6 +1647,57 @@ def _build_recipe_spans_from_full_prompt_rows(rows: list[dict[str, Any]]) -> lis
         request_input_payload = _parse_json_like(row.get("request_input_payload"))
         if not isinstance(request_input_payload, dict):
             continue
+        parsed_response = _parse_json_like(row.get("parsed_response"))
+        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+
+        shard_recipe_rows = request_input_payload.get("r")
+        if isinstance(shard_recipe_rows, list) and shard_recipe_rows:
+            for recipe_row in shard_recipe_rows:
+                if not isinstance(recipe_row, dict):
+                    continue
+                recipe_id = str(recipe_row.get("rid") or "").strip()
+                if not recipe_id:
+                    continue
+                evidence_rows = recipe_row.get("ev")
+                evidence_rows = (
+                    evidence_rows if isinstance(evidence_rows, list) else []
+                )
+                indices = [
+                    int(index)
+                    for index in (
+                        _coerce_int(item[0])
+                        for item in evidence_rows
+                        if isinstance(item, (list, tuple)) and len(item) >= 2
+                    )
+                    if index is not None
+                ]
+                if not indices:
+                    continue
+                start = min(indices)
+                end = max(indices)
+                if start is None or end is None or end < start:
+                    continue
+                hints = recipe_row.get("h") if isinstance(recipe_row.get("h"), dict) else {}
+                title = (
+                    str(hints.get("n") or "").strip()
+                    or str(recipe_row.get("txt") or "").strip()
+                    or None
+                )
+                dedupe_key = (recipe_id, start, end)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                spans.append(
+                    {
+                        "recipe_id": recipe_id,
+                        "start_block_index": start,
+                        "end_block_index": end,
+                        "title": title,
+                        "call_id": row.get("call_id"),
+                    }
+                )
+            continue
+
         evidence_rows = request_input_payload.get("evidence_rows")
         indices: list[int] = []
         if isinstance(evidence_rows, list) and evidence_rows:
@@ -1662,8 +1711,6 @@ def _build_recipe_spans_from_full_prompt_rows(rows: list[dict[str, Any]]) -> lis
                 if index is not None
             ]
         if not indices:
-            parsed_response = _parse_json_like(row.get("parsed_response"))
-            parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
             start = _coerce_int(parsed_response.get("start_block_index"))
             end = _coerce_int(parsed_response.get("end_block_index"))
             if start is not None and end is not None and end >= start:
@@ -1674,11 +1721,11 @@ def _build_recipe_spans_from_full_prompt_rows(rows: list[dict[str, Any]]) -> lis
         end = max(indices)
         if start is None or end is None or end < start:
             continue
-        recipe_id = str(row.get("recipe_id") or request_input_payload.get("recipe_id") or "").strip()
+        recipe_id = str(
+            row.get("recipe_id") or request_input_payload.get("recipe_id") or ""
+        ).strip()
         if not recipe_id:
             continue
-        parsed_response = _parse_json_like(row.get("parsed_response"))
-        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
         canonical_recipe = (
             parsed_response.get("canonical_recipe")
             if isinstance(parsed_response.get("canonical_recipe"), dict)
@@ -3655,6 +3702,39 @@ def _prompt_row_recipe_id(row: dict[str, Any]) -> str:
     return ""
 
 
+def _prompt_row_owned_recipe_ids(row: dict[str, Any]) -> list[str]:
+    request_input_payload = _parse_json_like(row.get("request_input_payload"))
+    request_input_payload = (
+        request_input_payload if isinstance(request_input_payload, dict) else {}
+    )
+
+    owned_ids: list[str] = []
+    shard_recipe_rows = request_input_payload.get("r")
+    if isinstance(shard_recipe_rows, list):
+        for recipe_row in shard_recipe_rows:
+            if not isinstance(recipe_row, dict):
+                continue
+            recipe_id = str(recipe_row.get("rid") or "").strip()
+            if recipe_id:
+                owned_ids.append(recipe_id)
+
+    if not owned_ids:
+        for key in ("owned_ids", "ids"):
+            values = request_input_payload.get(key)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                recipe_id = str(value or "").strip()
+                if recipe_id:
+                    owned_ids.append(recipe_id)
+
+    if owned_ids:
+        return list(dict.fromkeys(owned_ids))
+
+    recipe_id = _prompt_row_recipe_id(row)
+    return [recipe_id] if recipe_id else []
+
+
 def _warning_buckets(warnings: list[str]) -> list[str]:
     buckets = {
         _prompt_warning_bucket(_normalize_whitespace(message))
@@ -4143,13 +4223,15 @@ def _build_pair_diagnostics(
     stage_rows_by_recipe: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in sorted(codex_prompt_rows, key=_prompt_row_identity_key):
         stage_key = _prompt_row_stage_key(row)
-        if stage_key not in LLM_STAGE_MAP:
+        if stage_key not in {
+            "build_intermediate_det",
+            "recipe_llm_correct_and_link",
+            "build_final_recipe",
+        }:
             continue
-        recipe_id = _prompt_row_recipe_id(row)
-        if not recipe_id:
-            continue
-        if stage_key not in stage_rows_by_recipe[recipe_id]:
-            stage_rows_by_recipe[recipe_id][stage_key] = row
+        for recipe_id in _prompt_row_owned_recipe_ids(row):
+            if stage_key not in stage_rows_by_recipe[recipe_id]:
+                stage_rows_by_recipe[recipe_id][stage_key] = row
 
     run_manifest_path = Path(codex_run.run_dir) / "run_manifest.json"
     run_manifest = _load_json(run_manifest_path) if run_manifest_path.is_file() else {}

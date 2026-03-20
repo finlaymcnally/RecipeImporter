@@ -39,8 +39,9 @@ Chunking note:
 - table chunks are intentionally excluded from consolidation and remain isolated.
 - deterministic semantic lane judgments no longer decide whether a chunk reaches the LLM reviewer, and the old low-signal prefilter is gone too. If deterministic chunking produces a non-recipe chunk at all, the reviewer now sees its raw chunk text.
 - the model-facing payload now avoids deterministic semantic chunk hints entirely; it carries raw block text plus mechanically true structure only.
-- `knowledge_prompt_target_count` is only a soft planning hint now. Hard shard safety limits still win, so long books may produce more shards than the prompt target when the chunk cap, char cap, locality cap, or table-isolation rule requires it.
-- When that happens, the planner records a warning in the knowledge manifest / LLM report so the requested-vs-actual shard count mismatch is explicit.
+- `knowledge_prompt_target_count` is now a literal shard-count override. When set, the planner partitions the ordered non-recipe chunk list into that many contiguous non-empty shards whenever enough chunks exist.
+- if a forced shard exceeds the old chunk, char, locality, or table-isolation heuristics, the planner now records warnings instead of silently increasing shard count.
+- if the operator requests more shards than there are chunks, the planner emits one non-empty shard per chunk and warns that the exact count could not be achieved without empty shards.
 
 ## Output locations
 
@@ -93,3 +94,5 @@ Bundle contract note:
 - the model-facing payload no longer emits chunk-level semantic hint objects. Deterministic routing and provenance remain local runtime concerns, not reviewer-model guidance.
 - compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead. Snippets now carry only grounded body text plus evidence pointers, while `block_decisions[*].rc` carries the internal reviewer category and `block_decisions[*].c` stays the final `knowledge|other` authority that staging writes out.
 - prompt contract is intentionally strict: when input `c` is non-empty, output `r` must contain exactly one row per input chunk in input order, must echo the same `cid` values, and must not collapse to `r: []` or a synthetic fallback row.
+- each result row must cover every owned block in order. `u=true` now requires at least one `knowledge` block decision plus at least one grounded snippet, while `u=false` requires only `other` decisions and no snippets.
+- ingest now rejects the March 19 empty-collapse shape explicitly: if a shard with strong deterministic knowledge cues comes back as blanket `u=false` with zero snippets and zero `knowledge` decisions, the shard stays seed-kept but is reported as semantically rejected/unreviewed rather than reviewed-empty success.

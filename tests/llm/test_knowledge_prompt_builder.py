@@ -23,12 +23,21 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
         "When `c` is non-empty, `r` must contain exactly one row per input chunk, in input order."
         in prompt
     )
+    assert (
+        '`u=true` requires at least one `d[*].c="knowledge"` decision and at least one snippet in `s`.'
+        in prompt
+    )
+    assert (
+        "`u=false` requires every `d[*].c` to be `other` and requires `s=[]`."
+        in prompt
+    )
     assert "Do not return `r: []` when `c` is non-empty." in prompt
     assert "Never invent synthetic `cid` values such as `processing_error`." in prompt
     assert "final answer must be that JSON object only" in prompt
     assert "return compact minified JSON on a single line" in prompt
+    assert "Do not collapse a clearly useful technique/reference shard into blanket `u=false`." in prompt
     assert (
-        "If uncertain, still emit conservative `other` decisions and `s: []` for every input chunk."
+        "If the shard contains reusable cooking knowledge, surface it positively with `u=true`, `knowledge` decisions, and grounded snippets."
         in prompt
     )
     assert "suggested lane" not in prompt.lower()

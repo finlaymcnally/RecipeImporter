@@ -9,11 +9,16 @@ import pytest
 
 from cookimport.llm.codex_exec_runner import (
     _build_codex_exec_command,
+    classify_workspace_worker_command,
     CodexExecRunResult,
+    CodexExecLiveSnapshot,
     CodexExecSupervisionDecision,
+    FakeCodexExecRunner,
     SubprocessCodexExecRunner,
+    is_tolerated_workspace_worker_command,
     prepare_direct_exec_workspace,
     rewrite_direct_exec_prompt_paths,
+    should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )
 
@@ -75,6 +80,8 @@ def test_codex_exec_runner_extracts_command_and_reasoning_pathology() -> None:
 
     row = run_result.telemetry_row(worker_id="worker-001", shard_id="shard-001")
     row["proposal_status"] = "invalid"
+    row["prompt_input_mode"] = "workspace_worker"
+    row["worker_session_primary_row"] = True
 
     assert row["command_execution_count"] == 1
     assert row["command_execution_commands"] == ["/bin/bash -lc ls"]
@@ -93,8 +100,109 @@ def test_codex_exec_runner_extracts_command_and_reasoning_pathology() -> None:
     assert summary["reasoning_heavy_shard_count"] == 1
     assert summary["invalid_output_shard_count"] == 1
     assert summary["invalid_output_tokens_total"] == row["tokens_total"]
+    assert summary["workspace_worker_row_count"] == 1
+    assert summary["workspace_worker_session_count"] == 1
+    assert summary["prompt_input_mode_counts"] == {"workspace_worker": 1}
     assert "command_execution_detected" in summary["pathological_flags"]
     assert "invalid_output_detected" in summary["pathological_flags"]
+
+
+def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:
+    summary = summarize_direct_telemetry_rows(
+        [
+            {
+                "task_id": "shard-001",
+                "tokens_total": 10,
+                "prompt_input_mode": "workspace_worker",
+                "worker_session_primary_row": True,
+            },
+            {
+                "task_id": "shard-001",
+                "tokens_total": 4,
+                "prompt_input_mode": "inline_watchdog_retry",
+            },
+            {
+                "task_id": "shard-001.retry",
+                "tokens_total": 6,
+                "prompt_input_mode": "inline_retry",
+            },
+            {
+                "task_id": "shard-001",
+                "tokens_total": 8,
+                "prompt_input_mode": "inline_repair",
+            },
+        ]
+    )
+
+    assert summary["call_count"] == 4
+    assert summary["workspace_worker_row_count"] == 1
+    assert summary["workspace_worker_session_count"] == 1
+    assert summary["structured_followup_call_count"] == 3
+    assert summary["structured_followup_tokens_total"] == 18
+    assert summary["prompt_input_mode_counts"] == {
+        "inline_repair": 1,
+        "inline_retry": 1,
+        "inline_watchdog_retry": 1,
+        "workspace_worker": 1,
+    }
+
+
+def test_codex_exec_runner_only_kills_pathological_workspace_command_loops() -> None:
+    normal_snapshot = CodexExecLiveSnapshot(
+        elapsed_seconds=0.1,
+        last_event_seconds_ago=0.0,
+        event_count=2,
+        command_execution_count=6,
+        reasoning_item_count=0,
+        last_command="/bin/bash -lc cat in/shard-001.json",
+        last_command_repeat_count=2,
+        has_final_agent_message=False,
+        timeout_seconds=30,
+    )
+    assert should_terminate_workspace_command_loop(snapshot=normal_snapshot) is False
+
+    over_budget_snapshot = CodexExecLiveSnapshot(
+        elapsed_seconds=0.2,
+        last_event_seconds_ago=0.0,
+        event_count=3,
+        command_execution_count=40,
+        reasoning_item_count=0,
+        last_command="/bin/bash -lc cat in/shard-001.json",
+        last_command_repeat_count=1,
+        has_final_agent_message=False,
+        timeout_seconds=30,
+    )
+    assert should_terminate_workspace_command_loop(snapshot=over_budget_snapshot) is True
+
+
+def test_codex_exec_runner_allows_only_workspace_local_helper_commands() -> None:
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat assigned_shards.json'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc cat assigned_shards.json") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'head -n 20 in/shard-001.json'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'jq .rows[0] in/shard-001.json'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'ls in'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc sed -n '1,20p' in/shard-001.json") is True
+
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc \"python -c 'print(1)'\"") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat ../secret.txt'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'find . -maxdepth 2'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat in/shard-001.json > out/shard-001.json'") is False
+
+
+def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None:
+    helper = classify_workspace_worker_command("/bin/bash -lc 'cat in/shard-001.json'")
+    assert helper.allowed is True
+    assert helper.policy == "tolerated_workspace_helper_command"
+
+    orientation = classify_workspace_worker_command("/bin/bash -lc ls")
+    assert orientation.allowed is True
+    assert orientation.policy == "tolerated_orientation_command"
+
+    forbidden = classify_workspace_worker_command(
+        "/bin/bash -lc \"python -c 'print(1)'\""
+    )
+    assert forbidden.allowed is False
+    assert forbidden.policy == "forbidden_non_helper_executable"
 
 
 def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(
@@ -142,10 +250,101 @@ def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(
     ).read_text(encoding="utf-8") == (
         source_root / "debug" / "shard-001.json"
     ).read_text(encoding="utf-8")
+    assert (source_root / "worker_manifest.json").exists()
+    assert (workspace.execution_working_dir / "worker_manifest.json").exists()
     agents_text = workspace.agents_path.read_text(encoding="utf-8")
     assert "canonical line-role shard" in agents_text
     assert "npm run docs:list" in agents_text
     assert "not working on the RecipeImport repository" in agents_text
+    assert "Do not inspect local files or run discovery commands just to orient yourself." in agents_text
+    assert "Prefer reading the local task file directly" not in agents_text
+
+
+def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_shards.json").write_text(
+        json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "in" / "shard-001.json").write_text(
+        json.dumps({"shard_id": "shard-001"}),
+        encoding="utf-8",
+    )
+
+    workspace = prepare_direct_exec_workspace(
+        source_working_dir=source_root,
+        env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
+        task_label="canonical line-role worker session",
+        mode="workspace_worker",
+    )
+
+    agents_text = workspace.agents_path.read_text(encoding="utf-8")
+    worker_manifest = json.loads(
+        (workspace.execution_working_dir / "worker_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert worker_manifest["entry_files"] == ["worker_manifest.json", "assigned_shards.json"]
+    assert worker_manifest["workspace_helper_commands_allowed"] == [
+        "cat",
+        "head",
+        "tail",
+        "sed",
+        "jq",
+        "wc",
+    ]
+    assert worker_manifest["orientation_commands_forbidden"] == [
+        "find",
+        "tree",
+        "git",
+    ]
+    assert "Read the local task manifests and input files directly." in agents_text
+    assert "Start by reading `worker_manifest.json`" in agents_text
+    assert "If you use helper commands, keep them narrow and workspace-local" in agents_text
+    assert "Do not use exploration commands such as `find`, `tree`, or anything that tries to inspect parent directories or the repository." in agents_text
+    assert "approved local output files under `out/`" in agents_text
+    assert (workspace.execution_working_dir / "out").exists()
+
+
+def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_shards.json").write_text(
+        json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "in" / "shard-001.json").write_text(
+        json.dumps({"rows": [[1, "L9", "hello"]]}),
+        encoding="utf-8",
+    )
+
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "rows": [
+                {"atomic_index": int(row[0]), "label": "OTHER"}
+                for row in (payload.get("rows") or [])
+            ]
+        }
+    )
+    result = runner.run_workspace_worker(
+        prompt_text="Process every local shard file and write outputs under out/.",
+        working_dir=source_root,
+        env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
+        workspace_task_label="canonical line-role worker session",
+    )
+
+    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert result.source_working_dir == str(source_root)
+    assert result.execution_working_dir != str(source_root)
+    synced_output = json.loads(
+        (source_root / "out" / "shard-001.json").read_text(encoding="utf-8")
+    )
+    assert synced_output == {"rows": [{"atomic_index": 1, "label": "OTHER"}]}
 
 
 def test_rewrite_direct_exec_prompt_paths_retargets_worker_root(tmp_path: Path) -> None:
@@ -189,6 +388,21 @@ def test_build_codex_exec_command_includes_required_direct_exec_flags(tmp_path: 
     assert command[command.index("--model") + 1] == "gpt-5.1-codex-mini"
     assert command[command.index("-c") + 1] == 'model_reasoning_effort="medium"'
     assert command[-1] == "-"
+
+
+def test_build_codex_exec_command_can_request_workspace_write(tmp_path: Path) -> None:
+    working_dir = tmp_path / "runtime-worker"
+
+    command = _build_codex_exec_command(
+        cmd="codex exec",
+        working_dir=working_dir,
+        output_schema_path=None,
+        model=None,
+        reasoning_effort=None,
+        sandbox_mode="workspace-write",
+    )
+
+    assert command[command.index("--sandbox") + 1] == "workspace-write"
 
 
 def test_subprocess_runner_uses_sterile_execution_workspace(

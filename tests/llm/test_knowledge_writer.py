@@ -60,6 +60,9 @@ def test_write_knowledge_artifacts_fails_on_missing_block_index(tmp_path: Path) 
             {
                 "chunk_id": "book.c0000.nr",
                 "is_useful": True,
+                "block_decisions": [
+                    {"block_index": 999, "category": "knowledge"},
+                ],
                 "snippets": [
                     {
                         "body": "Whisk constantly.",

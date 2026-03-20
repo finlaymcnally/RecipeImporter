@@ -57,6 +57,68 @@ def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
     )
 
 
+def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
+    return ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Toast",
+                identifier="urn:recipe:test:toast",
+                recipeIngredient=["1 slice bread"],
+                recipeInstructions=["Toast the bread."],
+                provenance={"location": {"start_block": 1, "end_block": 3}},
+            ),
+            RecipeCandidate(
+                name="Tea",
+                identifier="urn:recipe:test:tea",
+                recipeIngredient=["1 cup water", "1 tea bag"],
+                recipeInstructions=["Boil the water.", "Steep the tea bag."],
+                provenance={"location": {"start_block": 5, "end_block": 8}},
+            ),
+            RecipeCandidate(
+                name="Cereal",
+                identifier="urn:recipe:test:cereal",
+                recipeIngredient=["1 cup cereal", "1/2 cup milk"],
+                recipeInstructions=["Pour cereal into a bowl.", "Add milk."],
+                provenance={"location": {"start_block": 10, "end_block": 13}},
+            ),
+        ],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Preface"},
+                        {"index": 1, "text": "Toast"},
+                        {"index": 2, "text": "1 slice bread"},
+                        {"index": 3, "text": "Toast the bread."},
+                        {"index": 4, "text": "Separator"},
+                        {"index": 5, "text": "Tea"},
+                        {"index": 6, "text": "1 cup water"},
+                        {"index": 7, "text": "1 tea bag"},
+                        {"index": 8, "text": "Boil the water. Steep the tea bag."},
+                        {"index": 9, "text": "Separator"},
+                        {"index": 10, "text": "Cereal"},
+                        {"index": 11, "text": "1 cup cereal"},
+                        {"index": 12, "text": "1/2 cup milk"},
+                        {"index": 13, "text": "Pour cereal into a bowl. Add milk."},
+                    ],
+                },
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook=source_path.stem,
+        workbookPath=str(source_path),
+    )
+
+
 def _knowledge_conversion_result(source_path: Path) -> ConversionResult:
     return ConversionResult(
         recipes=[],
@@ -250,6 +312,40 @@ def test_recipe_orchestrator_can_run_through_fake_codex_farm_subprocess(
     assert proposal_files == ["recipe-shard-0000-r0000-r0000.json"]
 
 
+def test_recipe_workspace_worker_can_run_through_fake_codex_farm_subprocess(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("book", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "recipe_worker_count": 1,
+            "recipe_shard_target_recipes": 2,
+            "codex_farm_cmd": str(_script_path()),
+            "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+    )
+
+    runtime_dir = apply_result.llm_raw_dir / "recipe_phase_runtime"
+    worker_root = runtime_dir / "workers" / "worker-001"
+    status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+
+    assert status["runtime_mode_audit"]["output_schema_enforced"] is False
+    assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
+    assert sorted(path.name for path in (worker_root / "out").glob("*.json")) == [
+        "recipe-shard-0000-r0000-r0001.json",
+        "recipe-shard-0001-r0002-r0002.json",
+    ]
+
+
 def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
 ) -> None:
@@ -333,6 +429,89 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
     assert (phase_dir / "phase_manifest.json").exists()
     assert (phase_dir / "worker_assignments.json").exists()
     assert (tmp_path / "run" / "knowledge" / "book" / "snippets.jsonl").exists()
+
+
+def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("book", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 2,
+            "knowledge_worker_count": 1,
+            "codex_farm_cmd": str(_script_path()),
+            "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_knowledge_context_blocks": 1,
+        }
+    )
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=_knowledge_conversion_result(source),
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.other.0.1",
+                    category="other",
+                    block_start_index=0,
+                    block_end_index=1,
+                    block_indices=[0],
+                    block_ids=["b0"],
+                ),
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                ),
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            other_spans=[
+                NonRecipeSpan(
+                    span_id="nr.other.0.1",
+                    category="other",
+                    block_start_index=0,
+                    block_end_index=1,
+                    block_indices=[0],
+                    block_ids=["b0"],
+                )
+            ],
+            block_category_by_index={0: "other", 4: "knowledge"},
+        ),
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=1,
+                end_block_index=4,
+                block_indices=[1, 2, 3],
+                source_block_ids=["b1", "b2", "b3"],
+            )
+        ],
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+    )
+
+    phase_dir = apply_result.llm_raw_dir / "knowledge"
+    worker_root = phase_dir / "workers" / "worker-001"
+    status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+
+    assert status["runtime_mode_audit"]["output_schema_enforced"] is False
+    assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
+    assert sorted(path.name for path in (worker_root / "out").glob("*.json"))
 
 
 def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(

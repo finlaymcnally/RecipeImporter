@@ -16,6 +16,7 @@ from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.llm.shard_prompt_targets import (
     coerce_positive_int,
     partition_contiguous_items,
+    resolve_shard_count,
     resolve_items_per_shard,
 )
 
@@ -56,6 +57,11 @@ class _PreparedKnowledgeBundleChunk:
     absolute_indices: list[int]
     char_count: int
     has_table_content: bool
+    has_heading: bool
+    seed_stage_category: str | None
+    suggested_lane: str | None
+    title: str | None
+    knowledge_cue: bool
     source_span_id: str
 
 
@@ -147,6 +153,15 @@ def build_knowledge_jobs(
                     absolute_indices=absolute_indices,
                     char_count=sum(len(block.text) for block in payload.blocks),
                     has_table_content=any(block.table_hint is not None for block in payload.blocks),
+                    has_heading=any(block.heading_level is not None for block in payload.blocks),
+                    seed_stage_category=str(stage_span.category or "").strip() or None,
+                    suggested_lane=str(suggested_lane or "").strip() or None,
+                    title=str(chunk.title or "").strip() or None,
+                    knowledge_cue=_chunk_has_strong_knowledge_cue(
+                        chunk=chunk,
+                        payload=payload,
+                        seed_stage_category=str(stage_span.category or "").strip() or None,
+                    ),
                     source_span_id=stage_span.span_id,
                 )
             )
@@ -206,12 +221,44 @@ def build_knowledge_jobs(
                 evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
                 input_payload=bundle_payload_json,
                 metadata={
+                    "ordered_chunk_ids": list(owned_chunk_ids),
                     "owned_block_indices": list(owned_block_indices),
                     "source_span_ids": list(source_span_ids),
                     "chunk_count": len(owned_chunk_ids),
                     "char_count": sum(chunk.char_count for chunk in bundle_chunks),
                     "table_heavy": any(chunk.has_table_content for chunk in bundle_chunks),
                     "context_blocks": max(0, int(context_blocks)),
+                    "chunk_block_indices_by_id": {
+                        chunk.payload.chunk_id: list(chunk.absolute_indices)
+                        for chunk in bundle_chunks
+                    },
+                    "chunk_seed_stage_category_by_id": {
+                        chunk.payload.chunk_id: chunk.seed_stage_category
+                        for chunk in bundle_chunks
+                        if chunk.seed_stage_category is not None
+                    },
+                    "chunk_lane_by_id": {
+                        chunk.payload.chunk_id: chunk.suggested_lane
+                        for chunk in bundle_chunks
+                        if chunk.suggested_lane is not None
+                    },
+                    "chunk_title_by_id": {
+                        chunk.payload.chunk_id: chunk.title
+                        for chunk in bundle_chunks
+                        if chunk.title is not None
+                    },
+                    "chunk_has_heading_by_id": {
+                        chunk.payload.chunk_id: bool(chunk.has_heading)
+                        for chunk in bundle_chunks
+                    },
+                    "chunk_has_table_hint_by_id": {
+                        chunk.payload.chunk_id: bool(chunk.has_table_content)
+                        for chunk in bundle_chunks
+                    },
+                    "chunk_knowledge_cue_by_id": {
+                        chunk.payload.chunk_id: bool(chunk.knowledge_cue)
+                        for chunk in bundle_chunks
+                    },
                 },
             )
         )
@@ -363,6 +410,26 @@ def _bundle_prepared_chunks(
         else coerce_positive_int(target_bundle_count)
     )
 
+    if requested_bundle_count is not None:
+        forced_bundle_count = resolve_shard_count(
+            total_items=len(chunks),
+            prompt_target_count=requested_bundle_count,
+            items_per_shard=None,
+            default_items_per_shard=_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
+        )
+        bundles = partition_contiguous_items(
+            chunks,
+            shard_count=forced_bundle_count,
+        )
+        return bundles, _forced_bundle_count_warnings(
+            bundles=bundles,
+            requested_bundle_count=requested_bundle_count,
+            actual_bundle_count=forced_bundle_count,
+            total_chunk_count=len(chunks),
+            max_bundle_chars=effective_max_bundle_chars,
+            max_gap_blocks=effective_max_gap_blocks,
+        )
+
     effective_max_chunks = resolve_items_per_shard(
         total_items=len(chunks),
         prompt_target_count=requested_bundle_count,
@@ -411,11 +478,7 @@ def _bundle_prepared_chunks(
         current_chars += chunk.char_count
 
     flush()
-    planning_warnings = _knowledge_prompt_target_warnings(
-        bundles=bundles,
-        requested_bundle_count=requested_bundle_count,
-    )
-    return bundles, planning_warnings
+    return bundles, []
 
 
 def _chunk_gap_size(
@@ -425,21 +488,90 @@ def _chunk_gap_size(
     return max(0, int(right.absolute_indices[0]) - int(left.absolute_indices[-1]) - 1)
 
 
-def _knowledge_prompt_target_warnings(
+def _forced_bundle_count_warnings(
     *,
     bundles: Sequence[Sequence[_PreparedKnowledgeBundleChunk]],
-    requested_bundle_count: int | None,
+    requested_bundle_count: int,
+    actual_bundle_count: int,
+    total_chunk_count: int,
+    max_bundle_chars: int,
+    max_gap_blocks: int,
 ) -> list[str]:
-    if requested_bundle_count is None:
-        return []
-    actual_bundle_count = len(bundles)
-    if actual_bundle_count <= requested_bundle_count:
-        return []
-    return [
-        "Knowledge prompt target requested "
-        f"{requested_bundle_count} shard(s), but the planner emitted "
-        f"{actual_bundle_count} shard(s) to respect hard chunk, char, locality, and table limits."
-    ]
+    warnings: list[str] = []
+    if actual_bundle_count != requested_bundle_count:
+        warnings.append(
+            "Knowledge forced shard count requested "
+            f"{requested_bundle_count} shard(s), but only {actual_bundle_count} non-empty "
+            f"shard(s) were possible from {total_chunk_count} chunk(s)."
+        )
+
+    chunk_limit_violations: list[int] = []
+    char_limit_violations: list[int] = []
+    locality_gap_violations: list[int] = []
+    table_mixing_violations = 0
+
+    for bundle in bundles:
+        if len(bundle) > _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS:
+            chunk_limit_violations.append(len(bundle))
+
+        bundle_chars = sum(chunk.char_count for chunk in bundle)
+        if bundle_chars > max_bundle_chars:
+            char_limit_violations.append(bundle_chars)
+
+        bundle_gaps = [
+            _chunk_gap_size(bundle[index], bundle[index + 1])
+            for index in range(len(bundle) - 1)
+        ]
+        if bundle_gaps:
+            largest_gap = max(bundle_gaps)
+            if largest_gap > max_gap_blocks:
+                locality_gap_violations.append(largest_gap)
+
+        if any(chunk.has_table_content for chunk in bundle) and len(bundle) > 1:
+            table_mixing_violations += 1
+
+    if (
+        chunk_limit_violations
+        or char_limit_violations
+        or locality_gap_violations
+        or table_mixing_violations
+    ):
+        warnings.insert(
+            0,
+            "Knowledge forced shard count "
+            f"{requested_bundle_count} produced {actual_bundle_count} shard(s); planner kept "
+            "the operator-selected count and downgraded safety-cap violations to warnings.",
+        )
+
+    if chunk_limit_violations:
+        warnings.append(
+            "Knowledge forced shard count "
+            f"{requested_bundle_count} exceeded the chunk limit in "
+            f"{len(chunk_limit_violations)} shard(s); max forced shard size was "
+            f"{max(chunk_limit_violations)} chunk(s) vs limit "
+            f"{_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS}."
+        )
+    if char_limit_violations:
+        warnings.append(
+            "Knowledge forced shard count "
+            f"{requested_bundle_count} exceeded the char limit in "
+            f"{len(char_limit_violations)} shard(s); max forced shard size was "
+            f"{max(char_limit_violations)} chars vs limit {max_bundle_chars}."
+        )
+    if locality_gap_violations:
+        warnings.append(
+            "Knowledge forced shard count "
+            f"{requested_bundle_count} crossed locality gaps over {max_gap_blocks} block(s) in "
+            f"{len(locality_gap_violations)} shard(s); max forced gap was "
+            f"{max(locality_gap_violations)} block(s)."
+        )
+    if table_mixing_violations:
+        warnings.append(
+            "Knowledge forced shard count "
+            f"{requested_bundle_count} mixed table chunks with neighboring chunks in "
+            f"{table_mixing_violations} shard(s), overriding table isolation."
+        )
+    return warnings
 
 
 def _absolute_indices_for_chunk(
@@ -463,6 +595,62 @@ def _absolute_indices_for_chunk(
         raise ValueError("Chunk had no valid absolute indices after mapping block_ids.")
     indices.sort()
     return indices
+
+
+def _chunk_has_strong_knowledge_cue(
+    *,
+    chunk: KnowledgeChunk,
+    payload: KnowledgeCompactBundleChunkPayloadV2,
+    seed_stage_category: str | None,
+) -> bool:
+    normalized_seed_category = str(seed_stage_category or "").strip().lower()
+    block_char_count = sum(len(str(block.text or "").strip()) for block in payload.blocks)
+    if normalized_seed_category == "knowledge" and block_char_count >= 20:
+        return True
+    if any(block.table_hint is not None for block in payload.blocks):
+        return True
+    title_candidates: list[str] = []
+    title = str(chunk.title or "").strip()
+    if title:
+        title_candidates.append(title)
+    title_candidates.extend(
+        str(block.text or "").strip()
+        for block in payload.blocks
+        if block.heading_level is not None and str(block.text or "").strip()
+    )
+    return any(_looks_like_reference_heading(text) for text in title_candidates)
+
+
+def _looks_like_reference_heading(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    keywords = (
+        "how ",
+        "how to ",
+        "how salt affects",
+        "how acid affects",
+        "how fat affects",
+        "how heat affects",
+        "how it works",
+        "why it works",
+        "storage",
+        "storing",
+        "substitution",
+        "substitutions",
+        "troubleshooting",
+        "smoke point",
+        "smoke points",
+        "temperature guide",
+        "temperature chart",
+        "conversion",
+        "conversions",
+        "reference",
+        "technique",
+        "techniques",
+        "safety",
+    )
+    return any(keyword in normalized for keyword in keywords)
 
 
 def _index_in_recipe_spans(index: int, recipe_spans_payload: Sequence[SpanV1]) -> bool:

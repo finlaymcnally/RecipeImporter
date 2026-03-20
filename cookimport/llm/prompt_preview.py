@@ -794,7 +794,10 @@ def _build_line_role_preview_rows(
         debug_input_text = json.dumps(debug_payload, ensure_ascii=False, indent=2)
         input_path.write_text(input_text, encoding="utf-8")
         debug_input_path.write_text(debug_input_text, encoding="utf-8")
-        prompt_text = build_canonical_line_role_file_prompt(input_path=input_path)
+        prompt_text = build_canonical_line_role_file_prompt(
+            input_path=input_path,
+            input_payload=shard_payload,
+        )
         line_role_rows.append(
             _prompt_row(
                 call_id=input_path.stem,
@@ -817,6 +820,7 @@ def _build_line_role_preview_rows(
                 reasoning_effort_override=reasoning_effort_override,
                 task_prompt_text=input_text,
                 rendered_prompt_override=prompt_text,
+                prompt_input_mode_override="inline",
             )
         )
     return {

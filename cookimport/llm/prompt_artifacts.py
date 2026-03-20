@@ -1925,7 +1925,9 @@ def _build_line_role_prompt_rows(
                 "stage_order": spec["stage_order"],
                 "process_run_id": _clean_text(process_payload.get("run_id")),
                 "model": model_value,
-                "prompt_input_mode": "path",
+                "prompt_input_mode": (
+                    _clean_text(runtime_telemetry_row.get("prompt_input_mode")) or "path"
+                ),
                 "request_payload_source": "line_role_saved_prompt_text",
                 "request_messages": request_messages,
                 "system_prompt": None,

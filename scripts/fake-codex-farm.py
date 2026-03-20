@@ -21,11 +21,16 @@ from cookimport.llm.codex_farm_runner import (  # noqa: E402
 )
 
 
-def _read_json(path: Path) -> dict[str, Any] | None:
+def _read_any_json(path: Path) -> Any | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    return payload
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    payload = _read_any_json(path)
     return payload if isinstance(payload, dict) else None
 
 
@@ -107,6 +112,95 @@ def _extract_task_file_payload(prompt_text: str, *, cd: str | None) -> dict[str,
         if payload is not None:
             return payload
     return None
+
+
+def _resolve_cd_root(cd: str | None) -> Path | None:
+    if not cd:
+        return None
+    candidate = Path(cd)
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (REPO_ROOT / candidate).resolve()
+
+
+def _infer_exec_pipeline_id(prompt_text: str, *, output_schema_path: str) -> str:
+    if output_schema_path:
+        return _pipeline_id_for_exec_schema(output_schema_path)
+    prompt_lower = prompt_text.lower()
+    if "recipe knowledge" in prompt_lower or "knowledge review" in prompt_lower:
+        return "recipe.knowledge.compact.v1"
+    if "recipe correction" in prompt_lower or "recipe.correction" in prompt_lower:
+        return "recipe.correction.compact.v1"
+    return "line-role.canonical.v1"
+
+
+def _run_workspace_worker_exec(
+    *,
+    prompt_text: str,
+    cd: str | None,
+    pipeline_id: str,
+) -> bool:
+    workspace_root = _resolve_cd_root(cd)
+    if workspace_root is None:
+        return False
+    assigned_path = workspace_root / "assigned_shards.json"
+    if not assigned_path.is_file():
+        return False
+    assigned_payload = _read_any_json(assigned_path)
+    if not isinstance(assigned_payload, list):
+        return False
+
+    in_dir = workspace_root / "in"
+    out_dir = workspace_root / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    processed_any = False
+    for row in assigned_payload:
+        if not isinstance(row, dict):
+            continue
+        shard_id = str(row.get("shard_id") or "").strip()
+        if not shard_id:
+            continue
+        input_payload = _read_json(in_dir / f"{shard_id}.json")
+        if input_payload is None:
+            continue
+        output_payload = build_structural_pipeline_output(pipeline_id, input_payload)
+        (out_dir / f"{shard_id}.json").write_text(
+            json.dumps(output_payload, sort_keys=True),
+            encoding="utf-8",
+        )
+        processed_any = True
+
+    if not processed_any:
+        return False
+
+    response_text = json.dumps(
+        {
+            "status": "worker_completed",
+            "processed_shards": len(
+                [
+                    row
+                    for row in assigned_payload
+                    if isinstance(row, dict) and str(row.get("shard_id") or "").strip()
+                ]
+            ),
+        },
+        sort_keys=True,
+    )
+    usage = {
+        "input_tokens": max(1, len(prompt_text) // 4),
+        "cached_input_tokens": 0,
+        "output_tokens": max(1, len(response_text) // 4),
+        "reasoning_tokens": 0,
+    }
+    for event in (
+        {"type": "thread.started"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": response_text}},
+        {"type": "turn.completed", "usage": usage},
+    ):
+        sys.stdout.write(json.dumps(event, sort_keys=True))
+        sys.stdout.write("\n")
+    return True
 
 
 def _emit_progress(
@@ -218,7 +312,17 @@ def _pipeline_id_for_exec_schema(output_schema_path: str) -> str:
 def _run_exec(args: argparse.Namespace) -> int:
     prompt_text = sys.stdin.read()
     output_schema_path = str(args.output_schema or "").strip()
-    pipeline_id = _pipeline_id_for_exec_schema(output_schema_path)
+    pipeline_id = _infer_exec_pipeline_id(
+        prompt_text,
+        output_schema_path=output_schema_path,
+    )
+    if not output_schema_path:
+        if _run_workspace_worker_exec(
+            prompt_text=prompt_text,
+            cd=args.cd,
+            pipeline_id=pipeline_id,
+        ):
+            return 0
     parsed_payload = _extract_task_file_payload(prompt_text, cd=args.cd)
     if parsed_payload is None:
         parsed_payload = _extract_first_json_object(prompt_text)
@@ -305,6 +409,7 @@ def _build_parser() -> argparse.ArgumentParser:
     exec_parser = subparsers.add_parser("exec")
     exec_parser.add_argument("--json", action="store_true")
     exec_parser.add_argument("--ephemeral", action="store_true")
+    exec_parser.add_argument("--skip-git-repo-check", action="store_true")
     exec_parser.add_argument("--sandbox")
     exec_parser.add_argument("--cd")
     exec_parser.add_argument("--output-schema")

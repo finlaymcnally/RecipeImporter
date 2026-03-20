@@ -336,7 +336,7 @@ def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
     assert len(payloads[0]["c"]) == 2
 
 
-def test_build_knowledge_jobs_can_exceed_prompt_target_to_respect_char_cap(
+def test_build_knowledge_jobs_forces_requested_prompt_target_and_warns_on_char_cap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -383,14 +383,15 @@ def test_build_knowledge_jobs_can_exceed_prompt_target_to_respect_char_cap(
     )
 
     payloads = _load_all_jobs(in_dir)
-    assert report.shards_written == 10
-    assert len(payloads) == 10
-    assert [len(payload["c"]) for payload in payloads] == [1] * 10
+    assert report.shards_written == 5
+    assert len(payloads) == 5
+    assert [len(payload["c"]) for payload in payloads] == [2] * 5
     assert report.planning_warnings
-    assert "requested 5 shard(s), but the planner emitted 10 shard(s)" in report.planning_warnings[0]
+    assert any("forced shard count 5 produced 5 shard(s)" in warning for warning in report.planning_warnings)
+    assert any("char limit" in warning for warning in report.planning_warnings)
 
 
-def test_build_knowledge_jobs_warns_when_it_must_exceed_prompt_target(
+def test_build_knowledge_jobs_forces_requested_prompt_target_and_warns_on_oversized_bundles(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -437,11 +438,75 @@ def test_build_knowledge_jobs_warns_when_it_must_exceed_prompt_target(
     )
 
     payloads = _load_all_jobs(in_dir)
-    assert report.shards_written == 3
-    assert len(payloads) == 3
-    assert [len(payload["c"]) for payload in payloads] == [2, 2, 2]
+    assert report.shards_written == 2
+    assert len(payloads) == 2
+    assert [len(payload["c"]) for payload in payloads] == [3, 3]
     assert report.planning_warnings
-    assert "requested 2 shard(s), but the planner emitted 3 shard(s)" in report.planning_warnings[0]
+    assert any("forced shard count 2 produced 2 shard(s)" in warning for warning in report.planning_warnings)
+    assert any("char limit" in warning for warning in report.planning_warnings)
+
+
+def test_build_knowledge_jobs_warns_when_requested_shard_count_exceeds_chunk_count(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-0",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Acidity",
+                text="Acid balances richness.",
+                blockIds=[0],
+            ),
+            KnowledgeChunk(
+                id="chunk-1",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Salt",
+                text="Salt sharpens flavor.",
+                blockIds=[1],
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    in_dir = tmp_path / "requested-shards-exceed-chunks"
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": 0, "text": "Acid balances richness."},
+            {"index": 1, "text": "Salt sharpens flavor."},
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.knowledge.0.2",
+                category="knowledge",
+                block_start_index=0,
+                block_end_index=2,
+                block_indices=[0, 1],
+                block_ids=["b0", "b1"],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=in_dir,
+        context_blocks=0,
+        target_prompt_count=5,
+    )
+
+    payloads = _load_all_jobs(in_dir)
+    assert report.shards_written == 2
+    assert len(payloads) == 2
+    assert all(len(payload["c"]) == 1 for payload in payloads)
+    assert any(
+        "requested 5 shard(s), but only 2 non-empty shard(s) were possible from 2 chunk(s)"
+        in warning
+        for warning in report.planning_warnings
+    )
 
 
 def test_build_knowledge_jobs_omits_chunk_hint_objects_from_model_payload(

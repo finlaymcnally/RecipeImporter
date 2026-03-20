@@ -23,6 +23,7 @@ Editable prompt text:
 - `prompts/recipe.correction.compact.v1.prompt.md`
 - `prompts/recipe.knowledge.compact.v1.prompt.md`
 - `prompts/benchmark.oracle-upload.prompt.md` (post-benchmark Oracle review prompt for `cookimport bench oracle-upload` and benchmark auto-upload)
+- `prompts/benchmark.oracle-followup.prompt.md` (turn-2 Oracle follow-up prompt for `cookimport bench oracle-followup`)
 
 Output schemas:
 
@@ -44,6 +45,7 @@ Prompt input contract:
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).
+- `recipe.knowledge.compact.v1.prompt.md` now also forbids the old reviewed-empty collapse: `u=true` requires `knowledge` decisions plus snippets, `u=false` still requires full block coverage with `other`, and clearly useful knowledge shards must be surfaced positively instead of returned as blanket all-false output.
 - Recipe codex-farm packs (`recipe.correction.compact.v1`, `recipe.knowledge.compact.v1`) default to `codex_timeout_seconds: 600`.
 
 ## Label Studio freeform AI templates

@@ -28,7 +28,9 @@ Negative rules (must-not-do):
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
+- If `span_code` is `N` (outside recipe), default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
+- A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
 
@@ -82,7 +84,15 @@ Few-shot examples:
     Label: `KNOWLEDGE`
 
 13) Context: general teaching/setup prose, not a recipe step
-    Line: `Think about making a grilled cheese sandwich.`
+   Line: `Think about making a grilled cheese sandwich.`
+   Label: `OTHER`
+
+14) Context: outside recipe, generic lesson heading
+    Line: `Gentle Cooking Methods`
+    Label: `KNOWLEDGE`
+
+15) Context: outside recipe, memoir or narrative prose
+    Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`
     Label: `OTHER`
 
 RETURN FORMAT (STRICT JSON ONLY)

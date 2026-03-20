@@ -159,6 +159,10 @@ _UNIT_ALIAS_MAP = {
     "fl. oz.": "fluid ounce",
 }
 
+_APPROXIMATE_UNIT_NORMALIZATION_MAP = {
+    "picoinch": "pinch",
+}
+
 _MEASUREMENT_UNIT_HINTS = {
     "cup",
     "cups",
@@ -541,6 +545,7 @@ def _repair_result(
     if raw_unit_text:
         raw_unit_text = _normalize_unit_text(raw_unit_text)
         raw_unit_text = canonicalize_unit_with_pint(raw_unit_text)
+        raw_unit_text = _normalize_approximate_unit_text(raw_unit_text)
 
     if (
         input_qty is None
@@ -630,6 +635,11 @@ def _normalize_unit_text(unit_text: str) -> str:
     normalized = unit_text.strip().lower().replace("_", " ")
     normalized = re.sub(r"\s+", " ", normalized)
     return _UNIT_ALIAS_MAP.get(normalized, normalized)
+
+
+def _normalize_approximate_unit_text(unit_text: str) -> str:
+    normalized = unit_text.strip().lower()
+    return _APPROXIMATE_UNIT_NORMALIZATION_MAP.get(normalized, normalized)
 
 
 def _fallback_name_from_text(text: str) -> str | None:

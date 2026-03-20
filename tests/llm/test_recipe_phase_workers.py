@@ -6,6 +6,8 @@ from pathlib import Path
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
+from cookimport.llm import codex_farm_orchestrator as recipe_module
+from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 
@@ -168,6 +170,22 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert len(apply_result.intermediate_overrides_by_recipe_id) == 3
     assert len(apply_result.final_overrides_by_recipe_id) == 3
+    assert len(runner.calls) == 1
+    assert runner.calls[0]["mode"] == "workspace_worker"
+    worker_root = runtime_dir / "workers" / "worker-001"
+    worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
+    assert "worker_manifest.json" in worker_prompt
+    assert "If you need a helper command, keep it narrow and workspace-local" in worker_prompt
+    assert "Do not use exploration commands such as `find`, `tree`" in worker_prompt
+    worker_manifest = json.loads(
+        (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
+    )
+    assert worker_manifest["entry_files"] == ["worker_manifest.json", "assigned_shards.json"]
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.json").exists()
+    assert (worker_root / "out" / "recipe-shard-0001-r0002-r0002.json").exists()
+    assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is False
+    assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is True
 
 
 def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
@@ -281,3 +299,32 @@ def test_recipe_prompt_target_count_is_a_direct_shard_override(
 
     assert phase_manifest["shard_count"] == 2
     assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]
+
+
+def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(
+    tmp_path: Path,
+) -> None:
+    callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        stage_label="workspace worker stage",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.5,
+            last_event_seconds_ago=0.0,
+            event_count=14,
+            command_execution_count=7,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc cat in/recipe-shard-0000-r0000-r0001.json",
+            last_command_repeat_count=2,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy"] == "tolerated_workspace_helper_command"
+    assert live_status["last_command_policy_allowed"] is True

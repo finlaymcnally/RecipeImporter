@@ -1275,6 +1275,102 @@ def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None
     assert predictions[0].label == "OTHER"
 
 
+def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_knowledge(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:lesson:1",
+            block_index=1,
+            atomic_index=0,
+            text="Gentle Cooking Methods",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:lesson:2",
+            block_index=2,
+            atomic_index=1,
+            text=(
+                "Gentle cooking methods control heat transfer so food cooks through "
+                "without toughening or drying out."
+            ),
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "HOWTO_SECTION", 1: "KNOWLEDGE"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_outside_span_structured_label" in predictions[0].reason_tags
+
+
+def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:memoir:1",
+            block_index=1,
+            atomic_index=0,
+            text=(
+                "Then I fell in love with Johnny, who introduced me to the culinary "
+                "delights of his native San Francisco."
+            ),
+            within_recipe_span=False,
+            rule_tags=[],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "HOWTO_SECTION"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_outside_span_structured_label" in predictions[0].reason_tags
+
+
+def test_codex_outside_recipe_explicit_howto_heading_can_stay_structured(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:howto:outside:1",
+            block_index=1,
+            atomic_index=0,
+            text="FOR THE SAUCE",
+            within_recipe_span=False,
+            rule_tags=[],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "HOWTO_SECTION"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
+
+
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     tmp_path,
 ) -> None:
@@ -1494,24 +1590,40 @@ def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() ->
 
 def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> None:
     prompt = build_canonical_line_role_file_prompt(
-        input_path=Path("/tmp/line_role_input_0001.json")
+        input_path=Path("/tmp/line_role_input_0001.json"),
+        input_payload={
+            "v": 1,
+            "shard_id": "line-role-canonical-0001-a000123-a000456",
+            "rows": [[123, "L4", "1 cup flour"]],
+        },
     )
 
-    assert '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}' in prompt
+    assert '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}' in prompt
+    assert (
+        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}'
+        in prompt
+    )
     assert (
         "Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth."
         in prompt
     )
+    assert "The authoritative shard rows are embedded below." in prompt
+    assert "do not open it or inspect the workspace to answer" in prompt
     assert "Do not run shell commands, Python, or any other tools." in prompt
+    assert "Do not describe your plan, reasoning, or heuristics." in prompt
+    assert "Your first response must be the final JSON object." in prompt
     assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
     assert "Label codes:" in prompt
-    assert "Convert each `label_code` into the correct full label string" in prompt
     assert "Return one result for every input row." in prompt
     assert "Use each row's tuple slot 2 (`current_line`) as the line to label." in prompt
+    assert "Recompute labels from the task file rows themselves" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
+    assert "default to `KNOWLEDGE` or `OTHER`" in prompt
     assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
+    assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Salt and Pepper" in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[123, "L4", "1 cup flour"]\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -1671,11 +1783,8 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
         live_llm_allowed=True,
     )
     assert len(runner.calls) == 1
-    assert {
-        Path(call["output_schema_path"]).name for call in runner.calls
-    } == {
-        "line-role.canonical.v1.output.schema.json",
-    }
+    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["output_schema_path"] is None
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
         candidates,
@@ -1708,8 +1817,8 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
     ]
 
     class _TelemetryRunner(FakeCodexExecRunner):
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
+        @staticmethod
+        def _with_usage(result):  # noqa: ANN001
             return result.__class__(
                 command=result.command,
                 subprocess_exit_code=result.subprocess_exit_code,
@@ -1727,6 +1836,14 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
                 stderr_text=result.stderr_text,
                 stdout_text=result.stdout_text,
             )
+
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
+            return self._with_usage(result)
+
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_workspace_worker(*args, **kwargs)
+            return self._with_usage(result)
 
     predictions = label_atomic_lines(
         candidates,
@@ -1786,21 +1903,26 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     ]
 
     class _WatchdogRunner(FakeCodexExecRunner):
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
-            supervision_callback = kwargs.get("supervision_callback")
+        def _watchdog_result(
+            self,
+            result,
+            *,
+            supervision_callback=None,
+            timeout_seconds=None,
+        ):  # noqa: ANN001
+            decision = None
             if supervision_callback is not None:
-                supervision_callback(
+                decision = supervision_callback(
                     CodexExecLiveSnapshot(
-                        elapsed_seconds=0.1,
+                        elapsed_seconds=4.0,
                         last_event_seconds_ago=0.0,
-                        event_count=2,
-                        command_execution_count=1,
+                        event_count=80,
+                        command_execution_count=40,
                         reasoning_item_count=0,
-                        last_command="python -c 'print(1)'",
-                        last_command_repeat_count=1,
+                        last_command="/bin/bash -lc cat in/line-role-canonical-0001-a000000-a000000.json",
+                        last_command_repeat_count=2,
                         has_final_agent_message=False,
-                        timeout_seconds=kwargs.get("timeout_seconds"),
+                        timeout_seconds=timeout_seconds,
                     )
                 )
             return result.__class__(
@@ -1809,7 +1931,10 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
                 output_schema_path=result.output_schema_path,
                 prompt_text=result.prompt_text,
                 response_text=None,
-                turn_failed_message="strict JSON stage attempted tool use",
+                turn_failed_message=str(
+                    (decision.reason_detail if decision is not None else None)
+                    or "strict JSON stage attempted tool use"
+                ),
                 events=(
                     {"type": "thread.started"},
                     {
@@ -1817,7 +1942,7 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
                         "item": {
                             "type": "command_execution",
                             "id": "cmd-1",
-                            "command": "python -c 'print(1)'",
+                            "command": "/bin/bash -lc cat in/line-role-canonical-0001-a000000-a000000.json",
                         },
                     },
                 ),
@@ -1836,9 +1961,33 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
                 started_at_utc=result.started_at_utc,
                 finished_at_utc=result.finished_at_utc,
                 supervision_state="watchdog_killed",
-                supervision_reason_code="watchdog_command_execution_forbidden",
-                supervision_reason_detail="strict JSON stage attempted tool use",
-                supervision_retryable=True,
+                supervision_reason_code=str(
+                    (decision.reason_code if decision is not None else None)
+                    or "watchdog_command_loop_without_output"
+                ),
+                supervision_reason_detail=str(
+                    (decision.reason_detail if decision is not None else None)
+                    or "workspace worker stage spent too many shell commands without reaching final output"
+                ),
+                supervision_retryable=bool(
+                    decision.retryable if decision is not None else True
+                ),
+            )
+
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
+            return self._watchdog_result(
+                result,
+                supervision_callback=kwargs.get("supervision_callback"),
+                timeout_seconds=kwargs.get("timeout_seconds"),
+            )
+
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_workspace_worker(*args, **kwargs)
+            return self._watchdog_result(
+                result,
+                supervision_callback=kwargs.get("supervision_callback"),
+                timeout_seconds=kwargs.get("timeout_seconds"),
             )
 
     predictions = label_atomic_lines(
@@ -1860,16 +2009,129 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     assert "watchdog_kills_detected" in telemetry_payload["summary"]["pathological_flags"]
     assert "command_execution_detected" in telemetry_payload["summary"]["pathological_flags"]
 
-    live_status_path = next((tmp_path / "line-role-pipeline" / "runtime").rglob("live_status.json"))
+    live_status_path = next(
+        path
+        for path in (tmp_path / "line-role-pipeline" / "runtime").rglob("live_status.json")
+        if "shards" in path.parts
+    )
     status_path = live_status_path.with_name("status.json")
     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
     assert status_payload["status"] == "missing_output"
     assert status_payload["state"] == "watchdog_killed"
-    assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+    assert status_payload["reason_code"] == "watchdog_command_loop_without_output"
+    assert "command_count=40" in status_payload["reason_detail"]
 
     live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
     assert live_status_payload["state"] == "watchdog_killed"
-    assert live_status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+    assert live_status_payload["reason_code"] == "watchdog_command_loop_without_output"
+    assert "command_count=40" in live_status_payload["reason_detail"]
+
+
+def test_line_role_strict_watchdog_still_kills_benign_commands_in_structured_mode(
+    tmp_path: Path,
+) -> None:
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.1,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc ls",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_command_execution_forbidden"
+    assert "ls" in str(decision.reason_detail or "")
+
+
+def test_label_atomic_lines_allows_workspace_commands_without_immediate_kill(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:workspace-benign:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    class _WorkspaceCommandRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            supervision_callback = kwargs.get("supervision_callback")
+            if supervision_callback is not None:
+                for command_count, last_command in (
+                    (1, "/bin/bash -lc cat in/line-role-canonical-0001-a000000-a000000.json"),
+                    (3, "/bin/bash -lc sed -n '1,20p' in/line-role-canonical-0001-a000000-a000000.json"),
+                    (6, "/bin/bash -lc jq .rows[0] in/line-role-canonical-0001-a000000-a000000.json"),
+                ):
+                    decision = supervision_callback(
+                        CodexExecLiveSnapshot(
+                            elapsed_seconds=0.1 * command_count,
+                            last_event_seconds_ago=0.0,
+                            event_count=2 * command_count,
+                            command_execution_count=command_count,
+                            reasoning_item_count=0,
+                            last_command=last_command,
+                            last_command_repeat_count=1,
+                            has_final_agent_message=False,
+                            timeout_seconds=kwargs.get("timeout_seconds"),
+                        )
+                    )
+                    assert decision is None
+            return super().run_workspace_worker(*args, **kwargs)
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_WorkspaceCommandRunner(output_builder=_line_role_runner({0: "OTHER"}).output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "codex"
+
+
+def test_label_atomic_lines_rejects_line_role_orientation_commands(
+    tmp_path: Path,
+) -> None:
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.1,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc ls",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_command_execution_forbidden"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy"] == "forbidden_orientation_command"
+    assert live_status["last_command_policy_allowed"] is False
 
 
 def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
@@ -1901,6 +2163,31 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
     ]
 
     class _OutlierRetryRunner(FakeCodexExecRunner):
+        @staticmethod
+        def _first_atomic_index_for_workspace(working_dir) -> int:  # noqa: ANN001
+            worker_root = Path(str(working_dir))
+            assigned_shards_path = worker_root / "assigned_shards.json"
+            if not assigned_shards_path.exists():
+                return -1
+            assigned_shards = json.loads(assigned_shards_path.read_text(encoding="utf-8"))
+            if not isinstance(assigned_shards, list) or not assigned_shards:
+                return -1
+            shard_row = assigned_shards[0]
+            if not isinstance(shard_row, dict):
+                return -1
+            shard_id = str(shard_row.get("shard_id") or "").strip()
+            if not shard_id:
+                return -1
+            input_path = worker_root / "in" / f"{shard_id}.json"
+            if not input_path.exists():
+                return -1
+            payload = json.loads(input_path.read_text(encoding="utf-8"))
+            rows = payload.get("rows") if isinstance(payload, dict) else []
+            if not isinstance(rows, list) or not rows:
+                return -1
+            first_row = rows[0]
+            return int(first_row[0]) if isinstance(first_row, list) and first_row else -1
+
         def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
             payload = dict(kwargs.get("input_payload") or {})
             rows = payload.get("rows") or []
@@ -1958,6 +2245,59 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
                 )
             return super().run_structured_prompt(*args, **kwargs)
 
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            first_atomic_index = self._first_atomic_index_for_workspace(kwargs.get("working_dir"))
+            if first_atomic_index == 3:
+                supervision_callback = kwargs.get("supervision_callback")
+                decision = None
+                if supervision_callback is not None:
+                    for _ in range(40):
+                        time.sleep(0.05)
+                        decision = supervision_callback(
+                            CodexExecLiveSnapshot(
+                                elapsed_seconds=0.2,
+                                last_event_seconds_ago=0.05,
+                                event_count=0,
+                                command_execution_count=0,
+                                reasoning_item_count=0,
+                                last_command=None,
+                                last_command_repeat_count=0,
+                                has_final_agent_message=False,
+                                timeout_seconds=kwargs.get("timeout_seconds"),
+                            )
+                        )
+                        if decision is not None:
+                            break
+                assert decision is not None
+                from cookimport.llm.codex_exec_runner import CodexExecRunResult
+
+                return CodexExecRunResult(
+                    command=["codex", "exec"],
+                    subprocess_exit_code=0,
+                    output_schema_path=None,
+                    prompt_text=str(kwargs.get("prompt_text") or ""),
+                    response_text=None,
+                    turn_failed_message=str(decision.reason_detail or ""),
+                    events=(),
+                    usage={
+                        "input_tokens": 7,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "reasoning_tokens": 0,
+                    },
+                    source_working_dir=str(kwargs.get("working_dir")),
+                    execution_working_dir=str(kwargs.get("working_dir")),
+                    execution_agents_path=None,
+                    duration_ms=50,
+                    started_at_utc="2026-01-01T00:00:00Z",
+                    finished_at_utc="2026-01-01T00:00:00Z",
+                    supervision_state="watchdog_killed",
+                    supervision_reason_code=str(decision.reason_code),
+                    supervision_reason_detail=str(decision.reason_detail),
+                    supervision_retryable=bool(decision.retryable),
+                )
+            return super().run_workspace_worker(*args, **kwargs)
+
     predictions = label_atomic_lines(
         candidates,
         _settings(
@@ -2014,6 +2354,9 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
         retry_status_path.parent / "watchdog_retry_prompt.txt"
     ).read_text(encoding="utf-8")
     assert "Successful sibling examples:" in retry_prompt
+    assert "Authoritative shard rows to relabel" in retry_prompt
+    assert "Your first response must be the final JSON object." in retry_prompt
+    assert "Do not describe your plan, reasoning, or heuristics." in retry_prompt
 
 
 def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
@@ -2038,7 +2381,11 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-shard-v1"),
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
         artifact_root=tmp_path,
         codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
         live_llm_allowed=True,
@@ -2061,6 +2408,92 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
     )
     repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
     assert repair_status["status"] == "repaired"
+    repair_prompt = (repair_status_path.parent / "repair_prompt.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "Authoritative shard rows to relabel" in repair_prompt
+    assert "Your first response must be the final JSON object." in repair_prompt
+    assert "Do not describe your plan, reasoning, or heuristics." in repair_prompt
+
+
+def test_label_atomic_lines_rejects_degenerate_uniform_repair_and_falls_back_to_baseline(
+    tmp_path,
+) -> None:
+    payload = _load_fixture("hollandaise_merged_block.json")
+    blocks = payload.get("blocks")
+    assert isinstance(blocks, list)
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=str(payload.get("recipe_id") or ""),
+        within_recipe_span=True,
+    )
+    baseline_predictions = label_atomic_lines(candidates, _settings())
+    assert len({prediction.label for prediction in baseline_predictions}) >= 3
+
+    def _output_builder(payload):
+        rows = payload.get("rows") if isinstance(payload, dict) else []
+        if payload and payload.get("repair_mode") == "line_role":
+            return {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "INGREDIENT_LINE"}
+                    for row in rows
+                ]
+            }
+        first_atomic_index = int(rows[0][0]) if rows else 0
+        return {
+            "rows": [
+                {
+                    "atomic_index": first_atomic_index,
+                    "label": "INGREDIENT_LINE",
+                }
+            ]
+        }
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        prediction.label for prediction in baseline_predictions
+    ]
+
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["attempt_count"] == 2
+    assert telemetry_payload["summary"]["repaired_shard_count"] == 0
+    assert telemetry_payload["summary"]["invalid_output_shard_count"] == 1
+
+    repair_status_path = next(
+        (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
+    )
+    repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
+    assert repair_status["status"] == "failed"
+    assert (
+        "pathological_uniform_label_output:INGREDIENT_LINE"
+        in repair_status["repair_validation_errors"]
+    )
+
+    proposal_path = next(
+        (tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "proposals").glob(
+            "*.json"
+        )
+    )
+    proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
+    assert (
+        "pathological_uniform_label_output:INGREDIENT_LINE"
+        in proposal_payload["validation_metadata"]["repair_validation_errors"]
+    )
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
@@ -2088,11 +2521,8 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
         live_llm_allowed=True,
     )
     assert len(runner.calls) == 1
-    assert {
-        Path(call["output_schema_path"]).name for call in runner.calls
-    } == {
-        "line-role.canonical.v1.output.schema.json",
-    }
+    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["output_schema_path"] is None
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
         candidates,
@@ -2214,9 +2644,13 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role"
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
-    assert "You are reviewing deterministic canonical line-role labels" in prompt_text
-    assert "Read the worker-local task file" in prompt_text
-    assert "Ambiguous line 0" not in prompt_text
+    assert "You are processing many canonical line-role shard tasks inside one local worker workspace." in prompt_text
+    assert "Start by opening `worker_manifest.json`, then `assigned_shards.json`." in prompt_text
+    assert "If you need a helper command, keep it narrow and workspace-local" in prompt_text
+    assert "Do not use `pwd` or `ls` here" in prompt_text
+    assert "Do not use exploration commands such as `find`, `tree`" in prompt_text
+    assert "Read `assigned_shards.json` and process the assigned shard files in order." in prompt_text
+    assert "write exactly one JSON object to `out/<shard_id>.json`." in prompt_text
     worker_prompt_text = (
         tmp_path
         / "line-role-pipeline"
@@ -2228,9 +2662,36 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line-role-canonical-0001-a000000-a000000"
         / "prompt.txt"
     ).read_text(encoding="utf-8")
-    assert "You are reviewing deterministic canonical line-role labels" in worker_prompt_text
-    assert "Read the worker-local task file" in worker_prompt_text
-    assert "Ambiguous line 0" not in worker_prompt_text
+    assert "You are processing many canonical line-role shard tasks inside one local worker workspace." in worker_prompt_text
+    assert "worker_manifest.json" in worker_prompt_text
+    assert "Assigned shard files:" in worker_prompt_text
+    worker_manifest_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "worker_manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert worker_manifest_payload["entry_files"] == [
+        "worker_manifest.json",
+        "assigned_shards.json",
+    ]
+    worker_input_text = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "in"
+        / "line-role-canonical-0001-a000000-a000000.json"
+    ).read_text(encoding="utf-8")
+    worker_input_payload = json.loads(worker_input_text)
+    assert worker_input_payload["rows"] == [[0, "L9", "Ambiguous line 0"]]
     input_payload = json.loads(
         (
             tmp_path

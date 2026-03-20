@@ -77,6 +77,8 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
 
     assert [row.atomic_index for row in predictions] == [0, 1, 2]
     assert all(row.decided_by == "codex" for row in predictions)
+    assert len(runner.calls) == 1
+    assert runner.calls[0]["mode"] == "workspace_worker"
 
     runtime_root = tmp_path / "line-role-pipeline" / "runtime"
     phase_manifest = json.loads(
@@ -102,6 +104,14 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
         "line-role-canonical-0003-a000002-a000002",
     ]
     assert len(phase_proposals) == 3
+    assert (
+        runtime_root
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "out"
+        / "line-role-canonical-0001-a000000-a000000.json"
+    ).exists()
     compact_input = json.loads(
         (
             runtime_root
@@ -181,8 +191,8 @@ def test_line_role_phase_workers_emit_runtime_telemetry_summary(
     tmp_path: Path,
 ) -> None:
     class _TelemetryRunner(FakeCodexExecRunner):
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
+        @staticmethod
+        def _with_usage(result):  # noqa: ANN001
             return result.__class__(
                 command=result.command,
                 subprocess_exit_code=result.subprocess_exit_code,
@@ -200,6 +210,14 @@ def test_line_role_phase_workers_emit_runtime_telemetry_summary(
                 stderr_text=result.stderr_text,
                 stdout_text=result.stdout_text,
             )
+
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
+            return self._with_usage(result)
+
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_workspace_worker(*args, **kwargs)
+            return self._with_usage(result)
 
     predictions = label_atomic_lines(
         [_candidate(0)],
@@ -235,17 +253,23 @@ def test_line_role_phase_workers_run_concurrently_when_multiple_workers_assigned
     state = {"current": 0, "max": 0}
 
     class _ConcurrentRunner(FakeCodexExecRunner):
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def _run_with_overlap(self, fn, *args, **kwargs):  # noqa: ANN002, ANN003
             with lock:
                 state["current"] += 1
                 state["max"] = max(state["max"], state["current"])
             barrier.wait(timeout=1.0)
             time.sleep(0.05)
             try:
-                return super().run_structured_prompt(*args, **kwargs)
+                return fn(*args, **kwargs)
             finally:
                 with lock:
                     state["current"] -= 1
+
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return self._run_with_overlap(super().run_structured_prompt, *args, **kwargs)
+
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return self._run_with_overlap(super().run_workspace_worker, *args, **kwargs)
 
     predictions = label_atomic_lines(
         [_candidate(0), _candidate(1)],

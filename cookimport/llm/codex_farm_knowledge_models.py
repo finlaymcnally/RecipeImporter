@@ -113,6 +113,28 @@ class KnowledgeChunkResultV2(BaseModel):
             seen.add(decision.block_index)
         return value
 
+    @model_validator(mode="after")
+    def _validate_usefulness_consistency(self) -> "KnowledgeChunkResultV2":
+        has_knowledge_decision = any(
+            decision.category == "knowledge" for decision in self.block_decisions
+        )
+        has_snippets = bool(self.snippets)
+        if self.is_useful:
+            if not has_knowledge_decision:
+                raise ValueError(
+                    "useful chunk results must include at least one knowledge block decision."
+                )
+            if not has_snippets:
+                raise ValueError("useful chunk results must include at least one snippet.")
+            return self
+        if has_knowledge_decision:
+            raise ValueError(
+                "non-useful chunk results must not include knowledge block decisions."
+            )
+        if has_snippets:
+            raise ValueError("non-useful chunk results must not include snippets.")
+        return self
+
 
 class KnowledgeBundleOutputV2(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")

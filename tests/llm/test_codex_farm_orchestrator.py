@@ -155,7 +155,18 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     )
 
     assert len(runner.calls) == 1
-    assert runner.calls[0]["input_payload"]["r"][0]["rid"] == "urn:recipe:test:toast"
+    assert runner.calls[0]["mode"] == "workspace_worker"
+    worker_input = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "workers"
+            / "worker-001"
+            / "in"
+            / "recipe-shard-0000-r0000-r0000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert worker_input["r"][0]["rid"] == "urn:recipe:test:toast"
     assert set(apply_result.intermediate_overrides_by_recipe_id) == {
         "urn:recipe:test:toast"
     }
@@ -180,7 +191,7 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 1
     assert sorted(manifest["process_runs"].keys()) == ["recipe_correction"]
-    correction_input = runner.calls[0]["input_payload"]
+    correction_input = worker_input
     assert "draft_hint" not in correction_input
     assert correction_input["r"][0]["h"] == {
         "n": "Toast",
@@ -396,6 +407,7 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
     )
 
     assert len(runner.calls) == 2
+    assert runner.calls[0]["mode"] == "workspace_worker"
     assert "Authoritative shard input:" in runner.calls[1]["prompt_text"]
     assert "Missing recipe ids: urn:recipe:test:toast" in runner.calls[1]["prompt_text"]
 
@@ -455,9 +467,13 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
     )
 
     class _WatchdogRunner(FakeCodexExecRunner):
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
-            supervision_callback = kwargs.get("supervision_callback")
+        def _watchdog_result(
+            self,
+            result,
+            *,
+            supervision_callback=None,
+            timeout_seconds=None,
+        ):  # noqa: ANN001
             if supervision_callback is not None:
                 supervision_callback(
                     CodexExecLiveSnapshot(
@@ -469,7 +485,7 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
                         last_command="python -c 'print(1)'",
                         last_command_repeat_count=1,
                         has_final_agent_message=False,
-                        timeout_seconds=kwargs.get("timeout_seconds"),
+                        timeout_seconds=timeout_seconds,
                     )
                 )
             return result.__class__(
@@ -510,6 +526,22 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
                 supervision_retryable=False,
             )
 
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
+            return self._watchdog_result(
+                result,
+                supervision_callback=kwargs.get("supervision_callback"),
+                timeout_seconds=kwargs.get("timeout_seconds"),
+            )
+
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_workspace_worker(*args, **kwargs)
+            return self._watchdog_result(
+                result,
+                supervision_callback=kwargs.get("supervision_callback"),
+                timeout_seconds=kwargs.get("timeout_seconds"),
+            )
+
     apply_result = run_codex_farm_recipe_pipeline(
         conversion_result=result,
         run_settings=settings,
@@ -540,7 +572,7 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
         / "recipe-shard-0000-r0000-r0000"
     )
     status_payload = json.loads((shard_root / "status.json").read_text(encoding="utf-8"))
-    assert status_payload["status"] == "missing_output"
+    assert status_payload["status"] == "invalid"
     assert status_payload["state"] == "watchdog_killed"
     assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
 

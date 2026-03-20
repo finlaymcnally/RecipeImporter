@@ -140,6 +140,9 @@ class OracleBackgroundUploadLaunch:
     reattach_command: str = ""
     conversation_url: str = ""
     conversation_id: str = ""
+    auto_followup_worker_pid: int = 0
+    auto_followup_log_path: Path | None = None
+    auto_followup_status_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -977,12 +980,14 @@ def start_oracle_benchmark_upload_background(
         "scope": target.scope,
         "mode": normalized_mode,
         "model": model,
+        "prompt": session_prompt,
         "pid": int(proc.pid),
         "command": command,
         "log_path": str(log_path),
         "metadata_path": str(metadata_path),
         "status_path": str(_oracle_upload_status_path(metadata_path)),
         "started_at": _oracle_upload_timestamp(),
+        "launch_started_at_utc": launch_started_at.isoformat(),
         "note": note,
         "browser_profile_dir": str(browser_profile_dir) if browser_profile_dir else "",
         "oracle_version": oracle_version,
@@ -1191,12 +1196,14 @@ def run_oracle_benchmark_upload(
             "scope": target.scope,
             "mode": normalized_mode,
             "model": model,
+            "prompt": prepared.prompt,
             "pid": None,
             "command": command,
             "log_path": str(log_path),
             "metadata_path": str(metadata_path),
             "status_path": str(_oracle_upload_status_path(metadata_path)),
             "started_at": _oracle_upload_timestamp(),
+            "launch_started_at_utc": launch_started_at.isoformat(),
             "note": prepared.note,
             "browser_profile_dir": str(browser_profile_dir) if browser_profile_dir else "",
             "oracle_version": oracle_version,

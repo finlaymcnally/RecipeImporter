@@ -185,6 +185,7 @@ Label-first recipe-span note:
 - Default missing-unit policy is now explicit and defaults to `null` (no implicit `"medium"` unit).
 - Packaging-mode regex hoist (`ingredient_packaging_mode=regex_v1`) moves package-size hints into `note` for lines like `1 (14-ounce) can tomatoes`.
 - Post-parse repair is deterministic: it preserves `raw_text`, repairs invalid quantity/unit/name combinations, and keeps fallback ingredient names instead of dropping lines.
+- Approximate repair now also normalizes bogus parser unit reads such as `picoinch` back to `pinch` so phrases like `pinch of salt` land as `quantity_kind=approximate` with the token moved into `note`.
 - `warm_ingredient_parser()` exists to pre-load model quietly.
 
 ### Tests to read
@@ -514,7 +515,8 @@ Gates include:
 - Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
 - Strong deterministic `RECIPE_TITLE` outcomes are held on the rule path without any score-based fallback pressure.
 - Outside-recipe-span score-based escalation is gone; shard review sees the whole ordered candidate set, and local neighbor context is attached only for escalated rows rather than only for pre-marked recipe rows.
-- Codex line-role outputs are no longer subject to post-Codex ownership arbitration, outside-span structured-label downgrades, or do-no-harm rollback; after shard validation, only the generic label sanitizers still run.
+- Post-Codex sanitizers now fail closed on outside-span recipe-ish labels. `HOWTO_SECTION`, `INSTRUCTION_LINE`, and other structure labels can survive outside recipe only when the local rows show actual recipe-component evidence; otherwise the sanitizer demotes them back to `KNOWLEDGE`, `OTHER`, or `RECIPE_NOTES`.
+- The practical intent of that sanitizer is narrow: keep explicit `FOR THE ...` component headings and real outside-span ingredient/instruction clusters, but stop generic cookbook lesson headings and memoir prose from being promoted into recipe structure.
 - This seam is now reason-only. Current runtime artifacts expose label-driven grouping plus explicit `escalation_reasons` only; scalar `confidence`, `trust_score`, and `escalation_score` fields are no longer part of the contract.
 - Reviewer/export surfaces should mirror that same contract. If a downstream bundle or debug packet still wants scalar uncertainty fields, that downstream surface is stale rather than the parsing contract being incomplete.
 - Codex fallback batches now run with bounded in-flight concurrency (parser default `4` per book; explicit env override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`; ingest callers can pass `codex_max_inflight`) and merge back deterministically by atomic index/prompt order.

@@ -9,7 +9,7 @@ read_when:
 
 # LLM Section Reference
 
-LLM usage in this repo is optional. Recipe, knowledge, and line-role now each use one direct `codex exec` structured call per shard.
+LLM usage in this repo is optional. The direct-exec transport is now mixed by attempt type rather than by stage: recipe, line-role, and knowledge worker assignments all start in one long-lived local workspace-worker session that processes worker-local shard files and writes `out/*.json` results incrementally, while stage-specific retry / repair follow-up attempts can still use structured one-shot calls.
 
 ## Runtime surface
 
@@ -29,7 +29,10 @@ Primary entrypoints:
 Shared shard-runtime foundation:
 
 - `cookimport/llm/phase_worker_runtime.py` is the shared shard-worker foundation and still defines the manifest/assignment/promotion artifact contract that the direct recipe, knowledge, and line-role runtimes mirror.
-- `cookimport/llm/codex_exec_runner.py` is the repo-owned direct structured Codex subprocess seam used by the live recipe, knowledge, and line-role transports.
+- `cookimport/llm/codex_exec_runner.py` is the repo-owned direct Codex subprocess seam used by the live recipe, knowledge, and line-role transports. It now supports both one-shot structured prompts and long-lived workspace-worker sessions.
+- workspace-worker sessions now also get a repo-written `worker_manifest.json` in the worker root and mirrored sterile workspace. The worker contract is now explicit: start from `worker_manifest.json`, then `assigned_shards.json`, open named `in/*.json` files directly, and avoid exploration commands such as `find`/`tree` or anything that tries to inspect the repo beyond the bounded workspace.
+- watchdog policy is now split by transport: structured retry / repair calls still treat shell commands as immediate off-contract behavior, while workspace-worker main attempts can keep using narrow workspace-local shell/helper commands on named files throughout the session and are only killed if they drift into prolonged command loops without producing outputs or leave the allowed local workspace surface.
+- line-role stays stricter than recipe/knowledge inside that workspace-worker model: line-role worker sessions do not tolerate `pwd` / `ls`, do not allow helper commands against `out/`, and use a smaller command-loop budget because the stage already names the exact shard files it wants.
 
 Recipe CodexFarm path:
 
@@ -62,8 +65,10 @@ Migration note:
 - the shard-v1 work is a runtime refactor over the existing label-first staged importer, not a new pipeline
 - shards are ownership units and workers are bounded execution contexts; preview, prompt exports, and reviewer artifacts should describe both instead of pretending one prompt equals one independent task
 - the foundation plan froze the ids and runtime contracts first; recipe, knowledge, and line-role now all execute through shard-owned runtime artifacts, and the preview/export cutover has landed on top of those artifacts
-- prompt-planning field names are still `recipe_prompt_target_count`, `knowledge_prompt_target_count`, and `line_role_prompt_target_count`, but the active contract is now split by surface: recipe and line-role treat the value as a direct shard-count override, while knowledge treats `knowledge_prompt_target_count` as a soft target that still yields to hard bundle safety limits; lower-level shard-size knobs remain the explicit item-count overrides
-- knowledge and line-role no longer use the path-mode CodexFarm `process` transport; each sends one inline prompt per shard through `codex exec`
+- prompt-planning field names are still `recipe_prompt_target_count`, `knowledge_prompt_target_count`, and `line_role_prompt_target_count`, and the active contract is now aligned across live direct-exec surfaces: each acts as a direct shard-count override; lower-level shard-size knobs remain the explicit item-count overrides
+- knowledge no longer uses the path-mode CodexFarm `process` transport. Knowledge worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, and only watchdog-retry / split-retry / repair follow-up attempts still use inline structured calls per shard.
+- recipe no longer uses the path-mode CodexFarm `process` transport either. Recipe worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, and only the near-miss repair pass still drops to one inline structured repair call per shard.
+- line-role no longer uses the path-mode CodexFarm `process` transport either. Line-role worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, and only the watchdog-retry / repair follow-up attempts still use inline structured calls per shard.
 - recipe no longer uses the classic `codex-farm process` transport either; it now renders the shard JSON inline into the checked-in recipe prompt and sends one direct structured call per shard through `codex exec`
 - recipe shard JSON and recipe shard outputs now use compact aliases on the live model-facing seam (`sid`, `rid`, `cr`, `tg`, etc.), while deterministic promotion still normalizes the result back into the existing staged outputs
 
@@ -107,11 +112,11 @@ If you want the current Codex-backed flow in operator language instead of artifa
 
 1. The program parses the cookbook into one ordered set of atomic lines and other deterministic intermediate structures.
 2. The program makes a deterministic first pass over those lines before any Codex-backed review.
-3. The line-role Codex surface reviews the whole book line set in one file-backed labeling pass. Operator-wise this is just "label the lines."
+3. The line-role Codex surface reviews the whole book line set in worker-local shard files. Operator-wise this is still just "label the lines," but the live main path now gives each worker session its assigned local shard files to process and write back under `out/`. When the main worker output needs recovery, watchdog-retry and repair still happen as structured follow-up attempts on the affected shard only.
 4. The program groups the corrected recipe-side lines into coherent recipe spans and recipes. Everything not grouped into recipe spans becomes the non-recipe side.
-5. The recipe Codex surface reviews the recipe side in owned recipe shards. It returns corrected recipe payloads plus ingredient-step mapping and raw selected tags.
+5. The recipe Codex surface reviews the recipe side in owned recipe shards. One worker session processes its assigned local shard files under `in/` and writes one `out/<shard_id>.json` per shard. It returns corrected recipe payloads plus ingredient-step mapping and raw selected tags, and near-miss invalid shard outputs can still get one structured repair pass.
 6. The program deterministically validates and promotes those recipe outputs into the final recipe formats.
-7. The knowledge Codex surface reviews the non-recipe side. The program first builds transport-safe non-recipe chunks, then Codex reviews every built chunk using raw block text plus mechanically true structure rather than deterministic semantic gating. Codex then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
+7. The knowledge Codex surface reviews the non-recipe side. The program first builds transport-safe non-recipe chunks, then Codex reviews every built chunk using raw block text plus mechanically true structure rather than deterministic semantic gating. In the common multi-shard worker case, one worker session processes several local shard files under `in/` and writes one `out/<shard_id>.json` per shard. Codex then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
 8. The program validates owned output coverage, writes artifacts/reports, and emits the final recipe, knowledge, and debug outputs.
 
 Worker/shard mental model:
@@ -139,6 +144,8 @@ Recipe passes write under:
 
 Recipe runtime note:
 - the live recipe implementation now groups nearby recipes into explicit shard payloads, executes them through the repo-owned direct recipe worker runtime in `codex_farm_orchestrator.py`, validates exact owned `recipe_id` coverage, and promotes only validated per-recipe outputs
+- recipe worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with shared `assigned_shards.json`, worker-local `in/*.json`, and harvested `out/*.json`; only the near-miss repair path still uses one structured direct-exec call per shard
+- recipe worker roots now also carry `worker_manifest.json`, and the shared worker prompt explicitly forbids orientation commands in favor of opening the named local files directly
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still builds the intermediate `RecipeCandidate`, Codex still emits `ingredient_step_mapping` plus raw `selected_tags`, and deterministic code still rebuilds the final cookbook3 draft locally and normalizes tags before write-out
 - the model-facing recipe shard now includes a compact candidate-quality hint `q` alongside weak deterministic parse hint `h`, and each recipe result now carries compact status fields (`st`, `sr`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits but only `repaired` results promote into final recipe outputs
@@ -172,6 +179,8 @@ Knowledge runtime note:
 - deterministic chunking still decides eligibility, pruning, and local grouping
 - `codex_farm_knowledge_jobs.py` now writes stable shard payload files plus shard-manifest metadata with owned `chunk_id`s and owned block indices
 - the live knowledge model call now goes through `codex_exec_runner.py`, but it keeps the same shard-manifest / worker-assignment artifact shape the shared runtime established
+- knowledge worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with shared `assigned_shards.json`, worker-local `in/*.json`, and harvested `out/*.json`; watchdog-retry, split-retry, and repair now run as shard-local structured follow-up attempts against the harvested output when the main worker result needs recovery
+- knowledge worker roots now also carry `worker_manifest.json`, and the shared worker prompt explicitly forbids orientation commands in favor of opening the named local files directly
 - `codex_farm_knowledge_ingest.py` validates exact owned `chunk_id` coverage and rejects any `block_decisions` or snippet evidence that point outside the shard's eligible block surface
 - the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, `knowledge/proposals/*.json` validated shard proposals, then deterministic promotion into `08_nonrecipe_spans.json`, `09_knowledge_outputs.json`, and reviewer-facing knowledge artifacts
 - invalid but near-miss knowledge outputs now get one repo-owned repair attempt; shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, while proposal/status payloads record whether repair was attempted and whether the final validated output came from that repair pass
@@ -201,14 +210,18 @@ Line-role prediction artifacts live under:
 
 Line-role runtime note:
 - live line-role execution no longer uses `phase_worker_runtime.py` or `codex-farm process`
-- `canonical_line_roles.py` now assigns shard ownership directly, writes authoritative worker-local shard JSON under `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, sends one short file-backed wrapper prompt per shard through `codex_exec_runner.py`, validates exact owned `atomic_index` coverage, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/line_role/workers/.../shards/<shard_id>/`
+- `canonical_line_roles.py` now assigns shard ownership directly, writes authoritative worker-local shard JSON under `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, validates exact owned `atomic_index` coverage, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/line_role/workers/.../shards/<shard_id>/`
+- line-role worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with `assigned_shards.json`, shared `prompt.txt`, worker-local `in/*.json`, richer `debug/*.json`, and harvested `out/*.json`; only watchdog-retry and repair still use structured follow-up attempts on the affected shard
+- line-role worker roots now also carry `worker_manifest.json`, and the shared worker prompt explicitly forbids orientation commands in favor of opening the named local files directly
 - invalid but near-miss line-role outputs now get one repo-owned repair attempt; shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, and the runner payload rows must carry the repair/status annotations because `line-role-pipeline/telemetry_summary.json` is rebuilt from those rows
 - direct line-role shard folders now also write `workspace_manifest.json`, and repair attempts write `repair_workspace_manifest.json` so the external sterile worker cwd is traceable from the normal runtime artifact tree
 - strict JSON line-role shard attempts now also write `live_status.json`; malformed shard payloads are rejected before spend with `state: preflight_rejected`, the live watchdog can terminate tool-use / repeated reasoning detours / cohort-runtime outliers with `state: watchdog_killed`, and retryable watchdog kills now get one fresh inline retry packet with sibling examples plus `watchdog_retry_*` shard artifacts and propagated `watchdog_retry_*` status fields
+- strict JSON watchdog kill reasons now also preserve the offending command text in `reason_detail`, so a `watchdog_command_execution_forbidden` status can distinguish trivial `ls` / `pwd` orientation reflexes from more substantive tool use
+- for workspace-worker main attempts only, `command_execution_tolerated: true` now means the worker stayed within the allowed workspace-local command policy; `live_status.json`, shard `status.json`, and direct telemetry rows now also record command-policy classifications/reasons so reviewer artifacts can distinguish helpful local file reads from real drift
 - there is no longer any live or compatibility support for a separate LLM recipe gate inside line-role; the only active line-role model surface is the single `line_role` labeling phase
 - line-role pre-grouping candidates now default to `within_recipe_span=None`; importer recipe provenance is no longer supplied before deterministic/Codex labeling, and prompt-preview reconstruction mirrors that same span-free contract
 - `AtomicLineCandidate` is now a single-line parser record; selective inline `ctx:` rows and cache identity derive neighbor text from explicit ordered-candidate lookup instead of embedded `prev_text` / `next_text` fields
-- `workers/*/in/*.json` are now the authoritative model-facing task payloads; `prompt.txt` is only the short wrapper that points at that file
+- `workers/*/in/*.json` remain the authoritative stored shard payloads and the live task files the worker reads locally. When a shard needs watchdog-retry or repair, the follow-up prompt restates the authoritative rows inline from those same stored shard inputs.
 - line-role now keeps a second local-only debug copy at `workers/*/debug/*.json`; prompt-preview mirrors that as `line-role-pipeline/debug_in/*.json`, while `request_input_file` and budget estimation still point at the compact billed `in/*.json` file.
 - those `workers/*/in/*.json` rows are now compact tuples: `{"v":1,"shard_id":...,"rows":[[atomic_index,label_code,current_line], ...]}`. The richer deterministic/rule metadata moved to the debug copy, and the model-facing file still avoids repeated neighbor context.
 - `telemetry_summary.json` remains the prompt/debug and post-run cost seam for line-role, but its runtime metadata now describe direct exec instead of CodexFarm `process`
@@ -224,6 +237,7 @@ Prompt/debug artifacts:
 - `prompts/thinking_trace_summary.jsonl` and `prompts/thinking_trace_summary.md` summarize trace-path coverage, availability, and reasoning-event presence from the merged prompt log
 - `prediction-run/prompt_budget_summary.json` is the post-run actual-costs artifact; it merges recipe/knowledge telemetry with line-role telemetry when present and publishes semantic `by_stage` totals instead of an old pass-slot grouping container
 - `prediction-run/prompt_budget_summary.json` now also carries pathological direct-exec spend signals such as preflight-rejected shard counts, watchdog-killed shard counts, invalid-output shard counts/tokens, missing-output shard counts, repaired-shard counts, command-executing shard counts, reasoning-heavy shard counts, and merged `pathological_flags` so March 18-style blowups are visible without rereading worker `events.jsonl`
+- stage-local direct-exec summaries now also expose `prompt_input_mode_counts`, `workspace_worker_session_count`, and `structured_followup_call_count`, so a finished run shows how much work came from main worker sessions versus shard-local retry / repair follow-up calls
 - `prediction-run/prompt_budget_summary.json` now also reports requested-vs-actual run-count metadata per active Codex stage (`requested_run_count`, `actual_run_count`, `run_count_status`, `run_count_explanation`) so a finished run shows clearly when a `3/4/5` target was matched or when the planner legally used fewer/more shards
 - `prediction-run/prompt_budget_summary.json` now also falls back to current shard-runtime worker telemetry plus the linked processed-run `line-role-pipeline/telemetry_summary.json` when a benchmark/prediction manifest only carries lightweight phase summaries or a metadata-only benchmark copy
 - when line-role telemetry only exposes nested batch/attempt summaries, `prompt_budget_summary.json` should still recover those `tokens_total` values so the finished-run whole-run drain is not understated
@@ -247,14 +261,16 @@ Prompt/debug artifacts:
   - line-role prompt text from `build_canonical_line_role_prompt`
 - knowledge preview now follows the live bundle contract exactly: prompt counts come from contiguous bundled `chunks[*]` payloads, not one chunk per prompt
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
-- when explicit `knowledge_prompt_target_count` is driving the shard plan, knowledge bundling still must honor the hard per-bundle chunk, char, locality, and table caps; long books may therefore emit more knowledge shards than the requested target
+- when explicit `knowledge_prompt_target_count` is driving the shard plan, knowledge bundling now keeps the requested shard count literal and records warnings when forced shards exceed the old per-bundle chunk, char, locality, or table heuristics
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
 - the active line-role wrapper now teaches `HOWTO_SECTION` as recipe-internal subsection structure only (`FOR THE SAUCE`, `TO FINISH`, `FOR SERVING`) and explicitly fences chapter/topic/cookbook-lesson headings back to `KNOWLEDGE` or `OTHER`
 - the active line-role wrapper also teaches `INSTRUCTION_LINE` as recipe-local procedure only and explicitly fences cookbook advice / explanatory prose with action verbs back to `KNOWLEDGE` or `OTHER`
+- line-role repair and watchdog-retry prompts now restate the authoritative shard rows inline and tell the model to recompute labels from those rows instead of copying a one-row JSON example or prior invalid output
+- line-role shard validation is still structurally strict, but repair/retry promotion now adds a conservative semantic guard: if a repaired output collapses a diverse shard into pathological uniform or near-uniform labels, the shard stays invalid and the stage falls back to deterministic baseline labels instead of silently promoting nonsense
 - line-role row transport is now split cleanly by seam: the inline compact prompt uses pipe-delimited target rows plus selective `ctx:` windows, the file-backed billed shard JSON is the tuple-based `v=1` transport, and a parallel debug copy keeps the richer local object rows
 - prompt/actual cost reporting for the direct phases now also carries a shared cost-breakdown vocabulary: `visible_input_tokens`, `cached_input_tokens`, `visible_output_tokens`, and `wrapper_overhead_tokens`
-- live line-role execution no longer fans out through one-shot prompt batches inside `canonical_line_roles.py`; it now plans contiguous shards, sends the built prompt text itself through direct `codex exec`, validates exact owned-row coverage on the way back, and promotes accepted rows into the existing `label_llm_correct` outputs.
+- live line-role execution no longer needs one fresh Codex session per shard in the common multi-shard case; it now plans contiguous shards, groups them by worker assignment, lets one workspace-worker Codex session process several local shard files, validates exact owned-row coverage per harvested output file, and promotes accepted rows into the existing `label_llm_correct` outputs.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
@@ -391,9 +407,9 @@ Structured output contract:
 - The live recipe shard contract is similarly compact: minified shard JSON, compact helper hints, compact tag-guide payload, and a first-class candidate-quality/triage seam rather than a schema-shaped metadata dump.
 - Recipe correction now has an explicit bad-candidate escape hatch. Shard proposals can return `fragmentary` or `not_a_recipe` with compact reasons, and deterministic promotion only emits final recipes for `repaired` results while preserving rejected candidates in proposals/audits.
 - Knowledge reliability now depends on two separate rules that are easy to conflate:
-  - shard-count requests are literal for recipe and line-role
-  - `knowledge_prompt_target_count` is only a soft target, because hard chunk/char/locality/table caps still win on long books
-  If knowledge starts producing giant shards again, inspect planner obedience to safety caps before retuning prompts.
+  - shard-count requests are literal for recipe, knowledge, and line-role
+  - knowledge still records warnings when a forced shard count creates oversized or non-local bundles
+  If knowledge starts producing giant shards again, inspect the forced-count warnings before retuning prompts.
 - Knowledge-stage hardening no longer trusts deterministic semantic gating to decide what the reviewer sees. The live stage removed chunk-level semantic hints from the billed payload, removed the low-signal deterministic prefilter, and now uses bounded repair/re-shard paths when a shard returns near-miss invalid JSON.
 - Direct recipe / knowledge / line-role shard workers now run from sterile mirrored workspaces under `~/.codex-recipe/recipeimport-direct-exec-workspaces/`, with shard-scoped `AGENTS.md` files and rewritten local paths. If a worker appears to have repo-wide context again, debug the mirror/workdir seam before changing prompts.
 - Pathological spend debugging now starts from repo-owned telemetry, not from rereading raw worker traces. `prompt_budget_summary.json` and worker-local artifacts should surface invalid-output spend, repaired-shard counts, command-executing shards, and other direct-exec pathology flags directly.

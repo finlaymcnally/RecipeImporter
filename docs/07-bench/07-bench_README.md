@@ -29,6 +29,7 @@ Current benchmark handoff model:
 
 - `upload_bundle_v1` is the primary external-review packet
 - follow-up requests should produce additive `followup_dataN/` packets, not replacement bundle formats
+- shard-based recipe runtimes must reconcile per-recipe ownership from shard payload recipe ids and raw `recipe_manifest.json`; shard call ids are not recipe ids for upload-bundle span/stage summaries
 
 ## 2. Active Command Surface
 
@@ -54,6 +55,7 @@ Interactive benchmark wrap-up behavior:
 - Multi-book single-profile benchmark runs do the same for the top-level group `upload_bundle_v1`; per-book bundles are still written but are not auto-uploaded.
 - Detached Oracle runs write `oracle_upload.log`, `oracle_upload.json`, and `oracle_upload_status.json` under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`. The actual Oracle response, if the run succeeds, is in `oracle_upload.log`. When the log stays quiet, the wrapper now also falls back to Oracle's own session store under `~/.local/share/oracle/sessions/` to recover the session slug and conversation URL.
 - That detached launch directory is also the persistent staging root for any temporary sharded upload files, so the Oracle subprocess can keep reading them after benchmark wrap-up returns.
+- Detached benchmark uploads now also launch a local follow-up worker in the same source run directory. It finalizes the saved turn-1 `oracle_upload_status.json` from the completed Oracle log, writes `oracle_auto_followup.json` plus `oracle_auto_followup.log`, and if Oracle requested follow-up data it automatically builds `followup_data1/` and sends turn 2 into the same ChatGPT conversation.
 - Interactive terminal wrap-up should stay short and point operators at `oracle_upload.log`, but it should also surface the current Oracle status, `oracle session <id>` reattach command, and conversation URL when available; detailed launch metadata already lives beside it in the same launch directory.
 - `cookimport bench oracle-upload <session root or upload_bundle_v1>` remains the manual retry/replay path, and browser-mode manual runs now persist the same `upload_bundle_v1/.oracle_upload_runs/<timestamp>/` artifact set as the auto-background uploader.
 - benchmark-side Oracle upload now calls the canonical local Oracle wrapper at `/home/mcnal/.local/bin/oracle`, which in turn routes browser runs through the Oracle-owned wrapper stack and the editable `oracle-dev/package` mirror before falling back to the global install.
@@ -61,6 +63,8 @@ Interactive benchmark wrap-up behavior:
 - benchmark-side Oracle upload also passes hidden Oracle browser recovery flags (`--browser-reuse-wait`, `--browser-profile-lock-timeout`, `--browser-auto-reattach-*`) and honors `COOKIMPORT_ORACLE_CHATGPT_URL` when set so benchmark uploads can target a dedicated ChatGPT project URL.
 - benchmark-side Oracle browser uploads still stage the logical bundle files (`upload_bundle_overview.md`, `upload_bundle_index.json`, and any payload shards), but with `--browser-bundle-files` Oracle may deliver them to ChatGPT as one synthetic attachment such as `attachments-bundle.txt`; the benchmark prompt now says that explicitly so the UI-level attachment shape matches the instructions.
 - the default post-benchmark Oracle review prompt is now read from [benchmark.oracle-upload.prompt.md](/home/mcnal/projects/recipeimport/llm_pipelines/prompts/benchmark.oracle-upload.prompt.md). Text-only edits should happen there, not in Python. Keep the placeholder tokens `{{BUNDLE_SCOPE}}` and `{{BENCHMARK_ROOT}}` intact so runtime can inject the current bundle metadata.
+- that default Oracle review prompt now also teaches the reviewer how to request narrow follow-up evidence in a parse-friendly text format: prefer exact artifacts or row-locator-backed slices and use the `Requested follow-up data` section to ask for the smallest `cf-debug`-style packet that would test the current hypotheses.
+- `cookimport bench oracle-followup <session root or upload_bundle_v1>` remains the manual turn-2 seam. The detached benchmark path now invokes the same logic automatically after a grounded turn-1 answer, but the command is still the repair/replay path and `--dry-run` still stops after the local workspace is written.
 - benchmark-side Oracle trust does not come from exit code alone anymore: the wrapper audits the saved answer against the local bundle root and topline counts and can mark a completed run as `invalid_grounding`.
 
 Important current constraints:

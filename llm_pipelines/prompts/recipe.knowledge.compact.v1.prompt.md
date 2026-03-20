@@ -53,7 +53,10 @@ Input keys:
 - guardrails: optional `r` nearby recipe block indices
 
 Per chunk result:
-- `u=false` and `s=[]` if no reusable knowledge exists.
+- `u=true` only when the chunk contains reusable cooking knowledge worth keeping.
+- `u=true` requires at least one `d[*].c="knowledge"` decision and at least one snippet in `s`.
+- `u=false` means no reusable cooking knowledge exists in that chunk.
+- `u=false` requires every `d[*].c` to be `other` and requires `s=[]`.
 - When `c` is non-empty, `r` must contain exactly one row per input chunk, in input order.
 - `d` must include every block in order.
 - `c` must be `knowledge` or `other`.
@@ -62,7 +65,8 @@ Per chunk result:
 - every snippet needs at least one evidence quote from that same chunk.
 - Do not return `r: []` when `c` is non-empty.
 - Never invent synthetic `cid` values such as `processing_error`.
-- If uncertain, still emit conservative `other` decisions and `s: []` for every input chunk.
+- Do not collapse a clearly useful technique/reference shard into blanket `u=false`.
+- If the shard contains reusable cooking knowledge, surface it positively with `u=true`, `knowledge` decisions, and grounded snippets.
 
 Strict:
 - return JSON only

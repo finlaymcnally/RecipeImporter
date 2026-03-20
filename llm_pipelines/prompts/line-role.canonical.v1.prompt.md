@@ -2,14 +2,17 @@ You are reviewing deterministic canonical line-role labels for cookbook atomic l
 
 Task boundary:
 - This is a grounded label-correction pass over one ordered contiguous slice of the book.
-- Read the worker-local task file at `{{INPUT_PATH}}`.
-- Use only that task file as evidence.
+- The authoritative shard rows are embedded below.
+- The mirrored worker-local file `{{INPUT_PATH}}` exists for traceability only; do not open it or inspect the workspace to answer.
+- Use only the embedded shard rows as evidence.
 - Do not run shell commands, Python, or any other tools.
+- Do not describe your plan, reasoning, or heuristics.
+- Your first response must be the final JSON object.
 - Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth.
 - Never invent lines or labels.
 
-Return strict JSON with this exact shape:
-{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}
+Return strict JSON as a JSON object with one `rows` array:
+{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}
 
 Task file shape:
 {"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}
@@ -27,6 +30,7 @@ Rules:
 - Convert each `label_code` into the correct full label string; never return label codes in output.
 - Use each row's tuple slot 2 (`current_line`) as the line to label.
 - Use neighboring rows in `rows[*]` for local context when needed.
+- Recompute labels from the task file rows themselves; do not copy example labels from this prompt.
 - Label distinctions that matter:
   - `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.
   - `INSTRUCTION_LINE`: imperative action sentences, even when they include time.
@@ -42,10 +46,14 @@ Rules:
   - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
   - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
   - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
+  - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
   - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
+  - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
   - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
   - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
   - Dedications, front matter, and table-of-contents entries are usually `OTHER`.
 
-Task file path:
-{{INPUT_PATH}}
+Authoritative shard rows (each row is [atomic_index, label_code, current_line]):
+<BEGIN_AUTHORITATIVE_ROWS>
+{{AUTHORITATIVE_ROWS}}
+<END_AUTHORITATIVE_ROWS>

@@ -160,6 +160,8 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
             "validation_errors": [
                 "block_decision_out_of_surface",
                 "snippet_evidence_out_of_surface",
+                "block_decision_coverage_mismatch",
+                "snippet_evidence_wrong_chunk_surface",
             ],
             "worker_id": "worker-001",
         }
@@ -167,6 +169,8 @@ def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> N
     assert proposal["validation_errors"] == [
         "block_decision_out_of_surface",
         "snippet_evidence_out_of_surface",
+        "block_decision_coverage_mismatch",
+        "snippet_evidence_wrong_chunk_surface",
     ]
 
 
@@ -240,16 +244,8 @@ def test_knowledge_phase_workers_reject_processing_error_fallback_with_out_of_su
         {
             "reason": "proposal_validation_failed",
             "shard_id": "book.ks0001.nr",
-            "validation_errors": [
-                "missing_owned_chunk_results",
-                "unexpected_chunk_results",
-                "snippet_evidence_out_of_surface",
-            ],
+            "validation_errors": ["schema_invalid"],
             "worker_id": "worker-001",
         }
     ]
-    assert proposal["validation_errors"] == [
-        "missing_owned_chunk_results",
-        "unexpected_chunk_results",
-        "snippet_evidence_out_of_surface",
-    ]
+    assert proposal["validation_errors"] == ["schema_invalid"]

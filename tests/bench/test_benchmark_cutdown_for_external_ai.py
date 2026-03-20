@@ -584,6 +584,39 @@ def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
     ]
 
 
+def _prompt_rows_for_sharded_recipe_fixture() -> list[dict[str, object]]:
+    return [
+        {
+            "stage_key": "recipe_llm_correct_and_link",
+            "call_id": "recipe-shard-0000-r0000-r0001",
+            "recipe_id": "recipe-shard-0000-r0000-r0001",
+            "timestamp_utc": "2026-03-03T10:00:05Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "payload": None,
+                "reason_code": "watchdog_command_execution_forbidden",
+                "reason_detail": "workspace worker stage attempted tool use",
+                "validation_errors": ["missing_output_file"],
+            },
+            "request_input_payload": {
+                "ids": ["recipe:a0", "recipe:b0"],
+                "r": [
+                    {
+                        "rid": "recipe:a0",
+                        "ev": [[0, "Dish Title"], [1, "1 cup flour"]],
+                        "h": {"n": "Dish Title"},
+                    },
+                    {
+                        "rid": "recipe:b0",
+                        "ev": [[2, "Mix gently"], [3, "Chef note"]],
+                        "h": {"n": "Chef Note Dish"},
+                    },
+                ],
+            },
+        }
+    ]
+
+
 def _build_eval_artifacts(module, run_dir: Path) -> tuple[Path, Path]:
     canonical_text = "Dish Title\n1 cup flour\nMix gently\nChef note\n"
     canonical_text_path = run_dir / "canonical_text.txt"
@@ -818,6 +851,104 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
     assert diagnostics.confusion_delta_codex_minus_baseline["RECIPE_NOTES"]["KNOWLEDGE"] == 1
     assert diagnostics.targeted_prompt_case_rows
     assert diagnostics.targeted_prompt_case_rows[0]["empty_ingredient_step_mapping"] is True
+
+
+def test_build_recipe_spans_from_full_prompt_rows_supports_sharded_recipe_payloads() -> None:
+    module = _load_cutdown_module()
+
+    spans = module._build_recipe_spans_from_full_prompt_rows(
+        _prompt_rows_for_sharded_recipe_fixture()
+    )
+
+    assert spans == [
+        {
+            "recipe_id": "recipe:a0",
+            "start_block_index": 0,
+            "end_block_index": 1,
+            "title": "Dish Title",
+            "call_id": "recipe-shard-0000-r0000-r0001",
+        },
+        {
+            "recipe_id": "recipe:b0",
+            "start_block_index": 2,
+            "end_block_index": 3,
+            "title": "Chef Note Dish",
+            "call_id": "recipe-shard-0000-r0000-r0001",
+        },
+    ]
+
+
+def test_build_upload_bundle_reconciles_sharded_recipe_ids_to_per_recipe_counts(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "codexfarm"
+    baseline_run_id = "vanilla"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
+        wrong_label_rows=[
+            {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
+            {"line_index": 3, "gold_label": "RECIPE_NOTES", "pred_label": "KNOWLEDGE"},
+        ],
+        full_prompt_rows=_prompt_rows_for_sharded_recipe_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    codex_run_dir = session_root / codex_run_id
+    _write_prediction_run(
+        codex_run_dir,
+        with_extracted_archive=True,
+        llm_manifest_recipes={
+            "recipe:a0": _semantic_recipe_manifest_row(
+                correction_status="error",
+                build_final_status="error",
+                structural_status="ok",
+            ),
+            "recipe:b0": _semantic_recipe_manifest_row(
+                correction_status="error",
+                build_final_status="error",
+                structural_status="ok",
+            ),
+        },
+    )
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    active_span_breakout = index_payload["analysis"]["active_recipe_span_breakout"]
+    assert active_span_breakout["recipe_span_count"] == 2
+    assert active_span_breakout["pairs_with_zero_recipe_spans"] == 0
+
+    failure_ledger = index_payload["analysis"]["failure_ledger"]
+    assert failure_ledger["summary"]["recipe_count"] == 2
+
+    stage_observability = index_payload["analysis"]["stage_observability_summary"]["by_stage"]
+    assert stage_observability["recipe_llm_correct_and_link"]["recipe_count"] == 2
+    assert stage_observability["build_final_recipe"]["recipe_count"] == 2
 
 
 def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_path: Path) -> None:

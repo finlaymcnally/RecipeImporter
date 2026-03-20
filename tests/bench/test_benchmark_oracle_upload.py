@@ -104,6 +104,11 @@ def test_build_oracle_benchmark_prompt_describes_synthetic_attachment_transport(
     assert "logical contents come from an existing `upload_bundle_v1` benchmark package" in prompt
     assert "synthetic text attachment such as `attachments-bundle.txt`" in prompt
     assert "Within that attachment, start with `upload_bundle_overview.md`" in prompt
+    assert "Useful local follow-up tools include `cf-debug structure-report`" in prompt
+    assert "exactly four sections" in prompt
+    assert "`Requested follow-up data`" in prompt
+    assert "`ask_id: <short_slug>`" in prompt
+    assert "`outputs: <comma-separated outputs such as case_export, line_role_audit" in prompt
 
 
 def test_build_oracle_benchmark_prompt_renders_editable_template_file_tokens(
