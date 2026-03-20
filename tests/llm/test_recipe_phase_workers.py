@@ -146,6 +146,11 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
         for line in (runtime_dir / "shard_manifest.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+    task_manifest = [
+        json.loads(line)
+        for line in (runtime_dir / "task_manifest.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
     assert manifest["counts"]["recipe_shards_total"] == 2
     assert manifest["counts"]["recipe_workers_total"] == 1
@@ -159,6 +164,16 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     assert worker_assignments[0]["worker_id"] == "worker-001"
     assert len(worker_assignments[0]["shard_ids"]) == 2
     assert len(shard_manifest) == 2
+    assert [row["task_id"] for row in task_manifest] == [
+        "recipe-shard-0000-r0000-r0001.task-001",
+        "recipe-shard-0000-r0000-r0001.task-002",
+        "recipe-shard-0001-r0002-r0002",
+    ]
+    assert [row["parent_shard_id"] for row in task_manifest] == [
+        "recipe-shard-0000-r0000-r0001",
+        "recipe-shard-0000-r0000-r0001",
+        "recipe-shard-0001-r0002-r0002",
+    ]
     assert shard_manifest[0]["owned_ids"] == [
         "urn:recipe:test:toast",
         "urn:recipe:test:tea",
@@ -175,20 +190,32 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     worker_root = runtime_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
-    assert "Workspace-local helper commands are allowed when they materially help" in worker_prompt
+    assert "Workspace-local shell commands are broadly allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
-    assert "open `hints/<shard_id>.md` first" in worker_prompt
+    assert "open `hints/<task_id>.md` first" in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
-    assert worker_manifest["entry_files"] == ["worker_manifest.json", "assigned_shards.json"]
+    assert worker_manifest["entry_files"] == [
+        "worker_manifest.json",
+        "assigned_shards.json",
+        "assigned_tasks.json",
+    ]
     assert worker_manifest["hints_dir"] == "hints"
-    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.md").exists()
+    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-001.md").exists()
+    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-002.md").exists()
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
-    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.json").exists()
+    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json").exists()
+    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.task-002.json").exists()
     assert (worker_root / "out" / "recipe-shard-0001-r0002-r0002.json").exists()
     assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is True
+    proposal = json.loads(
+        (
+            runtime_dir / "proposals" / "recipe-shard-0000-r0000-r0001.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
 
 
 def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
@@ -267,7 +294,7 @@ def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> No
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
 
 
-def test_recipe_prompt_target_count_defaults_worker_sessions_when_single_recipe_shards(
+def test_recipe_prompt_target_count_controls_shard_count_when_single_recipe_shards(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.txt"
@@ -299,9 +326,9 @@ def test_recipe_prompt_target_count_defaults_worker_sessions_when_single_recipe_
         if line.strip()
     ]
 
-    assert phase_manifest["shard_count"] == 3
+    assert phase_manifest["shard_count"] == 2
     assert phase_manifest["worker_count"] == 2
-    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [1, 1, 1]
+    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]
 
 
 def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(
@@ -329,5 +356,5 @@ def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(
 
     assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["last_command_policy"] == "tolerated_workspace_helper_command"
+    assert live_status["last_command_policy"] == "tolerated_workspace_shell_command"
     assert live_status["last_command_policy_allowed"] is True

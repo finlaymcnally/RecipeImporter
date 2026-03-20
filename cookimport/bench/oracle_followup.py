@@ -14,7 +14,6 @@ from typing import Any, Callable
 from cookimport.bench.followup_bundle import write_followup_request_packet, write_followup_request_template
 from cookimport.bench.oracle_upload import (
     ORACLE_BROWSER_CMD,
-    ORACLE_DEFAULT_MODEL,
     ORACLE_UPLOAD_LOG_FILE_NAME,
     ORACLE_UPLOAD_METADATA_FILE_NAME,
     ORACLE_UPLOAD_RUNS_DIR_NAME,
@@ -35,6 +34,7 @@ from cookimport.bench.oracle_upload import (
     _render_oracle_benchmark_prompt_template,
     _read_log_text,
     audit_oracle_upload_log,
+    resolve_oracle_benchmark_model,
 )
 
 
@@ -816,11 +816,12 @@ def run_oracle_benchmark_followup(
     *,
     target: OracleBenchmarkBundleTarget,
     from_run: str = "latest",
-    model: str = ORACLE_DEFAULT_MODEL,
+    model: str | None = None,
     request_file: Path | None = None,
     dry_run: bool = False,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> tuple[OracleUploadResult, OracleFollowupWorkspace]:
+    resolved_model = resolve_oracle_benchmark_model(model)
     source = load_oracle_followup_source(
         target=target,
         from_run=from_run,
@@ -844,7 +845,7 @@ def run_oracle_benchmark_followup(
     prompt_text = workspace.prompt_path.read_text(encoding="utf-8")
     command = _build_continue_session_command(
         source_session_id=source.source_session_id,
-        model=model,
+        model=resolved_model,
         prompt=prompt_text,
         followup_packet_dir=workspace.followup_packet_dir,
     )
@@ -853,7 +854,7 @@ def run_oracle_benchmark_followup(
         "source_root": str(target.source_root),
         "scope": target.scope,
         "mode": "browser",
-        "model": model,
+        "model": resolved_model,
         "command": command,
         "log_path": str(workspace.log_path),
         "metadata_path": str(workspace.metadata_path),
@@ -999,11 +1000,12 @@ def run_oracle_benchmark_followup_background_worker(
     *,
     target: OracleBenchmarkBundleTarget,
     from_run: str,
-    model: str = ORACLE_DEFAULT_MODEL,
+    model: str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     poll_interval_seconds: float = ORACLE_AUTO_FOLLOWUP_POLL_INTERVAL_SECONDS,
     timeout_seconds: float = ORACLE_AUTO_FOLLOWUP_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
+    resolved_model = resolve_oracle_benchmark_model(model)
     source_launch_dir = _find_followup_source_launch_dir(bundle_dir=target.bundle_dir, from_run=from_run)
     status_path = _write_oracle_auto_followup_status(
         source_launch_dir,
@@ -1012,7 +1014,7 @@ def run_oracle_benchmark_followup_background_worker(
         extra={
             "bundle_dir": str(target.bundle_dir),
             "source_run": from_run,
-            "model": model,
+            "model": resolved_model,
             "oracle_version": _detect_oracle_version(),
         },
     )
@@ -1032,7 +1034,7 @@ def run_oracle_benchmark_followup_background_worker(
             extra={
                 "bundle_dir": str(target.bundle_dir),
                 "source_run": from_run,
-                "model": model,
+                "model": resolved_model,
             },
         )
         print(f"[{_oracle_upload_timestamp()}] Timed out waiting for Oracle turn 1.")
@@ -1109,7 +1111,7 @@ def run_oracle_benchmark_followup_background_worker(
         result, workspace = run_oracle_benchmark_followup(
             target=target,
             from_run=from_run,
-            model=model,
+            model=resolved_model,
             runner=runner,
         )
     except Exception as exc:

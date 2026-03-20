@@ -38,6 +38,7 @@ from .codex_exec_runner import (
     CodexExecRunner,
     CodexExecSupervisionDecision,
     SubprocessCodexExecRunner,
+    assess_final_agent_message,
     classify_workspace_worker_command,
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
@@ -55,6 +56,7 @@ from .phase_worker_runtime import (
     PhaseManifestV1,
     ShardManifestEntryV1,
     ShardProposalV1,
+    TaskManifestEntryV1,
     WorkerAssignmentV1,
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
@@ -74,6 +76,203 @@ _KNOWLEDGE_COHORT_WATCHDOG_MIN_COMPLETED_SHARDS = 3
 _KNOWLEDGE_COHORT_WATCHDOG_MIN_ELAPSED_MS = 1_000
 _KNOWLEDGE_COHORT_WATCHDOG_MEDIAN_FACTOR = 4.0
 _KNOWLEDGE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
+_KNOWLEDGE_WATCHDOG_RETRY_SILENCE_TIMEOUT_SECONDS = 90
+_KNOWLEDGE_WATCHDOG_RETRY_TIMEOUT_SECONDS = 300
+_KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
+
+
+def _build_knowledge_task_manifest_entry(
+    shard: ShardManifestEntryV1,
+) -> TaskManifestEntryV1:
+    return TaskManifestEntryV1(
+        task_id=shard.shard_id,
+        task_kind="knowledge_review_shard",
+        parent_shard_id=shard.shard_id,
+        owned_ids=tuple(shard.owned_ids),
+        input_payload=shard.input_payload,
+        input_text=shard.input_text,
+        metadata=dict(shard.metadata or {}),
+    )
+
+
+def _build_knowledge_task_plans(
+    shard: ShardManifestEntryV1,
+) -> tuple[_KnowledgeTaskPlan, ...]:
+    payload = _coerce_dict(shard.input_payload)
+    chunks = [dict(row) for row in (payload.get("c") or []) if isinstance(row, Mapping)]
+    if not chunks:
+        return ()
+    task_count = len(chunks)
+    chunk_block_indices_by_id = _coerce_dict((shard.metadata or {}).get("chunk_block_indices_by_id"))
+    chunk_seed_stage_category_by_id = _coerce_dict((shard.metadata or {}).get("chunk_seed_stage_category_by_id"))
+    chunk_lane_by_id = _coerce_dict((shard.metadata or {}).get("chunk_lane_by_id"))
+    chunk_title_by_id = _coerce_dict((shard.metadata or {}).get("chunk_title_by_id"))
+    chunk_has_heading_by_id = _coerce_dict((shard.metadata or {}).get("chunk_has_heading_by_id"))
+    chunk_has_table_hint_by_id = _coerce_dict((shard.metadata or {}).get("chunk_has_table_hint_by_id"))
+    chunk_knowledge_cue_by_id = _coerce_dict((shard.metadata or {}).get("chunk_knowledge_cue_by_id"))
+    task_plans: list[_KnowledgeTaskPlan] = []
+    for task_index, chunk_row in enumerate(chunks, start=1):
+        chunk_id = str(chunk_row.get("cid") or "").strip()
+        if not chunk_id:
+            continue
+        task_id = (
+            shard.shard_id
+            if task_count == 1
+            else f"{shard.shard_id}.task-{task_index:03d}"
+        )
+        chunk_blocks = [dict(block) for block in (chunk_row.get("b") or []) if isinstance(block, Mapping)]
+        evidence_refs = tuple(
+            f"block:{int(block.get('i', 0))}"
+            for block in chunk_blocks
+            if block.get("i") is not None
+        )
+        task_payload = {
+            **payload,
+            "bid": task_id,
+            "c": [dict(chunk_row)],
+        }
+        task_manifest = ShardManifestEntryV1(
+            shard_id=task_id,
+            owned_ids=(chunk_id,),
+            evidence_refs=evidence_refs,
+            input_payload=task_payload,
+            metadata={
+                **dict(shard.metadata or {}),
+                "parent_shard_id": shard.shard_id,
+                "task_id": task_id,
+                "task_index": task_index,
+                "task_count": task_count,
+                "ordered_chunk_ids": [chunk_id],
+                "chunk_count": 1,
+                "owned_block_indices": list(chunk_block_indices_by_id.get(chunk_id) or []),
+                "chunk_block_indices_by_id": {
+                    chunk_id: list(chunk_block_indices_by_id.get(chunk_id) or [])
+                },
+                "chunk_seed_stage_category_by_id": (
+                    {chunk_id: chunk_seed_stage_category_by_id.get(chunk_id)}
+                    if chunk_id in chunk_seed_stage_category_by_id
+                    else {}
+                ),
+                "chunk_lane_by_id": (
+                    {chunk_id: chunk_lane_by_id.get(chunk_id)}
+                    if chunk_id in chunk_lane_by_id
+                    else {}
+                ),
+                "chunk_title_by_id": (
+                    {chunk_id: chunk_title_by_id.get(chunk_id)}
+                    if chunk_id in chunk_title_by_id
+                    else {}
+                ),
+                "chunk_has_heading_by_id": (
+                    {chunk_id: chunk_has_heading_by_id.get(chunk_id)}
+                    if chunk_id in chunk_has_heading_by_id
+                    else {}
+                ),
+                "chunk_has_table_hint_by_id": (
+                    {chunk_id: chunk_has_table_hint_by_id.get(chunk_id)}
+                    if chunk_id in chunk_has_table_hint_by_id
+                    else {}
+                ),
+                "chunk_knowledge_cue_by_id": (
+                    {chunk_id: chunk_knowledge_cue_by_id.get(chunk_id)}
+                    if chunk_id in chunk_knowledge_cue_by_id
+                    else {}
+                ),
+            },
+        )
+        task_plans.append(
+            _KnowledgeTaskPlan(
+                task_id=task_id,
+                parent_shard_id=shard.shard_id,
+                manifest_entry=task_manifest,
+            )
+        )
+    return tuple(task_plans)
+
+
+def _build_knowledge_task_runtime_manifest_entry(
+    task_plan: _KnowledgeTaskPlan,
+) -> TaskManifestEntryV1:
+    task_manifest = task_plan.manifest_entry
+    return TaskManifestEntryV1(
+        task_id=task_plan.task_id,
+        task_kind="knowledge_review_chunk_packet",
+        parent_shard_id=task_plan.parent_shard_id,
+        owned_ids=tuple(task_manifest.owned_ids),
+        input_payload=task_manifest.input_payload,
+        input_text=task_manifest.input_text,
+        metadata=dict(task_manifest.metadata or {}),
+    )
+
+
+def _aggregate_knowledge_task_payloads(
+    *,
+    shard: ShardManifestEntryV1,
+    task_payloads_by_task_id: Mapping[str, dict[str, Any] | None],
+    task_validation_errors_by_task_id: Mapping[str, Sequence[str]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    ordered_chunk_ids = [str(value).strip() for value in shard.owned_ids if str(value).strip()]
+    result_rows_by_chunk_id: dict[str, dict[str, Any]] = {}
+    task_id_by_chunk_id: dict[str, str] = {}
+    accepted_task_ids: list[str] = []
+    for task_id, payload in task_payloads_by_task_id.items():
+        rows = payload.get("r") if isinstance(payload, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        accepted_task_ids.append(task_id)
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            chunk_id = str(row.get("cid") or "").strip()
+            if not chunk_id:
+                continue
+            result_rows_by_chunk_id[chunk_id] = dict(row)
+            task_id_by_chunk_id[chunk_id] = str(task_id)
+    output_rows: list[dict[str, Any]] = []
+    missing_chunk_ids: list[str] = []
+    for chunk_id in ordered_chunk_ids:
+        row = result_rows_by_chunk_id.get(chunk_id)
+        if row is None:
+            missing_chunk_ids.append(chunk_id)
+            continue
+        output_rows.append(dict(row))
+    all_task_ids = sorted(
+        {
+            str(task_id).strip()
+            for task_id in [*task_payloads_by_task_id.keys(), *task_validation_errors_by_task_id.keys()]
+            if str(task_id).strip()
+        }
+    )
+    fallback_task_ids = sorted(
+        {
+            str(task_id).strip()
+            for task_id, errors in task_validation_errors_by_task_id.items()
+            if errors or task_id not in accepted_task_ids
+        }
+    )
+    metadata = {
+        "task_count": len(all_task_ids),
+        "accepted_task_count": len(accepted_task_ids),
+        "accepted_task_ids": sorted(accepted_task_ids),
+        "fallback_task_count": len(fallback_task_ids),
+        "fallback_task_ids": fallback_task_ids,
+        "missing_chunk_ids": missing_chunk_ids,
+        "task_ids": all_task_ids,
+        "task_validation_errors_by_task_id": {
+            task_id: list(errors)
+            for task_id, errors in task_validation_errors_by_task_id.items()
+            if errors
+        },
+        "task_id_by_chunk_id": {
+            chunk_id: task_id
+            for chunk_id, task_id in sorted(task_id_by_chunk_id.items())
+        },
+    }
+    return {
+        "v": "2",
+        "bid": shard.shard_id,
+        "r": output_rows,
+    }, metadata
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -134,6 +333,13 @@ class _DirectKnowledgeWorkerResult:
     failures: tuple[dict[str, Any], ...]
     stage_rows: tuple[dict[str, Any], ...]
     worker_runner_payload: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class _KnowledgeTaskPlan:
+    task_id: str
+    parent_shard_id: str
+    manifest_entry: ShardManifestEntryV1
 
 
 @dataclass(slots=True)
@@ -904,6 +1110,7 @@ def _run_direct_knowledge_workers_v1(
     artifacts = {
         "phase_manifest": "phase_manifest.json",
         "shard_manifest": "shard_manifest.jsonl",
+        "task_manifest": "task_manifest.jsonl",
         "worker_assignments": "worker_assignments.json",
         "promotion_report": "promotion_report.json",
         "telemetry": "telemetry.json",
@@ -920,6 +1127,14 @@ def _run_direct_knowledge_workers_v1(
     _write_jsonl(
         run_root / artifacts["shard_manifest"],
         [asdict(shard) for shard in shards],
+    )
+    _write_jsonl(
+        run_root / artifacts["task_manifest"],
+        [
+            asdict(_build_knowledge_task_runtime_manifest_entry(task_plan))
+            for shard in shards
+            for task_plan in _build_knowledge_task_plans(shard)
+        ],
     )
     _write_json(
         [asdict(assignment) for assignment in assignments],
@@ -1150,9 +1365,9 @@ def _relative_path(base: Path, path: Path) -> str:
 
 def _build_knowledge_workspace_worker_prompt(
     *,
-    shards: Sequence[ShardManifestEntryV1],
+    tasks: Sequence[TaskManifestEntryV1],
 ) -> str:
-    shard_ids = [str(shard.shard_id).strip() for shard in shards if str(shard.shard_id).strip()]
+    task_ids = [str(task.task_id).strip() for task in tasks if str(task.task_id).strip()]
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "",
@@ -1160,31 +1375,35 @@ def _build_knowledge_workspace_worker_prompt(
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then read `assigned_shards.json` for shard order.",
+        "1. Open `worker_manifest.json`, then read `assigned_tasks.json` for task order and `assigned_shards.json` for shard ownership context.",
         "2. Prefer opening the named files directly instead of exploring the workspace.",
-        "3. Workspace-local helper commands are allowed when they materially help, including `cat`, `head`, `tail`, `sed`, `jq`, `wc`, `pwd`, `ls`, `rg`, `find`, `tree`, and `test` on local paths.",
-        "4. Stay inside this workspace: do not inspect parent directories or the repository.",
-        "5. For each shard id, open `hints/<shard_id>.md` first, then `in/<shard_id>.json`.",
-        "6. Write one completed output file to `out/<shard_id>.json`.",
-        "7. Continue until every assigned shard has an output file or you cannot proceed.",
+        "3. Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `out/`.",
+        "4. Stay inside this workspace: do not inspect parent directories or the repository, and do not use repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.",
+        "5. For each task id, open `hints/<task_id>.md` first, then `in/<task_id>.json`.",
+        "6. Write one completed output file to `out/<task_id>.json`.",
+        "7. The moment every assigned `out/<task_id>.json` file exists and contains one complete JSON object, stop.",
+        "8. Do not run extra shell checks against finished files in `out/` unless a file is clearly incomplete or invalid while you are still writing it.",
         "",
-        "Output contract for each `out/<shard_id>.json`:",
+        "Output contract for each `out/<task_id>.json`:",
         "- Write exactly one JSON object.",
         "- Use the compact knowledge bundle shape: top-level `v`, `bid`, `r`.",
-        "- `bid` must equal the shard id.",
-        "- `r` must contain exactly one result row for each owned chunk in the input payload and no extras.",
-        "- Keep all block decisions and snippet evidence on the shard's own block indices only.",
+        "- Inside each result row, use the compact keys exactly: `cid`, `u`, `d`, `s`.",
+        "- Do not spell these out as `block_decisions` or `snippets`.",
+        "- Each `d` entry uses `i`, `c`, `rc`; each `s` entry uses `b`, `e`; each evidence row uses `i`, `q`.",
+        "- `bid` must equal the task id.",
+        "- `r` must contain exactly one result row for each owned chunk in the task input payload and no extras.",
+        "- Keep all block decisions and snippet evidence on the task's own block indices only.",
         "- If a chunk is not useful, still include its result row with `u: false` and an empty or minimal snippet list.",
-        "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative owned input.",
+        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned input.",
         "",
         "Do not return the shard outputs in your final message. The authoritative result is the set of files written under `out/`.",
     ]
-    if shard_ids:
+    if task_ids:
         lines.extend(
             [
                 "",
-                "Assigned shard ids:",
-                *[f"- {shard_id}" for shard_id in shard_ids],
+                "Assigned task ids:",
+                *[f"- {task_id}" for task_id in task_ids],
             ]
         )
     return "\n".join(lines)
@@ -1265,6 +1484,7 @@ def _build_knowledge_workspace_task_runner_payload(
     pipeline_id: str,
     worker_id: str,
     shard_id: str,
+    runtime_task_id: str,
     run_result: CodexExecRunResult,
     model: str | None,
     reasoning_effort: str | None,
@@ -1313,6 +1533,8 @@ def _build_knowledge_workspace_task_runner_payload(
         row_payload["worker_prompt_file"] = worker_prompt_file_str
         row_payload["worker_session_task_count"] = task_count
         row_payload["worker_session_primary_row"] = task_index == 0
+        row_payload["runtime_task_id"] = runtime_task_id
+        row_payload["runtime_parent_shard_id"] = shard_id
         if task_index > 0:
             row_payload["command_execution_count"] = 0
             row_payload["command_execution_commands"] = []
@@ -1326,13 +1548,15 @@ def _build_knowledge_workspace_task_runner_payload(
         telemetry["summary"] = _summarize_direct_rows([row_payload])
     payload["process_payload"] = {
         "pipeline_id": pipeline_id,
-        "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
+        "status": _run_result_process_status(run_result),
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
         "prompt_input_mode": "workspace_worker",
         "request_input_file": request_input_file_str,
         "request_input_file_bytes": request_input_file_bytes,
         "worker_prompt_file": worker_prompt_file_str,
+        "runtime_task_id": runtime_task_id,
+        "runtime_parent_shard_id": shard_id,
     }
     return payload
 
@@ -1364,7 +1588,7 @@ def _build_knowledge_inline_attempt_runner_payload(
         summary_payload["request_input_file_bytes_total"] = None
     payload["process_payload"] = {
         "pipeline_id": pipeline_id,
-        "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
+        "status": _run_result_process_status(run_result),
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
         "prompt_input_mode": prompt_input_mode,
@@ -1392,6 +1616,31 @@ def _run_knowledge_workspace_worker_assignment_v1(
     cohort_watchdog_state: _KnowledgeCohortWatchdogState,
     shard_completed_callback: Callable[..., None] | None,
 ) -> _DirectKnowledgeWorkerResult:
+    task_plans_by_shard_id = {
+        shard.shard_id: _build_knowledge_task_plans(shard)
+        for shard in assigned_shards
+    }
+    if any(len(task_plans) > 1 for task_plans in task_plans_by_shard_id.values()):
+        return _run_knowledge_workspace_worker_assignment_taskized_v1(
+            run_root=run_root,
+            assignment=assignment,
+            artifacts=artifacts,
+            assigned_shards=assigned_shards,
+            task_plans_by_shard_id=task_plans_by_shard_id,
+            worker_root=worker_root,
+            in_dir=in_dir,
+            hints_dir=hints_dir,
+            shard_dir=shard_dir,
+            logs_dir=logs_dir,
+            runner=runner,
+            pipeline_id=pipeline_id,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            output_schema_path=output_schema_path,
+            cohort_watchdog_state=cohort_watchdog_state,
+            shard_completed_callback=shard_completed_callback,
+        )
     out_dir = worker_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
     worker_failure_count = 0
@@ -1515,7 +1764,18 @@ def _run_knowledge_workspace_worker_assignment_v1(
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
     if runnable_shards:
-        worker_prompt_text = _build_knowledge_workspace_worker_prompt(shards=runnable_shards)
+        worker_prompt_text = _build_knowledge_workspace_worker_prompt(
+            tasks=[
+                _build_knowledge_task_runtime_manifest_entry(
+                    _KnowledgeTaskPlan(
+                        task_id=shard.shard_id,
+                        parent_shard_id=shard.shard_id,
+                        manifest_entry=shard,
+                    )
+                )
+                for shard in runnable_shards
+            ]
+        )
         worker_prompt_path = worker_root / "prompt.txt"
         worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
         worker_live_status_path = worker_root / "live_status.json"
@@ -1538,6 +1798,9 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 cohort_watchdog_state=cohort_watchdog_state,
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
+                expected_workspace_output_paths=[
+                    out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
+                ],
             ),
         )
         _finalize_live_status(
@@ -1573,6 +1836,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 pipeline_id=pipeline_id,
                 worker_id=assignment.worker_id,
                 shard_id=shard.shard_id,
+                runtime_task_id=shard.shard_id,
                 run_result=run_result,
                 model=model,
                 reasoning_effort=reasoning_effort,
@@ -1608,107 +1872,126 @@ def _run_knowledge_workspace_worker_assignment_v1(
             initial_proposal_status = proposal_status
             watchdog_retry_attempted = False
             watchdog_retry_status = "not_attempted"
+            watchdog_retry_skip_reason_code: str | None = None
+            watchdog_retry_skip_reason_detail: str | None = None
             watchdog_retry_examples: list[dict[str, Any]] = []
             if _should_attempt_knowledge_watchdog_retry(run_result=run_result):
-                watchdog_retry_attempted = True
-                watchdog_retry_examples = (
-                    cohort_watchdog_state.snapshot().get("successful_examples") or []
-                )
-                watchdog_retry_root = shard_root / "watchdog_retry"
-                watchdog_retry_root.mkdir(parents=True, exist_ok=True)
-                watchdog_retry_run_result = _run_knowledge_watchdog_retry_attempt(
-                    runner=runner,
-                    worker_root=worker_root,
-                    shard=shard,
-                    env=env,
-                    output_schema_path=output_schema_path,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    reason_code=str(run_result.supervision_reason_code or ""),
-                    reason_detail=str(run_result.supervision_reason_detail or ""),
-                    successful_examples=watchdog_retry_examples,
-                    live_status_path=watchdog_retry_root / "live_status.json",
-                )
-                _finalize_live_status(
-                    watchdog_retry_root / "live_status.json",
-                    run_result=watchdog_retry_run_result,
-                )
-                watchdog_retry_payload = _build_knowledge_inline_attempt_runner_payload(
-                    pipeline_id=pipeline_id,
-                    worker_id=assignment.worker_id,
-                    shard_id=shard.shard_id,
-                    run_result=watchdog_retry_run_result,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    prompt_input_mode="inline_watchdog_retry",
-                )
-                worker_runner_results.append(dict(watchdog_retry_payload))
-                watchdog_retry_runner_rows = (
-                    watchdog_retry_payload.get("telemetry", {}).get("rows")
-                    if isinstance(watchdog_retry_payload.get("telemetry"), dict)
-                    else None
-                )
-                watchdog_retry_row = None
-                if isinstance(watchdog_retry_runner_rows, list):
-                    for row_payload in watchdog_retry_runner_rows:
-                        if not isinstance(row_payload, dict):
-                            continue
-                        row_payload["is_watchdog_retry_attempt"] = True
-                        row_payload["watchdog_retry_attempt_index"] = 1
-                        watchdog_retry_row = dict(row_payload)
-                        stage_rows.append(watchdog_retry_row)
-                (watchdog_retry_root / "events.jsonl").write_text(
-                    _render_events_jsonl(watchdog_retry_run_result.events),
-                    encoding="utf-8",
-                )
-                _write_json(
-                    {"text": watchdog_retry_run_result.response_text},
-                    watchdog_retry_root / "last_message.json",
-                )
-                _write_json(
-                    dict(watchdog_retry_run_result.usage or {}),
-                    watchdog_retry_root / "usage.json",
-                )
-                _write_json(
-                    watchdog_retry_run_result.workspace_manifest(),
-                    watchdog_retry_root / "workspace_manifest.json",
-                )
-                (
-                    payload,
-                    validation_errors,
-                    validation_metadata,
-                    proposal_status,
-                ) = _evaluate_knowledge_response(
-                    shard=shard,
-                    response_text=watchdog_retry_run_result.response_text,
-                )
-                if watchdog_retry_row is not None:
-                    watchdog_retry_row["proposal_status"] = proposal_status
-                if isinstance(watchdog_retry_runner_rows, list) and watchdog_retry_runner_rows:
-                    first_watchdog_retry_runner_row = watchdog_retry_runner_rows[0]
-                    if isinstance(first_watchdog_retry_runner_row, dict):
-                        first_watchdog_retry_runner_row["proposal_status"] = proposal_status
-                _write_json(
-                    {
-                        "status": proposal_status,
-                        "validation_errors": list(validation_errors),
-                        "validation_metadata": dict(validation_metadata or {}),
-                        "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
-                        "watchdog_retry_reason_code": run_result.supervision_reason_code,
-                        "watchdog_retry_reason_detail": run_result.supervision_reason_detail,
-                        "state": watchdog_retry_run_result.supervision_state or "completed",
-                        "reason_code": watchdog_retry_run_result.supervision_reason_code,
-                        "reason_detail": watchdog_retry_run_result.supervision_reason_detail,
-                        "retryable": watchdog_retry_run_result.supervision_retryable,
-                    },
-                    watchdog_retry_root / "status.json",
-                )
-                watchdog_retry_status = (
-                    "recovered" if proposal_status == "validated" else "failed"
-                )
-                active_run_result = watchdog_retry_run_result
-                active_response_text = str(watchdog_retry_run_result.response_text or "")
-                final_success_run_result = watchdog_retry_run_result
+                watchdog_retry_size = _classify_knowledge_watchdog_retry_size(shard=shard)
+                if bool(watchdog_retry_size.get("oversized")):
+                    watchdog_retry_status = "oversized_skipped"
+                    watchdog_retry_skip_reason_code = str(
+                        watchdog_retry_size.get("reason_code") or "watchdog_retry_oversized_skipped"
+                    )
+                    watchdog_retry_skip_reason_detail = str(
+                        watchdog_retry_size.get("reason_detail") or ""
+                    )
+                    validation_metadata = {
+                        **dict(validation_metadata or {}),
+                        "watchdog_retry_skip_reason_code": watchdog_retry_skip_reason_code,
+                        "watchdog_retry_skip_reason_detail": watchdog_retry_skip_reason_detail,
+                        "watchdog_retry_chunk_count": int(watchdog_retry_size.get("chunk_count") or 0),
+                        "watchdog_retry_char_count": int(watchdog_retry_size.get("char_count") or 0),
+                    }
+                else:
+                    watchdog_retry_attempted = True
+                    watchdog_retry_examples = (
+                        cohort_watchdog_state.snapshot().get("successful_examples") or []
+                    )
+                    watchdog_retry_root = shard_root / "watchdog_retry"
+                    watchdog_retry_root.mkdir(parents=True, exist_ok=True)
+                    watchdog_retry_run_result = _run_knowledge_watchdog_retry_attempt(
+                        runner=runner,
+                        worker_root=worker_root,
+                        shard=shard,
+                        env=env,
+                        output_schema_path=output_schema_path,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        reason_code=str(run_result.supervision_reason_code or ""),
+                        reason_detail=str(run_result.supervision_reason_detail or ""),
+                        successful_examples=watchdog_retry_examples,
+                        live_status_path=watchdog_retry_root / "live_status.json",
+                    )
+                    _finalize_live_status(
+                        watchdog_retry_root / "live_status.json",
+                        run_result=watchdog_retry_run_result,
+                    )
+                    watchdog_retry_payload = _build_knowledge_inline_attempt_runner_payload(
+                        pipeline_id=pipeline_id,
+                        worker_id=assignment.worker_id,
+                        shard_id=shard.shard_id,
+                        run_result=watchdog_retry_run_result,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        prompt_input_mode="inline_watchdog_retry",
+                    )
+                    worker_runner_results.append(dict(watchdog_retry_payload))
+                    watchdog_retry_runner_rows = (
+                        watchdog_retry_payload.get("telemetry", {}).get("rows")
+                        if isinstance(watchdog_retry_payload.get("telemetry"), dict)
+                        else None
+                    )
+                    watchdog_retry_row = None
+                    if isinstance(watchdog_retry_runner_rows, list):
+                        for row_payload in watchdog_retry_runner_rows:
+                            if not isinstance(row_payload, dict):
+                                continue
+                            row_payload["is_watchdog_retry_attempt"] = True
+                            row_payload["watchdog_retry_attempt_index"] = 1
+                            watchdog_retry_row = dict(row_payload)
+                            stage_rows.append(watchdog_retry_row)
+                    (watchdog_retry_root / "events.jsonl").write_text(
+                        _render_events_jsonl(watchdog_retry_run_result.events),
+                        encoding="utf-8",
+                    )
+                    _write_json(
+                        {"text": watchdog_retry_run_result.response_text},
+                        watchdog_retry_root / "last_message.json",
+                    )
+                    _write_json(
+                        dict(watchdog_retry_run_result.usage or {}),
+                        watchdog_retry_root / "usage.json",
+                    )
+                    _write_json(
+                        watchdog_retry_run_result.workspace_manifest(),
+                        watchdog_retry_root / "workspace_manifest.json",
+                    )
+                    (
+                        payload,
+                        validation_errors,
+                        validation_metadata,
+                        proposal_status,
+                    ) = _evaluate_knowledge_response(
+                        shard=shard,
+                        response_text=watchdog_retry_run_result.response_text,
+                    )
+                    if watchdog_retry_row is not None:
+                        watchdog_retry_row["proposal_status"] = proposal_status
+                    if isinstance(watchdog_retry_runner_rows, list) and watchdog_retry_runner_rows:
+                        first_watchdog_retry_runner_row = watchdog_retry_runner_rows[0]
+                        if isinstance(first_watchdog_retry_runner_row, dict):
+                            first_watchdog_retry_runner_row["proposal_status"] = proposal_status
+                    _write_json(
+                        {
+                            "status": proposal_status,
+                            "validation_errors": list(validation_errors),
+                            "validation_metadata": dict(validation_metadata or {}),
+                            "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                            "watchdog_retry_reason_code": run_result.supervision_reason_code,
+                            "watchdog_retry_reason_detail": run_result.supervision_reason_detail,
+                            "state": watchdog_retry_run_result.supervision_state or "completed",
+                            "reason_code": watchdog_retry_run_result.supervision_reason_code,
+                            "reason_detail": watchdog_retry_run_result.supervision_reason_detail,
+                            "retryable": watchdog_retry_run_result.supervision_retryable,
+                        },
+                        watchdog_retry_root / "status.json",
+                    )
+                    watchdog_retry_status = (
+                        "recovered" if proposal_status == "validated" else "failed"
+                    )
+                    active_run_result = watchdog_retry_run_result
+                    active_response_text = str(watchdog_retry_run_result.response_text or "")
+                    final_success_run_result = watchdog_retry_run_result
             retry_attempted = False
             retry_status = "not_attempted"
             retry_child_shard_ids: list[str] = []
@@ -1998,6 +2281,8 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 primary_row["final_proposal_status"] = proposal_status
                 primary_row["watchdog_retry_attempted"] = watchdog_retry_attempted
                 primary_row["watchdog_retry_status"] = watchdog_retry_status
+                primary_row["watchdog_retry_skip_reason_code"] = watchdog_retry_skip_reason_code
+                primary_row["watchdog_retry_skip_reason_detail"] = watchdog_retry_skip_reason_detail
                 primary_row["retry_attempted"] = retry_attempted
                 primary_row["retry_status"] = retry_status
                 primary_row["retry_child_shard_ids"] = list(retry_child_shard_ids)
@@ -2012,6 +2297,8 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 primary_runner_row["final_proposal_status"] = proposal_status
                 primary_runner_row["watchdog_retry_attempted"] = watchdog_retry_attempted
                 primary_runner_row["watchdog_retry_status"] = watchdog_retry_status
+                primary_runner_row["watchdog_retry_skip_reason_code"] = watchdog_retry_skip_reason_code
+                primary_runner_row["watchdog_retry_skip_reason_detail"] = watchdog_retry_skip_reason_detail
                 primary_runner_row["retry_attempted"] = retry_attempted
                 primary_runner_row["retry_status"] = retry_status
                 primary_runner_row["retry_child_shard_ids"] = list(retry_child_shard_ids)
@@ -2027,6 +2314,8 @@ def _run_knowledge_workspace_worker_assignment_v1(
                     "validation_metadata": dict(validation_metadata or {}),
                     "watchdog_retry_attempted": watchdog_retry_attempted,
                     "watchdog_retry_status": watchdog_retry_status,
+                    "watchdog_retry_skip_reason_code": watchdog_retry_skip_reason_code,
+                    "watchdog_retry_skip_reason_detail": watchdog_retry_skip_reason_detail,
                     "retry_attempted": retry_attempted,
                     "retry_status": retry_status,
                     "retry_child_shard_ids": list(retry_child_shard_ids),
@@ -2053,6 +2342,8 @@ def _run_knowledge_workspace_worker_assignment_v1(
                     "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
                     "watchdog_retry_attempted": watchdog_retry_attempted,
                     "watchdog_retry_status": watchdog_retry_status,
+                    "watchdog_retry_skip_reason_code": watchdog_retry_skip_reason_code,
+                    "watchdog_retry_skip_reason_detail": watchdog_retry_skip_reason_detail,
                     "retry_attempted": retry_attempted,
                     "retry_status": retry_status,
                     "retry_child_shard_ids": list(retry_child_shard_ids),
@@ -2094,6 +2385,8 @@ def _run_knowledge_workspace_worker_assignment_v1(
                         **dict(validation_metadata or {}),
                         "watchdog_retry_attempted": watchdog_retry_attempted,
                         "watchdog_retry_status": watchdog_retry_status,
+                        "watchdog_retry_skip_reason_code": watchdog_retry_skip_reason_code,
+                        "watchdog_retry_skip_reason_detail": watchdog_retry_skip_reason_detail,
                         "retry_attempted": retry_attempted,
                         "retry_status": retry_status,
                         "retry_child_shard_ids": list(retry_child_shard_ids),
@@ -2116,6 +2409,618 @@ def _run_knowledge_workspace_worker_assignment_v1(
     worker_runner_payload = _aggregate_worker_runner_payload(
         pipeline_id=pipeline_id,
         worker_runs=worker_runner_results,
+    )
+    _write_json(worker_runner_payload, worker_root / "status.json")
+    return _DirectKnowledgeWorkerResult(
+        report=WorkerExecutionReportV1(
+            worker_id=assignment.worker_id,
+            shard_ids=assignment.shard_ids,
+            workspace_root=_relative_path(run_root, worker_root),
+            status="ok" if worker_failure_count == 0 else "partial_failure",
+            proposal_count=worker_proposal_count,
+            failure_count=worker_failure_count,
+            runtime_mode_audit={
+                "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "status": "ok",
+                "output_schema_enforced": False,
+                "tool_affordances_requested": True,
+            },
+            runner_result=worker_runner_payload,
+            metadata={
+                "in_dir": _relative_path(run_root, in_dir),
+                "hints_dir": _relative_path(run_root, hints_dir),
+                "out_dir": _relative_path(run_root, out_dir),
+                "shards_dir": _relative_path(run_root, shard_dir),
+                "log_dir": _relative_path(run_root, logs_dir),
+            },
+        ),
+        proposals=tuple(worker_proposals),
+        failures=tuple(worker_failures),
+        stage_rows=tuple(stage_rows),
+        worker_runner_payload=worker_runner_payload,
+    )
+
+
+def _run_knowledge_workspace_worker_assignment_taskized_v1(
+    *,
+    run_root: Path,
+    assignment: WorkerAssignmentV1,
+    artifacts: Mapping[str, str],
+    assigned_shards: Sequence[ShardManifestEntryV1],
+    task_plans_by_shard_id: Mapping[str, tuple[_KnowledgeTaskPlan, ...]],
+    worker_root: Path,
+    in_dir: Path,
+    hints_dir: Path,
+    shard_dir: Path,
+    logs_dir: Path,
+    runner: CodexExecRunner,
+    pipeline_id: str,
+    env: Mapping[str, str],
+    model: str | None,
+    reasoning_effort: str | None,
+    output_schema_path: Path | None,
+    cohort_watchdog_state: _KnowledgeCohortWatchdogState,
+    shard_completed_callback: Callable[..., None] | None,
+) -> _DirectKnowledgeWorkerResult:
+    out_dir = worker_root / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    worker_failure_count = 0
+    worker_proposal_count = 0
+    worker_failures: list[dict[str, Any]] = []
+    worker_proposals: list[ShardProposalV1] = []
+    worker_runner_results: list[dict[str, Any]] = []
+    stage_rows: list[dict[str, Any]] = []
+    runnable_shards: list[ShardManifestEntryV1] = []
+    runnable_tasks: list[_KnowledgeTaskPlan] = []
+
+    for shard in assigned_shards:
+        shard_root = shard_dir / shard.shard_id
+        shard_root.mkdir(parents=True, exist_ok=True)
+        preflight_failure = _preflight_knowledge_shard(shard)
+        if preflight_failure is None:
+            task_plans = task_plans_by_shard_id.get(shard.shard_id, ())
+            if task_plans:
+                runnable_shards.append(shard)
+                runnable_tasks.extend(task_plans)
+            continue
+        preflight_result = _build_preflight_rejected_run_result(
+            prompt_text="knowledge worker preflight rejected",
+            output_schema_path=output_schema_path,
+            working_dir=worker_root,
+            reason_code=str(preflight_failure.get("reason_code") or "preflight_rejected"),
+            reason_detail=str(preflight_failure.get("reason_detail") or "knowledge shard failed preflight"),
+        )
+        _write_live_status(
+            shard_root / "live_status.json",
+            {
+                "state": "preflight_rejected",
+                "reason_code": preflight_result.supervision_reason_code,
+                "reason_detail": preflight_result.supervision_reason_detail,
+                "retryable": preflight_result.supervision_retryable,
+                "watchdog_policy": "workspace_worker_v1",
+                "elapsed_seconds": 0.0,
+                "last_event_seconds_ago": None,
+                "command_execution_count": 0,
+                "reasoning_item_count": 0,
+            },
+        )
+        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        _write_json(
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": assignment.worker_id,
+                "payload": None,
+                "validation_errors": [str(preflight_failure.get("reason_code") or "preflight_rejected")],
+                "validation_metadata": {},
+                "watchdog_retry_attempted": False,
+                "watchdog_retry_status": "not_attempted",
+                "retry_attempted": False,
+                "retry_status": "not_attempted",
+                "retry_child_shard_ids": [],
+                "repair_attempted": False,
+                "repair_status": "not_attempted",
+            },
+            proposal_path,
+        )
+        _write_json(
+            {
+                "status": "missing_output",
+                "validation_errors": [str(preflight_failure.get("reason_code") or "preflight_rejected")],
+                "validation_metadata": {},
+                "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "watchdog_retry_attempted": False,
+                "watchdog_retry_status": "not_attempted",
+                "retry_attempted": False,
+                "retry_status": "not_attempted",
+                "retry_child_shard_ids": [],
+                "repair_attempted": False,
+                "repair_status": "not_attempted",
+                "state": "preflight_rejected",
+                "reason_code": str(preflight_failure.get("reason_code") or "preflight_rejected"),
+                "reason_detail": str(preflight_failure.get("reason_detail") or ""),
+                "retryable": False,
+            },
+            shard_root / "status.json",
+        )
+        worker_failure_count += 1
+        worker_failures.append(
+            {
+                "worker_id": assignment.worker_id,
+                "shard_id": shard.shard_id,
+                "reason": "preflight_rejected",
+                "validation_errors": [str(preflight_failure.get("reason_code") or "preflight_rejected")],
+                "state": "preflight_rejected",
+                "reason_code": str(preflight_failure.get("reason_code") or "preflight_rejected"),
+            }
+        )
+        worker_proposals.append(
+            ShardProposalV1(
+                shard_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                status="missing_output",
+                proposal_path=_relative_path(run_root, proposal_path),
+                payload=None,
+                validation_errors=(str(preflight_failure.get("reason_code") or "preflight_rejected"),),
+                metadata={
+                    "watchdog_retry_attempted": False,
+                    "watchdog_retry_status": "not_attempted",
+                    "retry_attempted": False,
+                    "retry_status": "not_attempted",
+                    "repair_attempted": False,
+                    "repair_status": "not_attempted",
+                },
+            )
+        )
+        if shard_completed_callback is not None:
+            shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+
+    _write_json(
+        [asdict(_build_knowledge_task_runtime_manifest_entry(task)) for task in runnable_tasks],
+        worker_root / "assigned_tasks.json",
+    )
+    for task in runnable_tasks:
+        task_manifest = task.manifest_entry
+        _write_worker_input(
+            in_dir / f"{task_manifest.shard_id}.json",
+            payload=task_manifest.input_payload,
+            input_text=task_manifest.input_text,
+        )
+        _write_knowledge_worker_hint(
+            path=hints_dir / f"{task_manifest.shard_id}.md",
+            shard=task_manifest,
+        )
+
+    if runnable_shards and runnable_tasks:
+        worker_prompt_text = _build_knowledge_workspace_worker_prompt(
+            tasks=[
+                _build_knowledge_task_runtime_manifest_entry(task)
+                for task in runnable_tasks
+            ]
+        )
+        worker_prompt_path = worker_root / "prompt.txt"
+        worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
+        worker_live_status_path = worker_root / "live_status.json"
+        shard_live_status_paths = [
+            shard_dir / shard.shard_id / "live_status.json" for shard in runnable_shards
+        ]
+        for shard in runnable_shards:
+            (shard_dir / shard.shard_id / "prompt.txt").write_text(worker_prompt_text, encoding="utf-8")
+        run_result = runner.run_workspace_worker(
+            prompt_text=worker_prompt_text,
+            working_dir=worker_root,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            workspace_task_label="knowledge worker session",
+            supervision_callback=_build_strict_json_watchdog_callback(
+                live_status_path=worker_live_status_path,
+                live_status_paths=shard_live_status_paths,
+                cohort_watchdog_state=cohort_watchdog_state,
+                watchdog_policy="workspace_worker_v1",
+                allow_workspace_commands=True,
+                expected_workspace_output_paths=[
+                    out_dir / f"{task.task_id}.json" for task in runnable_tasks
+                ],
+            ),
+        )
+        _finalize_live_status(
+            worker_live_status_path,
+            run_result=run_result,
+            watchdog_policy="workspace_worker_v1",
+        )
+        for live_status_path in shard_live_status_paths:
+            _finalize_live_status(
+                live_status_path,
+                run_result=run_result,
+                watchdog_policy="workspace_worker_v1",
+            )
+        (worker_root / "events.jsonl").write_text(
+            _render_events_jsonl(run_result.events),
+            encoding="utf-8",
+        )
+        _write_json({"text": run_result.response_text}, worker_root / "last_message.json")
+        _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
+        _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
+
+        task_count = len(runnable_tasks)
+        task_payloads_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
+        task_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+        task_watchdog_retry_status_by_shard_id: dict[str, dict[str, str]] = {}
+        task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
+        task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+        for task_index, task in enumerate(runnable_tasks):
+            task_manifest = task.manifest_entry
+            parent_shard_id = task.parent_shard_id
+            task_root = shard_dir / task_manifest.shard_id
+            task_root.mkdir(parents=True, exist_ok=True)
+            input_path = in_dir / f"{task_manifest.shard_id}.json"
+            output_path = out_dir / f"{task_manifest.shard_id}.json"
+            response_text = output_path.read_text(encoding="utf-8") if output_path.exists() else None
+            runner_payload = _build_knowledge_workspace_task_runner_payload(
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                shard_id=parent_shard_id,
+                runtime_task_id=task_manifest.shard_id,
+                run_result=run_result,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                request_input_file=input_path,
+                worker_prompt_path=worker_prompt_path,
+                task_count=task_count,
+                task_index=task_index,
+            )
+            worker_runner_results.append(dict(runner_payload))
+            telemetry = runner_payload.get("telemetry")
+            row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+            if isinstance(row_payloads, list):
+                for row_payload in row_payloads:
+                    if isinstance(row_payload, dict):
+                        stage_rows.append(dict(row_payload))
+            primary_row = stage_rows[-1] if stage_rows else None
+            primary_runner_row = (
+                row_payloads[0]
+                if isinstance(row_payloads, list)
+                and row_payloads
+                and isinstance(row_payloads[0], dict)
+                else None
+            )
+            payload, validation_errors, validation_metadata, proposal_status = _evaluate_knowledge_response(
+                shard=task_manifest,
+                response_text=response_text,
+            )
+            initial_proposal_status = proposal_status
+            active_response_text = response_text
+            watchdog_retry_attempted = False
+            watchdog_retry_status = "not_attempted"
+            if _should_attempt_knowledge_watchdog_retry(run_result=run_result):
+                watchdog_retry_attempted = True
+                watchdog_retry_run_result = _run_knowledge_watchdog_retry_attempt(
+                    runner=runner,
+                    worker_root=worker_root,
+                    shard=task_manifest,
+                    env=env,
+                    output_schema_path=output_schema_path,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    reason_code=str(run_result.supervision_reason_code or ""),
+                    reason_detail=str(run_result.supervision_reason_detail or ""),
+                    successful_examples=cohort_watchdog_state.snapshot().get("successful_examples") or [],
+                    live_status_path=task_root / "watchdog_retry" / "live_status.json",
+                )
+                retry_root = task_root / "watchdog_retry"
+                _finalize_live_status(
+                    retry_root / "live_status.json",
+                    run_result=watchdog_retry_run_result,
+                )
+                retry_payload_wrapper = _build_knowledge_inline_attempt_runner_payload(
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    shard_id=parent_shard_id,
+                    run_result=watchdog_retry_run_result,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    prompt_input_mode="inline_watchdog_retry",
+                )
+                retry_payload_wrapper["process_payload"]["runtime_task_id"] = task_manifest.shard_id
+                retry_payload_wrapper["process_payload"]["runtime_parent_shard_id"] = parent_shard_id
+                worker_runner_results.append(dict(retry_payload_wrapper))
+                retry_rows = (
+                    retry_payload_wrapper.get("telemetry", {}).get("rows")
+                    if isinstance(retry_payload_wrapper.get("telemetry"), dict)
+                    else None
+                )
+                if isinstance(retry_rows, list):
+                    for row_payload in retry_rows:
+                        if not isinstance(row_payload, dict):
+                            continue
+                        row_payload["watchdog_retry_attempted"] = True
+                        row_payload["runtime_task_id"] = task_manifest.shard_id
+                        row_payload["runtime_parent_shard_id"] = parent_shard_id
+                        stage_rows.append(dict(row_payload))
+                (retry_root / "events.jsonl").write_text(
+                    _render_events_jsonl(watchdog_retry_run_result.events),
+                    encoding="utf-8",
+                )
+                _write_json({"text": watchdog_retry_run_result.response_text}, retry_root / "last_message.json")
+                _write_json(dict(watchdog_retry_run_result.usage or {}), retry_root / "usage.json")
+                _write_json(watchdog_retry_run_result.workspace_manifest(), retry_root / "workspace_manifest.json")
+                payload, validation_errors, validation_metadata, proposal_status = _evaluate_knowledge_response(
+                    shard=task_manifest,
+                    response_text=watchdog_retry_run_result.response_text,
+                )
+                watchdog_retry_status = "recovered" if proposal_status == "validated" else "failed"
+                _write_json(
+                    {
+                        "status": proposal_status,
+                        "watchdog_retry_reason_code": run_result.supervision_reason_code,
+                        "validation_errors": list(validation_errors),
+                        "validation_metadata": dict(validation_metadata or {}),
+                    },
+                    retry_root / "status.json",
+                )
+                active_response_text = watchdog_retry_run_result.response_text
+                task_watchdog_retry_status_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = watchdog_retry_status
+
+            repair_attempted = False
+            repair_status = "not_attempted"
+            if _should_attempt_knowledge_repair(
+                proposal_status=proposal_status,
+                validation_errors=validation_errors,
+            ):
+                repair_attempted = True
+                repair_run_result = _run_knowledge_repair_attempt(
+                    runner=runner,
+                    worker_root=worker_root,
+                    shard=task_manifest,
+                    env=env,
+                    output_schema_path=output_schema_path,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    original_response_text=active_response_text,
+                    validation_errors=validation_errors,
+                    validation_metadata=validation_metadata,
+                    live_status_path=task_root / "repair_live_status.json",
+                )
+                _finalize_live_status(
+                    task_root / "repair_live_status.json",
+                    run_result=repair_run_result,
+                )
+                repair_payload = _build_knowledge_inline_attempt_runner_payload(
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    shard_id=parent_shard_id,
+                    run_result=repair_run_result,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    prompt_input_mode="inline_repair",
+                )
+                repair_payload["process_payload"]["runtime_task_id"] = task_manifest.shard_id
+                repair_payload["process_payload"]["runtime_parent_shard_id"] = parent_shard_id
+                worker_runner_results.append(dict(repair_payload))
+                repair_runner_rows = (
+                    repair_payload.get("telemetry", {}).get("rows")
+                    if isinstance(repair_payload.get("telemetry"), dict)
+                    else None
+                )
+                if isinstance(repair_runner_rows, list):
+                    for row_payload in repair_runner_rows:
+                        if not isinstance(row_payload, dict):
+                            continue
+                        row_payload["repair_attempted"] = True
+                        row_payload["runtime_task_id"] = task_manifest.shard_id
+                        row_payload["runtime_parent_shard_id"] = parent_shard_id
+                        stage_rows.append(dict(row_payload))
+                (task_root / "repair_events.jsonl").write_text(
+                    _render_events_jsonl(repair_run_result.events),
+                    encoding="utf-8",
+                )
+                _write_json({"text": repair_run_result.response_text}, task_root / "repair_last_message.json")
+                _write_json(dict(repair_run_result.usage or {}), task_root / "repair_usage.json")
+                _write_json(repair_run_result.workspace_manifest(), task_root / "repair_workspace_manifest.json")
+                payload, repair_errors, repair_metadata, repair_proposal_status = _evaluate_knowledge_response(
+                    shard=task_manifest,
+                    response_text=repair_run_result.response_text,
+                )
+                repair_status = "repaired" if repair_proposal_status == "validated" else "failed"
+                validation_errors = repair_errors
+                validation_metadata = dict(repair_metadata or {})
+                proposal_status = repair_proposal_status
+                _write_json(
+                    {
+                        "attempted": True,
+                        "status": repair_status,
+                        "repair_validation_errors": list(repair_errors),
+                        "state": repair_run_result.supervision_state or "completed",
+                        "reason_code": repair_run_result.supervision_reason_code,
+                        "reason_detail": repair_run_result.supervision_reason_detail,
+                        "retryable": repair_run_result.supervision_retryable,
+                    },
+                    task_root / "repair_status.json",
+                )
+                task_repair_status_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = repair_status
+                task_repair_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = tuple(repair_errors if repair_status == "failed" else ())
+
+            if primary_row is not None:
+                primary_row["proposal_status"] = (
+                    initial_proposal_status if watchdog_retry_attempted or repair_attempted else proposal_status
+                )
+                primary_row["final_proposal_status"] = proposal_status
+                primary_row["watchdog_retry_attempted"] = watchdog_retry_attempted
+                primary_row["watchdog_retry_status"] = watchdog_retry_status
+                primary_row["repair_attempted"] = repair_attempted
+                primary_row["repair_status"] = repair_status
+            if primary_runner_row is not None:
+                primary_runner_row["proposal_status"] = (
+                    initial_proposal_status if watchdog_retry_attempted or repair_attempted else proposal_status
+                )
+                primary_runner_row["final_proposal_status"] = proposal_status
+                primary_runner_row["watchdog_retry_attempted"] = watchdog_retry_attempted
+                primary_runner_row["watchdog_retry_status"] = watchdog_retry_status
+                primary_runner_row["repair_attempted"] = repair_attempted
+                primary_runner_row["repair_status"] = repair_status
+            task_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
+                task_manifest.shard_id
+            ] = tuple(validation_errors)
+            if payload is not None and proposal_status == "validated":
+                task_payloads_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = payload
+
+        for shard in runnable_shards:
+            shard_root = shard_dir / shard.shard_id
+            task_payloads = task_payloads_by_shard_id.get(shard.shard_id, {})
+            task_errors = task_validation_errors_by_shard_id.get(shard.shard_id, {})
+            task_watchdog_statuses = task_watchdog_retry_status_by_shard_id.get(shard.shard_id, {})
+            task_repair_statuses = task_repair_status_by_shard_id.get(shard.shard_id, {})
+            task_repair_errors = task_repair_validation_errors_by_shard_id.get(shard.shard_id, {})
+            payload, aggregation_metadata = _aggregate_knowledge_task_payloads(
+                shard=shard,
+                task_payloads_by_task_id=task_payloads,
+                task_validation_errors_by_task_id=task_errors,
+            )
+            payload_candidate, validation_errors, validation_metadata, proposal_status = _evaluate_knowledge_response(
+                shard=shard,
+                response_text=json.dumps(payload, sort_keys=True),
+            )
+            watchdog_retry_attempted = bool(task_watchdog_statuses)
+            watchdog_retry_status = (
+                "recovered"
+                if any(status == "recovered" for status in task_watchdog_statuses.values())
+                else ("failed" if watchdog_retry_attempted else "not_attempted")
+            )
+            repair_attempted = any(
+                str(status).strip() != "not_attempted"
+                for status in task_repair_statuses.values()
+            )
+            repair_status = (
+                "repaired"
+                if any(str(status).strip() == "repaired" for status in task_repair_statuses.values())
+                else ("failed" if repair_attempted else "not_attempted")
+            )
+            validation_metadata = {
+                "task_aggregation": aggregation_metadata,
+                **dict(validation_metadata or {}),
+            }
+            if task_watchdog_statuses:
+                validation_metadata["task_watchdog_retry_status_by_task_id"] = {
+                    task_id: status
+                    for task_id, status in sorted(task_watchdog_statuses.items())
+                }
+            if task_repair_statuses:
+                validation_metadata["task_repair_status_by_task_id"] = {
+                    task_id: status
+                    for task_id, status in sorted(task_repair_statuses.items())
+                }
+            repair_validation_errors = sorted(
+                {
+                    str(error).strip()
+                    for errors in task_repair_errors.values()
+                    for error in errors
+                    if str(error).strip()
+                }
+            )
+            if repair_validation_errors:
+                validation_metadata["repair_validation_errors"] = repair_validation_errors
+            final_payload = payload_candidate if proposal_status == "validated" else None
+            proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+            _write_json(
+                {
+                    "shard_id": shard.shard_id,
+                    "worker_id": assignment.worker_id,
+                    "payload": final_payload,
+                    "validation_errors": list(validation_errors),
+                    "validation_metadata": dict(validation_metadata or {}),
+                    "watchdog_retry_attempted": watchdog_retry_attempted,
+                    "watchdog_retry_status": watchdog_retry_status,
+                    "watchdog_retry_skip_reason_code": None,
+                    "watchdog_retry_skip_reason_detail": None,
+                    "retry_attempted": False,
+                    "retry_status": "not_attempted",
+                    "retry_child_shard_ids": [],
+                    "repair_attempted": repair_attempted,
+                    "repair_status": repair_status,
+                },
+                proposal_path,
+            )
+            _write_json(
+                {
+                    "status": proposal_status,
+                    "validation_errors": list(validation_errors),
+                    "validation_metadata": dict(validation_metadata or {}),
+                    "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                    "watchdog_retry_attempted": watchdog_retry_attempted,
+                    "watchdog_retry_status": watchdog_retry_status,
+                    "watchdog_retry_skip_reason_code": None,
+                    "watchdog_retry_skip_reason_detail": None,
+                    "retry_attempted": False,
+                    "retry_status": "not_attempted",
+                    "retry_child_shard_ids": [],
+                    "repair_attempted": repair_attempted,
+                    "repair_status": repair_status,
+                    "state": run_result.supervision_state or "completed",
+                    "reason_code": run_result.supervision_reason_code,
+                    "reason_detail": run_result.supervision_reason_detail,
+                    "retryable": run_result.supervision_retryable,
+                },
+                shard_root / "status.json",
+            )
+            if proposal_status != "validated":
+                worker_failure_count += 1
+                worker_failures.append(
+                    {
+                        "worker_id": assignment.worker_id,
+                        "shard_id": shard.shard_id,
+                        "reason": _failure_reason_from_run_result(
+                            run_result=run_result,
+                            proposal_status=proposal_status,
+                        ),
+                        "validation_errors": list(validation_errors),
+                        "state": run_result.supervision_state or "completed",
+                        "reason_code": run_result.supervision_reason_code,
+                    }
+                )
+            else:
+                worker_proposal_count += 1
+                cohort_watchdog_state.record_validated_result(
+                    duration_ms=run_result.duration_ms,
+                    example_payload=_build_knowledge_watchdog_example(
+                        shard=shard,
+                        payload=final_payload,
+                    ),
+                )
+            worker_proposals.append(
+                ShardProposalV1(
+                    shard_id=shard.shard_id,
+                    worker_id=assignment.worker_id,
+                    status=proposal_status,
+                    proposal_path=_relative_path(run_root, proposal_path),
+                    payload=final_payload,
+                    validation_errors=validation_errors,
+                    metadata={
+                        **dict(validation_metadata or {}),
+                        "watchdog_retry_attempted": watchdog_retry_attempted,
+                        "watchdog_retry_status": watchdog_retry_status,
+                        "retry_attempted": False,
+                        "retry_status": "not_attempted",
+                        "retry_child_shard_ids": [],
+                        "repair_attempted": repair_attempted,
+                        "repair_status": repair_status,
+                    },
+                )
+            )
+            if shard_completed_callback is not None:
+                shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+
+    worker_runner_payload = _aggregate_worker_runner_payload(
+        pipeline_id=pipeline_id,
+        worker_runs=worker_runner_results,
+        stage_rows=stage_rows,
     )
     _write_json(worker_runner_payload, worker_root / "status.json")
     return _DirectKnowledgeWorkerResult(
@@ -2174,6 +3079,14 @@ def _run_direct_knowledge_worker_assignment_v1(
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
     _write_json([asdict(shard) for shard in assigned_shards], worker_root / "assigned_shards.json")
+    _write_json(
+        [
+            asdict(_build_knowledge_task_runtime_manifest_entry(task_plan))
+            for shard in assigned_shards
+            for task_plan in _build_knowledge_task_plans(shard)
+        ],
+        worker_root / "assigned_tasks.json",
+    )
     return _run_knowledge_workspace_worker_assignment_v1(
         run_root=run_root,
         assignment=assignment,
@@ -2313,17 +3226,25 @@ def _build_strict_json_watchdog_callback(
     shard_id: str | None = None,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
     allow_workspace_commands: bool = False,
+    silence_timeout_seconds: float | None = None,
+    expected_workspace_output_paths: Sequence[Path] | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
     if live_status_path is not None:
         target_paths.append(live_status_path)
     if live_status_paths is not None:
         target_paths.extend(Path(path) for path in live_status_paths)
+    workspace_output_paths = [Path(path) for path in (expected_workspace_output_paths or [])]
+    last_complete_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
+    workspace_output_stable_passes = 0
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
+        nonlocal last_complete_workspace_signature
+        nonlocal workspace_output_stable_passes
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_verdict = classify_workspace_worker_command(snapshot.last_command)
+        final_agent_message_state = str(snapshot.final_agent_message_state or "absent")
         cohort_snapshot = (
             cohort_watchdog_state.snapshot()
             if cohort_watchdog_state is not None
@@ -2339,8 +3260,33 @@ def _build_strict_json_watchdog_callback(
                 (snapshot.elapsed_seconds * 1000.0) / float(cohort_median_duration_ms),
                 3,
             )
+        workspace_output_status = _summarize_workspace_output_paths(workspace_output_paths)
+        if workspace_output_status["complete"]:
+            current_signature = tuple(workspace_output_status["signature"])
+            if current_signature == last_complete_workspace_signature:
+                workspace_output_stable_passes += 1
+            else:
+                last_complete_workspace_signature = current_signature
+                workspace_output_stable_passes = 1
+        else:
+            last_complete_workspace_signature = None
+            workspace_output_stable_passes = 0
+        if (
+            allow_workspace_commands
+            and workspace_output_status["complete"]
+            and workspace_output_stable_passes >= _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES
+        ):
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="workspace_outputs_stabilized",
+                reason_detail=(
+                    "knowledge workspace worker wrote every assigned output file and the "
+                    "files stabilized across consecutive supervision snapshots"
+                ),
+                retryable=False,
+                supervision_state="completed",
+            )
         if snapshot.command_execution_count > 0:
-            if allow_workspace_commands:
+            if decision is None and allow_workspace_commands:
                 if is_tolerated_workspace_worker_command(snapshot.last_command):
                     command_execution_tolerated = True
                 else:
@@ -2361,7 +3307,7 @@ def _build_strict_json_watchdog_callback(
                         ),
                         retryable=True,
                     )
-            else:
+            elif decision is None:
                 decision = CodexExecSupervisionDecision.terminate(
                     reason_code="watchdog_command_execution_forbidden",
                     reason_detail=format_watchdog_command_reason_detail(
@@ -2370,10 +3316,33 @@ def _build_strict_json_watchdog_callback(
                     ),
                     retryable=True,
                 )
-        elif snapshot.reasoning_item_count >= 2 and not snapshot.has_final_agent_message:
+        elif not allow_workspace_commands and final_agent_message_state == "malformed":
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="watchdog_malformed_final_output",
+                reason_detail=(
+                    snapshot.final_agent_message_reason
+                    or "strict JSON stage emitted malformed pseudo-final output"
+                ),
+                retryable=True,
+            )
+        elif snapshot.reasoning_item_count >= 2 and final_agent_message_state != "json_object":
             decision = CodexExecSupervisionDecision.terminate(
                 reason_code="watchdog_reasoning_without_output",
                 reason_detail="strict JSON stage emitted repeated reasoning without a final answer",
+                retryable=True,
+            )
+        elif (
+            silence_timeout_seconds is not None
+            and snapshot.last_event_seconds_ago is not None
+            and snapshot.last_event_seconds_ago >= float(silence_timeout_seconds)
+            and final_agent_message_state != "json_object"
+        ):
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="watchdog_no_activity_timeout",
+                reason_detail=(
+                    "strict JSON stage emitted no new activity for "
+                    f"{int(float(silence_timeout_seconds))} seconds without reaching final output"
+                ),
                 retryable=True,
             )
         elif (
@@ -2382,7 +3351,7 @@ def _build_strict_json_watchdog_callback(
             and (snapshot.elapsed_seconds * 1000.0) >= _KNOWLEDGE_COHORT_WATCHDOG_MIN_ELAPSED_MS
             and (snapshot.elapsed_seconds * 1000.0)
             >= (float(cohort_median_duration_ms) * _KNOWLEDGE_COHORT_WATCHDOG_MEDIAN_FACTOR)
-            and not snapshot.has_final_agent_message
+            and final_agent_message_state != "json_object"
         ):
             decision = CodexExecSupervisionDecision.terminate(
                 reason_code="watchdog_cohort_runtime_outlier",
@@ -2414,12 +3383,24 @@ def _build_strict_json_watchdog_callback(
             "last_command": snapshot.last_command,
             "last_command_repeat_count": snapshot.last_command_repeat_count,
             "has_final_agent_message": snapshot.has_final_agent_message,
+            "final_agent_message_state": final_agent_message_state,
+            "final_agent_message_reason": snapshot.final_agent_message_reason,
             "timeout_seconds": snapshot.timeout_seconds,
+            "silence_timeout_seconds": (
+                round(float(silence_timeout_seconds), 3)
+                if silence_timeout_seconds is not None
+                else None
+            ),
             "watchdog_policy": watchdog_policy,
             "shard_id": shard_id,
             "cohort_completed_successful_shards": cohort_completed_successful_shards,
             "cohort_median_duration_ms": cohort_median_duration_ms,
             "cohort_elapsed_ratio": cohort_elapsed_ratio,
+            "workspace_output_expected_count": workspace_output_status["expected_count"],
+            "workspace_output_present_count": workspace_output_status["present_count"],
+            "workspace_output_complete": workspace_output_status["complete"],
+            "workspace_output_missing_files": workspace_output_status["missing_files"],
+            "workspace_output_stable_passes": workspace_output_stable_passes,
             "reason_code": decision.reason_code if decision is not None else None,
             "reason_detail": decision.reason_detail if decision is not None else None,
             "retryable": decision.retryable if decision is not None else False,
@@ -2437,6 +3418,7 @@ def _finalize_live_status(
     run_result: CodexExecRunResult,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
 ) -> None:
+    final_agent_message = assess_final_agent_message(run_result.response_text)
     _write_live_status(
         live_status_path,
         {
@@ -2448,6 +3430,9 @@ def _finalize_live_status(
             "started_at_utc": run_result.started_at_utc,
             "finished_at_utc": run_result.finished_at_utc,
             "watchdog_policy": watchdog_policy,
+            "has_final_agent_message": final_agent_message.state != "absent",
+            "final_agent_message_state": final_agent_message.state,
+            "final_agent_message_reason": final_agent_message.reason,
         },
     )
 
@@ -2473,6 +3458,98 @@ def _failure_reason_from_run_result(
         if proposal_status == "invalid"
         else "missing_output_file"
     )
+
+
+def _summarize_workspace_output_paths(paths: Sequence[Path]) -> dict[str, Any]:
+    expected_count = len(paths)
+    if expected_count <= 0:
+        return {
+            "expected_count": 0,
+            "present_count": 0,
+            "complete": False,
+            "missing_files": [],
+            "signature": (),
+        }
+    present_count = 0
+    missing_files: list[str] = []
+    signature: list[tuple[str, int, int]] = []
+    complete = True
+    for path in paths:
+        path_obj = Path(path)
+        if not path_obj.exists() or not path_obj.is_file():
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        try:
+            stat_result = path_obj.stat()
+        except OSError:
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        if int(stat_result.st_size or 0) <= 0:
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        try:
+            payload = json.loads(path_obj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        if not isinstance(payload, Mapping):
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        present_count += 1
+        signature.append((path_obj.name, int(stat_result.st_size), int(stat_result.st_mtime_ns)))
+    return {
+        "expected_count": expected_count,
+        "present_count": present_count,
+        "complete": complete and present_count == expected_count,
+        "missing_files": sorted(missing_files),
+        "signature": tuple(signature),
+    }
+
+
+def _run_result_process_status(run_result: CodexExecRunResult) -> str:
+    return "done" if run_result.completed_successfully() else "failed"
+
+
+def _classify_knowledge_watchdog_retry_size(
+    *,
+    shard: ShardManifestEntryV1,
+) -> dict[str, Any]:
+    metadata = dict(shard.metadata or {})
+    chunk_count = max(0, int(metadata.get("chunk_count") or len(shard.owned_ids)))
+    char_count = max(0, int(metadata.get("char_count") or 0))
+    oversized = (
+        chunk_count > 1
+        and (
+            chunk_count > _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD
+            or char_count > _KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD
+        )
+    )
+    if not oversized:
+        return {
+            "oversized": False,
+            "reason_code": None,
+            "reason_detail": None,
+            "chunk_count": chunk_count,
+            "char_count": char_count,
+        }
+    return {
+        "oversized": True,
+        "reason_code": "watchdog_retry_oversized_skipped",
+        "reason_detail": (
+            "skipped monolithic strict JSON watchdog retry because the shard owns "
+            "multiple chunks and exceeds the retry-safe size policy "
+            f"(chunk_count={chunk_count}, char_count={char_count}, "
+            f"limits={_KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD} chunk / "
+            f"{_KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD} chars)"
+        ),
+        "chunk_count": chunk_count,
+        "char_count": char_count,
+    }
 
 
 def _format_utc_now() -> str:
@@ -2784,6 +3861,7 @@ def _run_knowledge_watchdog_retry_attempt(
         successful_examples=successful_examples,
     )
     retry_root = worker_root / "shards" / shard.shard_id / "watchdog_retry"
+    retry_root.mkdir(parents=True, exist_ok=True)
     (retry_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
     return runner.run_structured_prompt(
         prompt_text=prompt_text,
@@ -2804,9 +3882,13 @@ def _run_knowledge_watchdog_retry_attempt(
         output_schema_path=output_schema_path,
         model=model,
         reasoning_effort=reasoning_effort,
+        timeout_seconds=_KNOWLEDGE_WATCHDOG_RETRY_TIMEOUT_SECONDS,
         workspace_task_label="knowledge watchdog retry shard",
         supervision_callback=(
-            _build_strict_json_watchdog_callback(live_status_path=live_status_path)
+            _build_strict_json_watchdog_callback(
+                live_status_path=live_status_path,
+                silence_timeout_seconds=_KNOWLEDGE_WATCHDOG_RETRY_SILENCE_TIMEOUT_SECONDS,
+            )
             if live_status_path is not None
             else None
         ),

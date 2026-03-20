@@ -9,7 +9,7 @@ read_when:
 
 # LLM Section Reference
 
-LLM usage in this repo is optional. The direct-exec transport is now mixed by attempt type rather than by stage: recipe, line-role, and knowledge worker assignments all start in one long-lived local workspace-worker session that processes worker-local shard files and writes `out/*.json` results incrementally, while stage-specific retry / repair follow-up attempts can still use structured one-shot calls.
+LLM usage in this repo is optional. The direct-exec transport is now mixed by attempt type rather than by stage: recipe, line-role, and knowledge worker assignments all start in one long-lived local workspace-worker session that processes worker-local task files and writes `out/*.json` results incrementally, while stage-specific retry / repair follow-up attempts can still use structured one-shot calls. All three active stages now treat tasks as the normal answer unit inside a shard: line-role splits shards into bounded line packets, recipe usually splits shards into one task per owned recipe, and knowledge splits multi-chunk shards into bounded chunk packets before validation and recovery.
 
 ## Runtime surface
 
@@ -28,11 +28,11 @@ Primary entrypoints:
 
 Shared shard-runtime foundation:
 
-- `cookimport/llm/phase_worker_runtime.py` is the shared shard-worker foundation and still defines the manifest/assignment/promotion artifact contract that the direct recipe, knowledge, and line-role runtimes mirror.
+- `cookimport/llm/phase_worker_runtime.py` is the shared shard-worker foundation and now also defines the task manifest / task result dataclasses that the direct recipe, knowledge, and line-role runtimes can mirror incrementally.
 - `cookimport/llm/codex_exec_runner.py` is the repo-owned direct Codex subprocess seam used by the live recipe, knowledge, and line-role transports. It now supports both one-shot structured prompts and long-lived workspace-worker sessions.
 - workspace-worker sessions now also get a repo-written `worker_manifest.json` in the worker root and mirrored sterile workspace. The worker contract is now explicit: start from `worker_manifest.json`, then `assigned_shards.json`, open named `hints/*.md` and `in/*.json` files directly, and stay inside the bounded workspace rather than reaching back into the repo.
-- watchdog policy is now split by transport: structured retry / repair calls still treat shell commands as immediate off-contract behavior, while workspace-worker main attempts can keep using bounded workspace-local helper commands throughout the session, including common local inspection/search helpers such as `pwd`, `ls`, `rg`, `find`, `tree`, and `test`.
-- workspace-worker main attempts now terminate only when command use leaves the bounded local workspace surface or grows into a clearly pathological loop without producing outputs; the shared loop budget is intentionally much looser than the earlier startup-only guardrail.
+- watchdog policy is now split by transport: structured retry / repair calls still treat shell commands as immediate off-contract behavior, while workspace-worker main attempts now use a relaxed local-shell policy. The main worker session can use normal local shell shapes, including searches, filters, pipelines, redirections, heredocs, root-relative scratch files, and glob reads, as long as it stays inside the isolated workspace.
+- workspace-worker main attempts now terminate only when command use leaves the bounded local workspace surface, invokes clearly off-contract tools such as repo/network/interpreter commands, or grows into a clearly pathological loop without producing outputs; the shared loop budget is intentionally much looser than the earlier startup-only guardrail.
 
 Recipe CodexFarm path:
 
@@ -65,10 +65,11 @@ Migration note:
 - the shard-v1 work is a runtime refactor over the existing label-first staged importer, not a new pipeline
 - shards are ownership units and workers are bounded execution contexts; preview, prompt exports, and reviewer artifacts should describe both instead of pretending one prompt equals one independent task
 - the foundation plan froze the ids and runtime contracts first; recipe, knowledge, and line-role now all execute through shard-owned runtime artifacts, and the preview/export cutover has landed on top of those artifacts
-- prompt-planning field names are still `recipe_prompt_target_count`, `knowledge_prompt_target_count`, and `line_role_prompt_target_count`, but recipe now intentionally differs from knowledge/line-role: recipe defaults to one candidate-owned shard per recipe, uses `recipe_prompt_target_count` as the preferred worker-session count when `recipe_worker_count` is unset, and only re-enters multi-recipe bundling when `recipe_shard_target_recipes` is set explicitly
+- prompt-planning field names are still `recipe_prompt_target_count`, `knowledge_prompt_target_count`, and `line_role_prompt_target_count`; all three now mean the requested shard count for their live phase unless the phase has fewer owned items than requested
 - knowledge no longer uses the path-mode CodexFarm `process` transport. Knowledge worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, and only watchdog-retry / split-retry / repair follow-up attempts still use inline structured calls per shard.
-- recipe no longer uses the path-mode CodexFarm `process` transport either. Recipe worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, and only the near-miss repair pass still drops to one inline structured repair call per shard.
-- line-role no longer uses the path-mode CodexFarm `process` transport either. Line-role worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, and only the watchdog-retry / repair follow-up attempts still use inline structured calls per shard.
+- recipe no longer uses the path-mode CodexFarm `process` transport either. Recipe worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, split multi-recipe shards into recipe-local task files under `assigned_tasks.json`, aggregate validated task outputs back into shard proposals, and only the near-miss repair pass still drops to one inline structured repair call per affected task.
+- line-role no longer uses the path-mode CodexFarm `process` transport either. Line-role worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, split each shard into smaller task packets under `assigned_tasks.json`, and aggregate validated packet outputs back into shard proposals; only the remaining watchdog-retry / repair follow-up attempts still use inline structured calls, and the main worker path no longer depends on one whole-shard answer blob.
+- knowledge no longer treats the shard as the default answer unit either. Multi-chunk knowledge shards now fan out into bounded task packets under `assigned_tasks.json`, task-level validation joins those packet outputs back into the shard proposal, and task-scoped watchdog retry / repair replaces monolithic follow-up on the normal path.
 - recipe shard JSON and recipe shard outputs now use compact aliases on the live model-facing seam (`sid`, `rid`, `cr`, `tg`, etc.), while deterministic promotion still normalizes the result back into the existing staged outputs
 
 ## Policy boundary
@@ -111,16 +112,16 @@ If you want the current Codex-backed flow in operator language instead of artifa
 
 1. The program parses the cookbook into one ordered set of atomic lines and other deterministic intermediate structures.
 2. The program makes a deterministic first pass over those lines before any Codex-backed review.
-3. The line-role Codex surface reviews the whole book line set in worker-local shard files. Operator-wise this is still just "label the lines," but the live main path now gives each worker session its assigned local shard files to process and write back under `out/`. When the main worker output needs recovery, watchdog-retry and repair still happen as structured follow-up attempts on the affected shard only.
+3. The line-role Codex surface reviews the whole book line set in worker-local shard files. Operator-wise this is still just "label the lines," but the live main path now gives each worker session its assigned local task packets inside those shards and writes one `out/<task_id>.json` per packet. Repo code validates and joins those packet results back into the shard proposal, using deterministic baseline fallback for any missing packet rows instead of rerunning the whole shard.
 4. The program groups the corrected recipe-side lines into coherent recipe spans and recipes. Everything not grouped into recipe spans becomes the non-recipe side.
-5. The recipe Codex surface reviews the recipe side in owned recipe shards. One worker session processes its assigned local shard files under `in/` and writes one `out/<shard_id>.json` per shard. It returns corrected recipe payloads plus ingredient-step mapping and raw selected tags, and near-miss invalid shard outputs can still get one structured repair pass.
+5. The recipe Codex surface reviews the recipe side in owned recipe shards. One worker session processes its assigned recipe task files under `in/` and writes one `out/<task_id>.json` per task. Repo code validates those task outputs, rejoins them into shard proposals, and near-miss invalid tasks can still get one structured repair pass.
 6. The program deterministically validates and promotes those recipe outputs into the final recipe formats.
-7. The knowledge Codex surface reviews the non-recipe side. The program first builds transport-safe non-recipe chunks, then Codex reviews every built chunk using raw block text plus mechanically true structure rather than deterministic semantic gating. In the common multi-shard worker case, one worker session processes several local shard files under `in/` and writes one `out/<shard_id>.json` per shard. Codex then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
+7. The knowledge Codex surface reviews the non-recipe side. The program first builds transport-safe non-recipe chunks, then Codex reviews every built chunk using raw block text plus mechanically true structure rather than deterministic semantic gating. One worker session processes its assigned knowledge task files under `in/` and writes one `out/<task_id>.json` per task. Repo code validates those task outputs, rejoins them into shard proposals, and then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
 8. The program validates owned output coverage, writes artifacts/reports, and emits the final recipe, knowledge, and debug outputs.
 
 Worker/shard mental model:
 
-- A setting such as `5 / 5 / 5` means the runtime should build exactly five owned shards for each enabled surface (`line_role`, `recipe`, `knowledge`) unless the phase has fewer than five owned items total.
+- A setting such as `10 / 5 / 10` in benchmark interactive mode means the runtime should build ten `line_role` shards, five `recipe` shards, and ten `knowledge` shards unless a phase has fewer owned items total.
 - Knowledge keeps a special warning seam: if forcing the chosen shard count makes a bundle exceed the normal chunk-count, char-count, local-gap, or table-isolation heuristics, the planner still honors the requested count but records warnings in the manifest.
 - The durable contract is "immutable input payload in, structured owned output/proposal out." The runtime then validates exact ownership/coverage and promotes only valid results.
 - Recipe tags are part of the recipe correction surface, not a fourth independent Codex phase.
@@ -135,6 +136,7 @@ Recipe passes write under:
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/phase_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/shard_manifest.jsonl`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/task_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/worker_assignments.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/promotion_report.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/telemetry.json`
@@ -143,7 +145,8 @@ Recipe passes write under:
 
 Recipe runtime note:
 - the live recipe implementation now defaults to one candidate-owned shard per recipe, executes those shards through the repo-owned direct recipe worker runtime in `codex_farm_orchestrator.py`, validates exact owned `recipe_id` coverage, and promotes only validated per-recipe outputs
-- recipe worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with shared `assigned_shards.json`, worker-local `hints/*.md`, authoritative `in/*.json`, and harvested `out/*.json`; only the near-miss repair path still uses one structured direct-exec call per shard
+- recipe worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with shared `assigned_shards.json`, worker-local `assigned_tasks.json`, `hints/*.md`, authoritative `in/*.json`, and harvested `out/*.json`; recipe tasks usually own one `recipe_id`, workers write `out/<task_id>.json`, deterministic code rejoins validated task outputs into shard proposals, and only the near-miss repair path still uses one structured direct-exec call per affected task
+- recipe runtime now also writes `task_manifest.jsonl` plus worker-local `assigned_tasks.json`; those task rows are now the normal recipe answer units even when several recipes share one parent shard
 - recipe worker roots now also carry `worker_manifest.json`, and the shared worker prompt explicitly forbids orientation commands in favor of opening the named local files directly
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still builds the intermediate `RecipeCandidate`, Codex still emits `ingredient_step_mapping` plus raw `selected_tags`, and deterministic code still rebuilds the final cookbook3 draft locally, but validated model-selected tags now remain authoritative instead of inheriting deterministic seed tags after the fact
@@ -163,6 +166,7 @@ Knowledge-stage writes:
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/shard_manifest.jsonl`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/task_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/worker_assignments.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/promotion_report.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/telemetry.json`
@@ -179,13 +183,14 @@ Knowledge runtime note:
 - deterministic chunking still decides eligibility, pruning, and local grouping
 - `codex_farm_knowledge_jobs.py` now writes stable shard payload files plus shard-manifest metadata with owned `chunk_id`s and owned block indices
 - the live knowledge model call now goes through `codex_exec_runner.py`, but it keeps the same shard-manifest / worker-assignment artifact shape the shared runtime established
-- knowledge worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with shared `assigned_shards.json`, worker-local `hints/*.md`, authoritative `in/*.json`, and harvested `out/*.json`; watchdog-retry, split-retry, and repair now run as shard-local structured follow-up attempts against the harvested output when the main worker result needs recovery
+- knowledge worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with shared `assigned_shards.json`, worker-local `assigned_tasks.json`, `hints/*.md`, authoritative `in/*.json`, and harvested `out/*.json`; multi-chunk shards now fan out into bounded knowledge task packets, workers write `out/<task_id>.json`, and deterministic code rejoins validated task outputs into the shard proposal before promotion
+- knowledge runtime now also writes `task_manifest.jsonl` plus worker-local `assigned_tasks.json`; those task rows are now the normal knowledge answer units for any multi-chunk shard, while single-chunk shards still keep the trivial `task_id == shard_id` case
 - knowledge worker roots now also carry `worker_manifest.json`, and the shared worker prompt explicitly forbids orientation commands in favor of opening the named local files directly
 - `codex_farm_knowledge_ingest.py` validates exact owned `chunk_id` coverage and rejects any `block_decisions` or snippet evidence that point outside the shard's eligible block surface
 - the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, `knowledge/proposals/*.json` validated shard proposals, then deterministic promotion into `08_nonrecipe_spans.json`, `09_knowledge_outputs.json`, and reviewer-facing knowledge artifacts
-- invalid but near-miss knowledge outputs now get one repo-owned repair attempt; shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, while proposal/status payloads record whether repair was attempted and whether the final validated output came from that repair pass
+- invalid but near-miss knowledge outputs now get one repo-owned repair attempt at task scope; task/shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, while proposal/status payloads record whether repair was attempted and whether the final validated output came from that repair pass
 - direct knowledge shard folders now also write `workspace_manifest.json`, and retry/repair child attempts write their own workspace manifests beside the attempt-local events/usage files so the sterile cwd provenance is visible from repo artifacts
-- strict JSON knowledge shard attempts now also write `live_status.json`; deterministic preflight can stop malformed shard payloads with `state: preflight_rejected`, the live watchdog can kill tool-use / repeated reasoning detours / cohort-runtime outliers with `state: watchdog_killed`, and retryable watchdog kills now get one fresh repo-owned retry packet under `watchdog_retry/` with sibling examples plus its own prompt/events/usage/workspace/status artifacts
+- strict JSON knowledge shard attempts now also write `live_status.json`; deterministic preflight can stop malformed shard payloads with `state: preflight_rejected`, the live watchdog can kill tool-use / repeated reasoning detours / cohort-runtime outliers with `state: watchdog_killed`, and retryable watchdog kills now get one fresh repo-owned retry packet under `watchdog_retry/` for the affected task, with sibling examples plus its own prompt/events/usage/workspace/status artifacts
 - the runtime cutover did not require a brand-new pack immediately; `codex-knowledge-shard-v1` still reuses the compact knowledge pack underneath, and the important authority seam is shard ownership plus validation, not a new prompt asset family
 - knowledge worker assignments now launch concurrently and merge back in planned order so `running N` reflects real in-flight work
 - the billed knowledge payload now avoids chunk-level semantic hints entirely; it carries raw block text, block ids, and mechanically true structure only
@@ -205,6 +210,7 @@ Line-role prediction artifacts live under:
 - `prediction-run/line-role-pipeline/telemetry_summary.json`
 - `prediction-run/line-role-pipeline/runtime/phase_manifest.json`
 - `prediction-run/line-role-pipeline/runtime/shard_manifest.jsonl`
+- `prediction-run/line-role-pipeline/runtime/task_manifest.jsonl`
 - `prediction-run/line-role-pipeline/runtime/worker_assignments.json`
 - `prediction-run/line-role-pipeline/runtime/proposals/*.json`
 
@@ -212,7 +218,7 @@ Line-role runtime note:
 - live line-role execution no longer uses `phase_worker_runtime.py` or `codex-farm process`
 - `canonical_line_roles.py` now assigns shard ownership directly, writes authoritative worker-local shard JSON under `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, validates exact owned `atomic_index` coverage, and writes repo-owned worker artifacts under `line-role-pipeline/runtime/line_role/workers/.../shards/<shard_id>/`
 - line-role worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with `assigned_shards.json`, shared `prompt.txt`, worker-local `hints/*.md`, authoritative `in/*.json`, richer `debug/*.json`, and harvested `out/*.json`; only watchdog-retry and repair still use structured follow-up attempts on the affected shard
-- line-role worker roots now also carry `worker_manifest.json`, and the shared worker prompt tells the model to prefer the named local files first while still tolerating bounded local helpers when they materially help
+- line-role worker roots now also carry `worker_manifest.json`, and the shared worker prompt tells the model to prefer the named local files first while still tolerating broad local shell use when it materially helps
 - invalid but near-miss line-role outputs now get one repo-owned repair attempt; shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, and the runner payload rows must carry the repair/status annotations because `line-role-pipeline/telemetry_summary.json` is rebuilt from those rows
 - direct line-role shard folders now also write `workspace_manifest.json`, and repair attempts write `repair_workspace_manifest.json` so the external sterile worker cwd is traceable from the normal runtime artifact tree
 - strict JSON line-role shard attempts now also write `live_status.json`; malformed shard payloads are rejected before spend with `state: preflight_rejected`, the live watchdog can terminate tool-use / repeated reasoning detours / cohort-runtime outliers with `state: watchdog_killed`, and retryable watchdog kills now get one fresh inline retry packet with sibling examples plus `watchdog_retry_*` shard artifacts and propagated `watchdog_retry_*` status fields
@@ -221,7 +227,7 @@ Line-role runtime note:
 - there is no longer any live or compatibility support for a separate LLM recipe gate inside line-role; the only active line-role model surface is the single `line_role` labeling phase
 - line-role pre-grouping candidates now default to `within_recipe_span=None`; importer recipe provenance is no longer supplied before deterministic/Codex labeling, and prompt-preview reconstruction mirrors that same span-free contract
 - `AtomicLineCandidate` is now a single-line parser record; selective inline `ctx:` rows and cache identity derive neighbor text from explicit ordered-candidate lookup instead of embedded `prev_text` / `next_text` fields
-- `workers/*/in/*.json` remain the authoritative stored shard payloads and the live task files the worker reads locally. When a shard needs watchdog-retry or repair, the follow-up prompt restates the authoritative rows inline from those same stored shard inputs.
+- `workers/*/in/*.json` remain the authoritative stored task payloads the worker reads locally. For line-role, those are now sub-shard task packets; for recipe and knowledge, they are still one task per shard on the main path. When a structured follow-up still exists, it must read authority from those stored inputs rather than reconstructing freehand.
 - `workers/*/hints/*.md` are worker-facing decision aids. They are not validator authority and are intentionally allowed to be richer, more explanatory summaries than the billed `in/*.json` payload.
 - line-role now keeps a second local-only debug copy at `workers/*/debug/*.json`; prompt-preview mirrors that as `line-role-pipeline/debug_in/*.json`, while `request_input_file` and budget estimation still point at the compact billed `in/*.json` file.
 - those `workers/*/in/*.json` rows are now compact tuples: `{"v":1,"shard_id":...,"rows":[[atomic_index,label_code,current_line], ...]}`. The richer deterministic/rule metadata moved to the debug copy, and the model-facing file still avoids repeated neighbor context.

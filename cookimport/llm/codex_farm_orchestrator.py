@@ -50,10 +50,11 @@ from .codex_exec_runner import (
 from .phase_worker_runtime import (
     PhaseManifestV1,
     ShardManifestEntryV1,
-    resolve_phase_worker_count,
     ShardProposalV1,
+    TaskManifestEntryV1,
     WorkerAssignmentV1,
     WorkerExecutionReportV1,
+    resolve_phase_worker_count,
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
@@ -203,6 +204,13 @@ class _DirectRecipeWorkerResult:
     proposals: tuple[ShardProposalV1, ...]
     failures: tuple[dict[str, Any], ...]
     stage_rows: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class _RecipeTaskPlan:
+    task_id: str
+    parent_shard_id: str
+    manifest_entry: ShardManifestEntryV1
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
     rendered = sanitize_for_filename(str(recipe_id).strip())
@@ -460,22 +468,11 @@ def _build_recipe_shard_plans(
     prepared_inputs: Sequence[_PreparedRecipeInput],
     run_settings: RunSettings,
 ) -> list[_RecipeShardPlan]:
-    if run_settings.recipe_shard_target_recipes is None:
-        plans: list[_RecipeShardPlan] = []
-        for shard_index, prepared in enumerate(prepared_inputs):
-            plan = _build_recipe_shard_plan(
-                shard_index=shard_index,
-                shard_prepared_inputs=(prepared,),
-            )
-            if plan is not None:
-                plans.append(plan)
-        return plans
-
     requested_shard_count = resolve_shard_count(
         total_items=len(prepared_inputs),
         prompt_target_count=run_settings.recipe_prompt_target_count,
         items_per_shard=run_settings.recipe_shard_target_recipes,
-        default_items_per_shard=_shard_target_recipe_count(run_settings),
+        default_items_per_shard=1,
     )
     plans: list[_RecipeShardPlan] = []
     for shard_index, shard_prepared_inputs_list in enumerate(
@@ -1416,9 +1413,9 @@ def _coerce_dict(value: Any) -> dict[str, Any]:
 
 def _build_recipe_workspace_worker_prompt(
     *,
-    shards: Sequence[ShardManifestEntryV1],
+    tasks: Sequence[TaskManifestEntryV1],
 ) -> str:
-    shard_ids = [str(shard.shard_id).strip() for shard in shards if str(shard.shard_id).strip()]
+    task_ids = [str(task.task_id).strip() for task in tasks if str(task.task_id).strip()]
     lines = [
         "You are a recipe correction worker in a bounded local workspace.",
         "",
@@ -1426,29 +1423,29 @@ def _build_recipe_workspace_worker_prompt(
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then read `assigned_shards.json` for shard order.",
+        "1. Open `worker_manifest.json`, then read `assigned_tasks.json` for task order and `assigned_shards.json` for shard ownership context.",
         "2. Prefer opening the named files directly instead of exploring the workspace.",
-        "3. Workspace-local helper commands are allowed when they materially help, including `cat`, `head`, `tail`, `sed`, `jq`, `wc`, `pwd`, `ls`, `rg`, `find`, `tree`, and `test` on local paths.",
-        "4. Stay inside this workspace: do not inspect parent directories or the repository.",
-        "5. For each shard id, open `hints/<shard_id>.md` first, then `in/<shard_id>.json`.",
-        "6. Write one completed output file to `out/<shard_id>.json`.",
-        "7. Continue until every assigned shard has an output file or you cannot proceed.",
+        "3. Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `out/`.",
+        "4. Stay inside this workspace: do not inspect parent directories or the repository, and do not use repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.",
+        "5. For each task id, open `hints/<task_id>.md` first, then `in/<task_id>.json`.",
+        "6. Write one completed output file to `out/<task_id>.json`.",
+        "7. Continue until every assigned task has an output file or you cannot proceed.",
         "",
-        "Output contract for each `out/<shard_id>.json`:",
+        "Output contract for each `out/<task_id>.json`:",
         "- Write exactly one JSON object.",
-        "- `sid` must equal the shard id.",
-        "- Return exactly one recipe result for each owned recipe id in the shard input and no extras.",
+        "- `sid` must equal the task id.",
+        "- Return exactly one recipe result for each owned recipe id in the task input and no extras.",
         "- Preserve `not_a_recipe` and `fragmentary` when the candidate is truly unusable.",
-        "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative owned input.",
+        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned input.",
         "",
         "Do not return the shard outputs in your final message. The authoritative result is the set of files written under `out/`.",
     ]
-    if shard_ids:
+    if task_ids:
         lines.extend(
             [
                 "",
-                "Assigned shard ids:",
-                *[f"- {shard_id}" for shard_id in shard_ids],
+                "Assigned task ids:",
+                *[f"- {task_id}" for task_id in task_ids],
             ]
         )
     return "\n".join(lines)
@@ -1525,6 +1522,7 @@ def _build_recipe_workspace_task_runner_payload(
     pipeline_id: str,
     worker_id: str,
     shard_id: str,
+    runtime_task_id: str,
     run_result: CodexExecRunResult,
     model: str | None,
     reasoning_effort: str | None,
@@ -1574,6 +1572,8 @@ def _build_recipe_workspace_task_runner_payload(
         row_payload["worker_prompt_file"] = worker_prompt_file_str
         row_payload["worker_session_task_count"] = task_count
         row_payload["worker_session_primary_row"] = task_index == 0
+        row_payload["runtime_task_id"] = runtime_task_id
+        row_payload["runtime_parent_shard_id"] = shard_id
         if task_index > 0:
             row_payload["command_execution_count"] = 0
             row_payload["command_execution_commands"] = []
@@ -1594,6 +1594,8 @@ def _build_recipe_workspace_task_runner_payload(
         "request_input_file": request_input_file_str,
         "request_input_file_bytes": request_input_file_bytes,
         "worker_prompt_file": worker_prompt_file_str,
+        "runtime_task_id": runtime_task_id,
+        "runtime_parent_shard_id": shard_id,
     }
     return payload
 
@@ -1663,6 +1665,155 @@ def _assign_recipe_workers_v1(
     ]
 
 
+def _build_recipe_task_plans(
+    shard: ShardManifestEntryV1,
+) -> tuple[_RecipeTaskPlan, ...]:
+    payload = _coerce_dict(shard.input_payload)
+    recipes = [dict(row) for row in (payload.get("r") or []) if isinstance(row, Mapping)]
+    hint_rows = [
+        dict(row)
+        for row in (_coerce_dict(shard.metadata).get("worker_hint_recipes") or [])
+        if isinstance(row, Mapping)
+    ]
+    hint_by_recipe_id = {
+        str(row.get("recipe_id") or "").strip(): row
+        for row in hint_rows
+        if str(row.get("recipe_id") or "").strip()
+    }
+    if not recipes:
+        return ()
+    task_count = len(recipes)
+    task_plans: list[_RecipeTaskPlan] = []
+    for task_index, recipe_row in enumerate(recipes, start=1):
+        recipe_id = str(recipe_row.get("rid") or "").strip()
+        if not recipe_id:
+            continue
+        task_id = (
+            shard.shard_id
+            if task_count == 1
+            else f"{shard.shard_id}.task-{task_index:03d}"
+        )
+        task_payload = {
+            **payload,
+            "sid": task_id,
+            "ids": [recipe_id],
+            "r": [dict(recipe_row)],
+        }
+        task_manifest = ShardManifestEntryV1(
+            shard_id=task_id,
+            owned_ids=(recipe_id,),
+            evidence_refs=tuple(shard.evidence_refs),
+            input_payload=task_payload,
+            metadata={
+                **dict(shard.metadata or {}),
+                "parent_shard_id": shard.shard_id,
+                "task_id": task_id,
+                "task_index": task_index,
+                "task_count": task_count,
+                "recipe_ids": [recipe_id],
+                "recipe_count": 1,
+                "worker_hint_recipes": (
+                    [dict(hint_by_recipe_id[recipe_id])]
+                    if recipe_id in hint_by_recipe_id
+                    else []
+                ),
+            },
+        )
+        task_plans.append(
+            _RecipeTaskPlan(
+                task_id=task_id,
+                parent_shard_id=shard.shard_id,
+                manifest_entry=task_manifest,
+            )
+        )
+    return tuple(task_plans)
+
+
+def _build_recipe_task_runtime_manifest_entry(
+    task_plan: _RecipeTaskPlan,
+) -> TaskManifestEntryV1:
+    task_manifest = task_plan.manifest_entry
+    return TaskManifestEntryV1(
+        task_id=task_plan.task_id,
+        task_kind="recipe_correction_recipe",
+        parent_shard_id=task_plan.parent_shard_id,
+        owned_ids=tuple(task_manifest.owned_ids),
+        input_payload=task_manifest.input_payload,
+        input_text=task_manifest.input_text,
+        metadata=dict(task_manifest.metadata or {}),
+    )
+
+
+def _aggregate_recipe_task_payloads(
+    *,
+    shard: ShardManifestEntryV1,
+    task_payloads_by_task_id: Mapping[str, dict[str, Any] | None],
+    task_validation_errors_by_task_id: Mapping[str, Sequence[str]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    ordered_recipe_ids = [str(value).strip() for value in shard.owned_ids if str(value).strip()]
+    recipe_rows_by_id: dict[str, dict[str, Any]] = {}
+    task_id_by_recipe_id: dict[str, str] = {}
+    accepted_task_ids: list[str] = []
+    for task_id, payload in task_payloads_by_task_id.items():
+        rows = payload.get("r") if isinstance(payload, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        accepted_task_ids.append(task_id)
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            recipe_id = str(row.get("rid") or "").strip()
+            if not recipe_id:
+                continue
+            recipe_rows_by_id[recipe_id] = dict(row)
+            task_id_by_recipe_id[recipe_id] = str(task_id)
+    output_rows: list[dict[str, Any]] = []
+    missing_recipe_ids: list[str] = []
+    for recipe_id in ordered_recipe_ids:
+        recipe_row = recipe_rows_by_id.get(recipe_id)
+        if recipe_row is None:
+            missing_recipe_ids.append(recipe_id)
+            continue
+        output_rows.append(dict(recipe_row))
+    all_task_ids = sorted(
+        {
+            str(task_id).strip()
+            for task_id in [*task_payloads_by_task_id.keys(), *task_validation_errors_by_task_id.keys()]
+            if str(task_id).strip()
+        }
+    )
+    fallback_task_ids = sorted(
+        {
+            str(task_id).strip()
+            for task_id, errors in task_validation_errors_by_task_id.items()
+            if errors or task_id not in accepted_task_ids
+        }
+    )
+    metadata = {
+        "task_count": len(all_task_ids),
+        "accepted_task_count": len(accepted_task_ids),
+        "accepted_task_ids": sorted(accepted_task_ids),
+        "fallback_task_count": len(fallback_task_ids),
+        "fallback_task_ids": fallback_task_ids,
+        "missing_recipe_ids": missing_recipe_ids,
+        "task_ids": all_task_ids,
+        "task_validation_errors_by_task_id": {
+            task_id: list(errors)
+            for task_id, errors in task_validation_errors_by_task_id.items()
+            if errors
+        },
+        "task_id_by_recipe_id": {
+            recipe_id: task_id
+            for recipe_id, task_id in sorted(task_id_by_recipe_id.items())
+        },
+    }
+    return {
+        "v": "1",
+        "sid": shard.shard_id,
+        "r": output_rows,
+    }, metadata
+
+
 def _run_recipe_workspace_worker_assignment_v1(
     *,
     run_root: Path,
@@ -1691,25 +1842,24 @@ def _run_recipe_workspace_worker_assignment_v1(
     worker_runner_results: list[dict[str, Any]] = []
     stage_rows: list[dict[str, Any]] = []
     runnable_shards: list[ShardManifestEntryV1] = []
-    worker_prompt_text = _build_recipe_workspace_worker_prompt(shards=assigned_shards)
+    runnable_tasks: list[_RecipeTaskPlan] = []
+    runnable_tasks_by_shard_id: dict[str, tuple[_RecipeTaskPlan, ...]] = {}
     worker_prompt_path = worker_root / "prompt.txt"
-    worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
+    worker_prompt_text = ""
 
     for shard in assigned_shards:
-        input_path = in_dir / f"{shard.shard_id}.json"
-        hint_path = hints_dir / f"{shard.shard_id}.md"
-        serialized_input = _serialize_compact_prompt_json(shard.input_payload)
-        _write_worker_input(path=input_path, payload=shard.input_payload, input_text=serialized_input)
-        _write_recipe_worker_hint(path=hint_path, shard=shard)
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
-        (shard_root / "prompt.txt").write_text(worker_prompt_text, encoding="utf-8")
         preflight_failure = _preflight_recipe_shard(shard)
         if preflight_failure is None:
-            runnable_shards.append(shard)
+            task_plans = _build_recipe_task_plans(shard)
+            if task_plans:
+                runnable_shards.append(shard)
+                runnable_tasks_by_shard_id[shard.shard_id] = task_plans
+                runnable_tasks.extend(task_plans)
             continue
         preflight_result = _build_preflight_rejected_run_result(
-            prompt_text=worker_prompt_text,
+            prompt_text="recipe correction worker preflight rejected",
             output_schema_path=output_schema_path,
             working_dir=worker_root,
             reason_code=str(preflight_failure.get("reason_code") or "preflight_rejected"),
@@ -1795,7 +1945,33 @@ def _run_recipe_workspace_worker_assignment_v1(
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
-    if runnable_shards:
+    _write_json(
+        [asdict(_build_recipe_task_runtime_manifest_entry(task)) for task in runnable_tasks],
+        worker_root / "assigned_tasks.json",
+    )
+    for task in runnable_tasks:
+        task_manifest = task.manifest_entry
+        input_path = in_dir / f"{task_manifest.shard_id}.json"
+        hint_path = hints_dir / f"{task_manifest.shard_id}.md"
+        serialized_input = _serialize_compact_prompt_json(task_manifest.input_payload)
+        _write_worker_input(
+            path=input_path,
+            payload=task_manifest.input_payload,
+            input_text=serialized_input,
+        )
+        _write_recipe_worker_hint(path=hint_path, shard=task_manifest)
+
+    if runnable_shards and runnable_tasks:
+        worker_prompt_text = _build_recipe_workspace_worker_prompt(
+            tasks=[
+                _build_recipe_task_runtime_manifest_entry(task)
+                for task in runnable_tasks
+            ]
+        )
+        worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
+        for shard in runnable_shards:
+            shard_root = shard_dir / shard.shard_id
+            (shard_root / "prompt.txt").write_text(worker_prompt_text, encoding="utf-8")
         worker_live_status_path = worker_root / "live_status.json"
         shard_live_status_paths = [
             shard_dir / shard.shard_id / "live_status.json" for shard in runnable_shards
@@ -1834,16 +2010,24 @@ def _run_recipe_workspace_worker_assignment_v1(
         _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
         _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
 
-        task_count = len(runnable_shards)
-        for task_index, shard in enumerate(runnable_shards):
-            shard_root = shard_dir / shard.shard_id
-            input_path = in_dir / f"{shard.shard_id}.json"
-            output_path = out_dir / f"{shard.shard_id}.json"
+        task_count = len(runnable_tasks)
+        task_payloads_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
+        task_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+        task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
+        task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+        for task_index, task in enumerate(runnable_tasks):
+            task_manifest = task.manifest_entry
+            parent_shard_id = task.parent_shard_id
+            task_root = shard_dir / task_manifest.shard_id
+            task_root.mkdir(parents=True, exist_ok=True)
+            input_path = in_dir / f"{task_manifest.shard_id}.json"
+            output_path = out_dir / f"{task_manifest.shard_id}.json"
             response_text = output_path.read_text(encoding="utf-8") if output_path.exists() else None
             worker_runner_payload = _build_recipe_workspace_task_runner_payload(
                 pipeline_id=pipeline_id,
                 worker_id=assignment.worker_id,
-                shard_id=shard.shard_id,
+                shard_id=parent_shard_id,
+                runtime_task_id=task_manifest.shard_id,
                 run_result=run_result,
                 model=model,
                 reasoning_effort=reasoning_effort,
@@ -1864,7 +2048,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                         stage_rows.append(dict(row_payload))
             payload, validation_errors, validation_metadata, proposal_status = (
                 _evaluate_recipe_response(
-                    shard=shard,
+                    shard=task_manifest,
                     response_text=response_text,
                 )
             )
@@ -1880,7 +2064,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                 repair_run_result = _run_recipe_repair_attempt(
                     runner=runner,
                     worker_root=worker_root,
-                    shard=shard,
+                    shard=task_manifest,
                     env=env,
                     output_schema_path=output_schema_path,
                     model=model,
@@ -1890,20 +2074,22 @@ def _run_recipe_workspace_worker_assignment_v1(
                     original_response_text=str(response_text or ""),
                     validation_errors=validation_errors,
                     validation_metadata=validation_metadata,
-                    live_status_path=shard_root / "repair_live_status.json",
+                    live_status_path=task_root / "repair_live_status.json",
                 )
                 _finalize_live_status(
-                    shard_root / "repair_live_status.json",
+                    task_root / "repair_live_status.json",
                     run_result=repair_run_result,
                 )
                 repair_payload = _build_recipe_repair_runner_payload(
                     pipeline_id=pipeline_id,
                     worker_id=assignment.worker_id,
-                    shard_id=shard.shard_id,
+                    shard_id=parent_shard_id,
                     run_result=repair_run_result,
                     model=model,
                     reasoning_effort=reasoning_effort,
                 )
+                repair_payload["process_payload"]["runtime_task_id"] = task_manifest.shard_id
+                repair_payload["process_payload"]["runtime_parent_shard_id"] = parent_shard_id
                 worker_runner_results.append(dict(repair_payload))
                 repair_rows = (
                     repair_payload.get("telemetry", {}).get("rows")
@@ -1915,22 +2101,24 @@ def _run_recipe_workspace_worker_assignment_v1(
                         if isinstance(row_payload, dict):
                             row_payload["is_repair_attempt"] = True
                             row_payload["repair_attempt_index"] = 1
+                            row_payload["runtime_task_id"] = task_manifest.shard_id
+                            row_payload["runtime_parent_shard_id"] = parent_shard_id
                             stage_rows.append(dict(row_payload))
-                (shard_root / "repair_events.jsonl").write_text(
+                (task_root / "repair_events.jsonl").write_text(
                     _render_events_jsonl(repair_run_result.events),
                     encoding="utf-8",
                 )
                 _write_json(
                     {"text": repair_run_result.response_text},
-                    shard_root / "repair_last_message.json",
+                    task_root / "repair_last_message.json",
                 )
                 _write_json(
                     dict(repair_run_result.usage or {}),
-                    shard_root / "repair_usage.json",
+                    task_root / "repair_usage.json",
                 )
                 _write_json(
                     repair_run_result.workspace_manifest(),
-                    shard_root / "repair_workspace_manifest.json",
+                    task_root / "repair_workspace_manifest.json",
                 )
                 (
                     repair_payload_candidate,
@@ -1938,7 +2126,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     repair_metadata,
                     repair_proposal_status,
                 ) = _evaluate_recipe_response(
-                    shard=shard,
+                    shard=task_manifest,
                     response_text=repair_run_result.response_text,
                 )
                 repair_status = (
@@ -1961,7 +2149,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                         "reason_detail": repair_run_result.supervision_reason_detail,
                         "retryable": repair_run_result.supervision_retryable,
                     },
-                    shard_root / "repair_status.json",
+                    task_root / "repair_status.json",
                 )
                 if repair_proposal_status == "validated":
                     payload = repair_payload_candidate
@@ -1973,19 +2161,82 @@ def _run_recipe_workspace_worker_assignment_v1(
                         **dict(validation_metadata or {}),
                         "repair_validation_errors": list(repair_errors),
                     }
+                task_repair_status_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = repair_status
+                task_repair_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = tuple(
+                    repair_errors if repair_status == "failed" else ()
+                )
             stage_row["proposal_status"] = (
                 initial_proposal_status if repair_attempted else proposal_status
             )
             stage_row["final_proposal_status"] = proposal_status
             stage_row["repair_attempted"] = repair_attempted
             stage_row["repair_status"] = repair_status
+            task_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
+                task_manifest.shard_id
+            ] = tuple(validation_errors)
+            if payload is not None and proposal_status == "validated":
+                task_payloads_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = payload
 
+        for shard in runnable_shards:
+            shard_root = shard_dir / shard.shard_id
+            task_payloads = task_payloads_by_shard_id.get(shard.shard_id, {})
+            task_errors = task_validation_errors_by_shard_id.get(shard.shard_id, {})
+            task_repair_statuses = task_repair_status_by_shard_id.get(shard.shard_id, {})
+            task_repair_errors = task_repair_validation_errors_by_shard_id.get(
+                shard.shard_id, {}
+            )
+            payload, aggregation_metadata = _aggregate_recipe_task_payloads(
+                shard=shard,
+                task_payloads_by_task_id=task_payloads,
+                task_validation_errors_by_task_id=task_errors,
+            )
+            payload_candidate, validation_errors, validation_metadata, proposal_status = (
+                _evaluate_recipe_response(
+                    shard=shard,
+                    response_text=json.dumps(payload, sort_keys=True),
+                )
+            )
+            repair_attempted = any(
+                str(status).strip() != "not_attempted"
+                for status in task_repair_statuses.values()
+            )
+            repair_status = (
+                "repaired"
+                if any(str(status).strip() == "repaired" for status in task_repair_statuses.values())
+                else ("failed" if repair_attempted else "not_attempted")
+            )
+            validation_metadata = {
+                "task_aggregation": aggregation_metadata,
+                **dict(validation_metadata or {}),
+            }
+            repair_validation_errors = sorted(
+                {
+                    str(error).strip()
+                    for errors in task_repair_errors.values()
+                    for error in errors
+                    if str(error).strip()
+                }
+            )
+            if task_repair_statuses:
+                validation_metadata["task_repair_status_by_task_id"] = {
+                    task_id: status
+                    for task_id, status in sorted(task_repair_statuses.items())
+                }
+            if repair_validation_errors:
+                validation_metadata["repair_validation_errors"] = repair_validation_errors
+            final_payload = payload_candidate if proposal_status == "validated" else None
             proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
             _write_json(
                 {
                     "shard_id": shard.shard_id,
                     "worker_id": assignment.worker_id,
-                    "payload": payload,
+                    "payload": final_payload,
                     "validation_errors": list(validation_errors),
                     "validation_metadata": dict(validation_metadata or {}),
                     "repair_attempted": repair_attempted,
@@ -2012,7 +2263,6 @@ def _run_recipe_workspace_worker_assignment_v1(
                 },
                 shard_root / "status.json",
             )
-
             if proposal_status != "validated":
                 worker_failure_count += 1
                 reason = _failure_reason_from_run_result(
@@ -2031,14 +2281,13 @@ def _run_recipe_workspace_worker_assignment_v1(
                 )
             else:
                 worker_proposal_count += 1
-
             worker_proposals.append(
                 ShardProposalV1(
                     shard_id=shard.shard_id,
                     worker_id=assignment.worker_id,
                     status=proposal_status,
                     proposal_path=_relative_path(run_root, proposal_path),
-                    payload=payload,
+                    payload=final_payload,
                     validation_errors=validation_errors,
                     metadata={
                         **dict(validation_metadata or {}),
@@ -2115,6 +2364,14 @@ def _run_direct_recipe_worker_assignment_v1(
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
     _write_json([asdict(shard) for shard in assigned_shards], worker_root / "assigned_shards.json")
+    _write_json(
+        [
+            asdict(_build_recipe_task_runtime_manifest_entry(task_plan))
+            for shard in assigned_shards
+            for task_plan in _build_recipe_task_plans(shard)
+        ],
+        worker_root / "assigned_tasks.json",
+    )
     return _run_recipe_workspace_worker_assignment_v1(
         run_root=run_root,
         assignment=assignment,
@@ -2155,6 +2412,7 @@ def _run_direct_recipe_workers_v1(
     artifacts = {
         "phase_manifest": "phase_manifest.json",
         "shard_manifest": "shard_manifest.jsonl",
+        "task_manifest": "task_manifest.jsonl",
         "worker_assignments": "worker_assignments.json",
         "promotion_report": "promotion_report.json",
         "telemetry": "telemetry.json",
@@ -2171,6 +2429,14 @@ def _run_direct_recipe_workers_v1(
     _write_jsonl(
         run_root / artifacts["shard_manifest"],
         [asdict(shard) for shard in shards],
+    )
+    _write_jsonl(
+        run_root / artifacts["task_manifest"],
+        [
+            asdict(_build_recipe_task_runtime_manifest_entry(task_plan))
+            for shard in shards
+            for task_plan in _build_recipe_task_plans(shard)
+        ],
     )
     _write_json(
         [asdict(assignment) for assignment in assignments],
@@ -2767,19 +3033,16 @@ def _build_single_correction_execution_plan(
     planned_tasks: list[dict[str, Any]] = []
     planned_shards: list[dict[str, Any]] = []
     shard_ids_by_recipe_id: dict[str, str] = {}
-    if run_settings.recipe_shard_target_recipes is None:
-        shard_groups = ((state,) for state in states)
-    else:
-        requested_shard_count = resolve_shard_count(
-            total_items=len(states),
-            prompt_target_count=run_settings.recipe_prompt_target_count,
-            items_per_shard=run_settings.recipe_shard_target_recipes,
-            default_items_per_shard=_shard_target_recipe_count(run_settings),
-        )
-        shard_groups = partition_contiguous_items(
-            states,
-            shard_count=requested_shard_count,
-        )
+    requested_shard_count = resolve_shard_count(
+        total_items=len(states),
+        prompt_target_count=run_settings.recipe_prompt_target_count,
+        items_per_shard=run_settings.recipe_shard_target_recipes,
+        default_items_per_shard=1,
+    )
+    shard_groups = partition_contiguous_items(
+        states,
+        shard_count=requested_shard_count,
+    )
     for shard_index, shard_states in enumerate(shard_groups):
         shard_states_list = list(shard_states)
         if not shard_states_list:

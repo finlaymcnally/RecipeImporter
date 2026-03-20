@@ -83,6 +83,38 @@ def test_split_candidate_lines_for_the_guardrail_suppresses_false_boundary() -> 
     assert guarded.spans[1].start == 8
 
 
+def test_split_candidate_lines_honors_explicit_recipe_separator() -> None:
+    lines = [
+        "Skillet Beans",
+        "Ingredients",
+        "1 can beans",
+        "Instructions",
+        "Warm through.",
+        "==== RECIPE ====",
+        "",
+        "Kitchen Notes",
+        "This section talks about pantry strategy only.",
+    ]
+
+    result = split_candidate_lines(
+        lines,
+        config=MultiRecipeSplitConfig(
+            backend="rules_v1",
+            min_ingredient_lines=1,
+            min_instruction_lines=1,
+            enable_for_the_guardrail=True,
+            trace=False,
+        ),
+    )
+
+    assert len(result.spans) == 2
+    assert result.spans[0].start == 0
+    assert result.spans[0].end == 7
+    assert result.spans[1].start == 7
+    assert result.spans[1].end == len(lines)
+    assert result.spans[1].reasons == ("explicit_separator_boundary",)
+
+
 def test_split_candidate_lines_passthrough_backends_return_single_span() -> None:
     lines = [
         "Recipe One",

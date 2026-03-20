@@ -148,7 +148,6 @@ from cookimport.bench.cutdown_export import (
     write_prompt_eval_alignment_doc,
 )
 from cookimport.bench.oracle_upload import (
-    ORACLE_DEFAULT_MODEL,
     OracleBackgroundUploadLaunch,
     OracleBenchmarkBundleTarget,
     OracleUploadResult,
@@ -5568,7 +5567,7 @@ def _start_benchmark_bundle_oracle_upload_background(
     bundle_dir: Path,
     scope: str,
     mode: str = "browser",
-    model: str = ORACLE_DEFAULT_MODEL,
+    model: str | None = None,
 ) -> None:
     try:
         target = resolve_oracle_benchmark_bundle(bundle_dir)
@@ -5602,7 +5601,7 @@ def _maybe_upload_benchmark_bundle_to_oracle(
     bundle_dir: Path,
     scope: str,
     mode: str = "browser",
-    model: str = ORACLE_DEFAULT_MODEL,
+    model: str | None = None,
 ) -> None:
     try:
         target = resolve_oracle_benchmark_bundle(bundle_dir)
@@ -23306,10 +23305,24 @@ def stage(
             f"Values: off or {RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}."
         ),
     ),
+    recipe_prompt_target_count: int = typer.Option(
+        5,
+        "--recipe-prompt-target-count",
+        min=1,
+        hidden=True,
+        help="Internal: preferred recipe shard count for Codex-backed stage runs.",
+    ),
     llm_knowledge_pipeline: str = typer.Option(
         "off",
         "--llm-knowledge-pipeline",
         help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
+    ),
+    knowledge_prompt_target_count: int = typer.Option(
+        5,
+        "--knowledge-prompt-target-count",
+        min=1,
+        hidden=True,
+        help="Internal: preferred knowledge shard count for Codex-backed stage runs.",
     ),
     allow_codex: bool = typer.Option(
         False,
@@ -23461,7 +23474,11 @@ def stage(
         recipe_score_min_instruction_lines
     )
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
+    recipe_prompt_target_count = _unwrap_typer_option_default(recipe_prompt_target_count)
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
+    knowledge_prompt_target_count = _unwrap_typer_option_default(
+        knowledge_prompt_target_count
+    )
     allow_codex = _unwrap_typer_option_default(allow_codex)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
@@ -23681,7 +23698,9 @@ def stage(
         recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
         recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
+        recipe_prompt_target_count=recipe_prompt_target_count,
         llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
+        knowledge_prompt_target_count=knowledge_prompt_target_count,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
@@ -27336,6 +27355,24 @@ def labelstudio_benchmark(
         "--llm-knowledge-pipeline",
         help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
     )] = "off",
+    recipe_prompt_target_count: Annotated[int, typer.Option(
+        "--recipe-prompt-target-count",
+        min=1,
+        hidden=True,
+        help="Internal: preferred recipe shard count for Codex-backed benchmark runs.",
+    )] = 5,
+    line_role_prompt_target_count: Annotated[int, typer.Option(
+        "--line-role-prompt-target-count",
+        min=1,
+        hidden=True,
+        help="Internal: preferred line-role shard count for Codex-backed benchmark runs.",
+    )] = 5,
+    knowledge_prompt_target_count: Annotated[int, typer.Option(
+        "--knowledge-prompt-target-count",
+        min=1,
+        hidden=True,
+        help="Internal: preferred knowledge shard count for Codex-backed benchmark runs.",
+    )] = 5,
     allow_codex: Annotated[bool, typer.Option(
         "--allow-codex/--no-allow-codex",
         help=(
@@ -27921,8 +27958,11 @@ def labelstudio_benchmark(
                                 recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
                                 llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
+                                recipe_prompt_target_count=recipe_prompt_target_count,
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
+                                line_role_prompt_target_count=line_role_prompt_target_count,
+                                knowledge_prompt_target_count=knowledge_prompt_target_count,
                                 codex_farm_cmd=codex_farm_cmd,
                                 codex_farm_model=selected_codex_farm_model,
                                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -28035,8 +28075,11 @@ def labelstudio_benchmark(
                             recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                             llm_recipe_pipeline=selected_llm_recipe_pipeline,
                             llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
+                            recipe_prompt_target_count=recipe_prompt_target_count,
                             atomic_block_splitter=selected_atomic_block_splitter,
                             line_role_pipeline=selected_line_role_pipeline,
+                            line_role_prompt_target_count=line_role_prompt_target_count,
+                            knowledge_prompt_target_count=knowledge_prompt_target_count,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_model=selected_codex_farm_model,
                             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -28779,9 +28822,12 @@ def labelstudio_benchmark(
         "epub_spine_items_per_job": epub_spine_items_per_job,
         "warm_models": warm_models,
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+        "recipe_prompt_target_count": recipe_prompt_target_count,
         "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
+        "knowledge_prompt_target_count": knowledge_prompt_target_count,
         "atomic_block_splitter": selected_atomic_block_splitter,
         "line_role_pipeline": selected_line_role_pipeline,
+        "line_role_prompt_target_count": line_role_prompt_target_count,
         "line_role_gated": bool(line_role_gated),
         "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
@@ -29212,10 +29258,10 @@ def bench_oracle_upload(
         "--mode",
         help="Oracle execution mode: browser or dry-run.",
     ),
-    model: str = typer.Option(
-        ORACLE_DEFAULT_MODEL,
+    model: str | None = typer.Option(
+        None,
         "--model",
-        help="Oracle model used for browser uploads.",
+        help="Oracle model used for browser uploads. Defaults to the genuine model lane, or the test lane when helper-mode env is set.",
     ),
 ) -> None:
     """Upload an existing benchmark upload bundle to Oracle."""
@@ -29279,10 +29325,10 @@ def bench_oracle_followup(
         "--dry-run",
         help="Prepare the follow-up workspace and packet without calling Oracle.",
     ),
-    model: str = typer.Option(
-        ORACLE_DEFAULT_MODEL,
+    model: str | None = typer.Option(
+        None,
         "--model",
-        help="Oracle model used for the follow-up continuation turn.",
+        help="Oracle model used for the follow-up continuation turn. Defaults to the genuine model lane.",
     ),
 ) -> None:
     """Build a follow-up packet from an Oracle review and continue the same chat."""
@@ -29334,8 +29380,8 @@ def bench_oracle_autofollowup_worker(
         "--from-run",
         help="Source Oracle run directory name under .oracle_upload_runs.",
     ),
-    model: str = typer.Option(
-        ORACLE_DEFAULT_MODEL,
+    model: str | None = typer.Option(
+        None,
         "--model",
         help="Oracle model used for the automatic follow-up continuation turn.",
     ),

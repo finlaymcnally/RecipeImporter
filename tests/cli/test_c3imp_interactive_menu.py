@@ -790,6 +790,58 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
     assert selected.line_role_prompt_target_count == 5
 
 
+def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
+        warn_context="test benchmark prompt target order defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    prompt_messages: list[str] = []
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda message, *_args, **_kwargs: (
+            "codex-recipe-shard-v1"
+            if message == "Workflow for this run:"
+            else pytest.fail(f"unexpected menu prompt: {message}")
+        ),
+        back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "line_role": True,
+            "recipe": True,
+            "knowledge": True,
+        },
+        prompt_text=lambda message, **_kwargs: (
+            prompt_messages.append(message)
+            or (
+                "10"
+                if message == "Block labelling shard count for this run:"
+                else ("5" if message == "Recipe correction shard count for this run:" else "10")
+            )
+        ),
+        prompt_recipe_pipeline_menu=True,
+        prompt_benchmark_llm_surface_toggles=True,
+    )
+
+    assert selected is not None
+    assert prompt_messages == [
+        "Block labelling shard count for this run:",
+        "Recipe correction shard count for this run:",
+        "Non-recipe knowledge review shard count for this run:",
+    ]
+    assert selected.line_role_prompt_target_count == 10
+    assert selected.recipe_prompt_target_count == 5
+    assert selected.knowledge_prompt_target_count == 10
+
+
 def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:
     selected_settings = cli.RunSettings.from_dict(
         {

@@ -51,6 +51,24 @@ class WorkerAssignmentV1:
 
 
 @dataclass(frozen=True)
+class TaskManifestEntryV1:
+    task_id: str
+    task_kind: str
+    parent_shard_id: str
+    owned_ids: tuple[str, ...]
+    input_payload: Any = field(default_factory=dict)
+    input_text: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TaskAssignmentV1:
+    worker_id: str
+    task_ids: tuple[str, ...]
+    workspace_root: str
+
+
+@dataclass(frozen=True)
 class ShardProposalV1:
     shard_id: str
     worker_id: str
@@ -71,6 +89,16 @@ class WorkerExecutionReportV1:
     failure_count: int
     runtime_mode_audit: dict[str, Any] | None = None
     runner_result: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TaskResultV1:
+    task_id: str
+    worker_id: str
+    status: str
+    output_path: str | None
+    validation_errors: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

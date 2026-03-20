@@ -21,6 +21,16 @@ ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")
 ORACLE_BROWSER_PROFILE_DIR = str(Path(ORACLE_HOME_DIR) / "browser-profile")
 ORACLE_LEGACY_HOME_DIR = str(Path.home() / ".oracle")
 ORACLE_LEGACY_BROWSER_PROFILE_DIR = str(Path(ORACLE_LEGACY_HOME_DIR) / "browser-profile")
+ORACLE_TEST_MODEL = os.environ.get(
+    "ORACLE_TEST_MODEL",
+    os.environ.get(
+        "ORACLE_INSTANT_MODEL",
+        os.environ.get(
+            "ORACLE_FAST_MODEL",
+            os.environ.get("ORACLE_FAST_SMOKE_MODEL", "gpt-5.3"),
+        ),
+    ),
+)
 ORACLE_DEFAULT_MODEL = os.environ.get(
     "ORACLE_GENUINE_MODEL",
     os.environ.get(
@@ -41,6 +51,8 @@ ORACLE_BROWSER_AUTO_REATTACH_TIMEOUT = "120s"
 ORACLE_BACKGROUND_SESSION_POLL_SECONDS = 3.0
 ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS = 0.1
 ORACLE_CHATGPT_URL_ENV = "COOKIMPORT_ORACLE_CHATGPT_URL"
+ORACLE_TEST_HELPER_ENV = "COOKIMPORT_ORACLE_TEST_HELPER"
+ORACLE_TEST_HELPER_LABEL_ENV = "COOKIMPORT_ORACLE_TEST_HELPER_LABEL"
 ORACLE_DRY_RUN_BASE_COMMAND = (
     "npx",
     "-y",
@@ -67,6 +79,7 @@ ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH = (
 )
 ORACLE_BENCHMARK_PROMPT_TEMPLATE_FALLBACK = "\n".join(
     [
+        "{{HELPER_BANNER}}",
         "You are reviewing a benchmark upload bundle for the local `cookimport` CLI.",
         "The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.",
         "Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.",
@@ -216,6 +229,7 @@ def build_oracle_benchmark_prompt(*, target: OracleBenchmarkBundleTarget) -> str
         path=ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH,
         fallback=ORACLE_BENCHMARK_PROMPT_TEMPLATE_FALLBACK,
         replacements={
+            "{{HELPER_BANNER}}": _oracle_benchmark_helper_banner(),
             "{{BUNDLE_SCOPE}}": target.scope,
             "{{BENCHMARK_ROOT}}": str(target.source_root),
         },
@@ -246,7 +260,67 @@ def _render_oracle_benchmark_prompt_template(
     rendered = _load_oracle_benchmark_prompt_template(path, fallback=fallback)
     for token, value in replacements.items():
         rendered = rendered.replace(token, value)
-    return rendered
+    return rendered.strip()
+
+
+def _env_truthy(raw: str) -> bool:
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def oracle_test_helper_enabled(*, env: Mapping[str, str] | None = None) -> bool:
+    source_env = env if env is not None else os.environ
+    return _env_truthy(str(source_env.get(ORACLE_TEST_HELPER_ENV) or ""))
+
+
+def _resolve_oracle_test_model(*, env: Mapping[str, str] | None = None) -> str:
+    source_env = env if env is not None else os.environ
+    return str(
+        source_env.get("ORACLE_TEST_MODEL")
+        or source_env.get("ORACLE_INSTANT_MODEL")
+        or source_env.get("ORACLE_FAST_MODEL")
+        or source_env.get("ORACLE_FAST_SMOKE_MODEL")
+        or ORACLE_TEST_MODEL
+    ).strip()
+
+
+def _resolve_oracle_genuine_model(*, env: Mapping[str, str] | None = None) -> str:
+    source_env = env if env is not None else os.environ
+    return str(
+        source_env.get("ORACLE_GENUINE_MODEL")
+        or source_env.get("ORACLE_PRO_MODEL")
+        or source_env.get("ORACLE_REVIEW_MODEL")
+        or source_env.get("ORACLE_DEEP_REVIEW_MODEL")
+        or ORACLE_DEFAULT_MODEL
+    ).strip()
+
+
+def resolve_oracle_benchmark_model(
+    model: str | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    explicit_model = str(model or "").strip()
+    if explicit_model:
+        return explicit_model
+    if oracle_test_helper_enabled(env=env):
+        return _resolve_oracle_test_model(env=env)
+    return _resolve_oracle_genuine_model(env=env)
+
+
+def _oracle_benchmark_helper_banner(*, env: Mapping[str, str] | None = None) -> str:
+    source_env = env if env is not None else os.environ
+    if not oracle_test_helper_enabled(env=source_env):
+        return ""
+    helper_label = str(source_env.get(ORACLE_TEST_HELPER_LABEL_ENV) or "").strip()
+    helper_name = helper_label or "local pytest benchmark helper"
+    return "\n".join(
+        [
+            "TEST HELPER ONLY.",
+            f"This benchmark upload came from `{helper_name}` and is not a real operator benchmark run.",
+            "Treat filesystem paths, scores, and artifacts as disposable test data.",
+            "",
+        ]
+    )
 
 
 def _oracle_file_argument(path: Path) -> str:
@@ -898,10 +972,11 @@ def start_oracle_benchmark_upload_background(
     *,
     target: OracleBenchmarkBundleTarget,
     mode: str,
-    model: str = ORACLE_DEFAULT_MODEL,
+    model: str | None = None,
     popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
 ) -> OracleBackgroundUploadLaunch:
     normalized_mode = mode.strip().lower()
+    resolved_model = resolve_oracle_benchmark_model(model)
     launch_started_at = datetime.now(timezone.utc)
     launch_dir = _oracle_background_launch_dir(target.bundle_dir)
     launch_dir.mkdir(parents=True, exist_ok=True)
@@ -921,7 +996,7 @@ def start_oracle_benchmark_upload_background(
             )
             command = _oracle_command(
                 mode=normalized_mode,
-                model=model,
+                model=resolved_model,
                 prompt=prepared.prompt,
                 file_paths=prepared.file_paths,
             )
@@ -930,7 +1005,7 @@ def start_oracle_benchmark_upload_background(
         else:
             command = _oracle_command(
                 mode=normalized_mode,
-                model=model,
+                model=resolved_model,
                 prompt=session_prompt,
                 file_paths=[
                     target.bundle_dir / file_name
@@ -940,7 +1015,7 @@ def start_oracle_benchmark_upload_background(
     elif normalized_mode == "dry-run":
         command = _oracle_command(
             mode=normalized_mode,
-            model=model,
+            model=resolved_model,
             prompt=session_prompt,
             file_paths=[
                 target.bundle_dir / file_name
@@ -979,7 +1054,7 @@ def start_oracle_benchmark_upload_background(
         "source_root": str(target.source_root),
         "scope": target.scope,
         "mode": normalized_mode,
-        "model": model,
+        "model": resolved_model,
         "prompt": session_prompt,
         "pid": int(proc.pid),
         "command": command,
@@ -1048,7 +1123,7 @@ def start_oracle_benchmark_upload_background(
     )
     return OracleBackgroundUploadLaunch(
         mode=normalized_mode,
-        model=model,
+        model=resolved_model,
         command=command,
         bundle_dir=target.bundle_dir,
         launch_dir=launch_dir,
@@ -1071,10 +1146,11 @@ def run_oracle_benchmark_upload(
     *,
     target: OracleBenchmarkBundleTarget,
     mode: str,
-    model: str = ORACLE_DEFAULT_MODEL,
+    model: str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> OracleUploadResult:
     normalized_mode = mode.strip().lower()
+    resolved_model = resolve_oracle_benchmark_model(model)
     oversized_files = (
         _oversized_bundle_files(target.bundle_dir)
         if normalized_mode == "dry-run"
@@ -1083,7 +1159,7 @@ def run_oracle_benchmark_upload(
     if oversized_files:
         browser_command = _oracle_command(
             mode="browser",
-            model=model,
+            model=resolved_model,
             prompt=build_oracle_benchmark_prompt(target=target),
             file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
         )
@@ -1121,7 +1197,7 @@ def run_oracle_benchmark_upload(
         )
         command = _oracle_command(
             mode=normalized_mode,
-            model=model,
+            model=resolved_model,
             prompt=prepared.prompt,
             file_paths=prepared.file_paths,
         )
@@ -1195,7 +1271,7 @@ def run_oracle_benchmark_upload(
             "source_root": str(target.source_root),
             "scope": target.scope,
             "mode": normalized_mode,
-            "model": model,
+            "model": resolved_model,
             "prompt": prepared.prompt,
             "pid": None,
             "command": command,
@@ -1234,7 +1310,7 @@ def run_oracle_benchmark_upload(
 
     command = _oracle_command(
         mode=normalized_mode,
-        model=model,
+        model=resolved_model,
         prompt=build_oracle_benchmark_prompt(target=target),
         file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
     )

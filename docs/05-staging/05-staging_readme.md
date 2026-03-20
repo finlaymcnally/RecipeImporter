@@ -116,6 +116,7 @@ Per workbook (slugified file stem):
 - `run_summary.json` at run root (machine-readable per-run digest: books, major settings, codex-farm mode, topline metrics)
 - `run_summary.md` at run root (human-readable quick digest; written only when `stage --write-markdown` is enabled)
 - `run_manifest.json` at run root (source identity + artifact index for this stage run)
+- prediction-run helpers should keep shared manifest knobs aligned with `stage` defaults unless a caller overrides them explicitly. In particular, the pred-run path now inherits the same default `codex_farm_knowledge_context_blocks=2` value so stage/pred manifest parity stays stable.
 
 Label-first metadata note:
 

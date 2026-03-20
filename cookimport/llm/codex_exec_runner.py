@@ -32,30 +32,15 @@ _DIRECT_EXEC_HINTS_DIR_NAME = "hints"
 _DIRECT_EXEC_LOGS_DIR_NAME = "logs"
 _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
+_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME = "assigned_tasks.json"
 _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
 _DIRECT_EXEC_OUTPUT_DIR_NAME = "out"
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
-_WORKSPACE_ALLOWED_HELPER_EXECUTABLES = {
-    "cat",
-    "echo",
-    "find",
-    "grep",
-    "head",
-    "jq",
-    "ls",
-    "pwd",
-    "rg",
-    "sed",
-    "tail",
-    "test",
-    "tree",
-    "wc",
-    "[",
-}
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
     "./",
     _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
+    _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     _DIRECT_EXEC_INPUT_DIR_NAME,
     _DIRECT_EXEC_DEBUG_DIR_NAME,
@@ -64,54 +49,32 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_OUTPUT_DIR_NAME,
     _DIRECT_EXEC_SHARDS_DIR_NAME,
 }
-_WORKSPACE_ALLOWED_PATH_PREFIXES = (
-    f"{_DIRECT_EXEC_INPUT_DIR_NAME}/",
-    f"{_DIRECT_EXEC_DEBUG_DIR_NAME}/",
-    f"{_DIRECT_EXEC_HINTS_DIR_NAME}/",
-    f"{_DIRECT_EXEC_LOGS_DIR_NAME}/",
-    f"{_DIRECT_EXEC_OUTPUT_DIR_NAME}/",
-    f"{_DIRECT_EXEC_SHARDS_DIR_NAME}/",
-)
-_WORKSPACE_SHELL_META_TOKENS = {
-    "<",
-    "<<",
-    "<<<",
-    ">",
-    ">>",
-    "1>",
-    "1>>",
-    "2>",
-    "2>>",
-    "|",
-    "||",
-    "&&",
-    ";",
-}
 _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
 _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
-_WORKSPACE_ALLOWED_SHELL_CONDITIONAL_KEYWORDS = {
-    "if",
-    "then",
-    "else",
-    "fi",
-    "[",
-    "]",
-    "echo",
-    "test",
+_WORKSPACE_FORBIDDEN_EXECUTABLES = {
+    "apt",
+    "apt-get",
+    "brew",
+    "cargo",
+    "curl",
+    "docker",
+    "git",
+    "go",
+    "kubectl",
+    "node",
+    "npm",
+    "npx",
+    "php",
+    "pip",
+    "pip3",
+    "python",
+    "python3",
+    "ruby",
+    "scp",
+    "ssh",
+    "wget",
 }
-_WORKSPACE_ALLOWED_SHELL_CONDITIONAL_FLAGS = {"-f", "-d", "-e"}
-_WORKSPACE_ALLOWED_SHELL_ECHO_WORDS = {
-    "exists",
-    "missing",
-    "present",
-    "absent",
-    "done",
-    "ok",
-    "true",
-    "false",
-    "yes",
-    "no",
-}
+FinalAgentMessageState = Literal["absent", "malformed", "json_object"]
 
 
 class CodexExecRunner(Protocol):
@@ -163,6 +126,8 @@ class CodexExecLiveSnapshot:
     last_command_repeat_count: int
     has_final_agent_message: bool
     timeout_seconds: int | None = None
+    final_agent_message_state: FinalAgentMessageState = "absent"
+    final_agent_message_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +136,7 @@ class CodexExecSupervisionDecision:
     reason_code: str | None = None
     reason_detail: str | None = None
     retryable: bool = False
+    supervision_state: str = "watchdog_killed"
 
     @classmethod
     def terminate(
@@ -179,13 +145,23 @@ class CodexExecSupervisionDecision:
         reason_code: str,
         reason_detail: str | None = None,
         retryable: bool = False,
+        supervision_state: str = "watchdog_killed",
     ) -> "CodexExecSupervisionDecision":
         return cls(
             action="terminate",
             reason_code=str(reason_code).strip() or None,
             reason_detail=str(reason_detail).strip() or None,
             retryable=bool(retryable),
+            supervision_state=str(supervision_state or "watchdog_killed").strip()
+            or "watchdog_killed",
         )
+
+
+@dataclass(frozen=True)
+class FinalAgentMessageAssessment:
+    state: FinalAgentMessageState
+    reason: str | None = None
+    text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -219,6 +195,11 @@ class CodexExecRunResult:
     supervision_reason_detail: str | None = None
     supervision_retryable: bool = False
 
+    def completed_successfully(self) -> bool:
+        if self.subprocess_exit_code == 0:
+            return True
+        return str(self.supervision_state or "").strip().lower() == "completed"
+
     def telemetry_row(self, *, worker_id: str, shard_id: str) -> dict[str, Any]:
         usage = dict(self.usage or {})
         prompt_text = self._prompt_text()
@@ -246,10 +227,11 @@ class CodexExecRunResult:
         )
         command_policy_counts = dict(event_summary["command_execution_policy_counts"])
         command_policy_by_command = [dict(row) for row in event_summary["command_execution_policy_by_command"]]
+        final_agent_message = assess_final_agent_message(self.response_text)
         return {
             "worker_id": worker_id,
             "task_id": shard_id,
-            "status": "ok" if self.subprocess_exit_code == 0 else "failed",
+            "status": "ok" if self.completed_successfully() else "failed",
             "duration_ms": _coerce_nonnegative_int(self.duration_ms),
             "started_at_utc": self.started_at_utc,
             "finished_at_utc": self.finished_at_utc,
@@ -301,6 +283,8 @@ class CodexExecRunResult:
             "supervision_reason_code": self.supervision_reason_code,
             "supervision_reason_detail": self.supervision_reason_detail,
             "supervision_retryable": self.supervision_retryable,
+            "final_agent_message_state": final_agent_message.state,
+            "final_agent_message_reason": final_agent_message.reason,
             "turn_failed_message": self.turn_failed_message,
             "output_schema_path": self.output_schema_path,
             "source_working_dir": self.source_working_dir,
@@ -475,7 +459,13 @@ class SubprocessCodexExecRunner:
             working_dir=execution_working_dir,
             env=process_env,
             timeout_seconds=timeout_seconds,
-            supervision_callback=supervision_callback,
+            supervision_callback=_wrap_workspace_supervision_callback(
+                supervision_callback=supervision_callback,
+                workspace_mode=workspace_mode,
+                source_working_dir=working_dir,
+                execution_working_dir=execution_working_dir,
+                sync_output_paths=sync_output_paths,
+            ),
         )
         finished_at = datetime.now(timezone.utc)
         _sync_direct_exec_workspace_paths(
@@ -515,7 +505,9 @@ class SubprocessCodexExecRunner:
             started_at_utc=_format_utc_timestamp(started_at),
             finished_at_utc=_format_utc_timestamp(finished_at),
             supervision_state=(
-                "watchdog_killed" if completed.termination_decision is not None else "completed"
+                completed.termination_decision.supervision_state
+                if completed.termination_decision is not None
+                else "completed"
             ),
             supervision_reason_code=(
                 completed.termination_decision.reason_code
@@ -595,6 +587,7 @@ class FakeCodexExecRunner:
             },
         )
         if supervision_callback is not None:
+            final_agent_message = assess_final_agent_message(response_text)
             supervision_callback(
                 CodexExecLiveSnapshot(
                     elapsed_seconds=0.0,
@@ -606,6 +599,8 @@ class FakeCodexExecRunner:
                     last_command_repeat_count=0,
                     has_final_agent_message=True,
                     timeout_seconds=timeout_seconds,
+                    final_agent_message_state=final_agent_message.state,
+                    final_agent_message_reason=final_agent_message.reason,
                 )
             )
         return CodexExecRunResult(
@@ -671,17 +666,17 @@ class FakeCodexExecRunner:
         )
         out_dir = execution_working_dir / _DIRECT_EXEC_OUTPUT_DIR_NAME
         out_dir.mkdir(parents=True, exist_ok=True)
-        assigned_shards_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
-        assigned_shards: list[Any] = []
-        if assigned_shards_path.exists():
-            try:
-                assigned_shards = json.loads(assigned_shards_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                assigned_shards = []
-        for shard_row in assigned_shards:
+        assigned_task_rows = _read_workspace_manifest_rows(
+            execution_working_dir=execution_working_dir,
+        )
+        for shard_row in assigned_task_rows:
             if not isinstance(shard_row, Mapping):
                 continue
-            shard_id = str(shard_row.get("shard_id") or "").strip()
+            shard_id = str(
+                shard_row.get("task_id")
+                or shard_row.get("shard_id")
+                or ""
+            ).strip()
             if not shard_id:
                 continue
             input_path = execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.json"
@@ -725,6 +720,7 @@ class FakeCodexExecRunner:
             },
         )
         if supervision_callback is not None:
+            final_agent_message = assess_final_agent_message(response_text)
             supervision_callback(
                 CodexExecLiveSnapshot(
                     elapsed_seconds=0.0,
@@ -736,6 +732,8 @@ class FakeCodexExecRunner:
                     last_command_repeat_count=0,
                     has_final_agent_message=True,
                     timeout_seconds=timeout_seconds,
+                    final_agent_message_state=final_agent_message.state,
+                    final_agent_message_reason=final_agent_message.reason,
                 )
             )
         return CodexExecRunResult(
@@ -810,6 +808,7 @@ def build_direct_exec_workspace_manifest(
         "execution_working_dir": str(execution_working_dir) if execution_working_dir else None,
         "execution_agents_path": str(execution_agents_path) if execution_agents_path else None,
         "assigned_shards_path": None,
+        "assigned_tasks_path": None,
         "worker_manifest_path": None,
         "mirrored_input_files": [],
         "mirrored_debug_files": [],
@@ -826,6 +825,9 @@ def build_direct_exec_workspace_manifest(
     assigned_shards_path = execution_root / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
     if assigned_shards_path.exists():
         payload["assigned_shards_path"] = str(assigned_shards_path)
+    assigned_tasks_path = execution_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+    if assigned_tasks_path.exists():
+        payload["assigned_tasks_path"] = str(assigned_tasks_path)
     worker_manifest_path = execution_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME
     if worker_manifest_path.exists():
         payload["worker_manifest_path"] = str(worker_manifest_path)
@@ -909,6 +911,10 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     )
     _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+    )
+    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     )
@@ -951,6 +957,26 @@ def _copy_tree_if_present(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True)
 
 
+def _read_workspace_manifest_rows(*, execution_working_dir: Path) -> list[Any]:
+    assigned_tasks_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+    if assigned_tasks_path.exists():
+        try:
+            assigned_tasks = json.loads(assigned_tasks_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            assigned_tasks = []
+        if isinstance(assigned_tasks, list) and assigned_tasks:
+            return assigned_tasks
+    assigned_shards_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
+    if assigned_shards_path.exists():
+        try:
+            assigned_shards = json.loads(assigned_shards_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            assigned_shards = []
+        if isinstance(assigned_shards, list):
+            return assigned_shards
+    return []
+
+
 def _build_direct_exec_agents_text(
     *,
     task_label: str | None,
@@ -966,12 +992,14 @@ def _build_direct_exec_agents_text(
             "Use only the files inside this directory.\n"
             "The current working directory is already the workspace root.\n"
             "Start by reading `worker_manifest.json`, then open any prompt-named files such as `assigned_shards.json`, `hints/...`, and `in/...` directly.\n"
+            "If `assigned_tasks.json` exists, treat it as the authoritative ordered task loop and use `assigned_shards.json` only for shard ownership context.\n"
             "Read the local task manifests and input files directly.\n"
             "Write completed results only to approved local output files under `out/` unless the prompt names another local scratch path.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
             "Prefer opening the named files directly instead of exploring the workspace.\n"
-            "Workspace-local helper commands are allowed when they materially help, including `cat`, `head`, `tail`, `sed`, `jq`, `wc`, `pwd`, `ls`, `rg`, `find`, `tree`, and `test` on local paths.\n"
+            "Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `out/`.\n"
+            "The watchdog is boundary-based: stay inside this workspace and avoid repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.\n"
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
             "When the prompt gives you a loop over many tasks, keep going until every assigned local task file is handled or you truly cannot proceed.\n"
@@ -1053,6 +1081,33 @@ def _build_codex_exec_command(
         command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
     command.append("-")
     return command
+
+
+def _wrap_workspace_supervision_callback(
+    *,
+    supervision_callback: Callable[
+        [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
+    ]
+    | None,
+    workspace_mode: DirectExecWorkspaceMode,
+    source_working_dir: Path,
+    execution_working_dir: Path,
+    sync_output_paths: Sequence[str],
+) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None] | None:
+    if supervision_callback is None:
+        return None
+    if workspace_mode != "workspace_worker" or not sync_output_paths:
+        return supervision_callback
+
+    def _wrapped(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
+        _sync_direct_exec_workspace_paths(
+            source_working_dir=source_working_dir,
+            execution_working_dir=execution_working_dir,
+            relative_paths=sync_output_paths,
+        )
+        return supervision_callback(snapshot)
+
+    return _wrapped
 
 
 def _format_utc_timestamp(value: datetime) -> str:
@@ -1245,6 +1300,9 @@ def _build_codex_exec_live_snapshot(
 ) -> CodexExecLiveSnapshot:
     current_time = time.perf_counter()
     live_summary = _summarize_live_codex_events(events)
+    final_agent_message = assess_final_agent_message(
+        _extract_last_agent_message(list(events))
+    )
     return CodexExecLiveSnapshot(
         elapsed_seconds=max(0.0, current_time - started_at),
         last_event_seconds_ago=(
@@ -1255,8 +1313,10 @@ def _build_codex_exec_live_snapshot(
         reasoning_item_count=live_summary["reasoning_item_count"],
         last_command=live_summary["last_command"],
         last_command_repeat_count=live_summary["last_command_repeat_count"],
-        has_final_agent_message=_extract_last_agent_message(list(events)) is not None,
+        has_final_agent_message=final_agent_message.state != "absent",
         timeout_seconds=timeout_seconds,
+        final_agent_message_state=final_agent_message.state,
+        final_agent_message_reason=final_agent_message.reason,
     )
 
 
@@ -1415,6 +1475,37 @@ def _extract_last_agent_message(events: tuple[dict[str, Any], ...] | list[dict[s
         if text:
             response = text
     return response
+
+
+def assess_final_agent_message(message_text: str | None) -> FinalAgentMessageAssessment:
+    cleaned = str(message_text or "").strip()
+    if not cleaned:
+        return FinalAgentMessageAssessment(state="absent", text=None)
+    if not cleaned.startswith("{"):
+        return FinalAgentMessageAssessment(
+            state="malformed",
+            reason="final agent message did not start with `{`",
+            text=cleaned,
+        )
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        return FinalAgentMessageAssessment(
+            state="malformed",
+            reason=f"final agent message was not valid JSON: {exc.msg}",
+            text=cleaned,
+        )
+    if not isinstance(payload, dict):
+        return FinalAgentMessageAssessment(
+            state="malformed",
+            reason="final agent message was valid JSON but not a JSON object",
+            text=cleaned,
+        )
+    return FinalAgentMessageAssessment(
+        state="json_object",
+        reason=None,
+        text=cleaned,
+    )
 
 
 def _extract_turn_completed_usage(
@@ -1671,30 +1762,35 @@ def _write_direct_exec_worker_manifest(
         "entry_files": [
             _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
             _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
+            _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
         ],
+        "assigned_shards_file": _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
+        "assigned_tasks_file": _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
         "input_dir": _DIRECT_EXEC_INPUT_DIR_NAME,
         "debug_dir": _DIRECT_EXEC_DEBUG_DIR_NAME,
         "hints_dir": _DIRECT_EXEC_HINTS_DIR_NAME,
         "output_dir": _DIRECT_EXEC_OUTPUT_DIR_NAME,
         "notes": [
             "The current working directory is already the workspace root.",
-            "Open named task files directly; workspace-local helper commands are fine when they materially help.",
+            "Open named task files directly; broad workspace-local shell use is fine when it materially helps.",
+            "If assigned_tasks.json exists, it defines the ordered task loop for this worker.",
         ],
-        "workspace_helper_commands_allowed": [
-            "cat",
-            "head",
-            "tail",
-            "sed",
-            "jq",
-            "wc",
-            "pwd",
-            "ls",
-            "rg",
-            "find",
-            "tree",
-            "test",
+        "workspace_shell_policy": (
+            "Allow ordinary local shell use inside this workspace. Block visible "
+            "path escapes and obvious repo/network/interpreter tools."
+        ),
+        "workspace_local_shell_examples": [
+            "rg -n \"needle\" -n",
+            "jq '.[0] | keys' assigned_shards.json",
+            "jq '.[0] | keys' assigned_tasks.json",
+            "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
+            "cat <<'EOF' > out/<shard>.json",
         ],
-        "workspace_commands_forbidden": ["git", "python", "node", "parent-directory traversal"],
+        "workspace_commands_forbidden": [
+            "repo/network/interpreter commands such as git, python, node, curl, wget, or package managers",
+            "absolute paths",
+            "parent-directory traversal",
+        ],
         "mirrored_input_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_INPUT_DIR_NAME
         ),
@@ -1743,102 +1839,65 @@ def classify_workspace_worker_command(
             command_text=cleaned_command,
             allowed=False,
             policy="forbidden_unparseable_command",
-            reason="command could not be parsed into a bounded workspace helper command",
+            reason="command could not be parsed into a workspace shell command",
         )
-    shell_compound_verdict = _classify_workspace_shell_compound(
-        inner_tokens,
-        allow_orientation_commands=allow_orientation_commands,
-        allow_output_paths=allow_output_paths,
-    )
-    if shell_compound_verdict.allowed:
-        return WorkspaceCommandClassification(
-            command_text=cleaned_command,
-            allowed=True,
-            policy=shell_compound_verdict.policy,
-            reason=shell_compound_verdict.reason,
-        )
-    if any(token in _WORKSPACE_SHELL_META_TOKENS for token in inner_tokens):
+    executable = _workspace_watchdog_executable(inner_tokens)
+    if not executable:
         return WorkspaceCommandClassification(
             command_text=cleaned_command,
             allowed=False,
-            policy="forbidden_shell_meta_command",
-            reason="shell metacharacters or pipelines are not allowed in workspace helper commands",
+            policy="forbidden_unparseable_command",
+            reason="command could not be parsed into a workspace shell command",
         )
-    if any(_token_contains_workspace_shell_meta(token) for token in inner_tokens):
-        return WorkspaceCommandClassification(
-            command_text=cleaned_command,
-            allowed=False,
-            policy="forbidden_shell_meta_command",
-            reason="shell metacharacters or inline redirection are not allowed in workspace helper commands",
-        )
-    executable = Path(inner_tokens[0]).name.lower()
-    arguments = inner_tokens[1:]
-    if executable not in _WORKSPACE_ALLOWED_HELPER_EXECUTABLES:
+    if executable in _WORKSPACE_FORBIDDEN_EXECUTABLES:
         return WorkspaceCommandClassification(
             command_text=cleaned_command,
             allowed=False,
             policy="forbidden_non_helper_executable",
-            reason=f"`{executable}` is outside the bounded workspace helper command set",
+            reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
         )
-    if executable == "pwd":
-        if not arguments and allow_orientation_commands:
-            return WorkspaceCommandClassification(
-                command_text=cleaned_command,
-                allowed=True,
-                policy="tolerated_orientation_command",
-                reason="`pwd` is allowed only as a narrow workspace-local orientation helper",
-            )
+    if not allow_orientation_commands and executable in {"pwd", "ls"}:
         return WorkspaceCommandClassification(
             command_text=cleaned_command,
             allowed=False,
             policy="forbidden_orientation_command",
             reason="orientation commands are not allowed for this workspace policy",
         )
-    if executable == "ls":
-        if not allow_orientation_commands:
-            return WorkspaceCommandClassification(
-                command_text=cleaned_command,
-                allowed=False,
-                policy="forbidden_orientation_command",
-                reason="directory-listing orientation commands are not allowed for this workspace policy",
+    if executable == "pwd" and len(inner_tokens) == 1 and allow_orientation_commands:
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="tolerated_orientation_command",
+            reason="`pwd` stayed inside the relaxed workspace-worker command policy",
+        )
+    if executable == "ls" and allow_orientation_commands:
+        for argument in inner_tokens[1:]:
+            normalized_argument = _normalize_visible_workspace_path_token(argument)
+            if normalized_argument is None:
+                continue
+            path_verdict = _classify_workspace_path_argument(
+                normalized_argument,
+                allow_output_paths=allow_output_paths,
             )
-        ls_verdict = _classify_workspace_ls_arguments(
-            arguments,
-            allow_output_paths=allow_output_paths,
-        )
-        if ls_verdict.allowed:
-            return WorkspaceCommandClassification(
-                command_text=cleaned_command,
-                allowed=True,
-                policy="tolerated_orientation_command",
-                reason=ls_verdict.reason,
-            )
+            if not path_verdict.allowed:
+                return WorkspaceCommandClassification(
+                    command_text=cleaned_command,
+                    allowed=False,
+                    policy=path_verdict.policy,
+                    reason=path_verdict.reason,
+                )
         return WorkspaceCommandClassification(
             command_text=cleaned_command,
-            allowed=False,
-            policy=ls_verdict.policy,
-            reason=ls_verdict.reason,
+            allowed=True,
+            policy="tolerated_orientation_command",
+            reason="`ls` stayed inside the relaxed workspace-worker command policy",
         )
-    if any(argument == "-" for argument in arguments):
-        return WorkspaceCommandClassification(
-            command_text=cleaned_command,
-            allowed=False,
-            policy="forbidden_stdin_helper_command",
-            reason="workspace helper commands must read named local files rather than stdin",
-        )
-    path_arguments = [
-        argument for argument in arguments if _token_looks_like_workspace_path(argument)
-    ]
-    if not path_arguments:
-        return WorkspaceCommandClassification(
-            command_text=cleaned_command,
-            allowed=False,
-            policy="forbidden_missing_workspace_path",
-            reason="workspace helper commands must target explicit named local files",
-        )
-    for argument in path_arguments:
+    for argument in inner_tokens[1:]:
+        normalized_argument = _normalize_visible_workspace_path_token(argument)
+        if normalized_argument is None:
+            continue
         path_verdict = _classify_workspace_path_argument(
-            argument,
+            normalized_argument,
             allow_output_paths=allow_output_paths,
         )
         if not path_verdict.allowed:
@@ -1851,8 +1910,8 @@ def classify_workspace_worker_command(
     return WorkspaceCommandClassification(
         command_text=cleaned_command,
         allowed=True,
-        policy="tolerated_workspace_helper_command",
-        reason="command stayed within the bounded workspace-local helper policy",
+        policy="tolerated_workspace_shell_command",
+        reason="command stayed inside the relaxed workspace-worker command policy",
     )
 
 
@@ -1883,131 +1942,42 @@ def _command_tokens_for_watchdog(command_text: str | None) -> list[str]:
     return outer_tokens
 
 
-def _workspace_ls_arguments_allowed(arguments: Sequence[str]) -> bool:
-    return _classify_workspace_ls_arguments(arguments).allowed
+def _workspace_watchdog_executable(inner_tokens: Sequence[str]) -> str | None:
+    if not inner_tokens:
+        return None
+    executable = Path(str(inner_tokens[0] or "").strip()).name.lower()
+    if executable != "env":
+        return executable or None
+    for token in inner_tokens[1:]:
+        cleaned = str(token or "").strip()
+        if not cleaned or cleaned.startswith("-"):
+            continue
+        if "=" in cleaned and "/" not in cleaned and not cleaned.startswith((".", "/")):
+            continue
+        return Path(cleaned).name.lower() or None
+    return executable
 
 
-def _classify_workspace_shell_compound(
-    inner_tokens: Sequence[str],
-    *,
-    allow_orientation_commands: bool,
-    allow_output_paths: bool,
-) -> WorkspaceCommandClassification:
-    normalized_tokens = [_normalize_workspace_shell_token(token) for token in inner_tokens]
-    normalized_tokens = [token for token in normalized_tokens if token]
-    if not normalized_tokens:
-        return WorkspaceCommandClassification(
-            command_text=None,
-            allowed=False,
-            policy="forbidden_unparseable_command",
-            reason="command could not be parsed into a bounded workspace helper command",
-        )
-    if normalized_tokens[0] not in {"if", "test", "["}:
-        return WorkspaceCommandClassification(
-            command_text=None,
-            allowed=False,
-            policy="forbidden_shell_meta_command",
-            reason="shell compound commands are only allowed for bounded local existence checks",
-        )
-    if not allow_orientation_commands:
-        return WorkspaceCommandClassification(
-            command_text=None,
-            allowed=False,
-            policy="forbidden_orientation_command",
-            reason="shell compound existence checks are not allowed for this workspace policy",
-        )
-    path_arguments = [
-        token for token in normalized_tokens if _token_looks_like_workspace_path(token)
-    ]
-    if not path_arguments:
-        return WorkspaceCommandClassification(
-            command_text=None,
-            allowed=False,
-            policy="forbidden_missing_workspace_path",
-            reason="workspace helper commands must target explicit named local files",
-        )
-    for token in normalized_tokens:
-        if token in _WORKSPACE_ALLOWED_SHELL_CONDITIONAL_KEYWORDS:
-            continue
-        if token in _WORKSPACE_ALLOWED_SHELL_CONDITIONAL_FLAGS:
-            continue
-        if _token_looks_like_workspace_path(token):
-            path_verdict = _classify_workspace_path_argument(
-                token,
-                allow_output_paths=allow_output_paths,
-            )
-            if not path_verdict.allowed:
-                return path_verdict
-            continue
-        if token in _WORKSPACE_ALLOWED_SHELL_ECHO_WORDS:
-            continue
-        return WorkspaceCommandClassification(
-            command_text=None,
-            allowed=False,
-            policy="forbidden_shell_meta_command",
-            reason="shell compound commands are allowed only for bounded local existence checks",
-        )
-    return WorkspaceCommandClassification(
-        command_text=None,
-        allowed=True,
-        policy="tolerated_workspace_shell_compound",
-        reason="shell compound stayed within the bounded local existence-check policy",
-    )
-
-
-def _classify_workspace_ls_arguments(
-    arguments: Sequence[str],
-    *,
-    allow_output_paths: bool = True,
-) -> WorkspaceCommandClassification:
-    path_arguments: list[str] = []
-    for argument in arguments:
-        cleaned = str(argument or "").strip()
-        if not cleaned:
-            continue
-        if cleaned == "-1":
-            continue
-        if cleaned.startswith("-"):
-            return WorkspaceCommandClassification(
-                command_text=None,
-                allowed=False,
-                policy="forbidden_ls_option",
-                reason="`ls` options beyond `-1` are outside the bounded workspace policy",
-            )
-        path_arguments.append(cleaned)
-    if not path_arguments:
-        return WorkspaceCommandClassification(
-            command_text=None,
-            allowed=True,
-            policy="tolerated_orientation_command",
-            reason="plain `ls` is allowed only as a narrow workspace-local orientation helper",
-        )
-    for argument in path_arguments:
-        verdict = _classify_workspace_path_argument(
-            argument,
-            allow_output_paths=allow_output_paths,
-        )
-        if not verdict.allowed:
-            return verdict
-    return WorkspaceCommandClassification(
-        command_text=None,
-        allowed=True,
-        policy="tolerated_orientation_command",
-        reason="`ls` stayed within the bounded workspace-local path surface",
-    )
-
-
-def _token_contains_workspace_shell_meta(token: str) -> bool:
+def _normalize_visible_workspace_path_token(token: str) -> str | None:
     cleaned = str(token or "").strip()
     if not cleaned:
-        return False
-    return any(marker in cleaned for marker in (";", "&&", "||", "|", ">", "<"))
-
-
-def _normalize_workspace_shell_token(token: str) -> str:
-    cleaned = str(token or "").strip()
+        return None
     while cleaned.endswith(";"):
         cleaned = cleaned[:-1].rstrip()
+    if not cleaned:
+        return None
+    if cleaned in {"<", "<<", "<<<", ">", ">>", "1>", "1>>", "2>", "2>>", "|", "||", "&&"}:
+        return None
+    for prefix in ("1>>", "2>>", "1>", "2>", ">>", ">", "<<<", "<<", "<"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+            break
+    if not cleaned:
+        return None
+    if cleaned.startswith(("'", '"')) and cleaned.endswith(("'", '"')) and len(cleaned) >= 2:
+        cleaned = cleaned[1:-1].strip()
+    if not cleaned or not _token_looks_like_workspace_path(cleaned):
+        return None
     return cleaned
 
 
@@ -2017,15 +1987,13 @@ def _token_looks_like_workspace_path(token: str) -> bool:
         return False
     if cleaned in _WORKSPACE_ALLOWED_PATH_ROOTS:
         return True
-    if cleaned.startswith("./"):
+    if cleaned.startswith(("./", "../", "/", "~")):
         return True
     if "/" in cleaned:
         return True
-    return cleaned.endswith((".json", ".jsonl", ".md", ".txt"))
-
-
-def _is_allowed_workspace_local_path(token: str) -> bool:
-    return _classify_workspace_path_argument(token).allowed
+    return cleaned.endswith(
+        (".json", ".jsonl", ".md", ".txt", ".csv", ".tsv", ".yaml", ".yml")
+    )
 
 
 def _classify_workspace_path_argument(
@@ -2041,19 +2009,12 @@ def _classify_workspace_path_argument(
             policy="forbidden_empty_path_argument",
             reason="empty path arguments are outside the bounded workspace policy",
         )
-    if any(glob in cleaned for glob in ("*", "?", "[")):
-        return WorkspaceCommandClassification(
-            command_text=cleaned,
-            allowed=False,
-            policy="forbidden_glob_path",
-            reason="glob patterns are not allowed in workspace helper commands",
-        )
     if cleaned.startswith(("~", "/")):
         return WorkspaceCommandClassification(
             command_text=cleaned,
             allowed=False,
             policy="forbidden_absolute_path",
-            reason="workspace helper commands must stay on relative local paths",
+            reason="workspace shell commands must stay on relative local paths",
         )
     normalized = cleaned[2:] if cleaned.startswith("./") else cleaned
     if not normalized:
@@ -2069,7 +2030,7 @@ def _classify_workspace_path_argument(
             command_text=cleaned,
             allowed=False,
             policy="forbidden_absolute_path",
-            reason="workspace helper commands must stay on relative local paths",
+            reason="workspace shell commands must stay on relative local paths",
         )
     if ".." in path.parts:
         return WorkspaceCommandClassification(
@@ -2079,39 +2040,21 @@ def _classify_workspace_path_argument(
             reason="parent-directory traversal is outside the bounded workspace policy",
         )
     normalized_text = path.as_posix()
-    if normalized_text in _WORKSPACE_ALLOWED_PATH_ROOTS:
-        if not allow_output_paths and normalized_text == _DIRECT_EXEC_OUTPUT_DIR_NAME:
-            return WorkspaceCommandClassification(
-                command_text=cleaned,
-                allowed=False,
-                policy="forbidden_output_path",
-                reason="this workspace policy does not allow helper commands against `out/`",
-            )
+    if not allow_output_paths and (
+        normalized_text == _DIRECT_EXEC_OUTPUT_DIR_NAME
+        or normalized_text.startswith(f"{_DIRECT_EXEC_OUTPUT_DIR_NAME}/")
+    ):
         return WorkspaceCommandClassification(
             command_text=cleaned,
-            allowed=True,
-            policy="tolerated_workspace_helper_path",
-            reason="path stayed inside the bounded workspace surface",
-        )
-    if normalized_text.startswith(_WORKSPACE_ALLOWED_PATH_PREFIXES):
-        if not allow_output_paths and normalized_text.startswith(f"{_DIRECT_EXEC_OUTPUT_DIR_NAME}/"):
-            return WorkspaceCommandClassification(
-                command_text=cleaned,
-                allowed=False,
-                policy="forbidden_output_path",
-                reason="this workspace policy does not allow helper commands against `out/`",
-            )
-        return WorkspaceCommandClassification(
-            command_text=cleaned,
-            allowed=True,
-            policy="tolerated_workspace_helper_path",
-            reason="path stayed inside the bounded workspace surface",
+            allowed=False,
+            policy="forbidden_output_path",
+            reason="this workspace policy does not allow helper commands against `out/`",
         )
     return WorkspaceCommandClassification(
         command_text=cleaned,
-        allowed=False,
-        policy="forbidden_outside_workspace_path",
-        reason="path is outside the bounded local workspace surface",
+        allowed=True,
+        policy="tolerated_workspace_local_path",
+        reason="path stayed inside the bounded local workspace surface",
     )
 
 

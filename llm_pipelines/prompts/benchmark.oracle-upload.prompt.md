@@ -1,3 +1,5 @@
+{{HELPER_BANNER}}
+
 You are reviewing a benchmark upload bundle for the local `cookimport` CLI.
 The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.
 Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.

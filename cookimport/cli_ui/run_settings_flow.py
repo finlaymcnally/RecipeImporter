@@ -437,23 +437,28 @@ def _choose_interactive_codex_surfaces(
 ) -> RunSettings | None:
     step_rows: list[tuple[str, str]] = []
     enabled_by_step: dict[str, bool] = {}
-    if "recipe" in surface_options:
-        step_rows.append(
-            ("recipe", f"Recipe correction (`{RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}`)")
-        )
-        enabled_by_step["recipe"] = selected_settings.llm_recipe_pipeline.value != "off"
-    if "line_role" in surface_options:
-        step_rows.append(("line_role", f"Block labelling (`{LINE_ROLE_PIPELINE_SHARD_V1}`)"))
-        enabled_by_step["line_role"] = (
-            selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1
-        )
-    if "knowledge" in surface_options:
-        step_rows.append(
-            ("knowledge", f"Knowledge harvest (`{KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}`)")
-        )
-        enabled_by_step["knowledge"] = (
-            selected_settings.llm_knowledge_pipeline.value != "off"
-        )
+    for step_id in surface_options:
+        if step_id == "recipe":
+            step_rows.append(
+                ("recipe", f"Recipe correction (`{RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}`)")
+            )
+            enabled_by_step["recipe"] = (
+                selected_settings.llm_recipe_pipeline.value != "off"
+            )
+        elif step_id == "line_role":
+            step_rows.append(
+                ("line_role", f"Block labelling (`{LINE_ROLE_PIPELINE_SHARD_V1}`)")
+            )
+            enabled_by_step["line_role"] = (
+                selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1
+            )
+        elif step_id == "knowledge":
+            step_rows.append(
+                ("knowledge", f"Knowledge harvest (`{KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}`)")
+            )
+            enabled_by_step["knowledge"] = (
+                selected_settings.llm_knowledge_pipeline.value != "off"
+            )
 
     enabled_by_step = prompt_codex_surface_menu(
         message="CodexFarm options for this run:",
@@ -464,9 +469,9 @@ def _choose_interactive_codex_surfaces(
     if enabled_by_step is None or enabled_by_step is back_action:
         return None
 
-    selected_step_ids = {
-        step_id for step_id, enabled in enabled_by_step.items() if bool(enabled)
-    }
+    selected_step_ids = [
+        step_id for step_id, _label in step_rows if bool(enabled_by_step.get(step_id))
+    ]
     resolved_recipe_pipeline = (
         _normalize_interactive_recipe_pipeline(selected_settings.llm_recipe_pipeline.value)
         or RECIPE_CODEX_FARM_EXECUTION_PIPELINES[0]
@@ -534,15 +539,13 @@ def _choose_interactive_codex_prompt_targets(
     selected_settings: RunSettings,
     prompt_text: PromptText,
     back_action: Any,
-    selected_step_ids: set[str],
+    selected_step_ids: Sequence[str],
 ) -> RunSettings | None:
     patched_payload = project_run_config_payload(
         selected_settings.to_run_config_dict(),
         contract=RUN_SETTING_CONTRACT_FULL,
     )
-    for step_id in ("recipe", "line_role", "knowledge"):
-        if step_id not in selected_step_ids:
-            continue
+    for step_id in selected_step_ids:
         field_name, label = _CODEX_SURFACE_PROMPT_TARGET_FIELDS[step_id]
         current_value = getattr(selected_settings, field_name, None)
         resolved_default = int(current_value) if current_value is not None else 5
@@ -785,7 +788,7 @@ def choose_run_settings(
 
     codex_surface_menu_options = interactive_codex_surface_options
     if codex_surface_menu_options is None and prompt_benchmark_llm_surface_toggles:
-        codex_surface_menu_options = ("recipe", "line_role", "knowledge")
+        codex_surface_menu_options = ("line_role", "recipe", "knowledge")
 
     if prompt_recipe_pipeline_menu:
         selected_recipe_pipeline = _choose_interactive_recipe_pipeline(

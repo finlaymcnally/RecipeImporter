@@ -35,6 +35,8 @@ _STAGE_BENCHMARK_LAB_FIELDS = (
     "web_schema_min_instruction_steps",
 )
 _STAGE_INTERNAL_FIELDS = (
+    "recipe_prompt_target_count",
+    "knowledge_prompt_target_count",
     "multi_recipe_splitter",
     "multi_recipe_min_ingredient_lines",
     "multi_recipe_min_instruction_lines",
@@ -104,7 +106,9 @@ _BENCHMARK_LAB_FIELDS = (
     "codex_farm_model",
     "codex_farm_reasoning_effort",
 )
-_BENCHMARK_INTERNAL_FIELDS = _STAGE_INTERNAL_FIELDS
+_BENCHMARK_INTERNAL_FIELDS = _STAGE_INTERNAL_FIELDS + (
+    "line_role_prompt_target_count",
+)
 _BENCHMARK_FIXED_BEHAVIOR_FIELDS = _STAGE_FIXED_BEHAVIOR_FIELDS + (
     "benchmark_sequence_matcher",
 )

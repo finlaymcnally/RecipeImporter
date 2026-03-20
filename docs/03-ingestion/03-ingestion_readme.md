@@ -196,6 +196,7 @@ From code and historical notes:
 Convergence point:
 - All importers return `ConversionResult`.
 - Importers now score each candidate with deterministic recipe-likeness (`heuristic_v1`) and map tier to gate action (`keep_full`, `keep_partial`, `reject`).
+- The text multi-recipe splitter also treats explicit divider lines such as `==== RECIPE ==== ` as candidate boundaries when the left side already has recipe signals and the next non-empty line is title-like. That lets trailing note sections become their own low-likeness candidate chunk and be preserved as rejected non-recipe text instead of being silently absorbed into the accepted recipe chunk.
 - EPUB conversion/reference section titles such as `WEIGHT CONVERSIONS` and `COMMON TEMPERATURE CONVERSIONS` now take an explicit recipe-likeness penalty so preserved tables stay available to `nonRecipeBlocks` instead of being emitted as fake recipes.
 - Rejected candidates are preserved as `nonRecipeBlocks` so downstream tip/topic/chunk extraction keeps that source text.
 - Final recipe normalization converges in `write_draft_outputs(...)` where `recipe_candidate_to_draft_v1(...)` runs shared parsing/linking transforms.

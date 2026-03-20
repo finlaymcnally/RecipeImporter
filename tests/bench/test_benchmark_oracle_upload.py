@@ -141,6 +141,42 @@ def test_build_oracle_benchmark_prompt_renders_editable_template_file_tokens(
     assert prompt == f"scope={target.scope}\nroot={target.source_root}"
 
 
+def test_build_oracle_benchmark_prompt_marks_test_helpers_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
+    monkeypatch.setenv(
+        oracle_upload.ORACLE_TEST_HELPER_LABEL_ENV,
+        "pytest labelstudio benchmark helper",
+    )
+
+    prompt = oracle_upload.build_oracle_benchmark_prompt(target=target)
+
+    assert prompt.startswith("TEST HELPER ONLY.")
+    assert "pytest labelstudio benchmark helper" in prompt
+    assert "not a real operator benchmark run" in prompt
+    assert "disposable test data" in prompt
+
+
+def test_resolve_oracle_benchmark_model_uses_test_lane_for_helper_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORACLE_TEST_MODEL", "gpt-5.3-instant-test")
+    monkeypatch.setenv("ORACLE_GENUINE_MODEL", "gpt-5.4-pro-real")
+    monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
+
+    assert oracle_upload.resolve_oracle_benchmark_model() == "gpt-5.3-instant-test"
+    assert (
+        oracle_upload.resolve_oracle_benchmark_model("gpt-explicit-override")
+        == "gpt-explicit-override"
+    )
+
+
 def test_resolve_oracle_browser_profile_dir_prefers_most_recent_populated_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -247,6 +283,55 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
     assert env["ORACLE_HOME_DIR"] == str(resolved_profile.parent)
     assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(resolved_profile)
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
+
+
+def test_run_oracle_benchmark_upload_helper_mode_uses_test_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    monkeypatch.setenv("ORACLE_TEST_MODEL", "gpt-5.3-instant-test")
+    monkeypatch.setenv("ORACLE_GENUINE_MODEL", "gpt-5.4-pro-real")
+    monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
+    monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_LABEL_ENV, "pytest helper")
+
+    captured: dict[str, object] = {}
+
+    def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="\n".join(
+                [
+                    "oracle (gpt-5.3)",
+                    "Answer:",
+                    "Top regressions\n- helper",
+                    "Likely cause buckets\n- helper",
+                    "Immediate next checks\n- helper",
+                    "Requested follow-up data\nNone",
+                ]
+            ),
+            stderr="",
+        )
+
+    result = oracle_upload.run_oracle_benchmark_upload(
+        target=target,
+        mode="browser",
+        model=None,
+        runner=fake_runner,
+    )
+
+    assert result.success is True
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "gpt-5.3-instant-test" in command
+    prompt = command[command.index("-p") + 1]
+    assert prompt.startswith("TEST HELPER ONLY.")
+    assert "pytest helper" in prompt
 
 
 def test_run_oracle_benchmark_upload_adds_chatgpt_target_url_when_configured(

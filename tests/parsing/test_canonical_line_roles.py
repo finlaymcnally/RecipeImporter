@@ -2645,14 +2645,14 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role"
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
-    assert "You are processing many canonical line-role shard tasks inside one local worker workspace." in prompt_text
-    assert "Start by opening `worker_manifest.json`, then `assigned_shards.json`." in prompt_text
-    assert "Workspace-local helper commands are allowed when they materially help" in prompt_text
+    assert "You are processing many canonical line-role task packets inside one local worker workspace." in prompt_text
+    assert "Start by opening `worker_manifest.json`, then `assigned_tasks.json`, then `assigned_shards.json`." in prompt_text
+    assert "Workspace-local shell commands are broadly allowed when they materially help" in prompt_text
     assert "The named files already give you the task" in prompt_text
     assert "Stay inside this workspace" in prompt_text
-    assert "Read `assigned_shards.json` and process the assigned shard files in order." in prompt_text
-    assert "open `hints/<shard_id>.md` first" in prompt_text
-    assert "write exactly one JSON object to `out/<shard_id>.json`." in prompt_text
+    assert "Read `assigned_tasks.json` and process the assigned task packets in order." in prompt_text
+    assert "open `hints/<task_id>.md` first" in prompt_text
+    assert "write exactly one JSON object to `out/<task_id>.json`." in prompt_text
     worker_prompt_text = (
         tmp_path
         / "line-role-pipeline"
@@ -2664,9 +2664,9 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line-role-canonical-0001-a000000-a000000"
         / "prompt.txt"
     ).read_text(encoding="utf-8")
-    assert "You are processing many canonical line-role shard tasks inside one local worker workspace." in worker_prompt_text
+    assert "You are processing many canonical line-role task packets inside one local worker workspace." in worker_prompt_text
     assert "worker_manifest.json" in worker_prompt_text
-    assert "Assigned shard files:" in worker_prompt_text
+    assert "Assigned task files:" in worker_prompt_text
     worker_manifest_payload = json.loads(
         (
             tmp_path
@@ -2681,6 +2681,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert worker_manifest_payload["entry_files"] == [
         "worker_manifest.json",
         "assigned_shards.json",
+        "assigned_tasks.json",
     ]
     assert worker_manifest_payload["hints_dir"] == "hints"
     worker_hint_text = (
@@ -2735,6 +2736,123 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert debug_payload["rows"][0]["current_line"] == "Ambiguous line 0"
     assert "prev_text" not in debug_payload["rows"][0]
     assert "next_text" not in debug_payload["rows"][0]
+
+
+def test_label_atomic_lines_splits_one_shard_into_multiple_task_packets(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_TASK_TARGET_ROWS",
+        2,
+    )
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:task:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+        for index in range(4)
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_batch_size=4,
+        codex_runner=_line_role_runner({index: "OTHER" for index in range(4)}),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == ["OTHER"] * 4
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    assigned_tasks = json.loads(
+        (worker_root / "assigned_tasks.json").read_text(encoding="utf-8")
+    )
+    assert [row["task_id"] for row in assigned_tasks] == [
+        "line-role-canonical-0001-a000000-a000003.task-001",
+        "line-role-canonical-0001-a000000-a000003.task-002",
+    ]
+    assert sorted(path.name for path in (worker_root / "out").glob("*.json")) == [
+        "line-role-canonical-0001-a000000-a000003.task-001.json",
+        "line-role-canonical-0001-a000000-a000003.task-002.json",
+    ]
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000003.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["validation_errors"] == []
+    assert len(proposal_payload["payload"]["rows"]) == 4
+    assert (
+        proposal_payload["validation_metadata"]["task_aggregation"]["task_count"] == 2
+    )
+
+
+def test_line_role_workspace_worker_invalid_task_output_invalidates_parent_shard(
+    tmp_path,
+) -> None:
+    predictions = label_atomic_lines(
+        [
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id="block:task-invalid:0",
+                block_index=0,
+                atomic_index=0,
+                text="Ambiguous line 0",
+                within_recipe_span=True,
+                rule_tags=["recipe_span_fallback"],
+            )
+        ],
+        _settings("codex-line-role-shard-v1", line_role_worker_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+        codex_runner=FakeCodexExecRunner(
+            output_builder=lambda _payload: {
+                "rows": [{"atomic_index": 999, "label": "OTHER"}]
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "fallback"
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["payload"] is None
+    assert "unowned_atomic_index:999" in proposal_payload["validation_errors"]
+    assert (
+        proposal_payload["validation_metadata"]["task_aggregation"]["fallback_task_count"]
+        == 1
+    )
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(

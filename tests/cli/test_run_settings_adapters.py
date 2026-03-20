@@ -87,6 +87,27 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["pdf_column_gap_ratio"] == 0.2
 
 
+def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
+    settings = RunSettings(
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        llm_knowledge_pipeline="codex-knowledge-shard-v1",
+        recipe_prompt_target_count=9,
+        knowledge_prompt_target_count=4,
+    )
+
+    kwargs = build_stage_call_kwargs_from_run_settings(
+        settings,
+        out=Path("/tmp/out"),
+        mapping=None,
+        overrides=None,
+        limit=None,
+        write_markdown=False,
+    )
+
+    assert kwargs["recipe_prompt_target_count"] == 9
+    assert kwargs["knowledge_prompt_target_count"] == 4
+
+
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     fixed_bucket1_behavior = bucket1_fixed_behavior()
     settings = RunSettings(
@@ -177,6 +198,31 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         == fixed_bucket1_behavior.codex_farm_pipeline_knowledge
     )
     assert kwargs["codex_farm_knowledge_context_blocks"] == 21
+
+
+def test_build_benchmark_call_kwargs_propagates_codex_prompt_targets() -> None:
+    settings = RunSettings(
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
+        llm_knowledge_pipeline="codex-knowledge-shard-v1",
+        recipe_prompt_target_count=10,
+        line_role_prompt_target_count=5,
+        knowledge_prompt_target_count=7,
+    )
+
+    kwargs = build_benchmark_call_kwargs_from_run_settings(
+        settings,
+        output_dir=Path("/tmp/output"),
+        eval_output_dir=Path("/tmp/eval"),
+        eval_mode="canonical-text",
+        no_upload=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert kwargs["recipe_prompt_target_count"] == 10
+    assert kwargs["line_role_prompt_target_count"] == 5
+    assert kwargs["knowledge_prompt_target_count"] == 7
 
 
 def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -> None:

@@ -1864,9 +1864,12 @@ def build_run_settings(
     recipe_score_min_ingredient_lines: int = 1,
     recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
+    recipe_prompt_target_count: int | None = 5,
     atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.off,
     line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
+    line_role_prompt_target_count: int | None = 5,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
+    knowledge_prompt_target_count: int | None = 5,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -1958,9 +1961,24 @@ def build_run_settings(
             "recipe_score_min_ingredient_lines": int(recipe_score_min_ingredient_lines),
             "recipe_score_min_instruction_lines": int(recipe_score_min_instruction_lines),
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
+            "recipe_prompt_target_count": (
+                int(recipe_prompt_target_count)
+                if recipe_prompt_target_count is not None
+                else None
+            ),
             "atomic_block_splitter": _normalized_value(atomic_block_splitter),
             "line_role_pipeline": _normalized_value(line_role_pipeline),
+            "line_role_prompt_target_count": (
+                int(line_role_prompt_target_count)
+                if line_role_prompt_target_count is not None
+                else None
+            ),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
+            "knowledge_prompt_target_count": (
+                int(knowledge_prompt_target_count)
+                if knowledge_prompt_target_count is not None
+                else None
+            ),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_model": (

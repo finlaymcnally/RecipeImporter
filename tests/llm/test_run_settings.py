@@ -150,6 +150,30 @@ def test_build_run_settings_defaults_match_safe_run_settings_defaults() -> None:
     assert settings.line_role_pipeline.value == "off"
 
 
+def test_build_run_settings_accepts_codex_prompt_targets() -> None:
+    settings = build_run_settings(
+        workers=2,
+        pdf_split_workers=2,
+        epub_split_workers=2,
+        pdf_pages_per_job=10,
+        epub_spine_items_per_job=5,
+        epub_extractor="unstructured",
+        ocr_device="auto",
+        ocr_batch_size=1,
+        warm_models=False,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
+        llm_knowledge_pipeline="codex-knowledge-shard-v1",
+        recipe_prompt_target_count=10,
+        line_role_prompt_target_count=5,
+        knowledge_prompt_target_count=7,
+    )
+
+    assert settings.recipe_prompt_target_count == 10
+    assert settings.line_role_prompt_target_count == 5
+    assert settings.knowledge_prompt_target_count == 7
+
+
 def test_run_settings_accepts_codex_farm_recipe_mode_aliases() -> None:
     assert (
         RunSettings.from_dict({"codex_farm_recipe_mode": "line-label"}).codex_farm_recipe_mode

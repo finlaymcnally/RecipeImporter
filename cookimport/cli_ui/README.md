@@ -11,7 +11,7 @@ Interactive run-settings UI helpers.
   - pressing Enter on a step row still flips that row's current state
   - `Continue` accepts the whole list at once
   - interactive `Import` shows recipe correction and non-recipe knowledge review
-  - interactive benchmark modes show recipe correction, block labelling, and non-recipe knowledge review
+  - interactive benchmark modes show block labelling, recipe correction, and non-recipe knowledge review so the menu and prompt-target prompts match runtime stage order
   - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`

@@ -22,6 +22,9 @@ _NUMBERED_STEP_RE = re.compile(r"^\s*\d+[.)]\s+")
 _BULLET_RE = re.compile(r"^\s*[-*•]\s+")
 _MARKDOWN_TITLE_PREFIX_RE = re.compile(r"^\s*#{1,6}\s+")
 _NUMBERED_TITLE_PREFIX_RE = re.compile(r"^\s*\d+[.)]\s+")
+_EXPLICIT_RECIPE_SEPARATOR_RE = re.compile(
+    r"^\s*[-=*_~#]{2,}\s*[A-Za-z][A-Za-z0-9 &'/:,.-]*\s*[-=*_~#]{2,}\s*$"
+)
 
 
 @dataclass(frozen=True)
@@ -148,6 +151,25 @@ def _split_units(
         unit = units[idx]
         reasons: list[str] = []
         rejection_reason: str | None = None
+        separator_boundary_index = _resolve_separator_boundary_index(
+            units,
+            start=idx,
+            component_header_indices=component_header_indices,
+            last_boundary=last_boundary,
+            min_ingredient_lines=min_ingredient_lines,
+            min_instruction_lines=min_instruction_lines,
+            prefix_ingredients=prefix_ingredients,
+            prefix_instructions=prefix_instructions,
+        )
+        if separator_boundary_index is not None:
+            boundaries.append(
+                BoundaryDecision(
+                    index=separator_boundary_index,
+                    reasons=("explicit_separator_boundary",),
+                )
+            )
+            last_boundary = separator_boundary_index
+            continue
         if not _is_title_like(unit):
             rejection_reason = "not_title_like"
         elif idx in component_header_indices:
@@ -369,6 +391,48 @@ def _is_title_like(unit: _Unit) -> bool:
     if not (first_char.isupper() or normalized_text.isupper()):
         return False
     return True
+
+
+def _resolve_separator_boundary_index(
+    units: Sequence[_Unit],
+    *,
+    start: int,
+    component_header_indices: Sequence[int],
+    last_boundary: int,
+    min_ingredient_lines: int,
+    min_instruction_lines: int,
+    prefix_ingredients: Sequence[int],
+    prefix_instructions: Sequence[int],
+) -> int | None:
+    unit = units[start]
+    if not _is_explicit_recipe_separator(unit.text):
+        return None
+    next_idx = _next_nonempty_unit_index(units, start + 1)
+    if next_idx is None:
+        return None
+    if next_idx in component_header_indices:
+        return None
+    if next_idx - last_boundary < 2:
+        return None
+    left_ingredient = _range_count(prefix_ingredients, 0, next_idx)
+    left_instruction = _range_count(prefix_instructions, 0, next_idx)
+    if left_ingredient < min_ingredient_lines or left_instruction < min_instruction_lines:
+        return None
+    next_unit = units[next_idx]
+    if not _is_title_like(next_unit):
+        return None
+    return next_idx
+
+
+def _next_nonempty_unit_index(units: Sequence[_Unit], start: int) -> int | None:
+    for idx in range(max(0, start), len(units)):
+        if units[idx].text.strip():
+            return idx
+    return None
+
+
+def _is_explicit_recipe_separator(text: str) -> bool:
+    return bool(_EXPLICIT_RECIPE_SEPARATOR_RE.match(str(text or "").strip()))
 
 
 def _trace_payload(

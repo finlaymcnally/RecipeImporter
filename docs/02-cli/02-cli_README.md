@@ -153,16 +153,17 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - recipe correction (`codex-recipe-shard-v1`)
   - non-recipe knowledge review (`codex-knowledge-shard-v1`)
 - for interactive benchmark modes (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`), that submenu asks about:
-  - recipe correction (`codex-recipe-shard-v1`)
   - block labelling (`codex-line-role-shard-v1`)
+  - recipe correction (`codex-recipe-shard-v1`)
   - non-recipe knowledge review (`codex-knowledge-shard-v1`)
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
 - after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
   - import asks only for the enabled recipe/knowledge counts
-  - benchmark and all-method Codex menus can ask for recipe, block-labelling, and knowledge counts
+  - benchmark and all-method Codex menus ask in runtime stage order: block-labelling, recipe correction, then knowledge review
   - these map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
+  - the stage and benchmark adapter/CLI seams now preserve those values into the live run config, so an interactive `10 / 5 / 5` choice no longer falls back to the default `5 / 5 / 5` at execution time
 - interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes CodexFarm now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Farm permutations?` prompt
 - the owning seam for that shared per-surface chooser is `choose_interactive_codex_surfaces(...)` in `cookimport/cli_ui/run_settings_flow.py`; if a Codex surface toggle should exist in import, benchmark, and all-method flows, add it there instead of inventing a benchmark-only menu variant
 - this difference is intentional:

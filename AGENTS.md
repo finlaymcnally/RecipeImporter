@@ -16,7 +16,7 @@ Follow links until domain makes sense; honor Read when hints.
 Keep notes short; update docs when behavior/API changes (no ship w/o docs).
 Add read_when hints on cross-cutting docs.
 
-Externalize Discoveries only for durable, non-obvious findings that are likely to save a future agent meaningful time or prevent a mistake. Do not create notes for routine code reading or temporary exploration or documentation updates. Prefer updating existing docs when possible; create a new file in /docs/understandings only when the knowledge is novel/high value, and is not already documented and can be stated briefly. 
+
 
 ## A DOCUMENTATION GOAL:
 Documentation should be prepared as something is build. It should be context for Reviewers: When reviewer open a Pull Request, the documentation changes serve as excellent context for  reviewers. 

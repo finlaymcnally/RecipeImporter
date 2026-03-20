@@ -14,7 +14,12 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "recipe_prompt_target_count": 10,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+        },
         warn_context="test codex-enabled",
     )
     benchmark_eval_output = (
@@ -105,6 +110,9 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
         "atomic-v1",
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
+    assert [call["recipe_prompt_target_count"] for call in benchmark_calls] == [10, 10]
+    assert [call["line_role_prompt_target_count"] for call in benchmark_calls] == [5, 5]
+    assert [call["knowledge_prompt_target_count"] for call in benchmark_calls] == [5, 5]
     assert [call["single_offline_split_cache_mode"] for call in benchmark_calls] == [
         "auto",
         "auto",

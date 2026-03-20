@@ -9,6 +9,7 @@ import pytest
 
 from cookimport.llm.codex_exec_runner import (
     _build_codex_exec_command,
+    assess_final_agent_message,
     classify_workspace_worker_command,
     CodexExecRunResult,
     CodexExecLiveSnapshot,
@@ -147,6 +148,16 @@ def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:
     }
 
 
+def test_codex_exec_runner_classifies_final_agent_messages() -> None:
+    assert assess_final_agent_message(None).state == "absent"
+    malformed = assess_final_agent_message("thinking...\n{\"v\":\"2\"}")
+    assert malformed.state == "malformed"
+    assert "did not start" in str(malformed.reason)
+    json_object = assess_final_agent_message('{"v":"2","bid":"shard-001","r":[]}')
+    assert json_object.state == "json_object"
+    assert json_object.reason is None
+
+
 def test_codex_exec_runner_only_kills_pathological_workspace_command_loops() -> None:
     normal_snapshot = CodexExecLiveSnapshot(
         elapsed_seconds=0.1,
@@ -175,16 +186,23 @@ def test_codex_exec_runner_only_kills_pathological_workspace_command_loops() -> 
     assert should_terminate_workspace_command_loop(snapshot=over_budget_snapshot) is True
 
 
-def test_codex_exec_runner_allows_only_workspace_local_helper_commands() -> None:
+def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat assigned_shards.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc cat assigned_shards.json") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'head -n 20 in/shard-001.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'jq .rows[0] in/shard-001.json'") is True
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"jq '.[0] | keys' assigned_shards.json\""
+        )
+        is True
+    )
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'ls in'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'ls shards'") is True
     assert is_tolerated_workspace_worker_command(
         "/bin/bash -lc 'rg -n \"shard-001\" assigned_shards.json'"
     ) is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'rg -n \"not_a_recipe\" -n'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'find . -maxdepth 2'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'tree .'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'test -f out/shard-001.json'") is True
@@ -194,21 +212,47 @@ def test_codex_exec_runner_allows_only_workspace_local_helper_commands() -> None
         )
         is True
     )
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"jq '{rows: [.rows[] | {atomic_index: .[0]}]}' in/shard-001.json > out/shard-001.json\""
+        )
+        is True
+    )
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"cat <<'EOF' > out/shard-001.json\n{\\\"rows\\\": []}\nEOF\""
+        )
+        is True
+    )
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat temp.json'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat out/*.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc sed -n '1,20p' in/shard-001.json") is True
 
     assert is_tolerated_workspace_worker_command("/bin/bash -lc \"python -c 'print(1)'\"") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'env python -c \"print(1)\"'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat ../secret.txt'") is False
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat in/shard-001.json > out/shard-001.json'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /tmp/secret.txt'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'git status --short'") is False
 
 
 def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None:
     helper = classify_workspace_worker_command("/bin/bash -lc 'cat in/shard-001.json'")
     assert helper.allowed is True
-    assert helper.policy == "tolerated_workspace_helper_command"
+    assert helper.policy == "tolerated_workspace_shell_command"
 
     orientation = classify_workspace_worker_command("/bin/bash -lc ls")
     assert orientation.allowed is True
     assert orientation.policy == "tolerated_orientation_command"
+
+    shell = classify_workspace_worker_command(
+        "/bin/bash -lc \"jq '{rows: [.rows[] | {atomic_index: .[0]}]}' in/shard-001.json > out/shard-001.json\""
+    )
+    assert shell.allowed is True
+    assert shell.policy == "tolerated_workspace_shell_command"
+
+    root_relative = classify_workspace_worker_command("/bin/bash -lc 'cat temp.json'")
+    assert root_relative.allowed is True
+    assert root_relative.policy == "tolerated_workspace_shell_command"
 
     forbidden = classify_workspace_worker_command(
         "/bin/bash -lc \"python -c 'print(1)'\""
@@ -225,6 +269,10 @@ def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(
     (source_root / "debug").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "assigned_tasks.json").write_text(
+        json.dumps([{"task_id": "shard-001", "parent_shard_id": "shard-001"}]),
         encoding="utf-8",
     )
     (source_root / "in" / "shard-001.json").write_text(
@@ -282,6 +330,10 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
         json.dumps([{"shard_id": "shard-001"}]),
         encoding="utf-8",
     )
+    (source_root / "assigned_tasks.json").write_text(
+        json.dumps([{"task_id": "shard-001", "parent_shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
     (source_root / "in" / "shard-001.json").write_text(
         json.dumps({"shard_id": "shard-001"}),
         encoding="utf-8",
@@ -304,33 +356,34 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
             encoding="utf-8"
         )
     )
-    assert worker_manifest["entry_files"] == ["worker_manifest.json", "assigned_shards.json"]
+    assert worker_manifest["entry_files"] == [
+        "worker_manifest.json",
+        "assigned_shards.json",
+        "assigned_tasks.json",
+    ]
     assert worker_manifest["hints_dir"] == "hints"
-    assert worker_manifest["workspace_helper_commands_allowed"] == [
-        "cat",
-        "head",
-        "tail",
-        "sed",
-        "jq",
-        "wc",
-        "pwd",
-        "ls",
-        "rg",
-        "find",
-        "tree",
-        "test",
+    assert worker_manifest["workspace_shell_policy"].startswith(
+        "Allow ordinary local shell use inside this workspace."
+    )
+    assert worker_manifest["workspace_local_shell_examples"] == [
+        "rg -n \"needle\" -n",
+        "jq '.[0] | keys' assigned_shards.json",
+        "jq '.[0] | keys' assigned_tasks.json",
+        "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
+        "cat <<'EOF' > out/<shard>.json",
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
-        "git",
-        "python",
-        "node",
+        "repo/network/interpreter commands such as git, python, node, curl, wget, or package managers",
+        "absolute paths",
         "parent-directory traversal",
     ]
     assert "Read the local task manifests and input files directly." in agents_text
     assert "Start by reading `worker_manifest.json`" in agents_text
+    assert "`assigned_tasks.json`" in agents_text
     assert "`hints/...`" in agents_text
-    assert "Workspace-local helper commands are allowed when they materially help" in agents_text
-    assert "Do not inspect parent directories or the repository, and do not leave this workspace." in agents_text
+    assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
+    assert "The watchdog is boundary-based" in agents_text
+    assert "avoid repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers" in agents_text
     assert "approved local output files under `out/`" in agents_text
     assert (workspace.execution_working_dir / "out").exists()
     assert (workspace.execution_working_dir / "hints" / "shard-001.md").exists()
@@ -343,6 +396,10 @@ def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
     (source_root / "in").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "assigned_tasks.json").write_text(
+        json.dumps([{"task_id": "shard-001", "parent_shard_id": "shard-001"}]),
         encoding="utf-8",
     )
     (source_root / "in" / "shard-001.json").write_text(
@@ -654,3 +711,110 @@ def test_subprocess_runner_can_terminate_from_streamed_watchdog_snapshot(
     assert result.duration_ms >= 0
     assert str(result.started_at_utc or "").endswith("Z")
     assert str(result.finished_at_utc or "").endswith("Z")
+
+
+def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_shards.json").write_text(
+        json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "in" / "shard-001.json").write_text(
+        json.dumps({"shard_id": "shard-001"}),
+        encoding="utf-8",
+    )
+    written = {"started": False}
+
+    class _FakeStdin:
+        def write(self, text: str) -> int:
+            return len(text)
+
+        def close(self) -> None:
+            return None
+
+    class _BlockingStream:
+        def __init__(self, owner: "_FakeProcess", lines: list[str]) -> None:
+            self._owner = owner
+            self._lines = list(lines)
+
+        def readline(self) -> str:
+            if self._lines:
+                return self._lines.pop(0)
+            while self._owner.returncode is None:
+                time.sleep(0.01)
+            return ""
+
+        def close(self) -> None:
+            return None
+
+    class _FakeProcess:
+        def __init__(self, cwd: Path) -> None:
+            self.stdin = _FakeStdin()
+            self.returncode: int | None = None
+            self.stdout = _BlockingStream(
+                self,
+                [json.dumps({"type": "thread.started"}) + "\n"],
+            )
+            self.stderr = _BlockingStream(self, [])
+            self._cwd = cwd
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    def _fake_popen(command, **kwargs):  # noqa: ANN001
+        cwd = Path(str(kwargs["cwd"]))
+        process = _FakeProcess(cwd)
+        if not written["started"]:
+            written["started"] = True
+
+            def _writer() -> None:
+                time.sleep(0.15)
+                out_dir = cwd / "out"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "shard-001.json").write_text(
+                    json.dumps({"v": "2", "bid": "shard-001", "r": []}),
+                    encoding="utf-8",
+                )
+
+            import threading
+
+            threading.Thread(target=_writer, daemon=True).start()
+        return process
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner.subprocess.Popen",
+        _fake_popen,
+    )
+
+    runner = SubprocessCodexExecRunner(cmd="codex exec")
+    result = runner.run_workspace_worker(
+        prompt_text="Write shard output files locally and stop once done.",
+        working_dir=source_root,
+        env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
+        workspace_task_label="knowledge worker session",
+        supervision_callback=lambda _snapshot: (
+            CodexExecSupervisionDecision.terminate(
+                reason_code="workspace_outputs_stabilized",
+                reason_detail="worker outputs stabilized",
+                retryable=False,
+                supervision_state="completed",
+            )
+            if (source_root / "out" / "shard-001.json").exists()
+            else None
+        ),
+    )
+
+    assert (source_root / "out" / "shard-001.json").exists()
+    assert result.supervision_state == "completed"
+    assert result.supervision_reason_code == "workspace_outputs_stabilized"
+    assert result.completed_successfully() is True
