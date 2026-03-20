@@ -196,6 +196,12 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     knowledge_dir = run_root / "knowledge" / "book"
     assert (knowledge_dir / "snippets.jsonl").exists()
     assert (knowledge_dir / "knowledge.md").exists()
+    assert "Fake knowledge snippet." in (knowledge_dir / "snippets.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert "Fake knowledge snippet." in (knowledge_dir / "knowledge.md").read_text(
+        encoding="utf-8"
+    )
     phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
     assert (phase_dir / "phase_manifest.json").exists()
     assert (phase_dir / "shard_manifest.jsonl").exists()
@@ -203,12 +209,15 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     worker_root = phase_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
-    assert "If you need a helper command, keep it narrow and workspace-local" in worker_prompt
-    assert "Do not use exploration commands such as `find`, `tree`" in worker_prompt
+    assert "Workspace-local helper commands are allowed when they materially help" in worker_prompt
+    assert "Stay inside this workspace" in worker_prompt
+    assert "open `hints/<shard_id>.md` first" in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
     assert worker_manifest["entry_files"] == ["worker_manifest.json", "assigned_shards.json"]
+    assert worker_manifest["hints_dir"] == "hints"
+    assert (worker_root / "hints").exists()
 
 
 def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(

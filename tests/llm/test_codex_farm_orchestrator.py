@@ -96,6 +96,7 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     result = _build_conversion_result(source)
+    result.recipes[0].tags = ["seed_tag_should_not_survive"]
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
@@ -200,14 +201,19 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
             "Toast the bread until golden.",
             "Spread with butter and serve hot.",
         ],
+        "g": ["seed_tag_should_not_survive"],
     }
-    assert correction_input["tg"]["v"] == "recipe_tagging_guide.v2"
+    assert correction_input["tg"]["v"] == "recipe_tagging_guide.v3"
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert apply_result.updated_conversion_result.recipes[0].tags == [
         "breakfast",
         "toasted",
     ]
     assert apply_result.intermediate_overrides_by_recipe_id["urn:recipe:test:toast"]["name"] == "Toast"
+    assert apply_result.intermediate_overrides_by_recipe_id["urn:recipe:test:toast"]["tags"] == [
+        "breakfast",
+        "toasted",
+    ]
     assert (apply_result.llm_raw_dir / "recipe_phase_runtime" / "phase_manifest.json").is_file()
 
 

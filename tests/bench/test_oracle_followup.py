@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -369,3 +370,192 @@ def test_auto_followup_worker_marks_missing_requested_section_explicitly(tmp_pat
     assert "Requested follow-up data" in result["status_reason"]
     source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
     assert source_status["status"] == "succeeded"
+
+
+def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_turn2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copied_root = tmp_path / "single-offline-benchmark" / "saltfatacidheatcutdown"
+    shutil.copytree(SAMPLE_BUNDLE.parent, copied_root)
+    bundle_dir = copied_root / "upload_bundle_v1"
+    source_run = "2026-03-19_21.18.04"
+    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    browser_profile_dir = tmp_path / "oracle-home" / "browser-profile"
+    sessions_dir = browser_profile_dir.parent / "sessions" / "you-are-reviewing-a-benchmark-392"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "bundle_dir": str(bundle_dir),
+                "session_id": "you-are-reviewing-a-benchmark-392",
+                "conversation_url": "https://chatgpt.com/c/source-392",
+                "conversation_id": "source-392",
+                "status": "running",
+                "status_reason": "Initial launch state.",
+                "pid": 0,
+                "prompt": "Benchmark turn 1 prompt.",
+                "launch_started_at_utc": "2026-03-19T21:18:04+00:00",
+                "browser_profile_dir": str(browser_profile_dir),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                "Session running in background.",
+                "Reattach later with: oracle session you-are-reviewing-a-benchmark-392",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (sessions_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "id": "you-are-reviewing-a-benchmark-392",
+                "status": "running",
+                "browser": {
+                    "conversationUrl": "https://chatgpt.com/c/source-392",
+                    "conversationId": "source-392",
+                    "runtime": {
+                        "tabUrl": "https://chatgpt.com/c/source-392",
+                        "conversationId": "source-392",
+                        "controllerPid": 1234,
+                    },
+                },
+                "response": {
+                    "status": "running",
+                    "incompleteReason": "assistant-timeout",
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    runner_calls: list[list[str]] = []
+    captured: dict[str, object] = {}
+
+    def fake_runner(command, **kwargs):
+        runner_calls.append([str(part) for part in command])
+        assert command[:3] == [
+            "/home/mcnal/.local/bin/oracle",
+            "session",
+            "you-are-reviewing-a-benchmark-392",
+        ]
+        (launch_dir / "oracle_upload.log").write_text(
+            "\n".join(
+                [
+                    "Oracle command: oracle ...",
+                    "Answer:",
+                    "Top regressions",
+                    "Recovered answer after timeout.",
+                    "",
+                    "Likely cause buckets",
+                    "Line-role repair dominates.",
+                    "",
+                    "Immediate next checks",
+                    "Inspect the worst cases.",
+                    "",
+                    "Requested follow-up data",
+                    "Ask 1",
+                    "ask_id: ask_001_line_role",
+                    "question: Show the line-role evidence for the worst negative cases.",
+                    "outputs: case_export, line_role_audit",
+                    "stage_filters: line_role",
+                    "hypothesis: The issue is in line-role repair.",
+                    "smallest_useful_packet: One bad case is enough.",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (sessions_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "id": "you-are-reviewing-a-benchmark-392",
+                    "status": "completed",
+                    "browser": {
+                        "conversationUrl": "https://chatgpt.com/c/source-392",
+                        "conversationId": "source-392",
+                        "runtime": {
+                            "tabUrl": "https://chatgpt.com/c/source-392",
+                            "conversationId": "source-392",
+                        },
+                    },
+                    "response": {
+                        "status": "completed",
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Reattach succeeded; session marked completed.\n",
+            stderr="",
+        )
+
+    def fake_run_followup(**kwargs):
+        captured.update(kwargs)
+        workspace = OracleFollowupWorkspace(
+            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00",
+            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload.json",
+            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload_status.json",
+            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "followup_data1",
+        )
+        return (
+            OracleUploadResult(
+                success=True,
+                mode="browser",
+                command=["oracle", "continue-session"],
+                bundle_dir=bundle_dir,
+                returncode=0,
+                stdout="Answer:\nUpdated assessment\n...",
+                stderr="",
+                status="succeeded",
+                status_reason="Follow-up answer captured from Oracle.",
+                session_id="you-are-reviewing-a-benchmark-392-turn-2",
+                reattach_command="oracle session you-are-reviewing-a-benchmark-392-turn-2",
+                conversation_url="https://chatgpt.com/c/source-392",
+            ),
+            workspace,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.bench.oracle_followup.run_oracle_benchmark_followup",
+        fake_run_followup,
+    )
+
+    result = run_oracle_benchmark_followup_background_worker(
+        target=target,
+        from_run=source_run,
+        model="gpt-5.3",
+        runner=fake_runner,
+        poll_interval_seconds=0.01,
+        timeout_seconds=1.0,
+    )
+
+    assert runner_calls
+    assert captured["from_run"] == source_run
+    assert result["status"] == "succeeded"
+    assert result["followup_session_id"] == "you-are-reviewing-a-benchmark-392-turn-2"

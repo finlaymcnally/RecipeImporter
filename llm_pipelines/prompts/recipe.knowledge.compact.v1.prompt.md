@@ -21,10 +21,16 @@ Decision boundary:
 - `other` means memoir, scene-setting, praise blurbs, endorsements, publisher marketing, signup copy, decorative headings, table of contents, chapter menus, recipe indexes, or other non-reusable matter.
 - Be especially skeptical of chunks that mostly look like headings, menus, title lists, front matter, or back matter.
 - A chunk can still be `knowledge` if it is concise. Tables, charts, and short technical reference entries are valid when the text is genuinely useful.
+- Borderline positive examples that still count as `knowledge` when grounded in the chunk text:
+  - a short smoke-point table
+  - a concise substitution chart
+  - a one-block storage or food-safety rule
+  - a glossary-style ingredient or technique definition
+  - a troubleshooting bullet such as how to prevent curdling, sticking, or overcooking
 
 Repo-specific examples:
 - Usually `other`: `PREFACE`, `Contents`, `Recipes and Recommendations`, praise blurbs, author credits, publisher signup text.
-- Usually `knowledge`: technique explanations, storage advice, substitution notes, conversion tables, troubleshooting bullets, temperature guidance.
+- Usually `knowledge`: technique explanations, storage advice, substitution notes, conversion tables, troubleshooting bullets, temperature guidance, concise reference charts, and short definitional callouts with real cooking value.
 
 Internal reviewer categories for `d[*].rc`:
 - `knowledge`

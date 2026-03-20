@@ -35,6 +35,7 @@ cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
 cookimport/bench/followup_bundle.py
 cookimport/bench/noise.py
+cookimport/bench/oracle_followup.py
 cookimport/bench/oracle_upload.py
 cookimport/bench/pairwise_flips.py
 cookimport/bench/prediction_records.py
@@ -53,6 +54,7 @@ cookimport/bench/slice_metrics.py
 cookimport/bench/speed_compare.py
 cookimport/bench/speed_runner.py
 cookimport/bench/speed_suite.py
+cookimport/bench/structure_label_report.py
 cookimport/bench/upload_bundle_v1_existing_output.py
 cookimport/bench/upload_bundle_v1_model.py
 cookimport/bench/upload_bundle_v1_render.py
@@ -97,8 +99,7 @@ cookimport/labelstudio/models.py
 cookimport/labelstudio/prelabel.py
 cookimport/llm/__init__.py
 cookimport/llm/canonical_line_role_prompt.py
-cookimport/llm/client.py
-cookimport/llm/codex_exec.py
+cookimport/llm/codex_exec_runner.py
 cookimport/llm/codex_farm_contracts.py
 cookimport/llm/codex_farm_ids.py
 cookimport/llm/codex_farm_knowledge_contracts.py
@@ -110,13 +111,15 @@ cookimport/llm/codex_farm_knowledge_writer.py
 cookimport/llm/codex_farm_orchestrator.py
 cookimport/llm/codex_farm_runner.py
 cookimport/llm/fake_codex_farm_runner.py
+cookimport/llm/knowledge_prompt_builder.py
 cookimport/llm/non_recipe_spans.py
+cookimport/llm/phase_worker_runtime.py
 cookimport/llm/prompt_artifacts.py
 cookimport/llm/prompt_budget.py
 cookimport/llm/prompt_preview.py
-cookimport/llm/prompts.py
 cookimport/llm/recipe_tagging_guide.py
-cookimport/llm/repair.py
+cookimport/llm/shard_prompt_targets.py
+cookimport/llm/worker_hint_sidecars.py
 cookimport/ocr/__init__.py
 cookimport/ocr/doctr_engine.py
 cookimport/parsing/__init__.py

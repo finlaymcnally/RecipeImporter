@@ -53,6 +53,10 @@ from cookimport.llm.codex_farm_runner import (
     CodexFarmRunnerError,
     resolve_codex_farm_output_schema_path,
 )
+from cookimport.llm.worker_hint_sidecars import (
+    preview_text,
+    write_worker_hint_markdown,
+)
 from cookimport.llm.phase_worker_runtime import (
     PhaseManifestV1,
     ShardManifestEntryV1,
@@ -1540,6 +1544,7 @@ def _run_line_role_workspace_worker_assignment_v1(
     worker_root: Path,
     in_dir: Path,
     debug_dir: Path,
+    hints_dir: Path,
     shard_dir: Path,
     logs_dir: Path,
     debug_payload_by_shard_id: Mapping[str, Any],
@@ -1572,6 +1577,7 @@ def _run_line_role_workspace_worker_assignment_v1(
     for shard in assigned_shards:
         input_path = in_dir / f"{shard.shard_id}.json"
         debug_path = debug_dir / f"{shard.shard_id}.json"
+        hint_path = hints_dir / f"{shard.shard_id}.md"
         _write_worker_debug_input(
             path=input_path,
             payload=shard.input_payload,
@@ -1581,6 +1587,11 @@ def _run_line_role_workspace_worker_assignment_v1(
             path=debug_path,
             payload=debug_payload_by_shard_id.get(shard.shard_id),
             input_text=None,
+        )
+        _write_line_role_worker_hint(
+            path=hint_path,
+            shard=shard,
+            debug_payload=debug_payload_by_shard_id.get(shard.shard_id),
         )
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
@@ -2146,6 +2157,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             metadata={
                 "in_dir": _relative_runtime_path(run_root, in_dir),
                 "debug_dir": _relative_runtime_path(run_root, debug_dir),
+                "hints_dir": _relative_runtime_path(run_root, hints_dir),
                 "out_dir": _relative_runtime_path(run_root, out_dir),
                 "shards_dir": _relative_runtime_path(run_root, shard_dir),
                 "log_dir": _relative_runtime_path(run_root, logs_dir),
@@ -2183,10 +2195,12 @@ def _run_line_role_direct_worker_assignment_v1(
     worker_root = Path(assignment.workspace_root)
     in_dir = worker_root / "in"
     debug_dir = worker_root / "debug"
+    hints_dir = worker_root / "hints"
     shard_dir = worker_root / "shards"
     logs_dir = worker_root / "logs"
     in_dir.mkdir(parents=True, exist_ok=True)
     debug_dir.mkdir(parents=True, exist_ok=True)
+    hints_dir.mkdir(parents=True, exist_ok=True)
     shard_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
@@ -2202,6 +2216,7 @@ def _run_line_role_direct_worker_assignment_v1(
         worker_root=worker_root,
         in_dir=in_dir,
         debug_dir=debug_dir,
+        hints_dir=hints_dir,
         shard_dir=shard_dir,
         logs_dir=logs_dir,
         debug_payload_by_shard_id=debug_payload_by_shard_id,
@@ -2510,7 +2525,7 @@ def _build_line_role_workspace_worker_prompt(
     shards: Sequence[ShardManifestEntryV1],
 ) -> str:
     assignments = "\n".join(
-        f"- `{shard.shard_id}`: read `in/{shard.shard_id}.json`, write `out/{shard.shard_id}.json`"
+        f"- `{shard.shard_id}`: read `hints/{shard.shard_id}.md`, then `in/{shard.shard_id}.json`, then write `out/{shard.shard_id}.json`"
         for shard in shards
     )
     return (
@@ -2519,14 +2534,15 @@ def _build_line_role_workspace_worker_prompt(
         "- The current working directory is already the workspace root.\n"
         "- Start by opening `worker_manifest.json`, then `assigned_shards.json`.\n"
         "- Prefer opening the named files directly instead of exploring the workspace.\n"
-        "- If you need a helper command, keep it narrow and workspace-local, for example `cat`, `head`, `tail`, `sed`, `jq`, or `wc` on named files.\n"
-        "- Do not use `pwd` or `ls` here; line-role already names the exact files you need.\n"
-        "- Do not use exploration commands such as `find`, `tree`, or anything that tries to inspect parent directories or the repository.\n"
+        "- Workspace-local helper commands are allowed when they materially help, including `cat`, `head`, `tail`, `sed`, `jq`, `wc`, `pwd`, `ls`, `rg`, `find`, `tree`, and `test` on local paths.\n"
+        "- The named files already give you the task, so prefer those direct reads before broader local inspection.\n"
+        "- Stay inside this workspace: do not inspect parent directories or the repository.\n"
         "- Read `assigned_shards.json` and process the assigned shard files in order.\n"
-        "- For each assigned shard, open `in/<shard_id>.json` directly.\n"
+        "- For each assigned shard, open `hints/<shard_id>.md` first, then open `in/<shard_id>.json`.\n"
+        "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative owned rows.\n"
         "- Recompute labels from that shard file's rows and write exactly one JSON object to `out/<shard_id>.json`.\n"
         "- If `out/<shard_id>.json` already exists and is complete, leave it alone and continue.\n"
-        "- Do not modify files under `in/` or `debug/`.\n"
+        "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
         "- Stay inside this workspace; do not inspect parent directories or the repository.\n"
         "- Keep working through the assigned shard files until all of them are handled or you truly cannot proceed.\n\n"
         "Each shard input file has this shape:\n"
@@ -2551,6 +2567,116 @@ def _build_line_role_workspace_worker_prompt(
         "Do not return shard labels in your final message. The authoritative results are the `out/<shard_id>.json` files.\n\n"
         "Assigned shard files:\n"
         f"{assignments}\n"
+    )
+
+
+def _write_line_role_worker_hint(
+    *,
+    path: Path,
+    shard: ShardManifestEntryV1,
+    debug_payload: Any,
+) -> None:
+    input_rows = list(_coerce_mapping_dict(shard.input_payload).get("rows") or [])
+    debug_rows = list(_coerce_mapping_dict(debug_payload).get("rows") or [])
+    input_row_by_atomic_index: dict[int, tuple[str, str, str]] = {}
+    ordered_atomic_indices: list[int] = []
+    code_by_label = build_line_role_label_code_by_label()
+    label_by_code = {str(code): str(label) for label, code in code_by_label.items()}
+    for row in input_rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            continue
+        try:
+            atomic_index = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        input_row_by_atomic_index[atomic_index] = (
+            atomic_index,
+            str(row[1]),
+            str(row[2]),
+        )
+        ordered_atomic_indices.append(atomic_index)
+    order_lookup = {atomic_index: idx for idx, atomic_index in enumerate(ordered_atomic_indices)}
+
+    label_counts: dict[str, int] = {}
+    flagged_count = 0
+    span_inside = 0
+    span_outside = 0
+    span_unknown = 0
+    attention_lines: list[str] = []
+    for row in debug_rows:
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            atomic_index = int(row.get("atomic_index"))
+        except (TypeError, ValueError):
+            continue
+        deterministic_label = str(row.get("deterministic_label") or "OTHER").strip() or "OTHER"
+        label_counts[deterministic_label] = label_counts.get(deterministic_label, 0) + 1
+        within_recipe_span = row.get("within_recipe_span")
+        if within_recipe_span is True:
+            span_inside += 1
+        elif within_recipe_span is False:
+            span_outside += 1
+        else:
+            span_unknown += 1
+        rule_tags = [
+            str(tag).strip()
+            for tag in row.get("rule_tags") or []
+            if str(tag).strip()
+        ]
+        escalation_reasons = [
+            str(reason).strip()
+            for reason in row.get("escalation_reasons") or []
+            if str(reason).strip()
+        ]
+        if escalation_reasons or rule_tags:
+            flagged_count += 1
+        if len(attention_lines) >= 12 or (not escalation_reasons and not rule_tags):
+            continue
+        current_line = str(row.get("current_line") or "").strip()
+        input_code = input_row_by_atomic_index.get(atomic_index, ("", "", ""))[1]
+        packet_index = order_lookup.get(atomic_index)
+        prev_line = "[start]"
+        next_line = "[end]"
+        if packet_index is not None:
+            if packet_index > 0:
+                prev_atomic_index = ordered_atomic_indices[packet_index - 1]
+                prev_line = input_row_by_atomic_index.get(prev_atomic_index, ("", "", ""))[2]
+            if packet_index < (len(ordered_atomic_indices) - 1):
+                next_atomic_index = ordered_atomic_indices[packet_index + 1]
+                next_line = input_row_by_atomic_index.get(next_atomic_index, ("", "", ""))[2]
+        attention_lines.append(
+            f"`{atomic_index}` `{preview_text(current_line, max_chars=90)}` -> deterministic `{deterministic_label}`, input code `{input_code}` ({label_by_code.get(input_code, 'unknown')}), tags `{', '.join(rule_tags) or 'none'}`, escalation `{', '.join(escalation_reasons) or 'none'}`, prev `{preview_text(prev_line, max_chars=60)}`, next `{preview_text(next_line, max_chars=60)}`"
+        )
+
+    packet_profile = [
+        f"Owned rows: {len(input_row_by_atomic_index)}.",
+        f"Deterministic label mix: {', '.join(f'{label}={count}' for label, count in sorted(label_counts.items())) or 'none'}.",
+        f"Rows with rule tags or escalation reasons: {flagged_count}.",
+        f"Recipe-span status mix: inside={span_inside}, outside={span_outside}, unknown={span_unknown}.",
+        "Use this file to decode compact rows quickly, then rely on `in/<shard_id>.json` for the full owned row list.",
+    ]
+    legend_lines = [
+        f"`{code}` = `{label}`"
+        for label, code in sorted(code_by_label.items(), key=lambda item: item[1])
+    ]
+    if not attention_lines:
+        attention_lines = [
+            "No special attention rows were flagged. Read the authoritative rows in order and use nearby neighbors for disambiguation."
+        ]
+    write_worker_hint_markdown(
+        path,
+        title=f"Canonical line-role hints for {shard.shard_id}",
+        summary_lines=[
+            "This sidecar is worker guidance only.",
+            "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
+            "Use nearby rows to disambiguate front matter, lesson prose, headings, and recipe-local structure.",
+        ],
+        sections=[
+            ("Packet profile", packet_profile),
+            ("Label code legend", legend_lines),
+            ("Attention rows", attention_lines),
+        ],
     )
 
 
@@ -2971,11 +3097,7 @@ def _build_strict_json_watchdog_callback(
 def _classify_line_role_workspace_command(
     command_text: str | None,
 ) -> WorkspaceCommandClassification:
-    return classify_workspace_worker_command(
-        command_text,
-        allow_orientation_commands=False,
-        allow_output_paths=False,
-    )
+    return classify_workspace_worker_command(command_text)
 
 
 def _finalize_live_status(
@@ -4319,14 +4441,15 @@ def _sanitize_prediction(
             by_atomic_index=by_atomic_index,
         )
     ):
-        fallback_label = _outside_span_nonstructured_fallback_label(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-        if fallback_label != label:
-            label = fallback_label
-            decided_by = "fallback"
-            reason_tags.append("sanitized_outside_span_structured_label")
+        if prediction.decided_by != "codex":
+            fallback_label = _outside_span_nonstructured_fallback_label(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+            if fallback_label != label:
+                label = fallback_label
+                decided_by = "fallback"
+                reason_tags.append("sanitized_outside_span_structured_label")
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,

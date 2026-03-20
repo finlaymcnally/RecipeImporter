@@ -1310,9 +1310,10 @@ def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_knowledge(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "KNOWLEDGE"
-    assert predictions[0].decided_by == "fallback"
-    assert "sanitized_outside_span_structured_label" in predictions[0].reason_tags
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
+    assert "outside_span_structured_label" in predictions[0].escalation_reasons
+    assert "codex_disagreed_with_rule" in predictions[0].escalation_reasons
 
 
 def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -> None:
@@ -1339,9 +1340,10 @@ def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "sanitized_outside_span_structured_label" in predictions[0].reason_tags
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
+    assert "outside_span_structured_label" in predictions[0].escalation_reasons
+    assert "codex_disagreed_with_rule" in predictions[0].escalation_reasons
 
 
 def test_codex_outside_recipe_explicit_howto_heading_can_stay_structured(
@@ -2105,7 +2107,7 @@ def test_label_atomic_lines_allows_workspace_commands_without_immediate_kill(
     assert predictions[0].decided_by == "codex"
 
 
-def test_label_atomic_lines_rejects_line_role_orientation_commands(
+def test_label_atomic_lines_tolerates_line_role_workspace_orientation_commands(
     tmp_path: Path,
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
@@ -2127,11 +2129,10 @@ def test_label_atomic_lines_rejects_line_role_orientation_commands(
         )
     )
 
-    assert decision is not None
-    assert decision.reason_code == "watchdog_command_execution_forbidden"
+    assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["last_command_policy"] == "forbidden_orientation_command"
-    assert live_status["last_command_policy_allowed"] is False
+    assert live_status["last_command_policy"] == "tolerated_orientation_command"
+    assert live_status["last_command_policy_allowed"] is True
 
 
 def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
@@ -2646,10 +2647,11 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     ).read_text(encoding="utf-8")
     assert "You are processing many canonical line-role shard tasks inside one local worker workspace." in prompt_text
     assert "Start by opening `worker_manifest.json`, then `assigned_shards.json`." in prompt_text
-    assert "If you need a helper command, keep it narrow and workspace-local" in prompt_text
-    assert "Do not use `pwd` or `ls` here" in prompt_text
-    assert "Do not use exploration commands such as `find`, `tree`" in prompt_text
+    assert "Workspace-local helper commands are allowed when they materially help" in prompt_text
+    assert "The named files already give you the task" in prompt_text
+    assert "Stay inside this workspace" in prompt_text
     assert "Read `assigned_shards.json` and process the assigned shard files in order." in prompt_text
+    assert "open `hints/<shard_id>.md` first" in prompt_text
     assert "write exactly one JSON object to `out/<shard_id>.json`." in prompt_text
     worker_prompt_text = (
         tmp_path
@@ -2680,6 +2682,19 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         "worker_manifest.json",
         "assigned_shards.json",
     ]
+    assert worker_manifest_payload["hints_dir"] == "hints"
+    worker_hint_text = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "hints"
+        / "line-role-canonical-0001-a000000-a000000.md"
+    ).read_text(encoding="utf-8")
+    assert "Label code legend" in worker_hint_text
+    assert "Attention rows" in worker_hint_text
     worker_input_text = (
         tmp_path
         / "line-role-pipeline"

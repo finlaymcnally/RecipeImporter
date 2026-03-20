@@ -61,7 +61,7 @@ _DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
 _DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-shard-v1"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
-_DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 3
+_DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 1
 _DEFAULT_KNOWLEDGE_SHARD_TARGET_CHUNKS = 12
 
 
@@ -174,7 +174,10 @@ def write_prompt_preview_for_existing_run(
             rows=recipe_rows,
             worker_count=recipe_worker_count
             if recipe_worker_count is not None
-            else _coerce_int(context.run_config.get("recipe_worker_count")),
+            else (
+                _coerce_int(context.run_config.get("recipe_worker_count"))
+                or resolved_recipe_prompt_target_count
+            ),
         )
         _annotate_rows_from_phase_plan(
             rows=recipe_rows,
@@ -517,20 +520,26 @@ def _build_recipe_shard_preview_rows(
     shard_target_recipes: int | None,
     recipe_inputs: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    requested_shard_count = resolve_shard_count(
-        total_items=len(recipe_inputs),
-        prompt_target_count=prompt_target_count,
-        items_per_shard=shard_target_recipes,
-        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
-    )
     rows: list[dict[str, Any]] = []
-    for index, shard_rows in enumerate(
-        partition_contiguous_items(
-            recipe_inputs,
-            shard_count=requested_shard_count,
-        ),
-        start=1,
-    ):
+    if shard_target_recipes is None:
+        shard_groups: list[list[Mapping[str, Any]]] = [
+            [row] for row in recipe_inputs
+        ]
+    else:
+        requested_shard_count = resolve_shard_count(
+            total_items=len(recipe_inputs),
+            prompt_target_count=prompt_target_count,
+            items_per_shard=shard_target_recipes,
+            default_items_per_shard=shard_target_recipes,
+        )
+        shard_groups = [
+            list(group)
+            for group in partition_contiguous_items(
+                recipe_inputs,
+                shard_count=requested_shard_count,
+            )
+        ]
+    for index, shard_rows in enumerate(shard_groups, start=1):
         if not shard_rows:
             continue
         first_call_id = str(shard_rows[0].get("call_id") or f"recipe-shard-{index:04d}")

@@ -165,7 +165,7 @@ def test_codex_exec_runner_only_kills_pathological_workspace_command_loops() -> 
         elapsed_seconds=0.2,
         last_event_seconds_ago=0.0,
         event_count=3,
-        command_execution_count=40,
+        command_execution_count=300,
         reasoning_item_count=0,
         last_command="/bin/bash -lc cat in/shard-001.json",
         last_command_repeat_count=1,
@@ -181,11 +181,23 @@ def test_codex_exec_runner_allows_only_workspace_local_helper_commands() -> None
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'head -n 20 in/shard-001.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'jq .rows[0] in/shard-001.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'ls in'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'ls shards'") is True
+    assert is_tolerated_workspace_worker_command(
+        "/bin/bash -lc 'rg -n \"shard-001\" assigned_shards.json'"
+    ) is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'find . -maxdepth 2'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'tree .'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'test -f out/shard-001.json'") is True
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc 'if [ -f out/shard-001.json ]; then echo exists; else echo missing; fi'"
+        )
+        is True
+    )
     assert is_tolerated_workspace_worker_command("/bin/bash -lc sed -n '1,20p' in/shard-001.json") is True
 
     assert is_tolerated_workspace_worker_command("/bin/bash -lc \"python -c 'print(1)'\"") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat ../secret.txt'") is False
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'find . -maxdepth 2'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat in/shard-001.json > out/shard-001.json'") is False
 
 
@@ -265,12 +277,17 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "hints").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps([{"shard_id": "shard-001"}]),
         encoding="utf-8",
     )
     (source_root / "in" / "shard-001.json").write_text(
         json.dumps({"shard_id": "shard-001"}),
+        encoding="utf-8",
+    )
+    (source_root / "hints" / "shard-001.md").write_text(
+        "# worker hints\n",
         encoding="utf-8",
     )
 
@@ -288,6 +305,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
         )
     )
     assert worker_manifest["entry_files"] == ["worker_manifest.json", "assigned_shards.json"]
+    assert worker_manifest["hints_dir"] == "hints"
     assert worker_manifest["workspace_helper_commands_allowed"] == [
         "cat",
         "head",
@@ -295,18 +313,27 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
         "sed",
         "jq",
         "wc",
-    ]
-    assert worker_manifest["orientation_commands_forbidden"] == [
+        "pwd",
+        "ls",
+        "rg",
         "find",
         "tree",
+        "test",
+    ]
+    assert worker_manifest["workspace_commands_forbidden"] == [
         "git",
+        "python",
+        "node",
+        "parent-directory traversal",
     ]
     assert "Read the local task manifests and input files directly." in agents_text
     assert "Start by reading `worker_manifest.json`" in agents_text
-    assert "If you use helper commands, keep them narrow and workspace-local" in agents_text
-    assert "Do not use exploration commands such as `find`, `tree`, or anything that tries to inspect parent directories or the repository." in agents_text
+    assert "`hints/...`" in agents_text
+    assert "Workspace-local helper commands are allowed when they materially help" in agents_text
+    assert "Do not inspect parent directories or the repository, and do not leave this workspace." in agents_text
     assert "approved local output files under `out/`" in agents_text
     assert (workspace.execution_working_dir / "out").exists()
+    assert (workspace.execution_working_dir / "hints" / "shard-001.md").exists()
 
 
 def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(

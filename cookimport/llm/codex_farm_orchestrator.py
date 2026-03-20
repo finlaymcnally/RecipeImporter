@@ -57,6 +57,7 @@ from .phase_worker_runtime import (
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
+from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ _ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS = (
     "mixed_content",
 )
 _RECIPE_GUARDRAIL_REPORT_SCHEMA_VERSION = "recipe_codex_guardrail_report.v1"
-_DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 4
+_DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 1
 _STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
 
 
@@ -183,6 +184,8 @@ class _PreparedRecipeInput:
     candidate_quality_hint: dict[str, Any]
     evidence_refs: tuple[str, ...]
     block_indices: tuple[int, ...]
+    pre_context_rows: tuple[tuple[int, str], ...]
+    post_context_rows: tuple[tuple[int, str], ...]
 
 
 @dataclass(frozen=True)
@@ -238,6 +241,33 @@ def _build_blocks_for_recipe_state(
     return rows
 
 
+def _build_recipe_boundary_context_rows(
+    *,
+    state: _RecipeState,
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+    side: str,
+    limit: int = 2,
+) -> tuple[tuple[int, str], ...]:
+    start = _coerce_int(state.heuristic_start)
+    end = _coerce_int(state.heuristic_end)
+    if start is None or end is None:
+        return ()
+    normalized_limit = max(0, int(limit))
+    if normalized_limit <= 0:
+        return ()
+    if side == "before":
+        indices = range(start - normalized_limit, start)
+    else:
+        indices = range(end + 1, end + normalized_limit + 1)
+    rows: list[tuple[int, str]] = []
+    for block_index in indices:
+        block = full_blocks_by_index.get(int(block_index))
+        if block is None:
+            continue
+        rows.append((int(block_index), str(block.get("text") or "").strip()))
+    return tuple(rows)
+
+
 def _build_recipe_correction_input(
     *,
     state: _RecipeState,
@@ -252,19 +282,23 @@ def _build_recipe_correction_input(
     )
     recipe_candidate_hint.pop("provenance", None)
     compact_recipe_candidate_hint = _compact_recipe_candidate_hint(recipe_candidate_hint)
+    canonical_text = "\n".join(
+        str(block.get("text") or "").strip() for block in included_blocks
+    ).strip()
     return MergedRecipeRepairInput(
         recipe_id=state.recipe_id,
         workbook_slug=workbook_slug,
         source_hash=source_hash,
-        canonical_text="\n".join(
-            str(block.get("text") or "").strip() for block in included_blocks
-        ).strip(),
+        canonical_text=canonical_text,
         evidence_rows=[
             (int(block.get("index", 0)), str(block.get("text") or "").strip())
             for block in included_blocks
         ],
         recipe_candidate_hint=compact_recipe_candidate_hint,
-        tagging_guide=build_recipe_tagging_guide(),
+        tagging_guide=build_recipe_tagging_guide(
+            recipe_text=canonical_text,
+            recipe_candidate_hint=compact_recipe_candidate_hint,
+        ),
         authority_notes=[
             "authoritative_source=recipe_span_blocks",
             "correct_intermediate_recipe_candidate",
@@ -295,6 +329,7 @@ def _build_prepared_recipe_input(
     workbook_slug: str,
     source_hash: str,
     included_blocks: list[dict[str, Any]],
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
 ) -> _PreparedRecipeInput:
     correction_input = _build_recipe_correction_input(
         state=state,
@@ -311,16 +346,30 @@ def _build_prepared_recipe_input(
         included_blocks=included_blocks,
         recipe_candidate_hint=correction_input.recipe_candidate_hint,
     )
+    pre_context_rows = _build_recipe_boundary_context_rows(
+        state=state,
+        full_blocks_by_index=full_blocks_by_index,
+        side="before",
+    )
+    post_context_rows = _build_recipe_boundary_context_rows(
+        state=state,
+        full_blocks_by_index=full_blocks_by_index,
+        side="after",
+    )
     return _PreparedRecipeInput(
         state=state,
         correction_input=correction_input,
         candidate_quality_hint=candidate_quality_hint,
         evidence_refs=evidence_refs,
         block_indices=block_indices,
+        pre_context_rows=pre_context_rows,
+        post_context_rows=post_context_rows,
     )
 
 
 def _shard_target_recipe_count(run_settings: RunSettings) -> int:
+    if run_settings.recipe_shard_target_recipes is None:
+        return 1
     try:
         value = int(
             run_settings.recipe_shard_target_recipes
@@ -331,14 +380,78 @@ def _shard_target_recipe_count(run_settings: RunSettings) -> int:
     return max(1, value)
 
 
+def _requested_recipe_worker_count(run_settings: RunSettings) -> int | None:
+    candidate = run_settings.recipe_worker_count
+    if candidate is None:
+        candidate = run_settings.recipe_prompt_target_count
+    if candidate is None:
+        return None
+    try:
+        value = int(candidate)
+    except (TypeError, ValueError):
+        return None
+    return max(1, value)
+
+
 def _recipe_worker_count(
     run_settings: RunSettings,
     *,
     shard_count: int,
 ) -> int:
     return resolve_phase_worker_count(
-        requested_worker_count=run_settings.recipe_worker_count,
+        requested_worker_count=_requested_recipe_worker_count(run_settings),
         shard_count=shard_count,
+    )
+
+
+def _build_recipe_shard_plan(
+    *,
+    shard_index: int,
+    shard_prepared_inputs: Sequence[_PreparedRecipeInput],
+) -> _RecipeShardPlan | None:
+    shard_prepared_inputs_tuple = tuple(shard_prepared_inputs)
+    if not shard_prepared_inputs_tuple:
+        return None
+    first_state = shard_prepared_inputs_tuple[0].state
+    last_state = shard_prepared_inputs_tuple[-1].state
+    first_recipe_index = _recipe_index_from_bundle_name(first_state.bundle_name)
+    last_recipe_index = _recipe_index_from_bundle_name(last_state.bundle_name)
+    shard_id = (
+        f"recipe-shard-{shard_index:04d}-"
+        f"r{first_recipe_index:04d}-r{last_recipe_index:04d}"
+    )
+    shard_recipe_ids = tuple(
+        prepared.state.recipe_id for prepared in shard_prepared_inputs_tuple
+    )
+    tagging_guide = (
+        dict(shard_prepared_inputs_tuple[0].correction_input.tagging_guide or {})
+        if len(shard_prepared_inputs_tuple) == 1
+        else build_recipe_tagging_guide()
+    )
+    shard_input = RecipeCorrectionShardInput(
+        shard_id=shard_id,
+        owned_recipe_ids=list(shard_recipe_ids),
+        recipes=[
+            _build_recipe_shard_recipe_input(
+                correction_input=prepared.correction_input,
+                candidate_quality_hint=prepared.candidate_quality_hint,
+                warnings=prepared.state.warnings,
+            )
+            for prepared in shard_prepared_inputs_tuple
+        ],
+        tagging_guide=tagging_guide,
+    )
+    evidence_refs = tuple(
+        ref
+        for prepared in shard_prepared_inputs_tuple
+        for ref in prepared.evidence_refs
+    )
+    return _RecipeShardPlan(
+        shard_id=shard_id,
+        states=tuple(prepared.state for prepared in shard_prepared_inputs_tuple),
+        prepared_inputs=shard_prepared_inputs_tuple,
+        evidence_refs=evidence_refs,
+        shard_input=shard_input,
     )
 
 
@@ -347,58 +460,36 @@ def _build_recipe_shard_plans(
     prepared_inputs: Sequence[_PreparedRecipeInput],
     run_settings: RunSettings,
 ) -> list[_RecipeShardPlan]:
+    if run_settings.recipe_shard_target_recipes is None:
+        plans: list[_RecipeShardPlan] = []
+        for shard_index, prepared in enumerate(prepared_inputs):
+            plan = _build_recipe_shard_plan(
+                shard_index=shard_index,
+                shard_prepared_inputs=(prepared,),
+            )
+            if plan is not None:
+                plans.append(plan)
+        return plans
+
     requested_shard_count = resolve_shard_count(
         total_items=len(prepared_inputs),
         prompt_target_count=run_settings.recipe_prompt_target_count,
         items_per_shard=run_settings.recipe_shard_target_recipes,
-        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
+        default_items_per_shard=_shard_target_recipe_count(run_settings),
     )
     plans: list[_RecipeShardPlan] = []
-    for shard_prepared_inputs_list in partition_contiguous_items(
-        prepared_inputs,
-        shard_count=requested_shard_count,
+    for shard_index, shard_prepared_inputs_list in enumerate(
+        partition_contiguous_items(
+            prepared_inputs,
+            shard_count=requested_shard_count,
+        )
     ):
-        shard_prepared_inputs = tuple(shard_prepared_inputs_list)
-        if not shard_prepared_inputs:
-            continue
-        first_state = shard_prepared_inputs[0].state
-        last_state = shard_prepared_inputs[-1].state
-        first_recipe_index = _recipe_index_from_bundle_name(first_state.bundle_name)
-        last_recipe_index = _recipe_index_from_bundle_name(last_state.bundle_name)
-        shard_id = (
-            f"recipe-shard-{len(plans):04d}-"
-            f"r{first_recipe_index:04d}-r{last_recipe_index:04d}"
+        plan = _build_recipe_shard_plan(
+            shard_index=shard_index,
+            shard_prepared_inputs=shard_prepared_inputs_list,
         )
-        shard_recipe_ids = tuple(
-            prepared.state.recipe_id for prepared in shard_prepared_inputs
-        )
-        shard_input = RecipeCorrectionShardInput(
-            shard_id=shard_id,
-            owned_recipe_ids=list(shard_recipe_ids),
-            recipes=[
-                _build_recipe_shard_recipe_input(
-                    correction_input=prepared.correction_input,
-                    candidate_quality_hint=prepared.candidate_quality_hint,
-                    warnings=prepared.state.warnings,
-                )
-                for prepared in shard_prepared_inputs
-            ],
-            tagging_guide=build_recipe_tagging_guide(),
-        )
-        evidence_refs = tuple(
-            ref
-            for prepared in shard_prepared_inputs
-            for ref in prepared.evidence_refs
-        )
-        plans.append(
-            _RecipeShardPlan(
-                shard_id=shard_id,
-                states=tuple(prepared.state for prepared in shard_prepared_inputs),
-                prepared_inputs=shard_prepared_inputs,
-                evidence_refs=evidence_refs,
-                shard_input=shard_input,
-            )
-        )
+        if plan is not None:
+            plans.append(plan)
     return plans
 
 
@@ -541,7 +632,7 @@ def _corrected_candidate_from_output(
 ) -> RecipeCandidate:
     selected_tags: list[str] = []
     seen_tags: set[str] = set()
-    for tag in list(state.recipe.tags) + [entry.label for entry in output.selected_tags]:
+    for tag in [entry.label for entry in output.selected_tags]:
         rendered = str(tag or "").strip()
         if not rendered or rendered in seen_tags:
             continue
@@ -1319,6 +1410,10 @@ def _relative_path(base: Path, path: Path) -> str:
         return str(path)
 
 
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
 def _build_recipe_workspace_worker_prompt(
     *,
     shards: Sequence[ShardManifestEntryV1],
@@ -1333,9 +1428,9 @@ def _build_recipe_workspace_worker_prompt(
         "Required local loop:",
         "1. Open `worker_manifest.json`, then read `assigned_shards.json` for shard order.",
         "2. Prefer opening the named files directly instead of exploring the workspace.",
-        "3. If you need a helper command, keep it narrow and workspace-local, for example `cat`, `head`, `tail`, `sed`, `jq`, or `wc` on named files.",
-        "4. Do not use exploration commands such as `find`, `tree`, or anything that tries to inspect parent directories or the repository.",
-        "5. For each shard id, open `in/<shard_id>.json`.",
+        "3. Workspace-local helper commands are allowed when they materially help, including `cat`, `head`, `tail`, `sed`, `jq`, `wc`, `pwd`, `ls`, `rg`, `find`, `tree`, and `test` on local paths.",
+        "4. Stay inside this workspace: do not inspect parent directories or the repository.",
+        "5. For each shard id, open `hints/<shard_id>.md` first, then `in/<shard_id>.json`.",
         "6. Write one completed output file to `out/<shard_id>.json`.",
         "7. Continue until every assigned shard has an output file or you cannot proceed.",
         "",
@@ -1344,6 +1439,7 @@ def _build_recipe_workspace_worker_prompt(
         "- `sid` must equal the shard id.",
         "- Return exactly one recipe result for each owned recipe id in the shard input and no extras.",
         "- Preserve `not_a_recipe` and `fragmentary` when the candidate is truly unusable.",
+        "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative owned input.",
         "",
         "Do not return the shard outputs in your final message. The authoritative result is the set of files written under `out/`.",
     ]
@@ -1356,6 +1452,65 @@ def _build_recipe_workspace_worker_prompt(
             ]
         )
     return "\n".join(lines)
+
+
+def _write_recipe_worker_hint(
+    *,
+    path: Path,
+    shard: ShardManifestEntryV1,
+) -> None:
+    payload = _coerce_dict(shard.input_payload)
+    recipes = [row for row in (payload.get("r") or []) if isinstance(row, Mapping)]
+    hint_rows = [
+        row
+        for row in (_coerce_dict(shard.metadata).get("worker_hint_recipes") or [])
+        if isinstance(row, Mapping)
+    ]
+    recipes_by_id = {
+        str(row.get("rid") or "").strip(): row
+        for row in recipes
+        if str(row.get("rid") or "").strip()
+    }
+    recipe_lines: list[str] = []
+    for hint_row in hint_rows[:12]:
+        recipe_id = str(hint_row.get("recipe_id") or "").strip() or "[unknown recipe]"
+        input_row = recipes_by_id.get(recipe_id, {})
+        title_hint = str(hint_row.get("title_hint") or "").strip() or str(_coerce_dict(input_row.get("h")).get("n") or "").strip() or "[no title hint]"
+        flags = [str(flag).strip() for flag in (hint_row.get("quality_flags") or []) if str(flag).strip()]
+        pre_context_rows = [
+            f"{int(row.get('index', 0))}:{preview_text(row.get('text'), max_chars=60)}"
+            for row in (hint_row.get("pre_context_rows") or [])[:2]
+            if isinstance(row, Mapping)
+        ]
+        post_context_rows = [
+            f"{int(row.get('index', 0))}:{preview_text(row.get('text'), max_chars=60)}"
+            for row in (hint_row.get("post_context_rows") or [])[:2]
+            if isinstance(row, Mapping)
+        ]
+        recipe_lines.append(
+            f"`{recipe_id}` title hint `{preview_text(title_hint, max_chars=80)}` | evidence rows {int(hint_row.get('source_evidence_row_count') or 0)} | source ingredient-like {int(hint_row.get('source_ingredient_like_count') or 0)} | source instruction-like {int(hint_row.get('source_instruction_like_count') or 0)} | hint ingredients {int(hint_row.get('hint_ingredient_count') or 0)} | hint steps {int(hint_row.get('hint_step_count') or 0)} | flags `{', '.join(flags) or 'none'}` | before `{'; '.join(pre_context_rows) or 'none'}` | after `{'; '.join(post_context_rows) or 'none'}`"
+        )
+    write_worker_hint_markdown(
+        path,
+        title=f"Recipe correction hints for {shard.shard_id}",
+        summary_lines=[
+            "This sidecar is worker guidance only.",
+            "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
+            "Decide recipe vs fragmentary vs not_a_recipe honestly before attempting repair, tags, or ingredient-step links.",
+            f"Owned recipe candidates in this shard: {len(recipes)}.",
+        ],
+        sections=[
+            (
+                "How to use this packet",
+                [
+                    "Treat immediate before/after context as a boundary clue only. The authoritative owned source rows still live in `in/<shard_id>.json`.",
+                    "If the candidate clearly is not a recipe, preserve that judgment instead of forcing a repaired recipe.",
+                    "Use tags only when they are obvious from the source text.",
+                ],
+            ),
+            ("Recipe candidate summaries", recipe_lines or ["No recipe summaries available."]),
+        ],
+    )
 
 
 def _distribute_recipe_session_value(value: Any, task_count: int) -> list[int]:
@@ -1516,6 +1671,7 @@ def _run_recipe_workspace_worker_assignment_v1(
     assigned_shards: Sequence[ShardManifestEntryV1],
     worker_root: Path,
     in_dir: Path,
+    hints_dir: Path,
     shard_dir: Path,
     logs_dir: Path,
     runner: CodexExecRunner,
@@ -1541,8 +1697,10 @@ def _run_recipe_workspace_worker_assignment_v1(
 
     for shard in assigned_shards:
         input_path = in_dir / f"{shard.shard_id}.json"
+        hint_path = hints_dir / f"{shard.shard_id}.md"
         serialized_input = _serialize_compact_prompt_json(shard.input_payload)
         _write_worker_input(path=input_path, payload=shard.input_payload, input_text=serialized_input)
+        _write_recipe_worker_hint(path=hint_path, shard=shard)
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
         (shard_root / "prompt.txt").write_text(worker_prompt_text, encoding="utf-8")
@@ -1919,6 +2077,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             runner_result=worker_runner_payload,
             metadata={
                 "in_dir": _relative_path(run_root, in_dir),
+                "hints_dir": _relative_path(run_root, hints_dir),
                 "out_dir": _relative_path(run_root, out_dir),
                 "shards_dir": _relative_path(run_root, shard_dir),
                 "log_dir": _relative_path(run_root, logs_dir),
@@ -1947,9 +2106,11 @@ def _run_direct_recipe_worker_assignment_v1(
 ) -> _DirectRecipeWorkerResult:
     worker_root = Path(assignment.workspace_root)
     in_dir = worker_root / "in"
+    hints_dir = worker_root / "hints"
     shard_dir = worker_root / "shards"
     logs_dir = worker_root / "logs"
     in_dir.mkdir(parents=True, exist_ok=True)
+    hints_dir.mkdir(parents=True, exist_ok=True)
     shard_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
@@ -1961,6 +2122,7 @@ def _run_direct_recipe_worker_assignment_v1(
         assigned_shards=assigned_shards,
         worker_root=worker_root,
         in_dir=in_dir,
+        hints_dir=hints_dir,
         shard_dir=shard_dir,
         logs_dir=logs_dir,
         runner=runner,
@@ -2263,6 +2425,7 @@ def _run_single_correction_recipe_pipeline(
             workbook_slug=workbook_slug,
             source_hash=source_hash,
             included_blocks=included_blocks,
+            full_blocks_by_index=full_blocks_by_index,
         )
         correction_inputs_by_recipe_id[state.recipe_id] = prepared_input.correction_input
         prepared_inputs.append(prepared_input)
@@ -2295,6 +2458,28 @@ def _run_single_correction_recipe_pipeline(
                         "recipe_ids": [state.recipe_id for state in plan.states],
                         "bundle_names": [state.bundle_name for state in plan.states],
                         "recipe_count": len(plan.states),
+                        "worker_hint_recipes": [
+                            {
+                                "recipe_id": prepared.state.recipe_id,
+                                "bundle_name": prepared.state.bundle_name,
+                                "title_hint": str(prepared.correction_input.recipe_candidate_hint.get("n") or "").strip(),
+                                "quality_flags": list(prepared.candidate_quality_hint.get("f") or []),
+                                "source_evidence_row_count": int(prepared.candidate_quality_hint.get("e") or 0),
+                                "source_ingredient_like_count": int(prepared.candidate_quality_hint.get("ei") or 0),
+                                "source_instruction_like_count": int(prepared.candidate_quality_hint.get("es") or 0),
+                                "hint_ingredient_count": int(prepared.candidate_quality_hint.get("hi") or 0),
+                                "hint_step_count": int(prepared.candidate_quality_hint.get("hs") or 0),
+                                "pre_context_rows": [
+                                    {"index": int(index), "text": text}
+                                    for index, text in prepared.pre_context_rows
+                                ],
+                                "post_context_rows": [
+                                    {"index": int(index), "text": text}
+                                    for index, text in prepared.post_context_rows
+                                ],
+                            }
+                            for prepared in plan.prepared_inputs
+                        ],
                     },
                 )
                 for plan in recipe_shards
@@ -2579,27 +2764,32 @@ def _build_single_correction_execution_plan(
     workbook_slug: str,
 ) -> dict[str, Any]:
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
-    requested_shard_count = resolve_shard_count(
-        total_items=len(states),
-        prompt_target_count=run_settings.recipe_prompt_target_count,
-        items_per_shard=run_settings.recipe_shard_target_recipes,
-        default_items_per_shard=_DEFAULT_RECIPE_SHARD_TARGET_RECIPES,
-    )
     planned_tasks: list[dict[str, Any]] = []
     planned_shards: list[dict[str, Any]] = []
     shard_ids_by_recipe_id: dict[str, str] = {}
-    for shard_states in partition_contiguous_items(
-        states,
-        shard_count=requested_shard_count,
-    ):
-        if not shard_states:
+    if run_settings.recipe_shard_target_recipes is None:
+        shard_groups = ((state,) for state in states)
+    else:
+        requested_shard_count = resolve_shard_count(
+            total_items=len(states),
+            prompt_target_count=run_settings.recipe_prompt_target_count,
+            items_per_shard=run_settings.recipe_shard_target_recipes,
+            default_items_per_shard=_shard_target_recipe_count(run_settings),
+        )
+        shard_groups = partition_contiguous_items(
+            states,
+            shard_count=requested_shard_count,
+        )
+    for shard_index, shard_states in enumerate(shard_groups):
+        shard_states_list = list(shard_states)
+        if not shard_states_list:
             continue
         shard_id = (
-            f"recipe-shard-{len(planned_shards):04d}-"
-            f"r{_recipe_index_from_bundle_name(shard_states[0].bundle_name):04d}-"
-            f"r{_recipe_index_from_bundle_name(shard_states[-1].bundle_name):04d}"
+            f"recipe-shard-{shard_index:04d}-"
+            f"r{_recipe_index_from_bundle_name(shard_states_list[0].bundle_name):04d}-"
+            f"r{_recipe_index_from_bundle_name(shard_states_list[-1].bundle_name):04d}"
         )
-        recipe_ids = [state.recipe_id for state in shard_states]
+        recipe_ids = [state.recipe_id for state in shard_states_list]
         for recipe_id in recipe_ids:
             shard_ids_by_recipe_id[recipe_id] = shard_id
         planned_shards.append(

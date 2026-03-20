@@ -67,6 +67,7 @@ ORACLE_AUTO_FOLLOWUP_STATUS_NAME = "oracle_auto_followup.json"
 ORACLE_AUTO_FOLLOWUP_LOG_NAME = "oracle_auto_followup.log"
 ORACLE_AUTO_FOLLOWUP_POLL_INTERVAL_SECONDS = 15.0
 ORACLE_AUTO_FOLLOWUP_TIMEOUT_SECONDS = 4 * 60 * 60
+ORACLE_TURN1_RECOVERY_TIMEOUT_SECONDS = 5 * 60
 ORACLE_FOLLOWUP_ALLOWED_OUTPUTS = {
     "structure_report",
     "case_export",
@@ -433,6 +434,77 @@ def _read_json_file(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _read_oracle_session_meta_payload(
+    *,
+    session_id: str,
+    browser_profile_dir: Path | None,
+) -> dict[str, Any] | None:
+    meta_path = _oracle_sessions_dir(browser_profile_dir) / str(session_id).strip() / "meta.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _oracle_session_incomplete_reason(payload: dict[str, Any] | None) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    response = payload.get("response")
+    if not isinstance(response, dict):
+        return ""
+    return str(response.get("incompleteReason") or "").strip()
+
+
+def _recover_oracle_turn1_session_if_needed(
+    *,
+    source_launch_dir: Path,
+    metadata: dict[str, Any],
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> bool:
+    session_id = str(metadata.get("session_id") or "").strip()
+    if not session_id:
+        return False
+    browser_profile_text = str(metadata.get("browser_profile_dir") or "").strip()
+    browser_profile_dir = Path(browser_profile_text).expanduser() if browser_profile_text else None
+    session_payload = _read_oracle_session_meta_payload(
+        session_id=session_id,
+        browser_profile_dir=browser_profile_dir,
+    )
+    if _oracle_session_incomplete_reason(session_payload) != "assistant-timeout":
+        return False
+
+    _write_oracle_auto_followup_status(
+        source_launch_dir,
+        status="recovering_turn_1",
+        status_reason="Oracle turn 1 timed out locally; retrying capture from the saved session.",
+        extra={
+            "bundle_dir": str(metadata.get("bundle_dir") or ""),
+            "source_run": source_launch_dir.name,
+            "source_session_id": session_id,
+            "source_conversation_url": str(metadata.get("conversation_url") or ""),
+        },
+    )
+    command = [ORACLE_BROWSER_CMD, "session", session_id, "--hide-prompt"]
+    print(f"[{_oracle_upload_timestamp()}] Recovering Oracle turn 1 via {shlex.join(command)}")
+    completed = runner(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=ORACLE_TURN1_RECOVERY_TIMEOUT_SECONDS,
+    )
+    combined = "\n".join(part for part in [completed.stdout or "", completed.stderr or ""] if part).strip()
+    if combined:
+        print(combined)
+    print(
+        f"[{_oracle_upload_timestamp()}] Oracle turn 1 recovery finished with returncode={completed.returncode}."
+    )
+    return True
+
+
 def _extract_conversation_url(text: str) -> str:
     matches = _CONVERSATION_URL_RE.findall(text)
     return matches[-1] if matches else ""
@@ -564,10 +636,12 @@ def wait_for_oracle_background_upload_completion(
     *,
     target: OracleBenchmarkBundleTarget,
     from_run: str,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     poll_interval_seconds: float = ORACLE_AUTO_FOLLOWUP_POLL_INTERVAL_SECONDS,
     timeout_seconds: float = ORACLE_AUTO_FOLLOWUP_TIMEOUT_SECONDS,
 ) -> tuple[Path, dict[str, Any], OracleUploadAudit] | None:
     deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    attempted_timeout_recovery = False
     while True:
         launch_dir, metadata, audit = refresh_oracle_background_upload_state(
             target=target,
@@ -575,6 +649,14 @@ def wait_for_oracle_background_upload_completion(
         )
         if audit.status != "running":
             return launch_dir, metadata, audit
+        if not attempted_timeout_recovery:
+            attempted_timeout_recovery = _recover_oracle_turn1_session_if_needed(
+                source_launch_dir=launch_dir,
+                metadata=metadata,
+                runner=runner,
+            )
+            if attempted_timeout_recovery:
+                continue
         if time.monotonic() >= deadline:
             return None
         time.sleep(max(poll_interval_seconds, 0.1))
@@ -938,6 +1020,7 @@ def run_oracle_benchmark_followup_background_worker(
     completion = wait_for_oracle_background_upload_completion(
         target=target,
         from_run=from_run,
+        runner=runner,
         poll_interval_seconds=poll_interval_seconds,
         timeout_seconds=timeout_seconds,
     )

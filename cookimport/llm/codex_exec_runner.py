@@ -28,6 +28,7 @@ _DIRECT_EXEC_ISOLATION_ROOT_NAME = "recipeimport-direct-exec-workspaces"
 _DIRECT_EXEC_AGENTS_FILE_NAME = "AGENTS.md"
 _DIRECT_EXEC_INPUT_DIR_NAME = "in"
 _DIRECT_EXEC_DEBUG_DIR_NAME = "debug"
+_DIRECT_EXEC_HINTS_DIR_NAME = "hints"
 _DIRECT_EXEC_LOGS_DIR_NAME = "logs"
 _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
@@ -36,13 +37,20 @@ _DIRECT_EXEC_OUTPUT_DIR_NAME = "out"
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_HELPER_EXECUTABLES = {
     "cat",
+    "echo",
+    "find",
+    "grep",
     "head",
     "jq",
     "ls",
     "pwd",
+    "rg",
     "sed",
     "tail",
+    "test",
+    "tree",
     "wc",
+    "[",
 }
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
@@ -51,12 +59,18 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     _DIRECT_EXEC_INPUT_DIR_NAME,
     _DIRECT_EXEC_DEBUG_DIR_NAME,
+    _DIRECT_EXEC_HINTS_DIR_NAME,
+    _DIRECT_EXEC_LOGS_DIR_NAME,
     _DIRECT_EXEC_OUTPUT_DIR_NAME,
+    _DIRECT_EXEC_SHARDS_DIR_NAME,
 }
 _WORKSPACE_ALLOWED_PATH_PREFIXES = (
     f"{_DIRECT_EXEC_INPUT_DIR_NAME}/",
     f"{_DIRECT_EXEC_DEBUG_DIR_NAME}/",
+    f"{_DIRECT_EXEC_HINTS_DIR_NAME}/",
+    f"{_DIRECT_EXEC_LOGS_DIR_NAME}/",
     f"{_DIRECT_EXEC_OUTPUT_DIR_NAME}/",
+    f"{_DIRECT_EXEC_SHARDS_DIR_NAME}/",
 )
 _WORKSPACE_SHELL_META_TOKENS = {
     "<",
@@ -72,6 +86,31 @@ _WORKSPACE_SHELL_META_TOKENS = {
     "||",
     "&&",
     ";",
+}
+_WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
+_WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
+_WORKSPACE_ALLOWED_SHELL_CONDITIONAL_KEYWORDS = {
+    "if",
+    "then",
+    "else",
+    "fi",
+    "[",
+    "]",
+    "echo",
+    "test",
+}
+_WORKSPACE_ALLOWED_SHELL_CONDITIONAL_FLAGS = {"-f", "-d", "-e"}
+_WORKSPACE_ALLOWED_SHELL_ECHO_WORDS = {
+    "exists",
+    "missing",
+    "present",
+    "absent",
+    "done",
+    "ok",
+    "true",
+    "false",
+    "yes",
+    "no",
 }
 
 
@@ -774,6 +813,7 @@ def build_direct_exec_workspace_manifest(
         "worker_manifest_path": None,
         "mirrored_input_files": [],
         "mirrored_debug_files": [],
+        "mirrored_hint_files": [],
         "mirrored_output_files": [],
     }
     execution_root = (
@@ -794,6 +834,9 @@ def build_direct_exec_workspace_manifest(
     )
     payload["mirrored_debug_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_DEBUG_DIR_NAME
+    )
+    payload["mirrored_hint_files"] = _list_workspace_relative_files(
+        execution_root / _DIRECT_EXEC_HINTS_DIR_NAME
     )
     payload["mirrored_output_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_OUTPUT_DIR_NAME
@@ -878,6 +921,10 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_DEBUG_DIR_NAME,
     )
     _copy_tree_if_present(
+        source_working_dir / _DIRECT_EXEC_HINTS_DIR_NAME,
+        execution_working_dir / _DIRECT_EXEC_HINTS_DIR_NAME,
+    )
+    _copy_tree_if_present(
         source_working_dir / _DIRECT_EXEC_OUTPUT_DIR_NAME,
         execution_working_dir / _DIRECT_EXEC_OUTPUT_DIR_NAME,
     )
@@ -918,14 +965,14 @@ def _build_direct_exec_agents_text(
             "You are not working on the RecipeImport repository itself.\n"
             "Use only the files inside this directory.\n"
             "The current working directory is already the workspace root.\n"
-            "Start by reading `worker_manifest.json`, then open any prompt-named files such as `assigned_shards.json` and `in/...` directly.\n"
+            "Start by reading `worker_manifest.json`, then open any prompt-named files such as `assigned_shards.json`, `hints/...`, and `in/...` directly.\n"
             "Read the local task manifests and input files directly.\n"
             "Write completed results only to approved local output files under `out/` unless the prompt names another local scratch path.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
             "Prefer opening the named files directly instead of exploring the workspace.\n"
-            "If you use helper commands, keep them narrow and workspace-local, for example `cat`, `head`, `tail`, `sed`, `jq`, or `wc` on named files.\n"
-            "Do not use exploration commands such as `find`, `tree`, or anything that tries to inspect parent directories or the repository.\n"
+            "Workspace-local helper commands are allowed when they materially help, including `cat`, `head`, `tail`, `sed`, `jq`, `wc`, `pwd`, `ls`, `rg`, `find`, `tree`, and `test` on local paths.\n"
+            "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
             "When the prompt gives you a loop over many tasks, keep going until every assigned local task file is handled or you truly cannot proceed.\n"
         )
@@ -1597,8 +1644,8 @@ def format_watchdog_command_reason_detail(
 def should_terminate_workspace_command_loop(
     *,
     snapshot: CodexExecLiveSnapshot,
-    max_command_count: int = 40,
-    max_repeat_count: int = 8,
+    max_command_count: int = _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT,
+    max_repeat_count: int = _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT,
 ) -> bool:
     if int(snapshot.command_execution_count or 0) <= 0:
         return False
@@ -1627,18 +1674,35 @@ def _write_direct_exec_worker_manifest(
         ],
         "input_dir": _DIRECT_EXEC_INPUT_DIR_NAME,
         "debug_dir": _DIRECT_EXEC_DEBUG_DIR_NAME,
+        "hints_dir": _DIRECT_EXEC_HINTS_DIR_NAME,
         "output_dir": _DIRECT_EXEC_OUTPUT_DIR_NAME,
         "notes": [
             "The current working directory is already the workspace root.",
-            "Open named task files directly; use narrow workspace-local helper commands only when they materially help.",
+            "Open named task files directly; workspace-local helper commands are fine when they materially help.",
         ],
-        "workspace_helper_commands_allowed": ["cat", "head", "tail", "sed", "jq", "wc"],
-        "orientation_commands_forbidden": ["find", "tree", "git"],
+        "workspace_helper_commands_allowed": [
+            "cat",
+            "head",
+            "tail",
+            "sed",
+            "jq",
+            "wc",
+            "pwd",
+            "ls",
+            "rg",
+            "find",
+            "tree",
+            "test",
+        ],
+        "workspace_commands_forbidden": ["git", "python", "node", "parent-directory traversal"],
         "mirrored_input_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_INPUT_DIR_NAME
         ),
         "mirrored_debug_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_DEBUG_DIR_NAME
+        ),
+        "mirrored_hint_files": _list_workspace_relative_files(
+            workspace_root / _DIRECT_EXEC_HINTS_DIR_NAME
         ),
     }
     (workspace_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME).write_text(
@@ -1680,6 +1744,18 @@ def classify_workspace_worker_command(
             allowed=False,
             policy="forbidden_unparseable_command",
             reason="command could not be parsed into a bounded workspace helper command",
+        )
+    shell_compound_verdict = _classify_workspace_shell_compound(
+        inner_tokens,
+        allow_orientation_commands=allow_orientation_commands,
+        allow_output_paths=allow_output_paths,
+    )
+    if shell_compound_verdict.allowed:
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy=shell_compound_verdict.policy,
+            reason=shell_compound_verdict.reason,
         )
     if any(token in _WORKSPACE_SHELL_META_TOKENS for token in inner_tokens):
         return WorkspaceCommandClassification(
@@ -1811,6 +1887,74 @@ def _workspace_ls_arguments_allowed(arguments: Sequence[str]) -> bool:
     return _classify_workspace_ls_arguments(arguments).allowed
 
 
+def _classify_workspace_shell_compound(
+    inner_tokens: Sequence[str],
+    *,
+    allow_orientation_commands: bool,
+    allow_output_paths: bool,
+) -> WorkspaceCommandClassification:
+    normalized_tokens = [_normalize_workspace_shell_token(token) for token in inner_tokens]
+    normalized_tokens = [token for token in normalized_tokens if token]
+    if not normalized_tokens:
+        return WorkspaceCommandClassification(
+            command_text=None,
+            allowed=False,
+            policy="forbidden_unparseable_command",
+            reason="command could not be parsed into a bounded workspace helper command",
+        )
+    if normalized_tokens[0] not in {"if", "test", "["}:
+        return WorkspaceCommandClassification(
+            command_text=None,
+            allowed=False,
+            policy="forbidden_shell_meta_command",
+            reason="shell compound commands are only allowed for bounded local existence checks",
+        )
+    if not allow_orientation_commands:
+        return WorkspaceCommandClassification(
+            command_text=None,
+            allowed=False,
+            policy="forbidden_orientation_command",
+            reason="shell compound existence checks are not allowed for this workspace policy",
+        )
+    path_arguments = [
+        token for token in normalized_tokens if _token_looks_like_workspace_path(token)
+    ]
+    if not path_arguments:
+        return WorkspaceCommandClassification(
+            command_text=None,
+            allowed=False,
+            policy="forbidden_missing_workspace_path",
+            reason="workspace helper commands must target explicit named local files",
+        )
+    for token in normalized_tokens:
+        if token in _WORKSPACE_ALLOWED_SHELL_CONDITIONAL_KEYWORDS:
+            continue
+        if token in _WORKSPACE_ALLOWED_SHELL_CONDITIONAL_FLAGS:
+            continue
+        if _token_looks_like_workspace_path(token):
+            path_verdict = _classify_workspace_path_argument(
+                token,
+                allow_output_paths=allow_output_paths,
+            )
+            if not path_verdict.allowed:
+                return path_verdict
+            continue
+        if token in _WORKSPACE_ALLOWED_SHELL_ECHO_WORDS:
+            continue
+        return WorkspaceCommandClassification(
+            command_text=None,
+            allowed=False,
+            policy="forbidden_shell_meta_command",
+            reason="shell compound commands are allowed only for bounded local existence checks",
+        )
+    return WorkspaceCommandClassification(
+        command_text=None,
+        allowed=True,
+        policy="tolerated_workspace_shell_compound",
+        reason="shell compound stayed within the bounded local existence-check policy",
+    )
+
+
 def _classify_workspace_ls_arguments(
     arguments: Sequence[str],
     *,
@@ -1858,6 +2002,13 @@ def _token_contains_workspace_shell_meta(token: str) -> bool:
     if not cleaned:
         return False
     return any(marker in cleaned for marker in (";", "&&", "||", "|", ">", "<"))
+
+
+def _normalize_workspace_shell_token(token: str) -> str:
+    cleaned = str(token or "").strip()
+    while cleaned.endswith(";"):
+        cleaned = cleaned[:-1].rstrip()
+    return cleaned
 
 
 def _token_looks_like_workspace_path(token: str) -> bool:

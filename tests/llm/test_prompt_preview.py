@@ -394,7 +394,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert recipe_input_payload["r"][0]["q"]["e"] == 2
     assert recipe_input_payload["r"][0]["q"]["es"] == 0
     assert "source_no_instruction_lines" in recipe_input_payload["r"][0]["q"]["f"]
-    assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v2"
+    assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v3"
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
     knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review")

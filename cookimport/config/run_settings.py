@@ -978,8 +978,9 @@ class RunSettings(BaseModel):
             label="Recipe Shard Count",
             order=110,
             description=(
-                "Direct shard-count override for shard-v1 recipe runtime. "
-                "When set, the planner partitions the ordered recipe list into this many shards."
+                "Preferred recipe worker-session count when explicit recipe worker count is unset. "
+                "The default recipe runtime now writes one candidate-owned shard per recipe unless "
+                "`recipe_shard_target_recipes` explicitly opts back into bundling."
             ),
             step=1,
             minimum=1,
@@ -1008,7 +1009,10 @@ class RunSettings(BaseModel):
             group="LLM",
             label="Recipe Shard Target",
             order=110,
-            description="Optional target recipes per shard for shard-v1 recipe runtime.",
+            description=(
+                "Optional legacy opt-out from single-candidate recipe shards. "
+                "Set this only when you intentionally want multi-recipe bundling."
+            ),
             step=1,
             minimum=1,
             maximum=1024,

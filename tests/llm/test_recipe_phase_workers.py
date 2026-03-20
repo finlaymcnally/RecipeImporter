@@ -175,12 +175,15 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     worker_root = runtime_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
-    assert "If you need a helper command, keep it narrow and workspace-local" in worker_prompt
-    assert "Do not use exploration commands such as `find`, `tree`" in worker_prompt
+    assert "Workspace-local helper commands are allowed when they materially help" in worker_prompt
+    assert "Stay inside this workspace" in worker_prompt
+    assert "open `hints/<shard_id>.md` first" in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
     assert worker_manifest["entry_files"] == ["worker_manifest.json", "assigned_shards.json"]
+    assert worker_manifest["hints_dir"] == "hints"
+    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.md").exists()
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
     assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.json").exists()
     assert (worker_root / "out" / "recipe-shard-0001-r0002-r0002.json").exists()
@@ -264,7 +267,7 @@ def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> No
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
 
 
-def test_recipe_prompt_target_count_is_a_direct_shard_override(
+def test_recipe_prompt_target_count_defaults_worker_sessions_when_single_recipe_shards(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.txt"
@@ -275,7 +278,6 @@ def test_recipe_prompt_target_count_is_a_direct_shard_override(
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 2,
-            "recipe_worker_count": 1,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -297,8 +299,9 @@ def test_recipe_prompt_target_count_is_a_direct_shard_override(
         if line.strip()
     ]
 
-    assert phase_manifest["shard_count"] == 2
-    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]
+    assert phase_manifest["shard_count"] == 3
+    assert phase_manifest["worker_count"] == 2
+    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [1, 1, 1]
 
 
 def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(

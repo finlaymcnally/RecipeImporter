@@ -59,6 +59,7 @@ from .phase_worker_runtime import (
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
 )
+from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -1161,9 +1162,9 @@ def _build_knowledge_workspace_worker_prompt(
         "Required local loop:",
         "1. Open `worker_manifest.json`, then read `assigned_shards.json` for shard order.",
         "2. Prefer opening the named files directly instead of exploring the workspace.",
-        "3. If you need a helper command, keep it narrow and workspace-local, for example `cat`, `head`, `tail`, `sed`, `jq`, or `wc` on named files.",
-        "4. Do not use exploration commands such as `find`, `tree`, or anything that tries to inspect parent directories or the repository.",
-        "5. For each shard id, open `in/<shard_id>.json`.",
+        "3. Workspace-local helper commands are allowed when they materially help, including `cat`, `head`, `tail`, `sed`, `jq`, `wc`, `pwd`, `ls`, `rg`, `find`, `tree`, and `test` on local paths.",
+        "4. Stay inside this workspace: do not inspect parent directories or the repository.",
+        "5. For each shard id, open `hints/<shard_id>.md` first, then `in/<shard_id>.json`.",
         "6. Write one completed output file to `out/<shard_id>.json`.",
         "7. Continue until every assigned shard has an output file or you cannot proceed.",
         "",
@@ -1174,6 +1175,7 @@ def _build_knowledge_workspace_worker_prompt(
         "- `r` must contain exactly one result row for each owned chunk in the input payload and no extras.",
         "- Keep all block decisions and snippet evidence on the shard's own block indices only.",
         "- If a chunk is not useful, still include its result row with `u: false` and an empty or minimal snippet list.",
+        "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative owned input.",
         "",
         "Do not return the shard outputs in your final message. The authoritative result is the set of files written under `out/`.",
     ]
@@ -1186,6 +1188,69 @@ def _build_knowledge_workspace_worker_prompt(
             ]
         )
     return "\n".join(lines)
+
+
+def _write_knowledge_worker_hint(
+    *,
+    path: Path,
+    shard: ShardManifestEntryV1,
+) -> None:
+    payload = _coerce_dict(shard.input_payload)
+    chunks = list(payload.get("c") or [])
+    nearby_recipe_blocks: list[int] = []
+    for value in (_coerce_dict(payload.get("g")).get("r") or []):
+        try:
+            nearby_recipe_blocks.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    chunk_summaries: list[str] = []
+    heading_only_count = 0
+    prose_chunk_count = 0
+    for chunk in chunks[:12]:
+        if not isinstance(chunk, Mapping):
+            continue
+        chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
+        blocks = [block for block in (chunk.get("b") or []) if isinstance(block, Mapping)]
+        block_indices = [int(block.get("i", 0)) for block in blocks]
+        heading_levels = [int(block.get("hl", 0)) for block in blocks if block.get("hl") is not None]
+        previews = [preview_text(block.get("t"), max_chars=70) for block in blocks[:3]]
+        all_short = bool(blocks) and all(len(str(block.get("t") or "").split()) <= 6 for block in blocks)
+        has_heading = bool(heading_levels)
+        profile = "mixed"
+        if has_heading and all_short:
+            profile = "heading_or_navigation_candidate"
+            heading_only_count += 1
+        elif any(len(str(block.get("t") or "").split()) >= 12 for block in blocks):
+            profile = "prose_or_reference_candidate"
+            prose_chunk_count += 1
+        chunk_summaries.append(
+            f"`{chunk_id}` blocks `{block_indices[0] if block_indices else '?'}..{block_indices[-1] if block_indices else '?'}` profile `{profile}` preview `{ ' / '.join(previews) or '[empty]' }`"
+        )
+    write_worker_hint_markdown(
+        path,
+        title=f"Knowledge review hints for {shard.shard_id}",
+        summary_lines=[
+            "This sidecar is worker guidance only.",
+            "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
+            f"Chunk count: {len(chunks)}. Heading-heavy chunks: {heading_only_count}. Longer prose/reference chunks: {prose_chunk_count}.",
+            (
+                "Nearby recipe guardrail block indices: "
+                + (", ".join(str(value) for value in nearby_recipe_blocks[:12]) if nearby_recipe_blocks else "none")
+                + "."
+            ),
+        ],
+        sections=[
+            (
+                "How to use this packet",
+                [
+                    "Use the hint file to understand whether this bundle looks like front matter, navigation, headings, or real reusable technique/reference text.",
+                    "Use only chunk-local block text from `in/<shard_id>.json` as evidence in the final output.",
+                    "A short chunk can still be real knowledge if it is genuinely technical or reference-like.",
+                ],
+            ),
+            ("Chunk previews", chunk_summaries or ["No chunk previews available."]),
+        ],
+    )
 
 
 def _distribute_knowledge_session_value(value: Any, task_count: int) -> list[int]:
@@ -1315,6 +1380,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
     assigned_shards: Sequence[ShardManifestEntryV1],
     worker_root: Path,
     in_dir: Path,
+    hints_dir: Path,
     shard_dir: Path,
     logs_dir: Path,
     runner: CodexExecRunner,
@@ -1338,7 +1404,9 @@ def _run_knowledge_workspace_worker_assignment_v1(
 
     for shard in assigned_shards:
         input_path = in_dir / f"{shard.shard_id}.json"
+        hint_path = hints_dir / f"{shard.shard_id}.md"
         _write_worker_input(path=input_path, payload=shard.input_payload, input_text=shard.input_text)
+        _write_knowledge_worker_hint(path=hint_path, shard=shard)
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
         shard_prompt_text = build_knowledge_direct_prompt(_coerce_dict(shard.input_payload))
@@ -2067,6 +2135,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
             runner_result=worker_runner_payload,
             metadata={
                 "in_dir": _relative_path(run_root, in_dir),
+                "hints_dir": _relative_path(run_root, hints_dir),
                 "out_dir": _relative_path(run_root, out_dir),
                 "shards_dir": _relative_path(run_root, shard_dir),
                 "log_dir": _relative_path(run_root, logs_dir),
@@ -2096,9 +2165,11 @@ def _run_direct_knowledge_worker_assignment_v1(
 ) -> _DirectKnowledgeWorkerResult:
     worker_root = Path(assignment.workspace_root)
     in_dir = worker_root / "in"
+    hints_dir = worker_root / "hints"
     shard_dir = worker_root / "shards"
     logs_dir = worker_root / "logs"
     in_dir.mkdir(parents=True, exist_ok=True)
+    hints_dir.mkdir(parents=True, exist_ok=True)
     shard_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
@@ -2110,6 +2181,7 @@ def _run_direct_knowledge_worker_assignment_v1(
         assigned_shards=assigned_shards,
         worker_root=worker_root,
         in_dir=in_dir,
+        hints_dir=hints_dir,
         shard_dir=shard_dir,
         logs_dir=logs_dir,
         runner=runner,

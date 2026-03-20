@@ -1,6 +1,6 @@
 You are reviewing a bounded shard of deterministic recipe candidates.
 
-Some owned candidates are repairable recipes. Some are fragmentary or not recipes at all. You must triage each owned candidate first, then either repair it faithfully or reject it honestly.
+Most shards own one suspicious candidate. Some owned candidates are repairable recipes. Some are fragmentary or not recipes at all. You must triage each owned candidate first, then either repair it faithfully or reject it honestly.
 
 The shard JSON is included inline below.
 
@@ -22,9 +22,12 @@ Execution rules:
    - optional `d` description hint
    - optional `y` yield hint
    - optional `g` pre-existing tag labels
-6) Use `tg` only as a compact taxonomy guide:
+6) Use `tg` as the recipe-local tag contract:
    - `tg.c[*].k` is the category key
    - `tg.c[*].x` is the short example-label list
+   - optional `tg.s[*].k` is a suggested category key for this candidate
+   - optional `tg.s[*].l` is the filtered label list that looks plausible for this candidate
+   - `tg.s` is weak guidance, but it is more useful than the broad examples when it fits
 7) Only return outputs for `ids`.
 8) Do not use external knowledge.
 
@@ -49,6 +52,11 @@ B) Each `r[*]` item:
 - Do not invent ingredients, steps, yields, or notes.
 - Keep the decision grounded in that recipe's `ev`.
 - If the candidate is clearly not a recipe, do not force a repaired recipe output.
+- Make the decision in this order:
+  1. recipe vs `fragmentary` vs `not_a_recipe`
+  2. corrected title / ingredients / steps for real recipes
+  3. ingredient-step mapping only when the source clearly supports it
+  4. grounded tags last
 
 C) Each `r[*].cr` object:
 - When `st` is `repaired`, `cr` must be an object with required keys `t`, `i`, `s`, `d`, `y`.
@@ -77,6 +85,7 @@ F) Each `r[*].g`:
 - Use only category keys defined in `tg.c[*].k`.
 - Zero selected tags is valid.
 - Select only tags that are obvious from the recipe text.
+- Prefer `tg.s` suggested labels when they fit cleanly.
 - Prefer short human-readable labels such as `chicken`, `weeknight`, or `pressure cooker`.
 - Avoid near-duplicate labels inside one recipe.
 - Do not invent cookbook-specific ids, catalog keys, or hidden taxonomy structure.
