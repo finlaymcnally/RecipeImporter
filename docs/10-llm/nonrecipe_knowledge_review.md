@@ -49,6 +49,7 @@ Per staged workbook (`<workbook_slug>`):
 
 - Runtime artifacts:
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/stage_status.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/knowledge_stage_summary.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/shard_manifest.jsonl`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/task_manifest.jsonl`
@@ -79,12 +80,17 @@ Manifest/runtime note:
 - If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero shards.
 - Live execution and prompt/debug reconstruction both read immutable shard payloads from `knowledge/in/*.json` and validated proposal wrappers from `knowledge/proposals/*.json`; there is no `knowledge/out/*.json` compatibility copy anymore.
 - `stage_status.json` is the small fallback record for interruption and wrap-up attribution. It records `stage_state`, `termination_cause`, `finalization_completeness`, `pre_kill_failure_counts`, and normalized `artifact_states`.
+- `knowledge_stage_summary.json` is the canonical machine-readable operator summary for the stage. It condenses the packet ledger, worker outcomes, follow-up skip/stale/cancelled counts, salvage counts, and the normalized artifact/finalization attribution into one file under the knowledge root.
 - `task_status.jsonl` is the packet-level runtime ledger. Each task packet starts `pending`, moves to `leased` when the repo makes it the worker's current authoritative packet, can record `main_output_written` once the main worker drops its local result file, tracks follow-up attempt types (`main_worker`, `watchdog_retry`, `retry_split`, `repair`), and ends in one explicit terminal state such as `validated`, `retry_failed`, `repair_recovered`, `missing_output`, or `cancelled_due_to_interrupt`.
+- `phase_manifest.json.runtime_metadata` now also records the worker blast-radius summary for the run: `bundle_policy`, `task_packet_total`, `worker_task_packet_counts`, and min/max task packets per worker.
 - knowledge worker roots now also carry repo-written lease-control files: `current_packet.json`, `current_hint.md`, `current_result_path.txt`, `packet_lease_status.json`, and `scratch/`. `assigned_tasks.json` remains the packet inventory, but the live worker loop should follow the current leased packet files instead of batch-looping over the whole task list.
+- the main worker writes a semantic packet-result object to the leased `current_result_path.txt` target, using semantic keys such as `packet_id`, `chunk_results`, `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`. Repo code then serializes the canonical compact `v` / `bid` / `r` packet payload before proposal validation and promotion.
+- retry / repair child status files now keep explicit `reason_code` / `reason_detail` fields for skips, cancellation, and supersession. Follow-up wrappers normalize stage-interrupt cleanup to `cancelled_stage_interrupt`, while the task ledger keeps the packet terminal state as `cancelled_due_to_interrupt`.
 - `cookimport/llm/knowledge_runtime_replay.py` is the zero-token replay seam for this artifact tree. It reads a saved `knowledge/` root plus the paired benchmark root and rebuilds packet totals, worker output/malformed counts, follow-up counts, stale follow-up counts, worker outcome buckets, and missing expected artifacts from repo evidence alone.
 - A missing stage wrap-up file is only evidence of a bug when `stage_status.json` says finalization should have been complete. If `finalization_completeness` is `interrupted_before_finalization`, the missing wrap-up files are expected kill fallout and should classify as `skipped_due_to_interrupt`.
 - Interrupted runs now still flush partial `phase_manifest.json`, `promotion_report.json`, `telemetry.json`, and `failures.json` before the stage reraises, then mark any still-running retry / repair live-status files as `cancelled_due_to_interrupt`.
 - structured progress for this stage is now packet-based: `task_current/task_total` counts task packets rather than parent shards, worker labels show local packet progress, and detail lines call out configured workers, completed shards, queued task packets, and any live retry/repair follow-up calls.
+- post-run cost summaries now also copy the compact knowledge counters into `prediction-run/prompt_budget_summary.json` under the knowledge stage row, including packet outcome counts, worker outcome buckets, salvage counts, circuit-breaker counts, and an execution split between main workspace-worker rows and structured follow-up calls.
 
 ## Pipeline assets
 
@@ -103,6 +109,8 @@ Bundle contract note:
 - each chunk now carries only `cid` and `b` in the billed payload, with optional mechanically true block-level structure such as `hl` and `th`.
 - the model-facing payload no longer emits chunk-level semantic hint objects. Deterministic routing and provenance remain local runtime concerns, not reviewer-model guidance.
 - compact knowledge output is now `bundle_version = "2"` with short keys `v`, `bid`, and `r`; nested results also use short keys to cut structured-output overhead. Snippets now carry only grounded body text plus evidence pointers, while `block_decisions[*].rc` carries the internal reviewer category and `block_decisions[*].c` stays the final `knowledge|other` authority that staging writes out.
+- that compact bundle is now repo-owned on the main workspace-worker path. The worker's normal job is to return the smaller semantic packet-result object; canonical compact bundle fields are a compatibility concern for structured follow-up attempts, not the mainline authority seam.
 - prompt contract is intentionally strict: when input `c` is non-empty, output `r` must contain exactly one row per input chunk in input order, must echo the same `cid` values, and must not collapse to `r: []` or a synthetic fallback row.
 - each result row must cover every owned block in order. `u=true` now requires at least one `knowledge` block decision plus at least one grounded snippet, while `u=false` requires only `other` decisions and no snippets.
 - ingest now rejects the March 19 empty-collapse shape explicitly: if a shard with strong deterministic knowledge cues comes back as blanket `u=false` with zero snippets and zero `knowledge` decisions, the shard stays seed-kept but is reported as semantically rejected/unreviewed rather than reviewed-empty success.
+- ingest also fails closed on two newer low-trust shapes: snippet bodies with no grounded text at all, and snippets that effectively copy the full owned chunk text back into the answer instead of extracting a smaller grounded claim. Deterministic salvage stays narrow and only trims trailing `EOF` or obvious shell-wrapper suffix noise after an otherwise valid JSON object.

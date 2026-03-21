@@ -1987,6 +1987,231 @@ def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker
     assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
 
 
+def test_prompt_budget_summary_surfaces_knowledge_packet_worker_and_followup_summary(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    stage_root = pred_run / "raw" / "llm" / "book" / "knowledge"
+    (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
+    (stage_root / "worker_assignments.json").write_text("[]\n", encoding="utf-8")
+    (stage_root.parent / "knowledge_manifest.json").write_text(
+        json.dumps({"pipeline_id": "recipe.knowledge.compact.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (stage_root / "task_status.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "task_id": "book.ks0000.nr.task-001",
+                        "state": "validated",
+                        "last_attempt_type": "main_worker",
+                        "terminal_reason_code": "validated",
+                        "metadata": {
+                            "watchdog_retry_status": "not_attempted",
+                            "retry_status": "not_attempted",
+                            "repair_status": "not_attempted",
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "task_id": "book.ks0000.nr.task-002",
+                        "state": "retry_recovered",
+                        "last_attempt_type": "watchdog_retry",
+                        "terminal_reason_code": "validated",
+                        "metadata": {
+                            "watchdog_retry_status": "recovered",
+                            "retry_status": "not_attempted",
+                            "repair_status": "not_attempted",
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "task_id": "book.ks0000.nr.task-003",
+                        "state": "repair_failed",
+                        "last_attempt_type": "repair",
+                        "terminal_reason_code": "repair_skipped_circuit_breaker",
+                        "metadata": {
+                            "watchdog_retry_status": "not_attempted",
+                            "retry_status": "not_attempted",
+                            "repair_status": "skipped",
+                            "repair_skip_reason_code": "repair_skipped_circuit_breaker",
+                        },
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "shard_manifest.jsonl").write_text(
+        json.dumps({"shard_id": "book.ks0000.nr"}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001").mkdir(parents=True, exist_ok=True)
+    (stage_root / "workers" / "worker-001" / "live_status.json").write_text(
+        json.dumps(
+            {"state": "completed", "reason_code": "workspace_outputs_stabilized"},
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "assigned_tasks.json").write_text(
+        json.dumps(
+            [
+                {"task_id": "book.ks0000.nr.task-001"},
+                {"task_id": "book.ks0000.nr.task-002"},
+                {"task_id": "book.ks0000.nr.task-003"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
+    (stage_root / "workers" / "worker-001" / "out" / "book.ks0000.nr.task-001.json").write_text(
+        json.dumps({"v": "2", "bid": "book.ks0000.nr.task-001", "r": []}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "shards" / "book.ks0000.nr.task-001").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (stage_root / "workers" / "worker-001" / "shards" / "book.ks0000.nr.task-001" / "proposal.json").write_text(
+        json.dumps(
+            {
+                "status": "validated",
+                "validation_metadata": {"response_trailing_eof_trimmed": True},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "shards" / "book.ks0000.nr.task-002" / "watchdog_retry").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (stage_root / "workers" / "worker-001" / "shards" / "book.ks0000.nr.task-002" / "watchdog_retry" / "status.json").write_text(
+        json.dumps({"status": "validated"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "shards" / "book.ks0000.nr.task-003").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    (stage_root / "workers" / "worker-001" / "shards" / "book.ks0000.nr.task-003" / "repair_live_status.json").write_text(
+        json.dumps({"state": "running"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (stage_root / "stage_status.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "knowledge_stage_status.v1",
+                "stage_key": "nonrecipe_knowledge_review",
+                "stage_state": "completed_with_failures",
+                "termination_cause": "completed",
+                "finalization_completeness": "complete",
+                "artifact_states": {
+                    "phase_manifest.json": "present",
+                    "shard_manifest.jsonl": "present",
+                    "task_manifest.jsonl": "present",
+                    "task_status.jsonl": "present",
+                    "worker_assignments.json": "present",
+                    "promotion_report.json": "present",
+                    "telemetry.json": "present",
+                    "failures.json": "present",
+                    "knowledge_manifest.json": "present",
+                    "proposals/*": "present",
+                },
+                "pre_kill_failure_counts": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    pred_manifest = {
+        "llm_codex_farm": {
+            "knowledge": {
+                "stage_status_path": str(stage_root / "stage_status.json"),
+                "task_status_path": str(stage_root / "task_status.jsonl"),
+                "worker_assignments_path": str(stage_root / "worker_assignments.json"),
+                "process_run": {
+                    "telemetry": {
+                        "rows": [
+                            {
+                                "task_id": "book.ks0000.nr.task-001",
+                                "prompt_input_mode": "workspace_worker",
+                                "worker_session_primary_row": True,
+                                "duration_ms": 900,
+                                "tokens_input": 100,
+                                "tokens_cached_input": 10,
+                                "tokens_output": 20,
+                                "tokens_total": 130,
+                            },
+                            {
+                                "task_id": "book.ks0000.nr.task-002",
+                                "prompt_input_mode": "inline_watchdog_retry",
+                                "duration_ms": 400,
+                                "tokens_input": 30,
+                                "tokens_cached_input": 0,
+                                "tokens_output": 15,
+                                "tokens_total": 45,
+                            },
+                        ],
+                        "summary": {
+                            "call_count": 2,
+                            "duration_total_ms": 1300,
+                            "tokens_input": 130,
+                            "tokens_cached_input": 10,
+                            "tokens_output": 35,
+                            "tokens_total": 175,
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    knowledge_stage = summary["by_stage"]["knowledge"]
+    assert knowledge_stage["task_packet_total"] == 3
+    assert knowledge_stage["packet_state_counts"] == {
+        "repair_failed": 1,
+        "retry_recovered": 1,
+        "validated": 1,
+    }
+    assert knowledge_stage["packet_terminal_outcome_counts"] == {
+        "repair_failed": 1,
+        "retry_recovered": 1,
+        "validated": 1,
+    }
+    assert knowledge_stage["worker_outcome_counts"] == {
+        "completed_outputs_stabilized": 1,
+    }
+    assert knowledge_stage["followup_attempt_counts"] == {
+        "repair": 1,
+        "watchdog_retry": 1,
+    }
+    assert knowledge_stage["followup_accepted_counts"] == {"watchdog_retry": 1}
+    assert knowledge_stage["stale_followup_count"] == 1
+    assert knowledge_stage["circuit_breaker_activation_count"] == 1
+    assert knowledge_stage["salvage_success_count"] == 1
+    assert knowledge_stage["execution_mode_summary"]["main_workspace_workers"]["call_count"] == 1
+    assert knowledge_stage["execution_mode_summary"]["structured_followups"]["call_count"] == 1
+    assert knowledge_stage["prompt_input_mode_counts"] == {
+        "inline_watchdog_retry": 1,
+        "workspace_worker": 1,
+    }
+    assert summary["totals"]["structured_followup_call_count"] == 1
+
+
 def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested_target(
     tmp_path: Path,
 ) -> None:

@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
@@ -13,6 +15,17 @@ from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
+
+
+def _patch_direct_exec_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("cookimport.llm.codex_exec_runner.Path.home", lambda: tmp_path)
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner._resolve_recipeimport_codex_home",
+        lambda explicit_env=None: str(tmp_path / ".codex-recipe"),
+    )
 
 
 def _script_path() -> Path:
@@ -314,7 +327,9 @@ def test_recipe_orchestrator_can_run_through_fake_codex_farm_subprocess(
 
 def test_recipe_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_direct_exec_home(monkeypatch, tmp_path)
     source = tmp_path / "book.txt"
     source.write_text("book", encoding="utf-8")
     settings = RunSettings.model_validate(
@@ -341,7 +356,8 @@ def test_recipe_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     assert status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
     assert sorted(path.name for path in (worker_root / "out").glob("*.json")) == [
-        "recipe-shard-0000-r0000-r0001.json",
+        "recipe-shard-0000-r0000-r0001.task-001.json",
+        "recipe-shard-0000-r0000-r0001.task-002.json",
         "recipe-shard-0001-r0002-r0002.json",
     ]
 
@@ -433,7 +449,9 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
 
 def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_direct_exec_home(monkeypatch, tmp_path)
     source = tmp_path / "book.txt"
     source.write_text("book", encoding="utf-8")
     settings = RunSettings.model_validate(
@@ -516,7 +534,9 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
 
 def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_direct_exec_home(monkeypatch, tmp_path)
     settings = RunSettings.model_validate(
         {
             "line_role_pipeline": "codex-line-role-shard-v1",

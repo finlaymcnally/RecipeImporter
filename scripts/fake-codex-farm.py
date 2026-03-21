@@ -123,6 +123,21 @@ def _resolve_cd_root(cd: str | None) -> Path | None:
     return (REPO_ROOT / candidate).resolve()
 
 
+def _read_workspace_manifest_rows(workspace_root: Path) -> list[dict[str, Any]]:
+    assigned_tasks_path = workspace_root / "assigned_tasks.json"
+    if assigned_tasks_path.is_file():
+        payload = _read_any_json(assigned_tasks_path)
+        if isinstance(payload, list) and payload:
+            return [row for row in payload if isinstance(row, dict)]
+
+    assigned_shards_path = workspace_root / "assigned_shards.json"
+    if assigned_shards_path.is_file():
+        payload = _read_any_json(assigned_shards_path)
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+    return []
+
+
 def _infer_exec_pipeline_id(prompt_text: str, *, output_schema_path: str) -> str:
     if output_schema_path:
         return _pipeline_id_for_exec_schema(output_schema_path)
@@ -143,11 +158,8 @@ def _run_workspace_worker_exec(
     workspace_root = _resolve_cd_root(cd)
     if workspace_root is None:
         return False
-    assigned_path = workspace_root / "assigned_shards.json"
-    if not assigned_path.is_file():
-        return False
-    assigned_payload = _read_any_json(assigned_path)
-    if not isinstance(assigned_payload, list):
+    assigned_payload = _read_workspace_manifest_rows(workspace_root)
+    if not assigned_payload:
         return False
 
     in_dir = workspace_root / "in"
@@ -156,9 +168,7 @@ def _run_workspace_worker_exec(
 
     processed_any = False
     for row in assigned_payload:
-        if not isinstance(row, dict):
-            continue
-        shard_id = str(row.get("shard_id") or "").strip()
+        shard_id = str(row.get("task_id") or row.get("shard_id") or "").strip()
         if not shard_id:
             continue
         input_payload = _read_json(in_dir / f"{shard_id}.json")
@@ -181,7 +191,7 @@ def _run_workspace_worker_exec(
                 [
                     row
                     for row in assigned_payload
-                    if isinstance(row, dict) and str(row.get("shard_id") or "").strip()
+                    if str(row.get("task_id") or row.get("shard_id") or "").strip()
                 ]
             ),
         },

@@ -6,10 +6,112 @@ from pathlib import Path
 import pytest
 
 from cookimport.llm.codex_farm_knowledge_ingest import (
+    normalize_knowledge_worker_payload,
     read_validated_knowledge_outputs_from_proposals,
     validate_knowledge_shard_output,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
+
+
+def _semantic_packet_payload(
+    *,
+    packet_id: str,
+    chunk_id: str,
+    block_indices: list[int],
+    useful: bool = True,
+    snippet_body: str = "Keep whisking.",
+    evidence_quote: str = "Keep whisking",
+) -> dict[str, object]:
+    block_decisions = [
+        {
+            "block_index": block_index,
+            "category": "knowledge" if useful else "other",
+        }
+        for block_index in block_indices
+    ]
+    return {
+        "packet_id": packet_id,
+        "chunk_results": [
+            {
+                "chunk_id": chunk_id,
+                "is_useful": useful,
+                "block_decisions": block_decisions,
+                "snippets": (
+                    [
+                        {
+                            "body": snippet_body,
+                            "evidence": [
+                                {
+                                    "block_index": block_indices[0],
+                                    "quote": evidence_quote,
+                                }
+                            ],
+                        }
+                    ]
+                    if useful
+                    else []
+                ),
+                "reason_code": "grounded_useful" if useful else "all_other",
+            }
+        ],
+    }
+
+
+def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() -> None:
+    payload, metadata = normalize_knowledge_worker_payload(
+        _semantic_packet_payload(
+            packet_id="book.ks0099.nr.task-001",
+            chunk_id="book.c0099.nr",
+            block_indices=[4, 5],
+        )
+    )
+
+    assert metadata == {"worker_output_contract": "semantic_packet_result_v1"}
+    assert payload == {
+        "v": "2",
+        "bid": "book.ks0099.nr.task-001",
+        "r": [
+            {
+                "cid": "book.c0099.nr",
+                "u": True,
+                "d": [
+                    {"i": 4, "c": "knowledge", "rc": "knowledge"},
+                    {"i": 5, "c": "knowledge", "rc": "knowledge"},
+                ],
+                "s": [
+                    {
+                        "b": "Keep whisking.",
+                        "e": [{"i": 4, "q": "Keep whisking"}],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0099.nr.task-001",
+            owned_ids=("book.c0099.nr",),
+            metadata={
+                "owned_block_indices": [4, 5],
+                "ordered_chunk_ids": ["book.c0099.nr"],
+                "chunk_block_indices_by_id": {"book.c0099.nr": [4, 5]},
+            },
+        ),
+        _semantic_packet_payload(
+            packet_id="book.ks0099.nr.task-001",
+            chunk_id="book.c0099.nr",
+            block_indices=[4, 5],
+        ),
+    )
+
+    assert valid is True
+    assert errors == ()
+    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
+    assert metadata["bundle_id"] == "book.ks0099.nr.task-001"
+    assert metadata["result_chunk_count"] == 1
 
 
 def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> None:
@@ -130,6 +232,81 @@ def test_validate_knowledge_shard_output_requires_exact_block_decision_coverage(
     assert metadata["chunk_block_coverage_mismatches"] == {
         "book.c0002.nr": {"expected": [8, 9], "observed": [8]}
     }
+
+
+def test_validate_knowledge_shard_output_rejects_non_grounded_snippet_body() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0002.nr",
+            owned_ids=("book.c0002.nr",),
+            input_payload={
+                "v": "2",
+                "bid": "book.ks0002.nr",
+                "c": [
+                    {
+                        "cid": "book.c0002.nr",
+                        "b": [{"i": 8, "t": "Whisk the batter until smooth."}],
+                    }
+                ],
+            },
+            metadata={
+                "owned_block_indices": [8],
+                "ordered_chunk_ids": ["book.c0002.nr"],
+                "chunk_block_indices_by_id": {"book.c0002.nr": [8]},
+            },
+        ),
+        _semantic_packet_payload(
+            packet_id="book.ks0002.nr",
+            chunk_id="book.c0002.nr",
+            block_indices=[8],
+            snippet_body="12345!!!",
+            evidence_quote="Whisk the batter",
+        ),
+    )
+
+    assert valid is False
+    assert errors == ("semantic_snippet_body_not_grounded_text",)
+    assert metadata["non_grounded_snippet_chunk_ids"] == ["book.c0002.nr"]
+
+
+def test_validate_knowledge_shard_output_rejects_full_chunk_echo_snippet() -> None:
+    source_text = (
+        "Whisk the batter slowly until it turns glossy and smooth, then scrape the bowl "
+        "well and keep mixing until no dry pockets remain anywhere in the mixture, "
+        "pausing only to fold down the sides and bottom so the texture stays even."
+    )
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0003.nr",
+            owned_ids=("book.c0003.nr",),
+            input_payload={
+                "v": "2",
+                "bid": "book.ks0003.nr",
+                "c": [
+                    {
+                        "cid": "book.c0003.nr",
+                        "b": [{"i": 9, "t": source_text}],
+                    }
+                ],
+            },
+            metadata={
+                "owned_block_indices": [9],
+                "ordered_chunk_ids": ["book.c0003.nr"],
+                "chunk_block_indices_by_id": {"book.c0003.nr": [9]},
+            },
+        ),
+        _semantic_packet_payload(
+            packet_id="book.ks0003.nr",
+            chunk_id="book.c0003.nr",
+            block_indices=[9],
+            snippet_body=source_text,
+            evidence_quote="Whisk the batter slowly",
+        ),
+    )
+
+    assert valid is False
+    assert errors == ("semantic_snippet_echoes_full_chunk",)
+    assert metadata["echoed_full_chunk_ids"] == ["book.c0003.nr"]
 
 
 def test_validate_knowledge_shard_output_rejects_cross_chunk_evidence() -> None:

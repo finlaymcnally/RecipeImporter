@@ -9,6 +9,7 @@ import tiktoken
 
 from cookimport.llm.codex_exec_runner import summarize_direct_telemetry_rows
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
+from cookimport.runs.stage_observability import build_knowledge_stage_summary
 
 _TOKEN_KEYS = (
     "tokens_input",
@@ -40,6 +41,11 @@ _STATUS_COUNT_KEYS = (
     "validated_shard_count",
     "invalid_shard_count",
     "missing_output_shard_count",
+)
+_EXECUTION_MODE_COUNT_KEYS = (
+    "workspace_worker_session_count",
+    "structured_followup_call_count",
+    "structured_followup_tokens_total",
 )
 
 _PREVIEW_STAGE_LABELS = {
@@ -156,7 +162,9 @@ def build_prediction_run_prompt_budget_summary(
         **{key: None for key in _BREAKDOWN_KEYS},
         **{key: None for key in _PATHOLOGY_KEYS},
         **{key: None for key in _STATUS_COUNT_KEYS},
+        **{key: None for key in _EXECUTION_MODE_COUNT_KEYS},
     }
+    total_prompt_input_mode_counts: dict[str, int] = {}
     total_pathological_flags: set[str] = set()
     for payload in by_stage.values():
         totals["call_count"] = _sum_optional_ints(
@@ -187,6 +195,21 @@ def build_prediction_run_prompt_budget_summary(
                 totals.get(key),
                 _nonnegative_int(payload.get(key)),
             )
+        for key in _EXECUTION_MODE_COUNT_KEYS:
+            totals[key] = _sum_optional_ints(
+                totals.get(key),
+                _nonnegative_int(payload.get(key)),
+            )
+        prompt_input_mode_counts = payload.get("prompt_input_mode_counts")
+        if isinstance(prompt_input_mode_counts, Mapping):
+            for mode, count in prompt_input_mode_counts.items():
+                cleaned_mode = str(mode or "").strip()
+                parsed_count = _nonnegative_int(count)
+                if not cleaned_mode or parsed_count is None:
+                    continue
+                total_prompt_input_mode_counts[cleaned_mode] = (
+                    int(total_prompt_input_mode_counts.get(cleaned_mode) or 0) + parsed_count
+                )
         flags = payload.get("pathological_flags")
         if isinstance(flags, list):
             total_pathological_flags.update(
@@ -201,6 +224,7 @@ def build_prediction_run_prompt_budget_summary(
         "billed_total_tokens": totals.get("tokens_total"),
     }
     totals["pathological_flags"] = sorted(total_pathological_flags)
+    totals["prompt_input_mode_counts"] = dict(sorted(total_prompt_input_mode_counts.items()))
 
     return {
         "schema_version": "prompt_budget_summary.v1",
@@ -550,8 +574,19 @@ def _build_codex_farm_stage_summary(
         summary_payload,
         fallback=pathology_summary.get("pathological_flags"),
     )
+    prompt_input_mode_counts = (
+        dict(sorted(dict(pathology_summary.get("prompt_input_mode_counts") or {}).items()))
+        if isinstance(pathology_summary.get("prompt_input_mode_counts"), Mapping)
+        else (
+            dict(sorted(dict(summary_payload.get("prompt_input_mode_counts") or {}).items()))
+            if isinstance(summary_payload, Mapping)
+            and isinstance(summary_payload.get("prompt_input_mode_counts"), Mapping)
+            else {}
+        )
+    )
+    execution_mode_summary = _execution_mode_summary_from_telemetry_rows(telemetry_rows)
 
-    return {
+    stage_summary = {
         "stage": stage_name,
         "kind": "codex_farm",
         "call_count": call_count,
@@ -570,6 +605,32 @@ def _build_codex_farm_stage_summary(
         **status_counts,
         **token_totals,
         **breakdown_totals,
+        "prompt_input_mode_counts": prompt_input_mode_counts,
+        "workspace_worker_session_count": (
+            _nonnegative_int(pathology_summary.get("workspace_worker_session_count"))
+            or (
+                _nonnegative_int(summary_payload.get("workspace_worker_session_count"))
+                if isinstance(summary_payload, Mapping)
+                else None
+            )
+        ),
+        "structured_followup_call_count": (
+            _nonnegative_int(pathology_summary.get("structured_followup_call_count"))
+            or (
+                _nonnegative_int(summary_payload.get("structured_followup_call_count"))
+                if isinstance(summary_payload, Mapping)
+                else None
+            )
+        ),
+        "structured_followup_tokens_total": (
+            _nonnegative_int(pathology_summary.get("structured_followup_tokens_total"))
+            or (
+                _nonnegative_int(summary_payload.get("structured_followup_tokens_total"))
+                if isinstance(summary_payload, Mapping)
+                else None
+            )
+        ),
+        "execution_mode_summary": execution_mode_summary,
         "pathological_flags": pathological_flags,
         "cost_breakdown": {
             "visible_input_tokens": breakdown_totals.get("visible_input_tokens"),
@@ -580,6 +641,170 @@ def _build_codex_farm_stage_summary(
             "billed_total_tokens": token_totals.get("tokens_total"),
         },
     }
+    if stage_name in {"knowledge", "nonrecipe_knowledge_review"}:
+        _attach_knowledge_stage_observability(
+            stage_summary=stage_summary,
+            stage_payload=stage_payload,
+        )
+    return stage_summary
+
+
+def _execution_mode_summary_from_telemetry_rows(
+    telemetry_rows: list[Any] | None,
+) -> dict[str, dict[str, int]]:
+    summary = {
+        "main_workspace_workers": {
+            "call_count": 0,
+            "duration_total_ms": 0,
+            "tokens_total": 0,
+            "session_count": 0,
+        },
+        "structured_followups": {
+            "call_count": 0,
+            "duration_total_ms": 0,
+            "tokens_total": 0,
+            "session_count": 0,
+        },
+        "other": {
+            "call_count": 0,
+            "duration_total_ms": 0,
+            "tokens_total": 0,
+            "session_count": 0,
+        },
+    }
+    if not isinstance(telemetry_rows, list):
+        return summary
+    for row in telemetry_rows:
+        if not isinstance(row, Mapping):
+            continue
+        prompt_input_mode = str(row.get("prompt_input_mode") or "path").strip().lower() or "path"
+        if prompt_input_mode == "workspace_worker":
+            bucket = summary["main_workspace_workers"]
+        elif prompt_input_mode in {"inline_watchdog_retry", "inline_retry", "inline_repair"}:
+            bucket = summary["structured_followups"]
+        else:
+            bucket = summary["other"]
+        bucket["call_count"] += 1
+        bucket["duration_total_ms"] += int(row.get("duration_ms") or 0)
+        bucket["tokens_total"] += int(row.get("tokens_total") or 0)
+        if prompt_input_mode == "workspace_worker" and bool(row.get("worker_session_primary_row")):
+            bucket["session_count"] += 1
+    return summary
+
+
+def _candidate_stage_root_paths(stage_payload: Mapping[str, Any]) -> list[Path]:
+    candidate_paths: list[Path] = []
+
+    def _append_path(value: Any) -> None:
+        if not isinstance(value, str):
+            return
+        cleaned = value.strip()
+        if not cleaned:
+            return
+        candidate = Path(cleaned)
+        if candidate.name == "proposals":
+            candidate = candidate.parent
+        elif candidate.name.endswith(".json") or candidate.name.endswith(".jsonl"):
+            candidate = candidate.parent
+        if candidate not in candidate_paths:
+            candidate_paths.append(candidate)
+
+    for key in (
+        "stage_status_path",
+        "phase_manifest_path",
+        "shard_manifest_path",
+        "task_status_path",
+        "worker_assignments_path",
+        "promotion_report_path",
+        "telemetry_path",
+        "failures_path",
+        "proposals_dir",
+    ):
+        _append_path(stage_payload.get(key))
+    for nested_key in ("process_run", "phase_worker_runtime", "phase_runtime", "runtime_artifacts"):
+        nested = stage_payload.get(nested_key)
+        if not isinstance(nested, Mapping):
+            continue
+        for key in (
+            "stage_status_path",
+            "phase_manifest_path",
+            "shard_manifest_path",
+            "task_status_path",
+            "worker_assignments_path",
+            "promotion_report_path",
+            "telemetry_path",
+            "failures_path",
+            "proposals_dir",
+        ):
+            _append_path(nested.get(key))
+    return candidate_paths
+
+
+def _attach_knowledge_stage_observability(
+    *,
+    stage_summary: dict[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> None:
+    stage_root = next(
+        (
+            candidate
+            for candidate in _candidate_stage_root_paths(stage_payload)
+            if candidate.exists() and candidate.is_dir()
+        ),
+        None,
+    )
+    if stage_root is None:
+        return
+    knowledge_summary = build_knowledge_stage_summary(stage_root)
+    packets = knowledge_summary.get("packets")
+    workers = knowledge_summary.get("workers")
+    followups = knowledge_summary.get("followups")
+    salvage = knowledge_summary.get("salvage")
+    if isinstance(packets, Mapping):
+        stage_summary["task_packet_total"] = _nonnegative_int(packets.get("packet_total"))
+        stage_summary["parent_shard_total"] = _nonnegative_int(packets.get("parent_shard_total"))
+        if isinstance(packets.get("state_counts"), Mapping):
+            stage_summary["packet_state_counts"] = dict(
+                sorted(dict(packets.get("state_counts") or {}).items())
+            )
+        if isinstance(packets.get("terminal_outcome_counts"), Mapping):
+            stage_summary["packet_terminal_outcome_counts"] = dict(
+                sorted(dict(packets.get("terminal_outcome_counts") or {}).items())
+            )
+    if isinstance(workers, Mapping):
+        if isinstance(workers.get("outcome_counts"), Mapping):
+            stage_summary["worker_outcome_counts"] = dict(
+                sorted(dict(workers.get("outcome_counts") or {}).items())
+            )
+        stage_summary["worker_malformed_output_count"] = _nonnegative_int(
+            workers.get("malformed_output_count")
+        )
+    if isinstance(followups, Mapping):
+        for key in (
+            "attempt_counts",
+            "accepted_counts",
+            "recovered_counts",
+            "failed_counts",
+            "skip_reason_counts",
+            "circuit_breaker_reason_counts",
+        ):
+            value = followups.get(key)
+            if isinstance(value, Mapping):
+                stage_summary[f"followup_{key}"] = dict(sorted(dict(value).items()))
+        stage_summary["stale_followup_count"] = _nonnegative_int(followups.get("stale_count"))
+        stage_summary["cancelled_followup_count"] = _nonnegative_int(
+            followups.get("cancelled_count")
+        )
+        stage_summary["circuit_breaker_activation_count"] = _nonnegative_int(
+            followups.get("circuit_breaker_activation_count")
+        )
+    if isinstance(salvage, Mapping):
+        stage_summary["salvage_success_count"] = _nonnegative_int(salvage.get("success_count"))
+        stage_summary["salvage_failure_count"] = _nonnegative_int(salvage.get("failure_count"))
+        if isinstance(salvage.get("kind_counts"), Mapping):
+            stage_summary["salvage_kind_counts"] = dict(
+                sorted(dict(salvage.get("kind_counts") or {}).items())
+            )
 
 
 def _extract_telemetry_rows(*, stage_payload: Mapping[str, Any]) -> list[Any] | None:

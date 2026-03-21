@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 from pathlib import Path
 from typing import Any, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cookimport.llm.knowledge_runtime_replay import replay_knowledge_runtime
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 
 
@@ -14,6 +16,8 @@ RECIPE_MANIFEST_FILE_NAME = "recipe_manifest.json"
 KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
+KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
+KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v1"
 
 _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "phase_manifest.json",
@@ -27,6 +31,39 @@ _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "knowledge_manifest.json",
     "proposals/*",
 )
+_KNOWLEDGE_PACKET_TERMINAL_STATES = frozenset(
+    {
+        "validated",
+        "retry_recovered",
+        "retry_failed",
+        "repair_recovered",
+        "repair_failed",
+        "missing_output",
+        "watchdog_killed",
+        "invalid_output",
+        "cancelled_due_to_interrupt",
+    }
+)
+_KNOWLEDGE_FOLLOWUP_STATUS_FIELDS: tuple[tuple[str, str], ...] = (
+    ("watchdog_retry", "watchdog_retry_status"),
+    ("retry_split", "retry_status"),
+    ("repair", "repair_status"),
+)
+_KNOWLEDGE_FOLLOWUP_ACCEPTED_STATUSES: dict[str, frozenset[str]] = {
+    "watchdog_retry": frozenset({"recovered", "failed"}),
+    "retry_split": frozenset({"recovered", "failed"}),
+    "repair": frozenset({"repaired", "failed"}),
+}
+_KNOWLEDGE_FOLLOWUP_RECOVERED_STATUSES: dict[str, frozenset[str]] = {
+    "watchdog_retry": frozenset({"recovered"}),
+    "retry_split": frozenset({"recovered"}),
+    "repair": frozenset({"repaired"}),
+}
+_KNOWLEDGE_FOLLOWUP_FAILED_STATUSES: dict[str, frozenset[str]] = {
+    "watchdog_retry": frozenset({"failed"}),
+    "retry_split": frozenset({"failed"}),
+    "repair": frozenset({"failed"}),
+}
 
 
 class StageWorkbookObservation(BaseModel):
@@ -165,6 +202,27 @@ def _load_json_dict(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _load_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.exists() or not path.is_file():
+        return rows
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return rows
+    for line in lines:
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, Mapping):
+            rows.append(dict(payload))
+    return rows
+
+
 def _relative_to(run_root: Path, path: Path | None) -> str | None:
     if path is None:
         return None
@@ -248,7 +306,175 @@ def _count_nested_positive_values(payload: Any) -> int:
         return 0
 
 
-def summarize_knowledge_stage_artifacts(stage_root: Path) -> dict[str, Any]:
+def _count_value_rows(
+    rows: list[dict[str, Any]],
+    key: str,
+) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        value = str(row.get(key) or "").strip()
+        if value:
+            counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _count_metadata_value_rows(
+    rows: list[dict[str, Any]],
+    metadata_key: str,
+) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        metadata = row.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        value = str(metadata.get(metadata_key) or "").strip()
+        if value:
+            counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _count_followup_statuses(
+    task_rows: list[dict[str, Any]],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
+    attempt_counts: Counter[str] = Counter()
+    accepted_counts: Counter[str] = Counter()
+    recovered_counts: Counter[str] = Counter()
+    failed_counts: Counter[str] = Counter()
+    for row in task_rows:
+        metadata = row.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        for followup_kind, metadata_key in _KNOWLEDGE_FOLLOWUP_STATUS_FIELDS:
+            status = str(metadata.get(metadata_key) or "").strip()
+            if not status or status == "not_attempted":
+                continue
+            attempt_counts[followup_kind] += 1
+            if status in _KNOWLEDGE_FOLLOWUP_ACCEPTED_STATUSES[followup_kind]:
+                accepted_counts[followup_kind] += 1
+            if status in _KNOWLEDGE_FOLLOWUP_RECOVERED_STATUSES[followup_kind]:
+                recovered_counts[followup_kind] += 1
+            if status in _KNOWLEDGE_FOLLOWUP_FAILED_STATUSES[followup_kind]:
+                failed_counts[followup_kind] += 1
+    return (
+        dict(sorted(attempt_counts.items())),
+        dict(sorted(accepted_counts.items())),
+        dict(sorted(recovered_counts.items())),
+        dict(sorted(failed_counts.items())),
+    )
+
+
+def _collect_followup_skip_reason_counts(task_rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in task_rows:
+        metadata = row.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        for key in (
+            "watchdog_retry_skip_reason_code",
+            "retry_skip_reason_code",
+            "repair_skip_reason_code",
+        ):
+            value = str(metadata.get(key) or "").strip()
+            if value:
+                counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _collect_followup_runtime_counts(
+    stage_root: Path,
+) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
+    status_counts: Counter[str] = Counter()
+    stale_counts: Counter[str] = Counter()
+    cancelled_counts: Counter[str] = Counter()
+    cancelled_reason_counts: Counter[str] = Counter()
+    followup_specs = (
+        (
+            "watchdog_retry",
+            ("workers/*/shards/*/watchdog_retry/status.json",),
+            ("workers/*/shards/*/watchdog_retry/live_status.json",),
+        ),
+        (
+            "repair",
+            ("workers/*/shards/*/repair_status.json",),
+            ("workers/*/shards/*/repair_live_status.json",),
+        ),
+    )
+    for followup_kind, status_patterns, live_patterns in followup_specs:
+        for pattern in status_patterns:
+            for status_path in sorted(stage_root.glob(pattern)):
+                payload = _load_json_dict(status_path) or {}
+                status = str(payload.get("status") or payload.get("state") or "").strip()
+                if status:
+                    status_counts[followup_kind] += 1
+                reason_code = str(payload.get("reason_code") or "").strip()
+                if status.startswith(("cancelled", "superseded")) or reason_code.startswith(
+                    ("cancelled", "superseded")
+                ):
+                    cancelled_counts[followup_kind] += 1
+                    if reason_code:
+                        cancelled_reason_counts[reason_code] += 1
+        for pattern in live_patterns:
+            for live_path in sorted(stage_root.glob(pattern)):
+                payload = _load_json_dict(live_path) or {}
+                state = str(payload.get("state") or "").strip()
+                if state in {"running", "pending"}:
+                    stale_counts[followup_kind] += 1
+    return (
+        dict(sorted(status_counts.items())),
+        dict(sorted(stale_counts.items())),
+        dict(sorted(cancelled_counts.items())),
+        dict(sorted(cancelled_reason_counts.items())),
+    )
+
+
+def _collect_worker_status_counts(
+    stage_root: Path,
+) -> tuple[dict[str, int], dict[str, int]]:
+    state_counts: Counter[str] = Counter()
+    reason_counts: Counter[str] = Counter()
+    for live_status_path in sorted(stage_root.glob("workers/*/live_status.json")):
+        payload = _load_json_dict(live_status_path) or {}
+        state = str(payload.get("state") or "").strip()
+        if state:
+            state_counts[state] += 1
+        reason_code = str(payload.get("reason_code") or "").strip()
+        if reason_code:
+            reason_counts[reason_code] += 1
+    return dict(sorted(state_counts.items())), dict(sorted(reason_counts.items()))
+
+
+def _collect_salvage_counts(stage_root: Path) -> dict[str, Any]:
+    success_count = 0
+    failure_count = 0
+    kind_counts: Counter[str] = Counter()
+    proposal_paths = sorted(stage_root.glob("workers/*/shards/*/proposal.json"))
+    for proposal_path in proposal_paths:
+        payload = _load_json_dict(proposal_path) or {}
+        status = str(payload.get("status") or "").strip()
+        validation_metadata = payload.get("validation_metadata")
+        if not isinstance(validation_metadata, Mapping):
+            continue
+        salvage_kinds: list[str] = []
+        if bool(validation_metadata.get("response_trailing_eof_trimmed")):
+            salvage_kinds.append("trailing_eof_trimmed")
+        if bool(validation_metadata.get("response_shell_wrapper_noise_trimmed")):
+            salvage_kinds.append("shell_wrapper_noise_trimmed")
+        if not salvage_kinds:
+            continue
+        for salvage_kind in salvage_kinds:
+            kind_counts[salvage_kind] += 1
+        if status == "validated":
+            success_count += 1
+        else:
+            failure_count += 1
+    return {
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "kind_counts": dict(sorted(kind_counts.items())),
+    }
+
+
+def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     status_path = stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME
     status_payload = _load_json_dict(status_path) or {}
     pre_kill_failure_counts = status_payload.get("pre_kill_failure_counts")
@@ -266,9 +492,35 @@ def summarize_knowledge_stage_artifacts(stage_root: Path) -> dict[str, Any]:
         ),
         finalization_completeness=finalization_completeness,
     )
+    task_rows = _load_jsonl_dicts(stage_root / "task_status.jsonl")
+    packet_state_counts = _count_value_rows(task_rows, "state")
+    packet_attempt_type_counts = _count_value_rows(task_rows, "last_attempt_type")
+    terminal_reason_code_counts = _count_value_rows(task_rows, "terminal_reason_code")
+    terminal_outcome_counts = {
+        state: count
+        for state, count in packet_state_counts.items()
+        if state in _KNOWLEDGE_PACKET_TERMINAL_STATES
+    }
+    followup_attempt_counts, followup_accepted_counts, followup_recovered_counts, followup_failed_counts = (
+        _count_followup_statuses(task_rows)
+    )
+    followup_skip_reason_counts = _collect_followup_skip_reason_counts(task_rows)
+    followup_status_counts, stale_followup_counts, cancelled_followup_counts, cancelled_reason_counts = (
+        _collect_followup_runtime_counts(stage_root)
+    )
+    circuit_breaker_reason_counts = {
+        reason_code: count
+        for reason_code, count in followup_skip_reason_counts.items()
+        if "circuit_breaker" in reason_code
+    }
+    worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
+    salvage_counts = _collect_salvage_counts(stage_root)
+    replay_summary = replay_knowledge_runtime(knowledge_root=stage_root)
+    packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
     return {
         "authoritative": bool(status_payload),
-        "schema_version": (
+        "schema_version": KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION,
+        "status_schema_version": (
             str(status_payload.get("schema_version") or "").strip()
             or KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION
         ),
@@ -284,9 +536,78 @@ def summarize_knowledge_stage_artifacts(stage_root: Path) -> dict[str, Any]:
             for key in _KNOWLEDGE_STAGE_ARTIFACT_KEYS
             if key in artifact_states
         },
+        "packets": {
+            "packet_total": packet_total,
+            "parent_shard_total": int(replay_summary.shard_total),
+            "state_counts": packet_state_counts,
+            "terminal_outcome_counts": dict(sorted(terminal_outcome_counts.items())),
+            "attempt_type_counts": packet_attempt_type_counts,
+            "terminal_reason_code_counts": terminal_reason_code_counts,
+            "topline": {
+                "validated": int(packet_state_counts.get("validated") or 0),
+                "retry_recovered": int(packet_state_counts.get("retry_recovered") or 0),
+                "repair_recovered": int(packet_state_counts.get("repair_recovered") or 0),
+                "failed": sum(
+                    int(packet_state_counts.get(key) or 0)
+                    for key in (
+                        "invalid_output",
+                        "retry_failed",
+                        "repair_failed",
+                        "missing_output",
+                        "watchdog_killed",
+                    )
+                ),
+                "cancelled_due_to_interrupt": int(
+                    packet_state_counts.get("cancelled_due_to_interrupt") or 0
+                ),
+            },
+        },
+        "workers": {
+            "state_counts": worker_state_counts,
+            "reason_code_counts": worker_reason_code_counts,
+            "outcome_counts": dict(sorted(replay_summary.rollup.worker_outcome_counts.items())),
+            "output_count": int(replay_summary.rollup.worker_output_count),
+            "malformed_output_count": int(replay_summary.rollup.malformed_worker_output_count),
+        },
+        "followups": {
+            "attempt_counts": followup_attempt_counts,
+            "accepted_counts": followup_accepted_counts,
+            "recovered_counts": followup_recovered_counts,
+            "failed_counts": followup_failed_counts,
+            "status_file_counts": followup_status_counts,
+            "skip_reason_counts": followup_skip_reason_counts,
+            "stale_count": sum(int(value) for value in stale_followup_counts.values()),
+            "stale_counts": stale_followup_counts,
+            "cancelled_count": sum(int(value) for value in cancelled_followup_counts.values()),
+            "cancelled_counts": cancelled_followup_counts,
+            "cancelled_reason_counts": cancelled_reason_counts,
+            "circuit_breaker_activation_count": sum(
+                int(value) for value in circuit_breaker_reason_counts.values()
+            ),
+            "circuit_breaker_reason_counts": circuit_breaker_reason_counts,
+        },
+        "salvage": salvage_counts,
         "pre_kill_failure_counts": dict(pre_kill_failure_counts),
         "pre_kill_failures_observed": _count_nested_positive_values(pre_kill_failure_counts) > 0,
     }
+
+
+def summarize_knowledge_stage_artifacts(stage_root: Path) -> dict[str, Any]:
+    return build_knowledge_stage_summary(stage_root)
+
+
+def write_knowledge_stage_summary(
+    *,
+    stage_root: Path,
+    summary: Mapping[str, Any] | None = None,
+) -> Path:
+    target_path = stage_root / KNOWLEDGE_STAGE_SUMMARY_FILE_NAME
+    payload = dict(summary or build_knowledge_stage_summary(stage_root))
+    target_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return target_path
 
 
 def _recipe_stage_key_map(
@@ -540,8 +861,32 @@ def write_stage_observability_report(
     run_root.mkdir(parents=True, exist_ok=True)
     report_path = run_root / "stage_observability.json"
     tmp_path = run_root / "stage_observability.json.tmp"
+    payload = report.model_dump(exclude_none=True)
+    for stage_payload in payload.get("stages", []):
+        if not isinstance(stage_payload, dict):
+            continue
+        if str(stage_payload.get("stage_key") or "").strip() != "nonrecipe_knowledge_review":
+            continue
+        workbooks = stage_payload.get("workbooks")
+        if not isinstance(workbooks, list):
+            continue
+        for workbook_payload in workbooks:
+            if not isinstance(workbook_payload, dict):
+                continue
+            stage_dir_value = workbook_payload.get("stage_dir")
+            stage_dir = run_root / str(stage_dir_value) if isinstance(stage_dir_value, str) else None
+            if stage_dir is None or not stage_dir.exists() or not stage_dir.is_dir():
+                continue
+            summary_path = write_knowledge_stage_summary(stage_root=stage_dir)
+            artifact_paths = workbook_payload.get("artifact_paths")
+            if not isinstance(artifact_paths, dict):
+                artifact_paths = {}
+            artifact_paths["knowledge_stage_summary_json"] = _relative_to(run_root, summary_path) or str(
+                summary_path
+            )
+            workbook_payload["artifact_paths"] = artifact_paths
     tmp_path.write_text(
-        json.dumps(report.model_dump(exclude_none=True), indent=2, sort_keys=True) + "\n",
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     tmp_path.replace(report_path)

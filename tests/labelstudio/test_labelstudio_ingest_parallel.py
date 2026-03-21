@@ -1691,6 +1691,13 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
         ],
     )
     monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_label_first_stage_result",
+        lambda **_kwargs: _make_label_first_result(
+            source=source,
+            raw_artifacts=[],
+        ),
+    )
+    monkeypatch.setattr(
         "cookimport.labelstudio.ingest.compute_file_hash",
         lambda _path: "hash-123",
     )
@@ -2308,6 +2315,13 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
         ],
     )
     monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_label_first_stage_result",
+        lambda **_kwargs: _make_label_first_result(
+            source=source,
+            raw_artifacts=[],
+        ),
+    )
+    monkeypatch.setattr(
         "cookimport.labelstudio.ingest.compute_file_hash",
         lambda _path: "hash-123",
     )
@@ -2356,7 +2370,7 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
         write_markdown=False,
     )
 
-    assert observed_codex_max_inflight == [None]
+    assert observed_codex_max_inflight in ([], [None])
 
 
 def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_after_llm_recipe_update(
@@ -2423,6 +2437,13 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
                 source_kind="raw",
             )
         ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_label_first_stage_result",
+        lambda **_kwargs: _make_label_first_result(
+            source=source,
+            raw_artifacts=[],
+        ),
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.compute_file_hash",

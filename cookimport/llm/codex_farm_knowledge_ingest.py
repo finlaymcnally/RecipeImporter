@@ -1,11 +1,49 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
 from .phase_worker_runtime import ShardManifestEntryV1
-from .codex_farm_knowledge_models import KnowledgeBundleOutputV2, KnowledgeChunkResultV2
+from .codex_farm_knowledge_models import (
+    KnowledgeBundleOutputV2,
+    KnowledgeChunkResultV2,
+    KnowledgePacketSemanticResultV1,
+    semantic_result_from_canonical_bundle,
+    serialize_canonical_knowledge_packet,
+)
+
+
+def normalize_knowledge_worker_payload(
+    payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload_dict = dict(payload)
+    semantic_parse_error: Exception | None = None
+    try:
+        semantic_result = KnowledgePacketSemanticResultV1.model_validate(payload_dict)
+    except Exception as exc:  # noqa: BLE001
+        semantic_parse_error = exc
+    else:
+        return serialize_canonical_knowledge_packet(semantic_result), {
+            "worker_output_contract": "semantic_packet_result_v1",
+        }
+
+    try:
+        canonical_bundle = KnowledgeBundleOutputV2.model_validate(payload_dict)
+    except Exception as exc:  # noqa: BLE001
+        if semantic_parse_error is None:
+            raise
+        raise ValueError(
+            "worker output did not match the semantic packet-result contract or the "
+            f"canonical bundle compatibility contract: semantic={semantic_parse_error}; "
+            f"canonical={exc}"
+        ) from exc
+    return serialize_canonical_knowledge_packet(
+        semantic_result_from_canonical_bundle(canonical_bundle)
+    ), {
+        "worker_output_contract": "canonical_bundle_v2_compat",
+    }
 
 
 def validate_knowledge_shard_output(
@@ -17,9 +55,11 @@ def validate_knowledge_shard_output(
         "owned_chunk_count": len(shard.owned_ids),
     }
     try:
-        parsed = KnowledgeBundleOutputV2.model_validate(payload)
+        normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(payload)
+        parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
     except Exception as exc:  # noqa: BLE001
         return False, ("schema_invalid",), {"parse_error": str(exc)}
+    metadata.update(normalization_metadata)
 
     metadata["bundle_id"] = parsed.bundle_id
     metadata["result_chunk_count"] = len(parsed.chunk_results)
@@ -119,6 +159,41 @@ def validate_knowledge_shard_output(
     metadata["useful_chunk_count"] = useful_chunk_count
     metadata["knowledge_decision_count"] = knowledge_decision_count
     metadata["snippet_count"] = snippet_count
+
+    non_grounded_snippet_chunk_ids: list[str] = []
+    echoed_full_chunk_ids: list[str] = []
+    chunk_source_text_by_id = _chunk_source_text_by_id(shard)
+    for result in parsed.chunk_results:
+        source_text = chunk_source_text_by_id.get(result.chunk_id)
+        normalized_source_text = _normalize_semantic_comparison_text(source_text)
+        expected_block_indices = chunk_block_indices_by_id.get(result.chunk_id) or []
+        for snippet in result.snippets:
+            if not _contains_grounded_text(snippet.body):
+                non_grounded_snippet_chunk_ids.append(result.chunk_id)
+            normalized_body = _normalize_semantic_comparison_text(snippet.body)
+            snippet_block_indices = sorted(
+                {
+                    int(evidence.block_index)
+                    for evidence in snippet.evidence
+                }
+            )
+            if (
+                normalized_source_text
+                and len(normalized_source_text) >= 160
+                and len(normalized_body) >= max(120, int(len(normalized_source_text) * 0.85))
+                and snippet_block_indices == expected_block_indices
+                and (
+                    normalized_body in normalized_source_text
+                    or normalized_source_text in normalized_body
+                )
+            ):
+                echoed_full_chunk_ids.append(result.chunk_id)
+    if non_grounded_snippet_chunk_ids:
+        errors.append("semantic_snippet_body_not_grounded_text")
+        metadata["non_grounded_snippet_chunk_ids"] = sorted(set(non_grounded_snippet_chunk_ids))
+    if echoed_full_chunk_ids:
+        errors.append("semantic_snippet_echoes_full_chunk")
+        metadata["echoed_full_chunk_ids"] = sorted(set(echoed_full_chunk_ids))
 
     knowledge_cue_chunk_ids = sorted(_knowledge_cue_chunk_ids(shard))
     metadata["knowledge_cue_chunk_ids"] = knowledge_cue_chunk_ids
@@ -239,3 +314,33 @@ def _knowledge_cue_chunk_ids(shard: ShardManifestEntryV1) -> set[str]:
         if normalized_chunk_id and bool(value):
             cue_chunk_ids.add(normalized_chunk_id)
     return cue_chunk_ids
+
+
+def _chunk_source_text_by_id(shard: ShardManifestEntryV1) -> dict[str, str]:
+    payload = dict(shard.input_payload) if isinstance(shard.input_payload, Mapping) else {}
+    chunks = payload.get("c")
+    if not isinstance(chunks, list):
+        return {}
+    source_text_by_id: dict[str, str] = {}
+    for chunk in chunks:
+        if not isinstance(chunk, Mapping):
+            continue
+        chunk_id = str(chunk.get("cid") or "").strip()
+        if not chunk_id:
+            continue
+        block_text = " ".join(
+            str((block or {}).get("t") or "").strip()
+            for block in (chunk.get("b") or [])
+            if isinstance(block, Mapping) and str((block or {}).get("t") or "").strip()
+        ).strip()
+        if block_text:
+            source_text_by_id[chunk_id] = block_text
+    return source_text_by_id
+
+
+def _contains_grounded_text(value: object) -> bool:
+    return bool(re.search(r"[A-Za-z]", str(value or "")))
+
+
+def _normalize_semantic_comparison_text(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()

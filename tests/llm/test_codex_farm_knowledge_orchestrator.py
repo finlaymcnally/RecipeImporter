@@ -27,6 +27,47 @@ from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 
 
+def _semantic_packet_output(
+    *,
+    packet_id: str,
+    chunk_id: str,
+    block_indices: list[int],
+    useful: bool = True,
+) -> dict[str, object]:
+    return {
+        "packet_id": packet_id,
+        "chunk_results": [
+            {
+                "chunk_id": chunk_id,
+                "is_useful": useful,
+                "block_decisions": [
+                    {
+                        "block_index": block_index,
+                        "category": "knowledge" if useful else "other",
+                    }
+                    for block_index in block_indices
+                ],
+                "snippets": (
+                    [
+                        {
+                            "body": "Fake knowledge snippet.",
+                            "evidence": [
+                                {
+                                    "block_index": block_indices[0],
+                                    "quote": "Fake knowledge snippet.",
+                                }
+                            ],
+                        }
+                    ]
+                    if useful
+                    else []
+                ),
+                "reason_code": "grounded_useful" if useful else "all_other",
+            }
+        ],
+    }
+
+
 def test_knowledge_workspace_watchdog_allows_shell_work_until_command_loop(
     tmp_path: Path,
 ) -> None:
@@ -203,10 +244,143 @@ def test_finalize_live_status_normalizes_completed_reason_code(tmp_path: Path) -
     assert live_status["final_agent_message_state"] == "malformed"
 
 
+def test_evaluate_knowledge_response_accepts_semantic_packet_with_trailing_eof() -> None:
+    payload, validation_errors, validation_metadata, proposal_status = (
+        knowledge_module._evaluate_knowledge_response(  # noqa: SLF001
+            shard=ShardManifestEntryV1(
+                shard_id="book.ks0000.nr.task-001",
+                owned_ids=("book.c0000.nr",),
+                metadata={
+                    "owned_block_indices": [4],
+                    "ordered_chunk_ids": ["book.c0000.nr"],
+                    "chunk_block_indices_by_id": {"book.c0000.nr": [4]},
+                },
+            ),
+            response_text=(
+                json.dumps(
+                    _semantic_packet_output(
+                        packet_id="book.ks0000.nr.task-001",
+                        chunk_id="book.c0000.nr",
+                        block_indices=[4],
+                    ),
+                    sort_keys=True,
+                )
+                + "\nEOF\n"
+            ),
+        )
+    )
+
+    assert proposal_status == "validated"
+    assert validation_errors == ()
+    assert validation_metadata["response_trailing_eof_trimmed"] is True
+    assert validation_metadata["worker_output_contract"] == "semantic_packet_result_v1"
+    assert payload == {
+        "v": "2",
+        "bid": "book.ks0000.nr.task-001",
+        "r": [
+            {
+                "cid": "book.c0000.nr",
+                "u": True,
+                "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                "s": [
+                    {
+                        "b": "Fake knowledge snippet.",
+                        "e": [{"i": 4, "q": "Fake knowledge snippet."}],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_evaluate_knowledge_response_salvages_shell_wrapper_noise_after_json_object() -> None:
+    payload, validation_errors, validation_metadata, proposal_status = (
+        knowledge_module._evaluate_knowledge_response(  # noqa: SLF001
+            shard=ShardManifestEntryV1(
+                shard_id="book.ks0000.nr.task-001",
+                owned_ids=("book.c0000.nr",),
+                metadata={
+                    "owned_block_indices": [4],
+                    "ordered_chunk_ids": ["book.c0000.nr"],
+                    "chunk_block_indices_by_id": {"book.c0000.nr": [4]},
+                },
+            ),
+            response_text=(
+                json.dumps(
+                    _semantic_packet_output(
+                        packet_id="book.ks0000.nr.task-001",
+                        chunk_id="book.c0000.nr",
+                        block_indices=[4],
+                    ),
+                    sort_keys=True,
+                )
+                + "\n$ exit 0\n"
+            ),
+        )
+    )
+
+    assert proposal_status == "validated"
+    assert validation_errors == ()
+    assert validation_metadata["response_shell_wrapper_noise_trimmed"] is True
+    assert validation_metadata["response_shell_wrapper_noise_preview"] == "$ exit 0"
+    assert payload is not None
+
+
+def test_knowledge_recovery_governor_marks_poisoned_workers_and_skips_followups() -> None:
+    governor = knowledge_module._KnowledgeRecoveryGovernor()  # noqa: SLF001
+
+    assert governor.observe_main_failure(  # noqa: SLF001
+        worker_id="worker-001",
+        failure_signature="invalid_json",
+    ) is None
+    poisoned = governor.observe_main_failure(  # noqa: SLF001
+        worker_id="worker-001",
+        failure_signature="invalid_json",
+    )
+
+    assert poisoned == {
+        "reason_code": "poisoned_worker_uniform_malformed_outputs",
+        "reason_detail": "worker repeatedly produced malformed or schema-invalid packet outputs",
+    }
+    repair_decision = governor.allow_followup(  # noqa: SLF001
+        kind="repair",
+        worker_id="worker-001",
+        failure_signature="invalid_json",
+    )
+
+    assert repair_decision.allowed is False
+    assert repair_decision.reason_code == "repair_skipped_poisoned_worker"
+    assert "malformed" in str(repair_decision.reason_detail)
+
+
+def test_knowledge_recovery_governor_opens_repair_circuit_breaker_after_repeated_failures() -> None:
+    governor = knowledge_module._KnowledgeRecoveryGovernor()  # noqa: SLF001
+
+    for _ in range(3):
+        governor.record_followup_outcome(  # noqa: SLF001
+            kind="repair",
+            failure_signature="coverage_mismatch",
+            recovered=False,
+        )
+
+    decision = governor.allow_followup(  # noqa: SLF001
+        kind="repair",
+        worker_id="worker-001",
+        failure_signature="coverage_mismatch",
+        near_miss=True,
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_code == "repair_skipped_circuit_breaker"
+    assert "bounded recovery circuit breaker opened" in str(decision.reason_detail)
+
+
 def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) -> None:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
+    workspace_root = tmp_path / "workspaces"
+    workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -216,6 +390,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
+            "codex_farm_workspace_root": str(workspace_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
             "codex_farm_knowledge_context_blocks": 1,
             "codex_farm_failure_mode": "fail",
@@ -374,8 +549,12 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert "`scratch/` for temporary helper files" in worker_prompt
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
-    assert "use the compact keys exactly: `cid`, `u`, `d`, `s`" in worker_prompt
-    assert "Do not spell these out as `block_decisions` or `snippets`." in worker_prompt
+    assert "Top level keys: `packet_id`, `chunk_results`." in worker_prompt
+    assert (
+        "Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`."
+        in worker_prompt
+    )
+    assert "The repo will write the final canonical `v` / `bid` / `r` packet artifact" in worker_prompt
     assert "re-open `packet_lease_status.json`" in worker_prompt
     assert "Do not run extra shell checks against finished files in `out/`" in worker_prompt
     worker_manifest = json.loads(
@@ -410,6 +589,8 @@ def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
+    workspace_root = tmp_path / "workspaces"
+    workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -578,15 +759,23 @@ def test_mark_running_knowledge_status_files_interrupted_cancels_followups_and_t
     task_rows_by_id = {row["task_id"]: row for row in task_rows}
 
     assert json.loads((shard_root / "repair_live_status.json").read_text(encoding="utf-8"))["state"] == (
-        "cancelled_due_to_interrupt"
+        "cancelled_stage_interrupt"
     )
     assert json.loads((retry_root / "live_status.json").read_text(encoding="utf-8"))["state"] == (
-        "cancelled_due_to_interrupt"
+        "cancelled_stage_interrupt"
     )
-    assert repair_status["status"] == "cancelled_due_to_interrupt"
-    assert retry_status["status"] == "cancelled_due_to_interrupt"
+    assert repair_status["status"] == "cancelled_stage_interrupt"
+    assert repair_status["state"] == "cancelled_stage_interrupt"
+    assert repair_status["reason_code"] == "cancelled_stage_interrupt"
+    assert retry_status["status"] == "cancelled_stage_interrupt"
+    assert retry_status["state"] == "cancelled_stage_interrupt"
+    assert retry_status["reason_code"] == "cancelled_stage_interrupt"
     assert task_rows_by_id["book.ks0000.nr.t000"]["state"] == "cancelled_due_to_interrupt"
     assert task_rows_by_id["book.ks0000.nr.t000"]["attempt_state"] == "cancelled"
+    assert (
+        task_rows_by_id["book.ks0000.nr.t000"]["terminal_reason_code"]
+        == "cancelled_stage_interrupt"
+    )
     assert task_rows_by_id["book.ks0000.nr.t001"]["state"] == "validated"
 
 
@@ -659,6 +848,8 @@ def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
+    workspace_root = tmp_path / "workspaces"
+    workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -883,6 +1074,8 @@ def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
+    workspace_root = tmp_path / "workspaces"
+    workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -1272,7 +1465,7 @@ def test_knowledge_orchestrator_retries_taskized_watchdog_failures_inside_large_
 
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert process_summary["workspace_worker_session_count"] == 1
-    assert process_summary["structured_followup_call_count"] == 4
+    assert process_summary["structured_followup_call_count"] == 2
     proposal = json.loads(
         (
             run_root / "raw" / "llm" / "book" / "knowledge" / "proposals" / "book.ks0000.nr.json"
@@ -1280,7 +1473,7 @@ def test_knowledge_orchestrator_retries_taskized_watchdog_failures_inside_large_
     )
     assert proposal["watchdog_retry_attempted"] is True
     assert proposal["watchdog_retry_status"] == "failed"
-    assert proposal["watchdog_retry_skip_reason_code"] is None
+    assert proposal["watchdog_retry_skip_reason_code"] == "retry_skipped_poisoned_worker"
     assert proposal["repair_attempted"] is True
     assert proposal["repair_status"] == "failed"
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
@@ -1288,6 +1481,9 @@ def test_knowledge_orchestrator_retries_taskized_watchdog_failures_inside_large_
         "book.ks0000.nr.task-001",
         "book.ks0000.nr.task-002",
     ]
+    assert proposal["validation_metadata"]["task_watchdog_retry_skip_reason_by_task_id"] == {
+        "book.ks0000.nr.task-002": "retry_skipped_poisoned_worker"
+    }
     assert apply_result.llm_report["review_status"] == "unreviewed"
 
 
@@ -1389,6 +1585,7 @@ def test_knowledge_orchestrator_retries_cohort_outlier_watchdog_once(
             first_block = blocks[0] if isinstance(blocks, list) and blocks else {}
             block_index = int((first_block or {}).get("i") or 0)
             block_text = str((first_block or {}).get("t") or "").strip()
+            grounded_excerpt = block_text[:80].strip() or f"Knowledge chunk {block_index}"
             chunk_rows.append(
                 {
                     "cid": chunk_id,
@@ -1396,8 +1593,8 @@ def test_knowledge_orchestrator_retries_cohort_outlier_watchdog_once(
                     "d": [{"i": block_index, "c": "knowledge"}],
                     "s": [
                         {
-                            "b": f"Knowledge note: {block_text}",
-                            "e": [{"i": block_index, "q": block_text}],
+                            "b": f"Technique note for {chunk_id}",
+                            "e": [{"i": block_index, "q": grounded_excerpt}],
                         }
                     ],
                 }
@@ -1416,7 +1613,7 @@ def test_knowledge_orchestrator_retries_cohort_outlier_watchdog_once(
                         "d": [{"i": block_index, "c": "knowledge"}],
                         "s": [
                             {
-                                "b": f"Knowledge note for {chunk_id}",
+                                "b": f"Technique note for {chunk_id}",
                                 "e": [{"i": block_index, "q": f"Knowledge chunk {block_index}"}],
                             }
                         ],
@@ -1752,516 +1949,6 @@ def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_re
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
 
 
-def test_knowledge_orchestrator_emits_structured_progress_snapshots(tmp_path: Path) -> None:
-    pack_root = tmp_path / "pack"
-    for name in ("pipelines", "prompts", "schemas"):
-        (pack_root / name).mkdir(parents=True, exist_ok=True)
-
-    run_root = tmp_path / "run"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 2,
-            "knowledge_worker_count": 4,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-            "codex_farm_knowledge_context_blocks": 1,
-        }
-    )
-
-    result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
-        nonRecipeBlocks=[
-            {"index": 0, "text": "Preface"},
-            {"index": 4, "text": "Technique: Whisk constantly."},
-        ],
-        rawArtifacts=[
-            RawArtifact(
-                importer="text",
-                sourceHash="hash123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Preface"},
-                        {"index": 1, "text": "Toast"},
-                        {"index": 2, "text": "1 slice bread"},
-                        {"index": 3, "text": "Toast the bread."},
-                        {"index": 4, "text": "Technique: Whisk constantly."},
-                    ]
-                },
-                metadata={},
-            )
-        ],
-        report=ConversionReport(),
-        workbook="book",
-        workbookPath="book.txt",
-    )
-
-    progress_messages: list[str] = []
-    run_codex_farm_nonrecipe_knowledge_review(
-        conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.other.0.1",
-                    category="other",
-                    block_start_index=0,
-                    block_end_index=1,
-                    block_indices=[0],
-                    block_ids=["b0"],
-                ),
-                NonRecipeSpan(
-                    span_id="nr.knowledge.4.5",
-                    category="knowledge",
-                    block_start_index=4,
-                    block_end_index=5,
-                    block_indices=[4],
-                    block_ids=["b4"],
-                ),
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.4.5",
-                    category="knowledge",
-                    block_start_index=4,
-                    block_end_index=5,
-                    block_indices=[4],
-                    block_ids=["b4"],
-                )
-            ],
-            other_spans=[
-                NonRecipeSpan(
-                    span_id="nr.other.0.1",
-                    category="other",
-                    block_start_index=0,
-                    block_end_index=1,
-                    block_indices=[0],
-                    block_ids=["b0"],
-                )
-            ],
-            block_category_by_index={0: "other", 4: "knowledge"},
-        ),
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=1,
-                end_block_index=4,
-                block_indices=[1, 2, 3],
-                source_block_ids=["b1", "b2", "b3"],
-            )
-        ],
-        run_settings=settings,
-        run_root=run_root,
-        workbook_slug="book",
-        runner=FakeCodexExecRunner(
-            output_builder=lambda payload: build_structural_pipeline_output(
-                "recipe.knowledge.compact.v1",
-                dict(payload or {}),
-            )
-        ),
-        progress_callback=progress_messages.append,
-    )
-
-    payloads = [
-        payload
-        for message in progress_messages
-        for payload in [parse_stage_progress(message)]
-        if payload is not None
-    ]
-    assert payloads
-    assert payloads[0]["stage_label"] == "non-recipe knowledge review"
-    assert payloads[0]["task_current"] == 0
-    assert payloads[0]["task_total"] >= 1
-    assert int(payloads[0]["worker_total"] or 0) >= 1
-    assert any(
-        any(line.startswith("configured workers: ") for line in (payload.get("detail_lines") or []))
-        for payload in payloads
-    )
-    assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
-
-
-def test_knowledge_orchestrator_reports_live_task_packet_progress(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    def _fake_chunks(_sequence, overrides=None):
-        del overrides
-        return [
-            KnowledgeChunk(
-                id="chunk-0",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Sauce Basics",
-                text="Always whisk constantly when adding butter.",
-                blockIds=[0],
-            ),
-            KnowledgeChunk(
-                id="chunk-1",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Seasoning",
-                text="Salt in layers for better control.",
-                blockIds=[1],
-            ),
-            KnowledgeChunk(
-                id="chunk-2",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Storage",
-                text="Cool leftovers quickly before refrigeration.",
-                blockIds=[2],
-            ),
-            KnowledgeChunk(
-                id="chunk-3",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Heat",
-                text="Control the pan temperature carefully.",
-                blockIds=[3],
-            ),
-        ]
-
-    monkeypatch.setattr(
-        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
-        _fake_chunks,
-    )
-
-    class _LiveProgressRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            working_dir = Path(kwargs.get("working_dir"))
-            out_dir = working_dir / "out"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            supervision_callback = kwargs.get("supervision_callback")
-            assigned_tasks = json.loads(
-                (working_dir / "assigned_tasks.json").read_text(encoding="utf-8")
-            )
-            for index, task_row in enumerate(assigned_tasks, start=1):
-                if not isinstance(task_row, dict):
-                    continue
-                task_id = str(task_row.get("task_id") or "")
-                if not task_id:
-                    continue
-                input_payload = json.loads(
-                    (working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
-                )
-                output_payload = build_structural_pipeline_output(
-                    "recipe.knowledge.compact.v1",
-                    dict(input_payload or {}),
-                )
-                (out_dir / f"{task_id}.json").write_text(
-                    json.dumps(output_payload, indent=2, sort_keys=True),
-                    encoding="utf-8",
-                )
-                if supervision_callback is not None and index < len(assigned_tasks):
-                    supervision_callback(
-                        CodexExecLiveSnapshot(
-                            elapsed_seconds=index * 0.1,
-                            last_event_seconds_ago=0.0,
-                            event_count=index,
-                            command_execution_count=index,
-                            reasoning_item_count=0,
-                            last_command=f"/bin/bash -lc cat out/{task_id}.json",
-                            last_command_repeat_count=1,
-                            has_final_agent_message=False,
-                            timeout_seconds=kwargs.get("timeout_seconds"),
-                        )
-                    )
-
-            response_text = json.dumps({"status": "worker_completed"}, sort_keys=True)
-            events = (
-                {"type": "thread.started"},
-                {
-                    "type": "item.completed",
-                    "item": {"type": "agent_message", "text": response_text},
-                },
-            )
-            return CodexExecRunResult(
-                command=["codex", "exec"],
-                subprocess_exit_code=0,
-                output_schema_path=None,
-                prompt_text=str(kwargs.get("prompt_text") or ""),
-                response_text=response_text,
-                turn_failed_message=None,
-                events=events,
-                usage={
-                    "input_tokens": 10,
-                    "cached_input_tokens": 0,
-                    "output_tokens": 4,
-                    "reasoning_tokens": 0,
-                },
-                stderr_text=None,
-                stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
-                source_working_dir=str(working_dir),
-                execution_working_dir=str(working_dir),
-                execution_agents_path=None,
-                duration_ms=25,
-                started_at_utc="2026-01-01T00:00:00Z",
-                finished_at_utc="2026-01-01T00:00:01Z",
-                supervision_state="completed",
-            )
-
-    pack_root = tmp_path / "pack"
-    for name in ("pipelines", "prompts", "schemas"):
-        (pack_root / name).mkdir(parents=True, exist_ok=True)
-
-    run_root = tmp_path / "run"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
-            "knowledge_worker_count": 1,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-        }
-    )
-
-    result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
-        rawArtifacts=[
-            RawArtifact(
-                importer="text",
-                sourceHash="hash123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Always whisk constantly when adding butter."},
-                        {"index": 1, "text": "Salt in layers for better control."},
-                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
-                        {"index": 3, "text": "Control the pan temperature carefully."},
-                    ]
-                },
-                metadata={},
-            )
-        ],
-        report=ConversionReport(),
-        workbook="book",
-        workbookPath="book.txt",
-    )
-
-    progress_messages: list[str] = []
-    run_codex_farm_nonrecipe_knowledge_review(
-        conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            other_spans=[],
-            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge", 3: "knowledge"},
-        ),
-        recipe_spans=[],
-        run_settings=settings,
-        run_root=run_root,
-        workbook_slug="book",
-        runner=_LiveProgressRunner(
-            output_builder=lambda payload: build_structural_pipeline_output(
-                "recipe.knowledge.compact.v1",
-                dict(payload or {}),
-            )
-        ),
-        progress_callback=progress_messages.append,
-    )
-
-    payloads = [
-        payload
-        for message in progress_messages
-        for payload in [parse_stage_progress(message)]
-        if payload is not None
-    ]
-
-    assert payloads
-    assert payloads[0]["task_current"] == 0
-    assert payloads[0]["task_total"] == 4
-    live_payloads = [
-        payload
-        for payload in payloads
-        if 0 < int(payload.get("task_current") or 0) < int(payload.get("task_total") or 0)
-    ]
-    assert live_payloads
-    assert any(
-        "book.ks0000.nr (1/4 task packets)" in (payload.get("active_tasks") or [])
-        for payload in live_payloads
-    )
-    assert any(
-        "completed shards: 0/1" in (payload.get("detail_lines") or [])
-        for payload in live_payloads
-    )
-    assert payloads[-1]["task_current"] == 4
-    assert payloads[-1]["task_total"] == 4
-
-
-def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    def _fake_chunks(_sequence, overrides=None):
-        del overrides
-        return [
-            KnowledgeChunk(
-                id="chunk-0",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Sauce Basics",
-                text="Always whisk constantly when adding butter.",
-                blockIds=[0],
-            ),
-            KnowledgeChunk(
-                id="chunk-1",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Seasoning",
-                text="Salt in layers for better control.",
-                blockIds=[1],
-            ),
-            KnowledgeChunk(
-                id="chunk-2",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Storage",
-                text="Cool leftovers quickly before refrigeration.",
-                blockIds=[2],
-            ),
-            KnowledgeChunk(
-                id="chunk-3",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Heat",
-                text="Control the pan temperature carefully.",
-                blockIds=[3],
-            ),
-        ]
-
-    monkeypatch.setattr(
-        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
-        _fake_chunks,
-    )
-
-    barrier = threading.Barrier(2)
-    lock = threading.Lock()
-    state = {"current": 0, "max": 0}
-
-    class _ConcurrentRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            with lock:
-                state["current"] += 1
-                state["max"] = max(state["max"], state["current"])
-            barrier.wait(timeout=1.0)
-            time.sleep(0.05)
-            try:
-                return super().run_workspace_worker(*args, **kwargs)
-            finally:
-                with lock:
-                    state["current"] -= 1
-
-    pack_root = tmp_path / "pack"
-    for name in ("pipelines", "prompts", "schemas"):
-        (pack_root / name).mkdir(parents=True, exist_ok=True)
-
-    run_root = tmp_path / "run"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 2,
-            "knowledge_worker_count": 2,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-        }
-    )
-    result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
-        rawArtifacts=[
-            RawArtifact(
-                importer="text",
-                sourceHash="hash123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Always whisk constantly when adding butter."},
-                        {"index": 1, "text": "Salt in layers for better control."},
-                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
-                        {"index": 3, "text": "Control the pan temperature carefully."},
-                    ]
-                },
-                metadata={},
-            )
-        ],
-        report=ConversionReport(),
-        workbook="book",
-        workbookPath="book.txt",
-    )
-
-    apply_result = run_codex_farm_nonrecipe_knowledge_review(
-        conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            other_spans=[],
-            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge", 3: "knowledge"},
-        ),
-        recipe_spans=[],
-        run_settings=settings,
-        run_root=run_root,
-        workbook_slug="book",
-        runner=_ConcurrentRunner(
-            output_builder=lambda payload: build_structural_pipeline_output(
-                "recipe.knowledge.compact.v1",
-                dict(payload or {}),
-            )
-        ),
-    )
-
-    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 2
-    assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
-    assert state["max"] >= 2
-
-
 def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Path) -> None:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
@@ -2457,10 +2144,15 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
         "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
         _fake_chunks,
     )
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
 
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
+    workspace_root = tmp_path / "workspaces"
+    workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -2471,6 +2163,7 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
             "knowledge_prompt_target_count": 2,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
+            "codex_farm_workspace_root": str(workspace_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
             "codex_farm_failure_mode": "fail",
         }
@@ -2539,8 +2232,21 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
         ),
     )
 
-    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 2
-    assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
+    phase_runtime = apply_result.llm_report["phase_worker_runtime"]
+
+    assert phase_runtime["shard_count"] == 2
+    assert phase_runtime["worker_count"] == 2
+    assert phase_runtime["bundle_policy"] == (
+        "shard_round_robin_with_task_packets_v1"
+    )
+    assert phase_runtime["task_packet_total"] >= phase_runtime["shard_count"]
+    assert sum(phase_runtime["worker_task_packet_counts"].values()) == phase_runtime[
+        "task_packet_total"
+    ]
+    assert phase_runtime["max_task_packets_per_worker"] >= phase_runtime[
+        "min_task_packets_per_worker"
+    ]
+    assert phase_runtime["min_task_packets_per_worker"] >= 1
 
 
 def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment(
@@ -2800,235 +2506,6 @@ def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_ass
         "book.ks0000.nr.task-001",
         "book.ks0000.nr.task-002",
     ]
-    assert apply_result.llm_report["counts"]["validated_shards"] == 1
-
-
-def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    def _fake_chunks(_sequence, overrides=None):
-        del overrides
-        return [
-            KnowledgeChunk(
-                id="chunk-0",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Sauce Basics",
-                text="Always whisk constantly when adding butter.",
-                blockIds=[0],
-            ),
-            KnowledgeChunk(
-                id="chunk-1",
-                lane=ChunkLane.KNOWLEDGE,
-                title="Seasoning",
-                text="Salt in layers for better control.",
-                blockIds=[1],
-            ),
-        ]
-
-    monkeypatch.setattr(
-        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
-        _fake_chunks,
-    )
-
-    class LeasingRunner(FakeCodexExecRunner):
-        def __init__(self) -> None:
-            super().__init__(
-                output_builder=lambda payload: build_structural_pipeline_output(
-                    "recipe.knowledge.compact.v1",
-                    dict(payload or {}),
-                )
-            )
-            self.seen_task_ids: list[str] = []
-            self.seen_result_paths: list[str] = []
-            self.seen_hint_prefixes: list[str] = []
-
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            working_dir = Path(kwargs.get("working_dir"))
-            out_dir = working_dir / "out"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            supervision_callback = kwargs.get("supervision_callback")
-
-            while True:
-                lease_status = json.loads(
-                    (working_dir / "packet_lease_status.json").read_text(encoding="utf-8")
-                )
-                if lease_status["worker_state"] == "all_packets_settled":
-                    break
-                current_packet = json.loads(
-                    (working_dir / "current_packet.json").read_text(encoding="utf-8")
-                )
-                current_hint = (working_dir / "current_hint.md").read_text(encoding="utf-8")
-                result_path_text = (
-                    working_dir / "current_result_path.txt"
-                ).read_text(encoding="utf-8").strip()
-                result_path = working_dir / result_path_text
-                self.seen_task_ids.append(current_packet["task_id"])
-                self.seen_result_paths.append(result_path_text)
-                self.seen_hint_prefixes.append(current_hint.splitlines()[0].strip())
-
-                result_path.write_text(
-                    json.dumps(
-                        build_structural_pipeline_output(
-                            "recipe.knowledge.compact.v1",
-                            dict(current_packet["input_payload"] or {}),
-                        ),
-                        indent=2,
-                        sort_keys=True,
-                    ),
-                    encoding="utf-8",
-                )
-                if supervision_callback is not None:
-                    supervision_callback(
-                        CodexExecLiveSnapshot(
-                            elapsed_seconds=max(0.1, len(self.seen_task_ids) * 0.1),
-                            last_event_seconds_ago=0.0,
-                            event_count=len(self.seen_task_ids),
-                            command_execution_count=len(self.seen_task_ids),
-                            reasoning_item_count=0,
-                            last_command="/bin/bash -lc 'cat current_packet.json'",
-                            last_command_repeat_count=1,
-                            has_final_agent_message=False,
-                            timeout_seconds=kwargs.get("timeout_seconds"),
-                        )
-                    )
-                deadline = time.time() + 2.0
-                while time.time() < deadline:
-                    refreshed_status = json.loads(
-                        (working_dir / "packet_lease_status.json").read_text(encoding="utf-8")
-                    )
-                    if (
-                        refreshed_status["worker_state"] == "all_packets_settled"
-                        or refreshed_status["current_task_id"] != current_packet["task_id"]
-                    ):
-                        break
-                    time.sleep(0.05)
-
-            response_text = json.dumps({"status": "worker_completed"}, sort_keys=True)
-            events = (
-                {"type": "thread.started"},
-                {
-                    "type": "item.completed",
-                    "item": {"type": "agent_message", "text": response_text},
-                },
-            )
-            return CodexExecRunResult(
-                command=["codex", "exec"],
-                subprocess_exit_code=0,
-                output_schema_path=None,
-                prompt_text=str(kwargs.get("prompt_text") or ""),
-                response_text=response_text,
-                turn_failed_message=None,
-                events=events,
-                usage={
-                    "input_tokens": 100,
-                    "cached_input_tokens": 0,
-                    "output_tokens": 10,
-                    "reasoning_tokens": 0,
-                },
-                duration_ms=250,
-                started_at_utc="2026-03-20T22:45:20Z",
-                finished_at_utc="2026-03-20T22:45:21Z",
-                supervision_state="completed",
-            )
-
-    pack_root = tmp_path / "pack"
-    for name in ("pipelines", "prompts", "schemas"):
-        (pack_root / name).mkdir(parents=True, exist_ok=True)
-
-    run_root = tmp_path / "run"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
-            "knowledge_worker_count": 1,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-        }
-    )
-    result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
-        rawArtifacts=[
-            RawArtifact(
-                importer="text",
-                sourceHash="hash123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Always whisk constantly when adding butter."},
-                        {"index": 1, "text": "Salt in layers for better control."},
-                    ]
-                },
-                metadata={},
-            )
-        ],
-        report=ConversionReport(),
-        workbook="book",
-        workbookPath="book.txt",
-    )
-    runner = LeasingRunner()
-
-    apply_result = run_codex_farm_nonrecipe_knowledge_review(
-        conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.2",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=2,
-                    block_indices=[0, 1],
-                    block_ids=["b0", "b1"],
-                )
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.2",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=2,
-                    block_indices=[0, 1],
-                    block_ids=["b0", "b1"],
-                )
-            ],
-            other_spans=[],
-            block_category_by_index={0: "knowledge", 1: "knowledge"},
-        ),
-        recipe_spans=[],
-        run_settings=settings,
-        run_root=run_root,
-        workbook_slug="book",
-        runner=runner,
-    )
-
-    phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
-    worker_root = phase_dir / "workers" / "worker-001"
-    task_status_rows = [
-        json.loads(line)
-        for line in (phase_dir / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-
-    assert runner.seen_task_ids == [
-        "book.ks0000.nr.task-001",
-        "book.ks0000.nr.task-002",
-    ]
-    assert runner.seen_result_paths == [
-        "out/book.ks0000.nr.task-001.json",
-        "out/book.ks0000.nr.task-002.json",
-    ]
-    assert all("Knowledge review hints" in prefix for prefix in runner.seen_hint_prefixes)
-    assert json.loads(
-        (worker_root / "packet_lease_status.json").read_text(encoding="utf-8")
-    )["worker_state"] == "all_packets_settled"
-    assert [row["state"] for row in task_status_rows] == ["validated", "validated"]
     assert apply_result.llm_report["counts"]["validated_shards"] == 1
 
 

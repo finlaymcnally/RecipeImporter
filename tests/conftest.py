@@ -37,10 +37,12 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_run_settings_adapters.py": ("cli",),
     "test_codex_farm_contracts.py": ("llm",),
     "test_codex_farm_knowledge_orchestrator.py": ("llm",),
+    "test_codex_farm_knowledge_orchestrator_runtime.py": ("llm",),
     "test_codex_farm_orchestrator.py": ("llm",),
     "test_codex_farm_orchestrator_runner_transport.py": ("llm",),
     "test_codex_farm_orchestrator_stage_integration.py": ("llm",),
     "test_codex_bridge_projection_policy.py": ("bench",),
+    "test_codex_exec_runner_workspace.py": ("llm",),
     "test_draft_v1_lowercase.py": ("staging",),
     "test_draft_v1_priority6.py": ("staging",),
     "test_draft_v1_staging_alignment.py": ("staging",),
@@ -440,3 +442,14 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
     if terminalreporter is not None:
         _emit_failure_hints(terminalreporter)
+
+
+@pytest.fixture(autouse=True)
+def _force_writable_codex_home(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_home = tmp_path_factory.mktemp("codex-home")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", str(codex_home))
