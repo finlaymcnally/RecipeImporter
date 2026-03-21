@@ -52,6 +52,7 @@ def test_knowledge_workspace_watchdog_allows_shell_work_until_command_loop(
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["last_command_policy"] == "tolerated_workspace_shell_command"
     assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
 
 
 def test_knowledge_strict_json_watchdog_kills_silent_retry(
@@ -166,6 +167,7 @@ def test_knowledge_workspace_watchdog_stops_after_outputs_stabilize(
     assert live_status["state"] == "watchdog_killed"
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
+    assert live_status["last_command_boundary_violation_detected"] is False
 
 
 def test_finalize_live_status_normalizes_completed_reason_code(tmp_path: Path) -> None:
@@ -1614,6 +1616,235 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(tmp_path: Pa
         for payload in payloads
     )
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
+
+
+def test_knowledge_orchestrator_reports_live_task_packet_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-0",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Sauce Basics",
+                text="Always whisk constantly when adding butter.",
+                blockIds=[0],
+            ),
+            KnowledgeChunk(
+                id="chunk-1",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Seasoning",
+                text="Salt in layers for better control.",
+                blockIds=[1],
+            ),
+            KnowledgeChunk(
+                id="chunk-2",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Storage",
+                text="Cool leftovers quickly before refrigeration.",
+                blockIds=[2],
+            ),
+            KnowledgeChunk(
+                id="chunk-3",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Heat",
+                text="Control the pan temperature carefully.",
+                blockIds=[3],
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    class _LiveProgressRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            working_dir = Path(kwargs.get("working_dir"))
+            out_dir = working_dir / "out"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            supervision_callback = kwargs.get("supervision_callback")
+            assigned_tasks = json.loads(
+                (working_dir / "assigned_tasks.json").read_text(encoding="utf-8")
+            )
+            for index, task_row in enumerate(assigned_tasks, start=1):
+                if not isinstance(task_row, dict):
+                    continue
+                task_id = str(task_row.get("task_id") or "")
+                if not task_id:
+                    continue
+                input_payload = json.loads(
+                    (working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
+                )
+                output_payload = build_structural_pipeline_output(
+                    "recipe.knowledge.compact.v1",
+                    dict(input_payload or {}),
+                )
+                (out_dir / f"{task_id}.json").write_text(
+                    json.dumps(output_payload, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+                if supervision_callback is not None and index < len(assigned_tasks):
+                    supervision_callback(
+                        CodexExecLiveSnapshot(
+                            elapsed_seconds=index * 0.1,
+                            last_event_seconds_ago=0.0,
+                            event_count=index,
+                            command_execution_count=index,
+                            reasoning_item_count=0,
+                            last_command=f"/bin/bash -lc cat out/{task_id}.json",
+                            last_command_repeat_count=1,
+                            has_final_agent_message=False,
+                            timeout_seconds=kwargs.get("timeout_seconds"),
+                        )
+                    )
+
+            response_text = json.dumps({"status": "worker_completed"}, sort_keys=True)
+            events = (
+                {"type": "thread.started"},
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": response_text},
+                },
+            )
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text=response_text,
+                turn_failed_message=None,
+                events=events,
+                usage={
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 4,
+                    "reasoning_tokens": 0,
+                },
+                stderr_text=None,
+                stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(working_dir),
+                execution_agents_path=None,
+                duration_ms=25,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:01Z",
+                supervision_state="completed",
+            )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 1,
+            "knowledge_worker_count": 1,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Always whisk constantly when adding butter."},
+                        {"index": 1, "text": "Salt in layers for better control."},
+                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
+                        {"index": 3, "text": "Control the pan temperature carefully."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+
+    progress_messages: list[str] = []
+    run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.4",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=4,
+                    block_indices=[0, 1, 2, 3],
+                    block_ids=["b0", "b1", "b2", "b3"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.4",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=4,
+                    block_indices=[0, 1, 2, 3],
+                    block_ids=["b0", "b1", "b2", "b3"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge", 3: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=_LiveProgressRunner(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                "recipe.knowledge.compact.v1",
+                dict(payload or {}),
+            )
+        ),
+        progress_callback=progress_messages.append,
+    )
+
+    payloads = [
+        payload
+        for message in progress_messages
+        for payload in [parse_stage_progress(message)]
+        if payload is not None
+    ]
+
+    assert payloads
+    assert payloads[0]["task_current"] == 0
+    assert payloads[0]["task_total"] == 4
+    live_payloads = [
+        payload
+        for payload in payloads
+        if 0 < int(payload.get("task_current") or 0) < int(payload.get("task_total") or 0)
+    ]
+    assert live_payloads
+    assert any(
+        "book.ks0000.nr (1/4 task packets)" in (payload.get("active_tasks") or [])
+        for payload in live_payloads
+    )
+    assert any(
+        "completed shards: 0/1" in (payload.get("detail_lines") or [])
+        for payload in live_payloads
+    )
+    assert payloads[-1]["task_current"] == 4
+    assert payloads[-1]["task_total"] == 4
 
 
 def test_knowledge_orchestrator_runs_worker_assignments_concurrently(

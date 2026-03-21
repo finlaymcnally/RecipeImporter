@@ -14,6 +14,7 @@ from cookimport.llm.codex_exec_runner import (
     CodexExecRunResult,
     CodexExecLiveSnapshot,
     CodexExecSupervisionDecision,
+    detect_workspace_worker_boundary_violation,
     FakeCodexExecRunner,
     SubprocessCodexExecRunner,
     is_tolerated_workspace_worker_command,
@@ -277,6 +278,49 @@ def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None
     )
     assert forbidden.allowed is False
     assert forbidden.policy == "forbidden_non_helper_executable"
+
+
+def test_codex_exec_runner_detects_boundary_violations_separately_from_telemetry() -> None:
+    assert (
+        detect_workspace_worker_boundary_violation(
+            "/bin/bash -lc 'jq .rows[0] in/shard-001.json > out/shard-001.json'"
+        )
+        is None
+    )
+    assert (
+        detect_workspace_worker_boundary_violation(
+            "/bin/bash -lc 'cat <<'\"'\"'EOF'\"'\"' > out/shard-001.json\n"
+            "{\"rows\":[]}\n"
+            "EOF"
+        )
+        is None
+    )
+
+    forbidden_tool = detect_workspace_worker_boundary_violation(
+        "/bin/bash -lc \"python -c 'print(1)'\""
+    )
+    assert forbidden_tool is not None
+    assert forbidden_tool.policy == "forbidden_non_helper_executable"
+
+    forbidden_path = detect_workspace_worker_boundary_violation(
+        "/bin/bash -lc 'cat /tmp/secret.txt'"
+    )
+    assert forbidden_path is not None
+    assert forbidden_path.policy == "forbidden_absolute_path"
+
+
+def test_codex_exec_runner_keeps_unparseable_but_bounded_shell_unclassified() -> None:
+    command = (
+        "/bin/bash -lc 'cat <<\"EOF\" > out/shard-001.json\n"
+        "{\"rows\":[]}\n"
+        "EOF"
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+
+    classification = classify_workspace_worker_command(command)
+    assert classification.allowed is True
+    assert classification.policy == "unclassified_workspace_shell_command"
 
 
 def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(

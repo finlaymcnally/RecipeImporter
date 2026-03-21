@@ -40,9 +40,9 @@ from .codex_exec_runner import (
     SubprocessCodexExecRunner,
     assess_final_agent_message,
     classify_workspace_worker_command,
+    detect_workspace_worker_boundary_violation,
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
-    is_tolerated_workspace_worker_command,
     should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )
@@ -205,6 +205,19 @@ def _build_knowledge_task_runtime_manifest_entry(
     )
 
 
+def _progress_task_ids_for_knowledge_shard(
+    *,
+    shard_id: str,
+    task_plans_by_shard_id: Mapping[str, Sequence[_KnowledgeTaskPlan]],
+) -> tuple[str, ...]:
+    task_ids = tuple(
+        str(task_plan.task_id).strip()
+        for task_plan in (task_plans_by_shard_id.get(shard_id) or ())
+        if str(task_plan.task_id).strip()
+    )
+    return task_ids or (str(shard_id).strip(),)
+
+
 def _aggregate_knowledge_task_payloads(
     *,
     shard: ShardManifestEntryV1,
@@ -291,6 +304,7 @@ def _notify_knowledge_progress(
     running_tasks: int | None = None,
     worker_total: int | None = None,
     active_tasks: list[str] | None = None,
+    detail_lines: list[str] | None = None,
 ) -> None:
     if progress_callback is None:
         return
@@ -299,10 +313,11 @@ def _notify_knowledge_progress(
     message = f"Running codex-farm non-recipe knowledge review... task {completed}/{total}"
     if running_tasks is not None:
         message = f"{message} | running {max(0, int(running_tasks))}"
-    remaining = max(0, total - completed)
-    detail_lines = [f"queued shards: {remaining}"]
-    if worker_total is not None:
-        detail_lines.insert(0, f"configured workers: {max(0, int(worker_total))}")
+    resolved_detail_lines = [
+        str(value).strip()
+        for value in (detail_lines or [])
+        if str(value).strip()
+    ]
     progress_callback(
         format_stage_progress(
             message,
@@ -312,9 +327,278 @@ def _notify_knowledge_progress(
             running_workers=running_tasks,
             worker_total=worker_total,
             active_tasks=active_tasks,
-            detail_lines=detail_lines,
+            detail_lines=resolved_detail_lines,
         )
     )
+
+
+@dataclass(slots=True)
+class _KnowledgeWorkerProgressState:
+    worker_id: str
+    shard_ids: tuple[str, ...]
+    pending_shard_ids: list[str]
+    total_task_packets: int
+    live_task_packets: int = 0
+    terminal_task_ids: set[str] = field(default_factory=set)
+    active_followup_label: str | None = None
+
+    def visible_task_packets(self) -> int:
+        return max(self.live_task_packets, len(self.terminal_task_ids))
+
+    def render_label(self) -> str | None:
+        if self.active_followup_label:
+            return self.active_followup_label
+        if len(self.terminal_task_ids) >= self.total_task_packets and not self.pending_shard_ids:
+            return None
+        shard_ids = self.pending_shard_ids or list(self.shard_ids)
+        if not shard_ids:
+            return None
+        base_label = str(shard_ids[0]).strip() or self.worker_id
+        extra_shard_count = max(0, len(shard_ids) - 1)
+        if extra_shard_count > 0:
+            base_label = f"{base_label} +{extra_shard_count} more"
+        if self.total_task_packets <= 0:
+            return base_label
+        return (
+            f"{base_label} "
+            f"({self.visible_task_packets()}/{self.total_task_packets} task packets)"
+        )
+
+
+@dataclass(slots=True)
+class _KnowledgePhaseProgressState:
+    progress_callback: Callable[[str], None] | None
+    total_shards: int
+    total_task_packets: int
+    worker_total: int
+    worker_order: tuple[str, ...]
+    worker_states: dict[str, _KnowledgeWorkerProgressState]
+    completed_shard_ids: set[str] = field(default_factory=set)
+    running_followup_counts: dict[str, int] = field(default_factory=dict)
+    last_snapshot_key: tuple[Any, ...] | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def emit(self, *, force: bool = False) -> None:
+        with self.lock:
+            self._emit_locked(force=force)
+
+    def observe_workspace_outputs(
+        self,
+        *,
+        worker_id: str,
+        present_count: int,
+        expected_count: int,
+    ) -> None:
+        with self.lock:
+            worker_state = self.worker_states.get(worker_id)
+            if worker_state is None:
+                return
+            capped_total = worker_state.total_task_packets or max(0, int(expected_count))
+            next_count = min(capped_total, max(0, int(present_count)))
+            next_count = max(worker_state.live_task_packets, next_count)
+            if next_count == worker_state.live_task_packets:
+                return
+            worker_state.live_task_packets = next_count
+            self._emit_locked()
+
+    def mark_task_packet_terminal(
+        self,
+        *,
+        worker_id: str,
+        task_id: str,
+    ) -> None:
+        cleaned_task_id = str(task_id).strip()
+        if not cleaned_task_id:
+            return
+        with self.lock:
+            worker_state = self.worker_states.get(worker_id)
+            if worker_state is None or cleaned_task_id in worker_state.terminal_task_ids:
+                return
+            worker_state.terminal_task_ids.add(cleaned_task_id)
+            self._emit_locked()
+
+    def mark_task_packets_terminal(
+        self,
+        *,
+        worker_id: str,
+        task_ids: Sequence[str],
+    ) -> None:
+        with self.lock:
+            worker_state = self.worker_states.get(worker_id)
+            if worker_state is None:
+                return
+            changed = False
+            for task_id in task_ids:
+                cleaned_task_id = str(task_id).strip()
+                if not cleaned_task_id or cleaned_task_id in worker_state.terminal_task_ids:
+                    continue
+                worker_state.terminal_task_ids.add(cleaned_task_id)
+                changed = True
+            if changed:
+                self._emit_locked()
+
+    def mark_shard_completed(
+        self,
+        *,
+        worker_id: str,
+        shard_id: str,
+    ) -> None:
+        cleaned_shard_id = str(shard_id).strip()
+        if not cleaned_shard_id:
+            return
+        with self.lock:
+            worker_state = self.worker_states.get(worker_id)
+            if worker_state is not None and cleaned_shard_id in worker_state.pending_shard_ids:
+                worker_state.pending_shard_ids.remove(cleaned_shard_id)
+            if cleaned_shard_id in self.completed_shard_ids:
+                return
+            self.completed_shard_ids.add(cleaned_shard_id)
+            self._emit_locked()
+
+    def set_followup_label(
+        self,
+        *,
+        worker_id: str,
+        label: str | None,
+    ) -> None:
+        cleaned_label = str(label or "").strip() or None
+        with self.lock:
+            worker_state = self.worker_states.get(worker_id)
+            if worker_state is None or worker_state.active_followup_label == cleaned_label:
+                return
+            worker_state.active_followup_label = cleaned_label
+            self._emit_locked()
+
+    def clear_followup_label(self, *, worker_id: str) -> None:
+        self.set_followup_label(worker_id=worker_id, label=None)
+
+    def begin_followup(
+        self,
+        *,
+        worker_id: str,
+        label: str,
+        followup_kind: str,
+    ) -> None:
+        cleaned_label = str(label or "").strip() or None
+        cleaned_kind = str(followup_kind or "").strip().lower() or "followup"
+        with self.lock:
+            worker_state = self.worker_states.get(worker_id)
+            if worker_state is None:
+                return
+            worker_state.active_followup_label = cleaned_label
+            self.running_followup_counts[cleaned_kind] = (
+                int(self.running_followup_counts.get(cleaned_kind) or 0) + 1
+            )
+            self._emit_locked()
+
+    def end_followup(self, *, worker_id: str, followup_kind: str) -> None:
+        cleaned_kind = str(followup_kind or "").strip().lower() or "followup"
+        with self.lock:
+            worker_state = self.worker_states.get(worker_id)
+            if worker_state is None:
+                return
+            worker_state.active_followup_label = None
+            current = int(self.running_followup_counts.get(cleaned_kind) or 0)
+            if current <= 1:
+                self.running_followup_counts.pop(cleaned_kind, None)
+            else:
+                self.running_followup_counts[cleaned_kind] = current - 1
+            self._emit_locked()
+
+    def _emit_locked(self, *, force: bool = False) -> None:
+        active_tasks = [
+            label
+            for worker_id in self.worker_order
+            for label in [self.worker_states[worker_id].render_label()]
+            if label is not None
+        ]
+        completed_task_packets = min(
+            self.total_task_packets,
+            sum(
+                worker_state.visible_task_packets()
+                for worker_state in self.worker_states.values()
+            ),
+        )
+        running_workers = len(active_tasks)
+        detail_lines = [
+            f"configured workers: {self.worker_total}",
+            f"completed shards: {len(self.completed_shard_ids)}/{self.total_shards}",
+            f"queued task packets: {max(0, self.total_task_packets - completed_task_packets)}",
+        ]
+        repair_running = int(self.running_followup_counts.get("repair") or 0)
+        retry_running = int(self.running_followup_counts.get("retry") or 0)
+        if repair_running > 0:
+            detail_lines.append(f"repair calls running: {repair_running}")
+        if retry_running > 0:
+            detail_lines.append(f"retry calls running: {retry_running}")
+        snapshot_key = (
+            completed_task_packets,
+            self.total_task_packets,
+            running_workers,
+            tuple(active_tasks),
+            tuple(detail_lines),
+        )
+        if not force and snapshot_key == self.last_snapshot_key:
+            return
+        self.last_snapshot_key = snapshot_key
+        _notify_knowledge_progress(
+            progress_callback=self.progress_callback,
+            completed_tasks=completed_task_packets,
+            total_tasks=self.total_task_packets,
+            running_tasks=running_workers,
+            worker_total=self.worker_total,
+            active_tasks=active_tasks,
+            detail_lines=detail_lines,
+        )
+
+
+def _format_knowledge_followup_label(
+    *,
+    parent_shard_id: str,
+    attempt_label: str,
+    task_id: str | None = None,
+) -> str:
+    cleaned_parent = str(parent_shard_id).strip()
+    cleaned_attempt = str(attempt_label).strip()
+    cleaned_task_id = str(task_id or "").strip()
+    if cleaned_task_id and cleaned_task_id != cleaned_parent:
+        return f"{cleaned_parent} {cleaned_attempt} {cleaned_task_id}".strip()
+    return f"{cleaned_parent} {cleaned_attempt}".strip()
+
+
+def _build_knowledge_workspace_progress_watchdog_callback(
+    *,
+    worker_id: str,
+    progress_state: _KnowledgePhaseProgressState | None,
+    expected_output_paths: Sequence[Path],
+    live_status_path: Path,
+    live_status_paths: Sequence[Path] | None = None,
+    cohort_watchdog_state: _KnowledgeCohortWatchdogState | None = None,
+    watchdog_policy: str | None = None,
+    allow_workspace_commands: bool = False,
+) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
+    watchdog_callback = _build_strict_json_watchdog_callback(
+        live_status_path=live_status_path,
+        live_status_paths=live_status_paths,
+        cohort_watchdog_state=cohort_watchdog_state,
+        watchdog_policy=watchdog_policy,
+        allow_workspace_commands=allow_workspace_commands,
+        expected_workspace_output_paths=expected_output_paths,
+    )
+    expected_count = len(expected_output_paths)
+
+    def _callback(
+        snapshot: CodexExecLiveSnapshot,
+    ) -> CodexExecSupervisionDecision | None:
+        if progress_state is not None:
+            progress_state.observe_workspace_outputs(
+                worker_id=worker_id,
+                present_count=sum(1 for path in expected_output_paths if path.exists()),
+                expected_count=expected_count,
+            )
+        return watchdog_callback(snapshot)
+
+    return _callback
 
 
 @dataclass(frozen=True, slots=True)
@@ -1124,6 +1408,10 @@ def _run_direct_knowledge_workers_v1(
         shards=shards,
         worker_count=worker_count,
     )
+    task_plans_by_shard_id = {
+        shard.shard_id: _build_knowledge_task_plans(shard)
+        for shard in shards
+    }
     _write_jsonl(
         run_root / artifacts["shard_manifest"],
         [asdict(shard) for shard in shards],
@@ -1133,7 +1421,7 @@ def _run_direct_knowledge_workers_v1(
         [
             asdict(_build_knowledge_task_runtime_manifest_entry(task_plan))
             for shard in shards
-            for task_plan in _build_knowledge_task_plans(shard)
+            for task_plan in task_plans_by_shard_id.get(shard.shard_id, ())
         ],
     )
     _write_json(
@@ -1146,54 +1434,39 @@ def _run_direct_knowledge_workers_v1(
     worker_reports: list[WorkerExecutionReportV1] = []
     stage_rows: list[dict[str, Any]] = []
     total_shards = len(shards)
-    completed_shards = 0
+    total_task_packets = sum(
+        len(task_plans_by_shard_id.get(shard.shard_id, ()))
+        for shard in shards
+    )
     displayed_worker_total = (
         max(0, int(progress_worker_total))
         if progress_worker_total is not None
         else worker_count
     )
-    initial_active_tasks = [
-        assignment.shard_ids[0]
-        for assignment in assignments
-        if assignment.shard_ids
-    ]
-    _notify_knowledge_progress(
+    progress_state = _KnowledgePhaseProgressState(
         progress_callback=progress_callback,
-        completed_tasks=0,
-        total_tasks=total_shards,
-        running_tasks=min(len(initial_active_tasks), total_shards),
+        total_shards=total_shards,
+        total_task_packets=total_task_packets,
         worker_total=displayed_worker_total,
-        active_tasks=initial_active_tasks[: max(1, min(len(initial_active_tasks), total_shards))],
+        worker_order=tuple(assignment.worker_id for assignment in assignments),
+        worker_states={
+            assignment.worker_id: _KnowledgeWorkerProgressState(
+                worker_id=assignment.worker_id,
+                shard_ids=assignment.shard_ids,
+                pending_shard_ids=list(assignment.shard_ids),
+                total_task_packets=sum(
+                    len(task_plans_by_shard_id.get(shard_id, ()))
+                    for shard_id in assignment.shard_ids
+                ),
+            )
+            for assignment in assignments
+        },
     )
-    progress_lock = threading.Lock()
+    progress_state.emit(force=True)
     cohort_watchdog_state = _KnowledgeCohortWatchdogState()
-    pending_shards_by_worker = {
-        assignment.worker_id: list(assignment.shard_ids)
-        for assignment in assignments
-    }
 
     def _mark_shard_completed(*, worker_id: str, shard_id: str) -> None:
-        nonlocal completed_shards
-        with progress_lock:
-            pending = pending_shards_by_worker.get(worker_id) or []
-            if shard_id in pending:
-                pending.remove(shard_id)
-            completed_shards += 1
-            remaining_shards = max(0, total_shards - completed_shards)
-            next_active_tasks: list[str] = []
-            for next_assignment in assignments:
-                worker_pending = pending_shards_by_worker.get(next_assignment.worker_id) or []
-                if worker_pending:
-                    next_active_tasks.append(worker_pending[0])
-            running_tasks = min(len(next_active_tasks), remaining_shards)
-            _notify_knowledge_progress(
-                progress_callback=progress_callback,
-                completed_tasks=completed_shards,
-                total_tasks=total_shards,
-                running_tasks=running_tasks,
-                worker_total=displayed_worker_total,
-                active_tasks=next_active_tasks[:running_tasks] if remaining_shards > 0 else [],
-            )
+        progress_state.mark_shard_completed(worker_id=worker_id, shard_id=shard_id)
 
     with ThreadPoolExecutor(
         max_workers=max(1, len(assignments)),
@@ -1214,6 +1487,7 @@ def _run_direct_knowledge_workers_v1(
                 output_schema_path=output_schema_path,
                 cohort_watchdog_state=cohort_watchdog_state,
                 shard_completed_callback=_mark_shard_completed,
+                progress_state=progress_state,
             )
             for assignment in assignments
         }
@@ -1615,6 +1889,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
     output_schema_path: Path | None,
     cohort_watchdog_state: _KnowledgeCohortWatchdogState,
     shard_completed_callback: Callable[..., None] | None,
+    progress_state: _KnowledgePhaseProgressState | None,
 ) -> _DirectKnowledgeWorkerResult:
     task_plans_by_shard_id = {
         shard.shard_id: _build_knowledge_task_plans(shard)
@@ -1640,6 +1915,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
             output_schema_path=output_schema_path,
             cohort_watchdog_state=cohort_watchdog_state,
             shard_completed_callback=shard_completed_callback,
+            progress_state=progress_state,
         )
     out_dir = worker_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1760,6 +2036,11 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 },
             )
         )
+        if progress_state is not None:
+            progress_state.mark_task_packet_terminal(
+                worker_id=assignment.worker_id,
+                task_id=shard.shard_id,
+            )
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
@@ -1801,6 +2082,17 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 expected_workspace_output_paths=[
                     out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
                 ],
+                workspace_output_observer=(
+                    None
+                    if progress_state is None
+                    else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
+                        progress_state.observe_workspace_outputs(
+                            worker_id=_worker_id,
+                            present_count=present_count,
+                            expected_count=expected_count,
+                        )
+                    )
+                ),
             ),
         )
         _finalize_live_status(
@@ -1899,19 +2191,31 @@ def _run_knowledge_workspace_worker_assignment_v1(
                     )
                     watchdog_retry_root = shard_root / "watchdog_retry"
                     watchdog_retry_root.mkdir(parents=True, exist_ok=True)
-                    watchdog_retry_run_result = _run_knowledge_watchdog_retry_attempt(
-                        runner=runner,
-                        worker_root=worker_root,
-                        shard=shard,
-                        env=env,
-                        output_schema_path=output_schema_path,
-                        model=model,
-                        reasoning_effort=reasoning_effort,
-                        reason_code=str(run_result.supervision_reason_code or ""),
-                        reason_detail=str(run_result.supervision_reason_detail or ""),
-                        successful_examples=watchdog_retry_examples,
-                        live_status_path=watchdog_retry_root / "live_status.json",
-                    )
+                    if progress_state is not None:
+                        progress_state.set_followup_label(
+                            worker_id=assignment.worker_id,
+                            label=_format_knowledge_followup_label(
+                                parent_shard_id=shard.shard_id,
+                                attempt_label="watchdog retry",
+                            ),
+                        )
+                    try:
+                        watchdog_retry_run_result = _run_knowledge_watchdog_retry_attempt(
+                            runner=runner,
+                            worker_root=worker_root,
+                            shard=shard,
+                            env=env,
+                            output_schema_path=output_schema_path,
+                            model=model,
+                            reasoning_effort=reasoning_effort,
+                            reason_code=str(run_result.supervision_reason_code or ""),
+                            reason_detail=str(run_result.supervision_reason_detail or ""),
+                            successful_examples=watchdog_retry_examples,
+                            live_status_path=watchdog_retry_root / "live_status.json",
+                        )
+                    finally:
+                        if progress_state is not None:
+                            progress_state.clear_followup_label(worker_id=assignment.worker_id)
                     _finalize_live_status(
                         watchdog_retry_root / "live_status.json",
                         run_result=watchdog_retry_run_result,
@@ -2025,19 +2329,32 @@ def _run_knowledge_workspace_worker_assignment_v1(
                         _coerce_dict(retry_shard.input_payload)
                     )
                     (retry_root / "prompt.txt").write_text(retry_prompt_text, encoding="utf-8")
-                    retry_run_result = runner.run_structured_prompt(
-                        prompt_text=retry_prompt_text,
-                        input_payload=_coerce_dict(retry_shard.input_payload),
-                        working_dir=worker_root,
-                        env=env,
-                        output_schema_path=output_schema_path,
-                        model=model,
-                        reasoning_effort=reasoning_effort,
-                        workspace_task_label="knowledge review retry shard",
-                        supervision_callback=_build_strict_json_watchdog_callback(
-                            live_status_path=retry_root / "live_status.json",
-                        ),
-                    )
+                    if progress_state is not None:
+                        progress_state.set_followup_label(
+                            worker_id=assignment.worker_id,
+                            label=_format_knowledge_followup_label(
+                                parent_shard_id=shard.shard_id,
+                                attempt_label="retry",
+                                task_id=retry_shard.shard_id,
+                            ),
+                        )
+                    try:
+                        retry_run_result = runner.run_structured_prompt(
+                            prompt_text=retry_prompt_text,
+                            input_payload=_coerce_dict(retry_shard.input_payload),
+                            working_dir=worker_root,
+                            env=env,
+                            output_schema_path=output_schema_path,
+                            model=model,
+                            reasoning_effort=reasoning_effort,
+                            workspace_task_label="knowledge review retry shard",
+                            supervision_callback=_build_strict_json_watchdog_callback(
+                                live_status_path=retry_root / "live_status.json",
+                            ),
+                        )
+                    finally:
+                        if progress_state is not None:
+                            progress_state.clear_followup_label(worker_id=assignment.worker_id)
                     _finalize_live_status(
                         retry_root / "live_status.json",
                         run_result=retry_run_result,
@@ -2172,19 +2489,31 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 validation_errors=validation_errors,
             ):
                 repair_attempted = True
-                repair_run_result = _run_knowledge_repair_attempt(
-                    runner=runner,
-                    worker_root=worker_root,
-                    shard=shard,
-                    env=env,
-                    output_schema_path=output_schema_path,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    original_response_text=active_response_text,
-                    validation_errors=validation_errors,
-                    validation_metadata=validation_metadata,
-                    live_status_path=shard_root / "repair_live_status.json",
-                )
+                if progress_state is not None:
+                    progress_state.set_followup_label(
+                        worker_id=assignment.worker_id,
+                        label=_format_knowledge_followup_label(
+                            parent_shard_id=shard.shard_id,
+                            attempt_label="repair",
+                        ),
+                    )
+                try:
+                    repair_run_result = _run_knowledge_repair_attempt(
+                        runner=runner,
+                        worker_root=worker_root,
+                        shard=shard,
+                        env=env,
+                        output_schema_path=output_schema_path,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        original_response_text=active_response_text,
+                        validation_errors=validation_errors,
+                        validation_metadata=validation_metadata,
+                        live_status_path=shard_root / "repair_live_status.json",
+                    )
+                finally:
+                    if progress_state is not None:
+                        progress_state.clear_followup_label(worker_id=assignment.worker_id)
                 _finalize_live_status(
                     shard_root / "repair_live_status.json",
                     run_result=repair_run_result,
@@ -2395,6 +2724,11 @@ def _run_knowledge_workspace_worker_assignment_v1(
                     },
                 )
             )
+            if progress_state is not None:
+                progress_state.mark_task_packet_terminal(
+                    worker_id=assignment.worker_id,
+                    task_id=shard.shard_id,
+                )
             if shard_completed_callback is not None:
                 shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
             if proposal_status == "validated":
@@ -2461,6 +2795,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
     output_schema_path: Path | None,
     cohort_watchdog_state: _KnowledgeCohortWatchdogState,
     shard_completed_callback: Callable[..., None] | None,
+    progress_state: _KnowledgePhaseProgressState | None,
 ) -> _DirectKnowledgeWorkerResult:
     out_dir = worker_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2571,6 +2906,14 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 },
             )
         )
+        if progress_state is not None:
+            progress_state.mark_task_packets_terminal(
+                worker_id=assignment.worker_id,
+                task_ids=[
+                    task_plan.task_id
+                    for task_plan in task_plans_by_shard_id.get(shard.shard_id, ())
+                ],
+            )
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
@@ -2621,6 +2964,17 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 expected_workspace_output_paths=[
                     out_dir / f"{task.task_id}.json" for task in runnable_tasks
                 ],
+                workspace_output_observer=(
+                    None
+                    if progress_state is None
+                    else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
+                        progress_state.observe_workspace_outputs(
+                            worker_id=_worker_id,
+                            present_count=present_count,
+                            expected_count=expected_count,
+                        )
+                    )
+                ),
             ),
         )
         _finalize_live_status(
@@ -2694,19 +3048,32 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
             watchdog_retry_status = "not_attempted"
             if _should_attempt_knowledge_watchdog_retry(run_result=run_result):
                 watchdog_retry_attempted = True
-                watchdog_retry_run_result = _run_knowledge_watchdog_retry_attempt(
-                    runner=runner,
-                    worker_root=worker_root,
-                    shard=task_manifest,
-                    env=env,
-                    output_schema_path=output_schema_path,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    reason_code=str(run_result.supervision_reason_code or ""),
-                    reason_detail=str(run_result.supervision_reason_detail or ""),
-                    successful_examples=cohort_watchdog_state.snapshot().get("successful_examples") or [],
-                    live_status_path=task_root / "watchdog_retry" / "live_status.json",
-                )
+                if progress_state is not None:
+                    progress_state.set_followup_label(
+                        worker_id=assignment.worker_id,
+                        label=_format_knowledge_followup_label(
+                            parent_shard_id=parent_shard_id,
+                            attempt_label="watchdog retry",
+                            task_id=task_manifest.shard_id,
+                        ),
+                    )
+                try:
+                    watchdog_retry_run_result = _run_knowledge_watchdog_retry_attempt(
+                        runner=runner,
+                        worker_root=worker_root,
+                        shard=task_manifest,
+                        env=env,
+                        output_schema_path=output_schema_path,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        reason_code=str(run_result.supervision_reason_code or ""),
+                        reason_detail=str(run_result.supervision_reason_detail or ""),
+                        successful_examples=cohort_watchdog_state.snapshot().get("successful_examples") or [],
+                        live_status_path=task_root / "watchdog_retry" / "live_status.json",
+                    )
+                finally:
+                    if progress_state is not None:
+                        progress_state.clear_followup_label(worker_id=assignment.worker_id)
                 retry_root = task_root / "watchdog_retry"
                 _finalize_live_status(
                     retry_root / "live_status.json",
@@ -2770,19 +3137,32 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 validation_errors=validation_errors,
             ):
                 repair_attempted = True
-                repair_run_result = _run_knowledge_repair_attempt(
-                    runner=runner,
-                    worker_root=worker_root,
-                    shard=task_manifest,
-                    env=env,
-                    output_schema_path=output_schema_path,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    original_response_text=active_response_text,
-                    validation_errors=validation_errors,
-                    validation_metadata=validation_metadata,
-                    live_status_path=task_root / "repair_live_status.json",
-                )
+                if progress_state is not None:
+                    progress_state.set_followup_label(
+                        worker_id=assignment.worker_id,
+                        label=_format_knowledge_followup_label(
+                            parent_shard_id=parent_shard_id,
+                            attempt_label="repair",
+                            task_id=task_manifest.shard_id,
+                        ),
+                    )
+                try:
+                    repair_run_result = _run_knowledge_repair_attempt(
+                        runner=runner,
+                        worker_root=worker_root,
+                        shard=task_manifest,
+                        env=env,
+                        output_schema_path=output_schema_path,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        original_response_text=active_response_text,
+                        validation_errors=validation_errors,
+                        validation_metadata=validation_metadata,
+                        live_status_path=task_root / "repair_live_status.json",
+                    )
+                finally:
+                    if progress_state is not None:
+                        progress_state.clear_followup_label(worker_id=assignment.worker_id)
                 _finalize_live_status(
                     task_root / "repair_live_status.json",
                     run_result=repair_run_result,
@@ -2867,6 +3247,11 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
             task_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
                 task_manifest.shard_id
             ] = tuple(validation_errors)
+            if progress_state is not None:
+                progress_state.mark_task_packet_terminal(
+                    worker_id=assignment.worker_id,
+                    task_id=task_manifest.shard_id,
+                )
             if payload is not None and proposal_status == "validated":
                 task_payloads_by_shard_id.setdefault(parent_shard_id, {})[
                     task_manifest.shard_id
@@ -3014,6 +3399,14 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                     },
                 )
             )
+            if progress_state is not None:
+                progress_state.mark_task_packets_terminal(
+                    worker_id=assignment.worker_id,
+                    task_ids=[
+                        task_plan.task_id
+                        for task_plan in task_plans_by_shard_id.get(shard.shard_id, ())
+                    ],
+                )
             if shard_completed_callback is not None:
                 shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
@@ -3067,6 +3460,7 @@ def _run_direct_knowledge_worker_assignment_v1(
     output_schema_path: Path | None,
     cohort_watchdog_state: _KnowledgeCohortWatchdogState,
     shard_completed_callback: Callable[..., None] | None,
+    progress_state: _KnowledgePhaseProgressState | None,
 ) -> _DirectKnowledgeWorkerResult:
     worker_root = Path(assignment.workspace_root)
     in_dir = worker_root / "in"
@@ -3105,6 +3499,7 @@ def _run_direct_knowledge_worker_assignment_v1(
         output_schema_path=output_schema_path,
         cohort_watchdog_state=cohort_watchdog_state,
         shard_completed_callback=shard_completed_callback,
+        progress_state=progress_state,
     )
 
 
@@ -3228,6 +3623,7 @@ def _build_strict_json_watchdog_callback(
     allow_workspace_commands: bool = False,
     silence_timeout_seconds: float | None = None,
     expected_workspace_output_paths: Sequence[Path] | None = None,
+    workspace_output_observer: Callable[[int, int], None] | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
     if live_status_path is not None:
@@ -3244,6 +3640,9 @@ def _build_strict_json_watchdog_callback(
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_verdict = classify_workspace_worker_command(snapshot.last_command)
+        last_command_boundary_violation = detect_workspace_worker_boundary_violation(
+            snapshot.last_command,
+        )
         final_agent_message_state = str(snapshot.final_agent_message_state or "absent")
         cohort_snapshot = (
             cohort_watchdog_state.snapshot()
@@ -3261,6 +3660,11 @@ def _build_strict_json_watchdog_callback(
                 3,
             )
         workspace_output_status = _summarize_workspace_output_paths(workspace_output_paths)
+        if workspace_output_observer is not None:
+            workspace_output_observer(
+                int(workspace_output_status["present_count"]),
+                int(workspace_output_status["expected_count"]),
+            )
         if workspace_output_status["complete"]:
             current_signature = tuple(workspace_output_status["signature"])
             if current_signature == last_complete_workspace_signature:
@@ -3287,7 +3691,7 @@ def _build_strict_json_watchdog_callback(
             )
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
-                if is_tolerated_workspace_worker_command(snapshot.last_command):
+                if last_command_boundary_violation is None:
                     command_execution_tolerated = True
                 else:
                     decision = CodexExecSupervisionDecision.terminate(
@@ -3379,6 +3783,19 @@ def _build_strict_json_watchdog_callback(
             "last_command_policy": last_command_verdict.policy,
             "last_command_policy_allowed": last_command_verdict.allowed,
             "last_command_policy_reason": last_command_verdict.reason,
+            "last_command_boundary_violation_detected": (
+                last_command_boundary_violation is not None
+            ),
+            "last_command_boundary_policy": (
+                last_command_boundary_violation.policy
+                if last_command_boundary_violation is not None
+                else None
+            ),
+            "last_command_boundary_reason": (
+                last_command_boundary_violation.reason
+                if last_command_boundary_violation is not None
+                else None
+            ),
             "reasoning_item_count": snapshot.reasoning_item_count,
             "last_command": snapshot.last_command,
             "last_command_repeat_count": snapshot.last_command_repeat_count,

@@ -2133,6 +2133,7 @@ def test_label_atomic_lines_tolerates_line_role_workspace_orientation_commands(
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["last_command_policy"] == "tolerated_orientation_command"
     assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
 
 
 def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(

@@ -41,9 +41,9 @@ from .codex_exec_runner import (
     CodexExecSupervisionDecision,
     SubprocessCodexExecRunner,
     classify_workspace_worker_command,
+    detect_workspace_worker_boundary_violation,
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
-    is_tolerated_workspace_worker_command,
     should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )
@@ -893,9 +893,12 @@ def _build_recipe_watchdog_callback(
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_verdict = classify_workspace_worker_command(snapshot.last_command)
+        last_command_boundary_violation = detect_workspace_worker_boundary_violation(
+            snapshot.last_command,
+        )
         if snapshot.command_execution_count > 0:
             if allow_workspace_commands:
-                if is_tolerated_workspace_worker_command(snapshot.last_command):
+                if last_command_boundary_violation is None:
                     command_execution_tolerated = True
                 else:
                     decision = CodexExecSupervisionDecision.terminate(
@@ -949,6 +952,19 @@ def _build_recipe_watchdog_callback(
             "last_command_policy": last_command_verdict.policy,
             "last_command_policy_allowed": last_command_verdict.allowed,
             "last_command_policy_reason": last_command_verdict.reason,
+            "last_command_boundary_violation_detected": (
+                last_command_boundary_violation is not None
+            ),
+            "last_command_boundary_policy": (
+                last_command_boundary_violation.policy
+                if last_command_boundary_violation is not None
+                else None
+            ),
+            "last_command_boundary_reason": (
+                last_command_boundary_violation.reason
+                if last_command_boundary_violation is not None
+                else None
+            ),
             "reasoning_item_count": snapshot.reasoning_item_count,
             "last_command": snapshot.last_command,
             "last_command_repeat_count": snapshot.last_command_repeat_count,

@@ -873,6 +873,30 @@ def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_
     assert result.knowledge_prompt_target_count == selected_settings.knowledge_prompt_target_count
 
 
+def test_prompt_codex_prompt_target_count_caps_interactive_choice_at_20() -> None:
+    captured: dict[str, object] = {}
+
+    result = run_settings_flow._prompt_codex_prompt_target_count(  # noqa: SLF001
+        prompt_text=lambda message, **kwargs: (
+            captured.update({"message": message, **kwargs}) or "20"
+        ),
+        message="Recipe correction shard count for this run:",
+        default_value=5,
+        back_action=object(),
+    )
+
+    assert result == 20
+    assert captured["instruction"] == (
+        "Approximate prompts for this task in this run. Use a whole number "
+        "from 1 to 20. Press Esc to go back."
+    )
+    validate = captured["validate"]
+    assert callable(validate)
+    assert validate("1") is True
+    assert validate("20") is True
+    assert validate("21") == "Enter a whole number from 1 to 20."
+
+
 def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

@@ -509,17 +509,21 @@ def _prompt_codex_prompt_target_count(
     default_value: int,
     back_action: Any,
 ) -> int | None:
+    max_value = 20
     raw_value = prompt_text(
         message,
         default=str(default_value),
         instruction=(
-            "Approximate prompts for this task in this run. Use a whole number >= 1. "
-            "Press Esc to go back."
+            "Approximate prompts for this task in this run. Use a whole number "
+            f"from 1 to {max_value}. Press Esc to go back."
         ),
         validate=lambda text: (
             True
-            if str(text or "").strip().isdigit() and int(str(text).strip()) >= 1
-            else "Enter a whole number >= 1."
+            if (
+                str(text or "").strip().isdigit()
+                and 1 <= int(str(text).strip()) <= max_value
+            )
+            else f"Enter a whole number from 1 to {max_value}."
         ),
     )
     if raw_value in {None, back_action}:
@@ -531,7 +535,7 @@ def _prompt_codex_prompt_target_count(
         parsed = int(normalized)
     except ValueError:
         return None
-    return parsed if parsed >= 1 else None
+    return parsed if 1 <= parsed <= max_value else None
 
 
 def _choose_interactive_codex_prompt_targets(

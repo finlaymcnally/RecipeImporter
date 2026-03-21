@@ -833,6 +833,69 @@ def test_run_with_progress_status_renders_all_ten_knowledge_workers(
     assert all("active tasks (10/8" not in message for message in capture.messages)
 
 
+def test_run_with_progress_status_renders_packet_scale_knowledge_worker_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Running codex-farm non-recipe knowledge review... task 47/48 | running 1",
+                stage_label="non-recipe knowledge review",
+                task_current=47,
+                task_total=48,
+                running_workers=1,
+                worker_total=1,
+                active_tasks=["saltfatacidheatcutdown.ks0009.nr (47/48 task packets)"],
+                detail_lines=[
+                    "configured workers: 1",
+                    "completed shards: 9/10",
+                    "queued task packets: 1",
+                ],
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("task 47/48" in message for message in capture.messages)
+    assert any("queued task packets: 1" in message for message in capture.messages)
+    assert any(
+        "worker 01: saltfatacidheatcutdown.ks0009.nr (47/48 task packets)" in message
+        for message in capture.messages
+    )
+    assert all("task 0/10" not in message for message in capture.messages)
+
+
 def test_run_with_progress_status_clears_codex_worker_state_for_new_phase(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

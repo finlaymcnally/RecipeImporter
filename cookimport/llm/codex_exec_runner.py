@@ -1836,37 +1836,41 @@ def classify_workspace_worker_command(
     allow_orientation_commands: bool = True,
     allow_output_paths: bool = True,
 ) -> WorkspaceCommandClassification:
+    boundary_violation = detect_workspace_worker_boundary_violation(
+        command_text,
+        allow_output_paths=allow_output_paths,
+    )
+    if boundary_violation is not None:
+        return boundary_violation
     inner_tokens = _command_tokens_for_watchdog(command_text)
     cleaned_command = str(command_text or "").strip() or None
     shell_body = _extract_workspace_shell_body(command_text)
-    if not inner_tokens and shell_body is not None:
+    if shell_body is not None:
         return _classify_workspace_worker_shell_script(
             shell_body=shell_body,
             command_text=cleaned_command,
             allow_orientation_commands=allow_orientation_commands,
-            allow_output_paths=allow_output_paths,
         )
     if not inner_tokens:
         return WorkspaceCommandClassification(
             command_text=cleaned_command,
-            allowed=False,
-            policy="forbidden_unparseable_command",
-            reason="command could not be parsed into a workspace shell command",
+            allowed=True,
+            policy="unclassified_workspace_shell_command",
+            reason=(
+                "command could not be parsed confidently, but no workspace boundary "
+                "violation was detected"
+            ),
         )
     executable = _workspace_watchdog_executable(inner_tokens)
     if not executable:
         return WorkspaceCommandClassification(
             command_text=cleaned_command,
-            allowed=False,
-            policy="forbidden_unparseable_command",
-            reason="command could not be parsed into a workspace shell command",
-        )
-    if executable in _WORKSPACE_FORBIDDEN_EXECUTABLES:
-        return WorkspaceCommandClassification(
-            command_text=cleaned_command,
-            allowed=False,
-            policy="forbidden_non_helper_executable",
-            reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
+            allowed=True,
+            policy="unclassified_workspace_shell_command",
+            reason=(
+                "command could not be classified precisely, but no workspace boundary "
+                "violation was detected"
+            ),
         )
     if not allow_orientation_commands and executable in {"pwd", "ls"}:
         return WorkspaceCommandClassification(
@@ -1904,21 +1908,6 @@ def classify_workspace_worker_command(
             policy="tolerated_orientation_command",
             reason="`ls` stayed inside the relaxed workspace-worker command policy",
         )
-    for argument in inner_tokens[1:]:
-        normalized_argument = _normalize_visible_workspace_path_token(argument)
-        if normalized_argument is None:
-            continue
-        path_verdict = _classify_workspace_path_argument(
-            normalized_argument,
-            allow_output_paths=allow_output_paths,
-        )
-        if not path_verdict.allowed:
-            return WorkspaceCommandClassification(
-                command_text=cleaned_command,
-                allowed=False,
-                policy=path_verdict.policy,
-                reason=path_verdict.reason,
-            )
     return WorkspaceCommandClassification(
         command_text=cleaned_command,
         allowed=True,
@@ -1927,8 +1916,61 @@ def classify_workspace_worker_command(
     )
 
 
+def detect_workspace_worker_boundary_violation(
+    command_text: str | None,
+    *,
+    allow_output_paths: bool = True,
+) -> WorkspaceCommandClassification | None:
+    cleaned_command = str(command_text or "").strip() or None
+    if cleaned_command is None:
+        return None
+    shell_body = _extract_workspace_shell_body(command_text)
+    if shell_body is not None:
+        return _detect_workspace_worker_boundary_violation_in_text(
+            shell_body,
+            command_text=cleaned_command,
+            allow_output_paths=allow_output_paths,
+        )
+
+    inner_tokens = _command_tokens_for_watchdog(command_text)
+    if inner_tokens:
+        executable = _workspace_watchdog_executable(inner_tokens)
+        if executable in _WORKSPACE_FORBIDDEN_EXECUTABLES:
+            return WorkspaceCommandClassification(
+                command_text=cleaned_command,
+                allowed=False,
+                policy="forbidden_non_helper_executable",
+                reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
+            )
+        for argument in inner_tokens[1:]:
+            normalized_argument = _normalize_visible_workspace_path_token(argument)
+            if normalized_argument is None:
+                continue
+            path_verdict = _classify_workspace_path_argument(
+                normalized_argument,
+                allow_output_paths=allow_output_paths,
+            )
+            if not path_verdict.allowed:
+                return WorkspaceCommandClassification(
+                    command_text=cleaned_command,
+                    allowed=False,
+                    policy=path_verdict.policy,
+                    reason=path_verdict.reason,
+                )
+        return None
+
+    approximate_shell_body = _approximate_workspace_shell_body(command_text)
+    if approximate_shell_body is None:
+        return None
+    return _detect_workspace_worker_boundary_violation_in_text(
+        approximate_shell_body,
+        command_text=cleaned_command,
+        allow_output_paths=allow_output_paths,
+    )
+
+
 def is_tolerated_workspace_worker_command(command_text: str | None) -> bool:
-    return classify_workspace_worker_command(command_text).allowed
+    return detect_workspace_worker_boundary_violation(command_text) is None
 
 
 def _extract_workspace_shell_body(command_text: str | None) -> str | None:
@@ -1981,13 +2023,62 @@ def _command_tokens_for_watchdog(command_text: str | None) -> list[str]:
     return outer_tokens
 
 
+def _approximate_workspace_shell_body(command_text: str | None) -> str | None:
+    cleaned = str(command_text or "").strip()
+    if not cleaned:
+        return None
+    match = re.match(
+        r"^(?:\S+/)?(?:bash|sh|zsh)\s+-l?c\s+(?P<body>.+)$",
+        cleaned,
+        re.DOTALL,
+    )
+    if match is None:
+        return cleaned
+    body = str(match.group("body") or "").strip()
+    if len(body) >= 2 and body[0] == body[-1] and body[0] in {"'", '"'}:
+        body = body[1:-1]
+    return body or None
+
+
 def _classify_workspace_worker_shell_script(
     *,
     shell_body: str,
     command_text: str | None,
     allow_orientation_commands: bool,
-    allow_output_paths: bool,
 ) -> WorkspaceCommandClassification:
+    executables = _workspace_shell_executables(shell_body)
+    if not allow_orientation_commands and any(
+        executable in {"pwd", "ls"} for executable in executables
+    ):
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_orientation_command",
+            reason="orientation commands are not allowed for this workspace policy",
+        )
+    if executables and all(executable in {"pwd", "ls"} for executable in executables):
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=True,
+            policy="tolerated_orientation_command",
+            reason="orientation commands stayed inside the relaxed workspace-worker command policy",
+        )
+    if _looks_like_workspace_shell_script(shell_body):
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=True,
+            policy="shell_script_workspace_local",
+            reason="command used a bounded local shell script shape inside the workspace",
+        )
+    return WorkspaceCommandClassification(
+        command_text=command_text,
+        allowed=True,
+        policy="tolerated_workspace_shell_command",
+        reason="command stayed inside the relaxed workspace-worker command policy",
+    )
+
+
+def _workspace_shell_executables(shell_body: str) -> list[str]:
     shell_keywords = {
         "case",
         "do",
@@ -2003,6 +2094,7 @@ def _classify_workspace_worker_shell_script(
         "then",
         "while",
     }
+    executables: list[str] = []
     for match in re.finditer(
         r"(?:^|[;\n|&()]\s*)(?:env\s+)?(?P<exe>[A-Za-z0-9_./-]+)",
         shell_body,
@@ -2011,13 +2103,29 @@ def _classify_workspace_worker_shell_script(
         executable = Path(str(match.group("exe") or "").strip()).name.lower()
         if not executable or executable in shell_keywords:
             continue
-        if not allow_orientation_commands and executable in {"pwd", "ls"}:
-            return WorkspaceCommandClassification(
-                command_text=command_text,
-                allowed=False,
-                policy="forbidden_orientation_command",
-                reason="orientation commands are not allowed for this workspace policy",
-            )
+        executables.append(executable)
+    return executables
+
+
+def _looks_like_workspace_shell_script(shell_body: str) -> bool:
+    if "\n" in shell_body:
+        return True
+    return any(
+        marker in shell_body
+        for marker in ("&&", "||", "<<", "| while ", "| for ", "; do", "; then")
+    ) or bool(
+        re.search(r"\b(?:for|while|if|case)\b", shell_body)
+    )
+
+
+def _detect_workspace_worker_boundary_violation_in_text(
+    shell_text: str,
+    *,
+    command_text: str | None,
+    allow_output_paths: bool,
+) -> WorkspaceCommandClassification | None:
+    stripped_text = re.sub(r"^\s*#![^\n]*(?:\n|$)", "", shell_text, flags=re.MULTILINE)
+    for executable in _workspace_shell_executables(stripped_text):
         if executable in _WORKSPACE_FORBIDDEN_EXECUTABLES:
             return WorkspaceCommandClassification(
                 command_text=command_text,
@@ -2025,21 +2133,28 @@ def _classify_workspace_worker_shell_script(
                 policy="forbidden_non_helper_executable",
                 reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
             )
-    if "../" in shell_body:
+    if "../" in stripped_text:
         return WorkspaceCommandClassification(
             command_text=command_text,
             allowed=False,
             policy="forbidden_parent_traversal_path",
             reason="parent-directory traversal is outside the bounded workspace policy",
         )
-    if re.search(r"(^|[\s\"'])~/", shell_body) or "$HOME/" in shell_body or "${HOME}/" in shell_body:
+    if (
+        re.search(r"(^|[\s\"'])~/", stripped_text)
+        or "$HOME/" in stripped_text
+        or "${HOME}/" in stripped_text
+    ):
         return WorkspaceCommandClassification(
             command_text=command_text,
             allowed=False,
             policy="forbidden_absolute_path",
             reason="workspace shell commands must stay on relative local paths",
         )
-    absolute_path_match = re.search(r"(^|[\s\"'])/(?!dev/null(?:$|[\s\"']))", shell_body)
+    absolute_path_match = re.search(
+        r"(^|[\s\"'])/(?!dev/null(?:$|[\s\"']))",
+        stripped_text,
+    )
     if absolute_path_match is not None:
         return WorkspaceCommandClassification(
             command_text=command_text,
@@ -2047,19 +2162,14 @@ def _classify_workspace_worker_shell_script(
             policy="forbidden_absolute_path",
             reason="workspace shell commands must stay on relative local paths",
         )
-    if not allow_output_paths and re.search(r'(^|[\s"\'])out/', shell_body):
+    if not allow_output_paths and re.search(r'(^|[\s"\'])out/', stripped_text):
         return WorkspaceCommandClassification(
             command_text=command_text,
             allowed=False,
             policy="forbidden_output_path",
             reason="this workspace policy does not allow helper commands against `out/`",
         )
-    return WorkspaceCommandClassification(
-        command_text=command_text,
-        allowed=True,
-        policy="tolerated_workspace_shell_command",
-        reason="command stayed inside the relaxed workspace-worker command policy",
-    )
+    return None
 
 
 def _workspace_watchdog_executable(inner_tokens: Sequence[str]) -> str | None:

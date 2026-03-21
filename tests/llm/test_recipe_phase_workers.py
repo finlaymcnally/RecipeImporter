@@ -358,3 +358,4 @@ def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["last_command_policy"] == "tolerated_workspace_shell_command"
     assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
