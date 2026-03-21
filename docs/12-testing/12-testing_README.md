@@ -63,6 +63,9 @@ Current layout exceptions and intentional split seams:
   - `tests/llm/test_codex_farm_orchestrator.py`
   - `tests/llm/test_codex_farm_orchestrator_runner_transport.py`
   - `tests/llm/test_codex_farm_orchestrator_stage_integration.py`
+- Knowledge orchestrator coverage is split into:
+  - `tests/llm/test_codex_farm_knowledge_orchestrator.py` for live orchestrator behavior
+  - `tests/llm/test_knowledge_runtime_replay.py` for packet-ledger and saved-artifact replay coverage
 - Bench CLI coverage is split into:
   - `tests/bench/test_bench.py`
   - `tests/bench/test_bench_speed_cli.py`

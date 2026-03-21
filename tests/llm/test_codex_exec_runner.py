@@ -263,6 +263,13 @@ def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None
     assert orientation.allowed is True
     assert orientation.policy == "tolerated_orientation_command"
 
+    off_task_orientation = classify_workspace_worker_command(
+        "/bin/bash -lc 'find . -maxdepth 2'",
+        allow_orientation_commands=False,
+    )
+    assert off_task_orientation.allowed is False
+    assert off_task_orientation.policy == "forbidden_orientation_command"
+
     shell = classify_workspace_worker_command(
         "/bin/bash -lc \"jq '{rows: [.rows[] | {atomic_index: .[0]}]}' in/shard-001.json > out/shard-001.json\""
     )
@@ -424,6 +431,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
         "assigned_tasks.json",
     ]
     assert worker_manifest["hints_dir"] == "hints"
+    assert worker_manifest["scratch_dir"] == "scratch"
     assert worker_manifest["workspace_shell_policy"].startswith(
         "Allow ordinary local shell use inside this workspace."
     )
@@ -436,19 +444,77 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/interpreter commands such as git, python, node, curl, wget, or package managers",
+        "inline interpreters such as python - <<'PY' or python -c",
         "absolute paths",
+        "/tmp paths",
         "parent-directory traversal",
     ]
     assert "Read the local task manifests and input files directly." in agents_text
     assert "Start by reading `worker_manifest.json`" in agents_text
     assert "`assigned_tasks.json`" in agents_text
-    assert "`hints/...`" in agents_text
+    assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
     assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
     assert "The watchdog is boundary-based" in agents_text
     assert "avoid repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers" in agents_text
-    assert "approved local output files under `out/`" in agents_text
+    assert "Use `scratch/` for bounded helper files." in agents_text
     assert (workspace.execution_working_dir / "out").exists()
     assert (workspace.execution_working_dir / "hints" / "shard-001.md").exists()
+    assert (workspace.execution_working_dir / "scratch").exists()
+
+
+def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "scratch").mkdir(parents=True, exist_ok=True)
+    (source_root / "current_packet.json").write_text(
+        json.dumps({"task_id": "task-001", "result_path": "out/task-001.json"}),
+        encoding="utf-8",
+    )
+    (source_root / "current_hint.md").write_text(
+        "# hint\n",
+        encoding="utf-8",
+    )
+    (source_root / "current_result_path.txt").write_text(
+        "out/task-001.json\n",
+        encoding="utf-8",
+    )
+    (source_root / "packet_lease_status.json").write_text(
+        json.dumps({"worker_state": "leased_current_packet", "current_task_id": "task-001"}),
+        encoding="utf-8",
+    )
+
+    workspace = prepare_direct_exec_workspace(
+        source_working_dir=source_root,
+        env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
+        task_label="knowledge worker session",
+        mode="workspace_worker",
+    )
+
+    worker_manifest = json.loads(
+        (workspace.execution_working_dir / "worker_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert worker_manifest["entry_files"] == [
+        "worker_manifest.json",
+        "current_packet.json",
+        "current_hint.md",
+        "current_result_path.txt",
+        "packet_lease_status.json",
+        "assigned_shards.json",
+        "assigned_tasks.json",
+    ]
+    assert worker_manifest["current_packet_file"] == "current_packet.json"
+    assert worker_manifest["current_hint_file"] == "current_hint.md"
+    assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
+    assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
+    assert worker_manifest["scratch_dir"] == "scratch"
+    assert (workspace.execution_working_dir / "current_packet.json").exists()
+    assert (workspace.execution_working_dir / "current_hint.md").exists()
+    assert (workspace.execution_working_dir / "current_result_path.txt").exists()
+    assert (workspace.execution_working_dir / "packet_lease_status.json").exists()
+    assert (workspace.execution_working_dir / "scratch").exists()
 
 
 def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(

@@ -65,6 +65,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_knowledge_output_ingest.py": ("llm",),
     "test_knowledge_phase_workers.py": ("llm",),
     "test_knowledge_prompt_builder.py": ("llm",),
+    "test_knowledge_runtime_replay.py": ("llm",),
     "test_knowledge_writer.py": ("llm",),
     "test_label_phase_workers.py": ("llm", "parsing"),
     "test_labelstudio_benchmark_helpers_artifacts.py": ("labelstudio", "bench", "cli"),

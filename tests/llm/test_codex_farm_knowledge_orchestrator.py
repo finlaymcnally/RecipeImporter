@@ -367,23 +367,41 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     worker_root = phase_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
-    assert "Workspace-local shell commands are broadly allowed when they materially help" in worker_prompt
+    assert "current_packet.json" in worker_prompt
+    assert "current_hint.md" in worker_prompt
+    assert "current_result_path.txt" in worker_prompt
+    assert "`assigned_tasks.json` is inventory only" in worker_prompt
+    assert "`scratch/` for temporary helper files" in worker_prompt
+    assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
-    assert "open `hints/<task_id>.md` first" in worker_prompt
     assert "use the compact keys exactly: `cid`, `u`, `d`, `s`" in worker_prompt
     assert "Do not spell these out as `block_decisions` or `snippets`." in worker_prompt
-    assert "The moment every assigned `out/<task_id>.json` file exists" in worker_prompt
+    assert "re-open `packet_lease_status.json`" in worker_prompt
     assert "Do not run extra shell checks against finished files in `out/`" in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
+        "current_packet.json",
+        "current_hint.md",
+        "current_result_path.txt",
+        "packet_lease_status.json",
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
     assert worker_manifest["hints_dir"] == "hints"
+    assert worker_manifest["current_packet_file"] == "current_packet.json"
+    assert worker_manifest["current_hint_file"] == "current_hint.md"
+    assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
+    assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
+    assert worker_manifest["scratch_dir"] == "scratch"
     assert (worker_root / "hints").exists()
+    assert (worker_root / "scratch").exists()
+    current_packet = json.loads((worker_root / "current_packet.json").read_text(encoding="utf-8"))
+    lease_status = json.loads((worker_root / "packet_lease_status.json").read_text(encoding="utf-8"))
+    assert current_packet["task_id"] is None
+    assert lease_status["worker_state"] == "all_packets_settled"
 
 
 def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
@@ -1091,7 +1109,7 @@ def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
         / "status.json"
     )
     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
-    assert status_payload["status"] == "missing_output"
+    assert status_payload["status"] == "invalid"
     assert status_payload["state"] == "watchdog_killed"
     assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
 
@@ -1102,7 +1120,8 @@ def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
     assert live_status_payload["retryable"] is True
     assert apply_result.llm_report["review_status"] == "unreviewed"
     assert apply_result.llm_report["counts"]["unreviewed_shard_count"] == 1
-    assert apply_result.llm_report["counts"]["missing_output_shards"] == 1
+    assert apply_result.llm_report["counts"]["invalid_shards"] == 1
+    assert apply_result.llm_report["counts"]["missing_output_shards"] == 0
 
 
 def test_knowledge_orchestrator_retries_taskized_watchdog_failures_inside_large_parent_shards(
@@ -2781,6 +2800,235 @@ def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_ass
         "book.ks0000.nr.task-001",
         "book.ks0000.nr.task-002",
     ]
+    assert apply_result.llm_report["counts"]["validated_shards"] == 1
+
+
+def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-0",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Sauce Basics",
+                text="Always whisk constantly when adding butter.",
+                blockIds=[0],
+            ),
+            KnowledgeChunk(
+                id="chunk-1",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Seasoning",
+                text="Salt in layers for better control.",
+                blockIds=[1],
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    class LeasingRunner(FakeCodexExecRunner):
+        def __init__(self) -> None:
+            super().__init__(
+                output_builder=lambda payload: build_structural_pipeline_output(
+                    "recipe.knowledge.compact.v1",
+                    dict(payload or {}),
+                )
+            )
+            self.seen_task_ids: list[str] = []
+            self.seen_result_paths: list[str] = []
+            self.seen_hint_prefixes: list[str] = []
+
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            working_dir = Path(kwargs.get("working_dir"))
+            out_dir = working_dir / "out"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            supervision_callback = kwargs.get("supervision_callback")
+
+            while True:
+                lease_status = json.loads(
+                    (working_dir / "packet_lease_status.json").read_text(encoding="utf-8")
+                )
+                if lease_status["worker_state"] == "all_packets_settled":
+                    break
+                current_packet = json.loads(
+                    (working_dir / "current_packet.json").read_text(encoding="utf-8")
+                )
+                current_hint = (working_dir / "current_hint.md").read_text(encoding="utf-8")
+                result_path_text = (
+                    working_dir / "current_result_path.txt"
+                ).read_text(encoding="utf-8").strip()
+                result_path = working_dir / result_path_text
+                self.seen_task_ids.append(current_packet["task_id"])
+                self.seen_result_paths.append(result_path_text)
+                self.seen_hint_prefixes.append(current_hint.splitlines()[0].strip())
+
+                result_path.write_text(
+                    json.dumps(
+                        build_structural_pipeline_output(
+                            "recipe.knowledge.compact.v1",
+                            dict(current_packet["input_payload"] or {}),
+                        ),
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
+                if supervision_callback is not None:
+                    supervision_callback(
+                        CodexExecLiveSnapshot(
+                            elapsed_seconds=max(0.1, len(self.seen_task_ids) * 0.1),
+                            last_event_seconds_ago=0.0,
+                            event_count=len(self.seen_task_ids),
+                            command_execution_count=len(self.seen_task_ids),
+                            reasoning_item_count=0,
+                            last_command="/bin/bash -lc 'cat current_packet.json'",
+                            last_command_repeat_count=1,
+                            has_final_agent_message=False,
+                            timeout_seconds=kwargs.get("timeout_seconds"),
+                        )
+                    )
+                deadline = time.time() + 2.0
+                while time.time() < deadline:
+                    refreshed_status = json.loads(
+                        (working_dir / "packet_lease_status.json").read_text(encoding="utf-8")
+                    )
+                    if (
+                        refreshed_status["worker_state"] == "all_packets_settled"
+                        or refreshed_status["current_task_id"] != current_packet["task_id"]
+                    ):
+                        break
+                    time.sleep(0.05)
+
+            response_text = json.dumps({"status": "worker_completed"}, sort_keys=True)
+            events = (
+                {"type": "thread.started"},
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": response_text},
+                },
+            )
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text=response_text,
+                turn_failed_message=None,
+                events=events,
+                usage={
+                    "input_tokens": 100,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 10,
+                    "reasoning_tokens": 0,
+                },
+                duration_ms=250,
+                started_at_utc="2026-03-20T22:45:20Z",
+                finished_at_utc="2026-03-20T22:45:21Z",
+                supervision_state="completed",
+            )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 1,
+            "knowledge_worker_count": 1,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Always whisk constantly when adding butter."},
+                        {"index": 1, "text": "Salt in layers for better control."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+    runner = LeasingRunner()
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.2",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=2,
+                    block_indices=[0, 1],
+                    block_ids=["b0", "b1"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.2",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=2,
+                    block_indices=[0, 1],
+                    block_ids=["b0", "b1"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={0: "knowledge", 1: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
+    worker_root = phase_dir / "workers" / "worker-001"
+    task_status_rows = [
+        json.loads(line)
+        for line in (phase_dir / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert runner.seen_task_ids == [
+        "book.ks0000.nr.task-001",
+        "book.ks0000.nr.task-002",
+    ]
+    assert runner.seen_result_paths == [
+        "out/book.ks0000.nr.task-001.json",
+        "out/book.ks0000.nr.task-002.json",
+    ]
+    assert all("Knowledge review hints" in prefix for prefix in runner.seen_hint_prefixes)
+    assert json.loads(
+        (worker_root / "packet_lease_status.json").read_text(encoding="utf-8")
+    )["worker_state"] == "all_packets_settled"
+    assert [row["state"] for row in task_status_rows] == ["validated", "validated"]
     assert apply_result.llm_report["counts"]["validated_shards"] == 1
 
 
