@@ -458,6 +458,29 @@ def _oracle_session_incomplete_reason(payload: dict[str, Any] | None) -> str:
     return str(response.get("incompleteReason") or "").strip()
 
 
+def _append_recovered_turn1_output_to_source_log(
+    *,
+    source_launch_dir: Path,
+    recovered_text: str,
+) -> None:
+    addition = str(recovered_text or "").strip()
+    if not addition:
+        return
+    log_path = source_launch_dir / ORACLE_UPLOAD_LOG_FILE_NAME
+    existing = ""
+    if log_path.is_file():
+        existing = log_path.read_text(encoding="utf-8")
+    if addition in existing:
+        return
+    separator = ""
+    if existing and not existing.endswith("\n"):
+        separator = "\n"
+    log_path.write_text(
+        f"{existing}{separator}{addition}\n",
+        encoding="utf-8",
+    )
+
+
 def _recover_oracle_turn1_session_if_needed(
     *,
     source_launch_dir: Path,
@@ -498,6 +521,10 @@ def _recover_oracle_turn1_session_if_needed(
     )
     combined = "\n".join(part for part in [completed.stdout or "", completed.stderr or ""] if part).strip()
     if combined:
+        _append_recovered_turn1_output_to_source_log(
+            source_launch_dir=source_launch_dir,
+            recovered_text=combined,
+        )
         print(combined)
     print(
         f"[{_oracle_upload_timestamp()}] Oracle turn 1 recovery finished with returncode={completed.returncode}."
@@ -1041,11 +1068,11 @@ def run_oracle_benchmark_followup_background_worker(
         return _read_json_file(status_path)
 
     source_launch_dir, source_metadata, source_audit = completion
-    if source_audit.status != "succeeded":
+    if source_audit.status not in {"succeeded", "invalid_grounding"}:
         _write_oracle_auto_followup_status(
             source_launch_dir,
             status="skipped",
-            status_reason="Skipped automatic follow-up because Oracle turn 1 did not finish with a grounded answer.",
+            status_reason="Skipped automatic follow-up because Oracle turn 1 did not finish with an answer usable for follow-up.",
             extra={
                 "bundle_dir": str(target.bundle_dir),
                 "source_run": from_run,

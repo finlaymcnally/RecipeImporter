@@ -5496,8 +5496,17 @@ def _print_background_oracle_upload_summary(
             fg=typer.colors.BRIGHT_BLACK,
         )
     if launch.note:
+        transport_message = launch.note.strip()
+        if transport_message.startswith("Prepared browser-safe Oracle starter-pack upload"):
+            transport_message = (
+                "Oracle transport: oversized payload trimmed to a browser-safe starter packet."
+            )
+        elif transport_message.startswith("Prepared sharded Oracle browser upload"):
+            transport_message = (
+                "Oracle transport: oversized bundle files were sharded for upload."
+            )
         typer.secho(
-            "Oracle transport: oversized bundle files were sharded for upload.",
+            transport_message,
             fg=typer.colors.BRIGHT_BLACK,
         )
     typer.secho(f"Oracle PID: {launch.pid}", fg=typer.colors.BRIGHT_BLACK)

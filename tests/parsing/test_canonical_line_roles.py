@@ -105,6 +105,48 @@ def _line_role_runner(
     )
 
 
+def _gold_label_counts_for_book(source_slug: str) -> dict[str, int]:
+    path = (
+        Path("/home/mcnal/projects/recipeimport/data/golden/pulled-from-labelstudio")
+        / source_slug
+        / "exports"
+        / "canonical_span_labels.jsonl"
+    )
+    counts: dict[str, int] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        label = str(row.get("label") or "").strip().upper()
+        if not label:
+            continue
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
+def _load_preserved_line_role_packet_rows(
+    *,
+    worker_id: str,
+    task_id: str,
+) -> list[dict[str, object]]:
+    path = (
+        Path("/home/mcnal/projects/recipeimport/data/output/2026-03-21_14.53.27")
+        / "single-book-benchmark"
+        / "saltfatacidheatcutdown"
+        / "codexfarm"
+        / "2026-03-21_14.54.14"
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / worker_id
+        / "debug"
+        / f"{task_id}.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return list(payload.get("rows") or [])
+
+
 class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
     def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         result = super().run_workspace_worker(**kwargs)
@@ -523,7 +565,7 @@ def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor
     assert by_text["The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."].label == "KNOWLEDGE"
 
 
-def test_label_atomic_lines_outside_recipe_howto_heading_can_stay_structured() -> None:
+def test_label_atomic_lines_outside_recipe_isolated_howto_heading_defaults_away_from_structure() -> None:
     blocks = [
         {
             "block_id": "block:howto:outside:1",
@@ -538,7 +580,7 @@ def test_label_atomic_lines_outside_recipe_howto_heading_can_stay_structured() -
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].label == "OTHER"
 
 
 def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_notes() -> None:
@@ -1366,10 +1408,11 @@ def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_knowledge(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "HOWTO_SECTION"
-    assert predictions[0].decided_by == "codex"
-    assert "outside_span_structured_label" in predictions[0].escalation_reasons
-    assert "codex_disagreed_with_rule" in predictions[0].escalation_reasons
+    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].decided_by == "fallback"
+    assert "fallback_decision" in predictions[0].escalation_reasons
+    assert "sanitized_label_adjustment" in predictions[0].escalation_reasons
+    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
 
 
 def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -> None:
@@ -1396,13 +1439,14 @@ def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "HOWTO_SECTION"
-    assert predictions[0].decided_by == "codex"
-    assert "outside_span_structured_label" in predictions[0].escalation_reasons
-    assert "codex_disagreed_with_rule" in predictions[0].escalation_reasons
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "fallback"
+    assert "fallback_decision" in predictions[0].escalation_reasons
+    assert "sanitized_label_adjustment" in predictions[0].escalation_reasons
+    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
 
 
-def test_codex_outside_recipe_explicit_howto_heading_can_stay_structured(
+def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_stay_structured(
     tmp_path,
 ) -> None:
     candidates = [
@@ -1414,6 +1458,15 @@ def test_codex_outside_recipe_explicit_howto_heading_can_stay_structured(
             text="FOR THE SAUCE",
             within_recipe_span=False,
             rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:howto:outside:2",
+            block_index=2,
+            atomic_index=1,
+            text="2 tablespoons olive oil",
+            within_recipe_span=False,
+            rule_tags=["ingredient_like"],
         )
     ]
 
@@ -1421,12 +1474,43 @@ def test_codex_outside_recipe_explicit_howto_heading_can_stay_structured(
         candidates,
         _settings("codex-line-role-shard-v1"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "HOWTO_SECTION"}),
+        codex_runner=_line_role_runner({0: "HOWTO_SECTION", 1: "INGREDIENT_LINE"}),
         live_llm_allowed=True,
     )
 
     assert predictions[0].label == "HOWTO_SECTION"
     assert predictions[0].decided_by == "codex"
+    assert predictions[1].label == "INGREDIENT_LINE"
+
+
+def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:advice:1",
+            block_index=1,
+            atomic_index=0,
+            text=(
+                "For tossed salads, place the greens in a large bowl and season lightly with salt."
+            ),
+            within_recipe_span=False,
+            rule_tags=[],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "INSTRUCTION_LINE"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_instruction_without_local_support" in predictions[0].reason_tags
 
 
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
@@ -1536,6 +1620,7 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "`INSTRUCTION_LINE` means a recipe-local procedural step" in prompt
     assert "`HOWTO_SECTION` is recipe-internal only." in prompt
+    assert "`HOWTO_SECTION` is book-optional." in prompt
     assert "Cooking Acids" in prompt
     assert "Use limes in guacamole" in prompt
     assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
@@ -1674,6 +1759,101 @@ def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() ->
     ) != canonical_line_roles_module._canonical_candidate_fingerprint(updated)
 
 
+def test_line_role_shard_plans_include_reference_only_overlap_context(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_CONTEXT_OVERLAP_ROWS",
+        1,
+    )
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=f"recipe:{index // 2}",
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Line {index}",
+            within_recipe_span=True if index >= 2 else False,
+            rule_tags=[],
+        )
+        for index in range(6)
+    ]
+    deterministic_baseline = {
+        index: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=candidate.recipe_id,
+            block_id=str(candidate.block_id),
+            block_index=int(candidate.block_index),
+            atomic_index=int(candidate.atomic_index),
+            text=str(candidate.text),
+            within_recipe_span=candidate.within_recipe_span,
+            label="OTHER",
+            decided_by="rule",
+            reason_tags=[],
+        )
+        for index, candidate in enumerate(candidates)
+    }
+
+    plans = canonical_line_roles_module._build_line_role_canonical_plans(  # noqa: SLF001
+        ordered_candidates=candidates,
+        deterministic_baseline=deterministic_baseline,
+        settings=_settings(
+            "codex-line-role-shard-v1",
+            line_role_shard_target_lines=2,
+        ),
+        codex_batch_size=2,
+    )
+
+    assert len(plans) == 3
+    assert [[candidate.atomic_index for candidate in plan.candidates] for plan in plans] == [
+        [0, 1],
+        [2, 3],
+        [4, 5],
+    ]
+    assert [
+        [candidate.atomic_index for candidate in plan.context_before_candidates]
+        for plan in plans
+    ] == [
+        [],
+        [1],
+        [3],
+    ]
+    assert [
+        [candidate.atomic_index for candidate in plan.context_after_candidates]
+        for plan in plans
+    ] == [
+        [2],
+        [4],
+        [],
+    ]
+
+    middle_plan = plans[1]
+    assert middle_plan.manifest_entry.owned_ids == ("2", "3")
+    assert middle_plan.manifest_entry.metadata["owned_row_count"] == 2
+    assert middle_plan.manifest_entry.metadata["context_before_row_count"] == 1
+    assert middle_plan.manifest_entry.metadata["context_after_row_count"] == 1
+    assert [row[0] for row in middle_plan.manifest_entry.input_payload["rows"]] == [2, 3]
+    assert middle_plan.manifest_entry.input_payload["context_before_rows"] == [
+        [1, "Line 1"]
+    ]
+    assert middle_plan.manifest_entry.input_payload["context_after_rows"] == [
+        [4, "Line 4"]
+    ]
+    assert all(
+        len(row) == 2
+        for row in (
+            middle_plan.manifest_entry.input_payload["context_before_rows"]
+            + middle_plan.manifest_entry.input_payload["context_after_rows"]
+        )
+    )
+    assert middle_plan.debug_input_payload["context_before_rows"] == [
+        {"atomic_index": 1, "current_line": "Line 1"}
+    ]
+    assert middle_plan.debug_input_payload["context_after_rows"] == [
+        {"atomic_index": 4, "current_line": "Line 4"}
+    ]
+
+
 def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> None:
     prompt = build_canonical_line_role_file_prompt(
         input_path=Path("/tmp/line_role_input_0001.json"),
@@ -1688,6 +1868,11 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
             "default_posture": (
                 "Default to `KNOWLEDGE` or `OTHER`; only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
             ),
+            "howto_section_availability": "absent_or_unproven",
+            "howto_section_evidence_count": 0,
+            "howto_section_policy": (
+                "This book may legitimately use zero `HOWTO_SECTION` labels. Treat the label as optional and require strong local recipe evidence before using it."
+            ),
             "flip_policy": [
                 "Treat the deterministic label as a strong prior, not a neutral starting guess.",
                 "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay `KNOWLEDGE` when surrounding rows are explanatory prose.",
@@ -1696,20 +1881,23 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
                 "01-lesson-prose-vs-howto.md",
                 "02-memoir-vs-knowledge.md",
             ],
+            "context_before_rows": [[122, "Earlier context"]],
+            "context_after_rows": [[124, "Later context"]],
             "rows": [[123, "L4", "1 cup flour"]],
         },
     )
 
     assert '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}' in prompt
     assert (
-        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}'
+        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later context"]]}'
         in prompt
     )
     assert (
         "Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth."
         in prompt
     )
-    assert "The authoritative shard rows are embedded below." in prompt
+    assert "The authoritative owned shard rows are embedded below." in prompt
+    assert "Reference-only neighboring context may also be embedded below" in prompt
     assert "do not open it or inspect the workspace to answer" in prompt
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
@@ -1717,12 +1905,16 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Treat the deterministic label as a strong prior" in prompt
     assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
     assert "Label codes:" in prompt
-    assert "Return one result for every input row." in prompt
+    assert "Return one result for every owned input row in `rows`." in prompt
     assert "Use each row's tuple slot 2 (`current_line`) as the line to label." in prompt
+    assert "Never label reference-only neighboring rows" in prompt
+    assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
     assert "Recompute labels from the task file rows themselves" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
     assert "default to `KNOWLEDGE` or `OTHER`" in prompt
+    assert "HOWTO_SECTION availability: absent_or_unproven (evidence rows: 0)" in prompt
+    assert "HOWTO_SECTION policy: This book may legitimately use zero `HOWTO_SECTION` labels." in prompt
     assert "Balancing Fat" in prompt
     assert "WHAT IS ACID?" in prompt
     assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
@@ -1730,11 +1922,70 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Salt and Pepper" in prompt
     assert "Packet-local guidance:" in prompt
     assert "Packet mode: lesson_prose (confidence: high)" in prompt
+    assert "Reference-only neighboring context:" in prompt
+    assert "These neighboring rows are for context only. Do not label them." in prompt
+    assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n[122, "Earlier context"]\n<END_CONTEXT_BEFORE_ROWS>' in prompt
+    assert '<BEGIN_CONTEXT_AFTER_ROWS>\n[124, "Later context"]\n<END_CONTEXT_AFTER_ROWS>' in prompt
     assert "Repo-written contrast examples: 01-lesson-prose-vs-howto.md, 02-memoir-vs-knowledge.md" in prompt
     assert '<BEGIN_AUTHORITATIVE_ROWS>\n[123, "L4", "1 cup flour"]\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
+def test_canonical_line_role_file_prompt_renders_front_matter_navigation_guidance() -> None:
+    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+        rows=_load_preserved_line_role_packet_rows(
+            worker_id="worker-001",
+            task_id="line-role-canonical-0001-a000000-a000147.task-002",
+        )
+    )
+    prompt = build_canonical_line_role_file_prompt(
+        input_path=Path("/tmp/line_role_input_0002.json"),
+        input_payload={
+            "v": 1,
+            "shard_id": "line-role-canonical-0001-a000080-a000147",
+            **packet_context,
+            "rows": [[80, "L9", "Blue Cheese Dressing"]],
+        },
+    )
+
+    assert "Packet mode: front_matter_navigation (confidence: high)" in prompt
+    assert "front matter, navigation, or table-of-contents material" in prompt
+    assert "Do not over-structure recipe-name lists" in prompt
+
+
 def test_line_role_packet_context_marks_lesson_heading_packet_as_conservative_knowledge() -> None:
+    book_context = canonical_line_roles_module._build_line_role_book_context(  # noqa: SLF001
+        candidates=[
+            AtomicLineCandidate(
+                recipe_id=None,
+                block_id="block:packet:0",
+                block_index=0,
+                atomic_index=0,
+                text="Balancing Fat",
+                within_recipe_span=None,
+                rule_tags=["title_like"],
+            ),
+            AtomicLineCandidate(
+                recipe_id=None,
+                block_id="block:packet:1",
+                block_index=1,
+                atomic_index=1,
+                text=(
+                    "As with salt, the best way to correct overly fatty food is to rebalance the dish."
+                ),
+                within_recipe_span=None,
+                rule_tags=["instruction_like"],
+            ),
+            AtomicLineCandidate(
+                recipe_id=None,
+                block_id="block:packet:2",
+                block_index=2,
+                atomic_index=2,
+                text="Foods that are too dry can be corrected with a bit more fat.",
+                within_recipe_span=None,
+                rule_tags=["explicit_prose"],
+            ),
+        ]
+    )
     packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
         rows=[
             {
@@ -1762,15 +2013,25 @@ def test_line_role_packet_context_marks_lesson_heading_packet_as_conservative_kn
                     "Foods that are too dry can be corrected with a bit more fat."
                 ),
             },
-        ]
+        ],
+        book_context=book_context,
     )
 
     assert packet_context["packet_mode"] == "lesson_prose"
     assert packet_context["packet_summary"].startswith(
         "This packet reads like cookbook lesson prose"
     )
+    assert packet_context["howto_section_availability"] == "absent_or_unproven"
+    assert packet_context["howto_section_evidence_count"] == 0
+    assert packet_context["howto_section_policy"].startswith(
+        "This book may legitimately use zero"
+    )
     assert any(
         "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?`" in line
+        for line in packet_context["flip_policy"]
+    )
+    assert any(
+        "This book may legitimately use zero `HOWTO_SECTION` labels." in line
         for line in packet_context["flip_policy"]
     )
 
@@ -1802,6 +2063,179 @@ def test_line_role_packet_context_marks_memoir_packet_as_other_first() -> None:
         "This packet reads like memoir/front matter"
     )
     assert packet_context["default_posture"].startswith("Default to `OTHER`")
+
+
+def test_line_role_packet_context_marks_preserved_front_matter_packet_as_navigation() -> None:
+    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+        rows=_load_preserved_line_role_packet_rows(
+            worker_id="worker-001",
+            task_id="line-role-canonical-0001-a000000-a000147.task-001",
+        )
+    )
+
+    assert packet_context["packet_mode"] == "front_matter_navigation"
+    assert packet_context["context_confidence"] == "high"
+    assert packet_context["packet_summary"].startswith(
+        "This packet reads like front matter, navigation"
+    )
+    assert packet_context["default_posture"].startswith(
+        "Default to `OTHER` or `KNOWLEDGE`"
+    )
+    assert any(
+        "Do not over-structure recipe-name lists" in line
+        for line in packet_context["flip_policy"]
+    )
+
+
+def test_line_role_packet_context_marks_preserved_contents_packet_as_navigation() -> None:
+    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+        rows=_load_preserved_line_role_packet_rows(
+            worker_id="worker-001",
+            task_id="line-role-canonical-0001-a000000-a000147.task-002",
+        )
+    )
+
+    assert packet_context["packet_mode"] == "front_matter_navigation"
+    assert packet_context["context_confidence"] == "high"
+    assert packet_context["packet_summary"].startswith(
+        "This packet reads like front matter, navigation"
+    )
+
+
+def test_line_role_packet_mode_does_not_treat_toc_style_title_lists_as_recipe_body() -> None:
+    packet_mode, context_confidence = canonical_line_roles_module._classify_line_role_packet_mode(  # noqa: SLF001
+        rows=[
+            {
+                "atomic_index": 80,
+                "within_recipe_span": None,
+                "deterministic_label": "OTHER",
+                "rule_tags": ["title_like"],
+                "current_line": "Blue Cheese Dressing",
+            },
+            {
+                "atomic_index": 81,
+                "within_recipe_span": None,
+                "deterministic_label": "OTHER",
+                "rule_tags": ["title_like"],
+                "current_line": "Green Goddess Dressing",
+            },
+            {
+                "atomic_index": 82,
+                "within_recipe_span": None,
+                "deterministic_label": "OTHER",
+                "rule_tags": ["title_like"],
+                "current_line": "Six Ways to Cook Vegetables",
+            },
+            {
+                "atomic_index": 83,
+                "within_recipe_span": None,
+                "deterministic_label": "RECIPE_TITLE",
+                "rule_tags": ["title_like"],
+                "current_line": "Steamy Saute: Garlicky Green Beans",
+            },
+            {
+                "atomic_index": 84,
+                "within_recipe_span": None,
+                "deterministic_label": "INSTRUCTION_LINE",
+                "rule_tags": ["instruction_like"],
+                "current_line": "Roast: Butternut Squash and Brussels Sprouts in Agrodolce",
+            },
+            {
+                "atomic_index": 85,
+                "within_recipe_span": None,
+                "deterministic_label": "INGREDIENT_LINE",
+                "rule_tags": ["ingredient_like"],
+                "current_line": "Stock",
+            },
+        ]
+    )
+
+    assert packet_mode in {"front_matter_navigation", "mixed_boundaries"}
+    assert packet_mode != "recipe_body"
+    assert context_confidence in {"low", "medium", "high"}
+
+
+def test_line_role_book_context_marks_sea_and_smoke_style_recipe_as_howto_available() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text="SERVES 4",
+            within_recipe_span=True,
+            rule_tags=["yield_prefix"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:1",
+            block_index=1,
+            atomic_index=1,
+            text="FOR THE JUNIPER VINEGAR",
+            within_recipe_span=True,
+            rule_tags=["howto_heading"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:2",
+            block_index=2,
+            atomic_index=2,
+            text="21/2 tablespoons juniper berries",
+            within_recipe_span=True,
+            rule_tags=["ingredient_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:3",
+            block_index=3,
+            atomic_index=3,
+            text="JUNIPER VINEGAR",
+            within_recipe_span=True,
+            rule_tags=["title_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:4",
+            block_index=4,
+            atomic_index=4,
+            text="Crush the juniper berries and combine with vinegar.",
+            within_recipe_span=True,
+            rule_tags=["instruction_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:5",
+            block_index=5,
+            atomic_index=5,
+            text="TO SERVE",
+            within_recipe_span=True,
+            rule_tags=["howto_heading"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:6",
+            block_index=6,
+            atomic_index=6,
+            text="Serve immediately.",
+            within_recipe_span=True,
+            rule_tags=["instruction_like"],
+        ),
+    ]
+
+    book_context = canonical_line_roles_module._build_line_role_book_context(  # noqa: SLF001
+        candidates=candidates
+    )
+
+    assert book_context["howto_section_availability"] == "available"
+    assert book_context["howto_section_evidence_count"] >= 3
+
+
+def test_repo_gold_exposes_no_subsection_and_real_subsection_books() -> None:
+    saltfat_counts = _gold_label_counts_for_book("saltfatacidheatcutdown")
+    sea_and_smoke_counts = _gold_label_counts_for_book("seaandsmokecutdown")
+
+    assert saltfat_counts.get("HOWTO_SECTION", 0) == 0
+    assert sea_and_smoke_counts.get("HOWTO_SECTION", 0) >= 100
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -2092,12 +2526,12 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
             if supervision_callback is not None:
                 decision = supervision_callback(
                     CodexExecLiveSnapshot(
-                        elapsed_seconds=4.0,
+                        elapsed_seconds=4.2,
                         last_event_seconds_ago=0.0,
-                        event_count=80,
-                        command_execution_count=40,
+                        event_count=84,
+                        command_execution_count=21,
                         reasoning_item_count=0,
-                        last_command="/bin/bash -lc cat in/line-role-canonical-0001-a000000-a000000.json",
+                        last_command="/bin/bash -lc cat out/line-role-canonical-0001-a000000-a000000.json",
                         last_command_repeat_count=2,
                         has_final_agent_message=False,
                         timeout_seconds=timeout_seconds,
@@ -2109,9 +2543,14 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
                 output_schema_path=result.output_schema_path,
                 prompt_text=result.prompt_text,
                 response_text=None,
-                turn_failed_message=str(
-                    (decision.reason_detail if decision is not None else None)
-                    or "strict JSON stage attempted tool use"
+                turn_failed_message=(
+                    None
+                    if decision is not None
+                    and str(decision.supervision_state or "").strip() == "completed"
+                    else str(
+                        (decision.reason_detail if decision is not None else None)
+                        or "strict JSON stage attempted tool use"
+                    )
                 ),
                 events=(
                     {"type": "thread.started"},
@@ -2138,18 +2577,20 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
                 duration_ms=result.duration_ms,
                 started_at_utc=result.started_at_utc,
                 finished_at_utc=result.finished_at_utc,
-                supervision_state="watchdog_killed",
+                supervision_state=str(
+                    (decision.supervision_state if decision is not None else None)
+                    or "watchdog_killed"
+                ),
                 supervision_reason_code=str(
                     (decision.reason_code if decision is not None else None)
                     or "watchdog_command_loop_without_output"
                 ),
-                supervision_reason_detail=str(
-                    (decision.reason_detail if decision is not None else None)
-                    or "workspace worker stage spent too many shell commands without reaching final output"
+                supervision_reason_detail=(
+                    None
+                    if decision is None
+                    else str(decision.reason_detail or "")
                 ),
-                supervision_retryable=bool(
-                    decision.retryable if decision is not None else True
-                ),
+                supervision_retryable=bool(decision.retryable if decision is not None else True),
             )
 
         def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
@@ -2183,8 +2624,8 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
             encoding="utf-8"
         )
     )
-    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 1
-    assert "watchdog_kills_detected" in telemetry_payload["summary"]["pathological_flags"]
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
+    assert "watchdog_kills_detected" not in telemetry_payload["summary"]["pathological_flags"]
     assert "command_execution_detected" in telemetry_payload["summary"]["pathological_flags"]
 
     live_status_path = next(
@@ -2195,14 +2636,13 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     status_path = live_status_path.with_name("status.json")
     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
     assert status_payload["status"] == "validated"
-    assert status_payload["state"] == "watchdog_killed"
-    assert status_payload["reason_code"] == "watchdog_command_loop_without_output"
-    assert "command_count=40" in status_payload["reason_detail"]
+    assert status_payload["state"] == "completed"
+    assert status_payload["reason_code"] == "workspace_outputs_stabilized"
+    assert "wrote every assigned output file" in status_payload["reason_detail"]
 
     live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
-    assert live_status_payload["state"] == "watchdog_killed"
-    assert live_status_payload["reason_code"] == "watchdog_command_loop_without_output"
-    assert "command_count=40" in live_status_payload["reason_detail"]
+    assert live_status_payload["state"] == "completed"
+    assert live_status_payload["reason_code"] == "workspace_outputs_stabilized"
 
 
 def test_line_role_strict_watchdog_still_kills_benign_commands_in_structured_mode(
@@ -2318,6 +2758,67 @@ def test_label_atomic_lines_allows_line_role_workspace_orientation_commands(
     assert live_status["last_command_policy"] == "tolerated_orientation_command"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
+
+
+def test_line_role_workspace_watchdog_stops_after_outputs_stabilize(
+    tmp_path: Path,
+) -> None:
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    output_path = out_dir / "line-role-canonical-0001-a000000-a000000.json"
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+    output_path.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {"atomic_index": 0, "label": "OTHER"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.4,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc cat out/line-role-canonical-0001-a000000-a000000.json",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.7,
+            last_event_seconds_ago=0.0,
+            event_count=5,
+            command_execution_count=2,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc cat out/line-role-canonical-0001-a000000-a000000.json",
+            last_command_repeat_count=2,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is not None
+    assert second.reason_code == "workspace_outputs_stabilized"
+    assert second.supervision_state == "completed"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["state"] == "completed"
+    assert live_status["reason_code"] == "workspace_outputs_stabilized"
+    assert live_status["workspace_output_complete"] is True
+    assert live_status["workspace_output_stable_passes"] >= 2
 
 
 def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command(
@@ -3089,6 +3590,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "open `hints/<task_id>.md` first" in prompt_text
     assert "Treat each packet's deterministic label code as a strong prior." in prompt_text
     assert "If `examples/` exists, use those repo-written contrast examples" in prompt_text
+    assert "`HOWTO_SECTION` is book-optional" in prompt_text
     assert "Balancing Fat" in prompt_text
     assert "write exactly one JSON object to `out/<task_id>.json`." in prompt_text
     worker_prompt_text = (
@@ -3127,6 +3629,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         "01-lesson-prose-vs-howto.md",
         "02-memoir-vs-knowledge.md",
         "03-recipe-internal-sections.md",
+        "04-book-optional-howto.md",
     ]
     worker_hint_text = (
         tmp_path
@@ -3158,9 +3661,14 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert worker_input_payload["packet_summary"]
     assert worker_input_payload["default_posture"]
     assert worker_input_payload["flip_policy"]
+    assert worker_input_payload["howto_section_availability"] == "absent_or_unproven"
+    assert worker_input_payload["howto_section_policy"].startswith(
+        "This book may legitimately use zero"
+    )
     assert worker_input_payload["example_files"] == [
         "01-lesson-prose-vs-howto.md",
         "03-recipe-internal-sections.md",
+        "04-book-optional-howto.md",
     ]
     assert worker_input_payload["rows"] == [[0, "L9", "Ambiguous line 0"]]
     input_payload = json.loads(

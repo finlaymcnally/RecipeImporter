@@ -87,10 +87,6 @@ _KNOWLEDGE_TASK_STATUS_FILE_NAME = "task_status.jsonl"
 _KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 _KNOWLEDGE_TASK_STATUS_SCHEMA_VERSION = "knowledge_task_status.v1"
 _KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
-_KNOWLEDGE_CURRENT_PACKET_FILE_NAME = "current_packet.json"
-_KNOWLEDGE_CURRENT_HINT_FILE_NAME = "current_hint.md"
-_KNOWLEDGE_CURRENT_RESULT_PATH_FILE_NAME = "current_result_path.txt"
-_KNOWLEDGE_PACKET_LEASE_STATUS_FILE_NAME = "packet_lease_status.json"
 _KNOWLEDGE_SCRATCH_DIR_NAME = "scratch"
 _KNOWLEDGE_POISONED_WORKER_MIN_FAILURES = 2
 _KNOWLEDGE_FOLLOWUP_CIRCUIT_BREAKER_MIN_ATTEMPTS = 3
@@ -228,6 +224,43 @@ def _build_knowledge_task_runtime_manifest_entry(
         input_payload=task_manifest.input_payload,
         input_text=task_manifest.input_text,
         metadata=dict(task_manifest.metadata or {}),
+    )
+
+
+def _decorate_knowledge_workspace_task_runtime_entry(
+    task_entry: TaskManifestEntryV1,
+    *,
+    task_sequence: int,
+    task_total: int,
+) -> TaskManifestEntryV1:
+    task_id = str(task_entry.task_id).strip()
+    metadata = dict(task_entry.metadata or {})
+    metadata.update(
+        {
+            "input_path": str(Path("in") / f"{task_id}.json"),
+            "hint_path": str(Path("hints") / f"{task_id}.md"),
+            "result_path": str(Path("out") / f"{task_id}.json"),
+            "task_sequence": int(task_sequence),
+            "task_total": int(task_total),
+            "lease_sequence": int(task_sequence),
+            "lease_total": int(task_total),
+            "workspace_processing_contract": "ordered_task_queue_v1",
+        }
+    )
+    return replace(task_entry, metadata=metadata)
+
+
+def _build_knowledge_workspace_task_runtime_entries(
+    task_plans: Sequence[_KnowledgeTaskPlan],
+) -> tuple[TaskManifestEntryV1, ...]:
+    total = len(task_plans)
+    return tuple(
+        _decorate_knowledge_workspace_task_runtime_entry(
+            _build_knowledge_task_runtime_manifest_entry(task_plan),
+            task_sequence=index,
+            task_total=total,
+        )
+        for index, task_plan in enumerate(task_plans, start=1)
     )
 
 
@@ -739,187 +772,6 @@ class _KnowledgeTaskPlan:
     task_id: str
     parent_shard_id: str
     manifest_entry: ShardManifestEntryV1
-
-
-@dataclass(slots=True)
-class _KnowledgePacketLeaseController:
-    worker_root: Path
-    hints_dir: Path
-    task_plans: tuple[_KnowledgeTaskPlan, ...]
-    worker_id: str
-    task_status_tracker: _KnowledgeTaskStatusTracker | None = None
-    lock: threading.Lock = field(default_factory=threading.Lock)
-    stop_event: threading.Event = field(default_factory=threading.Event)
-    current_index: int = -1
-    settled_task_ids: set[str] = field(default_factory=set)
-    watcher_thread: threading.Thread | None = None
-
-    def start(self) -> None:
-        scratch_dir = self.worker_root / _KNOWLEDGE_SCRATCH_DIR_NAME
-        scratch_dir.mkdir(parents=True, exist_ok=True)
-        if not self.task_plans:
-            self._write_idle_files_locked()
-            return
-        with self.lock:
-            self.current_index = 0
-            self._mark_task_leased_locked(self.task_plans[0])
-            self._write_current_files_locked()
-        self.watcher_thread = threading.Thread(
-            target=self._watch_outputs,
-            name=f"{self.worker_id}-knowledge-packet-lease",
-            daemon=True,
-        )
-        self.watcher_thread.start()
-
-    def stop(self) -> None:
-        while self._advance_if_current_output_exists():
-            continue
-        self.stop_event.set()
-        watcher_thread = self.watcher_thread
-        if watcher_thread is not None:
-            watcher_thread.join(timeout=1.0)
-
-    def _watch_outputs(self) -> None:
-        while not self.stop_event.is_set():
-            if self._advance_if_current_output_exists():
-                continue
-            with self.lock:
-                exhausted = self.current_index >= len(self.task_plans)
-            if exhausted:
-                return
-            self.stop_event.wait(0.1)
-
-    def _advance_if_current_output_exists(self) -> bool:
-        with self.lock:
-            if self.current_index < 0 or self.current_index >= len(self.task_plans):
-                return False
-            current_task_plan = self.task_plans[self.current_index]
-            task_id = current_task_plan.task_id
-            if task_id in self.settled_task_ids:
-                return False
-            output_path = self.worker_root / "out" / f"{task_id}.json"
-            if not output_path.exists():
-                return False
-            self.settled_task_ids.add(task_id)
-            if self.task_status_tracker is not None:
-                self.task_status_tracker.mark_main_output_written(
-                    task_id=task_id,
-                    metadata={
-                        "leased_packet_result_path": str(
-                            Path("out") / f"{task_id}.json"
-                        ),
-                    },
-                )
-            self.current_index += 1
-            if self.current_index < len(self.task_plans):
-                self._mark_task_leased_locked(self.task_plans[self.current_index])
-            self._write_current_files_locked()
-            return True
-
-    def _mark_task_leased_locked(self, task_plan: _KnowledgeTaskPlan) -> None:
-        if self.task_status_tracker is not None:
-            self.task_status_tracker.start_attempt(
-                task_id=task_plan.task_id,
-                worker_id=self.worker_id,
-                attempt_type="main_worker",
-                metadata={
-                    "lease_sequence": self.current_index + 1,
-                    "lease_total": len(self.task_plans),
-                },
-            )
-
-    def _write_current_files_locked(self) -> None:
-        if self.current_index < 0 or self.current_index >= len(self.task_plans):
-            self._write_idle_files_locked()
-            return
-        task_plan = self.task_plans[self.current_index]
-        task_manifest = task_plan.manifest_entry
-        task_id = str(task_plan.task_id).strip()
-        result_path = Path("out") / f"{task_id}.json"
-        current_hint_text = (
-            self.hints_dir / f"{task_manifest.shard_id}.md"
-        ).read_text(encoding="utf-8")
-        lease_payload = {
-            "task_id": task_id,
-            "parent_shard_id": task_plan.parent_shard_id,
-            "owned_ids": [str(value) for value in task_manifest.owned_ids],
-            "lease_sequence": self.current_index + 1,
-            "lease_total": len(self.task_plans),
-            "packets_settled": len(self.settled_task_ids),
-            "packets_remaining_including_current": max(
-                1,
-                len(self.task_plans) - len(self.settled_task_ids),
-            ),
-            "input_payload": task_manifest.input_payload,
-            "input_text": task_manifest.input_text,
-            "input_path": str(Path("in") / f"{task_manifest.shard_id}.json"),
-            "hint_path": _KNOWLEDGE_CURRENT_HINT_FILE_NAME,
-            "result_path": str(result_path),
-        }
-        (self.worker_root / _KNOWLEDGE_CURRENT_PACKET_FILE_NAME).write_text(
-            json.dumps(lease_payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (self.worker_root / _KNOWLEDGE_CURRENT_HINT_FILE_NAME).write_text(
-            current_hint_text,
-            encoding="utf-8",
-        )
-        (self.worker_root / _KNOWLEDGE_CURRENT_RESULT_PATH_FILE_NAME).write_text(
-            f"{result_path.as_posix()}\n",
-            encoding="utf-8",
-        )
-        _write_json(
-            {
-                "worker_state": "leased_current_packet",
-                "worker_id": self.worker_id,
-                "lease_sequence": self.current_index + 1,
-                "lease_total": len(self.task_plans),
-                "current_task_id": task_id,
-                "current_parent_shard_id": task_plan.parent_shard_id,
-                "packets_settled": len(self.settled_task_ids),
-                "packets_remaining_including_current": max(
-                    1,
-                    len(self.task_plans) - len(self.settled_task_ids),
-                ),
-            },
-            self.worker_root / _KNOWLEDGE_PACKET_LEASE_STATUS_FILE_NAME,
-        )
-
-    def _write_idle_files_locked(self) -> None:
-        idle_packet_payload = {
-            "task_id": None,
-            "parent_shard_id": None,
-            "lease_sequence": len(self.task_plans),
-            "lease_total": len(self.task_plans),
-            "packets_settled": len(self.settled_task_ids),
-            "packets_remaining_including_current": 0,
-            "result_path": None,
-        }
-        (self.worker_root / _KNOWLEDGE_CURRENT_PACKET_FILE_NAME).write_text(
-            json.dumps(idle_packet_payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        (self.worker_root / _KNOWLEDGE_CURRENT_HINT_FILE_NAME).write_text(
-            "All leased packets are settled. Stop after confirming the final result file exists.\n",
-            encoding="utf-8",
-        )
-        (self.worker_root / _KNOWLEDGE_CURRENT_RESULT_PATH_FILE_NAME).write_text(
-            "",
-            encoding="utf-8",
-        )
-        _write_json(
-            {
-                "worker_state": "all_packets_settled",
-                "worker_id": self.worker_id,
-                "lease_sequence": len(self.task_plans),
-                "lease_total": len(self.task_plans),
-                "current_task_id": None,
-                "current_parent_shard_id": None,
-                "packets_settled": len(self.settled_task_ids),
-                "packets_remaining_including_current": 0,
-            },
-            self.worker_root / _KNOWLEDGE_PACKET_LEASE_STATUS_FILE_NAME,
-        )
 
 
 @dataclass(slots=True)
@@ -2680,40 +2532,40 @@ def _build_knowledge_workspace_worker_prompt(
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "",
-        "Process one repo-leased packet at a time. The current working directory is already the workspace root.",
+        "Process the repo-written ordered packet queue in `assigned_tasks.json`. The current working directory is already the workspace root.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then open `current_packet.json`, `current_hint.md`, and `current_result_path.txt`.",
-        "2. Treat those `current_*` files as the only authoritative packet contract. `assigned_tasks.json` is inventory only; do not invent a batch scheduler from it.",
-        "3. Prefer opening the named files directly instead of exploring the workspace. Bounded local orientation commands such as `pwd`, `ls`, `find`, or `tree` are allowed, but they should help you stay on the current leased packet rather than drift away from it.",
-        "4. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Use `scratch/` for temporary helper files and the path named in `current_result_path.txt` for the final packet result.",
+        "1. Open `worker_manifest.json`, then open `assigned_tasks.json`.",
+        "2. `assigned_tasks.json` is authoritative for this worker. Process its task rows in order. Do not wait for the repo to mutate other lease files mid-session.",
+        "3. Each task row tells you the packet id plus `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`. Open those named files directly instead of exploring the workspace.",
+        "4. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Use `scratch/` for temporary helper files and each task row's `metadata.result_path` for the final packet result.",
         "5. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
-        "6. Write one completed semantic packet result file for the current leased packet only.",
-        "7. After writing the current packet result, re-open `packet_lease_status.json`. If it names another current packet, continue with the new `current_*` files. If it says all packets are settled, stop.",
-        "8. Do not run extra shell checks against finished files in `out/` unless the current leased packet is clearly incomplete or invalid while you are still writing it.",
+        "6. Write one completed semantic packet result file per assigned task row. Finish the whole ordered queue before stopping.",
+        "7. Do not invent extra packets, skip owned chunks, or write outside the listed `metadata.result_path` files.",
+        "8. Do not run extra shell checks against finished files in `out/` unless a listed task result is clearly incomplete or invalid while you are still writing it.",
         "",
-        "Semantic packet result contract for the current leased result path:",
+        "Semantic packet result contract for each assigned result path:",
         "- Write exactly one JSON object.",
         "- Use semantic field names, not the compact canonical bundle envelope.",
         "- Top level keys: `packet_id`, `chunk_results`.",
-        "- `packet_id` must equal the leased packet task id from `current_packet.json`.",
-        "- `chunk_results` must contain exactly one result row for each owned chunk in the leased packet input and no extras.",
+        "- `packet_id` must equal the current task row's `task_id`.",
+        "- `chunk_results` must contain exactly one result row for each owned chunk in the current task row and no extras.",
         "- Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`.",
         "- Each block decision uses `block_index`, `category`, and optional `reviewer_category`.",
         "- Each snippet uses `body` and `evidence`; each evidence row uses `block_index` and `quote`.",
-        "- Keep all block decisions and snippet evidence on the leased packet's own block indices only.",
+        "- Keep all block decisions and snippet evidence on the current task row's own block indices only.",
         "- If a chunk is not useful, still include its result row with `is_useful: false` and an empty snippet list.",
-        "- Treat `current_hint.md` as guidance and `current_packet.json` as the authoritative owned input for the current lease.",
+        "- Treat each task row's `metadata.hint_path` file as guidance and its `metadata.input_path` file as the authoritative owned input.",
         "- The repo will write the final canonical `v` / `bid` / `r` packet artifact after it accepts your semantic result.",
         "",
-        "Do not return the packet outputs in your final message. The authoritative result is the set of files written to the repo-leased local result paths.",
+        "Do not return the packet outputs in your final message. The authoritative result is the set of files written to the repo-declared local result paths.",
     ]
     if task_ids:
         lines.extend(
             [
                 "",
-                "Assigned packet ids for coarse progress only:",
+                "Assigned packet ids in required processing order:",
                 *[f"- {task_id}" for task_id in task_ids],
             ]
         )
@@ -3100,17 +2952,18 @@ def _run_knowledge_workspace_worker_assignment_v1(
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
     if runnable_shards:
-        worker_prompt_text = _build_knowledge_workspace_worker_prompt(
-            tasks=[
-                _build_knowledge_task_runtime_manifest_entry(
-                    _KnowledgeTaskPlan(
-                        task_id=shard.shard_id,
-                        parent_shard_id=shard.shard_id,
-                        manifest_entry=shard,
-                    )
+        workspace_prompt_tasks = _build_knowledge_workspace_task_runtime_entries(
+            tuple(
+                _KnowledgeTaskPlan(
+                    task_id=shard.shard_id,
+                    parent_shard_id=shard.shard_id,
+                    manifest_entry=shard,
                 )
                 for shard in runnable_shards
-            ]
+            )
+        )
+        worker_prompt_text = _build_knowledge_workspace_worker_prompt(
+            tasks=workspace_prompt_tasks
         )
         worker_prompt_path = worker_root / "prompt.txt"
         worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
@@ -3122,11 +2975,22 @@ def _run_knowledge_workspace_worker_assignment_v1(
             shard_root = shard_dir / shard.shard_id
             (shard_root / "prompt.txt").write_text(worker_prompt_text, encoding="utf-8")
         if task_status_tracker is not None:
-            for shard in runnable_shards:
+            for task_entry in workspace_prompt_tasks:
+                task_metadata = dict(task_entry.metadata or {})
                 task_status_tracker.start_attempt(
-                    task_id=shard.shard_id,
+                    task_id=task_entry.task_id,
                     worker_id=assignment.worker_id,
                     attempt_type="main_worker",
+                    metadata={
+                        "lease_sequence": int(task_metadata.get("lease_sequence") or 0),
+                        "lease_total": int(task_metadata.get("lease_total") or len(workspace_prompt_tasks)),
+                        "input_path": task_metadata.get("input_path"),
+                        "hint_path": task_metadata.get("hint_path"),
+                        "result_path": task_metadata.get("result_path"),
+                        "workspace_processing_contract": task_metadata.get(
+                            "workspace_processing_contract"
+                        ),
+                    },
                 )
         run_result = runner.run_workspace_worker(
             prompt_text=worker_prompt_text,
@@ -4169,10 +4033,12 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
+    workspace_task_entries = _build_knowledge_workspace_task_runtime_entries(runnable_tasks)
     _write_json(
-        [asdict(_build_knowledge_task_runtime_manifest_entry(task)) for task in runnable_tasks],
+        [asdict(task_entry) for task_entry in workspace_task_entries],
         worker_root / "assigned_tasks.json",
     )
+    (worker_root / _KNOWLEDGE_SCRATCH_DIR_NAME).mkdir(parents=True, exist_ok=True)
     for task in runnable_tasks:
         task_manifest = task.manifest_entry
         _write_worker_input(
@@ -4184,21 +4050,10 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
             path=hints_dir / f"{task_manifest.shard_id}.md",
             shard=task_manifest,
         )
-    lease_controller = _KnowledgePacketLeaseController(
-        worker_root=worker_root,
-        hints_dir=hints_dir,
-        task_plans=tuple(runnable_tasks),
-        worker_id=assignment.worker_id,
-        task_status_tracker=task_status_tracker,
-    )
-    lease_controller.start()
 
     if runnable_shards and runnable_tasks:
         worker_prompt_text = _build_knowledge_workspace_worker_prompt(
-            tasks=[
-                _build_knowledge_task_runtime_manifest_entry(task)
-                for task in runnable_tasks
-            ]
+            tasks=workspace_task_entries
         )
         worker_prompt_path = worker_root / "prompt.txt"
         worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
@@ -4208,38 +4063,53 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
         ]
         for shard in runnable_shards:
             (shard_dir / shard.shard_id / "prompt.txt").write_text(worker_prompt_text, encoding="utf-8")
-        try:
-            run_result = runner.run_workspace_worker(
-                prompt_text=worker_prompt_text,
-                working_dir=worker_root,
-                env=env,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                workspace_task_label="knowledge worker session",
-                supervision_callback=_build_strict_json_watchdog_callback(
-                    live_status_path=worker_live_status_path,
-                    live_status_paths=shard_live_status_paths,
-                    cohort_watchdog_state=cohort_watchdog_state,
-                    watchdog_policy="workspace_worker_v1",
-                    allow_workspace_commands=True,
-                    expected_workspace_output_paths=[
-                        out_dir / f"{task.task_id}.json" for task in runnable_tasks
-                    ],
-                    workspace_output_observer=(
-                        None
-                        if progress_state is None
-                        else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
-                            progress_state.observe_workspace_outputs(
-                                worker_id=_worker_id,
-                                present_count=present_count,
-                                expected_count=expected_count,
-                            )
+        if task_status_tracker is not None:
+            for task_entry in workspace_task_entries:
+                task_metadata = dict(task_entry.metadata or {})
+                task_status_tracker.start_attempt(
+                    task_id=task_entry.task_id,
+                    worker_id=assignment.worker_id,
+                    attempt_type="main_worker",
+                    metadata={
+                        "lease_sequence": int(task_metadata.get("lease_sequence") or 0),
+                        "lease_total": int(task_metadata.get("lease_total") or len(workspace_task_entries)),
+                        "input_path": task_metadata.get("input_path"),
+                        "hint_path": task_metadata.get("hint_path"),
+                        "result_path": task_metadata.get("result_path"),
+                        "workspace_processing_contract": task_metadata.get(
+                            "workspace_processing_contract"
+                        ),
+                    },
+                )
+        run_result = runner.run_workspace_worker(
+            prompt_text=worker_prompt_text,
+            working_dir=worker_root,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            workspace_task_label="knowledge worker session",
+            supervision_callback=_build_strict_json_watchdog_callback(
+                live_status_path=worker_live_status_path,
+                live_status_paths=shard_live_status_paths,
+                cohort_watchdog_state=cohort_watchdog_state,
+                watchdog_policy="workspace_worker_v1",
+                allow_workspace_commands=True,
+                expected_workspace_output_paths=[
+                    out_dir / f"{task.task_id}.json" for task in runnable_tasks
+                ],
+                workspace_output_observer=(
+                    None
+                    if progress_state is None
+                    else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
+                        progress_state.observe_workspace_outputs(
+                            worker_id=_worker_id,
+                            present_count=present_count,
+                            expected_count=expected_count,
                         )
-                    ),
+                    )
                 ),
-            )
-        finally:
-            lease_controller.stop()
+            ),
+        )
         _finalize_live_status(
             worker_live_status_path,
             run_result=run_result,
@@ -4258,6 +4128,20 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
         _write_json({"text": run_result.response_text}, worker_root / "last_message.json")
         _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
         _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
+        if task_status_tracker is not None:
+            for task_entry in workspace_task_entries:
+                task_metadata = dict(task_entry.metadata or {})
+                result_path = str(task_metadata.get("result_path") or "").strip()
+                if not result_path:
+                    continue
+                output_path = worker_root / result_path
+                if output_path.exists():
+                    task_status_tracker.mark_main_output_written(
+                        task_id=task_entry.task_id,
+                        metadata={
+                            "leased_packet_result_path": result_path,
+                        },
+                    )
 
         task_count = len(runnable_tasks)
         task_payloads_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
@@ -4940,14 +4824,16 @@ def _run_direct_knowledge_worker_assignment_v1(
     hints_dir.mkdir(parents=True, exist_ok=True)
     shard_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
+    (worker_root / _KNOWLEDGE_SCRATCH_DIR_NAME).mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
     _write_json([asdict(shard) for shard in assigned_shards], worker_root / "assigned_shards.json")
+    task_plans = tuple(
+        task_plan
+        for shard in assigned_shards
+        for task_plan in _build_knowledge_task_plans(shard)
+    )
     _write_json(
-        [
-            asdict(_build_knowledge_task_runtime_manifest_entry(task_plan))
-            for shard in assigned_shards
-            for task_plan in _build_knowledge_task_plans(shard)
-        ],
+        [asdict(task_entry) for task_entry in _build_knowledge_workspace_task_runtime_entries(task_plans)],
         worker_root / "assigned_tasks.json",
     )
     return _run_knowledge_workspace_worker_assignment_v1(
@@ -5277,7 +5163,11 @@ def _build_strict_json_watchdog_callback(
             )
         status_payload = {
             "state": (
-                "watchdog_killed"
+                "completed"
+                if isinstance(decision, CodexExecSupervisionDecision)
+                and decision.action == "terminate"
+                and str(decision.supervision_state or "").strip() == "completed"
+                else "watchdog_killed"
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
                 else "running"

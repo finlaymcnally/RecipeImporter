@@ -43,6 +43,11 @@ ORACLE_DEFAULT_MODEL = os.environ.get(
 )
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
 ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
+ORACLE_BROWSER_STARTER_PACKET_ROW_LOCATOR_SECTIONS = (
+    "root_files",
+    "starter_pack",
+    "per_run_summaries",
+)
 ORACLE_BROWSER_REUSE_WAIT = "5m"
 ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT = "30m"
 ORACLE_BROWSER_AUTO_REATTACH_DELAY = "30s"
@@ -99,6 +104,10 @@ _ORACLE_ROOT_REF_RE = re.compile(
 )
 _TIMESTAMP_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}")
 _ORACLE_BENCHMARK_PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
+_ORACLE_CHATGPT_ROOT_URLS = {
+    "https://chatgpt.com",
+    "https://chatgpt.com/",
+}
 
 
 @dataclass(frozen=True)
@@ -399,30 +408,173 @@ def _copy_or_shard_browser_upload_files(
     shard_notes: list[str] = []
     for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
         source_path = bundle_dir / file_name
-        size_bytes = source_path.stat().st_size
-        if size_bytes <= ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES:
-            staged_path = staging_dir / file_name
-            staged_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
-            staged_paths.append(staged_path)
-            continue
-
-        shard_chunks = _split_text_to_byte_sized_chunks(
-            source_path.read_text(encoding="utf-8"),
-            max_bytes=ORACLE_BROWSER_SHARD_TARGET_BYTES,
+        file_staged_paths, shard_note = _stage_browser_upload_text_file(
+            source_path=source_path,
+            staging_dir=staging_dir,
+            staged_name=file_name,
         )
-        shard_names: list[str] = []
-        for index, chunk in enumerate(shard_chunks, start=1):
-            shard_name = f"{source_path.stem}.part{index:03d}{source_path.suffix}"
-            shard_path = staging_dir / shard_name
-            shard_path.write_text(chunk, encoding="utf-8")
-            staged_paths.append(shard_path)
-            shard_names.append(shard_name)
-        shard_notes.append(
-            f"`{file_name}` was split into {len(shard_names)} ordered shards: "
-            + ", ".join(f"`{name}`" for name in shard_names)
-            + "."
-        )
+        staged_paths.extend(file_staged_paths)
+        if shard_note:
+            shard_notes.append(shard_note)
     return staged_paths, shard_notes
+
+
+def _stage_browser_upload_text_file(
+    *,
+    source_path: Path,
+    staging_dir: Path,
+    staged_name: str | None = None,
+) -> tuple[list[Path], str]:
+    target_name = staged_name or source_path.name
+    target_path = Path(target_name)
+    size_bytes = source_path.stat().st_size
+    if size_bytes <= ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES:
+        staged_path = staging_dir / target_path.name
+        staged_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+        return [staged_path], ""
+
+    shard_chunks = _split_text_to_byte_sized_chunks(
+        source_path.read_text(encoding="utf-8"),
+        max_bytes=ORACLE_BROWSER_SHARD_TARGET_BYTES,
+    )
+    shard_paths: list[Path] = []
+    for index, chunk in enumerate(shard_chunks, start=1):
+        shard_name = f"{target_path.stem}.part{index:03d}{target_path.suffix}"
+        shard_path = staging_dir / shard_name
+        shard_path.write_text(chunk, encoding="utf-8")
+        shard_paths.append(shard_path)
+    first_name = shard_paths[0].name
+    last_name = shard_paths[-1].name
+    shard_note = (
+        f"`{target_path.name}` was split into {len(shard_paths)} ordered shards named "
+        f"`{first_name}` through `{last_name}`."
+    )
+    return shard_paths, shard_note
+
+
+def _read_oracle_upload_bundle_index_payload(bundle_dir: Path) -> dict[str, Any] | None:
+    index_path = bundle_dir / "upload_bundle_index.json"
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _collect_payload_row_numbers(value: Any, selected_rows: set[int]) -> None:
+    if isinstance(value, dict):
+        payload_row = value.get("payload_row")
+        if isinstance(payload_row, int):
+            selected_rows.add(payload_row)
+        for nested_value in value.values():
+            _collect_payload_row_numbers(nested_value, selected_rows)
+        return
+    if isinstance(value, list):
+        for nested_value in value:
+            _collect_payload_row_numbers(nested_value, selected_rows)
+
+
+def _collect_browser_safe_payload_rows(index_payload: Mapping[str, Any]) -> list[int]:
+    navigation_payload = index_payload.get("navigation")
+    if not isinstance(navigation_payload, dict):
+        return []
+    row_locators = navigation_payload.get("row_locators")
+    if not isinstance(row_locators, dict):
+        return []
+    selected_rows: set[int] = set()
+    for section_name in ORACLE_BROWSER_STARTER_PACKET_ROW_LOCATOR_SECTIONS:
+        _collect_payload_row_numbers(row_locators.get(section_name), selected_rows)
+    return sorted(row for row in selected_rows if row > 0)
+
+
+def _write_selected_payload_rows(
+    *,
+    source_path: Path,
+    output_path: Path,
+    selected_rows: list[int],
+) -> tuple[int, int]:
+    selected_row_set = set(selected_rows)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    selected_count = 0
+    selected_bytes = 0
+    with source_path.open("r", encoding="utf-8") as source_handle, output_path.open(
+        "w",
+        encoding="utf-8",
+    ) as output_handle:
+        for row_number, line in enumerate(source_handle, start=1):
+            if row_number not in selected_row_set:
+                continue
+            output_handle.write(line)
+            selected_count += 1
+            selected_bytes += len(line.encode("utf-8"))
+    return selected_count, selected_bytes
+
+
+def _prepare_browser_safe_starter_upload_inputs(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    staging_dir: Path,
+    prompt: str,
+    oversized_files: list[tuple[str, int]],
+) -> PreparedOracleUploadInputs | None:
+    index_payload = _read_oracle_upload_bundle_index_payload(target.bundle_dir)
+    if index_payload is None:
+        return None
+    selected_rows = _collect_browser_safe_payload_rows(index_payload)
+    if not selected_rows:
+        return None
+
+    original_payload_path = target.bundle_dir / "upload_bundle_payload.jsonl"
+    subset_source_path = staging_dir / "upload_bundle_payload.browser-safe-subset.jsonl"
+    selected_count, selected_bytes = _write_selected_payload_rows(
+        source_path=original_payload_path,
+        output_path=subset_source_path,
+        selected_rows=selected_rows,
+    )
+    if selected_count <= 0 or selected_bytes <= 0:
+        return None
+
+    staged_paths: list[Path] = []
+    shard_notes: list[str] = []
+    for file_name in ("upload_bundle_overview.md", "upload_bundle_index.json"):
+        file_staged_paths, shard_note = _stage_browser_upload_text_file(
+            source_path=target.bundle_dir / file_name,
+            staging_dir=staging_dir,
+            staged_name=file_name,
+        )
+        staged_paths.extend(file_staged_paths)
+        if shard_note:
+            shard_notes.append(shard_note)
+    payload_staged_paths, payload_shard_note = _stage_browser_upload_text_file(
+        source_path=subset_source_path,
+        staging_dir=staging_dir,
+        staged_name="upload_bundle_payload.jsonl",
+    )
+    staged_paths.extend(payload_staged_paths)
+    if payload_shard_note:
+        shard_notes.append(payload_shard_note)
+
+    oversized_text = ", ".join(f"{name} ({size_bytes} bytes)" for name, size_bytes in oversized_files)
+    prompt_lines = [
+        prompt,
+        "",
+        "Oracle transport note: browser upload may deliver the logical text files as one synthetic attachment such as `attachments-bundle.txt`.",
+        "Oracle transport note: the attached `upload_bundle_payload.jsonl` is a browser-safe starter-pack subset selected from the full local payload using `upload_bundle_index.json` row locators from `root_files`, `starter_pack`, and `per_run_summaries`.",
+        "Oracle transport note: artifact `path` values in that trimmed payload stay unchanged, but `payload_row` numbers in `upload_bundle_index.json` still refer to the full local bundle rather than this browser-safe subset.",
+        "If you need evidence outside the attached starter-pack subset, request narrow follow-up data instead of asking for the full bundle again.",
+        *shard_notes,
+        "Read `upload_bundle_overview.md` first, then `upload_bundle_index.json`, and consult the attached starter-pack payload rows by `path` as needed.",
+    ]
+    note = (
+        "Prepared browser-safe Oracle starter-pack upload for oversized bundle files: "
+        f"{oversized_text}. Trimmed `upload_bundle_payload.jsonl` to {selected_count} starter-pack rows "
+        f"({selected_bytes} bytes) before browser upload."
+    )
+    return PreparedOracleUploadInputs(
+        prompt="\n".join(prompt_lines),
+        file_paths=staged_paths,
+        note=note,
+    )
 
 
 def _prepare_browser_upload_inputs(
@@ -437,6 +589,15 @@ def _prepare_browser_upload_inputs(
             prompt=prompt,
             file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
         )
+
+    starter_packet = _prepare_browser_safe_starter_upload_inputs(
+        target=target,
+        staging_dir=staging_dir,
+        prompt=prompt,
+        oversized_files=oversized_files,
+    )
+    if starter_packet is not None:
+        return starter_packet
 
     staged_paths, shard_notes = _copy_or_shard_browser_upload_files(
         bundle_dir=target.bundle_dir,
@@ -623,7 +784,6 @@ def _expected_root_aliases(source_root: Path) -> set[str]:
             aliases.add("/".join(parts[index:]))
             break
     aliases.add(source_root.as_posix())
-    aliases.add(source_root.name)
     return {alias for alias in aliases if alias}
 
 
@@ -861,6 +1021,18 @@ def _parse_iso_datetime(value: str) -> datetime | None:
     return parsed
 
 
+def _normalize_oracle_conversation_url(
+    raw_url: str,
+    *,
+    conversation_id: str = "",
+) -> str:
+    normalized_url = str(raw_url or "").strip()
+    normalized_id = str(conversation_id or "").strip()
+    if normalized_url in _ORACLE_CHATGPT_ROOT_URLS:
+        return f"https://chatgpt.com/c/{normalized_id}" if normalized_id else ""
+    return normalized_url
+
+
 def _find_matching_oracle_session_snapshot(
     *,
     prompt: str,
@@ -902,6 +1074,10 @@ def _find_matching_oracle_session_snapshot(
             str(runtime_payload.get("conversationId") or "")
             if isinstance(runtime_payload, dict)
             else ""
+        )
+        conversation_url = _normalize_oracle_conversation_url(
+            conversation_url,
+            conversation_id=conversation_id,
         )
         snapshot = OracleSessionSnapshot(
             session_id=str(payload.get("id") or ""),
@@ -957,6 +1133,10 @@ def _read_oracle_session_snapshot_by_id(
             or (runtime_payload.get("conversationId") if isinstance(runtime_payload, dict) else "")
             or ""
         )
+    )
+    conversation_url = _normalize_oracle_conversation_url(
+        conversation_url,
+        conversation_id=conversation_id,
     )
     return OracleSessionSnapshot(
         session_id=str(payload.get("id") or normalized_id),

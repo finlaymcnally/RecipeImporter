@@ -29,6 +29,7 @@ Negative rules (must-not-do):
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
+- `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
 - If `span_code` is `N` (outside recipe), default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
 - If a row is plausible under its current deterministic label, leave it there.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.

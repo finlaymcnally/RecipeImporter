@@ -66,6 +66,44 @@ def _make_bundle(
     return bundle_dir
 
 
+def _write_browser_safe_row_locator_index(bundle_dir: Path) -> None:
+    index_path = bundle_dir / "upload_bundle_index.json"
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    payload["navigation"] = {
+        "row_locators": {
+            "root_files": {
+                "comparison_summary_json": {
+                    "path": "codex_vs_vanilla_comparison.json",
+                    "payload_row": 2,
+                },
+                "triage_packet_jsonl": {
+                    "path": "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+                    "payload_row": 5,
+                },
+            },
+            "starter_pack": {
+                "casebook_md": {
+                    "path": "_upload_bundle_derived/starter_pack_v1/07_casebook.md",
+                    "payload_row": 7,
+                },
+            },
+            "per_run_summaries": [
+                {
+                    "run_id": "codexfarm",
+                    "summary": {
+                        "path": "codexfarm/need_to_know_summary.json",
+                        "payload_row": 9,
+                    },
+                }
+            ],
+        }
+    }
+    index_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_resolve_oracle_benchmark_bundle_accepts_bundle_dir_and_parent(tmp_path: Path) -> None:
     session_root = tmp_path / "single-profile-benchmark"
     bundle_dir = _make_bundle(session_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME)
@@ -548,6 +586,84 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
 
 
+def test_run_oracle_benchmark_upload_browser_prefers_starter_packet_subset_for_oversized_payload(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    _write_browser_safe_row_locator_index(bundle_dir)
+    payload_lines: list[str] = []
+    for row_number in range(1, 81):
+        if row_number in {2, 5, 7, 9}:
+            payload = {
+                "path": f"selected-{row_number}.json",
+                "payload": f"selected row {row_number}",
+            }
+            payload_lines.append(json.dumps(payload) + "\n")
+            continue
+        payload = {
+            "path": f"heavy-{row_number}.json",
+            "payload": "x" * 20_000,
+        }
+        payload_lines.append(json.dumps(payload) + "\n")
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
+        "".join(payload_lines),
+        encoding="utf-8",
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    captured: dict[str, object] = {}
+
+    def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        file_args = [
+            Path(command[index + 1])
+            for index, arg in enumerate(command)
+            if arg == "--file"
+        ]
+        captured["file_args"] = file_args
+        payload_path = next(path for path in file_args if path.name == "upload_bundle_payload.jsonl")
+        payload_rows = payload_path.read_text(encoding="utf-8").splitlines()
+        assert len(payload_rows) == 4
+        assert all("selected-" in row for row in payload_rows)
+        assert payload_path.stat().st_size <= oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES
+        prompt = command[command.index("-p") + 1]
+        assert "browser-safe starter-pack subset" in prompt
+        assert "full local bundle rather than this browser-safe subset" in prompt
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="\n".join(
+                [
+                    "oracle (gpt-5.2)",
+                    "Answer:",
+                    f"Top regressions\n- Benchmark root: {target.source_root}",
+                    "- run_count = 1",
+                    "- pair_count = 0",
+                    "Likely cause buckets\n- none",
+                    "Immediate next checks\n- none",
+                ]
+            ),
+            stderr="",
+        )
+
+    result = oracle_upload.run_oracle_benchmark_upload(
+        target=target,
+        mode="browser",
+        runner=fake_runner,
+    )
+
+    assert result.success is True
+    assert "Prepared browser-safe Oracle starter-pack upload" in result.stdout
+    command = captured["command"]
+    assert isinstance(command, list)
+    file_args = captured["file_args"]
+    assert isinstance(file_args, list)
+    assert len(file_args) == 3
+    assert {path.name for path in file_args} == set(oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
+
+
 def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_session_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -720,6 +836,48 @@ def test_run_oracle_benchmark_upload_browser_duplicate_guard_backfills_conversat
     assert status["conversation_url"] == "https://chatgpt.com/c/from-session-store-286"
 
 
+def test_read_oracle_session_snapshot_by_id_synthesizes_chat_url_from_conversation_id(
+    tmp_path: Path,
+) -> None:
+    sessions_dir = tmp_path / "oracle-home" / "sessions"
+    session_dir = sessions_dir / "you-are-reviewing-a-benchmark-317"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "id": "you-are-reviewing-a-benchmark-317",
+                "status": "running",
+                "createdAt": "2026-03-21T20:17:54.013Z",
+                "browser": {
+                    "runtime": {
+                        "tabUrl": "https://chatgpt.com/",
+                        "conversationId": "69befd54-c000-8326-9e9a-7f3e8146eecb",
+                    }
+                },
+                "options": {
+                    "prompt": "prompt",
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    snapshot = oracle_upload._read_oracle_session_snapshot_by_id(
+        session_id="you-are-reviewing-a-benchmark-317",
+        sessions_dir=sessions_dir,
+    )
+
+    assert snapshot is not None
+    assert (
+        snapshot.conversation_url
+        == "https://chatgpt.com/c/69befd54-c000-8326-9e9a-7f3e8146eecb"
+    )
+    assert snapshot.conversation_id == "69befd54-c000-8326-9e9a-7f3e8146eecb"
+
+
 def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -812,6 +970,82 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     assert env["ORACLE_HOME_DIR"] == str(resolved_profile.parent)
     assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(resolved_profile)
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
+
+
+def test_start_oracle_benchmark_upload_background_prefers_starter_packet_subset_for_oversized_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    _write_browser_safe_row_locator_index(bundle_dir)
+    payload_lines: list[str] = []
+    for row_number in range(1, 81):
+        if row_number in {2, 5, 7, 9}:
+            payload_lines.append(
+                json.dumps(
+                    {
+                        "path": f"selected-{row_number}.json",
+                        "payload": f"selected row {row_number}",
+                    }
+                )
+                + "\n"
+            )
+            continue
+        payload_lines.append(
+            json.dumps(
+                {
+                    "path": f"heavy-{row_number}.json",
+                    "payload": "x" * 20_000,
+                }
+            )
+            + "\n"
+        )
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
+        "".join(payload_lines),
+        encoding="utf-8",
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+
+    class FakePopen:
+        def __init__(self, command: list[str], **kwargs: object) -> None:
+            captured["command"] = command
+            log_handle = kwargs["stdout"]
+            assert log_handle is not None
+            log_handle.write(
+                "Session running in background. Reattach via: oracle session starter-pack-123\n"
+            )
+            log_handle.flush()
+            self.pid = 5252
+
+    launch = oracle_upload.start_oracle_benchmark_upload_background(
+        target=target,
+        mode="browser",
+        popen=FakePopen,
+    )
+
+    assert launch.pid == 5252
+    assert "Prepared browser-safe Oracle starter-pack upload" in launch.note
+    command = captured["command"]
+    assert isinstance(command, list)
+    file_args = [
+        Path(command[index + 1])
+        for index, arg in enumerate(command)
+        if arg == "--file"
+    ]
+    assert len(file_args) == 3
+    payload_path = next(path for path in file_args if path.name == "upload_bundle_payload.jsonl")
+    payload_rows = payload_path.read_text(encoding="utf-8").splitlines()
+    assert len(payload_rows) == 4
+    assert all("selected-" in row for row in payload_rows)
+    prompt = command[command.index("-p") + 1]
+    assert "browser-safe starter-pack subset" in prompt
+    assert "request narrow follow-up data" in prompt
 
 
 def test_start_oracle_benchmark_upload_background_marks_running_when_process_alive_but_no_session_hint(
@@ -963,6 +1197,68 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
     assert any("oversized bundle files were sharded for upload" in message for message in messages)
     assert not any(message.startswith("Oracle command:") for message in messages)
     assert not any(message.startswith("Oracle launch metadata:") for message in messages)
+
+
+def test_print_background_oracle_upload_summary_describes_starter_packet_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    launch = oracle_upload.OracleBackgroundUploadLaunch(
+        mode="browser",
+        model="gpt-5.4",
+        command=["oracle", "--engine", "browser", "--model", "gpt-5.4"],
+        bundle_dir=bundle_dir,
+        launch_dir=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-21_16.17.50",
+        log_path=bundle_dir
+        / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME
+        / "2026-03-21_16.17.50"
+        / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME,
+        metadata_path=bundle_dir
+        / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME
+        / "2026-03-21_16.17.50"
+        / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME,
+        pid=80663,
+        note=(
+            "Prepared browser-safe Oracle starter-pack upload for oversized bundle files: "
+            "upload_bundle_payload.jsonl (193045081 bytes). Trimmed "
+            "`upload_bundle_payload.jsonl` to 22 starter-pack rows (363907 bytes) before browser upload."
+        ),
+        browser_profile_dir=Path("/tmp/oracle-profile"),
+        oracle_version="0.8.6-test",
+        status="running",
+        status_reason="Oracle process is still running; awaiting session hint or answer.",
+        session_id="you-are-reviewing-a-benchmark-317",
+        reattach_command="oracle session you-are-reviewing-a-benchmark-317",
+        conversation_url="https://chatgpt.com/c/69befd54-c000-8326-9e9a-7f3e8146eecb",
+        conversation_id="69befd54-c000-8326-9e9a-7f3e8146eecb",
+    )
+
+    messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: messages.append(str(message)),
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda message="", **_kwargs: messages.append(str(message)))
+
+    cli._print_background_oracle_upload_summary(
+        target=target,
+        launch=launch,
+    )
+
+    assert any(
+        "Oracle transport: oversized payload trimmed to a browser-safe starter packet."
+        in message
+        for message in messages
+    )
+    assert not any(
+        "Oracle transport: oversized bundle files were sharded for upload." in message
+        for message in messages
+    )
 
 
 def test_start_background_oracle_followup_worker_uses_resolved_launch_model_when_override_blank(
@@ -1122,6 +1418,42 @@ def test_oracle_upload_log_audit_rejects_wrong_bundle_identity(tmp_path: Path) -
                 "- stale bundle identity",
                 "Immediate next checks",
                 "- verify bundle root",
+            ]
+        ),
+    )
+
+    assert audit.status == "invalid_grounding"
+    assert "Expected benchmark root" in audit.status_reason
+
+
+def test_oracle_upload_log_audit_rejects_same_book_different_timestamp_root(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "2026-03-21_16.10.40" / "single-book-benchmark" / "saltfatacidheatcutdown" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+        run_count=2,
+        pair_count=1,
+        changed_lines_total=42,
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    audit = oracle_upload.audit_oracle_upload_log(
+        target=target,
+        log_text="\n".join(
+            [
+                "oracle (gpt-5.4)",
+                "Answer:",
+                "Top regressions",
+                (
+                    "I could not confirm the requested "
+                    "2026-03-21_16.10.40/single-book-benchmark/saltfatacidheatcutdown root. "
+                    "The attached packet appears to be "
+                    "2026-03-21_14.53.27/single-book-benchmark/saltfatacidheatcutdown."
+                ),
+                "Likely cause buckets",
+                "- bundle identity mismatch",
+                "Immediate next checks",
+                "- verify exact root",
             ]
         ),
     )

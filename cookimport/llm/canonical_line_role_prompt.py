@@ -47,6 +47,7 @@ Negative rules (must-not-do):
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
+- `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
 - If `span_code` is `N` (outside recipe), default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
 - If a row is plausible under its current deterministic label, leave it there.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
@@ -236,9 +237,10 @@ def build_canonical_line_role_file_prompt(
             "You are reviewing deterministic canonical line-role labels for cookbook atomic lines.\n\n"
             "Task boundary:\n"
             "- This is a grounded label-correction pass over one ordered contiguous slice of the book.\n"
-            "- The authoritative shard rows are embedded below.\n"
+            "- The authoritative owned shard rows are embedded below.\n"
+            "- Reference-only neighboring context may also be embedded below to help you judge boundary rows.\n"
             "- The mirrored worker-local file `{{INPUT_PATH}}` exists for traceability only; do not open it or inspect the workspace to answer.\n"
-            "- Use only the embedded shard rows as evidence.\n"
+            "- Use only the embedded packet text as evidence.\n"
             "- Do not run shell commands, Python, or any other tools.\n"
             "- Do not describe your plan, reasoning, or heuristics.\n"
             "- Your first response must be the final JSON object.\n"
@@ -248,18 +250,21 @@ def build_canonical_line_role_file_prompt(
             "Return strict JSON as a JSON object with one `rows` array:\n"
             '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}\n\n'
             "Task file shape:\n"
-            '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}\n\n'
+            '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later context"]]}\n\n'
             "Rules:\n"
             "- Output only JSON.\n"
             "- Use only the keys `rows`, `atomic_index`, and `label`.\n"
-            "- Return one result for every input row.\n"
-            "- Keep row order exactly as requested by the task file.\n"
+            "- Return one result for every owned input row in `rows`.\n"
+            "- Keep output order exactly as requested by the task file's `rows` array.\n"
             "- Treat the task file as one ordered contiguous slice of the book.\n"
-            "- The task file has one version marker `v`, one `shard_id`, and compact `rows` tuples.\n"
+            "- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and compact owned `rows` tuples.\n"
+            "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows shaped like `[atomic_index, current_line]`.\n"
+            "- Never label reference-only neighboring rows and never include their `atomic_index` values in output JSON.\n"
             "- Each row is `[atomic_index, label_code, current_line]`.\n"
             "- Label codes: {{LABEL_CODE_LEGEND}}.\n"
             "- Use each row's tuple slot 2 (`current_line`) as the line to label.\n"
             "- Use neighboring rows in `rows[*]` for local context when needed.\n"
+            "- Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.\n"
             "- Recompute labels from the task file rows themselves; do not copy example labels from this prompt.\n"
             "- Label distinctions that matter:\n"
             "  - `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
@@ -276,6 +281,7 @@ def build_canonical_line_role_file_prompt(
             "  - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.\n"
             "  - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.\n"
             "  - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.\n"
+            "  - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.\n"
             "  - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.\n"
             "  - If a row is plausible under its current deterministic label, leave it there.\n"
             "  - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.\n"
@@ -286,7 +292,8 @@ def build_canonical_line_role_file_prompt(
             "  - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n"
             "  - Dedications, front matter, and table-of-contents entries are usually `OTHER`.\n\n"
             "{{PACKET_CONTEXT_BLOCK}}"
-            "Authoritative shard rows (each row is [atomic_index, label_code, current_line]):\n"
+            "{{REFERENCE_CONTEXT_BLOCK}}"
+            "Authoritative owned shard rows (each row is [atomic_index, label_code, current_line]):\n"
             "<BEGIN_AUTHORITATIVE_ROWS>\n"
             "{{AUTHORITATIVE_ROWS}}\n"
             "<END_AUTHORITATIVE_ROWS>\n"
@@ -297,6 +304,10 @@ def build_canonical_line_role_file_prompt(
     rendered = rendered.replace(
         "{{PACKET_CONTEXT_BLOCK}}",
         _render_packet_context_block(input_payload),
+    )
+    rendered = rendered.replace(
+        "{{REFERENCE_CONTEXT_BLOCK}}",
+        _render_reference_context_block(input_payload),
     )
     rendered = rendered.replace("{{AUTHORITATIVE_ROWS}}", authoritative_rows)
     return rendered.strip() + "\n"
@@ -373,6 +384,42 @@ def _render_authoritative_rows_for_prompt(
     return "\n".join(rendered_rows) if rendered_rows else "[no shard rows available]"
 
 
+def _render_reference_context_block(
+    input_payload: Mapping[str, Any] | None,
+) -> str:
+    payload = dict(input_payload or {})
+    context_before_rows = list(payload.get("context_before_rows") or [])
+    context_after_rows = list(payload.get("context_after_rows") or [])
+    if not context_before_rows and not context_after_rows:
+        return ""
+
+    def _render_rows(rows: Sequence[Any]) -> str:
+        rendered_rows: list[str] = []
+        for row in rows:
+            if isinstance(row, (list, tuple)):
+                rendered_rows.append(json.dumps(list(row), ensure_ascii=False))
+            elif isinstance(row, Mapping):
+                rendered_rows.append(
+                    json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
+                )
+        return "\n".join(rendered_rows) if rendered_rows else "[none]"
+
+    lines = [
+        "Reference-only neighboring context:",
+        "- These neighboring rows are for context only. Do not label them.",
+        "- Never include any `atomic_index` from neighboring context in output JSON.",
+        "- `context_before_rows` and `context_after_rows` use `[atomic_index, current_line]` tuples.",
+        "<BEGIN_CONTEXT_BEFORE_ROWS>",
+        _render_rows(context_before_rows),
+        "<END_CONTEXT_BEFORE_ROWS>",
+        "<BEGIN_CONTEXT_AFTER_ROWS>",
+        _render_rows(context_after_rows),
+        "<END_CONTEXT_AFTER_ROWS>",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str:
     payload = dict(input_payload or {})
     summary = str(payload.get("packet_summary") or "").strip()
@@ -399,6 +446,13 @@ def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str
         for item in (payload.get("example_files") or [])
         if str(item).strip()
     ]
+    howto_availability = str(payload.get("howto_section_availability") or "").strip()
+    howto_policy = str(payload.get("howto_section_policy") or "").strip()
+    raw_howto_evidence_count = payload.get("howto_section_evidence_count")
+    try:
+        howto_evidence_count = int(raw_howto_evidence_count)
+    except (TypeError, ValueError):
+        howto_evidence_count = 0
     if not any(
         (
             summary,
@@ -409,6 +463,9 @@ def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str
             strong_signals,
             weak_signals,
             example_files,
+            howto_availability,
+            howto_policy,
+            howto_evidence_count,
         )
     ):
         return ""
@@ -427,6 +484,13 @@ def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str
         )
     if default_posture:
         lines.append(f"- Default posture: {default_posture}")
+    if howto_availability:
+        lines.append(
+            "- HOWTO_SECTION availability: "
+            f"{howto_availability} (evidence rows: {howto_evidence_count})"
+        )
+    if howto_policy:
+        lines.append(f"- HOWTO_SECTION policy: {howto_policy}")
     for item in flip_policy:
         lines.append(f"- Flip policy: {item}")
     for item in strong_signals:

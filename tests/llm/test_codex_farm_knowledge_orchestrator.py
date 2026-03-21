@@ -342,7 +342,8 @@ def test_knowledge_workspace_watchdog_stops_after_outputs_stabilize(
     assert second.reason_code == "workspace_outputs_stabilized"
     assert second.supervision_state == "completed"
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["state"] == "watchdog_killed"
+    assert live_status["state"] == "completed"
+    assert live_status["reason_code"] == "workspace_outputs_stabilized"
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
     assert live_status["last_command_boundary_violation_detected"] is False
@@ -427,6 +428,50 @@ def test_evaluate_knowledge_response_accepts_semantic_packet_with_trailing_eof()
             }
         ],
     }
+
+
+def test_knowledge_workspace_task_runtime_entries_add_ordered_queue_metadata() -> None:
+    shard = ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=("book.c0000.nr", "book.c0001.nr"),
+        input_payload={
+            "v": "2",
+            "bid": "book.ks0000.nr",
+            "c": [
+                {"cid": "book.c0000.nr", "b": [{"i": 4, "t": "Heat the oil."}]},
+                {"cid": "book.c0001.nr", "b": [{"i": 5, "t": "Whisk in the stock."}]},
+            ],
+        },
+        metadata={
+            "ordered_chunk_ids": ["book.c0000.nr", "book.c0001.nr"],
+            "chunk_block_indices_by_id": {
+                "book.c0000.nr": [4],
+                "book.c0001.nr": [5],
+            },
+            "owned_block_indices": [4, 5],
+        },
+    )
+
+    task_plans = knowledge_module._build_knowledge_task_plans(shard)  # noqa: SLF001
+    runtime_entries = knowledge_module._build_knowledge_workspace_task_runtime_entries(  # noqa: SLF001
+        task_plans
+    )
+
+    assert [entry.task_id for entry in runtime_entries] == [
+        "book.ks0000.nr.task-001",
+        "book.ks0000.nr.task-002",
+    ]
+    first_metadata = dict(runtime_entries[0].metadata or {})
+    second_metadata = dict(runtime_entries[1].metadata or {})
+    assert first_metadata["input_path"] == "in/book.ks0000.nr.task-001.json"
+    assert first_metadata["hint_path"] == "hints/book.ks0000.nr.task-001.md"
+    assert first_metadata["result_path"] == "out/book.ks0000.nr.task-001.json"
+    assert first_metadata["lease_sequence"] == 1
+    assert first_metadata["lease_total"] == 2
+    assert first_metadata["workspace_processing_contract"] == "ordered_task_queue_v1"
+    assert second_metadata["input_path"] == "in/book.ks0000.nr.task-002.json"
+    assert second_metadata["task_sequence"] == 2
+    assert second_metadata["task_total"] == 2
 
 
 def test_evaluate_knowledge_response_salvages_shell_wrapper_noise_after_json_object() -> None:
@@ -678,10 +723,9 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     worker_root = phase_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
-    assert "current_packet.json" in worker_prompt
-    assert "current_hint.md" in worker_prompt
-    assert "current_result_path.txt" in worker_prompt
-    assert "`assigned_tasks.json` is inventory only" in worker_prompt
+    assert "`assigned_tasks.json`" in worker_prompt
+    assert "assigned_tasks.json` is authoritative for this worker" in worker_prompt
+    assert "`metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`" in worker_prompt
     assert "`scratch/` for temporary helper files" in worker_prompt
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
@@ -691,32 +735,31 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
         in worker_prompt
     )
     assert "The repo will write the final canonical `v` / `bid` / `r` packet artifact" in worker_prompt
-    assert "re-open `packet_lease_status.json`" in worker_prompt
+    assert "Finish the whole ordered queue before stopping." in worker_prompt
     assert "Do not run extra shell checks against finished files in `out/`" in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
-        "current_packet.json",
-        "current_hint.md",
-        "current_result_path.txt",
-        "packet_lease_status.json",
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
     assert worker_manifest["hints_dir"] == "hints"
-    assert worker_manifest["current_packet_file"] == "current_packet.json"
-    assert worker_manifest["current_hint_file"] == "current_hint.md"
-    assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
-    assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
+    assert worker_manifest["current_packet_file"] is None
+    assert worker_manifest["current_hint_file"] is None
+    assert worker_manifest["current_result_path_file"] is None
+    assert worker_manifest["packet_lease_status_file"] is None
     assert worker_manifest["scratch_dir"] == "scratch"
     assert (worker_root / "hints").exists()
     assert (worker_root / "scratch").exists()
-    current_packet = json.loads((worker_root / "current_packet.json").read_text(encoding="utf-8"))
-    lease_status = json.loads((worker_root / "packet_lease_status.json").read_text(encoding="utf-8"))
-    assert current_packet["task_id"] is None
-    assert lease_status["worker_state"] == "all_packets_settled"
+    assigned_tasks = json.loads((worker_root / "assigned_tasks.json").read_text(encoding="utf-8"))
+    assert assigned_tasks
+    first_task_metadata = dict(assigned_tasks[0]["metadata"])
+    assert first_task_metadata["input_path"].startswith("in/")
+    assert first_task_metadata["hint_path"].startswith("hints/")
+    assert first_task_metadata["result_path"].startswith("out/")
+    assert first_task_metadata["workspace_processing_contract"] == "ordered_task_queue_v1"
 
 
 def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(

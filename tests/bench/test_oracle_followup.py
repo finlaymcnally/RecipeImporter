@@ -455,33 +455,6 @@ def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_
             "session",
             "you-are-reviewing-a-benchmark-392",
         ]
-        (launch_dir / "oracle_upload.log").write_text(
-            "\n".join(
-                [
-                    "Oracle command: oracle ...",
-                    "Answer:",
-                    "Top regressions",
-                    "Recovered answer after timeout.",
-                    "",
-                    "Likely cause buckets",
-                    "Line-role repair dominates.",
-                    "",
-                    "Immediate next checks",
-                    "Inspect the worst cases.",
-                    "",
-                    "Requested follow-up data",
-                    "Ask 1",
-                    "ask_id: ask_001_line_role",
-                    "question: Show the line-role evidence for the worst negative cases.",
-                    "outputs: case_export, line_role_audit",
-                    "stage_filters: line_role",
-                    "hypothesis: The issue is in line-role repair.",
-                    "smallest_useful_packet: One bad case is enough.",
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
         (sessions_dir / "meta.json").write_text(
             json.dumps(
                 {
@@ -508,7 +481,30 @@ def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="Reattach succeeded; session marked completed.\n",
+            stdout="\n".join(
+                [
+                    "Reattach succeeded; session marked completed.",
+                    "Answer:",
+                    "Top regressions",
+                    "Recovered answer after timeout.",
+                    "",
+                    "Likely cause buckets",
+                    "Line-role repair dominates.",
+                    "",
+                    "Immediate next checks",
+                    "Inspect the worst cases.",
+                    "",
+                    "Requested follow-up data",
+                    "Ask 1",
+                    "ask_id: ask_001_line_role",
+                    "question: Show the line-role evidence for the worst negative cases.",
+                    "outputs: case_export, line_role_audit",
+                    "stage_filters: line_role",
+                    "hypothesis: The issue is in line-role repair.",
+                    "smallest_useful_packet: One bad case is enough.",
+                ]
+            )
+            + "\n",
             stderr="",
         )
 
@@ -561,3 +557,120 @@ def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_
     assert captured["from_run"] == source_run
     assert result["status"] == "succeeded"
     assert result["followup_session_id"] == "you-are-reviewing-a-benchmark-392-turn-2"
+    log_text = (launch_dir / "oracle_upload.log").read_text(encoding="utf-8")
+    assert "Recovered answer after timeout." in log_text
+
+
+def test_auto_followup_worker_allows_invalid_grounding_turn1_when_followup_was_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copied_root = (
+        tmp_path / "2026-03-21_16.10.40" / "single-book-benchmark" / "saltfatacidheatcutdown"
+    )
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    source_run = "2026-03-21_16.17.50"
+    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "session_id": "you-are-reviewing-a-benchmark-317",
+                "conversation_url": "https://chatgpt.com/c/source-317",
+                "conversation_id": "source-317",
+                "status": "running",
+                "status_reason": "Initial launch state.",
+                "pid": 0,
+                "prompt": "Benchmark turn 1 prompt.",
+                "launch_started_at_utc": "2026-03-21T20:17:50+00:00",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                "Answer:",
+                "Top regressions",
+                (
+                    "I could not confirm the requested "
+                    "2026-03-21_16.10.40/single-book-benchmark/saltfatacidheatcutdown root. "
+                    "The accessible packet resolves to 2026-03-21_14.53.27/single-book-benchmark/saltfatacidheatcutdown."
+                ),
+                "",
+                "Likely cause buckets",
+                "Bundle identity mismatch.",
+                "",
+                "Immediate next checks",
+                "Verify exact root identity.",
+                "",
+                "Requested follow-up data",
+                "Ask 1",
+                "ask_id: exact_root_identity",
+                "question: Confirm the exact attached bundle root.",
+                "outputs: structure_report",
+                "stage_filters:",
+                "hypothesis: The browser-safe attachment came from a neighboring run.",
+                "smallest_useful_packet: A structure packet is enough.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    captured: dict[str, object] = {}
+
+    def fake_run_followup(**kwargs):
+        captured.update(kwargs)
+        workspace = OracleFollowupWorkspace(
+            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00",
+            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload.json",
+            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload_status.json",
+            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "followup_data1",
+        )
+        return (
+            OracleUploadResult(
+                success=True,
+                mode="browser",
+                command=["oracle", "continue-session"],
+                bundle_dir=bundle_dir,
+                returncode=0,
+                stdout="Answer:\nUpdated assessment\n...",
+                stderr="",
+                status="succeeded",
+                status_reason="Follow-up answer captured from Oracle.",
+                session_id="you-are-reviewing-a-benchmark-317-turn-2",
+                reattach_command="oracle session you-are-reviewing-a-benchmark-317-turn-2",
+                conversation_url="https://chatgpt.com/c/source-317",
+            ),
+            workspace,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.bench.oracle_followup.run_oracle_benchmark_followup",
+        fake_run_followup,
+    )
+
+    result = run_oracle_benchmark_followup_background_worker(
+        target=target,
+        from_run=source_run,
+        model="gpt-5.4",
+        poll_interval_seconds=0.01,
+        timeout_seconds=1.0,
+    )
+
+    assert captured["from_run"] == source_run
+    assert result["status"] == "succeeded"
+    assert result["followup_session_id"] == "you-are-reviewing-a-benchmark-317-turn-2"
+    source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
+    assert source_status["status"] == "invalid_grounding"

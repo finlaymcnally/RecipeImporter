@@ -111,7 +111,9 @@ _LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR = 4.0
 _LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT = 16
 _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT = 4
+_LINE_ROLE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
 _LINE_ROLE_TASK_TARGET_ROWS = 80
+_LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS = 3
 _LINE_ROLE_PATHOLOGY_MIN_ROWS = 4
 _LINE_ROLE_PATHOLOGY_MIN_BASELINE_DISTINCT_LABELS = 3
 _LINE_ROLE_PATHOLOGY_NEAR_UNIFORM_MIN_ROWS = 8
@@ -136,6 +138,13 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "- `FOR THE SAUCE`, `FOR SERVING`, or similar headings become `HOWTO_SECTION` only when the packet is clearly inside one recipe.\n"
         "- Ingredient lines, yield lines, and imperative steps are strong recipe-local evidence.\n"
         "- Preserve structured recipe labels when those strong signals are present.\n",
+    ),
+    (
+        "04-book-optional-howto.md",
+        "# HOWTO_SECTION is book-optional\n\n"
+        "- Some books legitimately use zero `HOWTO_SECTION` labels.\n"
+        "- Do not invent subsection structure just because the label exists in the global taxonomy.\n"
+        "- Prefer a conservative non-structural label unless the local packet shows immediate recipe-local support.\n",
     ),
 )
 _TITLE_CONNECTOR_WORDS = {
@@ -220,6 +229,19 @@ _NON_RECIPE_PROSE_PREFIXES = (
     "index",
     "conversions",
 )
+_FRONT_MATTER_NAVIGATION_HEADINGS = {
+    "about the author",
+    "acknowledgments",
+    "acknowledgements",
+    "contents",
+    "epigraph",
+    "foreword",
+    "index",
+    "introduction",
+    "preface",
+    "recipes",
+    "table of contents",
+}
 _RECIPE_NOTE_ADVISORY_CUE_RE = re.compile(
     r"\b(?:be sure|don't|do not|i don't recommend|i like to|i prefer|"
     r"i recommend|i use|it's important|make sure|remember|the key is|"
@@ -270,6 +292,10 @@ _PEDAGOGICAL_KNOWLEDGE_HEADING_RE = re.compile(
     r"what to cook\b)$",
     re.IGNORECASE,
 )
+_NAVIGATION_SECTION_RE = re.compile(
+    r"^(?:part|chapter)\s+(?:[a-z0-9ivxlcdm]+)\b",
+    re.IGNORECASE,
+)
 _KNOWLEDGE_HEADING_FORM_RE = re.compile(
     r"^(?:what is\b|how .+ works\b|using\b|.+ and flavor\b)$",
     re.IGNORECASE,
@@ -288,7 +314,7 @@ _YIELD_COUNT_HINT_RE = re.compile(
 )
 _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT = 4
 _LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
-_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v4"
+_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v5"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
@@ -754,11 +780,32 @@ def serialize_line_role_file_row(
     }
 
 
+def serialize_line_role_debug_context_row(
+    *,
+    candidate: AtomicLineCandidate,
+) -> dict[str, Any]:
+    return {
+        "atomic_index": int(candidate.atomic_index),
+        "current_line": str(candidate.text),
+    }
+
+
+def serialize_line_role_model_context_row(
+    *,
+    candidate: AtomicLineCandidate,
+) -> list[Any]:
+    return [
+        int(candidate.atomic_index),
+        str(candidate.text),
+    ]
+
+
 def build_line_role_debug_input_payload(
     *,
     shard_id: str,
     candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
+    book_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = [
         serialize_line_role_file_row(
@@ -773,7 +820,10 @@ def build_line_role_debug_input_payload(
         )
         for candidate in candidates
     ]
-    packet_context = _build_line_role_packet_context(rows=rows)
+    packet_context = _build_line_role_packet_context(
+        rows=rows,
+        book_context=book_context,
+    )
     return {
         "shard_id": shard_id,
         "phase_key": "line_role",
@@ -788,9 +838,13 @@ def build_line_role_model_input_payload(
     candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
     debug_rows: Sequence[Mapping[str, Any]] | None = None,
+    book_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     label_code_by_label = build_line_role_label_code_by_label(FREEFORM_LABELS)
-    packet_context = _build_line_role_packet_context(rows=debug_rows or ())
+    packet_context = _build_line_role_packet_context(
+        rows=debug_rows or (),
+        book_context=book_context,
+    )
     return {
         "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
         "shard_id": shard_id,
@@ -813,8 +867,10 @@ def build_line_role_model_input_payload(
 def _build_line_role_packet_context(
     *,
     rows: Sequence[Mapping[str, Any]],
+    book_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     packet_mode, context_confidence = _classify_line_role_packet_mode(rows=rows)
+    resolved_book_context = dict(book_context or {})
     return {
         "packet_mode": packet_mode,
         "context_confidence": context_confidence,
@@ -822,8 +878,22 @@ def _build_line_role_packet_context(
         "default_posture": _line_role_default_posture(packet_mode=packet_mode),
         "strong_signals": _line_role_strong_signals(packet_mode=packet_mode),
         "weak_signals": _line_role_weak_signals(),
-        "flip_policy": _line_role_flip_policy(packet_mode=packet_mode),
+        "flip_policy": _line_role_flip_policy(
+            packet_mode=packet_mode,
+            book_context=resolved_book_context,
+        ),
         "example_files": _line_role_example_files(packet_mode=packet_mode),
+        "howto_section_availability": str(
+            resolved_book_context.get("howto_section_availability")
+            or "absent_or_unproven"
+        ),
+        "howto_section_evidence_count": int(
+            resolved_book_context.get("howto_section_evidence_count") or 0
+        ),
+        "howto_section_policy": str(
+            resolved_book_context.get("howto_section_policy")
+            or "This book may legitimately use zero `HOWTO_SECTION` labels."
+        ),
     }
 
 
@@ -833,14 +903,22 @@ def _classify_line_role_packet_mode(
 ) -> tuple[str, str]:
     label_counts: dict[str, int] = {}
     tag_counts: dict[str, int] = {}
+    row_count = 0
     span_inside = 0
     span_outside = 0
     first_person_count = 0
     recipe_structure_count = 0
+    recipe_signal_row_count = 0
+    ingredient_signal_row_count = 0
+    instruction_signal_row_count = 0
     note_like_count = 0
+    front_matter_heading_count = 0
+    navigation_entry_count = 0
+    prose_line_count = 0
     for row in rows:
         if not isinstance(row, Mapping):
             continue
+        row_count += 1
         label = str(row.get("deterministic_label") or "OTHER").strip() or "OTHER"
         label_counts[label] = label_counts.get(label, 0) + 1
         within_recipe_span = row.get("within_recipe_span")
@@ -851,6 +929,8 @@ def _classify_line_role_packet_mode(
         current_line = str(row.get("current_line") or "")
         if _FIRST_PERSON_RE.search(current_line):
             first_person_count += 1
+        if _looks_prose(current_line):
+            prose_line_count += 1
         row_tags = {
             str(tag).strip()
             for tag in (row.get("rule_tags") or ())
@@ -870,24 +950,63 @@ def _classify_line_role_packet_mode(
             recipe_structure_count += 1
         if label == "RECIPE_NOTES" or "note_like_prose" in row_tags:
             note_like_count += 1
+        ingredient_signal = label == "INGREDIENT_LINE" or "ingredient_like" in row_tags
+        instruction_signal = label == "INSTRUCTION_LINE" or "instruction_like" in row_tags
+        recipe_metadata_signal = label in {"YIELD_LINE", "TIME_LINE"}
+        if ingredient_signal:
+            ingredient_signal_row_count += 1
+        if instruction_signal:
+            instruction_signal_row_count += 1
+        if ingredient_signal or instruction_signal or recipe_metadata_signal:
+            recipe_signal_row_count += 1
+        if _looks_front_matter_navigation_heading(current_line):
+            front_matter_heading_count += 1
+        if _looks_navigation_title_list_entry(current_line):
+            navigation_entry_count += 1
 
     knowledge_count = label_counts.get("KNOWLEDGE", 0)
     other_count = label_counts.get("OTHER", 0)
     title_like_count = tag_counts.get("title_like", 0)
     explicit_prose_count = tag_counts.get("explicit_prose", 0)
-    ingredient_like_count = tag_counts.get("ingredient_like", 0) + label_counts.get(
-        "INGREDIENT_LINE", 0
+    span_unknown = max(0, row_count - span_inside - span_outside)
+    all_span_status_unknown = row_count > 0 and span_unknown == row_count
+    contents_navigation_packet = span_inside == 0 and (
+        (
+            front_matter_heading_count >= 2
+            and recipe_signal_row_count <= max(10, row_count // 8)
+        )
+        or (
+            all_span_status_unknown
+            and navigation_entry_count >= max(6, row_count // 4)
+            and recipe_signal_row_count <= max(10, row_count // 8)
+            and prose_line_count <= max(4, row_count // 6)
+        )
     )
-    instruction_like_count = tag_counts.get(
-        "instruction_like", 0
-    ) + label_counts.get("INSTRUCTION_LINE", 0)
+    strong_unknown_recipe_body = (
+        all_span_status_unknown
+        and ingredient_signal_row_count >= 2
+        and instruction_signal_row_count >= 2
+        and recipe_signal_row_count >= 5
+        and recipe_structure_count >= 4
+        and navigation_entry_count < max(5, row_count // 5)
+    )
 
-    if recipe_structure_count >= 2 and (
-        span_inside > 0 or ingredient_like_count + instruction_like_count >= 3
-    ):
+    if contents_navigation_packet:
+        confidence = (
+            "high"
+            if front_matter_heading_count >= 2
+            or navigation_entry_count >= max(8, row_count // 3)
+            else "medium"
+        )
+        return "front_matter_navigation", confidence
+    if recipe_structure_count >= 2 and (span_inside > 0 or strong_unknown_recipe_body):
         if note_like_count > 0 and knowledge_count + other_count > 0:
             return "recipe_adjacent_notes", "medium"
-        confidence = "high" if ingredient_like_count + instruction_like_count >= 3 else "medium"
+        confidence = (
+            "high"
+            if ingredient_signal_row_count + instruction_signal_row_count >= 4
+            else "medium"
+        )
         return "recipe_body", confidence
     if first_person_count > 0 and recipe_structure_count == 0 and other_count >= max(1, knowledge_count):
         confidence = "high" if other_count >= 2 or first_person_count >= 2 else "medium"
@@ -904,6 +1023,10 @@ def _classify_line_role_packet_mode(
 
 def _line_role_packet_summary(*, packet_mode: str) -> str:
     summaries = {
+        "front_matter_navigation": (
+            "This packet reads like front matter, navigation, or table-of-contents material, "
+            "not recipe-local structure."
+        ),
         "recipe_body": (
             "This packet reads like recipe-local structure: ingredient lines, step lines, "
             "or recipe-internal headings dominate."
@@ -927,6 +1050,9 @@ def _line_role_packet_summary(*, packet_mode: str) -> str:
 
 def _line_role_default_posture(*, packet_mode: str) -> str:
     postures = {
+        "front_matter_navigation": (
+            "Default to `OTHER` or `KNOWLEDGE`; only preserve recipe structure if multiple adjacent rows form one concrete recipe component."
+        ),
         "recipe_body": (
             "Preserve recipe-structure labels unless a row clearly reads as note text or explanatory prose."
         ),
@@ -948,6 +1074,10 @@ def _line_role_default_posture(*, packet_mode: str) -> str:
 
 def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
     signals = {
+        "front_matter_navigation": [
+            "Contents/front-matter headings such as `CONTENTS`, `Foreword`, `Introduction`, or `PART ONE`.",
+            "Dense lists of short title-like entries with little or no local ingredient/step flow.",
+        ],
         "recipe_body": [
             "Immediate ingredient lines, yield/time metadata, or imperative recipe steps.",
             "Recipe-internal headings such as `FOR THE SAUCE` with nearby structured rows.",
@@ -980,16 +1110,40 @@ def _line_role_weak_signals() -> list[str]:
     ]
 
 
-def _line_role_flip_policy(*, packet_mode: str) -> list[str]:
+def _line_role_flip_policy(
+    *,
+    packet_mode: str,
+    book_context: Mapping[str, Any] | None = None,
+) -> list[str]:
+    howto_availability = str(
+        dict(book_context or {}).get("howto_section_availability")
+        or "absent_or_unproven"
+    )
     policy = [
         "Treat the deterministic label as a strong prior, not a neutral starting guess.",
         "Only flip a row when packet-local evidence is clearer than the seed label.",
         "A heading alone is weak evidence; promote to `HOWTO_SECTION` only with immediate recipe-local support.",
         "Generic advice or science explanations are `KNOWLEDGE`/`OTHER`, not `INSTRUCTION_LINE`.",
     ]
+    if howto_availability == "absent_or_unproven":
+        policy.append(
+            "This book may legitimately use zero `HOWTO_SECTION` labels. Do not invent subsection structure without strong local recipe support."
+        )
+    elif howto_availability == "sparse":
+        policy.append(
+            "`HOWTO_SECTION` appears sparse in this book. Use it only when the heading has immediate component-level support."
+        )
+    else:
+        policy.append(
+            "`HOWTO_SECTION` is available in this book, but it still needs immediate recipe-local support in this packet."
+        )
     if packet_mode == "lesson_prose":
         policy.append(
             "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose."
+        )
+    elif packet_mode == "front_matter_navigation":
+        policy.append(
+            "Do not over-structure recipe-name lists, part/chapter headings, or front matter blurbs into live recipe labels."
         )
     elif packet_mode == "memoir_front_matter":
         policy.append(
@@ -1004,28 +1158,114 @@ def _line_role_flip_policy(*, packet_mode: str) -> list[str]:
 
 def _line_role_example_files(*, packet_mode: str) -> list[str]:
     packet_specific = {
+        "front_matter_navigation": [
+            "02-memoir-vs-knowledge.md",
+            "01-lesson-prose-vs-howto.md",
+            "04-book-optional-howto.md",
+        ],
         "recipe_body": [
             "03-recipe-internal-sections.md",
             "01-lesson-prose-vs-howto.md",
+            "04-book-optional-howto.md",
         ],
         "recipe_adjacent_notes": [
             "03-recipe-internal-sections.md",
             "02-memoir-vs-knowledge.md",
+            "04-book-optional-howto.md",
         ],
         "lesson_prose": [
             "01-lesson-prose-vs-howto.md",
             "02-memoir-vs-knowledge.md",
+            "04-book-optional-howto.md",
         ],
         "memoir_front_matter": [
             "02-memoir-vs-knowledge.md",
             "01-lesson-prose-vs-howto.md",
+            "04-book-optional-howto.md",
         ],
         "mixed_boundaries": [
             "01-lesson-prose-vs-howto.md",
             "03-recipe-internal-sections.md",
+            "04-book-optional-howto.md",
         ],
     }
     return list(packet_specific.get(packet_mode, packet_specific["mixed_boundaries"]))
+
+
+def _looks_front_matter_navigation_heading(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    lowered = stripped.lower()
+    if lowered in _FRONT_MATTER_NAVIGATION_HEADINGS:
+        return True
+    if lowered.startswith("how to use this book"):
+        return True
+    return bool(_NAVIGATION_SECTION_RE.match(stripped))
+
+
+def _looks_navigation_title_list_entry(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _looks_front_matter_navigation_heading(stripped):
+        return True
+    if (
+        _NOTE_PREFIX_RE.match(stripped)
+        or _YIELD_PREFIX_RE.match(stripped)
+        or _TIME_PREFIX_RE.search(stripped)
+        or _QUANTITY_LINE_RE.match(stripped)
+        or _NUMBERED_STEP_RE.match(stripped)
+        or stripped[-1:] in {".", "!", "?"}
+    ):
+        return False
+    words = _PROSE_WORD_RE.findall(stripped)
+    if not words or len(words) > 8:
+        return False
+    if _INSTRUCTION_VERB_RE.match(stripped):
+        return False
+    if ":" in stripped:
+        return True
+    if len(words) == 1:
+        return words[0][:1].isupper()
+    return _looks_recipe_title(stripped) or _looks_compact_heading(stripped)
+
+
+def _build_line_role_book_context(
+    *,
+    candidates: Sequence[AtomicLineCandidate],
+) -> dict[str, Any]:
+    by_atomic_index = {
+        int(candidate.atomic_index): candidate for candidate in candidates
+    }
+    evidence_count = sum(
+        1
+        for candidate in candidates
+        if _has_recipe_local_howto_support(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    )
+    if evidence_count >= 3:
+        availability = "available"
+        policy = (
+            "`HOWTO_SECTION` is available in this book, but it remains a high-evidence label tied to local recipe structure."
+        )
+    elif evidence_count >= 1:
+        availability = "sparse"
+        policy = (
+            "`HOWTO_SECTION` appears sparse in this book. Prefer non-structural labels unless the local heading clearly splits one recipe into components or step families."
+        )
+    else:
+        availability = "absent_or_unproven"
+        policy = (
+            "This book may legitimately use zero `HOWTO_SECTION` labels. Treat the label as optional and require strong local recipe evidence before using it."
+        )
+    return {
+        "howto_section_availability": availability,
+        "howto_section_evidence_count": evidence_count,
+        "howto_section_policy": policy,
+    }
 
 
 def _build_line_role_canonical_plans(
@@ -1042,8 +1282,10 @@ def _build_line_role_canonical_plans(
         codex_batch_size=codex_batch_size,
         total_candidates=len(ordered_candidates),
     )
+    book_context = _build_line_role_book_context(candidates=ordered_candidates)
     prompt_format = _resolve_line_role_prompt_format()
     plans: list[_LineRoleShardPlan] = []
+    owned_start_index = 0
     for prompt_index, shard_candidates in enumerate(
         partition_contiguous_items(
             ordered_candidates,
@@ -1053,6 +1295,14 @@ def _build_line_role_canonical_plans(
     ):
         if not shard_candidates:
             continue
+        owned_end_index = owned_start_index + len(shard_candidates)
+        context_before_candidates, context_after_candidates = (
+            _slice_line_role_context_candidates(
+                ordered_candidates=ordered_candidates,
+                owned_start_index=owned_start_index,
+                owned_end_index=owned_end_index,
+            )
+        )
         baseline_batch = tuple(
             deterministic_baseline[int(candidate.atomic_index)]
             for candidate in shard_candidates
@@ -1067,6 +1317,9 @@ def _build_line_role_canonical_plans(
             shard_id=shard_id,
             candidates=shard_candidates,
             deterministic_baseline=deterministic_baseline,
+            context_before_candidates=context_before_candidates,
+            context_after_candidates=context_after_candidates,
+            book_context=book_context,
         )
         manifest_entry = ShardManifestEntryV1(
             shard_id=shard_id,
@@ -1080,7 +1333,10 @@ def _build_line_role_canonical_plans(
                 shard_id=shard_id,
                 candidates=shard_candidates,
                 deterministic_baseline=deterministic_baseline,
+                context_before_candidates=context_before_candidates,
+                context_after_candidates=context_after_candidates,
                 debug_rows=list(debug_input_payload.get("rows") or []),
+                book_context=book_context,
             ),
             metadata={
                 "phase_key": "line_role",
@@ -1089,6 +1345,8 @@ def _build_line_role_canonical_plans(
                 "first_atomic_index": first_atomic_index,
                 "last_atomic_index": last_atomic_index,
                 "owned_row_count": len(shard_candidates),
+                "context_before_row_count": len(context_before_candidates),
+                "context_after_row_count": len(context_after_candidates),
                 "prompt_format": prompt_format,
             },
         )
@@ -1101,11 +1359,14 @@ def _build_line_role_canonical_plans(
                 shard_id=shard_id,
                 prompt_index=prompt_index,
                 candidates=tuple(shard_candidates),
+                context_before_candidates=context_before_candidates,
+                context_after_candidates=context_after_candidates,
                 baseline_predictions=baseline_batch,
                 debug_input_payload=debug_input_payload,
                 manifest_entry=manifest_entry,
             )
         )
+        owned_start_index = owned_end_index
     return tuple(plans)
 
 
@@ -1133,7 +1394,17 @@ def _line_role_execution_plan_phase(
                 "prompt_index": plan.prompt_index,
                 "candidate_count": len(plan.candidates),
                 "atomic_indices": [int(candidate.atomic_index) for candidate in plan.candidates],
+                "context_before_atomic_indices": [
+                    int(candidate.atomic_index)
+                    for candidate in plan.context_before_candidates
+                ],
+                "context_after_atomic_indices": [
+                    int(candidate.atomic_index)
+                    for candidate in plan.context_after_candidates
+                ],
                 "owned_ids": list(plan.manifest_entry.owned_ids),
+                "context_before_row_count": len(plan.context_before_candidates),
+                "context_after_row_count": len(plan.context_after_candidates),
                 "rows": list(plan.debug_input_payload.get("rows") or []),
             }
             for plan in shard_plans
@@ -2418,6 +2689,9 @@ def _run_line_role_workspace_worker_assignment_v1(
                 cohort_watchdog_state=cohort_watchdog_state,
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
+                expected_workspace_output_paths=[
+                    out_dir / f"{task.task_id}.json" for task in runnable_tasks
+                ],
             ),
         )
         _finalize_live_status(
@@ -3743,6 +4017,7 @@ def _build_line_role_workspace_worker_prompt(
         "- `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.\n"
         "- `TIME_LINE`: stand-alone timing or temperature lines, not full instruction sentences.\n"
         "- `HOWTO_SECTION`: recipe-internal subsection headings such as `FOR THE SAUCE`, `TO FINISH`, or `FOR SERVING`.\n"
+        "- `HOWTO_SECTION` is book-optional: some books legitimately use zero of them, so emit it only with immediate recipe-local support.\n"
         "- `RECIPE_VARIANT`: alternate recipe names or variant headers inside a recipe.\n"
         "- `KNOWLEDGE`: explanatory or reference prose, not ordinary recipe structure.\n"
         "- `OTHER`: navigation, memoir, marketing, dedications, table of contents, or decorative matter.\n"
@@ -4200,14 +4475,19 @@ def _build_strict_json_watchdog_callback(
     shard_id: str | None = None,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
     allow_workspace_commands: bool = False,
+    expected_workspace_output_paths: Sequence[Path] | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
     if live_status_path is not None:
         target_paths.append(live_status_path)
     if live_status_paths is not None:
         target_paths.extend(Path(path) for path in live_status_paths)
+    last_complete_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
+    workspace_output_stable_passes = 0
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
+        nonlocal last_complete_workspace_signature
+        nonlocal workspace_output_stable_passes
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_verdict = _classify_line_role_workspace_command(snapshot.last_command)
@@ -4229,8 +4509,35 @@ def _build_strict_json_watchdog_callback(
                 (snapshot.elapsed_seconds * 1000.0) / float(cohort_median_duration_ms),
                 3,
             )
+        workspace_output_status = _summarize_workspace_output_paths(
+            expected_workspace_output_paths or ()
+        )
+        if workspace_output_status["complete"]:
+            current_signature = tuple(workspace_output_status["signature"])
+            if current_signature == last_complete_workspace_signature:
+                workspace_output_stable_passes += 1
+            else:
+                last_complete_workspace_signature = current_signature
+                workspace_output_stable_passes = 1
+        else:
+            last_complete_workspace_signature = None
+            workspace_output_stable_passes = 0
+        if (
+            allow_workspace_commands
+            and workspace_output_status["complete"]
+            and workspace_output_stable_passes >= _LINE_ROLE_WORKSPACE_OUTPUT_STABLE_PASSES
+        ):
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="workspace_outputs_stabilized",
+                reason_detail=(
+                    "line-role workspace worker wrote every assigned output file and the "
+                    "files stabilized across consecutive supervision snapshots"
+                ),
+                retryable=False,
+                supervision_state="completed",
+            )
         if snapshot.command_execution_count > 0:
-            if allow_workspace_commands:
+            if decision is None and allow_workspace_commands:
                 if not last_command_verdict.allowed:
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code="watchdog_command_execution_forbidden",
@@ -4264,7 +4571,7 @@ def _build_strict_json_watchdog_callback(
                         ),
                         retryable=True,
                     )
-            else:
+            elif decision is None:
                 decision = CodexExecSupervisionDecision.terminate(
                     reason_code="watchdog_command_execution_forbidden",
                     reason_detail=format_watchdog_command_reason_detail(
@@ -4296,7 +4603,11 @@ def _build_strict_json_watchdog_callback(
             )
         status_payload = {
             "state": (
-                "watchdog_killed"
+                "completed"
+                if isinstance(decision, CodexExecSupervisionDecision)
+                and decision.action == "terminate"
+                and str(decision.supervision_state or "").strip() == "completed"
+                else "watchdog_killed"
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
                 else "running"
@@ -4336,6 +4647,11 @@ def _build_strict_json_watchdog_callback(
             "cohort_completed_successful_shards": cohort_completed_successful_shards,
             "cohort_median_duration_ms": cohort_median_duration_ms,
             "cohort_elapsed_ratio": cohort_elapsed_ratio,
+            "workspace_output_expected_count": workspace_output_status["expected_count"],
+            "workspace_output_present_count": workspace_output_status["present_count"],
+            "workspace_output_complete": workspace_output_status["complete"],
+            "workspace_output_missing_files": workspace_output_status["missing_files"],
+            "workspace_output_stable_passes": workspace_output_stable_passes,
             "workspace_command_loop_max_count": _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT,
             "workspace_command_loop_max_repeat_count": _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT,
             "reason_code": decision.reason_code if decision is not None else None,
@@ -4353,6 +4669,57 @@ def _classify_line_role_workspace_command(
     command_text: str | None,
 ) -> WorkspaceCommandClassification:
     return classify_workspace_worker_command(command_text)
+
+
+def _summarize_workspace_output_paths(paths: Sequence[Path]) -> dict[str, Any]:
+    expected_count = len(paths)
+    if expected_count <= 0:
+        return {
+            "expected_count": 0,
+            "present_count": 0,
+            "complete": False,
+            "missing_files": [],
+            "signature": (),
+        }
+    present_count = 0
+    missing_files: list[str] = []
+    signature: list[tuple[str, int, int]] = []
+    complete = True
+    for path in paths:
+        path_obj = Path(path)
+        if not path_obj.exists() or not path_obj.is_file():
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        try:
+            stat_result = path_obj.stat()
+        except OSError:
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        if int(stat_result.st_size or 0) <= 0:
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        try:
+            payload = json.loads(path_obj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        if not isinstance(payload, Mapping):
+            complete = False
+            missing_files.append(path_obj.name)
+            continue
+        present_count += 1
+        signature.append((path_obj.name, int(stat_result.st_size), int(stat_result.st_mtime_ns)))
+    return {
+        "expected_count": expected_count,
+        "present_count": present_count,
+        "complete": complete and present_count == expected_count,
+        "missing_files": sorted(missing_files),
+        "signature": tuple(signature),
+    }
 
 
 def _finalize_live_status(
@@ -5520,7 +5887,10 @@ def _deterministic_label(
         return "OTHER", ["unknown_recipe_span", "prose_default_other"]
     if "yield_prefix" in tags:
         return "YIELD_LINE", ["yield_prefix"]
-    if "howto_heading" in tags:
+    if "howto_heading" in tags and _howto_section_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
         return "HOWTO_SECTION", ["howto_heading"]
     if _looks_subsection_heading_context(
         candidate,
@@ -5707,6 +6077,26 @@ def _sanitize_prediction(
                 label = fallback_label
                 decided_by = "fallback"
                 reason_tags.append("sanitized_outside_span_structured_label")
+    if label == "HOWTO_SECTION" and not _howto_section_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        label = _howto_section_fallback_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        decided_by = "fallback"
+        reason_tags.append("sanitized_howto_without_local_support")
+    if label == "INSTRUCTION_LINE" and not _instruction_line_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        label = _instruction_line_fallback_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        decided_by = "fallback"
+        reason_tags.append("sanitized_instruction_without_local_support")
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -5788,14 +6178,17 @@ def _outside_span_structured_label_allowed(
     if label == "RECIPE_VARIANT":
         return _looks_variant_heading_text(text) or has_neighboring_component_structure
     if label == "HOWTO_SECTION":
-        return bool(_HOWTO_PREFIX_RE.match(text)) or has_neighboring_component_structure
+        return _howto_section_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
     if label == "INGREDIENT_LINE":
         return _looks_obvious_ingredient(candidate) or has_neighboring_recipe_evidence
     if label == "INSTRUCTION_LINE":
-        return (
-            _looks_direct_instruction_start(candidate)
-            or _looks_instructional_neighbor(candidate)
-        ) and has_neighboring_component_structure
+        return _instruction_line_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
     if label == "YIELD_LINE":
         return _looks_strict_yield_header(text)
     return True
@@ -5850,6 +6243,132 @@ def _outside_span_has_neighboring_component_structure(
         if _looks_direct_instruction_start(row):
             return True
     return False
+
+
+def _howto_section_label_allowed(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    if by_atomic_index is None:
+        return False
+    return _has_recipe_local_howto_support(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+
+
+def _has_recipe_local_howto_support(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    explicit_prefix = bool(_HOWTO_PREFIX_RE.match(text))
+    if not explicit_prefix:
+        if not _looks_recipe_title(text):
+            return False
+        if not _looks_compact_heading(text):
+            return False
+    prev_candidate = by_atomic_index.get(int(candidate.atomic_index) - 1)
+    next_candidate = by_atomic_index.get(int(candidate.atomic_index) + 1)
+    if prev_candidate is None and next_candidate is None:
+        return False
+
+    prev_component = _is_component_level_recipe_neighbor(prev_candidate)
+    next_component = _is_component_level_recipe_neighbor(next_candidate)
+    prev_flow = _looks_recipe_flow_neighbor(prev_candidate)
+    next_flow = _looks_recipe_flow_neighbor(next_candidate)
+
+    if explicit_prefix:
+        return prev_component or next_component or (prev_flow and next_flow)
+    return (
+        (prev_component and next_component)
+        or (_neighbor_is_ingredient_dominant(prev_candidate) and _looks_instructional_neighbor_or_boundary(next_candidate))
+        or (_neighbor_is_ingredient_dominant(next_candidate) and _looks_instructional_neighbor_or_boundary(prev_candidate))
+    )
+
+
+def _is_component_level_recipe_neighbor(candidate: AtomicLineCandidate | None) -> bool:
+    if candidate is None:
+        return False
+    return (
+        _neighbor_is_ingredient_dominant(candidate)
+        or _looks_instructional_neighbor(candidate)
+        or _looks_recipe_start_boundary(candidate)
+    )
+
+
+def _looks_instructional_neighbor_or_boundary(
+    candidate: AtomicLineCandidate | None,
+) -> bool:
+    if candidate is None:
+        return False
+    return _looks_instructional_neighbor(candidate) or _looks_recipe_start_boundary(
+        candidate
+    )
+
+
+def _instruction_line_label_allowed(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    if _is_within_recipe_span(candidate):
+        return True
+    if not (
+        _looks_direct_instruction_start(candidate)
+        or _looks_instructional_neighbor(candidate)
+    ):
+        return False
+    return _outside_span_has_neighboring_component_structure(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+
+
+def _howto_section_fallback_label(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> str:
+    text = str(candidate.text or "").strip()
+    if _looks_variant_heading_text(text):
+        return "RECIPE_VARIANT"
+    if _is_outside_recipe_span(candidate):
+        return _outside_span_nonstructured_fallback_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    return "OTHER"
+
+
+def _instruction_line_fallback_label(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> str:
+    text = str(candidate.text or "").strip()
+    if _looks_recipe_note_prose(text) or _looks_storage_or_serving_note(text):
+        return "RECIPE_NOTES"
+    if _looks_knowledge_prose_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ) or _looks_knowledge_heading_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "KNOWLEDGE"
+    if _looks_narrative_prose(text):
+        return "OTHER"
+    if _is_outside_recipe_span(candidate):
+        return _outside_span_nonstructured_fallback_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    return "OTHER"
 
 def _is_primary_time_line(text: str) -> bool:
     if _TIME_PREFIX_RE.search(text):
@@ -6087,24 +6606,10 @@ def _looks_subsection_heading_context(
 ) -> bool:
     if by_atomic_index is None:
         return False
-    if not _looks_recipe_title(candidate.text):
-        return False
-    if not _looks_compact_heading(candidate.text):
-        return False
-
-    prev_candidate = by_atomic_index.get(candidate.atomic_index - 1)
-    next_candidate = by_atomic_index.get(candidate.atomic_index + 1)
-    if next_candidate is None:
-        return False
-    if _looks_recipe_start_boundary(next_candidate):
-        return False
-
-    prev_flow = _looks_recipe_flow_neighbor(prev_candidate)
-    next_instruction = _looks_instructional_neighbor(next_candidate)
-    prev_heading = (
-        prev_candidate is not None and _looks_compact_heading(prev_candidate.text)
+    return _has_recipe_local_howto_support(
+        candidate,
+        by_atomic_index=by_atomic_index,
     )
-    return next_instruction and (prev_flow or prev_heading)
 
 
 def _supports_recipe_title_context(candidate: AtomicLineCandidate) -> bool:

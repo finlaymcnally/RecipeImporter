@@ -2,9 +2,10 @@ You are reviewing deterministic canonical line-role labels for cookbook atomic l
 
 Task boundary:
 - This is a grounded label-correction pass over one ordered contiguous slice of the book.
-- The authoritative shard rows are embedded below.
+- The authoritative owned shard rows are embedded below.
+- Reference-only neighboring context may also be embedded below to help you judge boundary rows.
 - The mirrored worker-local file `{{INPUT_PATH}}` exists for traceability only; do not open it or inspect the workspace to answer.
-- Use only the embedded shard rows as evidence.
+- Use only the embedded packet text as evidence.
 - Do not run shell commands, Python, or any other tools.
 - Do not describe your plan, reasoning, or heuristics.
 - Your first response must be the final JSON object.
@@ -16,21 +17,24 @@ Return strict JSON as a JSON object with one `rows` array:
 {"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}
 
 Task file shape:
-{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}
+{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later context"]]}
 
 Rules:
 - Output only JSON.
 - Your final answer must be that JSON object and nothing else.
 - Use only the keys `rows`, `atomic_index`, and `label`.
-- Return one result for every input row.
-- Keep row order exactly as requested by the task file.
+- Return one result for every owned input row in `rows`.
+- Keep output order exactly as requested by the task file's `rows` array.
 - Treat the task file as one ordered contiguous slice of the book.
-- The task file has one version marker `v`, one `shard_id`, and compact `rows` tuples.
+- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and compact owned `rows` tuples.
+- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows shaped like `[atomic_index, current_line]`.
+- Never label reference-only neighboring rows and never include their `atomic_index` values in output JSON.
 - Each row is `[atomic_index, label_code, current_line]`.
 - Label codes: {{LABEL_CODE_LEGEND}}.
 - Convert each `label_code` into the correct full label string; never return label codes in output.
 - Use each row's tuple slot 2 (`current_line`) as the line to label.
 - Use neighboring rows in `rows[*]` for local context when needed.
+- Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.
 - Recompute labels from the task file rows themselves; do not copy example labels from this prompt.
 - Label distinctions that matter:
   - `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.
@@ -47,6 +51,7 @@ Rules:
   - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
   - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
   - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
+  - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
   - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
   - If a row is plausible under its current deterministic label, leave it there.
   - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
@@ -59,7 +64,9 @@ Rules:
 
 {{PACKET_CONTEXT_BLOCK}}
 
-Authoritative shard rows (each row is [atomic_index, label_code, current_line]):
+{{REFERENCE_CONTEXT_BLOCK}}
+
+Authoritative owned shard rows (each row is [atomic_index, label_code, current_line]):
 <BEGIN_AUTHORITATIVE_ROWS>
 {{AUTHORITATIVE_ROWS}}
 <END_AUTHORITATIVE_ROWS>
