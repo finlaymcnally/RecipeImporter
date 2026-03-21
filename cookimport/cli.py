@@ -198,6 +198,10 @@ from cookimport.labelstudio.prelabel import (
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
+from cookimport.llm.prompt_budget import (
+    build_prediction_run_prompt_budget_summary,
+    write_prediction_run_prompt_budget_summary,
+)
 from cookimport.llm import prompt_artifacts as llm_prompt_artifacts
 from cookimport.parsing.schemaorg_ingest import collect_schemaorg_recipe_objects
 from cookimport.plugins import registry
@@ -10385,7 +10389,12 @@ def _run_with_progress_status(
 
         running_slots = max(0, int(running_workers)) if running_workers is not None else 0
         configured_slots = max(0, int(worker_total)) if worker_total is not None else 0
-        display_slots = 8
+        display_slots = max(
+            8,
+            configured_slots,
+            len(active_tasks or []),
+            max(0, int(running_workers or 0)),
+        )
         if configured_slots > 0:
             running_slots = max(running_slots, configured_slots)
         if running_slots <= 0:
@@ -10394,7 +10403,7 @@ def _run_with_progress_status(
             else:
                 running_slots = 0
         else:
-            running_slots = min(max(running_slots, 1), display_slots)
+            running_slots = max(running_slots, 1)
 
         worker_lines: list[str] = []
         if active_tasks is not None:
@@ -21871,6 +21880,165 @@ def _write_eval_run_manifest(
         logger.warning("Failed to write run_manifest.json in %s: %s", run_root, exc)
 
 
+def _finalize_interrupted_benchmark_run(
+    *,
+    eval_output_dir: Path,
+    source_path: Path | None,
+    source_hash: str | None,
+    pred_run: Path | None,
+    processed_run_root: Path | None,
+    selected_gold: Path | None,
+    selected_eval_mode: str | None,
+    predictions_in_path: Path | None,
+    predictions_out_path: Path | None,
+    should_upload_predictions: bool,
+    write_markdown: bool,
+    write_label_studio_tasks: bool,
+    phase: str,
+) -> None:
+    interrupted_at = dt.datetime.now().isoformat(timespec="seconds")
+    resolved_pred_run = next(
+        (
+            candidate
+            for candidate in (
+                pred_run,
+                eval_output_dir,
+                eval_output_dir / "prediction-run",
+            )
+            if candidate is not None and candidate.exists()
+        ),
+        pred_run,
+    )
+    prompt_budget_summary_path: Path | None = None
+    if resolved_pred_run is not None:
+        manifest_path = resolved_pred_run / "manifest.json"
+        if manifest_path.exists() and manifest_path.is_file():
+            try:
+                manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                manifest_payload = None
+            if isinstance(manifest_payload, dict):
+                prompt_budget_summary = build_prediction_run_prompt_budget_summary(
+                    manifest_payload,
+                    resolved_pred_run,
+                )
+                if (
+                    isinstance(prompt_budget_summary.get("by_stage"), dict)
+                    and prompt_budget_summary["by_stage"]
+                ):
+                    prompt_budget_summary_path = (
+                        write_prediction_run_prompt_budget_summary(
+                            eval_output_dir,
+                            prompt_budget_summary,
+                        )
+                    )
+    status_payload = {
+        "schema_version": 1,
+        "status": "interrupted",
+        "completed": False,
+        "interrupted_at": interrupted_at,
+        "phase": str(phase or "").strip() or None,
+        "source_file": str(source_path) if source_path is not None else None,
+        "source_hash": str(source_hash or "").strip() or None,
+    }
+    benchmark_status_path = eval_output_dir / "benchmark_status.json"
+    benchmark_status_path.write_text(
+        json.dumps(status_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    partial_summary_payload = {
+        "schema_version": 1,
+        "status": "interrupted",
+        "summary": (
+            "Benchmark interrupted before completion. Inspect the preserved prediction "
+            "artifacts and telemetry under this run root."
+        ),
+        "phase": str(phase or "").strip() or None,
+        "prediction_artifacts": {
+            "prediction_run_dir": _path_for_manifest(eval_output_dir, resolved_pred_run),
+            "processed_output_run_dir": _path_for_manifest(
+                eval_output_dir,
+                processed_run_root,
+            ),
+            "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
+            "processing_timeseries_prediction_jsonl": _path_for_manifest(
+                eval_output_dir,
+                eval_output_dir / "processing_timeseries_prediction.jsonl",
+            ),
+            "processing_timeseries_evaluation_jsonl": _path_for_manifest(
+                eval_output_dir,
+                eval_output_dir / "processing_timeseries_evaluation.jsonl",
+            ),
+            "prompt_budget_summary_json": _path_for_manifest(
+                eval_output_dir,
+                prompt_budget_summary_path,
+            ),
+        },
+    }
+    partial_summary_path = eval_output_dir / "partial_benchmark_summary.json"
+    partial_summary_path.write_text(
+        json.dumps(partial_summary_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    artifacts = {
+        "benchmark_status_json": _path_for_manifest(eval_output_dir, benchmark_status_path),
+        "partial_benchmark_summary_json": _path_for_manifest(
+            eval_output_dir,
+            partial_summary_path,
+        ),
+        "artifact_root_dir": _path_for_manifest(eval_output_dir, resolved_pred_run),
+        "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
+    }
+    prediction_timeseries_path = eval_output_dir / "processing_timeseries_prediction.jsonl"
+    evaluation_timeseries_path = eval_output_dir / "processing_timeseries_evaluation.jsonl"
+    if prediction_timeseries_path.exists():
+        artifacts["processing_timeseries_prediction_jsonl"] = _path_for_manifest(
+            eval_output_dir,
+            prediction_timeseries_path,
+        )
+    if evaluation_timeseries_path.exists():
+        artifacts["processing_timeseries_evaluation_jsonl"] = _path_for_manifest(
+            eval_output_dir,
+            evaluation_timeseries_path,
+        )
+    if prompt_budget_summary_path is not None and prompt_budget_summary_path.exists():
+        artifacts["prompt_budget_summary_json"] = _path_for_manifest(
+            eval_output_dir,
+            prompt_budget_summary_path,
+        )
+        artifacts["actual_costs_json"] = _path_for_manifest(
+            eval_output_dir,
+            prompt_budget_summary_path,
+        )
+    _write_eval_run_manifest(
+        run_root=eval_output_dir,
+        run_kind="labelstudio_benchmark",
+        source_path=str(source_path) if source_path is not None else None,
+        source_hash=str(source_hash or "").strip() or None,
+        importer_name=_infer_importer_name_from_source_path(source_path),
+        run_config={
+            "status": "interrupted",
+            "completed": False,
+            "phase": str(phase or "").strip() or None,
+            "eval_mode": str(selected_eval_mode or "").strip() or None,
+            "prediction_record_input": (
+                str(predictions_in_path) if predictions_in_path is not None else None
+            ),
+            "prediction_record_output": (
+                str(predictions_out_path) if predictions_out_path is not None else None
+            ),
+            "upload": bool(should_upload_predictions),
+            "write_markdown": bool(write_markdown),
+            "write_label_studio_tasks": bool(write_label_studio_tasks),
+        },
+        artifacts=artifacts,
+        notes=(
+            "Benchmark interrupted before completion. This manifest points to the "
+            "preserved partial artifacts for inspection."
+        ),
+    )
+
+
 def _require_importer(path: Path):
     importer, score = registry.best_importer_for_path(path)
     if importer is None or score <= 0:
@@ -27868,7 +28036,7 @@ def labelstudio_benchmark(
 
     benchmark_started = time.monotonic()
     import_result: dict[str, Any]
-    pred_run: Path
+    pred_run: Path | None = None
     pred_context: PredRunContext
     stage_predictions_path: Path
     extracted_archive_path: Path
@@ -28237,6 +28405,25 @@ def labelstudio_benchmark(
 
         if predictions_out_path is not None:
             write_prediction_records(predictions_out_path, prediction_records_output)
+    except KeyboardInterrupt:
+        _finalize_interrupted_benchmark_run(
+            eval_output_dir=eval_output_dir,
+            source_path=selected_source,
+            source_hash=None,
+            pred_run=pred_run,
+            processed_run_root=None,
+            selected_gold=selected_gold,
+            selected_eval_mode=selected_eval_mode,
+            predictions_in_path=predictions_in_path,
+            predictions_out_path=predictions_out_path,
+            should_upload_predictions=should_upload_predictions,
+            write_markdown=write_markdown,
+            write_label_studio_tasks=write_label_studio_tasks,
+            phase="prediction",
+        )
+        if not suppress_summary:
+            typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+        return
     except Exception as exc:  # noqa: BLE001
         if suppress_summary:
             raise
@@ -28333,6 +28520,29 @@ def labelstudio_benchmark(
                     eval_output_dir / "processing_timeseries_evaluation.jsonl"
                 ),
             )
+    except KeyboardInterrupt:
+        _finalize_interrupted_benchmark_run(
+            eval_output_dir=eval_output_dir,
+            source_path=selected_source,
+            source_hash=pred_context.source_hash,
+            pred_run=pred_run,
+            processed_run_root=(
+                Path(str(import_result.get("processed_run_root"))).expanduser()
+                if str(import_result.get("processed_run_root") or "").strip()
+                else None
+            ),
+            selected_gold=selected_gold,
+            selected_eval_mode=selected_eval_mode,
+            predictions_in_path=predictions_in_path,
+            predictions_out_path=predictions_out_path,
+            should_upload_predictions=should_upload_predictions,
+            write_markdown=write_markdown,
+            write_label_studio_tasks=write_label_studio_tasks,
+            phase="evaluation",
+        )
+        if not suppress_summary:
+            typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+        return
     finally:
         if eval_profiler is not None:
             eval_profiler.disable()

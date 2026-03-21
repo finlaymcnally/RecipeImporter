@@ -227,6 +227,24 @@ def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat temp.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat out/*.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc sed -n '1,20p' in/shard-001.json") is True
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"jq -r '.[].task_id' assigned_tasks.json | while read -r task; do\n"
+            "  cat \\\"hints/$task.md\\\" >/dev/null\n"
+            "  jq -M -c '{v: \\\"1\\\"}' \\\"in/$task.json\\\" > \\\"out/$task.json\\\"\n"
+            "done\""
+        )
+        is True
+    )
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"cat hints/saltfatacidheatcutdown.ks0009.nr.task-001.md >/dev/null\n"
+            "jq --arg task \\\"saltfatacidheatcutdown.ks0009.nr.task-001\\\" "
+            "--slurpfile meta \\\"in/saltfatacidheatcutdown.ks0009.nr.task-001.json\\\" "
+            "'.' > \\\"out/saltfatacidheatcutdown.ks0009.nr.task-001.json\\\"\""
+        )
+        is True
+    )
 
     assert is_tolerated_workspace_worker_command("/bin/bash -lc \"python -c 'print(1)'\"") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'env python -c \"print(1)\"'") is False

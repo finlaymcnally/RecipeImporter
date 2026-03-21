@@ -1129,3 +1129,96 @@ def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
     records = list(read_prediction_records(predictions_out))
     assert len(records) == 1
+
+
+def test_labelstudio_benchmark_interrupt_writes_partial_run_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    def _fake_generate_pred_run_artifacts(**kwargs):
+        eval_root = Path(kwargs["run_root_override"])
+        pred_run = eval_root / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        (pred_run / "extracted_archive.json").write_text(
+            json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
+            encoding="utf-8",
+        )
+        (pred_run / "stage_block_predictions.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "stage_block_predictions.v1",
+                    "block_count": 1,
+                    "block_labels": {"0": "RECIPE_TITLE"},
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "source_hash": "hash-123",
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        (eval_root / "processing_timeseries_prediction.jsonl").write_text(
+            json.dumps({"event": "started"}, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return {
+            "run_root": pred_run,
+            "processed_run_root": tmp_path / "processed" / "2026-03-20_12.00.00",
+            "processed_report_path": "",
+            "stage_block_predictions_path": pred_run / "stage_block_predictions.json",
+            "extracted_archive_path": pred_run / "extracted_archive.json",
+            "timing": {"prediction_seconds": 1.25},
+        }
+
+    monkeypatch.setattr(cli, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage",
+        lambda **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    eval_root = tmp_path / "eval-interrupted"
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+    )
+
+    status_payload = json.loads(
+        (eval_root / "benchmark_status.json").read_text(encoding="utf-8")
+    )
+    assert status_payload["status"] == "interrupted"
+    assert status_payload["completed"] is False
+
+    partial_summary = json.loads(
+        (eval_root / "partial_benchmark_summary.json").read_text(encoding="utf-8")
+    )
+    assert partial_summary["status"] == "interrupted"
+    assert partial_summary["prediction_artifacts"]["prediction_run_dir"] == "prediction-run"
+    assert (
+        partial_summary["prediction_artifacts"]["processing_timeseries_prediction_jsonl"]
+        == "processing_timeseries_prediction.jsonl"
+    )
+
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert run_manifest["run_kind"] == "labelstudio_benchmark"
+    assert run_manifest["artifacts"]["benchmark_status_json"] == "benchmark_status.json"
+    assert (
+        run_manifest["artifacts"]["partial_benchmark_summary_json"]
+        == "partial_benchmark_summary.json"
+    )

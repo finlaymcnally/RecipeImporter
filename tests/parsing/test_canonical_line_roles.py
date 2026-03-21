@@ -2497,6 +2497,70 @@ def test_label_atomic_lines_rejects_degenerate_uniform_repair_and_falls_back_to_
     )
 
 
+def test_label_atomic_lines_repairs_split_task_packets(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_TASK_TARGET_ROWS",
+        2,
+    )
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:repair-task:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous repair line {index}",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+        for index in range(4)
+    ]
+
+    def _output_builder(payload):
+        rows = payload.get("rows") if isinstance(payload, dict) else []
+        if payload and payload.get("repair_mode") == "line_role":
+            return {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "OTHER"}
+                    for row in rows
+                ]
+            }
+        return {"rows": []}
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_batch_size=4,
+        codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == ["OTHER"] * 4
+
+    repair_status_paths = sorted(
+        (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
+    )
+    assert [path.parent.name for path in repair_status_paths] == [
+        "line-role-canonical-0001-a000000-a000003.task-001",
+        "line-role-canonical-0001-a000000-a000003.task-002",
+    ]
+    for repair_status_path in repair_status_paths:
+        repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
+        assert repair_status["status"] == "repaired"
+        repair_prompt_path = repair_status_path.parent / "repair_prompt.txt"
+        assert repair_prompt_path.exists()
+        repair_prompt = repair_prompt_path.read_text(encoding="utf-8")
+        assert "Authoritative shard rows to relabel" in repair_prompt
+
+
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
     tmp_path,
 ) -> None:

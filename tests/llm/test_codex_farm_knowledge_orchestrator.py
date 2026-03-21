@@ -18,6 +18,7 @@ from cookimport.llm.codex_farm_knowledge_orchestrator import (
     run_codex_farm_nonrecipe_knowledge_review,
 )
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot, FakeCodexExecRunner
+from cookimport.llm.codex_exec_runner import CodexExecRunResult
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
@@ -165,6 +166,38 @@ def test_knowledge_workspace_watchdog_stops_after_outputs_stabilize(
     assert live_status["state"] == "watchdog_killed"
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
+
+
+def test_finalize_live_status_normalizes_completed_reason_code(tmp_path: Path) -> None:
+    live_status_path = tmp_path / "live_status.json"
+    knowledge_module._finalize_live_status(  # noqa: SLF001
+        live_status_path,
+        run_result=CodexExecRunResult(
+            command=["codex", "exec"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text="knowledge worker prompt",
+            response_text="not json",
+            turn_failed_message=None,
+            duration_ms=125,
+            started_at_utc="2026-03-20T15:26:25Z",
+            finished_at_utc="2026-03-20T15:26:26Z",
+            supervision_state="completed",
+            supervision_reason_code=None,
+            supervision_reason_detail=None,
+            supervision_retryable=False,
+        ),
+        watchdog_policy="workspace_worker_v1",
+    )
+
+    live_status = json.loads(live_status_path.read_text(encoding="utf-8"))
+    assert live_status["state"] == "completed"
+    assert (
+        live_status["reason_code"]
+        == "process_exited_without_watchdog_intervention"
+    )
+    assert "without watchdog intervention" in str(live_status["reason_detail"])
+    assert live_status["final_agent_message_state"] == "malformed"
 
 
 def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) -> None:

@@ -3419,12 +3419,21 @@ def _finalize_live_status(
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
 ) -> None:
     final_agent_message = assess_final_agent_message(run_result.response_text)
+    state = str(run_result.supervision_state or "completed").strip() or "completed"
+    reason_code = run_result.supervision_reason_code
+    reason_detail = run_result.supervision_reason_detail
+    if state == "completed" and not str(reason_code or "").strip():
+        reason_code = "process_exited_without_watchdog_intervention"
+        reason_detail = (
+            str(reason_detail or "").strip()
+            or "worker process exited without watchdog intervention"
+        )
     _write_live_status(
         live_status_path,
         {
-            "state": run_result.supervision_state or "completed",
-            "reason_code": run_result.supervision_reason_code,
-            "reason_detail": run_result.supervision_reason_detail,
+            "state": state,
+            "reason_code": reason_code,
+            "reason_detail": reason_detail,
             "retryable": run_result.supervision_retryable,
             "duration_ms": run_result.duration_ms,
             "started_at_utc": run_result.started_at_utc,

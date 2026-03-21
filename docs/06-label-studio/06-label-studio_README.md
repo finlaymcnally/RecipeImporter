@@ -269,6 +269,7 @@ Benchmark eval artifacts include:
 - `missed_gold_blocks.jsonl`
 - `wrong_label_blocks.jsonl`
 - `run_manifest.json`
+- interrupted benchmark runs now also write `benchmark_status.json` plus `partial_benchmark_summary.json`; when prediction-manifest telemetry is already present, they also try to write `prompt_budget_summary.json` before returning control
 
 Canonical-text mode also writes line/alignment diagnostics:
 
@@ -323,6 +324,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Benchmark artifacts are rooted directly at the eval root.
 - Benchmark also records processed cookbook outputs under configured processed output root.
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
+- interrupted eval roots now keep the same root shape and add `benchmark_status.json` plus `partial_benchmark_summary.json` so a killed run still leaves one top-level status/pointer package instead of only raw worker trees
 - If `line_role_pipeline != off`, benchmark manifests include line-role diagnostics pointers and an optional `line_role_pipeline_recipe_projection` summary.
 - Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
 - Eval/benchmark manifests should resolve the prediction-run directory from `artifacts.artifact_root_dir`; do not add new readers that prefer eval-root-relative fallbacks when the prediction artifacts live elsewhere.

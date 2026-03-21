@@ -778,6 +778,61 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
     assert "queued shards: 2" in capture.messages[-1]
 
 
+def test_run_with_progress_status_renders_all_ten_knowledge_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Running codex-farm non-recipe knowledge review... task 0/10 | running 10",
+                stage_label="non-recipe knowledge review",
+                task_current=0,
+                task_total=10,
+                running_workers=10,
+                worker_total=10,
+                active_tasks=[f"knowledge-shard-{index:04d}" for index in range(1, 11)],
+                detail_lines=["configured workers: 10", "queued shards: 10"],
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("active tasks (10/10, 10 left)" in message for message in capture.messages)
+    assert any("worker 10: knowledge-shard-0010" in message for message in capture.messages)
+    assert all("active tasks (10/8" not in message for message in capture.messages)
+
+
 def test_run_with_progress_status_clears_codex_worker_state_for_new_phase(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

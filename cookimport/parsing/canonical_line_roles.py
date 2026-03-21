@@ -2035,6 +2035,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             repair_status = "not_attempted"
             final_validation_errors = tuple(validation_errors)
             task_root = shard_dir / task_manifest.shard_id
+            task_root.mkdir(parents=True, exist_ok=True)
             if primary_row is not None:
                 primary_row["proposal_status"] = proposal_status
                 primary_row["runtime_task_id"] = task_manifest.shard_id
@@ -3469,6 +3470,7 @@ def _run_line_role_repair_attempt(
         validation_errors=validation_errors,
     )
     shard_root = worker_root / "shards" / shard.shard_id
+    shard_root.mkdir(parents=True, exist_ok=True)
     (shard_root / "repair_prompt.txt").write_text(prompt_text, encoding="utf-8")
     return runner.run_structured_prompt(
         prompt_text=prompt_text,
@@ -3522,6 +3524,7 @@ def _run_line_role_watchdog_retry_attempt(
         successful_examples=successful_examples,
     )
     shard_root = worker_root / "shards" / shard.shard_id
+    shard_root.mkdir(parents=True, exist_ok=True)
     (shard_root / "watchdog_retry_prompt.txt").write_text(prompt_text, encoding="utf-8")
     return runner.run_structured_prompt(
         prompt_text=prompt_text,

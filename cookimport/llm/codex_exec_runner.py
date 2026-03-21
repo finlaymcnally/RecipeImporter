@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import queue
+import re
 import shutil
 import shlex
 import subprocess
@@ -48,6 +49,9 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_LOGS_DIR_NAME,
     _DIRECT_EXEC_OUTPUT_DIR_NAME,
     _DIRECT_EXEC_SHARDS_DIR_NAME,
+}
+_WORKSPACE_ALLOWED_NULL_SINKS = {
+    "/dev/null",
 }
 _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
 _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
@@ -1834,6 +1838,14 @@ def classify_workspace_worker_command(
 ) -> WorkspaceCommandClassification:
     inner_tokens = _command_tokens_for_watchdog(command_text)
     cleaned_command = str(command_text or "").strip() or None
+    shell_body = _extract_workspace_shell_body(command_text)
+    if not inner_tokens and shell_body is not None:
+        return _classify_workspace_worker_shell_script(
+            shell_body=shell_body,
+            command_text=cleaned_command,
+            allow_orientation_commands=allow_orientation_commands,
+            allow_output_paths=allow_output_paths,
+        )
     if not inner_tokens:
         return WorkspaceCommandClassification(
             command_text=cleaned_command,
@@ -1919,6 +1931,33 @@ def is_tolerated_workspace_worker_command(command_text: str | None) -> bool:
     return classify_workspace_worker_command(command_text).allowed
 
 
+def _extract_workspace_shell_body(command_text: str | None) -> str | None:
+    cleaned = str(command_text or "").strip()
+    if not cleaned:
+        return None
+    try:
+        outer_tokens = shlex.split(cleaned)
+    except ValueError:
+        return None
+    if not outer_tokens:
+        return None
+    executable = Path(outer_tokens[0]).name.lower()
+    if executable in {"bash", "sh", "zsh"} and len(outer_tokens) >= 3:
+        shell_flag = outer_tokens[1]
+        if shell_flag in {"-lc", "-c"}:
+            if len(outer_tokens) == 3:
+                return str(outer_tokens[2] or "").strip() or None
+            return (
+                " ".join(
+                    str(token or "").strip()
+                    for token in outer_tokens[2:]
+                    if str(token or "").strip()
+                )
+                or None
+            )
+    return None
+
+
 def _command_tokens_for_watchdog(command_text: str | None) -> list[str]:
     cleaned = str(command_text or "").strip()
     if not cleaned:
@@ -1940,6 +1979,87 @@ def _command_tokens_for_watchdog(command_text: str | None) -> list[str]:
                     return []
             return [str(token or "").strip() for token in outer_tokens[2:] if str(token or "").strip()]
     return outer_tokens
+
+
+def _classify_workspace_worker_shell_script(
+    *,
+    shell_body: str,
+    command_text: str | None,
+    allow_orientation_commands: bool,
+    allow_output_paths: bool,
+) -> WorkspaceCommandClassification:
+    shell_keywords = {
+        "case",
+        "do",
+        "done",
+        "elif",
+        "else",
+        "esac",
+        "fi",
+        "for",
+        "function",
+        "if",
+        "in",
+        "then",
+        "while",
+    }
+    for match in re.finditer(
+        r"(?:^|[;\n|&()]\s*)(?:env\s+)?(?P<exe>[A-Za-z0-9_./-]+)",
+        shell_body,
+        re.MULTILINE,
+    ):
+        executable = Path(str(match.group("exe") or "").strip()).name.lower()
+        if not executable or executable in shell_keywords:
+            continue
+        if not allow_orientation_commands and executable in {"pwd", "ls"}:
+            return WorkspaceCommandClassification(
+                command_text=command_text,
+                allowed=False,
+                policy="forbidden_orientation_command",
+                reason="orientation commands are not allowed for this workspace policy",
+            )
+        if executable in _WORKSPACE_FORBIDDEN_EXECUTABLES:
+            return WorkspaceCommandClassification(
+                command_text=command_text,
+                allowed=False,
+                policy="forbidden_non_helper_executable",
+                reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
+            )
+    if "../" in shell_body:
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_parent_traversal_path",
+            reason="parent-directory traversal is outside the bounded workspace policy",
+        )
+    if re.search(r"(^|[\s\"'])~/", shell_body) or "$HOME/" in shell_body or "${HOME}/" in shell_body:
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_absolute_path",
+            reason="workspace shell commands must stay on relative local paths",
+        )
+    absolute_path_match = re.search(r"(^|[\s\"'])/(?!dev/null(?:$|[\s\"']))", shell_body)
+    if absolute_path_match is not None:
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_absolute_path",
+            reason="workspace shell commands must stay on relative local paths",
+        )
+    if not allow_output_paths and re.search(r'(^|[\s"\'])out/', shell_body):
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_output_path",
+            reason="this workspace policy does not allow helper commands against `out/`",
+        )
+    return WorkspaceCommandClassification(
+        command_text=command_text,
+        allowed=True,
+        policy="tolerated_workspace_shell_command",
+        reason="command stayed inside the relaxed workspace-worker command policy",
+    )
 
 
 def _workspace_watchdog_executable(inner_tokens: Sequence[str]) -> str | None:
@@ -2008,6 +2128,13 @@ def _classify_workspace_path_argument(
             allowed=False,
             policy="forbidden_empty_path_argument",
             reason="empty path arguments are outside the bounded workspace policy",
+        )
+    if cleaned in _WORKSPACE_ALLOWED_NULL_SINKS:
+        return WorkspaceCommandClassification(
+            command_text=cleaned,
+            allowed=True,
+            policy="tolerated_workspace_local_path",
+            reason="null sink stayed inside the bounded local workspace surface",
         )
     if cleaned.startswith(("~", "/")):
         return WorkspaceCommandClassification(
