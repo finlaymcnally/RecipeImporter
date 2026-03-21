@@ -2551,7 +2551,9 @@ def _interactive_all_method_benchmark(
             "llm_recipe_pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
             "line_role_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
             "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
-            "atomic_block_splitter": "atomic-v1",
+            "atomic_block_splitter": str(
+                all_method_codex_defaults_payload.get("atomic_block_splitter") or "off"
+            ),
         }
     )
     all_method_codex_settings = choose_interactive_codex_surfaces(
@@ -3556,6 +3558,11 @@ def _all_method_apply_selected_codex_contract_from_baseline(
         if key in codex_config:
             codex_payload[key] = codex_config[key]
     return codex_payload
+
+
+INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK = "single_book"
+INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS = "selected_matched_books"
+INTERACTIVE_BENCHMARK_MODE_ALL_MATCHED_BOOKS = "all_matched_books"
 
 
 def _all_method_codex_surface_slug_parts(
@@ -5233,7 +5240,7 @@ def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
         except Exception as fallback_exc:  # noqa: BLE001
             typer.secho(
                 (
-                    "Skipped single-offline starter pack: unable to load helper "
+                    "Skipped single-book starter pack: unable to load helper "
                     f"({import_exc}; fallback failed: {fallback_exc})."
                 ),
                 fg=typer.colors.YELLOW,
@@ -5242,7 +5249,7 @@ def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
 
     if build_starter_pack_for_existing_runs is None:
         typer.secho(
-            "Skipped single-offline starter pack: helper loader unavailable.",
+            "Skipped single-book starter pack: helper loader unavailable.",
             fg=typer.colors.YELLOW,
         )
         return None
@@ -5255,7 +5262,7 @@ def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
         )
     except Exception as exc:  # noqa: BLE001
         typer.secho(
-            f"Skipped single-offline starter pack generation: {exc}",
+            f"Skipped single-book starter pack generation: {exc}",
             fg=typer.colors.YELLOW,
         )
         return None
@@ -5263,7 +5270,7 @@ def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
     starter_pack_dir = session_root / "starter_pack_v1"
     if not starter_pack_dir.is_dir():
         typer.secho(
-            "Skipped single-offline starter pack generation: starter_pack_v1 missing after export.",
+            "Skipped single-book starter pack generation: starter_pack_v1 missing after export.",
             fg=typer.colors.YELLOW,
         )
         return None
@@ -5691,7 +5698,7 @@ def _write_single_offline_summary_markdown(
     comparison_json_path: Path | None,
 ) -> Path:
     lines: list[str] = [
-        "# Single Offline Benchmark Summary",
+        "# Single Book Benchmark Summary",
         "",
         f"- Run timestamp: {run_timestamp}",
         "",
@@ -5774,7 +5781,7 @@ def _write_single_offline_summary_markdown(
             lines.extend(comparison_md_lines)
             lines.append("")
 
-    summary_md_path = session_root / "single_offline_summary.md"
+    summary_md_path = session_root / "single_book_summary.md"
     summary_md_path.parent.mkdir(parents=True, exist_ok=True)
     summary_md_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return summary_md_path
@@ -5794,7 +5801,7 @@ def _interactive_single_offline_benchmark(
 ) -> bool:
     variants = _interactive_single_offline_variants(selected_benchmark_settings)
     if not variants:
-        typer.secho("No single-offline benchmark variants were planned.", fg=typer.colors.YELLOW)
+        typer.secho("No single-book benchmark variants were planned.", fg=typer.colors.YELLOW)
         return False
 
     selected_gold: Path | None = None
@@ -5811,9 +5818,9 @@ def _interactive_single_offline_benchmark(
             return False
         selected_gold, selected_source = resolved_inputs
 
-    session_root = benchmark_eval_output / "single-offline-benchmark"
+    session_root = benchmark_eval_output / "single-book-benchmark"
     session_processed_root = (
-        processed_output_root / benchmark_eval_output.name / "single-offline-benchmark"
+        processed_output_root / benchmark_eval_output.name / "single-book-benchmark"
     )
     if selected_source is not None:
         source_slug = slugify_name(selected_source.stem) or "source"
@@ -5821,7 +5828,7 @@ def _interactive_single_offline_benchmark(
         session_processed_root = session_processed_root / source_slug
 
     typer.secho(
-        f"Single-offline benchmark variants: {', '.join(slug for slug, _ in variants)}",
+        f"Single-book benchmark variants: {', '.join(slug for slug, _ in variants)}",
         fg=typer.colors.CYAN,
     )
 
@@ -5857,7 +5864,7 @@ def _interactive_single_offline_benchmark(
         )
         typer.secho(
             (
-                "Single-offline split cache enabled: "
+                "Single-book split cache enabled: "
                 f"mode={selected_split_cache_mode} key={split_cache_key[:12]}..."
             ),
             fg=typer.colors.BRIGHT_BLACK,
@@ -5868,7 +5875,7 @@ def _interactive_single_offline_benchmark(
         variant_eval_output = session_root / variant_slug
         variant_processed_output = session_processed_root / variant_slug
         typer.secho(
-            f"Single-offline benchmark {index}/{len(variants)}: {variant_slug}",
+            f"Single-book benchmark {index}/{len(variants)}: {variant_slug}",
             fg=typer.colors.CYAN,
         )
         variant_kwargs = build_benchmark_call_kwargs_from_run_settings(
@@ -5930,7 +5937,7 @@ def _interactive_single_offline_benchmark(
             }
             typer.secho(
                 (
-                    f"Single-offline {variant_slug} failed "
+                    f"Single-book {variant_slug} failed "
                     f"(exit code {exit_code}); continuing."
                 ),
                 fg=typer.colors.YELLOW,
@@ -5944,7 +5951,7 @@ def _interactive_single_offline_benchmark(
                 "error": str(exc),
             }
             typer.secho(
-                f"Single-offline {variant_slug} failed: {exc}; continuing.",
+                f"Single-book {variant_slug} failed: {exc}; continuing.",
                 fg=typer.colors.YELLOW,
             )
 
@@ -5954,17 +5961,17 @@ def _interactive_single_offline_benchmark(
     summary_color = typer.colors.GREEN if succeeded == len(variants) else typer.colors.YELLOW
     typer.secho(
         (
-            "Single-offline benchmark complete: "
+            "Single-book benchmark complete: "
             f"{succeeded}/{len(variants)} variant runs succeeded."
         ),
         fg=summary_color,
     )
     typer.secho(
-        f"Single-offline benchmark outputs: {session_root}",
+        f"Single-book benchmark outputs: {session_root}",
         fg=typer.colors.CYAN,
     )
     typer.secho(
-        f"Single-offline processed outputs: {session_processed_root}",
+        f"Single-book processed outputs: {session_processed_root}",
         fg=typer.colors.CYAN,
     )
 
@@ -6055,7 +6062,7 @@ def _interactive_single_offline_benchmark(
             )
             _start_benchmark_bundle_oracle_upload_background(
                 bundle_dir=upload_bundle_dir,
-                scope="single_offline",
+                scope="single_book",
             )
 
     history_csv_path = history_csv_for_output(
@@ -6065,7 +6072,7 @@ def _interactive_single_offline_benchmark(
         csv_path=history_csv_path,
         output_root=processed_output_root,
         dashboard_out_dir=history_root_for_output(processed_output_root) / "dashboard",
-        reason="single-offline benchmark variant batch append",
+        reason="single-book benchmark variant batch append",
     )
 
     if len(variants) == 1:
@@ -8585,27 +8592,22 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 "How would you like to evaluate?",
                 menu_help=(
                     "All modes are offline (no upload).\n"
-                    "Single offline runs one local prediction + eval vs freeform gold.\n"
-                    "Single config, selected matched sets lets you pick specific books.\n"
-                    "Single config, all matched sets repeats that same config across each matched golden set."
+                    "Single book runs one local prediction + eval vs freeform gold.\n"
+                    "Selected matched books lets you pick specific books.\n"
+                    "All matched books repeats that same config across each matched golden set."
                 ),
                 choices=[
                     questionary.Choice(
-                        "Single offline eval: One local prediction + eval vs freeform gold",
-                        value="single_offline",
+                        "Single Book: One local prediction + eval vs freeform gold",
+                        value=INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK,
                     ),
                     questionary.Choice(
-                        (
-                            "Single config, selected matched sets: "
-                            "Pick which matched books to run"
-                        ),
-                        value="single_offline_selected_matched",
+                        "Selected Matched Books: Pick which matched books to run",
+                        value=INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS,
                     ),
                     questionary.Choice(
-                    (
-                        "Single config, all matched sets: Repeat one config for every matched golden set"
-                    ),
-                    value="single_offline_all_matched",
+                        "All Matched Books: Repeat one config for every matched golden set",
+                        value=INTERACTIVE_BENCHMARK_MODE_ALL_MATCHED_BOOKS,
                     ),
                 ],
             )
@@ -8654,7 +8656,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 default=False,
             )
 
-            if benchmark_mode == "single_offline":
+            if benchmark_mode == INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK:
                 _interactive_single_offline_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
@@ -8664,8 +8666,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     write_starter_pack=benchmark_write_single_offline_starter_pack,
                 )
             elif benchmark_mode in {
-                "single_offline_selected_matched",
-                "single_offline_all_matched",
+                INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS,
+                INTERACTIVE_BENCHMARK_MODE_ALL_MATCHED_BOOKS,
             }:
                 _interactive_single_profile_all_matched_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
@@ -8674,7 +8676,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     write_markdown=benchmark_write_markdown,
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
                     allow_subset_selection=(
-                        benchmark_mode == "single_offline_selected_matched"
+                        benchmark_mode
+                        == INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS
                     ),
                 )
             continue
@@ -9259,7 +9262,7 @@ def _normalize_single_offline_split_cache_mode(value: str) -> str:
     if normalized in {"auto", "on", "enabled", "true", "1"}:
         return "auto"
     _fail(
-        f"Invalid single-offline split-cache mode: {value!r}. "
+        f"Invalid single-book split-cache mode: {value!r}. "
         "Expected one of: off, auto."
     )
     return "off"
@@ -10207,7 +10210,17 @@ def _run_with_progress_status(
     latest_active_tasks: list[str] | None = None
     latest_codex_stage_label: str | None = None
     latest_stage_label: str | None = None
+    latest_work_unit_label: str | None = None
     latest_stage_detail_lines: list[str] = []
+    latest_worker_running: int | None = None
+    latest_worker_completed: int | None = None
+    latest_worker_failed: int | None = None
+    latest_followup_running: int | None = None
+    latest_followup_completed: int | None = None
+    latest_followup_total: int | None = None
+    latest_followup_label: str | None = None
+    latest_artifact_counts: dict[str, int] = {}
+    latest_last_activity_at: str | None = None
     status_dashboard = ProgressDashboardCore()
     worker_dashboard_adapter = ProgressCallbackAdapter(status_dashboard)
     status_dashboard.set_status_line(str(initial_status).strip() or str(progress_prefix).strip())
@@ -10330,12 +10343,75 @@ def _run_with_progress_status(
             return f"codex-farm {stage_label}: {suffix}", stage_label
         return f"codex-farm {stage_label}", stage_label
 
+    def _render_artifact_counts_line(artifact_counts: Mapping[str, Any] | None) -> str | None:
+        if not isinstance(artifact_counts, Mapping):
+            return None
+        parts: list[str] = []
+        for key, value in sorted(artifact_counts.items()):
+            cleaned_key = str(key or "").strip()
+            try:
+                cleaned_value = max(0, int(value))
+            except (TypeError, ValueError):
+                continue
+            if not cleaned_key:
+                continue
+            parts.append(f"{cleaned_key.replace('_', ' ')} {cleaned_value}")
+        if not parts:
+            return None
+        return "artifacts: " + " | ".join(parts)
+
+    def _render_worker_summary_line(
+        *,
+        worker_running: int | None,
+        worker_completed: int | None,
+        worker_failed: int | None,
+        worker_total: int | None,
+    ) -> str | None:
+        summary_parts: list[str] = []
+        for label, value in (
+            ("running", worker_running),
+            ("completed", worker_completed),
+            ("failed", worker_failed),
+        ):
+            if value is None:
+                continue
+            summary_parts.append(f"{max(0, int(value))} {label}")
+        if worker_total is not None:
+            summary_parts.append(f"{max(0, int(worker_total))} total")
+        if not summary_parts:
+            return None
+        return "workers: " + ", ".join(summary_parts)
+
+    def _render_followup_summary_line(
+        *,
+        followup_label: str | None,
+        followup_running: int | None,
+        followup_completed: int | None,
+        followup_total: int | None,
+    ) -> str | None:
+        cleaned_label = str(followup_label or "").strip() or "follow-up"
+        summary_parts: list[str] = [cleaned_label]
+        if followup_completed is not None and followup_total is not None:
+            summary_parts.append(
+                f"{max(0, int(followup_completed))}/{max(0, int(followup_total))}"
+            )
+        if followup_running is not None:
+            summary_parts.append(f"running {max(0, int(followup_running))}")
+        if len(summary_parts) == 1 and cleaned_label == "follow-up":
+            return None
+        return "repo follow-up: " + " | ".join(summary_parts)
+
     def _inject_worker_summary_lines(snapshot: str) -> str:
         with state_lock:
             running_workers = latest_running_workers
             worker_total = latest_worker_total
             active_tasks = (
                 None if latest_active_tasks is None else list(latest_active_tasks)
+            )
+            work_unit_label = (
+                str(latest_work_unit_label).strip()
+                if latest_work_unit_label is not None
+                else ""
             )
             codex_stage_label = (
                 str(latest_codex_stage_label).strip()
@@ -10351,13 +10427,30 @@ def _run_with_progress_status(
                 )
             )
             detail_lines = list(latest_stage_detail_lines)
+            worker_running = latest_worker_running
+            worker_completed = latest_worker_completed
+            worker_failed = latest_worker_failed
+            followup_running = latest_followup_running
+            followup_completed = latest_followup_completed
+            followup_total = latest_followup_total
+            followup_label = latest_followup_label
+            artifact_counts = dict(latest_artifact_counts)
             task_counter = latest_counter
         if (
             running_workers is None
             and worker_total is None
             and active_tasks is None
             and not stage_label
+            and not work_unit_label
             and not detail_lines
+            and worker_running is None
+            and worker_completed is None
+            and worker_failed is None
+            and followup_running is None
+            and followup_completed is None
+            and followup_total is None
+            and not followup_label
+            and not artifact_counts
             and task_counter is None
         ):
             return snapshot
@@ -10371,6 +10464,14 @@ def _run_with_progress_status(
             and worker_total is None
             and active_tasks is None
             and not detail_lines
+            and worker_running is None
+            and worker_completed is None
+            and worker_failed is None
+            and followup_running is None
+            and followup_completed is None
+            and followup_total is None
+            and not followup_label
+            and not artifact_counts
             and task_counter is None
         ):
             return "\n".join(lines)
@@ -10387,31 +10488,53 @@ def _run_with_progress_status(
             for line in lines
         ):
             counter_current, counter_total = task_counter
+            counter_label = work_unit_label or "task"
             progress_percent = 0
             if counter_total > 0:
                 progress_percent = int(
                     round((float(counter_current) / float(counter_total)) * 100.0)
                 )
             progress_lines.append(
-                f"progress: task {counter_current}/{counter_total} ({progress_percent}%)"
+                f"progress: {counter_label} {counter_current}/{counter_total} ({progress_percent}%)"
             )
             remaining_tasks = max(0, int(counter_total) - int(counter_current))
             if remaining_tasks > 0:
-                progress_lines.append(f"remaining tasks: {remaining_tasks}")
+                remaining_label = (work_unit_label or "task").replace("_", " ")
+                progress_lines.append(f"remaining {remaining_label}s: {remaining_tasks}")
         if progress_lines:
             insert_at = 2 if len(lines) > 1 and lines[1].lower().startswith("stage:") else 1
             for progress_line in reversed(progress_lines):
                 lines.insert(insert_at, progress_line)
 
-        if detail_lines:
+        summary_lines = [
+            line
+            for line in (
+                _render_worker_summary_line(
+                    worker_running=worker_running,
+                    worker_completed=worker_completed,
+                    worker_failed=worker_failed,
+                    worker_total=worker_total,
+                ),
+                _render_followup_summary_line(
+                    followup_label=followup_label,
+                    followup_running=followup_running,
+                    followup_completed=followup_completed,
+                    followup_total=followup_total,
+                ),
+                _render_artifact_counts_line(artifact_counts),
+            )
+            if line
+        ]
+        if summary_lines or detail_lines:
             insert_at = 1 if lines else 0
             if len(lines) > 1 and lines[1].lower().startswith("stage:"):
                 insert_at = 2
                 if len(lines) > 2 and lines[2].lower().startswith("progress:"):
                     insert_at = 3
-                    if len(lines) > 3 and lines[3].lower().startswith("remaining tasks:"):
+                    if len(lines) > 3 and lines[3].lower().startswith("remaining "):
                         insert_at = 4
-            for detail_line in reversed(detail_lines):
+            inserted_lines = [*summary_lines, *detail_lines]
+            for detail_line in reversed(inserted_lines):
                 if detail_line and detail_line not in lines:
                     lines.insert(insert_at, detail_line)
 
@@ -10419,6 +10542,9 @@ def _run_with_progress_status(
             running_workers is None
             and worker_total is None
             and active_tasks is None
+            and worker_running is None
+            and worker_completed is None
+            and worker_failed is None
         ):
             return "\n".join(lines)
 
@@ -10429,16 +10555,26 @@ def _run_with_progress_status(
         ):
             return "\n".join(lines)
 
-        running_slots = max(0, int(running_workers)) if running_workers is not None else 0
+        typed_running_slots = (
+            max(0, int(worker_running)) if worker_running is not None else None
+        )
+        running_slots = (
+            typed_running_slots
+            if typed_running_slots is not None
+            else max(0, int(running_workers))
+            if running_workers is not None
+            else 0
+        )
         configured_slots = max(0, int(worker_total)) if worker_total is not None else 0
+        completed_slots = max(0, int(worker_completed or 0))
+        failed_slots = max(0, int(worker_failed or 0))
         display_slots = max(
             8,
             configured_slots,
             len(active_tasks or []),
             max(0, int(running_workers or 0)),
+            running_slots + completed_slots + failed_slots,
         )
-        if configured_slots > 0:
-            running_slots = max(running_slots, configured_slots)
         if running_slots <= 0:
             if running_workers is None and worker_total is None:
                 running_slots = display_slots
@@ -10446,15 +10582,20 @@ def _run_with_progress_status(
                 running_slots = 0
         else:
             running_slots = max(running_slots, 1)
+        if (
+            running_slots <= 0
+            and completed_slots <= 0
+            and failed_slots <= 0
+            and configured_slots <= 0
+            and not (active_tasks or [])
+        ):
+            return "\n".join(lines)
 
         worker_lines: list[str] = []
+        slot_statuses: list[str] = []
         if active_tasks is not None:
             task_count = len(active_tasks)
             tasks_left: int | None = None
-            active_slots = min(
-                running_slots,
-                max(0, int(running_workers or 0)),
-            )
             if task_counter is not None:
                 counter_current, counter_total = task_counter
                 tasks_left = max(0, int(counter_total) - int(counter_current))
@@ -10469,40 +10610,29 @@ def _run_with_progress_status(
                 worker_lines.append(
                     active_tasks_label
                 )
-                for index, task in enumerate(active_tasks[:running_slots], start=1):
-                    worker_lines.append(
-                        f"worker {index:02d}: {str(task).strip() or '[unknown task]'}"
-                    )
-                if task_count < running_slots:
-                    for index in range(task_count + 1, running_slots + 1):
-                        status = (
-                            "idle"
-                            if configured_slots > 0 and index > active_slots
-                            else "processing (unresolved)"
-                        )
-                        worker_lines.append(
-                            f"worker {index:02d}: {status}"
-                        )
-            else:
-                worker_lines.append(f"active workers: {running_slots}")
-                active_slots = min(
-                    running_slots,
-                    max(0, int(running_workers or 0)),
-                )
-                for index in range(1, running_slots + 1):
-                    status = "processing" if index <= max(1, active_slots) else "idle"
-                    worker_lines.append(f"worker {index:02d}: {status}")
-        else:
-            active_slots = min(
-                running_slots,
-                max(0, int(running_workers or 0)),
+            slot_statuses.extend(
+                str(task).strip() or "[unknown task]"
+                for task in active_tasks[:running_slots]
             )
+            if len(slot_statuses) < running_slots:
+                slot_statuses.extend(
+                    ["processing (unresolved)"] * (running_slots - len(slot_statuses))
+                )
+        else:
+            worker_lines.append(f"active workers: {running_slots}")
+        slot_statuses.extend(["running"] * max(0, running_slots - len(slot_statuses)))
+        slot_statuses.extend(["done"] * completed_slots)
+        slot_statuses.extend(["failed"] * failed_slots)
+        target_slots = max(display_slots, len(slot_statuses))
+        if len(slot_statuses) < target_slots:
+            slot_statuses.extend(["idle"] * (target_slots - len(slot_statuses)))
+        active_slots = running_slots
+        if not worker_lines:
             worker_lines.append(f"active workers: {active_slots}")
-            if configured_slots > 0 and configured_slots != active_slots:
-                worker_lines.append(f"configured workers: {configured_slots}")
-            for index in range(1, running_slots + 1):
-                status = "running" if index <= active_slots else "idle"
-                worker_lines.append(f"worker {index:02d}: {status}")
+        if configured_slots > 0 and configured_slots != active_slots:
+            worker_lines.append(f"configured workers: {configured_slots}")
+        for index, status in enumerate(slot_statuses[:target_slots], start=1):
+            worker_lines.append(f"worker {index:02d}: {status}")
 
         if running_slots <= 0 and not worker_lines:
             return "\n".join(lines)
@@ -10718,7 +10848,17 @@ def _run_with_progress_status(
             running_workers_hint = latest_running_workers
             worker_total_hint = latest_worker_total
             stage_label = latest_stage_label
+            work_unit_label = latest_work_unit_label
             detail_lines = list(latest_stage_detail_lines)
+            worker_running_hint = latest_worker_running
+            worker_completed_hint = latest_worker_completed
+            worker_failed_hint = latest_worker_failed
+            followup_running_hint = latest_followup_running
+            followup_completed_hint = latest_followup_completed
+            followup_total_hint = latest_followup_total
+            followup_label_hint = latest_followup_label
+            artifact_counts_hint = dict(latest_artifact_counts)
+            last_activity_at_hint = latest_last_activity_at
             active_tasks_hint = (
                 None if latest_active_tasks is None else list(latest_active_tasks)
             )
@@ -10755,10 +10895,44 @@ def _run_with_progress_status(
                 "message": message_value,
                 "elapsed_seconds": elapsed_seconds,
                 "stage_label": str(stage_label or "").strip() or None,
+                "work_unit_label": str(work_unit_label or "").strip() or None,
                 "task_current": counter_current,
                 "task_total": counter_total,
                 "worker_total": max(0, int(worker_total)),
                 "worker_active": max(0, int(worker_active)),
+                "worker_running": (
+                    max(0, int(worker_running_hint))
+                    if worker_running_hint is not None
+                    else None
+                ),
+                "worker_completed": (
+                    max(0, int(worker_completed_hint))
+                    if worker_completed_hint is not None
+                    else None
+                ),
+                "worker_failed": (
+                    max(0, int(worker_failed_hint))
+                    if worker_failed_hint is not None
+                    else None
+                ),
+                "followup_running": (
+                    max(0, int(followup_running_hint))
+                    if followup_running_hint is not None
+                    else None
+                ),
+                "followup_completed": (
+                    max(0, int(followup_completed_hint))
+                    if followup_completed_hint is not None
+                    else None
+                ),
+                "followup_total": (
+                    max(0, int(followup_total_hint))
+                    if followup_total_hint is not None
+                    else None
+                ),
+                "followup_label": str(followup_label_hint or "").strip() or None,
+                "artifact_counts": artifact_counts_hint or None,
+                "last_activity_at": str(last_activity_at_hint or "").strip() or None,
                 "active_tasks": list(active_tasks_hint or []),
                 "detail_lines": detail_lines,
                 "worker_activity": {
@@ -10777,6 +10951,10 @@ def _run_with_progress_status(
         nonlocal rate_recent_samples, all_method_metrics
         nonlocal latest_running_workers, latest_worker_total, latest_active_tasks
         nonlocal latest_codex_stage_label, latest_stage_label, latest_stage_detail_lines
+        nonlocal latest_work_unit_label
+        nonlocal latest_worker_running, latest_worker_completed, latest_worker_failed
+        nonlocal latest_followup_running, latest_followup_completed, latest_followup_total
+        nonlocal latest_followup_label, latest_artifact_counts, latest_last_activity_at
         now = time.monotonic()
         cleaned = msg.strip()
         is_worker_activity = parse_worker_activity(cleaned) is not None
@@ -10788,10 +10966,23 @@ def _run_with_progress_status(
         structured_running_workers: int | None = None
         structured_worker_total: int | None = None
         structured_active_tasks: list[str] | None = None
+        structured_work_unit_label: str | None = None
+        structured_worker_running: int | None = None
+        structured_worker_completed: int | None = None
+        structured_worker_failed: int | None = None
+        structured_followup_running: int | None = None
+        structured_followup_completed: int | None = None
+        structured_followup_total: int | None = None
+        structured_followup_label: str | None = None
+        structured_artifact_counts: dict[str, int] | None = None
+        structured_last_activity_at: str | None = None
         current_stage_label: str | None = None
         stage_changed = False
         if stage_progress is not None:
             cleaned = str(stage_progress.get("message") or "").strip() or cleaned
+            structured_work_unit_label = (
+                str(stage_progress.get("work_unit_label") or "").strip() or None
+            )
             task_current = stage_progress.get("task_current")
             task_total = stage_progress.get("task_total")
             if task_current is not None and task_total is not None:
@@ -10802,6 +10993,37 @@ def _run_with_progress_status(
             worker_total_hint = stage_progress.get("worker_total")
             if worker_total_hint is not None:
                 structured_worker_total = max(0, int(worker_total_hint))
+            worker_running_hint = stage_progress.get("worker_running")
+            if worker_running_hint is not None:
+                structured_worker_running = max(0, int(worker_running_hint))
+            worker_completed_hint = stage_progress.get("worker_completed")
+            if worker_completed_hint is not None:
+                structured_worker_completed = max(0, int(worker_completed_hint))
+            worker_failed_hint = stage_progress.get("worker_failed")
+            if worker_failed_hint is not None:
+                structured_worker_failed = max(0, int(worker_failed_hint))
+            followup_running_hint = stage_progress.get("followup_running")
+            if followup_running_hint is not None:
+                structured_followup_running = max(0, int(followup_running_hint))
+            followup_completed_hint = stage_progress.get("followup_completed")
+            if followup_completed_hint is not None:
+                structured_followup_completed = max(0, int(followup_completed_hint))
+            followup_total_hint = stage_progress.get("followup_total")
+            if followup_total_hint is not None:
+                structured_followup_total = max(0, int(followup_total_hint))
+            structured_followup_label = (
+                str(stage_progress.get("followup_label") or "").strip() or None
+            )
+            artifact_counts_hint = stage_progress.get("artifact_counts")
+            if isinstance(artifact_counts_hint, dict):
+                structured_artifact_counts = {
+                    str(key).strip(): max(0, int(value))
+                    for key, value in artifact_counts_hint.items()
+                    if str(key).strip()
+                }
+            structured_last_activity_at = (
+                str(stage_progress.get("last_activity_at") or "").strip() or None
+            )
             active_tasks_hint = stage_progress.get("active_tasks")
             if isinstance(active_tasks_hint, list):
                 structured_active_tasks = [
@@ -10854,7 +11076,17 @@ def _run_with_progress_status(
             current_stage_label = codex_stage_label or _extract_progress_stage_label(cleaned)
             if current_stage_label != latest_stage_label:
                 latest_worker_total = None
+                latest_work_unit_label = None
                 latest_stage_detail_lines = []
+                latest_worker_running = None
+                latest_worker_completed = None
+                latest_worker_failed = None
+                latest_followup_running = None
+                latest_followup_completed = None
+                latest_followup_total = None
+                latest_followup_label = None
+                latest_artifact_counts = {}
+                latest_last_activity_at = None
             latest_stage_label = current_stage_label
             latest_codex_stage_label = codex_stage_label
             if current_stage_label == latest_stage_label:
@@ -10866,17 +11098,50 @@ def _run_with_progress_status(
                 latest_running_workers = None
                 latest_worker_total = None
                 latest_active_tasks = None
+                latest_work_unit_label = None
                 latest_stage_detail_lines = []
+                latest_worker_running = None
+                latest_worker_completed = None
+                latest_worker_failed = None
+                latest_followup_running = None
+                latest_followup_completed = None
+                latest_followup_total = None
+                latest_followup_label = None
+                latest_artifact_counts = {}
+                latest_last_activity_at = None
             if generic_running_workers is not None:
                 latest_running_workers = generic_running_workers
+            elif stage_progress is not None:
+                latest_running_workers = None
             if structured_worker_total is not None:
                 latest_worker_total = structured_worker_total
+            elif stage_progress is not None:
+                latest_worker_total = None
             if structured_active_tasks is not None:
                 latest_active_tasks = structured_active_tasks
+            elif stage_progress is not None:
+                latest_active_tasks = None
+            if stage_progress is not None:
+                latest_work_unit_label = structured_work_unit_label
+                latest_worker_running = (
+                    structured_worker_running
+                    if structured_worker_running is not None
+                    else structured_running_workers
+                )
+                latest_worker_completed = structured_worker_completed
+                latest_worker_failed = structured_worker_failed
+                latest_followup_running = structured_followup_running
+                latest_followup_completed = structured_followup_completed
+                latest_followup_total = structured_followup_total
+                latest_followup_label = structured_followup_label
+                latest_artifact_counts = dict(structured_artifact_counts or {})
+                latest_last_activity_at = structured_last_activity_at
             elif stage_changed:
                 latest_active_tasks = None
             if stage_detail_lines is not None:
                 latest_stage_detail_lines = stage_detail_lines
+            elif stage_progress is not None:
+                latest_stage_detail_lines = []
             elif stage_changed:
                 latest_stage_detail_lines = []
             latest_codex_stage_label = None
@@ -12183,9 +12448,17 @@ class _SingleProfileBookDashboardRow:
     current_variant_slug: str = ""
     current_stage_label: str = ""
     current_message: str = ""
+    work_unit_label: str = ""
     current_counter: tuple[int, int] | None = None
     worker_total: int = 0
     worker_statuses: dict[int, str] = field(default_factory=dict)
+    worker_running: int = 0
+    worker_completed: int = 0
+    worker_failed: int = 0
+    followup_running: int = 0
+    followup_completed: int = 0
+    followup_total: int = 0
+    followup_label: str = ""
     phase_started_at: float | None = None
     rate_total: int | None = None
     rate_last_current: int | None = None
@@ -12254,6 +12527,22 @@ class _SingleProfileProgressDashboard:
         ).rstrip()
 
     @staticmethod
+    def _compact_work_unit_label(label: str) -> str:
+        cleaned = str(label or "").strip().lower()
+        if not cleaned:
+            return "t"
+        if "packet" in cleaned:
+            return "pkt"
+        if "recipe" in cleaned and "task" in cleaned:
+            return "rt"
+        if "task" in cleaned:
+            return "t"
+        letters = "".join(ch for ch in cleaned if ch.isalpha())
+        if not letters:
+            return "t"
+        return letters[: min(3, len(letters))]
+
+    @staticmethod
     def _estimate_eta_seconds(row: _SingleProfileBookDashboardRow, now: float) -> int | None:
         counter = row.current_counter
         if counter is None:
@@ -12304,9 +12593,17 @@ class _SingleProfileProgressDashboard:
             row.status = "failed" if failed else "done"
             row.current_stage_label = "failed" if failed else "done"
             row.current_message = row.current_stage_label
+            row.work_unit_label = ""
             row.current_counter = None
             row.worker_total = 0
             row.worker_statuses = {}
+            row.worker_running = 0
+            row.worker_completed = 0
+            row.worker_failed = 0
+            row.followup_running = 0
+            row.followup_completed = 0
+            row.followup_total = 0
+            row.followup_label = ""
 
     def start_config(
         self,
@@ -12326,9 +12623,17 @@ class _SingleProfileProgressDashboard:
             row.current_variant_slug = str(config_slug or "").strip()
             row.current_stage_label = "queued"
             row.current_message = row.current_variant_slug or "queued"
+            row.work_unit_label = ""
             row.current_counter = None
             row.worker_total = 0
             row.worker_statuses = {}
+            row.worker_running = 0
+            row.worker_completed = 0
+            row.worker_failed = 0
+            row.followup_running = 0
+            row.followup_completed = 0
+            row.followup_total = 0
+            row.followup_label = ""
             row.phase_started_at = time.monotonic()
             row.rate_total = None
             row.rate_last_current = None
@@ -12366,6 +12671,13 @@ class _SingleProfileProgressDashboard:
                 row.current_counter = None
                 row.worker_total = 0
                 row.worker_statuses = {}
+                row.worker_running = 0
+                row.worker_completed = 0
+                row.worker_failed = 0
+                row.followup_running = 0
+                row.followup_completed = 0
+                row.followup_total = 0
+                row.followup_label = ""
                 row.current_stage_label = "done" if success else "failed"
                 row.current_message = row.current_stage_label
 
@@ -12390,6 +12702,9 @@ class _SingleProfileProgressDashboard:
                 if payload_type == "reset":
                     row.worker_total = 0
                     row.worker_statuses = {}
+                    row.worker_running = 0
+                    row.worker_completed = 0
+                    row.worker_failed = 0
                     return
                 if payload_type == "activity":
                     worker_total = max(1, int(payload.get("worker_total", 1)))
@@ -12397,11 +12712,20 @@ class _SingleProfileProgressDashboard:
                     status = str(payload.get("status") or "").strip()
                     row.worker_total = worker_total
                     row.worker_statuses[worker_index] = status or "processing"
+                    row.worker_running = max(
+                        row.worker_running,
+                        sum(
+                            1
+                            for value in row.worker_statuses.values()
+                            if str(value).strip().lower() not in {"", "idle", "done", "failed", "skipped"}
+                        ),
+                    )
                     return
 
             structured_counter: tuple[int, int] | None = None
             if stage_progress is not None:
                 cleaned = str(stage_progress.get("message") or "").strip() or cleaned
+                row.work_unit_label = str(stage_progress.get("work_unit_label") or "").strip()
                 task_current = stage_progress.get("task_current")
                 task_total = stage_progress.get("task_total")
                 if task_current is not None and task_total is not None:
@@ -12462,19 +12786,46 @@ class _SingleProfileProgressDashboard:
                 active_tasks = stage_progress.get("active_tasks")
                 running_workers = stage_progress.get("running_workers")
                 worker_total_hint = stage_progress.get("worker_total")
+                worker_running_hint = stage_progress.get("worker_running")
+                worker_completed_hint = stage_progress.get("worker_completed")
+                worker_failed_hint = stage_progress.get("worker_failed")
+                followup_running_hint = stage_progress.get("followup_running")
+                followup_completed_hint = stage_progress.get("followup_completed")
+                followup_total_hint = stage_progress.get("followup_total")
+                followup_label_hint = stage_progress.get("followup_label")
                 row.current_stage_label = stage_label
                 row.worker_statuses = {}
+                running_slots = (
+                    max(0, int(worker_running_hint))
+                    if worker_running_hint is not None
+                    else max(0, int(running_workers))
+                    if running_workers is not None
+                    else 0
+                )
+                completed_slots = max(0, int(worker_completed_hint or 0))
+                failed_slots = max(0, int(worker_failed_hint or 0))
                 if isinstance(active_tasks, list):
                     for worker_index, task in enumerate(active_tasks, start=1):
                         task_text = str(task).strip()
                         if task_text:
                             row.worker_statuses[worker_index] = task_text
+                while len(row.worker_statuses) < running_slots:
+                    row.worker_statuses[len(row.worker_statuses) + 1] = "running"
+                for _ in range(completed_slots):
+                    row.worker_statuses[len(row.worker_statuses) + 1] = "done"
+                for _ in range(failed_slots):
+                    row.worker_statuses[len(row.worker_statuses) + 1] = "failed"
                 worker_total = max(0, len(row.worker_statuses))
-                if running_workers is not None:
-                    worker_total = max(worker_total, max(0, int(running_workers)))
                 if worker_total_hint is not None:
                     worker_total = max(worker_total, max(0, int(worker_total_hint)))
                 row.worker_total = worker_total
+                row.worker_running = running_slots
+                row.worker_completed = completed_slots
+                row.worker_failed = failed_slots
+                row.followup_running = max(0, int(followup_running_hint or 0))
+                row.followup_completed = max(0, int(followup_completed_hint or 0))
+                row.followup_total = max(0, int(followup_total_hint or 0))
+                row.followup_label = str(followup_label_hint or "").strip()
                 if stage_label != previous_stage_label:
                     row.rate_total = None
                     row.rate_last_current = None
@@ -12488,6 +12839,7 @@ class _SingleProfileProgressDashboard:
                 summary, stage_label = _summarize_codex_progress_message(cleaned)
                 row.current_message = summary
                 row.current_stage_label = stage_label or "codex-farm"
+                row.work_unit_label = ""
                 active_tasks = _extract_active_tasks(cleaned)
                 running_workers = _extract_running_workers(cleaned)
                 if active_tasks is not None:
@@ -12501,15 +12853,30 @@ class _SingleProfileProgressDashboard:
                 if running_workers is not None:
                     worker_total = max(worker_total, running_workers)
                 row.worker_total = max(0, worker_total)
+                row.worker_running = max(0, int(running_workers or 0))
+                row.worker_completed = 0
+                row.worker_failed = 0
+                row.followup_running = 0
+                row.followup_completed = 0
+                row.followup_total = 0
+                row.followup_label = ""
                 return
 
             stage_text = cleaned.split("|", 1)[0].strip()
             if counter is not None and stage_text:
                 stage_text = stage_text.rsplit(" task ", 1)[0].strip()
             row.current_stage_label = stage_text or "running"
+            row.work_unit_label = ""
             running_workers = _extract_running_workers(cleaned)
             row.worker_total = max(0, running_workers or 0)
             row.worker_statuses = {}
+            row.worker_running = max(0, int(running_workers or 0))
+            row.worker_completed = 0
+            row.worker_failed = 0
+            row.followup_running = 0
+            row.followup_completed = 0
+            row.followup_total = 0
+            row.followup_label = ""
 
     def render(self) -> str:
         with self._lock:
@@ -12558,7 +12925,7 @@ class _SingleProfileProgressDashboard:
                     "prog",
                     [
                         (
-                            f"t{counter[0]}/{counter[1]} v{row.completed_configs}/{row.total_configs}"
+                            f"{self._compact_work_unit_label(row.work_unit_label)}{counter[0]}/{counter[1]} v{row.completed_configs}/{row.total_configs}"
                             if (counter := row.current_counter) is not None
                             else f"v{row.completed_configs}/{row.total_configs} ok{row.successful_configs} f{row.failed_configs}"
                         )
@@ -12587,6 +12954,51 @@ class _SingleProfileProgressDashboard:
                     col_width=col_width,
                 )
             )
+            if any(
+                row.followup_running > 0
+                or row.followup_total > 0
+                or row.followup_completed > 0
+                or row.followup_label
+                for row in self.rows
+            ):
+                lines.append(
+                    self._render_grid_row(
+                        "repo",
+                        [
+                            (
+                                " | ".join(
+                                    [
+                                        item
+                                        for item in (
+                                            str(row.followup_label or "").strip() or "follow-up",
+                                            (
+                                                f"{row.followup_completed}/{row.followup_total}"
+                                                if row.followup_total > 0
+                                                else None
+                                            ),
+                                            (
+                                                f"run {row.followup_running}"
+                                                if row.followup_running > 0
+                                                else None
+                                            ),
+                                        )
+                                        if item
+                                    ]
+                                )
+                                if (
+                                    row.followup_running > 0
+                                    or row.followup_total > 0
+                                    or row.followup_completed > 0
+                                    or row.followup_label
+                                )
+                                else "--"
+                            )
+                            for row in self.rows
+                        ],
+                        label_width=label_width,
+                        col_width=col_width,
+                    )
+                )
 
             max_worker_rows = max(
                 [
@@ -14097,7 +14509,9 @@ def _build_all_method_variants(
                     codex_dimensions["llm_knowledge_pipeline"] = (
                         KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
                     )
-                    codex_dimensions["atomic_block_splitter"] = "atomic-v1"
+                    codex_dimensions["atomic_block_splitter"] = str(
+                        codex_payload.get("atomic_block_splitter") or "off"
+                    )
                 else:
                     codex_slug_parts = _all_method_codex_surface_slug_parts(
                         codex_variant_settings
@@ -27673,7 +28087,7 @@ def labelstudio_benchmark(
             "Optional deterministic mixed-block atomization mode for benchmark "
             "line-role experiments: off or atomic-v1."
         ),
-    )] = "atomic-v1",
+    )] = "off",
     line_role_pipeline: Annotated[str, typer.Option(
         "--line-role-pipeline",
         help=(
@@ -27749,25 +28163,25 @@ def labelstudio_benchmark(
     single_offline_split_cache_mode: Annotated[str, typer.Option(
         "--single-offline-split-cache-mode",
         help=(
-            "Single-offline split conversion cache mode: off or auto. "
+            "Single-book split conversion cache mode: off or auto. "
             "Interactive paired runs use auto by default."
         ),
     )] = "off",
     single_offline_split_cache_dir: Annotated[Path | None, typer.Option(
         "--single-offline-split-cache-dir",
         help=(
-            "Root directory for single-offline split cache entries "
+            "Root directory for single-book split cache entries "
             "(JSON conversion payloads keyed by source+split inputs)."
         ),
     )] = None,
     single_offline_split_cache_key: Annotated[str | None, typer.Option(
         "--single-offline-split-cache-key",
-        help="Internal: explicit single-offline split cache key.",
+        help="Internal: explicit single-book split cache key.",
         hidden=True,
     )] = None,
     single_offline_split_cache_force: Annotated[bool, typer.Option(
         "--single-offline-split-cache-force/--no-single-offline-split-cache-force",
-        help="Force rebuild of single-offline split cache entry for this run.",
+        help="Force rebuild of single-book split cache entry for this run.",
     )] = False,
     alignment_cache_dir: Annotated[Path | None, typer.Option(
         "--alignment-cache-dir",

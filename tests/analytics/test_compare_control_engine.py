@@ -25,7 +25,7 @@ def _insight_records() -> list[dict[str, object]]:
             "macro_f1_excluding_other": 0.70,
             "source_file": "/tmp/books/book-a.epub",
             "importer_name": "epub",
-            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/book-a/codexfarm",
+            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-a/codexfarm",
             "processed_report_path": "/tmp/out/run-a/report-a.json",
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -44,7 +44,7 @@ def _insight_records() -> list[dict[str, object]]:
             "macro_f1_excluding_other": 0.66,
             "source_file": "/tmp/books/book-b.epub",
             "importer_name": "epub",
-            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/book-b/codexfarm",
+            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-b/codexfarm",
             "processed_report_path": "/tmp/out/run-b/report-b.json",
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -63,7 +63,7 @@ def _insight_records() -> list[dict[str, object]]:
             "macro_f1_excluding_other": 0.48,
             "source_file": "/tmp/books/book-a.epub",
             "importer_name": "epub",
-            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/book-a/vanilla",
+            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-a/vanilla",
             "processed_report_path": "/tmp/out/run-c/report-c.json",
             "run_config": {
                 "llm_recipe_pipeline": "off",
@@ -80,7 +80,7 @@ def _insight_records() -> list[dict[str, object]]:
             "macro_f1_excluding_other": 0.50,
             "source_file": "/tmp/books/book-b.epub",
             "importer_name": "epub",
-            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/book-b/vanilla",
+            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-b/vanilla",
             "processed_report_path": "/tmp/out/run-d/report-d.json",
             "run_config": {
                 "llm_recipe_pipeline": "off",
@@ -100,7 +100,7 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
         "source_file": "/tmp/books/my-book.epub",
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-offline-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codexfarm"
         ),
         "tokens_input": 1000,
         "tokens_cached_input": 200,
@@ -135,7 +135,7 @@ def test_ai_model_label_system_error_for_runtime_failure() -> None:
     record = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-offline-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codexfarm"
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -153,7 +153,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     deterministic_official = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-offline-benchmark/my-book/vanilla"
+            "single-book-benchmark/my-book/vanilla"
         ),
         "run_config": {
             "llm_recipe_pipeline": "off",
@@ -163,7 +163,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     deterministic_line_role_official = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-offline-benchmark/my-book/vanilla"
+            "single-book-benchmark/my-book/vanilla"
         ),
         "run_config": {
             "llm_recipe_pipeline": "off",
@@ -173,7 +173,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     full_stack_official = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-offline-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codexfarm"
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -208,7 +208,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     runtime_error_record = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-offline-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codexfarm"
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",

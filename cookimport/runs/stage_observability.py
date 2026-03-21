@@ -18,6 +18,10 @@ KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
 KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v1"
+RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
+RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v1"
+LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
+LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v1"
 
 _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "phase_manifest.json",
@@ -149,6 +153,12 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "family": "knowledge_llm",
         "order": 40,
     },
+    "line_role": {
+        "label": "Canonical Line Role",
+        "artifact_stem": "line_role",
+        "family": "line_role_llm",
+        "order": 35,
+    },
     "write_outputs": {
         "label": "Write Outputs",
         "artifact_stem": "write_outputs",
@@ -200,6 +210,15 @@ def _load_json_dict(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _load_json_value(path: Path) -> Any | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _load_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
@@ -610,6 +629,239 @@ def write_knowledge_stage_summary(
     return target_path
 
 
+def _count_jsonl_rows(path: Path) -> int:
+    return len(_load_jsonl_dicts(path))
+
+
+def _count_status_values(paths: list[Path]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for path in paths:
+        payload = _load_json_dict(path) or {}
+        status = str(payload.get("status") or "").strip()
+        if status:
+            counts[status] += 1
+    return dict(sorted(counts.items()))
+
+
+def _repair_rollup(stage_root: Path) -> tuple[int, int, int]:
+    attempted_paths = sorted(stage_root.glob("workers/*/shards/*/repair_prompt.txt"))
+    completed_paths = sorted(stage_root.glob("workers/*/shards/*/repair_status.json"))
+    running_count = 0
+    for prompt_path in attempted_paths:
+        status_path = prompt_path.parent / "repair_status.json"
+        if status_path.exists():
+            continue
+        running_count += 1
+    return len(attempted_paths), len(completed_paths), running_count
+
+
+def _stage_summary_state(
+    *,
+    planned_total: int,
+    completed_total: int,
+    failed_total: int,
+) -> str:
+    if planned_total > 0 and completed_total >= planned_total:
+        if failed_total >= planned_total:
+            return "failed"
+        if failed_total > 0:
+            return "partial_failure"
+        return "completed"
+    if completed_total > 0 or failed_total > 0:
+        return "partial"
+    return "not_started"
+
+
+def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
+    phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
+    worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
+    shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
+    shard_status_counts = _count_status_values(shard_status_paths)
+    failed_shard_total = sum(
+        count
+        for status, count in shard_status_counts.items()
+        if status not in {"validated"}
+    )
+    repair_attempted, repair_completed, repair_running = _repair_rollup(stage_root)
+    proposal_count = len(list(stage_root.glob("proposals/*.json")))
+    planned_task_total = _count_jsonl_rows(stage_root / "task_manifest.jsonl")
+    completed_task_total = len(list(stage_root.glob("workers/*/out/*.json")))
+    planned_shard_total = max(
+        0,
+        int(phase_manifest.get("shard_count") or 0),
+        len(shard_status_paths),
+    )
+    completed_shard_total = len(shard_status_paths)
+    important_artifacts = {
+        "phase_manifest_json": "phase_manifest.json",
+        "task_manifest_jsonl": "task_manifest.jsonl",
+        "worker_assignments_json": "worker_assignments.json",
+        "promotion_report_json": "promotion_report.json",
+        "failures_json": "failures.json",
+        "proposals_dir": "proposals",
+    }
+    return {
+        "schema_version": RECIPE_STAGE_SUMMARY_SCHEMA_VERSION,
+        "stage_key": "recipe_llm_correct_and_link",
+        "stage_state": _stage_summary_state(
+            planned_total=planned_shard_total,
+            completed_total=completed_shard_total,
+            failed_total=failed_shard_total,
+        ),
+        "work_units": {
+            "label": "recipe_task",
+            "planned_total": planned_task_total,
+            "completed_total": completed_task_total,
+        },
+        "parent_shards": {
+            "planned_total": planned_shard_total,
+            "completed_total": completed_shard_total,
+            "status_counts": shard_status_counts,
+        },
+        "workers": {
+            "configured_total": int(phase_manifest.get("worker_count") or 0),
+            "state_counts": worker_state_counts,
+            "reason_code_counts": worker_reason_code_counts,
+        },
+        "followups": {
+            "label": "shard_finalization",
+            "repair_attempted_count": repair_attempted,
+            "repair_completed_count": repair_completed,
+            "repair_running_count": repair_running,
+            "proposal_count": proposal_count,
+        },
+        "important_artifacts": important_artifacts,
+    }
+
+
+def write_recipe_stage_summary(
+    *,
+    stage_root: Path,
+    summary: Mapping[str, Any] | None = None,
+) -> Path:
+    target_path = stage_root / RECIPE_STAGE_SUMMARY_FILE_NAME
+    payload = dict(summary or build_recipe_stage_summary(stage_root))
+    target_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return target_path
+
+
+def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
+    phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
+    task_rows = _load_jsonl_dicts(stage_root / "task_status.jsonl")
+    line_rows = _load_jsonl_dicts(stage_root / "canonical_line_table.jsonl")
+    worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
+    shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
+    shard_status_counts = _count_status_values(shard_status_paths)
+    failed_shard_total = sum(
+        count
+        for status, count in shard_status_counts.items()
+        if status not in {"validated"}
+    )
+    repair_attempted, repair_completed, repair_running = _repair_rollup(stage_root)
+    proposal_count = len(list(stage_root.glob("proposals/*.json")))
+    planned_task_total = _count_jsonl_rows(stage_root / "task_manifest.jsonl")
+    completed_task_total = len(list(stage_root.glob("workers/*/out/*.json")))
+    planned_shard_total = max(
+        0,
+        int(phase_manifest.get("shard_count") or 0),
+        len(shard_status_paths),
+    )
+    completed_shard_total = len(shard_status_paths)
+    important_artifacts = {
+        "phase_manifest_json": "phase_manifest.json",
+        "canonical_line_table_jsonl": "canonical_line_table.jsonl",
+        "task_manifest_jsonl": "task_manifest.jsonl",
+        "task_status_jsonl": "task_status.jsonl",
+        "worker_assignments_json": "worker_assignments.json",
+        "promotion_report_json": "promotion_report.json",
+        "telemetry_json": "telemetry.json",
+        "failures_json": "failures.json",
+        "proposals_dir": "proposals",
+    }
+    packet_state_counts = _count_value_rows(task_rows, "state")
+    packet_terminal_outcome_counts = _count_value_rows(task_rows, "terminal_outcome")
+    packet_attempt_type_counts = _count_value_rows(task_rows, "last_attempt_type")
+    llm_authoritative_row_count = sum(
+        int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("llm_authoritative_row_count") or 0)
+        for row in task_rows
+        if isinstance(row, dict)
+    )
+    fallback_row_count = sum(
+        int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("fallback_row_count") or 0)
+        for row in task_rows
+        if isinstance(row, dict)
+    )
+    suspicious_packet_count = sum(
+        1
+        for row in task_rows
+        if bool(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_packet"))
+    )
+    suspicious_row_count = sum(
+        int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_row_count") or 0)
+        for row in task_rows
+        if isinstance(row, dict)
+    )
+    return {
+        "schema_version": LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION,
+        "stage_key": "line_role",
+        "stage_state": _stage_summary_state(
+            planned_total=planned_shard_total,
+            completed_total=completed_shard_total,
+            failed_total=failed_shard_total,
+        ),
+        "lines": {
+            "canonical_line_total": len(line_rows),
+            "llm_authoritative_row_count": llm_authoritative_row_count,
+            "fallback_row_count": fallback_row_count,
+            "suspicious_row_count": suspicious_row_count,
+        },
+        "packets": {
+            "packet_total": max(planned_task_total, len(task_rows), completed_task_total),
+            "planned_total": planned_task_total,
+            "completed_output_total": completed_task_total,
+            "state_counts": packet_state_counts,
+            "terminal_outcome_counts": packet_terminal_outcome_counts,
+            "attempt_type_counts": packet_attempt_type_counts,
+            "suspicious_packet_count": suspicious_packet_count,
+        },
+        "parent_shards": {
+            "planned_total": planned_shard_total,
+            "completed_total": completed_shard_total,
+            "status_counts": shard_status_counts,
+        },
+        "workers": {
+            "configured_total": int(phase_manifest.get("worker_count") or 0),
+            "state_counts": worker_state_counts,
+            "reason_code_counts": worker_reason_code_counts,
+        },
+        "followups": {
+            "label": "shard_finalization",
+            "repair_attempted_count": repair_attempted,
+            "repair_completed_count": repair_completed,
+            "repair_running_count": repair_running,
+            "proposal_count": proposal_count,
+        },
+        "important_artifacts": important_artifacts,
+    }
+
+
+def write_line_role_stage_summary(
+    *,
+    stage_root: Path,
+    summary: Mapping[str, Any] | None = None,
+) -> Path:
+    target_path = stage_root / LINE_ROLE_STAGE_SUMMARY_FILE_NAME
+    payload = dict(summary or build_line_role_stage_summary(stage_root))
+    target_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return target_path
+
+
 def _recipe_stage_key_map(
     *,
     recipe_manifest_payload: Mapping[str, Any],
@@ -811,6 +1063,49 @@ def build_stage_observability_report(
                 },
             ),
         )
+    line_role_stage_dir = run_root / "line-role-pipeline" / "runtime" / "line_role"
+    if line_role_stage_dir.exists() and line_role_stage_dir.is_dir():
+        stage_key = "line_role"
+        stage_rows.setdefault(
+            stage_key,
+            ObservedStage(
+                stage_key=stage_key,
+                stage_label=stage_label(stage_key),
+                stage_artifact_stem=stage_artifact_stem(stage_key),
+                stage_family=stage_family(stage_key),
+                stage_order=stage_order(stage_key),
+            ),
+        )
+        stage_rows[stage_key].workbooks.append(
+            StageWorkbookObservation(
+                workbook_slug=run_root.name,
+                stage_dir=_relative_to(run_root, line_role_stage_dir),
+                output_dir=_relative_to(run_root, line_role_stage_dir / "proposals")
+                if (line_role_stage_dir / "proposals").exists()
+                else None,
+                artifact_paths={
+                    key: value
+                    for key, value in {
+                        "phase_manifest_json": _relative_to(
+                            run_root, line_role_stage_dir / "phase_manifest.json"
+                        ),
+                        "canonical_line_table_jsonl": _relative_to(
+                            run_root, line_role_stage_dir / "canonical_line_table.jsonl"
+                        ),
+                        "task_manifest_jsonl": _relative_to(
+                            run_root, line_role_stage_dir / "task_manifest.jsonl"
+                        ),
+                        "task_status_jsonl": _relative_to(
+                            run_root, line_role_stage_dir / "task_status.jsonl"
+                        ),
+                        "telemetry_json": _relative_to(
+                            run_root, line_role_stage_dir / "telemetry.json"
+                        ),
+                    }.items()
+                    if value
+                },
+            )
+        )
     for artifact_key, path_name in (
         ("intermediate_drafts_dir", "intermediate drafts"),
         ("final_drafts_dir", "final drafts"),
@@ -865,7 +1160,12 @@ def write_stage_observability_report(
     for stage_payload in payload.get("stages", []):
         if not isinstance(stage_payload, dict):
             continue
-        if str(stage_payload.get("stage_key") or "").strip() != "nonrecipe_knowledge_review":
+        stage_key = str(stage_payload.get("stage_key") or "").strip()
+        if stage_key not in {
+            "nonrecipe_knowledge_review",
+            "recipe_llm_correct_and_link",
+            "line_role",
+        }:
             continue
         workbooks = stage_payload.get("workbooks")
         if not isinstance(workbooks, list):
@@ -877,11 +1177,19 @@ def write_stage_observability_report(
             stage_dir = run_root / str(stage_dir_value) if isinstance(stage_dir_value, str) else None
             if stage_dir is None or not stage_dir.exists() or not stage_dir.is_dir():
                 continue
-            summary_path = write_knowledge_stage_summary(stage_root=stage_dir)
+            if stage_key == "nonrecipe_knowledge_review":
+                summary_path = write_knowledge_stage_summary(stage_root=stage_dir)
+                artifact_key = "knowledge_stage_summary_json"
+            elif stage_key == "recipe_llm_correct_and_link":
+                summary_path = write_recipe_stage_summary(stage_root=stage_dir)
+                artifact_key = "recipe_stage_summary_json"
+            else:
+                summary_path = write_line_role_stage_summary(stage_root=stage_dir)
+                artifact_key = "line_role_stage_summary_json"
             artifact_paths = workbook_payload.get("artifact_paths")
             if not isinstance(artifact_paths, dict):
                 artifact_paths = {}
-            artifact_paths["knowledge_stage_summary_json"] = _relative_to(run_root, summary_path) or str(
+            artifact_paths[artifact_key] = _relative_to(run_root, summary_path) or str(
                 summary_path
             )
             workbook_payload["artifact_paths"] = artifact_paths

@@ -21,8 +21,15 @@ from cookimport.bench.oracle_upload import OracleUploadResult, resolve_oracle_be
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-21_11.17.08/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
+
+
+def _copy_sample_bundle_root(destination_root: Path) -> Path:
+    shutil.copytree(SAMPLE_BUNDLE.parent, destination_root)
+    copied_bundle_dir = destination_root / "upload_bundle_v1"
+    shutil.rmtree(copied_bundle_dir / ".oracle_upload_runs", ignore_errors=True)
+    return copied_bundle_dir
 
 
 def test_parse_requested_followup_text_reads_structured_asks() -> None:
@@ -64,9 +71,8 @@ smallest_useful_packet: Two bad cases plus one exact range is enough.
 
 
 def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(tmp_path: Path) -> None:
-    copied_root = tmp_path / "single-offline-benchmark" / "saltfatacidheatcutdown"
-    shutil.copytree(SAMPLE_BUNDLE.parent, copied_root)
-    bundle_dir = copied_root / "upload_bundle_v1"
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
     launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.20.00"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
@@ -137,9 +143,8 @@ def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(tmp_p
 
 
 def test_run_oracle_benchmark_followup_uses_request_file_when_source_run_is_older(tmp_path: Path) -> None:
-    copied_root = tmp_path / "single-offline-benchmark" / "saltfatacidheatcutdown"
-    shutil.copytree(SAMPLE_BUNDLE.parent, copied_root)
-    bundle_dir = copied_root / "upload_bundle_v1"
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
     launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.30.00"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
@@ -218,9 +223,8 @@ def test_auto_followup_worker_waits_for_completed_turn1_and_launches_turn2(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    copied_root = tmp_path / "single-offline-benchmark" / "saltfatacidheatcutdown"
-    shutil.copytree(SAMPLE_BUNDLE.parent, copied_root)
-    bundle_dir = copied_root / "upload_bundle_v1"
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_17.13.29"
     launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
@@ -328,9 +332,8 @@ def test_auto_followup_worker_waits_for_completed_turn1_and_launches_turn2(
 
 
 def test_auto_followup_worker_marks_missing_requested_section_explicitly(tmp_path: Path) -> None:
-    copied_root = tmp_path / "single-offline-benchmark" / "saltfatacidheatcutdown"
-    shutil.copytree(SAMPLE_BUNDLE.parent, copied_root)
-    bundle_dir = copied_root / "upload_bundle_v1"
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_17.13.29"
     launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
@@ -376,9 +379,8 @@ def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    copied_root = tmp_path / "single-offline-benchmark" / "saltfatacidheatcutdown"
-    shutil.copytree(SAMPLE_BUNDLE.parent, copied_root)
-    bundle_dir = copied_root / "upload_bundle_v1"
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_21.18.04"
     launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)

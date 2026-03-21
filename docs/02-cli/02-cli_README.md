@@ -63,7 +63,7 @@ Legend:
   |
   +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
   |
-  +--> [H] Benchmark vs freeform gold -----> mode picker ------------------> (single offline OR selected/all matched single-profile) -> [C]
+  +--> [H] Benchmark vs freeform gold -----> mode picker ------------------> (single book OR selected/all matched books) -> [C]
   |
   +--> [I] Generate dashboard -------------> stats-dashboard -------------> [C]
   |
@@ -95,11 +95,13 @@ Current spinner/status rule:
 - shared CLI status rendering accepts either plain text or the serialized `stage_progress` payload from `cookimport/core/progress_messages.py`
 - plain `task X/Y` updates are still valid and now infer `stage:` / `progress:` lines in the shared spinner even before a stage emits richer worker metadata
 - generic messages shaped like `task X/Y | running N` now expand into `active workers: N` rows just like the older codex-farm-specific worker surface
+- richer `stage_progress` payloads can now carry `work_unit_label`, typed worker-session counts (`worker_running`, `worker_completed`, `worker_failed`), typed repo-follow-up counts (`followup_*` + `followup_label`), compact `artifact_counts`, and `last_activity_at`
+- when those richer fields are present, the shared spinner should render worker-session state separately from repo-owned follow-up/finalization state instead of forcing stages to fake that truth through `active_tasks` labels
 - worker panels no longer cap configured rows at eight when structured stage progress provides a larger `worker_total` or active-task list; a ten-worker knowledge stage should render ten worker lines instead of `10/8`
 - stage-specific emitters for recipe shard work, line-role, non-recipe knowledge review, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
 - recipe shard work should report outer worker-bucket truth from `phase_worker_runtime.py` (configured workers, queued shards, active worker buckets, current first shard), not pretend the CLI can see true inner per-shard Codex progress once one worker hands a whole bucket to a single classic `process` call
-- `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, task counts, active tasks, worker counts, and detail lines when present
-- ETA/rate sampling is stage-local, so a new structured `stage_label` must reset avg-per-task history instead of inheriting timings from the previous stage
+- `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, work-unit label, active tasks, typed worker/follow-up counts, artifact counts, and detail lines when present
+- ETA/rate sampling is stage-local, so a new structured `stage_label` must reset avg-per-task history instead of inheriting timings from the previous stage even when the next stage reuses the same `task X/Y` shape
 - bootstrap ETA for structured parallel stages should use active/configured worker count to estimate remaining worker-waves, instead of treating all remaining tasks as fully serial work
 
 ### [C] Main Menu
@@ -140,7 +142,7 @@ Important split:
 - the top-tier per-run chooser (`choose_run_settings(...)`) is still the refactor-aware place where each import/benchmark run picks CodexFarm vs vanilla and applies any flow-specific per-run Codex surface overrides
 - the persistent `Settings` screen now provides the saved defaults that feed those interactive flows, but it still does not expose benchmark-lab/internal-only tuning seams such as parser internals, scoring internals, or hidden transition-only pipeline-id fields
 
-Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
+Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
 - `Workflow for this run?`
   - underlying values are `off` and `codex-recipe-shard-v1`, but the menu still renders only the workflow families `Vanilla / no Codex` and `CodexFarm`,
   - default is inferred from global `llm_recipe_pipeline`,
@@ -155,12 +157,13 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - for interactive `Import`, that submenu asks about:
   - recipe correction (`codex-recipe-shard-v1`)
   - non-recipe knowledge review (`codex-knowledge-shard-v1`)
-- for interactive benchmark modes (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`), that submenu asks about:
+- for interactive benchmark modes (`single_book`, `selected_matched_books`, `all_matched_books`), that submenu asks about:
   - block labelling (`codex-line-role-shard-v1`)
   - recipe correction (`codex-recipe-shard-v1`)
   - non-recipe knowledge review (`codex-knowledge-shard-v1`)
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
+  - checked block labelling no longer auto-enables `atomic_block_splitter`; it preserves the current/default setting, which is now `off` unless explicitly overridden elsewhere
   - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
 - after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
   - import asks only for the enabled recipe/knowledge counts
@@ -168,6 +171,7 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - these map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
   - the interactive chooser now caps each per-step prompt/shard count at `20`
   - the stage and benchmark adapter/CLI seams now preserve those values into the live run config, so an interactive `10 / 5 / 5` choice no longer falls back to the default `5 / 5 / 5` at execution time
+  - `recipe_prompt_target_count` now means requested recipe shard count on the live runtime path; it is no longer reinterpreted as a worker-session target
 - interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes CodexFarm now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Farm permutations?` prompt
 - the owning seam for that shared per-surface chooser is `choose_interactive_codex_surfaces(...)` in `cookimport/cli_ui/run_settings_flow.py`; if a Codex surface toggle should exist in import, benchmark, and all-method flows, add it there instead of inventing a benchmark-only menu variant
 - this difference is intentional:
@@ -186,7 +190,7 @@ Resolved profile families:
   - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-recipe-shard-v1`):
     `llm_knowledge_pipeline=codex-knowledge-shard-v1`,
     `line_role_pipeline=codex-line-role-shard-v1`,
-    `atomic_block_splitter=atomic-v1`,
+    `atomic_block_splitter=off`,
     `epub_extractor=unstructured`,
     `epub_unstructured_html_parser_version=v1`,
     `epub_unstructured_preprocess_mode=semantic_v1`,
@@ -384,41 +388,41 @@ Developer note:
 Interactive benchmark now has a mode submenu before execution:
 
 1. Shows benchmark mode picker:
-   - `Single offline eval: One local prediction + eval vs freeform gold` (default first choice)
-   - `Single config, selected matched sets: Pick which matched books to run`
-   - `Single config, all matched sets: Repeat one config for every matched golden set`
-2. Single offline path:
+   - `Single Book: One local prediction + eval vs freeform gold` (default first choice)
+   - `Selected Matched Books: Pick which matched books to run`
+   - `All Matched Books: Repeat one config for every matched golden set`
+2. Single book path:
    - resolves one selected automatic top-tier run profile family (same resolver used by interactive import),
    - benchmark setup can now independently choose recipe Codex, block-labelling Codex, and knowledge extraction before execution,
    - when prompting for a discovered freeform gold export, the menu label is shortened to just the book slug instead of the full pulled-from-labelstudio path,
    - when the selected gold export already identifies a source file, interactive benchmark auto-uses that inferred source instead of asking for a `Use inferred source file?` confirmation,
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
-     - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
-     - `single-offline-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-recipe-shard-v1`),
+     - `single-book-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
+     - `single-book-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-recipe-shard-v1`),
      - both paired variants now share the same operator-selected `atomic_block_splitter` value instead of forcing `off` for `vanilla` and `atomic-v1` for `codexfarm`,
-   - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/<source_slug>/vanilla`,
+   - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-book-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
    - source slug is derived from the selected source filename stem (slugified),
-   - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-offline-benchmark/<source_slug>/.split-cache`),
-   - cache controls are available on `labelstudio-benchmark`: `--single-offline-split-cache-mode`, `--single-offline-split-cache-dir`, `--single-offline-split-cache-force`,
+   - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-book-benchmark/<source_slug>/.split-cache`),
+   - single-book split-cache controls are available on `labelstudio-benchmark`: `--single-offline-split-cache-mode`, `--single-offline-split-cache-dir`, `--single-offline-split-cache-force`,
    - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
-     - `single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
+     - `single-book-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
      - comparison JSON metadata now includes `per_label_breakdown` aggregated across the latest paired evals (`label`, strict `precision`, strict `recall`, `gold_total`, `pred_total`)
-     - also writes `single-offline-benchmark/<source_slug>/starter_pack_v1/` by running the benchmark cutdown starter-pack builder in-place against the paired variant run dirs
-     - paired starter-pack generation also writes `single-offline-benchmark/<source_slug>/benchmark_summary.md` (flattened comparison + starter-pack summary)
-     - also writes a dedicated 3-file upload folder: `single-offline-benchmark/<source_slug>/upload_bundle_v1/`:
+     - also writes `single-book-benchmark/<source_slug>/starter_pack_v1/` by running the benchmark cutdown starter-pack builder in-place against the paired variant run dirs
+     - paired starter-pack generation also writes `single-book-benchmark/<source_slug>/benchmark_summary.md` (flattened comparison + starter-pack summary)
+     - also writes a dedicated 3-file upload folder: `single-book-benchmark/<source_slug>/upload_bundle_v1/`:
        - `upload_bundle_overview.md`
      - `upload_bundle_index.json`
      - `upload_bundle_payload.jsonl`
 3. Matched-set picker path:
-   - matched-book selection rows reuse the same concise book label style as the single-offline gold picker instead of mixing source filename plus bracketed gold label text.
-     - after that bundle is written, interactive single-offline mode starts Oracle automatically in the background instead of blocking benchmark wrap-up
+   - matched-book selection rows reuse the same concise book label style as the single-book gold picker instead of mixing source filename plus bracketed gold label text.
+     - after that bundle is written, interactive single-book mode starts Oracle automatically in the background instead of blocking benchmark wrap-up
      - Oracle now uses one auto browser launcher everywhere: it opens visible Chromium when a usable display exists and falls back to xvfb otherwise
      - the wrap-up prints the detached Oracle PID, the chosen browser-profile path, and one explicit `oracle_upload.log` response/log path under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`; full command/shard detail stays in the log/metadata files instead of spamming the terminal
-   - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
-     - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
+   - when markdown writes are enabled, single-book writes one consolidated top-level markdown file:
+     - `single-book-benchmark/<source_slug>/single_book_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
    - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
      (set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` to disable summaries, and `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=1` to keep task JSONL).
@@ -426,9 +430,9 @@ Interactive benchmark now has a mode submenu before execution:
    - benchmark status panels now treat generic phase messages shaped like `task X/Y | running N` the same way as codex-farm progress, so canonical line-role stages also render worker rows instead of only a single status line,
    - split conversion progress uses the shared counter format from the first update (`Running split conversion... task 0/N`), with `(workers=N)` suffix when split jobs run in parallel,
    - does not resolve Label Studio credentials,
-   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/<variant>/`.
+   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-book-benchmark/<source_slug>/<variant>/`.
 3. Single-profile matched-sets path:
-   - uses the same compact automatic top-tier profile selector as single-offline,
+   - uses the same compact automatic top-tier profile selector as single-book,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
    - selected-matched mode lets you toggle specific books and run only that subset (or choose `Run all matched books`),
    - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
@@ -438,7 +442,7 @@ Interactive benchmark now has a mode submenu before execution:
      - when `llm_recipe_pipeline=off`, runs one `vanilla` variant per selected book under `single-profile-benchmark/<index_source_slug>/`,
      - when `llm_recipe_pipeline` is non-`off`, runs paired variants per selected book:
        - `single-profile-benchmark/<index_source_slug>/vanilla` first (`llm_recipe_pipeline=off`, deterministic-only),
-       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-shard-v1` and `atomic_block_splitter=atomic-v1`),
+       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-shard-v1`, and now sharing the selected `atomic_block_splitter` value with the paired `vanilla` run),
    - for paired codex+vanilla selected/all-matched runs, writes per-book comparison only when both variants succeed:
      - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
    - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
@@ -900,21 +904,21 @@ Behavior note:
 - Codex-backed benchmark runs now have a single live execution mode.
   - For prompt/cost inspection, use prompt preview.
   - For zero-token handoff rehearsal, run the normal execute path with `--codex-farm-cmd scripts/fake-codex-farm.py`.
-- Single-offline split-cache controls:
-  - `--single-offline-split-cache-mode off|auto` toggles split cache usage.
-  - `--single-offline-split-cache-dir PATH` overrides cache root.
-  - `--single-offline-split-cache-force` forces cache rebuild for that run.
+- Single-book split-cache controls:
+  - `--single-offline-split-cache-mode off|auto` toggles single-book split cache usage.
+  - `--single-offline-split-cache-dir PATH` overrides the single-book cache root.
+  - `--single-offline-split-cache-force` forces single-book cache rebuild for that run.
 - Prediction-record roundtrip supports evaluate-only replays:
   - `--predictions-out` writes prediction-stage records to JSONL.
   - `--predictions-in` skips generation and evaluates from a prior record JSONL.
   - `--predictions-in` and `--predictions-out` are mutually exclusive.
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
-- Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or single-profile matched-set modes).
+- Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single book` or matched-books modes).
 - Successful runs persist benchmark timing under `eval_report.json` `timing`, including prediction/evaluation/write/history subphase timings and checkpoints.
 - Benchmark spinner telemetry is also persisted per phase:
   - `<eval_output_dir>/processing_timeseries_prediction.jsonl`
   - `<eval_output_dir>/processing_timeseries_evaluation.jsonl` (when evaluation runs)
-- Those per-phase time-series rows now also persist stage-centric fields (`stage_label`, `active_tasks`, `detail_lines`, effective worker counts) when a stage emits structured progress snapshots, so line-role/knowledge debugging does not depend on terminal screenshots.
+- Those per-phase time-series rows now also persist stage-centric fields (`stage_label`, `work_unit_label`, `active_tasks`, typed worker/follow-up counts, `artifact_counts`, `detail_lines`, effective worker counts) when a stage emits structured progress snapshots, so line-role/knowledge/recipe debugging does not depend on terminal screenshots.
 - Recipe phase workers, label-first authority building, and staged output writing now emit the same structured progress payload family too, so benchmark/import spinners stay rich outside the original line-role + knowledge stages.
 - Benchmark CSV append now receives that timing payload and records benchmark runtime columns in `performance_history.csv`.
 - Single benchmark runs auto-refresh dashboard artifacts after CSV append.
@@ -942,8 +946,8 @@ Options:
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.
-- `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for offline benchmark prediction generation.
-- `--single-offline-split-cache-dir PATH`: optional root for single-offline split-cache entries.
+- `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for single-book benchmark prediction generation.
+- `--single-offline-split-cache-dir PATH`: optional root for single-book split-cache entries.
 - `--single-offline-split-cache-force / --no-single-offline-split-cache-force` (default disabled): force split-cache rebuild for the current run.
 - `--predictions-out PATH`: optional JSONL output for prediction-stage records (for later evaluate-only runs).
 - `--predictions-in PATH`: optional JSONL input to run evaluate-only without generating predictions.

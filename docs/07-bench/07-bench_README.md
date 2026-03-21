@@ -51,11 +51,12 @@ Active commands:
 
 Interactive benchmark wrap-up behavior:
 
-- Single-offline benchmark runs now auto-start Oracle in the background after writing `upload_bundle_v1`, then return immediately instead of waiting on Oracle.
+- Single-book benchmark runs now auto-start Oracle in the background after writing `upload_bundle_v1`, then return immediately instead of waiting on Oracle.
 - Multi-book single-profile benchmark runs do the same for the top-level group `upload_bundle_v1`; per-book bundles are still written but are not auto-uploaded.
 - Detached Oracle runs write `oracle_upload.log`, `oracle_upload.json`, and `oracle_upload_status.json` under `upload_bundle_v1/.oracle_upload_runs/<timestamp>/`. The actual Oracle response, if the run succeeds, is in `oracle_upload.log`. When the log stays quiet, the wrapper now also falls back to Oracle's own session store under `~/.local/share/oracle/sessions/` to recover the session slug and conversation URL.
 - That detached launch directory is also the persistent staging root for any temporary sharded upload files, so the Oracle subprocess can keep reading them after benchmark wrap-up returns.
 - Detached benchmark uploads now also launch a local follow-up worker in the same source run directory. It finalizes the saved turn-1 `oracle_upload_status.json` from the completed Oracle log, writes `oracle_auto_followup.json` plus `oracle_auto_followup.log`, and if Oracle requested follow-up data it automatically builds `followup_data1/` and sends turn 2 into the same ChatGPT conversation.
+- that detached follow-up worker now reuses the resolved turn-1 Oracle model when no explicit override was chosen, so a blank model choice no longer passes `None` into the turn-2 command or falsely reports that upload never started.
 - Interactive terminal wrap-up should stay short and point operators at `oracle_upload.log`, but it should also surface the current Oracle status, `oracle session <id>` reattach command, and conversation URL when available; detailed launch metadata already lives beside it in the same launch directory.
 - `cookimport bench oracle-upload <session root or upload_bundle_v1>` remains the manual retry/replay path, and browser-mode manual runs now persist the same `upload_bundle_v1/.oracle_upload_runs/<timestamp>/` artifact set as the auto-background uploader.
 - benchmark-side Oracle upload now calls the canonical local Oracle wrapper at `/home/mcnal/.local/bin/oracle`, which in turn routes browser runs through the Oracle-owned wrapper stack and the editable `oracle-dev/package` mirror before falling back to the global install.
@@ -102,6 +103,7 @@ Current behavior notes:
   - `atomic_block_splitter=atomic-v1`
   - `line_role_pipeline=off|codex-line-role-shard-v1`
   - `llm_knowledge_pipeline=codex-knowledge-shard-v1`
+- benchmark/operator defaults now keep `atomic_block_splitter=off` unless it is explicitly requested
 - non-interactive live Codex-backed benchmark runs require:
   - `--allow-codex`
   - `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
@@ -109,29 +111,29 @@ Current behavior notes:
 - knowledge-phase progress now reports task packets rather than top-level shard counts, and worker rows can show packet-scale labels such as `book.ks0000.nr (47/48 task packets)`
 - interrupted benchmark runs now write `partial_benchmark_summary.json` plus `benchmark_status.json` so the preserved worker/artifact tree stays diagnosable after an abort
 - interrupted benchmark runs now also record `interruption_cause = "operator"` in both files, and when the prediction run contains `raw/llm/<workbook>/knowledge/stage_status.json` the partial summary carries forward the normalized knowledge-stage attribution instead of treating missing wrap-up artifacts as generic failure by default
-- benchmark-side actual-cost review should now use the finished knowledge stage row in `prompt_budget_summary.json` when asking whether spend came from main workspace workers or from the retry/repair ladder; that row now carries the same packet/follow-up counters as `raw/llm/<workbook>/knowledge/knowledge_stage_summary.json`
+- benchmark-side actual-cost review should now use the finished recipe / knowledge / line-role rows in `prompt_budget_summary.json` when asking whether spend came from main workspace workers or from repo-owned follow-up/finalization; those rows now carry the same work-unit / worker / follow-up vocabulary used by the stage-local summary artifacts
 
 Interactive benchmark modes are still active and remain offline canonical-text workflows:
 
-- `single_offline`
-- `single_offline_selected_matched`
-- `single_offline_all_matched`
+- `single_book`
+- `selected_matched_books`
+- `all_matched_books`
 
 Current interactive contracts:
 
-- `single_offline` writes one session root under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/`
+- `single_book` writes one session root under `data/golden/benchmark-vs-golden/<timestamp>/single-book-benchmark/<source_slug>/`
 - when Codex-backed recipe extraction is selected, paired runs are written under sibling `vanilla/` and `codexfarm/` roots in that session
-- paired single-offline variants now share the same selected `atomic_block_splitter`; the benchmark helper no longer hardcodes `off` for `vanilla` and `atomic-v1` for `codexfarm`
+- paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codexfarm`
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`
-  - `single_offline_summary.md`
+  - `single_book_summary.md`
   - `upload_bundle_v1/`
 - benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log volume only
 - benchmark status panels now treat generic `task X/Y | running N` progress strings as worker activity, so shard-backed line-role and similar phases do not collapse back to one stale status line
-- knowledge-stage benchmark progress is now packet-based rather than shard-based: the visible `task X/Y` counter tracks knowledge task packets, while the worker rows stay worker-based and show shard ownership plus packet counts or an active follow-up label such as repair/watchdog retry
+- recipe, knowledge, and line-role benchmark progress now all share the same story shape: visible work-unit counter, separate worker-session summary, separate repo follow-up/finalization summary, and worker rows that represent real worker sessions rather than repo cleanup
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
-- interactive single-offline writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
+- interactive single-book writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
 - multi-book single-profile writes the top-level group bundle and leaves Oracle upload as a separate manual step
 
 ### 2.3 `cf-debug`
@@ -153,13 +155,14 @@ Knowledge extraction is now a first-class follow-up seam:
 - `audit-knowledge` emits run-level knowledge evidence
 - follow-up packets can include `knowledge_audit.jsonl`
 - uncertainty/follow-up exports now center on explicit escalation reasons; current reviewer packets do not carry scalar trust/confidence fields
+- `cf-debug select-cases --include-line-range` intentionally accepts both canonical `source:start:end` and legacy `source:start-end` syntax so older follow-up asks still parse
 
 Structure-only triage is now a first-class follow-up seam:
 
 - `structure-report` writes one bundle-wide `structure_report.json`
 - the report separates `structure_core` labels (`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`) from `nonrecipe_core` (`KNOWLEDGE`, `OTHER`)
 - it also includes boundary exactness so reviewers can tell whether a low score is mostly a segmentation problem or a label-semantics problem
-- high canonical boundary/alignment scores do not imply near-perfect overall accuracy; current single-offline misses can still be dominated by hard `KNOWLEDGE` vs `OTHER` disagreements even when recipe boundaries are mostly correct
+- high canonical boundary/alignment scores do not imply near-perfect overall accuracy; current single-book misses can still be dominated by hard `KNOWLEDGE` vs `OTHER` disagreements even when recipe boundaries are mostly correct
 
 Benchmark transport note:
 - benchmark-mode recipe subprocesses now use CodexFarm's current flag name `--recipeimport-benchmark-mode line_label_v1`; the retired `--benchmark-mode` flag is no longer part of the active contract
@@ -437,9 +440,9 @@ Primary benchmark modules:
 
 - In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
 - When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. Stage 7 deterministic labels now own outside-recipe `KNOWLEDGE` vs `OTHER`, so optional knowledge harvest no longer relabels benchmark truth.
-- Single-offline benchmark folder naming is about Codex participation, not every deterministic helper. A run with recipe Codex off and only deterministic line-role still belongs under `vanilla/`; only actual Codex-backed line-role belongs in the Codex/hybrid branch.
-- High Codex recipe task counts in single-offline runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
-- Tiny line-role token spend in a Codex single-offline run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.
+- Single-book benchmark folder naming is about Codex participation, not every deterministic helper. A run with recipe Codex off and only deterministic line-role still belongs under `vanilla/`; only actual Codex-backed line-role belongs in the Codex/hybrid branch.
+- High Codex recipe task counts in single-book runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
+- Tiny line-role token spend in a Codex single-book run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.
 - Canonical benchmark scoring should project final non-recipe authority, not just deterministic seed labels. The current contract is seed deterministic authority plus optional knowledge-stage refinement merged into final scored `KNOWLEDGE` / `OTHER`.
 - Benchmark prompt export should include every CodexFarm interaction the reviewer cares about:
   - recipe correction

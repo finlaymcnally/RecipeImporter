@@ -2084,7 +2084,7 @@ _HTML = """\
 	          <li><code>artifact_dir_basename</code>: Just the folder name part of <code>artifact_dir</code>. This is handy for quick filtering when you remember a run folder name. It is purely a convenience field.</li>
 	          <li><code>report_path</code>: The path to the benchmark report JSON that produced the row (when available). This is useful when you want to open the exact raw evaluation output. If it is missing, the dashboard may be using CSV history without a directly linked report file.</li>
 	          <li><code>processed_report_path</code>: Path to a processed/derived report for the run (when available). This can include extra enrichment not present in the raw report. Use it when you need deeper diagnostics and the raw report is not enough.</li>
-	          <li><code>all_method_record</code>: True/false indicating whether a row came from an “all-method” benchmark sweep. This is useful for filtering because all-method runs can have different patterns than single-offline runs. If you want clean apples-to-apples trending, you may want to exclude these.</li>
+	          <li><code>all_method_record</code>: True/false indicating whether a row came from an “all-method” benchmark sweep. This is useful for filtering because all-method runs can have different patterns than single-book runs. If you want clean apples-to-apples trending, you may want to exclude these.</li>
 	          <li><code>speed_suite_record</code>: True/false indicating whether a row is part of the speed benchmark suite. Speed runs may be optimized for runtime rather than max quality. Filter these out when you are focused purely on label quality.</li>
 	        </ul>
 	      </section>
@@ -2117,7 +2117,7 @@ _HTML = """\
         <div class="quick-filters-list">
           <label for="quick-filter-official-only">
             <input id="quick-filter-official-only" type="checkbox" checked>
-            Official benchmarks only (single-offline vanilla/codexfarm)
+            Official benchmarks only (single-book vanilla/codexfarm)
           </label>
           <label for="quick-filter-exclude-ai-tests">
             <input id="quick-filter-exclude-ai-tests" type="checkbox">
@@ -4504,12 +4504,12 @@ _JS = """\
     },
     conversion_seconds_per_recipe: {
       label: "Conversion sec / recipe",
-      title: "Single-offline conversion time divided by predicted recipe count.",
+      title: "Single-book conversion time divided by predicted recipe count.",
       numeric: true,
     },
     "run_config.single_offline_split_cache.conversion_seconds": {
       label: "Conversion seconds",
-      title: "Single-offline split-cache conversion time for this benchmark row.",
+      title: "Single-book split-cache conversion time for this benchmark row.",
       numeric: true,
     },
     all_token_use_per_recipe: {
@@ -6240,7 +6240,7 @@ _JS = """\
     const path = benchmarkArtifactPath(record);
     if (!path) return false;
     if (!path.includes("/benchmark-vs-golden/")) return false;
-    if (!path.includes("/single-offline-benchmark/")) return false;
+    if (!path.includes("/single-book-benchmark/")) return false;
     const pathVariant = benchmarkVariantFromPathOrPipeline(record);
     const profile = aiAssistanceProfileForRecord(record);
     return (
@@ -6257,7 +6257,7 @@ _JS = """\
     const labels = [];
     if (state.exclude_ai_tests) labels.push("exclude AI test/smoke runs");
     if (state.official_full_golden_only) {
-      labels.push("official single-offline vanilla/codexfarm runs only");
+      labels.push("official single-book vanilla/codexfarm runs only");
     }
     return labels;
   }
@@ -9745,7 +9745,7 @@ _JS = """\
     const isOfficialPairedBenchmark =
       path.includes("/benchmark-vs-golden/") &&
       (
-        path.includes("/single-offline-benchmark/") ||
+        path.includes("/single-book-benchmark/") ||
         path.includes("/single-profile-benchmark/")
       );
     const recipePipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
@@ -9805,7 +9805,7 @@ _JS = """\
     const isOfficialPairedBenchmark =
       path.includes("/benchmark-vs-golden/") &&
       (
-        path.includes("/single-offline-benchmark/") ||
+        path.includes("/single-book-benchmark/") ||
         path.includes("/single-profile-benchmark/")
       );
     if (isOfficialPairedBenchmark && pipelineOrPathVariant === "vanilla" && profile === "deterministic") {

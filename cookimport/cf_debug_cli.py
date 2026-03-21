@@ -276,7 +276,7 @@ def preview_prompts(
         "--codex-farm-knowledge-context-blocks",
         min=0,
     ),
-    atomic_block_splitter: str = typer.Option("atomic-v1", "--atomic-block-splitter"),
+    atomic_block_splitter: str = typer.Option("off", "--atomic-block-splitter"),
     recipe_worker_count: int | None = typer.Option(None, "--recipe-worker-count", min=1),
     recipe_prompt_target_count: int | None = typer.Option(
         None,
@@ -479,7 +479,7 @@ def preview_shard_sweep(
         "--codex-farm-knowledge-context-blocks",
         min=0,
     ),
-    atomic_block_splitter: str = typer.Option("atomic-v1", "--atomic-block-splitter"),
+    atomic_block_splitter: str = typer.Option("off", "--atomic-block-splitter"),
 ) -> None:
     experiments = _load_shard_sweep_experiments(experiment_file)
     if not experiments:

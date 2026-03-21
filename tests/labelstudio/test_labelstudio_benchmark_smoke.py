@@ -20,7 +20,7 @@ def _patch_single_offline_smoke_runtime(
     golden_root: Path,
     selected_benchmark_settings,
 ) -> list[dict[str, object]]:
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
 
     monkeypatch.setattr(
         cli_module, "_menu_select", lambda *_args, **_kwargs: next(menu_answers)

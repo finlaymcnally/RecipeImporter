@@ -734,10 +734,18 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
             format_stage_progress(
                 "Running codex-farm non-recipe knowledge review... task 1/4 | running 2",
                 stage_label="non-recipe knowledge review",
+                work_unit_label="task packet",
                 task_current=1,
                 task_total=4,
                 running_workers=2,
                 worker_total=4,
+                worker_running=2,
+                worker_completed=2,
+                followup_running=1,
+                followup_completed=3,
+                followup_total=4,
+                followup_label="repair/retry",
+                artifact_counts={"proposal_count": 3, "repair_running": 1},
                 active_tasks=["knowledge-shard-0001", "knowledge-shard-0002"],
                 detail_lines=["configured workers: 4", "queued shards: 3"],
             )
@@ -759,10 +767,49 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
         if line.strip()
     ]
     assert any(row.get("stage_label") == "non-recipe knowledge review" for row in rows)
+    assert any(row.get("work_unit_label") == "task packet" for row in rows)
     assert any(row.get("worker_total") == 4 for row in rows)
     assert any(row.get("worker_active") == 2 for row in rows)
+    assert any(row.get("worker_completed") == 2 for row in rows)
+    assert any(row.get("followup_label") == "repair/retry" for row in rows)
+    assert any((row.get("artifact_counts") or {}).get("proposal_count") == 3 for row in rows)
     assert any(row.get("active_tasks") == ["knowledge-shard-0001", "knowledge-shard-0002"] for row in rows)
     assert any("configured workers: 4" in (row.get("detail_lines") or []) for row in rows)
+
+
+def test_format_stage_progress_round_trips_typed_fields() -> None:
+    payload = parse_stage_progress(
+        format_stage_progress(
+            "Running recipe correction... task 2/3",
+            stage_label="recipe pipeline",
+            work_unit_label="recipe task",
+            task_current=2,
+            task_total=3,
+            running_workers=1,
+            worker_total=2,
+            worker_running=1,
+            worker_completed=1,
+            worker_failed=0,
+            followup_running=2,
+            followup_completed=1,
+            followup_total=2,
+            followup_label="shard finalization",
+            artifact_counts={"proposal_count": 1, "repair_running": 2},
+            last_activity_at="2026-03-21T16:00:00+00:00",
+            active_tasks=["recipe-shard-0002.task-001"],
+            detail_lines=["configured workers: 2"],
+        )
+    )
+
+    assert payload is not None
+    assert payload["work_unit_label"] == "recipe task"
+    assert payload["worker_running"] == 1
+    assert payload["worker_completed"] == 1
+    assert payload["followup_label"] == "shard finalization"
+    assert payload["artifact_counts"] == {
+        "proposal_count": 1,
+        "repair_running": 2,
+    }
 
 
 def test_run_with_progress_status_renders_worker_activity_summary(

@@ -68,6 +68,38 @@ def _semantic_packet_output(
     }
 
 
+class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        result = super().run_workspace_worker(**kwargs)
+        return CodexExecRunResult(
+            command=list(result.command),
+            subprocess_exit_code=result.subprocess_exit_code,
+            output_schema_path=result.output_schema_path,
+            prompt_text=result.prompt_text,
+            response_text=None,
+            turn_failed_message=result.turn_failed_message,
+            events=tuple(
+                event
+                for event in result.events
+                if event.get("item", {}).get("type") != "agent_message"
+            ),
+            usage=dict(result.usage or {}),
+            stderr_text=result.stderr_text,
+            stdout_text=result.stdout_text,
+            source_working_dir=result.source_working_dir,
+            execution_working_dir=result.execution_working_dir,
+            execution_agents_path=result.execution_agents_path,
+            duration_ms=result.duration_ms,
+            started_at_utc=result.started_at_utc,
+            finished_at_utc=result.finished_at_utc,
+            workspace_mode=result.workspace_mode,
+            supervision_state=result.supervision_state,
+            supervision_reason_code=result.supervision_reason_code,
+            supervision_reason_detail=result.supervision_reason_detail,
+            supervision_retryable=result.supervision_retryable,
+        )
+
+
 def test_knowledge_workspace_watchdog_allows_shell_work_until_command_loop(
     tmp_path: Path,
 ) -> None:
@@ -1947,6 +1979,129 @@ def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_re
         "book.c0001.nr",
     ]
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
+
+
+def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_message(
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 1,
+            "knowledge_worker_count": 1,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[
+            {"index": 4, "text": "Whisk constantly to emulsify sauces."},
+            {"index": 5, "text": "Use low heat to avoid curdling."},
+        ],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 4, "text": "Whisk constantly to emulsify sauces."},
+                        {"index": 5, "text": "Use low heat to avoid curdling."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+
+    def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
+        if payload is None:
+            return {"v": "2", "bid": "missing", "r": []}
+        bundle_id = str(payload.get("bid") or "")
+        chunks = payload.get("c") or []
+        chunk = chunks[0]
+        block = chunk["b"][0]
+        return {
+            "v": "2",
+            "bid": bundle_id,
+            "r": [
+                {
+                    "cid": chunk["cid"],
+                    "u": True,
+                    "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
+                    "s": [{"b": block["t"], "e": [{"i": block["i"], "q": block["t"]}]}],
+                }
+            ],
+        }
+
+    runner = _NoFinalWorkspaceMessageRunner(output_builder=_output_builder)
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.6",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=6,
+                    block_indices=[4, 5],
+                    block_ids=["b4", "b5"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.6",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=6,
+                    block_indices=[4, 5],
+                    block_ids=["b4", "b5"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={4: "knowledge", 5: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    process_rows = [
+        row
+        for row in apply_result.llm_report["process_run"]["telemetry"]["rows"]
+        if row.get("prompt_input_mode") == "workspace_worker"
+    ]
+    assert process_rows
+    assert all(row["proposal_status"] == "validated" for row in process_rows)
+    assert all(row["repair_attempted"] is False for row in process_rows)
+    assert process_rows[0]["final_agent_message_state"] == "absent"
+    assert process_rows[0]["final_agent_message_reason"] is None
+
+    proposals_dir = run_root / "raw" / "llm" / "book" / "knowledge" / "proposals"
+    proposal = json.loads((proposals_dir / "book.ks0000.nr.json").read_text(encoding="utf-8"))
+    assert proposal["validation_errors"] == []
+    assert proposal["repair_attempted"] is False
+    assert proposal["payload"]["bid"] == "book.ks0000.nr"
 
 
 def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Path) -> None:

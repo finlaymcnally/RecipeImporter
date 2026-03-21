@@ -457,7 +457,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
         },
         warn_context="test interactive benchmark vanilla defaults",
     )
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
     mode_prompts: list[list[str]] = []
 
     def fake_menu_select(prompt: str, *_args, **_kwargs):
@@ -518,7 +518,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
         },
         warn_context="test interactive benchmark vanilla defaults",
     )
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
 
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
@@ -564,7 +564,7 @@ def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_
         },
         warn_context="test interactive benchmark codex single-offline defaults",
     )
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
 
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
@@ -609,7 +609,7 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
     selected_benchmark_settings = cli.RunSettings.from_dict(
         {"llm_recipe_pipeline": "off"},
         warn_context="test interactive benchmark toggle prompt",
@@ -695,7 +695,7 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     gold_spans.parent.mkdir(parents=True, exist_ok=True)
     gold_spans.write_text("{}\n", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
     mode_prompt_count = 0
     mode_titles: list[str] = []
     selected_benchmark_settings = cli.RunSettings.from_dict(

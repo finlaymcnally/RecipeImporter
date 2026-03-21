@@ -30,9 +30,9 @@ Interactive file discovery and direct staging intentionally differ:
 - Freeform interactive segment sizing (`segment_blocks`, `segment_overlap`, `segment_focus_blocks`, `target_task_count`) should route through `_prompt_freeform_segment_settings(...)` so `Esc` walks back one field instead of dropping to main menu.
 - Interactive Import and interactive benchmark modes go through one shared two-profile chooser (`CodexFarm automatic top-tier` / `Vanilla automatic top-tier`) before execution.
 - Interactive benchmark (`labelstudio_benchmark`) has three offline modes only:
-  - `single_offline`
-  - `single_offline_selected_matched`
-  - `single_offline_all_matched`
+  - `single_book`
+  - `selected_matched_books`
+  - `all_matched_books`
 - Interactive benchmark modes always run local canonical-text evaluation (`no_upload=True`), without Label Studio credential resolution/upload.
 - All-method benchmarking remains available only as a non-interactive CLI path; interactive menu flow should not route to `_interactive_all_method_benchmark`.
 - Benchmark eval report contracts should use explicit metrics: strict accuracy (`strict_accuracy`, plus `overall_block_accuracy`/`overall_line_accuracy`) and `macro_f1_excluding_other`. Analytics/history consumers may still derive older strict/practical aliases when reading archived artifacts.

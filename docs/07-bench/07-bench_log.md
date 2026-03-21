@@ -713,3 +713,36 @@ Anti-loop note:
 - if a benchmark diagnosis depends on a run that predates the current workspace changes, treat that run as historical evidence, not final proof
 
 If an older artifact references one of those surfaces, treat it as historical context only, not current contract guidance.
+
+### 2026-03-19 Oracle follow-up bridge and reviewer-request grammar
+
+Problem captured:
+- external review was stopping at Oracle turn 1, and the reviewer-facing follow-up note had drifted away from the live `cf-debug` selector/parser surface
+
+Durable decisions:
+- Oracle turn 1 may now request narrow follow-up evidence in a parse-friendly `Requested follow-up data` section; recipeimport normalizes that into `cf.followup_request.v1`, writes additive `followup_dataN/`, and continues the same ChatGPT conversation through a linked turn-2 local Oracle session
+- detached benchmark uploads must finalize saved turn-1 status from logs/session recovery before deciding whether auto-followup can run
+- auto-followup and manual `cookimport bench oracle-followup` reuse the resolved turn-1 model when no explicit override is present
+- reviewer docs and parser grammar must stay aligned:
+  - canonical line-range syntax is `source:start:end`
+  - legacy `source:start-end` remains accepted for backward compatibility
+
+Anti-loop note:
+- if follow-up automation looks broken, first prove whether turn 1 actually produced a parseable follow-up request and whether the saved launch status was finalized from Oracle evidence before changing bundle builders or Oracle transport code
+
+### 2026-03-21 paired benchmark contract cleanup
+
+Problem captured:
+- paired benchmark comparison roots were drifting on representation because some helper paths still forced different `atomic_block_splitter` values, and interactive mode ids/labels were harder to read than the runtime actually needed
+
+Durable decisions:
+- paired `vanilla` / `codexfarm` variants share one `atomic_block_splitter` value sourced from the selected run settings or preserved benchmark baseline payload
+- default/profile paths now leave `atomic_block_splitter=off` unless the operator explicitly selects `atomic-v1`
+- interactive benchmark mode ids normalize to the current names:
+  - `single_book`
+  - `selected_matched_books`
+  - `all_matched_books`
+- older mode ids remain compatibility aliases; artifact roots such as `single_offline` are unchanged
+
+Anti-loop note:
+- if a paired benchmark comparison moves because one side silently switched representation, inspect `atomic_block_splitter` in the planned run payload before blaming Codex surfaces or scorer drift

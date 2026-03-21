@@ -113,7 +113,7 @@ def write_prompt_preview_for_existing_run(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 0,
-    atomic_block_splitter: str = "atomic-v1",
+    atomic_block_splitter: str = "off",
     recipe_worker_count: int | None = None,
     recipe_prompt_target_count: int | None = None,
     recipe_shard_target_recipes: int | None = None,

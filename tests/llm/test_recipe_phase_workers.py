@@ -9,6 +9,7 @@ from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
 from cookimport.llm import codex_farm_orchestrator as recipe_module
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
+from cookimport.llm.codex_exec_runner import CodexExecRunResult
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 
@@ -75,36 +76,110 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
     )
 
 
-def _build_recipe_shard_output(payload: dict[str, object] | None) -> dict[str, object]:
+def _build_recipe_workspace_output(
+    payload: dict[str, object] | None,
+    *,
+    status_by_recipe_id: dict[str, str] | None = None,
+) -> dict[str, object]:
     shard_payload = dict(payload or {})
+    statuses = dict(status_by_recipe_id or {})
     recipes = []
     for recipe_payload in shard_payload.get("r") or []:
         recipe_payload = dict(recipe_payload)
+        recipe_id = str(recipe_payload["rid"])
         recipe_hint = dict(recipe_payload.get("h") or {})
+        repair_status = str(statuses.get(recipe_id) or "repaired")
+        canonical_recipe = (
+            {
+                "t": recipe_hint.get("n"),
+                "i": recipe_hint.get("i", []),
+                "s": recipe_hint.get("s", []),
+                "d": None,
+                "y": None,
+            }
+            if repair_status == "repaired"
+            else None
+        )
+        status_reason = None
+        mapping_reason = "not_needed_single_step"
+        warnings: list[str] = []
+        if repair_status == "fragmentary":
+            status_reason = "recipe evidence exists but the owned text is too incomplete"
+            mapping_reason = "not_applicable_fragmentary"
+            warnings = ["incomplete_recipe_source"]
+        elif repair_status == "not_a_recipe":
+            status_reason = "owned text is not a recipe"
+            mapping_reason = "not_applicable_not_a_recipe"
         recipes.append(
             {
-                "bundle_version": "1",
-                "recipe_id": recipe_payload["rid"],
-                "repair_status": "repaired",
-                "status_reason": None,
-                "canonical_recipe": {
-                    "title": recipe_hint.get("n"),
-                    "ingredients": recipe_hint.get("i", []),
-                    "steps": recipe_hint.get("s", []),
-                    "description": None,
-                    "recipeYield": None,
-                },
-                "ingredient_step_mapping": [],
-                "ingredient_step_mapping_reason": "not_needed_single_step",
-                "selected_tags": [],
-                "warnings": [],
+                "v": "1",
+                "rid": recipe_id,
+                "st": repair_status,
+                "sr": status_reason,
+                "cr": canonical_recipe,
+                "m": [],
+                "mr": mapping_reason,
+                "g": [],
+                "w": warnings,
             }
         )
     return {
-        "bundle_version": "1",
-        "shard_id": shard_payload.get("sid"),
-        "recipes": recipes,
+        "v": "1",
+        "sid": shard_payload.get("sid"),
+        "r": recipes,
     }
+
+
+def _build_recipe_shard_output(payload: dict[str, object] | None) -> dict[str, object]:
+    return _build_recipe_workspace_output(payload)
+
+
+def _build_legacy_recipe_workspace_output(payload: dict[str, object] | None) -> dict[str, object]:
+    shard_payload = dict(payload or {})
+    recipe_payload = dict((shard_payload.get("r") or [{}])[0])
+    return {
+        "sid": shard_payload.get("sid"),
+        "results": [
+            {
+                "recipe_id": recipe_payload.get("rid"),
+                "not_a_recipe": False,
+                "fragmentary": False,
+                "notes": "legacy worker contract",
+            }
+        ],
+    }
+
+
+class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        result = super().run_workspace_worker(**kwargs)
+        return CodexExecRunResult(
+            command=list(result.command),
+            subprocess_exit_code=result.subprocess_exit_code,
+            output_schema_path=result.output_schema_path,
+            prompt_text=result.prompt_text,
+            response_text=None,
+            turn_failed_message=result.turn_failed_message,
+            events=tuple(
+                event
+                for event in result.events
+                if event.get("item", {}).get("type") != "agent_message"
+            ),
+            usage=dict(result.usage or {}),
+            stderr_text=result.stderr_text,
+            stdout_text=result.stdout_text,
+            source_working_dir=result.source_working_dir,
+            execution_working_dir=result.execution_working_dir,
+            execution_agents_path=result.execution_agents_path,
+            duration_ms=result.duration_ms,
+            started_at_utc=result.started_at_utc,
+            finished_at_utc=result.finished_at_utc,
+            workspace_mode=result.workspace_mode,
+            supervision_state=result.supervision_state,
+            supervision_reason_code=result.supervision_reason_code,
+            supervision_reason_detail=result.supervision_reason_detail,
+            supervision_retryable=result.supervision_retryable,
+        )
 
 
 def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
@@ -191,9 +266,11 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     worker_root = runtime_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
+    assert "OUTPUT_CONTRACT.md" in worker_prompt
     assert "Workspace-local shell commands are broadly allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "open `hints/<task_id>.md` first" in worker_prompt
+    assert "Legacy keys are invalid here" in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
@@ -202,7 +279,16 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
+    assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
+    assert worker_manifest["examples_dir"] == "examples"
     assert worker_manifest["hints_dir"] == "hints"
+    assert "valid_repaired_task_output.json" in worker_manifest["mirrored_example_files"]
+    output_contract = (worker_root / "OUTPUT_CONTRACT.md").read_text(encoding="utf-8")
+    assert "Compact keys only" in output_contract
+    assert "Forbidden legacy keys" in output_contract
+    assert (worker_root / "examples" / "valid_repaired_task_output.json").exists()
+    assert (worker_root / "examples" / "valid_fragmentary_task_output.json").exists()
+    assert (worker_root / "examples" / "valid_not_a_recipe_task_output.json").exists()
     assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-001.md").exists()
     assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-002.md").exists()
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
@@ -303,9 +389,11 @@ def test_recipe_phase_runtime_forwards_structured_progress(
     ]
     assert payloads
     assert payloads[0]["stage_label"] == "recipe pipeline"
+    assert payloads[0]["work_unit_label"] == "recipe task"
     assert payloads[0]["task_total"] == 3
     assert payloads[0]["task_current"] == 0
     assert int(payloads[0]["worker_total"] or 0) >= 1
+    assert int(payloads[0]["worker_running"] or 0) >= 1
     assert any(
         str(line) == "completed shards: 0/2"
         for line in (payloads[0].get("detail_lines") or [])
@@ -315,15 +403,12 @@ def test_recipe_phase_runtime_forwards_structured_progress(
         for task in (payloads[0].get("active_tasks") or [])
     )
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
+    assert any(payload.get("worker_completed") == 2 for payload in payloads)
+    assert any(payload.get("followup_label") == "shard finalization" for payload in payloads)
+    assert any(payload.get("followup_total") == 2 for payload in payloads)
     assert any(
-        any("finalize" in str(task) for task in (payload.get("active_tasks") or []))
+        (payload.get("artifact_counts") or {}).get("repair_attempted") is not None
         for payload in payloads
-        if payload.get("task_current") == payload.get("task_total")
-    )
-    assert any(
-        str(line) == "workers finalizing shards: 2"
-        for payload in payloads
-        for line in (payload.get("detail_lines") or [])
     )
 
 
@@ -362,6 +447,186 @@ def test_recipe_prompt_target_count_controls_shard_count_when_single_recipe_shar
     assert phase_manifest["shard_count"] == 2
     assert phase_manifest["worker_count"] == 2
     assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]
+
+
+def test_recipe_workspace_worker_with_valid_files_and_prose_final_message_stays_valid(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_worker_count": 1,
+            "recipe_shard_target_recipes": 2,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    runner = FakeCodexExecRunner(
+        output_builder=_build_recipe_shard_output,
+        workspace_final_message_text="Finished all assigned task files. Outputs are in out/.",
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    telemetry = json.loads(
+        (
+            apply_result.llm_raw_dir / "recipe_phase_runtime" / "telemetry.json"
+        ).read_text(encoding="utf-8")
+    )
+    rows = [
+        row
+        for row in telemetry["rows"]
+        if not row.get("is_repair_attempt")
+    ]
+
+    assert rows
+    assert all(row["proposal_status"] == "validated" for row in rows)
+    assert all(row["repair_attempted"] is False for row in rows)
+    assert rows[0]["final_agent_message_state"] == "informational"
+    assert "informational only" in str(rows[0]["final_agent_message_reason"])
+    assert telemetry["summary"]["structured_followup_call_count"] == 0
+
+
+def test_recipe_workspace_worker_with_valid_files_and_no_final_message_stays_valid(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_worker_count": 1,
+            "recipe_shard_target_recipes": 2,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    runner = _NoFinalWorkspaceMessageRunner(
+        output_builder=_build_recipe_shard_output,
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    telemetry = json.loads(
+        (
+            apply_result.llm_raw_dir / "recipe_phase_runtime" / "telemetry.json"
+        ).read_text(encoding="utf-8")
+    )
+    rows = [
+        row
+        for row in telemetry["rows"]
+        if not row.get("is_repair_attempt")
+    ]
+
+    assert rows
+    assert all(row["proposal_status"] == "validated" for row in rows)
+    assert all(row["repair_attempted"] is False for row in rows)
+    assert rows[0]["final_agent_message_state"] == "absent"
+    assert rows[0]["final_agent_message_reason"] is None
+    assert telemetry["summary"]["structured_followup_call_count"] == 0
+
+
+def test_recipe_workspace_validation_rejects_legacy_results_shape() -> None:
+    shard = recipe_module.ShardManifestEntryV1(  # noqa: SLF001
+        shard_id="recipe-shard-0000-r0000-r0000.task-001",
+        owned_ids=("urn:recipe:test:toast",),
+        input_payload={
+            "v": "1",
+            "sid": "recipe-shard-0000-r0000-r0000.task-001",
+            "r": [
+                {
+                    "rid": "urn:recipe:test:toast",
+                    "h": {"n": "Toast", "i": ["1 slice bread"], "s": ["Toast the bread."]},
+                }
+            ],
+        },
+    )
+
+    payload, validation_errors, validation_metadata, proposal_status = recipe_module._evaluate_recipe_response(  # noqa: SLF001
+        shard=shard,
+        response_text=json.dumps(_build_legacy_recipe_workspace_output(shard.input_payload)),
+    )
+
+    assert payload is None
+    assert proposal_status == "invalid"
+    assert validation_metadata["contract"] == "recipe.correction.compact.v1"
+    assert any("legacy key `results`" in error for error in validation_errors)
+    assert any("use `r`" in error for error in validation_errors)
+
+
+def test_recipe_workspace_promotion_preserves_fragmentary_and_not_a_recipe_outputs(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_worker_count": 1,
+            "recipe_shard_target_recipes": 3,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: _build_recipe_workspace_output(
+            payload,
+            status_by_recipe_id={
+                "urn:recipe:test:tea": "fragmentary",
+                "urn:recipe:test:cereal": "not_a_recipe",
+            },
+        )
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
+    )
+    proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0000-r0000-r0002.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert sorted(apply_result.final_overrides_by_recipe_id) == ["urn:recipe:test:toast"]
+    assert manifest["recipes"]["urn:recipe:test:tea"]["correction_output_status"] == "fragmentary"
+    assert manifest["recipes"]["urn:recipe:test:cereal"]["correction_output_status"] == "not_a_recipe"
+    recipe_rows = {row["rid"]: row for row in proposal["payload"]["r"]}
+    assert recipe_rows["urn:recipe:test:tea"]["st"] == "fragmentary"
+    assert recipe_rows["urn:recipe:test:cereal"]["st"] == "not_a_recipe"
 
 
 def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(

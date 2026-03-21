@@ -70,5 +70,5 @@ def test_labelstudio_benchmark_defaults_to_safe_opt_in_profile() -> None:
     assert params["epub_unstructured_skip_headers_footers"].default is True
     assert params["epub_unstructured_preprocess_mode"].default == "semantic_v1"
     assert params["llm_recipe_pipeline"].default == "off"
-    assert params["atomic_block_splitter"].default == "atomic-v1"
+    assert params["atomic_block_splitter"].default == "off"
     assert params["line_role_pipeline"].default == "off"

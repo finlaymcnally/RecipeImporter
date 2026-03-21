@@ -14,7 +14,7 @@ globals().update({
 def test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    menu_answers = iter(["labelstudio_benchmark", "single_offline_all_matched", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "all_matched_books", "exit"])
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
@@ -72,7 +72,7 @@ def test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner(
 def test_interactive_benchmark_single_profile_selected_matched_mode_routes_to_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    menu_answers = iter(["labelstudio_benchmark", "single_offline_selected_matched", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "selected_matched_books", "exit"])
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
@@ -438,7 +438,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
         "off",
-        "atomic-v1",
+        "off",
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
     assert [call["section_detector_backend"] for call in benchmark_calls] == [

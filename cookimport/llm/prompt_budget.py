@@ -9,7 +9,11 @@ import tiktoken
 
 from cookimport.llm.codex_exec_runner import summarize_direct_telemetry_rows
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
-from cookimport.runs.stage_observability import build_knowledge_stage_summary
+from cookimport.runs.stage_observability import (
+    build_knowledge_stage_summary,
+    build_line_role_stage_summary as build_stage_observability_line_role_summary,
+    build_recipe_stage_summary,
+)
 
 _TOKEN_KEYS = (
     "tokens_input",
@@ -646,6 +650,11 @@ def _build_codex_farm_stage_summary(
             stage_summary=stage_summary,
             stage_payload=stage_payload,
         )
+    if stage_name in {"recipe", "recipe_correction", "recipe_llm_correct_and_link"}:
+        _attach_recipe_stage_observability(
+            stage_summary=stage_summary,
+            stage_payload=stage_payload,
+        )
     return stage_summary
 
 
@@ -807,6 +816,57 @@ def _attach_knowledge_stage_observability(
             )
 
 
+def _attach_recipe_stage_observability(
+    *,
+    stage_summary: dict[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> None:
+    stage_root = next(
+        (
+            candidate
+            for candidate in _candidate_stage_root_paths(stage_payload)
+            if candidate.exists() and candidate.is_dir()
+        ),
+        None,
+    )
+    if stage_root is None:
+        return
+    recipe_summary = build_recipe_stage_summary(stage_root)
+    work_units = recipe_summary.get("work_units")
+    parent_shards = recipe_summary.get("parent_shards")
+    workers = recipe_summary.get("workers")
+    followups = recipe_summary.get("followups")
+    stage_summary["stage_state"] = recipe_summary.get("stage_state")
+    if isinstance(work_units, Mapping):
+        stage_summary["work_unit_label"] = str(work_units.get("label") or "").strip() or None
+        stage_summary["work_unit_total"] = _nonnegative_int(work_units.get("planned_total"))
+        stage_summary["work_unit_completed"] = _nonnegative_int(work_units.get("completed_total"))
+    if isinstance(parent_shards, Mapping):
+        stage_summary["parent_shard_total"] = _nonnegative_int(parent_shards.get("planned_total"))
+        if isinstance(parent_shards.get("status_counts"), Mapping):
+            stage_summary["parent_shard_status_counts"] = dict(
+                sorted(dict(parent_shards.get("status_counts") or {}).items())
+            )
+    if isinstance(workers, Mapping):
+        if isinstance(workers.get("state_counts"), Mapping):
+            stage_summary["worker_state_counts"] = dict(
+                sorted(dict(workers.get("state_counts") or {}).items())
+            )
+        if isinstance(workers.get("reason_code_counts"), Mapping):
+            stage_summary["worker_reason_code_counts"] = dict(
+                sorted(dict(workers.get("reason_code_counts") or {}).items())
+            )
+    if isinstance(followups, Mapping):
+        stage_summary["followup_label"] = str(followups.get("label") or "").strip() or None
+        for key in (
+            "repair_attempted_count",
+            "repair_completed_count",
+            "repair_running_count",
+            "proposal_count",
+        ):
+            stage_summary[key] = _nonnegative_int(followups.get(key))
+
+
 def _extract_telemetry_rows(*, stage_payload: Mapping[str, Any]) -> list[Any] | None:
     direct_telemetry = stage_payload.get("telemetry")
     if isinstance(direct_telemetry, Mapping) and isinstance(direct_telemetry.get("rows"), list):
@@ -955,7 +1015,7 @@ def _build_line_role_stage_summary(
             fallback=[],
         )
 
-        return {
+        stage_summary = {
             "stage": "line_role",
             "kind": "line_role",
             "call_count": call_count,
@@ -1002,6 +1062,43 @@ def _build_line_role_stage_summary(
                 "billed_total_tokens": token_totals.get("tokens_total"),
             },
         }
+        stage_root = pred_run_dir / "line-role-pipeline" / "runtime" / "line_role"
+        if stage_root.exists() and stage_root.is_dir():
+            observability_summary = build_stage_observability_line_role_summary(stage_root)
+            work_units = observability_summary.get("work_units")
+            parent_shards = observability_summary.get("parent_shards")
+            workers = observability_summary.get("workers")
+            followups = observability_summary.get("followups")
+            stage_summary["stage_state"] = observability_summary.get("stage_state")
+            if isinstance(work_units, Mapping):
+                stage_summary["work_unit_label"] = str(work_units.get("label") or "").strip() or None
+                stage_summary["work_unit_total"] = _nonnegative_int(work_units.get("planned_total"))
+                stage_summary["work_unit_completed"] = _nonnegative_int(work_units.get("completed_total"))
+            if isinstance(parent_shards, Mapping):
+                stage_summary["parent_shard_total"] = _nonnegative_int(parent_shards.get("planned_total"))
+                if isinstance(parent_shards.get("status_counts"), Mapping):
+                    stage_summary["parent_shard_status_counts"] = dict(
+                        sorted(dict(parent_shards.get("status_counts") or {}).items())
+                    )
+            if isinstance(workers, Mapping):
+                if isinstance(workers.get("state_counts"), Mapping):
+                    stage_summary["worker_state_counts"] = dict(
+                        sorted(dict(workers.get("state_counts") or {}).items())
+                    )
+                if isinstance(workers.get("reason_code_counts"), Mapping):
+                    stage_summary["worker_reason_code_counts"] = dict(
+                        sorted(dict(workers.get("reason_code_counts") or {}).items())
+                    )
+            if isinstance(followups, Mapping):
+                stage_summary["followup_label"] = str(followups.get("label") or "").strip() or None
+                for key in (
+                    "repair_attempted_count",
+                    "repair_completed_count",
+                    "repair_running_count",
+                    "proposal_count",
+                ):
+                    stage_summary[key] = _nonnegative_int(followups.get(key))
+        return stage_summary
     return None
 
 

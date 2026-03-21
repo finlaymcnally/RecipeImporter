@@ -477,3 +477,18 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if prose-heavy books regress again, inspect label semantics before changing deterministic grouping or scorer code; these March 18 failures were prompt-contract problems first
+
+## 2026-03-19 line-role collapse and authority-surface cleanup
+
+Problem:
+- direct line-role follow-up work briefly exposed two related failures:
+  - degenerate packet outputs could collapse toward one repeated label family and still look superficially “complete”
+  - Codex-style agent behavior could treat wrapper/examples as the real task instead of the owned stored rows
+
+What stuck:
+- parent shards now fail closed when any task packet returns unowned or otherwise invalid rows; baseline rows may still exist for local debugging, but they no longer masquerade as reviewed success
+- the durable authority rule is “stored task files first”: worker-local `in/*.json` plus repo-written `hints/*.md` / `debug/*.json` are the real line-role surface, and structured follow-ups must rebuild from those stored inputs instead of from illustrative wrapper examples
+- the short-lived inline-authority workaround from the one-shot direct-exec phase is history, not the current contract; the later workspace-worker/task-packet runtime kept the anti-loop lesson while moving authority back into named local files
+
+Still true:
+- if line-role output seems clever but wrong, inspect which file or prompt surface the model was actually treating as authoritative before changing labels, retry policy, or watchdog rules

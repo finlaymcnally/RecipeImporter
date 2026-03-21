@@ -72,7 +72,7 @@ _TOP_TIER_CODEXFARM_PATCH: dict[str, Any] = {
     "llm_recipe_pipeline": RECIPE_CODEX_PIPELINE,
     "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE,
     "line_role_pipeline": LINE_ROLE_CODEX_PIPELINE,
-    "atomic_block_splitter": "atomic-v1",
+    "atomic_block_splitter": "off",
 }
 _TOP_TIER_VANILLA_PATCH: dict[str, Any] = {
     **_TOP_TIER_PARSER_STACK_PATCH,
@@ -86,7 +86,6 @@ _BENCHMARK_CODEXFARM_PATCH: dict[str, Any] = {
     "llm_recipe_pipeline": RECIPE_CODEX_PIPELINE,
     "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE,
     "line_role_pipeline": LINE_ROLE_CODEX_PIPELINE,
-    "atomic_block_splitter": "atomic-v1",
 }
 
 
@@ -99,6 +98,15 @@ def _normalize_prelabel_provider(value: Any) -> str:
     if normalized == "codex_farm":
         return PRELABEL_CODEX_PROVIDER
     return normalized
+
+
+def _normalize_atomic_block_splitter_for_benchmark(value: Any) -> str:
+    normalized = _normalize_text(value)
+    if normalized in {"", "off"}:
+        return "off"
+    if normalized == "atomic-v1":
+        return "atomic-v1"
+    return "off"
 
 
 def _surface_list(*pairs: tuple[bool, str]) -> tuple[str, ...]:
@@ -260,6 +268,9 @@ def apply_top_tier_profile_contract(
 def apply_benchmark_baseline_contract(payload: Mapping[str, Any]) -> dict[str, Any]:
     normalized = dict(payload)
     normalized.update(_BENCHMARK_BASELINE_PATCH)
+    normalized["atomic_block_splitter"] = _normalize_atomic_block_splitter_for_benchmark(
+        payload.get("atomic_block_splitter")
+    )
     return normalized
 
 
@@ -268,6 +279,9 @@ def apply_benchmark_codex_contract_from_baseline(
 ) -> dict[str, Any]:
     codex_payload = dict(baseline_payload)
     codex_payload.update(_BENCHMARK_CODEXFARM_PATCH)
+    codex_payload["atomic_block_splitter"] = _normalize_atomic_block_splitter_for_benchmark(
+        baseline_payload.get("atomic_block_splitter")
+    )
     return codex_payload
 
 

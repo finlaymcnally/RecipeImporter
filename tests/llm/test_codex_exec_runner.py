@@ -154,6 +154,12 @@ def test_codex_exec_runner_classifies_final_agent_messages() -> None:
     malformed = assess_final_agent_message("thinking...\n{\"v\":\"2\"}")
     assert malformed.state == "malformed"
     assert "did not start" in str(malformed.reason)
+    informational = assess_final_agent_message(
+        "Finished local task loop.",
+        workspace_mode="workspace_worker",
+    )
+    assert informational.state == "informational"
+    assert "informational only" in str(informational.reason)
     json_object = assess_final_agent_message('{"v":"2","bid":"shard-001","r":[]}')
     assert json_object.state == "json_object"
     assert json_object.reason is None
@@ -367,4 +373,3 @@ def test_build_codex_exec_command_can_request_workspace_write(tmp_path: Path) ->
     )
 
     assert command[command.index("--sandbox") + 1] == "workspace-write"
-

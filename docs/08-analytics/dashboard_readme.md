@@ -48,7 +48,7 @@ This CSV is populated by:
   - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name`, run-config runtime metadata, and `tokens_*` usage columns from manifests)
 - After successful CSV writes, these commands now auto-refresh dashboard artifacts under the same history root (`.history/dashboard`) in best-effort mode.
 - All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites; deferred all-method refreshes now target `history_root_for_output(output_root)/dashboard` (usually `.history/dashboard` for repo-local outputs) instead of nested run-local dashboard snapshots.
-- Interactive single-offline benchmark suppresses per-variant refreshes and refreshes once after the full variant batch completes, targeting the lifetime dashboard path (`history_root_for_output(output_root)/dashboard`, usually `.history/dashboard` for repo-local outputs).
+- Interactive single-book benchmark suppresses per-variant refreshes and refreshes once after the full variant batch completes, targeting the lifetime dashboard path (`history_root_for_output(output_root)/dashboard`, usually `.history/dashboard` for repo-local outputs).
 
 ### Stage-report fallback/supplement
 
@@ -59,8 +59,8 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 ### Benchmark JSON source
 
 - `data/golden/benchmark-vs-golden/*/eval_report.json`
-- `data/golden/benchmark-vs-golden/*/single-offline-benchmark/*/eval_report.json`
-- `data/golden/benchmark-vs-golden/*/single-offline-benchmark/*/*/eval_report.json`
+- `data/golden/benchmark-vs-golden/*/single-book-benchmark/*/eval_report.json`
+- `data/golden/benchmark-vs-golden/*/single-book-benchmark/*/*/eval_report.json`
 - `data/golden/benchmark-vs-golden/*/all-method-benchmark/*/config_*/eval_report.json`
 - `data/golden/*/eval_report.json`
 
@@ -116,7 +116,7 @@ Notes:
   - `all-method-benchmark/<source_slug>/config_*`
   - `single-profile-benchmark/<source_slug>`
   (CSV-first; no extra dashboard-only metric store). The hierarchy is run summary -> per-book detail, and all pages are written under `.history/dashboard/all-method-benchmark/`.
-- `single-offline-benchmark/{vanilla,codexfarm}` eval directories are collected and shown in the regular benchmark tables/metrics (not grouped into all-method standalone pages).
+- `single-book-benchmark/{vanilla,codexfarm}` eval directories are collected and shown in the regular benchmark tables/metrics (not grouped into all-method standalone pages).
 - Analytics semantics note:
   - `vanilla` is reserved for official paired benchmark variants that stay fully deterministic from the Codex point of view: `llm_recipe_pipeline=off` and line-role either `off` or `deterministic-v1`.
   - Rows with recipe AI off but Codex line-role on are shown as `Line-role only`, not `vanilla`.
@@ -133,12 +133,12 @@ Notes:
   - Runtime card surfaces best-effort AI context from benchmark run-config metadata (`model`, `thinking effort`, pipeline mode) within the latest preferred run group (non-speed preferred).
   - Runtime card surfaces `Token use` as a run-group total using the same cached-adjusted discounted token formula as `All token use` (sum across rows in that run group), with compact `k`/`m` display for large values.
   - Runtime card now also surfaces `Quality / 1M tokens`, `Delta quality vs vanilla`, `Delta quality / 1M extra tokens vs vanilla`, and peer-run efficiency rank (`Quality/tokens vs peers`) for quick token-efficiency checks.
-  - When multiple latest rows share one timestamp (for example single-offline `codexfarm` + `vanilla`), diagnostics prefers the row with richer AI metadata (model/effort/pipeline-on) instead of defaulting to `off`.
+  - When multiple latest rows share one timestamp (for example single-book `codexfarm` + `vanilla`), diagnostics prefers the row with richer AI metadata (model/effort/pipeline-on) instead of defaulting to `off`.
   - If benchmark run-config is missing codex model/effort, collector backfills from benchmark manifest `llm_codex_farm.process_runs.*.process_payload` (and telemetry reasoning breakdown fallback) so codex rows do not show false `off` labels.
   - When run-config omits explicit model/effort (for example defaults), collector backfills from prediction-run manifest `llm_codex_farm` runtime payload when available.
   - When both speed-suite benchmark rows (`.../bench/speed/runs/...`) and regular benchmark rows exist, diagnostics prefer the latest non-speed rows to avoid one-target speed samples overriding multi-book benchmark diagnostics.
   - Speed/non-speed and all-method detection normalizes `artifact_dir` path separators first, so Windows-style `\\` paths in history data are handled the same as `/`.
-  - Canonical-text benchmark reports now include `boundary` counts again, so boundary diagnostics can advance with current single-offline/all-method benchmark rows instead of falling back to older freeform-eval rows.
+  - Canonical-text benchmark reports now include `boundary` counts again, so boundary diagnostics can advance with current single-book/all-method benchmark rows instead of falling back to older freeform-eval rows.
   - Boundary diagnostics now aggregate all boundary-bearing rows at the latest preferred benchmark run-group key (artifact-path timestamp token fallback to record timestamp), so twinned `vanilla`/`codexfarm` evals are grouped even when eval completion timestamps differ.
   - Boundary diagnostics include matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so `100/0/0` splits are read as matched-boundary-only.
   - Boundary table shows `% of gold` only (clean denominator), plus `Matched (boundary unclassified)` and `Unmatched gold spans` rows so gaps are visible in one pass.
@@ -147,7 +147,7 @@ Notes:
   - Per-label diagnostics include a run selector beside the card title with `Default - most recent` plus every available run-group timestamp, so you can pin the table to an older run or keep it auto-following the latest run.
   - Per-label diagnostics include a small `Rolling N` selector in-card; rolling comparison columns are codexfarm-only precision/recall under one shared dynamic group header (`<N>-run Rolling <Mode>:`).
   - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + comparison columns.
-  - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-offline twinned runs count as one group.
+  - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-book twinned runs count as one group.
   - Per-label metric headers are intentionally three-line (`group`, `metric`, `(variant)`) and left-aligned to keep diagnostic columns narrower on single-screen layouts.
   - Per-label table is content-sized (no forced full-card width) with compact fixed-width metric/count columns so comparison values stay dense; horizontal scroll remains available for overflow.
 - `Previous Runs`: full-history table with key benchmark columns only.
@@ -223,14 +223,14 @@ Notes:
   - Previous Runs table keeps desktop readability with a clamped baseline width, then switches to wrap-friendly cells on narrow viewports so the section shrinks with the screen instead of pinning to a fixed wide layout.
   - Trend charts now include a `Trend fields` checklist (`Select all` / `Clear`) so you can add/remove any number of numeric benchmark fields. Default selection remains `strict_accuracy` + `macro_f1_excluding_other`.
   - A `Quick Filters` section sits between the trend chart and table:
-    - `Official benchmarks only (single-offline vanilla/codexfarm)` keeps the chart/table focused on paired single-offline benchmark mode used for headline comparisons.
+    - `Official benchmarks only (single-book vanilla/codexfarm)` keeps the chart/table focused on paired single-book benchmark mode used for headline comparisons.
     - `Exclude AI test/smoke benchmark runs` remains available as a cleanup toggle for older saved dashboard payloads.
     - `Clear all filters` resets quick filters and per-column table filters in one click.
   - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
   - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps), with per-series dashed rolling trend overlays only.
   - Rolling trend overlays are built from one median point per benchmark run-group (`runGroupKey`), so large multi-book runs do not outweigh smaller runs just because they emitted more rows.
   - Rolling trend overlays now shrink their averaging window at the beginning/end of a series instead of reusing the same full tail window, which avoids artificially flat final segments when the last few runs are still moving.
-  - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct, while any additional visible variants in the same filtered set (for example hybrid/deterministic single-offline rows) still keep their own series instead of disappearing.
+  - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct, while any additional visible variants in the same filtered set (for example hybrid/deterministic single-book rows) still keep their own series instead of disappearing.
   - Paired benchmark variants now share one x-axis position per benchmark run-group timestamp token (artifact-path token preferred, row timestamp fallback), so same-run `codexfarm`/`vanilla` points no longer drift horizontally.
   - Trend run-group timestamp extraction now checks `artifact_dir`, `run_dir`, and `report_path`; when `benchmark-vs-golden` appears in a path, it uses the first timestamp token after that marker so deeper variant-local timestamp folders do not shift paired `codexfarm`/`vanilla` points onto different x positions.
   - Hovering any trend point shows a point-only tooltip card: the hovered dot's exact score, book/source label, variant, and eval-row timestamp (no run-group/overall series summary).

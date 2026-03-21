@@ -722,10 +722,109 @@ def _coerce_mapping_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+_RECIPE_COMPACT_TOP_LEVEL_KEYS = frozenset({"v", "sid", "r"})
+_RECIPE_COMPACT_RESULT_KEYS = frozenset({"v", "rid", "st", "sr", "cr", "m", "mr", "g", "w"})
+_RECIPE_COMPACT_CANONICAL_KEYS = frozenset({"t", "i", "s", "d", "y"})
+_RECIPE_COMPACT_MAPPING_KEYS = frozenset({"i", "s"})
+_RECIPE_COMPACT_TAG_KEYS = frozenset({"c", "l", "f"})
+_RECIPE_LEGACY_KEY_SUGGESTIONS = {
+    "bundle_version": "v",
+    "shard_id": "sid",
+    "results": "r",
+    "recipes": "r",
+    "recipe_id": "rid",
+    "repair_status": "st",
+    "status_reason": "sr",
+    "canonical_recipe": "cr",
+    "ingredient_step_mapping": "m",
+    "ingredient_step_mapping_reason": "mr",
+    "selected_tags": "g",
+    "warnings": "w",
+    "not_a_recipe": "st=not_a_recipe",
+    "fragmentary": "st=fragmentary",
+    "notes": "sr or w",
+    "title": "cr.t",
+    "ingredients": "cr.i",
+    "steps": "cr.s",
+    "description": "cr.d",
+    "recipeYield": "cr.y",
+    "recipe_yield": "cr.y",
+    "category": "c",
+    "label": "l",
+    "confidence": "f",
+}
+
+
+def _recipe_compact_contract_error(*, path: str, key: str) -> str:
+    suggestion = _RECIPE_LEGACY_KEY_SUGGESTIONS.get(key)
+    if suggestion:
+        return (
+            f"invalid_shard_output:{path} legacy key `{key}` is invalid for recipe "
+            f"workspace output; use `{suggestion}`"
+        )
+    return f"invalid_shard_output:{path} unexpected key `{key}` is not permitted"
+
+
+def _validate_recipe_compact_output_keys(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    errors: list[str] = []
+    for key in sorted(str(name) for name in payload.keys() if str(name) not in _RECIPE_COMPACT_TOP_LEVEL_KEYS):
+        errors.append(_recipe_compact_contract_error(path="root", key=key))
+    rows = payload.get("r")
+    if isinstance(rows, list):
+        for row_index, row in enumerate(rows):
+            if not isinstance(row, Mapping):
+                continue
+            row_path = f"r[{row_index}]"
+            for key in sorted(
+                str(name) for name in row.keys() if str(name) not in _RECIPE_COMPACT_RESULT_KEYS
+            ):
+                errors.append(_recipe_compact_contract_error(path=row_path, key=key))
+            canonical_recipe = row.get("cr")
+            if isinstance(canonical_recipe, Mapping):
+                canonical_path = f"{row_path}.cr"
+                for key in sorted(
+                    str(name)
+                    for name in canonical_recipe.keys()
+                    if str(name) not in _RECIPE_COMPACT_CANONICAL_KEYS
+                ):
+                    errors.append(_recipe_compact_contract_error(path=canonical_path, key=key))
+            mapping_rows = row.get("m")
+            if isinstance(mapping_rows, list):
+                for mapping_index, mapping_row in enumerate(mapping_rows):
+                    if not isinstance(mapping_row, Mapping):
+                        continue
+                    mapping_path = f"{row_path}.m[{mapping_index}]"
+                    for key in sorted(
+                        str(name)
+                        for name in mapping_row.keys()
+                        if str(name) not in _RECIPE_COMPACT_MAPPING_KEYS
+                    ):
+                        errors.append(_recipe_compact_contract_error(path=mapping_path, key=key))
+            tag_rows = row.get("g")
+            if isinstance(tag_rows, list):
+                for tag_index, tag_row in enumerate(tag_rows):
+                    if not isinstance(tag_row, Mapping):
+                        continue
+                    tag_path = f"{row_path}.g[{tag_index}]"
+                    for key in sorted(
+                        str(name)
+                        for name in tag_row.keys()
+                        if str(name) not in _RECIPE_COMPACT_TAG_KEYS
+                    ):
+                        errors.append(_recipe_compact_contract_error(path=tag_path, key=key))
+    return tuple(errors)
+
+
 def _validate_recipe_shard_output(
     shard: ShardManifestEntryV1,
     payload: dict[str, Any],
 ) -> tuple[bool, Sequence[str], Mapping[str, Any] | None]:
+    compact_contract_errors = _validate_recipe_compact_output_keys(payload)
+    if compact_contract_errors:
+        return False, compact_contract_errors, {
+            "contract": "recipe.correction.compact.v1",
+            "contract_errors": list(compact_contract_errors),
+        }
     try:
         shard_output = RecipeCorrectionShardOutput.model_validate(payload)
     except Exception as exc:  # noqa: BLE001
@@ -790,6 +889,8 @@ def _evaluate_recipe_response(
         payload = _serialize_recipe_correction_shard_output(
             RecipeCorrectionShardOutput.model_validate(parsed_payload)
         )
+    else:
+        payload = None
     proposal_status = "validated" if valid else "invalid"
     return payload, tuple(validation_errors), dict(validation_metadata or {}), proposal_status
 
@@ -1439,7 +1540,7 @@ def _build_recipe_workspace_worker_prompt(
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then read `assigned_tasks.json` for task order and `assigned_shards.json` for shard ownership context.",
+        "1. Open `worker_manifest.json`, then `OUTPUT_CONTRACT.md`, then read `assigned_tasks.json` for task order and `assigned_shards.json` for shard ownership context.",
         "2. Prefer opening the named files directly instead of exploring the workspace.",
         "3. Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `out/`.",
         "4. Stay inside this workspace: do not inspect parent directories or the repository, and do not use repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.",
@@ -1449,12 +1550,14 @@ def _build_recipe_workspace_worker_prompt(
         "",
         "Output contract for each `out/<task_id>.json`:",
         "- Write exactly one JSON object.",
-        "- `sid` must equal the task id.",
+        "- Copy the compact shape from `OUTPUT_CONTRACT.md` and `examples/*.json`.",
+        "- Use compact keys only: top-level `v`, `sid`, `r`; per-recipe `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.",
+        "- `sid` must equal the task id exactly.",
         "- Return exactly one recipe result for each owned recipe id in the task input and no extras.",
-        "- Preserve `not_a_recipe` and `fragmentary` when the candidate is truly unusable.",
+        "- Legacy keys are invalid here, including `results`, `recipes`, `recipe_id`, `repair_status`, `canonical_recipe`, `not_a_recipe`, `fragmentary`, and `notes`.",
         "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned input.",
         "",
-        "Do not return the shard outputs in your final message. The authoritative result is the set of files written under `out/`.",
+        "Your final message is optional telemetry only. Do not paste shard outputs there. The authoritative result is the set of valid files written under `out/`.",
     ]
     if task_ids:
         lines.extend(
@@ -1509,7 +1612,8 @@ def _write_recipe_worker_hint(
         summary_lines=[
             "This sidecar is worker guidance only.",
             "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
-            "Decide recipe vs fragmentary vs not_a_recipe honestly before attempting repair, tags, or ingredient-step links.",
+            "Choose `st=repaired` only when you can restate a real recipe. Choose `st=fragmentary` when recipe evidence exists but is too incomplete to normalize safely. Choose `st=not_a_recipe` when the owned text is not a recipe at all.",
+            "When `st=repaired`, `cr` must be a complete canonical recipe object. When `st` is `fragmentary` or `not_a_recipe`, set `cr` to null and explain the judgment briefly in `sr`.",
             f"Owned recipe candidates in this shard: {len(recipes)}.",
         ],
         sections=[
@@ -1517,13 +1621,180 @@ def _write_recipe_worker_hint(
                 "How to use this packet",
                 [
                     "Treat immediate before/after context as a boundary clue only. The authoritative owned source rows still live in `in/<shard_id>.json`.",
-                    "If the candidate clearly is not a recipe, preserve that judgment instead of forcing a repaired recipe.",
-                    "Use tags only when they are obvious from the source text.",
+                    "Do not force a repaired recipe when the source is better described as fragmentary or not_a_recipe.",
+                    "Use tags only when they are obvious from the source text, and keep `g` empty otherwise.",
+                    "Keep `m` and `mr` honest. If there is no meaningful ingredient-step mapping, leave `m` empty and say why in `mr`.",
                 ],
             ),
             ("Recipe candidate summaries", recipe_lines or ["No recipe summaries available."]),
         ],
     )
+
+
+def _build_recipe_workspace_contract_examples(
+    *,
+    tasks: Sequence[_RecipeTaskPlan],
+) -> dict[str, dict[str, Any]]:
+    sample_task = tasks[0] if tasks else None
+    sample_task_id = "recipe-task-example"
+    sample_recipe_id = "recipe-id-example"
+    sample_title = "Example Recipe"
+    sample_ingredients = ["1 example ingredient"]
+    sample_steps = ["Do the example step."]
+    if sample_task is not None:
+        payload = _coerce_dict(sample_task.manifest_entry.input_payload)
+        sample_task_id = str(sample_task.task_id or sample_task_id)
+        recipe_rows = [row for row in (payload.get("r") or []) if isinstance(row, Mapping)]
+        if recipe_rows:
+            recipe_row = dict(recipe_rows[0])
+            sample_recipe_id = str(recipe_row.get("rid") or sample_recipe_id)
+            hint_payload = _coerce_dict(recipe_row.get("h"))
+            sample_title = str(hint_payload.get("n") or sample_title)
+            sample_ingredients = [
+                str(item).strip()
+                for item in (hint_payload.get("i") or [])
+                if str(item).strip()
+            ] or sample_ingredients
+            sample_steps = [
+                str(item).strip()
+                for item in (hint_payload.get("s") or [])
+                if str(item).strip()
+            ] or sample_steps
+    return {
+        "valid_repaired_task_output.json": {
+            "v": "1",
+            "sid": sample_task_id,
+            "r": [
+                {
+                    "v": "1",
+                    "rid": sample_recipe_id,
+                    "st": "repaired",
+                    "sr": None,
+                    "cr": {
+                        "t": sample_title,
+                        "i": sample_ingredients,
+                        "s": sample_steps,
+                        "d": None,
+                        "y": None,
+                    },
+                    "m": [],
+                    "mr": "not_needed_single_step",
+                    "g": [],
+                    "w": [],
+                }
+            ],
+        },
+        "valid_fragmentary_task_output.json": {
+            "v": "1",
+            "sid": sample_task_id,
+            "r": [
+                {
+                    "v": "1",
+                    "rid": sample_recipe_id,
+                    "st": "fragmentary",
+                    "sr": "recipe evidence exists but the owned text is too incomplete to normalize safely",
+                    "cr": None,
+                    "m": [],
+                    "mr": "not_applicable_fragmentary",
+                    "g": [],
+                    "w": ["incomplete_recipe_source"],
+                }
+            ],
+        },
+        "valid_not_a_recipe_task_output.json": {
+            "v": "1",
+            "sid": sample_task_id,
+            "r": [
+                {
+                    "v": "1",
+                    "rid": sample_recipe_id,
+                    "st": "not_a_recipe",
+                    "sr": "owned text is not a recipe",
+                    "cr": None,
+                    "m": [],
+                    "mr": "not_applicable_not_a_recipe",
+                    "g": [],
+                    "w": [],
+                }
+            ],
+        },
+    }
+
+
+def _build_recipe_workspace_contract_markdown(
+    *,
+    examples: Mapping[str, Mapping[str, Any]],
+) -> str:
+    repaired_example = json.dumps(
+        dict(examples.get("valid_repaired_task_output.json") or {}),
+        indent=2,
+        sort_keys=True,
+    )
+    fragmentary_example = json.dumps(
+        dict(examples.get("valid_fragmentary_task_output.json") or {}),
+        indent=2,
+        sort_keys=True,
+    )
+    not_a_recipe_example = json.dumps(
+        dict(examples.get("valid_not_a_recipe_task_output.json") or {}),
+        indent=2,
+        sort_keys=True,
+    )
+    return "\n".join(
+        [
+            "# Recipe Workspace Output Contract",
+            "",
+            "Write one JSON object per task to `out/<task_id>.json`.",
+            "",
+            "Compact keys only:",
+            "- Top level: `v` bundle version, `sid` task id, `r` recipe-result array.",
+            "- Per recipe row: `rid` recipe id, `st` status, `sr` short reason, `cr` canonical recipe, `m` ingredient-step mapping, `mr` mapping reason, `g` selected tags, `w` warnings.",
+            "- Canonical recipe `cr`: `t` title, `i` ingredients, `s` steps, `d` description, `y` yield.",
+            "",
+            "Status rules:",
+            "- `st=repaired`: `cr` must be a full canonical recipe object.",
+            "- `st=fragmentary`: recipe evidence exists but is too incomplete to normalize safely; set `cr` to null and explain why in `sr`.",
+            "- `st=not_a_recipe`: the owned text is not a recipe; set `cr` to null and explain briefly in `sr`.",
+            "",
+            "Hard invariants:",
+            "- `sid` must equal the current task id exactly.",
+            "- Return exactly one row for each owned `rid` in `in/<task_id>.json` and no extras.",
+            "- Copy the shape from the examples, then replace the example ids with the task-local `sid` and `rid` values.",
+            "",
+            "Forbidden legacy keys:",
+            "- Never write `results`, `recipes`, `recipe_id`, `repair_status`, `status_reason`, `canonical_recipe`, `ingredient_step_mapping`, `selected_tags`, `warnings`, `not_a_recipe`, `fragmentary`, or `notes`.",
+            "",
+            "Valid repaired example:",
+            repaired_example,
+            "",
+            "Valid fragmentary example:",
+            fragmentary_example,
+            "",
+            "Valid not_a_recipe example:",
+            not_a_recipe_example,
+            "",
+            "Machine-readable copies of these examples also live under `examples/`.",
+        ]
+    ) + "\n"
+
+
+def _write_recipe_workspace_contract_sidecars(
+    *,
+    worker_root: Path,
+    tasks: Sequence[_RecipeTaskPlan],
+) -> None:
+    examples = _build_recipe_workspace_contract_examples(tasks=tasks)
+    examples_dir = worker_root / "examples"
+    examples_dir.mkdir(parents=True, exist_ok=True)
+    (worker_root / "OUTPUT_CONTRACT.md").write_text(
+        _build_recipe_workspace_contract_markdown(examples=examples),
+        encoding="utf-8",
+    )
+    for filename, payload in examples.items():
+        (examples_dir / filename).write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _distribute_recipe_session_value(value: Any, task_count: int) -> list[int]:
@@ -1965,6 +2236,11 @@ def _run_recipe_workspace_worker_assignment_v1(
         [asdict(_build_recipe_task_runtime_manifest_entry(task)) for task in runnable_tasks],
         worker_root / "assigned_tasks.json",
     )
+    if runnable_tasks:
+        _write_recipe_workspace_contract_sidecars(
+            worker_root=worker_root,
+            tasks=runnable_tasks,
+        )
     for task in runnable_tasks:
         task_manifest = task.manifest_entry
         input_path = in_dir / f"{task_manifest.shard_id}.json"
@@ -2516,22 +2792,6 @@ def _run_direct_recipe_workers_v1(
             if remaining <= 0:
                 return first_task_id
             return f"{first_task_id} (+{remaining} more)"
-        pending_shards = pending_shards_by_worker.get(worker_id) or []
-        if pending_shards:
-            first_shard_id = str(pending_shards[0]).strip() or "[unknown shard]"
-            remaining = max(0, len(pending_shards) - 1)
-            repair_attempted, repair_completed, repair_running = (
-                _recipe_worker_followup_status(worker_id=worker_id)
-            )
-            if repair_running > 0:
-                suffix = f" repair {repair_completed}/{repair_attempted}"
-            elif repair_attempted > 0:
-                suffix = f" finalize repaired {repair_completed}/{repair_attempted}"
-            else:
-                suffix = " finalize"
-            if remaining <= 0:
-                return f"{first_shard_id}{suffix}"
-            return f"{first_shard_id}{suffix} (+{remaining} more)"
         return None
 
     def _emit_progress_locked(*, force: bool = False) -> None:
@@ -2560,12 +2820,17 @@ def _run_direct_recipe_workers_v1(
             if label is not None
         ]
         running_workers = len(active_tasks)
+        completed_workers = max(0, len(assignments) - running_workers)
         if total_tasks > 0:
             message = f"Running recipe correction... task {completed_tasks}/{total_tasks}"
             repair_attempted = 0
             repair_completed = 0
             repair_running = 0
             finalize_workers = 0
+            proposal_count = 0
+            proposals_dir = run_root / artifacts["proposals_dir"]
+            if proposals_dir.exists():
+                proposal_count = len(list(proposals_dir.glob("*.json")))
             for assignment in assignments:
                 worker_repair_attempted, worker_repair_completed, worker_repair_running = (
                     _recipe_worker_followup_status(worker_id=assignment.worker_id)
@@ -2599,6 +2864,12 @@ def _run_direct_recipe_workers_v1(
                 running_workers,
                 tuple(active_tasks),
                 tuple(detail_lines),
+                completed_workers,
+                repair_attempted,
+                repair_completed,
+                repair_running,
+                finalize_workers,
+                proposal_count,
             )
             if not force and snapshot == last_progress_snapshot:
                 return
@@ -2607,10 +2878,27 @@ def _run_direct_recipe_workers_v1(
                 format_stage_progress(
                     message,
                     stage_label="recipe pipeline",
+                    work_unit_label="recipe task",
                     task_current=completed_tasks,
                     task_total=total_tasks,
                     running_workers=running_workers,
                     worker_total=len(assignments),
+                    worker_running=running_workers,
+                    worker_completed=completed_workers,
+                    worker_failed=0,
+                    followup_running=finalize_workers + repair_running,
+                    followup_completed=completed_shards,
+                    followup_total=total_shards,
+                    followup_label="shard finalization",
+                    artifact_counts={
+                        "proposal_count": proposal_count,
+                        "repair_attempted": repair_attempted,
+                        "repair_completed": repair_completed,
+                        "repair_running": repair_running,
+                        "shards_completed": completed_shards,
+                        "shards_total": total_shards,
+                    },
+                    last_activity_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     active_tasks=active_tasks,
                     detail_lines=detail_lines,
                 )
@@ -2633,10 +2921,18 @@ def _run_direct_recipe_workers_v1(
             format_stage_progress(
                 f"Running recipe correction... task {completed_shards}/{total_shards}",
                 stage_label="recipe pipeline",
+                work_unit_label="recipe shard",
                 task_current=completed_shards,
                 task_total=total_shards,
                 running_workers=min(len(active_shards), max(0, total_shards - completed_shards)),
                 worker_total=len(assignments),
+                worker_running=min(len(active_shards), max(0, total_shards - completed_shards)),
+                worker_completed=max(
+                    0,
+                    len(assignments)
+                    - min(len(active_shards), max(0, total_shards - completed_shards)),
+                ),
+                worker_failed=0,
                 active_tasks=active_shards[: max(0, total_shards - completed_shards)],
             )
         )
@@ -3083,28 +3379,6 @@ def _run_single_correction_recipe_pipeline(
                 ingredient_step_mapping=correction_output.ingredient_step_mapping,
                 ingredient_step_mapping_reason=correction_output.ingredient_step_mapping_reason,
             )
-            if structural_audit.status == "failed":
-                state.single_correction_status = "error"
-                state.final_assembly_status = "error"
-                state.errors.append(
-                    "recipe correction output rejected: "
-                    + "; ".join(structural_audit.reason_codes)
-                )
-                _write_json(
-                    _build_recipe_correction_audit(
-                        state=state,
-                        correction_input=correction_inputs_by_recipe_id[state.recipe_id],
-                        correction_output=correction_output,
-                        corrected_candidate=corrected_candidate,
-                        final_payload=final_payload,
-                        final_assembly_status="error",
-                        structural_audit=structural_audit,
-                        mapping_status=state.correction_mapping_status,
-                        mapping_reason=state.correction_mapping_reason,
-                    ),
-                    correction_audit_dir / _recipe_artifact_filename(state.recipe_id),
-                )
-                continue
             try:
                 draft_model = RecipeDraftV1.model_validate(final_payload)
             except Exception as exc:  # noqa: BLE001
@@ -3626,8 +3900,8 @@ def _build_structural_audit(reason_codes: list[str]) -> StructuralAuditResult:
     if not normalized:
         return StructuralAuditResult(status="ok", severity="none", reason_codes=[])
     return StructuralAuditResult(
-        status="failed",
-        severity="hard",
+        status="degraded",
+        severity="soft",
         reason_codes=normalized,
     )
 

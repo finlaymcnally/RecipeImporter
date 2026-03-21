@@ -178,14 +178,14 @@ def ai_assistance_profile_label_for_record(record: Any) -> str:
 
 def is_official_golden_benchmark_record(record: Any) -> bool:
     path = _benchmark_path(record)
-    return "/benchmark-vs-golden/" in path and "/single-offline-benchmark/" in path
+    return "/benchmark-vs-golden/" in path and "/single-book-benchmark/" in path
 
 
 def is_official_paired_benchmark_record(record: Any) -> bool:
     path = _benchmark_path(record)
     if "/benchmark-vs-golden/" not in path:
         return False
-    return "/single-offline-benchmark/" in path or "/single-profile-benchmark/" in path
+    return "/single-book-benchmark/" in path or "/single-profile-benchmark/" in path
 
 
 def benchmark_variant_for_record(record: Any) -> str:

@@ -368,6 +368,14 @@ def _notify_knowledge_progress(
     total_tasks: int,
     running_tasks: int | None = None,
     worker_total: int | None = None,
+    worker_running: int | None = None,
+    worker_completed: int | None = None,
+    worker_failed: int | None = None,
+    followup_running: int | None = None,
+    followup_completed: int | None = None,
+    followup_total: int | None = None,
+    followup_label: str | None = None,
+    artifact_counts: dict[str, Any] | None = None,
     active_tasks: list[str] | None = None,
     detail_lines: list[str] | None = None,
 ) -> None:
@@ -387,10 +395,20 @@ def _notify_knowledge_progress(
         format_stage_progress(
             message,
             stage_label="non-recipe knowledge review",
+            work_unit_label="task packet",
             task_current=completed,
             task_total=total,
             running_workers=running_tasks,
             worker_total=worker_total,
+            worker_running=worker_running,
+            worker_completed=worker_completed,
+            worker_failed=worker_failed,
+            followup_running=followup_running,
+            followup_completed=followup_completed,
+            followup_total=followup_total,
+            followup_label=followup_label,
+            artifact_counts=artifact_counts,
+            last_activity_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             active_tasks=active_tasks,
             detail_lines=resolved_detail_lines,
         )
@@ -410,9 +428,9 @@ class _KnowledgeWorkerProgressState:
     def visible_task_packets(self) -> int:
         return max(self.live_task_packets, len(self.terminal_task_ids))
 
-    def render_label(self) -> str | None:
+    def render_worker_label(self) -> str | None:
         if self.active_followup_label:
-            return self.active_followup_label
+            return None
         if len(self.terminal_task_ids) >= self.total_task_packets and not self.pending_shard_ids:
             return None
         shard_ids = self.pending_shard_ids or list(self.shard_ids)
@@ -429,6 +447,9 @@ class _KnowledgeWorkerProgressState:
             f"({self.visible_task_packets()}/{self.total_task_packets} task packets)"
         )
 
+    def worker_session_completed(self) -> bool:
+        return self.visible_task_packets() >= self.total_task_packets
+
 
 @dataclass(slots=True)
 class _KnowledgePhaseProgressState:
@@ -440,6 +461,8 @@ class _KnowledgePhaseProgressState:
     worker_states: dict[str, _KnowledgeWorkerProgressState]
     completed_shard_ids: set[str] = field(default_factory=set)
     running_followup_counts: dict[str, int] = field(default_factory=dict)
+    completed_followup_counts: dict[str, int] = field(default_factory=dict)
+    observed_followup_counts: dict[str, int] = field(default_factory=dict)
     last_snapshot_key: tuple[Any, ...] | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -554,6 +577,9 @@ class _KnowledgePhaseProgressState:
             self.running_followup_counts[cleaned_kind] = (
                 int(self.running_followup_counts.get(cleaned_kind) or 0) + 1
             )
+            self.observed_followup_counts[cleaned_kind] = (
+                int(self.observed_followup_counts.get(cleaned_kind) or 0) + 1
+            )
             self._emit_locked()
 
     def end_followup(self, *, worker_id: str, followup_kind: str) -> None:
@@ -568,13 +594,16 @@ class _KnowledgePhaseProgressState:
                 self.running_followup_counts.pop(cleaned_kind, None)
             else:
                 self.running_followup_counts[cleaned_kind] = current - 1
+            self.completed_followup_counts[cleaned_kind] = (
+                int(self.completed_followup_counts.get(cleaned_kind) or 0) + 1
+            )
             self._emit_locked()
 
     def _emit_locked(self, *, force: bool = False) -> None:
         active_tasks = [
             label
             for worker_id in self.worker_order
-            for label in [self.worker_states[worker_id].render_label()]
+            for label in [self.worker_states[worker_id].render_worker_label()]
             if label is not None
         ]
         completed_task_packets = min(
@@ -585,6 +614,11 @@ class _KnowledgePhaseProgressState:
             ),
         )
         running_workers = len(active_tasks)
+        completed_workers = sum(
+            1
+            for worker_state in self.worker_states.values()
+            if worker_state.worker_session_completed() and worker_state.render_worker_label() is None
+        )
         detail_lines = [
             f"configured workers: {self.worker_total}",
             f"completed shards: {len(self.completed_shard_ids)}/{self.total_shards}",
@@ -592,6 +626,9 @@ class _KnowledgePhaseProgressState:
         ]
         repair_running = int(self.running_followup_counts.get("repair") or 0)
         retry_running = int(self.running_followup_counts.get("retry") or 0)
+        followup_running = sum(int(value) for value in self.running_followup_counts.values())
+        followup_completed = sum(int(value) for value in self.completed_followup_counts.values())
+        followup_total = sum(int(value) for value in self.observed_followup_counts.values())
         if repair_running > 0:
             detail_lines.append(f"repair calls running: {repair_running}")
         if retry_running > 0:
@@ -612,6 +649,19 @@ class _KnowledgePhaseProgressState:
             total_tasks=self.total_task_packets,
             running_tasks=running_workers,
             worker_total=self.worker_total,
+            worker_running=running_workers,
+            worker_completed=completed_workers,
+            worker_failed=0,
+            followup_running=followup_running,
+            followup_completed=followup_completed,
+            followup_total=followup_total,
+            followup_label="repair/retry",
+            artifact_counts={
+                "repairs_running": repair_running,
+                "retries_running": retry_running,
+                "shards_completed": len(self.completed_shard_ids),
+                "shards_total": self.total_shards,
+            },
             active_tasks=active_tasks,
             detail_lines=detail_lines,
         )

@@ -118,38 +118,38 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
         "auto",
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
-        benchmark_eval_output / "single-offline-benchmark" / "vanilla",
-        benchmark_eval_output / "single-offline-benchmark" / "codexfarm",
+        benchmark_eval_output / "single-book-benchmark" / "vanilla",
+        benchmark_eval_output / "single-book-benchmark" / "codexfarm",
     ]
     assert [call["processed_output_dir"] for call in benchmark_calls] == [
         processed_output_root
         / benchmark_eval_output.name
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "vanilla",
         processed_output_root
         / benchmark_eval_output.name
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "codexfarm",
     ]
 
     comparison_json = (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "codex_vs_vanilla_comparison.json"
     )
     comparison_md = (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "codex_vs_vanilla_comparison.md"
     )
     assert comparison_json.exists()
     assert not comparison_md.exists()
     assert len(refresh_calls) == 1
-    assert refresh_calls[0]["reason"] == "single-offline benchmark variant batch append"
+    assert refresh_calls[0]["reason"] == "single-book benchmark variant batch append"
     assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
         processed_output_root
         / benchmark_eval_output.name
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
     )
     assert refresh_calls[0]["output_root"] == processed_output_root
@@ -369,14 +369,14 @@ def test_interactive_single_offline_uses_book_slug_in_session_root_when_source_s
     source_slug = cli.slugify_name(source_file.stem)
     assert benchmark_calls[0]["eval_output_dir"] == (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / source_slug
         / "vanilla"
     )
     assert benchmark_calls[0]["processed_output_dir"] == (
         processed_output_root
         / benchmark_eval_output.name
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / source_slug
         / "vanilla"
     )
@@ -445,24 +445,24 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
     assert len(benchmark_calls) == 1
     assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
     assert benchmark_calls[0]["eval_output_dir"] == (
-        benchmark_eval_output / "single-offline-benchmark" / "vanilla"
+        benchmark_eval_output / "single-book-benchmark" / "vanilla"
     )
     assert not (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "codex_vs_vanilla_comparison.json"
     ).exists()
     assert not (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "codex_vs_vanilla_comparison.md"
     ).exists()
     assert len(refresh_calls) == 1
-    assert refresh_calls[0]["reason"] == "single-offline benchmark variant batch append"
+    assert refresh_calls[0]["reason"] == "single-book benchmark variant batch append"
     assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
         processed_output_root
         / benchmark_eval_output.name
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
     )
     assert refresh_calls[0]["output_root"] == processed_output_root
@@ -534,12 +534,12 @@ def test_interactive_single_offline_fully_vanilla_still_uses_vanilla_slug(
     assert benchmark_calls[0]["line_role_pipeline"] == "off"
     assert benchmark_calls[0]["atomic_block_splitter"] == "off"
     assert benchmark_calls[0]["eval_output_dir"] == (
-        benchmark_eval_output / "single-offline-benchmark" / "vanilla"
+        benchmark_eval_output / "single-book-benchmark" / "vanilla"
     )
     assert benchmark_calls[0]["processed_output_dir"] == (
         processed_output_root
         / benchmark_eval_output.name
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "vanilla"
     )
 
@@ -606,21 +606,21 @@ def test_interactive_single_offline_hybrid_run_uses_profile_slug_not_vanilla(
     assert benchmark_calls[0]["line_role_pipeline"] == "codex-line-role-shard-v1"
     assert benchmark_calls[0]["atomic_block_splitter"] == "atomic-v1"
     assert benchmark_calls[0]["eval_output_dir"] == (
-        benchmark_eval_output / "single-offline-benchmark" / "line_role_only"
+        benchmark_eval_output / "single-book-benchmark" / "line_role_only"
     )
     assert benchmark_calls[0]["processed_output_dir"] == (
         processed_output_root
         / benchmark_eval_output.name
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "line_role_only"
     )
     summary_text = (
-        benchmark_eval_output / "single-offline-benchmark" / "single_offline_summary.md"
+        benchmark_eval_output / "single-book-benchmark" / "single_book_summary.md"
     ).read_text(encoding="utf-8")
     assert "line_role_only" in summary_text
     assert not (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "codex_vs_vanilla_comparison.json"
     ).exists()
 
@@ -687,8 +687,8 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     assert completed is True
     assert len(benchmark_calls) == 2
     assert all(call["write_markdown"] is False for call in benchmark_calls)
-    session_root = benchmark_eval_output / "single-offline-benchmark"
-    summary_path = session_root / "single_offline_summary.md"
+    session_root = benchmark_eval_output / "single-book-benchmark"
+    summary_path = session_root / "single_book_summary.md"
     assert summary_path.exists()
     md_files = sorted(session_root.rglob("*.md"))
     assert summary_path in md_files
@@ -700,7 +700,7 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
         if path.is_file()
     } == set(cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
     summary_text = summary_path.read_text(encoding="utf-8")
-    assert "Single Offline Benchmark Summary" in summary_text
+    assert "Single Book Benchmark Summary" in summary_text
     assert "Codex vs Vanilla" in summary_text
     assert "codex_vs_vanilla_comparison.json" in summary_text
     assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
@@ -740,7 +740,7 @@ def test_interactive_single_offline_starts_background_oracle_upload(
 
     session_bundle_dir = (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     monkeypatch.setattr(
@@ -765,7 +765,7 @@ def test_interactive_single_offline_starts_background_oracle_upload(
     assert launch_calls == [
         {
             "bundle_dir": session_bundle_dir,
-            "scope": "single_offline",
+            "scope": "single_book",
         }
     ]
 
@@ -814,6 +814,6 @@ def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_c
     assert benchmark_calls[1]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
     assert not (
         benchmark_eval_output
-        / "single-offline-benchmark"
+        / "single-book-benchmark"
         / "codex_vs_vanilla_comparison.json"
     ).exists()

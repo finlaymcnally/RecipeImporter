@@ -95,7 +95,7 @@ _ORACLE_COUNT_RE = re.compile(
     re.IGNORECASE,
 )
 _ORACLE_ROOT_REF_RE = re.compile(
-    r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}/(?:single-profile-benchmark|single-offline-benchmark)(?:/[A-Za-z0-9._-]+)?"
+    r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}/(?:single-profile-benchmark|single-book-benchmark)(?:/[A-Za-z0-9._-]+)?"
 )
 _TIMESTAMP_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}")
 _ORACLE_BENCHMARK_PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
@@ -183,12 +183,12 @@ def _infer_bundle_scope(source_root: Path) -> str:
     parent_name = source_root.parent.name.strip().lower()
     if name == "single-profile-benchmark":
         return "single_profile_group"
-    if name == "single-offline-benchmark":
-        return "single_offline"
+    if name == "single-book-benchmark":
+        return "single_book"
     if parent_name == "single-profile-benchmark":
         return "single_profile_target"
-    if parent_name == "single-offline-benchmark":
-        return "single_offline"
+    if parent_name == "single-book-benchmark":
+        return "single_book"
     return "benchmark_bundle"
 
 

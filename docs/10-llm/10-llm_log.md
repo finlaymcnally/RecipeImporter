@@ -10,6 +10,66 @@ read_when:
 
 Use this file for LLM debugging history that still applies to the current codebase. Retired rollout notes, removed UI paths, and old gating experiments were intentionally pruned.
 
+## 2026-03-21 shared stage-progress contract and summary parity
+
+Problem captured:
+- recipe, line-role, and knowledge were telling different truths in the live UI and post-run artifacts: recipe encoded repo finalization as fake worker labels, line-role still counted parent shards instead of task packets, and only knowledge had a compact stage-local summary
+
+Durable decisions:
+- shared `stage_progress` now carries typed work-unit, worker-session, follow-up, artifact-count, and last-activity fields without breaking older payload readers
+- recipe and line-role now write compact stage-local summaries (`recipe_stage_summary.json`, `line_role_stage_summary.json`) and `stage_observability.json` indexes those beside `knowledge_stage_summary.json`
+- prompt-budget summaries, benchmark timeseries rows, and the live CLI should all prefer that shared typed vocabulary instead of reverse-engineering core state from `detail_lines` or ad hoc worker labels
+
+Evidence worth keeping:
+- the motivating regression was operational, not theoretical: a packet-working run could still render like `task 0/10 | running 10`, and recipe could still look like workers were active when only repo-side finalization remained
+
+Anti-loop note:
+- if a future progress fix proposal depends on parsing `active_tasks` strings again, the emitter is probably missing typed shared fields rather than the renderer needing more special cases
+
+## 2026-03-20 knowledge runtime rebuild around packets, replay, and bounded recovery
+
+Problem captured:
+- the March 20 knowledge runs mixed real packet progress with shard-based UI, malformed/empty outputs, retry storms, worker drift, stale follow-up work, and missing stage-level explanations after interruption
+
+Durable decisions:
+- the packet ledger and replay helper are now the no-token oracle for this stage:
+  - `cookimport/llm/knowledge_runtime_state.py`
+  - `cookimport/llm/knowledge_runtime_replay.py`
+- knowledge workers now run on repo-driven packet leasing (`current_packet.json`, `current_hint.md`, `current_result_path.txt`, `packet_lease_status.json`, `scratch/`) instead of free-form batch ownership over the whole task list
+- workers own semantic packet judgments only; repo code serializes the canonical compact bundle payload after acceptance
+- knowledge retry/repair prompts explicitly restate the compact row keys and strict retries are bounded by both hard subprocess timeouts and silence timeouts
+- main knowledge workers should stop once owned outputs stabilize; post-write self-auditing is now a bug, not a clever extra safety step
+- validate immediately, salvage only narrow mechanical noise, detect poisoned workers early, and bound retry/repair work with explicit budgets plus skip/supersede reasons
+- interrupted runs now write `stage_status.json`, normalize missing finalization artifacts as `skipped_due_to_interrupt` when appropriate, and keep `knowledge_stage_summary.json` as the canonical machine-readable operator summary
+
+Evidence worth keeping:
+- the saved March 20 Salt Fat bundle was important because it proved the failure family mechanically: hundreds of packet artifacts existed while the operator-facing surface still looked shard-frozen, and stale follow-up directories survived after parent work was effectively terminal
+
+Anti-loop note:
+- do not reintroduce monolithic shard retry or let child follow-ups outlive packet truth; once packet state, worker ownership, and accepted output are repo-owned, recovery must stay subordinate to that state
+
+## 2026-03-19 direct-exec hardening, long-lived workers, and authority cleanup
+
+Problem captured:
+- direct `codex exec` on sterile workspaces could fail immediately on trust checks, bad shards could still burn time/tokens before the repo reacted, and one-shot shard answers plus vague worker contracts kept recipe, knowledge, and line-role too brittle
+
+Durable decisions:
+- the shared runner always passes `--skip-git-repo-check`; sterile workspaces remain the right repo-visibility boundary, but the runner must acknowledge that they live outside the trusted git root
+- live runner supervision is now real: stream events, quarantine malformed payloads before spend, preserve `reason_code` / `reason_detail`, and persist `workspace_manifest.json` so shard-local provenance survives
+- recipe gained parity with the strict JSON stages on near-miss repair and on propagated status fields such as `preflight_rejected`, `watchdog_killed`, and repair/live-status metadata
+- main attempts across recipe, knowledge, and line-role now use long-lived workspace-worker sessions with explicit `worker_manifest.json`, `assigned_tasks.json`, `hints/*.md`, and per-task `out/*.json`; structured direct-exec calls are recovery-only
+- prompt/authority lessons from the March 19 line-role failures still apply after the worker cutover: wrapper/example JSON is not authority, stored task files are
+- workspace-worker startup must name local files directly, and watchdog diagnostics must preserve the exact offending command text in `reason_detail`
+- main workspace-worker watchdog policy is now intentionally boundary-based for local shell work, while structured retry/repair calls remain strict one-shot JSON paths
+- worker-facing hint sidecars are first-class now, and recipe defaulted to one candidate-owned task/shard so boundary repair, tagging, and validation stay grounded in local context
+- knowledge shard counts now honor the operator-selected target literally, recording warnings instead of silently widening shard count; semantically empty blanket-`u:false` knowledge outputs are seed-kept but reported as unreviewed/semantically rejected, not as reviewed-empty success
+
+Evidence worth keeping:
+- the first March 19 Salt Fat Acid Heat benchmark after the worker cutover killed all five main line-role workers for trivial `ls` / `pwd` orientation reflexes; fixing the startup contract and then replacing shell-shape policing with a boundary-based main-worker policy solved the right problem
+
+Anti-loop note:
+- if a future fix proposal tries to solve worker drift with prompt wording alone while the repo-owned authority surface is still ambiguous, fix the file/manifest contract first
+
 ## 2026-03-15 docs cleanup for current LLM surfaces
 
 Problem captured:

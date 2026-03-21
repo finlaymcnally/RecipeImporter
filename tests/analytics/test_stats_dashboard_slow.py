@@ -23,7 +23,7 @@ def test_previous_runs_stays_within_viewport_pixels_after_rerenders(tmp_path):
                 artifact_dir=(
                     "/tmp/golden/benchmark-vs-golden/"
                     + ("cookbook_slug_" * 16)
-                    + f"/2026-03-01_10.00.00/single-offline-benchmark/book_{index % 3}"
+                    + f"/2026-03-01_10.00.00/single-book-benchmark/book_{index % 3}"
                     + f"/2026-03-01_10.{index % 60:02d}.00/"
                     + ("codexfarm" if index % 2 else "vanilla")
                 ),
@@ -57,7 +57,7 @@ def test_benchmark_trend_hosts_do_not_gain_horizontal_drift_over_time(tmp_path):
                 artifact_dir=(
                     "/tmp/golden/benchmark-vs-golden/"
                     + ("cookbook_slug_" * 16)
-                    + f"/2026-03-01_10.00.00/single-offline-benchmark/book_{index % 3}"
+                    + f"/2026-03-01_10.00.00/single-book-benchmark/book_{index % 3}"
                     + f"/2026-03-01_10.{index % 60:02d}.00/"
                     + ("codexfarm" if index % 2 else "vanilla")
                 ),

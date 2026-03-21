@@ -38,6 +38,20 @@ Current contract confirmation:
 - Domain folders remain the primary layout, with one intentional root-level cross-domain module: `tests/test_eval_freeform_practical_metrics.py`.
 - Support data surfaces under `tests/fixtures/*`, `tests/tagging_gold/*`, and `tests/paths.py` remain active.
 
+### 2026-03-20 split LLM runtime tests by seam and tighten assertions
+
+Still-active outcomes:
+
+- direct Codex exec workspace/runtime coverage now lives in `tests/llm/test_codex_exec_runner_workspace.py`, while pure helper/classifier coverage stays in `tests/llm/test_codex_exec_runner.py`
+- knowledge worker-runtime/progress coverage now lives in `tests/llm/test_codex_farm_knowledge_orchestrator_runtime.py`, while the large base orchestrator file keeps broader behavior/integration coverage
+- centralized marker routing in `tests/conftest.py` knows about both new files, so `-m llm` treats them as LLM tests instead of silently falling back to `core`
+- moved runtime tests now assert the exact contracts they name: sterile execution cwd, worker-manifest entry files, synced workspace outputs, packet totals, packet-lease finalization, and worker/session telemetry shapes
+- runtime tests that create sterile workspaces must patch the direct-exec home resolver to `tmp_path` rather than inheriting the host machine's `~/.codex-recipe` tree
+
+Anti-loop note:
+
+- if a “focused” runtime test still needs one of the large base files to import unrelated helpers or machine-local Codex-home state, the split probably happened by file length instead of by seam
+
 ## Durable Decisions Still In Effect
 
 ### 2026-02-22 low-noise pytest + domain layout

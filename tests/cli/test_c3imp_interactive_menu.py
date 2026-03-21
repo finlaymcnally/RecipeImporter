@@ -658,7 +658,7 @@ def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_ali
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
     assert selected.line_role_pipeline.value == "codex-line-role-shard-v1"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.atomic_block_splitter.value == "off"
     assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
 
 
@@ -944,7 +944,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected.llm_recipe_pipeline.value == "off"
     assert selected.line_role_pipeline.value == "codex-line-role-shard-v1"
     assert selected.llm_knowledge_pipeline.value == "off"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.atomic_block_splitter.value == "off"
 
 
 def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowledge_only(

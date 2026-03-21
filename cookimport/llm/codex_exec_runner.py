@@ -39,6 +39,8 @@ _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME = "current_packet.json"
 _DIRECT_EXEC_CURRENT_HINT_FILE_NAME = "current_hint.md"
 _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME = "current_result_path.txt"
 _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME = "packet_lease_status.json"
+_DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME = "OUTPUT_CONTRACT.md"
+_DIRECT_EXEC_EXAMPLES_DIR_NAME = "examples"
 _DIRECT_EXEC_OUTPUT_DIR_NAME = "out"
 _DIRECT_EXEC_SCRATCH_DIR_NAME = "scratch"
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
@@ -52,8 +54,10 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
     _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME,
+    _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
     _DIRECT_EXEC_INPUT_DIR_NAME,
     _DIRECT_EXEC_DEBUG_DIR_NAME,
+    _DIRECT_EXEC_EXAMPLES_DIR_NAME,
     _DIRECT_EXEC_HINTS_DIR_NAME,
     _DIRECT_EXEC_LOGS_DIR_NAME,
     _DIRECT_EXEC_OUTPUT_DIR_NAME,
@@ -69,6 +73,7 @@ _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
     _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME,
+    _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
 )
 _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
 _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
@@ -95,7 +100,7 @@ _WORKSPACE_FORBIDDEN_EXECUTABLES = {
     "ssh",
     "wget",
 }
-FinalAgentMessageState = Literal["absent", "malformed", "json_object"]
+FinalAgentMessageState = Literal["absent", "informational", "malformed", "json_object"]
 
 
 class CodexExecRunner(Protocol):
@@ -211,6 +216,7 @@ class CodexExecRunResult:
     duration_ms: int | None = None
     started_at_utc: str | None = None
     finished_at_utc: str | None = None
+    workspace_mode: DirectExecWorkspaceMode = "structured_json"
     supervision_state: str | None = None
     supervision_reason_code: str | None = None
     supervision_reason_detail: str | None = None
@@ -248,7 +254,10 @@ class CodexExecRunResult:
         )
         command_policy_counts = dict(event_summary["command_execution_policy_counts"])
         command_policy_by_command = [dict(row) for row in event_summary["command_execution_policy_by_command"]]
-        final_agent_message = assess_final_agent_message(self.response_text)
+        final_agent_message = assess_final_agent_message(
+            self.response_text,
+            workspace_mode=self.workspace_mode,
+        )
         return {
             "worker_id": worker_id,
             "task_id": shard_id,
@@ -483,6 +492,7 @@ class SubprocessCodexExecRunner:
             working_dir=execution_working_dir,
             env=process_env,
             timeout_seconds=timeout_seconds,
+            workspace_mode=workspace_mode,
             supervision_callback=_wrap_workspace_supervision_callback(
                 supervision_callback=supervision_callback,
                 workspace_mode=workspace_mode,
@@ -533,6 +543,7 @@ class SubprocessCodexExecRunner:
             duration_ms=completed.duration_ms,
             started_at_utc=_format_utc_timestamp(started_at),
             finished_at_utc=_format_utc_timestamp(finished_at),
+            workspace_mode=workspace_mode,
             supervision_state=(
                 completed.termination_decision.supervision_state
                 if completed.termination_decision is not None
@@ -559,6 +570,7 @@ class SubprocessCodexExecRunner:
 @dataclass
 class FakeCodexExecRunner:
     output_builder: Callable[[Mapping[str, Any] | None], dict[str, Any]]
+    workspace_final_message_text: str | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
 
     def run_structured_prompt(
@@ -616,7 +628,10 @@ class FakeCodexExecRunner:
             },
         )
         if supervision_callback is not None:
-            final_agent_message = assess_final_agent_message(response_text)
+            final_agent_message = assess_final_agent_message(
+                response_text,
+                workspace_mode="structured_json",
+            )
             supervision_callback(
                 CodexExecLiveSnapshot(
                     elapsed_seconds=0.0,
@@ -648,6 +663,7 @@ class FakeCodexExecRunner:
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="structured_json",
             supervision_state="completed",
         )
 
@@ -728,7 +744,11 @@ class FakeCodexExecRunner:
                 _DIRECT_EXEC_SCRATCH_DIR_NAME,
             ),
         )
-        response_text = json.dumps({"status": "worker_completed"}, indent=2, sort_keys=True)
+        response_text = (
+            str(self.workspace_final_message_text)
+            if self.workspace_final_message_text is not None
+            else json.dumps({"status": "worker_completed"}, indent=2, sort_keys=True)
+        )
         usage = {
             "input_tokens": max(1, len(execution_prompt_text) // 4),
             "cached_input_tokens": 0,
@@ -752,7 +772,10 @@ class FakeCodexExecRunner:
             },
         )
         if supervision_callback is not None:
-            final_agent_message = assess_final_agent_message(response_text)
+            final_agent_message = assess_final_agent_message(
+                response_text,
+                workspace_mode="workspace_worker",
+            )
             supervision_callback(
                 CodexExecLiveSnapshot(
                     elapsed_seconds=0.0,
@@ -785,6 +808,7 @@ class FakeCodexExecRunner:
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="workspace_worker",
             supervision_state="completed",
         )
 
@@ -842,6 +866,8 @@ def build_direct_exec_workspace_manifest(
         "assigned_shards_path": None,
         "assigned_tasks_path": None,
         "worker_manifest_path": None,
+        "output_contract_path": None,
+        "examples_dir": None,
         "current_packet_path": None,
         "current_hint_path": None,
         "current_result_path_path": None,
@@ -850,6 +876,7 @@ def build_direct_exec_workspace_manifest(
         "mirrored_input_files": [],
         "mirrored_debug_files": [],
         "mirrored_hint_files": [],
+        "mirrored_example_files": [],
         "mirrored_output_files": [],
         "mirrored_scratch_files": [],
     }
@@ -869,6 +896,12 @@ def build_direct_exec_workspace_manifest(
     worker_manifest_path = execution_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME
     if worker_manifest_path.exists():
         payload["worker_manifest_path"] = str(worker_manifest_path)
+    output_contract_path = execution_root / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
+    if output_contract_path.exists():
+        payload["output_contract_path"] = str(output_contract_path)
+    examples_dir = execution_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME
+    if examples_dir.exists() and examples_dir.is_dir():
+        payload["examples_dir"] = str(examples_dir)
     current_packet_path = execution_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME
     if current_packet_path.exists():
         payload["current_packet_path"] = str(current_packet_path)
@@ -892,6 +925,9 @@ def build_direct_exec_workspace_manifest(
     )
     payload["mirrored_hint_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_HINTS_DIR_NAME
+    )
+    payload["mirrored_example_files"] = _list_workspace_relative_files(
+        execution_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME
     )
     payload["mirrored_output_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_OUTPUT_DIR_NAME
@@ -975,6 +1011,10 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     )
     _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
+    )
+    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
     )
@@ -997,6 +1037,10 @@ def _populate_direct_exec_workspace(
     _copy_tree_if_present(
         source_working_dir / _DIRECT_EXEC_DEBUG_DIR_NAME,
         execution_working_dir / _DIRECT_EXEC_DEBUG_DIR_NAME,
+    )
+    _copy_tree_if_present(
+        source_working_dir / _DIRECT_EXEC_EXAMPLES_DIR_NAME,
+        execution_working_dir / _DIRECT_EXEC_EXAMPLES_DIR_NAME,
     )
     _copy_tree_if_present(
         source_working_dir / _DIRECT_EXEC_HINTS_DIR_NAME,
@@ -1068,6 +1112,7 @@ def _build_direct_exec_agents_text(
             "Use only the files inside this directory.\n"
             "The current working directory is already the workspace root.\n"
             "Start by reading `worker_manifest.json`, then open the prompt-named local files directly.\n"
+            "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
             "If `assigned_tasks.json` exists, treat it as background inventory or coarse progress only unless the prompt says otherwise.\n"
             "Read the local task manifests and input files directly.\n"
@@ -1214,6 +1259,7 @@ def _run_codex_exec_subprocess_streaming(
     working_dir: Path,
     env: Mapping[str, str],
     timeout_seconds: int | None,
+    workspace_mode: DirectExecWorkspaceMode,
     supervision_callback: Callable[
         [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
     ]
@@ -1311,6 +1357,7 @@ def _run_codex_exec_subprocess_streaming(
                     started_at=started_at,
                     last_event_at=last_event_at,
                     timeout_seconds=normalized_timeout,
+                    workspace_mode=workspace_mode,
                 )
                 decision = supervision_callback(snapshot)
                 last_snapshot_at = current_time
@@ -1380,11 +1427,13 @@ def _build_codex_exec_live_snapshot(
     started_at: float,
     last_event_at: float | None,
     timeout_seconds: int | None,
+    workspace_mode: DirectExecWorkspaceMode,
 ) -> CodexExecLiveSnapshot:
     current_time = time.perf_counter()
     live_summary = _summarize_live_codex_events(events)
     final_agent_message = assess_final_agent_message(
-        _extract_last_agent_message(list(events))
+        _extract_last_agent_message(list(events)),
+        workspace_mode=workspace_mode,
     )
     return CodexExecLiveSnapshot(
         elapsed_seconds=max(0.0, current_time - started_at),
@@ -1560,10 +1609,20 @@ def _extract_last_agent_message(events: tuple[dict[str, Any], ...] | list[dict[s
     return response
 
 
-def assess_final_agent_message(message_text: str | None) -> FinalAgentMessageAssessment:
+def assess_final_agent_message(
+    message_text: str | None,
+    *,
+    workspace_mode: DirectExecWorkspaceMode = "structured_json",
+) -> FinalAgentMessageAssessment:
     cleaned = str(message_text or "").strip()
     if not cleaned:
         return FinalAgentMessageAssessment(state="absent", text=None)
+    if workspace_mode == "workspace_worker" and not cleaned.startswith("{"):
+        return FinalAgentMessageAssessment(
+            state="informational",
+            reason="workspace worker final message is informational only",
+            text=cleaned,
+        )
     if not cleaned.startswith("{"):
         return FinalAgentMessageAssessment(
             state="malformed",
@@ -1862,6 +1921,16 @@ def _write_direct_exec_worker_manifest(
         "entry_files": entry_files,
         "assigned_shards_file": _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
         "assigned_tasks_file": _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+        "output_contract_file": (
+            _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
+            if (workspace_root / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME).exists()
+            else None
+        ),
+        "examples_dir": (
+            _DIRECT_EXEC_EXAMPLES_DIR_NAME
+            if (workspace_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME).exists()
+            else None
+        ),
         "current_packet_file": (
             _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME if has_packet_leasing else None
         ),
@@ -1926,6 +1995,9 @@ def _write_direct_exec_worker_manifest(
         ),
         "mirrored_hint_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_HINTS_DIR_NAME
+        ),
+        "mirrored_example_files": _list_workspace_relative_files(
+            workspace_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME
         ),
         "mirrored_scratch_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_SCRATCH_DIR_NAME

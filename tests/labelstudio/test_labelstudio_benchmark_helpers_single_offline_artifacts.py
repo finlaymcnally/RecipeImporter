@@ -414,7 +414,7 @@ def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fall
 ) -> None:
     monkeypatch.setattr(cli, "default_codex_reasoning_effort", lambda cmd=None: "high")
 
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_eval_output_dir = session_root / "codexfarm"
     vanilla_eval_output_dir = session_root / "vanilla"
     codex_eval_output_dir.mkdir(parents=True, exist_ok=True)

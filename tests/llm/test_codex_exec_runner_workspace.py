@@ -84,6 +84,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     (source_root / "in").mkdir(parents=True, exist_ok=True)
     (source_root / "hints").mkdir(parents=True, exist_ok=True)
+    (source_root / "examples").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps([{"shard_id": "shard-001"}]),
         encoding="utf-8",
@@ -98,6 +99,14 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     )
     (source_root / "hints" / "shard-001.md").write_text(
         "# worker hints\n",
+        encoding="utf-8",
+    )
+    (source_root / "OUTPUT_CONTRACT.md").write_text(
+        "# contract\n",
+        encoding="utf-8",
+    )
+    (source_root / "examples" / "valid_repaired_task_output.json").write_text(
+        json.dumps({"v": "1", "sid": "shard-001", "r": []}),
         encoding="utf-8",
     )
 
@@ -119,8 +128,11 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
+    assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
+    assert worker_manifest["examples_dir"] == "examples"
     assert worker_manifest["hints_dir"] == "hints"
     assert worker_manifest["scratch_dir"] == "scratch"
+    assert worker_manifest["mirrored_example_files"] == ["valid_repaired_task_output.json"]
     assert worker_manifest["workspace_shell_policy"].startswith(
         "Allow ordinary local shell use inside this workspace."
     )
@@ -140,6 +152,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     ]
     assert "Read the local task manifests and input files directly." in agents_text
     assert "Start by reading `worker_manifest.json`" in agents_text
+    assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
     assert "`assigned_tasks.json`" in agents_text
     assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
     assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
@@ -147,6 +160,8 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "avoid repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers" in agents_text
     assert "Use `scratch/` for bounded helper files." in agents_text
     assert (workspace.execution_working_dir / "out").exists()
+    assert (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
+    assert (workspace.execution_working_dir / "examples" / "valid_repaired_task_output.json").exists()
     assert (workspace.execution_working_dir / "hints" / "shard-001.md").exists()
     assert (workspace.execution_working_dir / "scratch").exists()
 

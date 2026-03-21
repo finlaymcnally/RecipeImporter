@@ -244,7 +244,7 @@ def build_label_first_stage_result(
         atomic_block_splitter=_run_setting_value(
             run_settings,
             "atomic_block_splitter",
-            default="atomic-v1",
+            default="off",
         ),
     )
     _notify_authoritative_progress(

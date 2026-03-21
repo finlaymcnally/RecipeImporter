@@ -148,7 +148,7 @@ def atomize_blocks(
     *,
     recipe_id: str | None,
     within_recipe_span: bool | None,
-    atomic_block_splitter: str = "atomic-v1",
+    atomic_block_splitter: str = "off",
 ) -> list[AtomicLineCandidate]:
     splitter_mode = _normalize_atomic_block_splitter(atomic_block_splitter)
     rows: list[dict[str, Any]] = []

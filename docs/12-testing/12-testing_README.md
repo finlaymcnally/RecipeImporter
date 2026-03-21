@@ -70,6 +70,7 @@ Current layout exceptions and intentional split seams:
 - Direct Codex exec runner coverage is split into:
   - `tests/llm/test_codex_exec_runner.py` for helper/classification coverage
   - `tests/llm/test_codex_exec_runner_workspace.py` for sterile workspace preparation and subprocess/workspace-worker runtime coverage
+- workspace/direct-exec runtime tests must patch the direct-exec Codex-home resolver to a temp path; they should not depend on the host `~/.codex-recipe` tree
 - Bench CLI coverage is split into:
   - `tests/bench/test_bench.py`
   - `tests/bench/test_bench_speed_cli.py`
@@ -165,3 +166,4 @@ Design intent:
 - LLM pack/schema tests now carry two important anti-drift contracts:
   - strict nested JSON-schema validity has to be checked recursively, not only at the top level
   - prompt-pack tests must assert per-pipeline transport reality (`inline` versus `path`) instead of freezing one legacy `{{INPUT_PATH}}` expectation across every pipeline
+- knowledge/runtime telemetry assertions must distinguish row-level from session-level counters; for example `workspace_worker_row_count` and `workspace_worker_session_count` are intentionally different shapes

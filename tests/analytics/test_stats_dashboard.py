@@ -1292,7 +1292,7 @@ const aiOffEffortRecord = {
 };
 const vanillaPathAiOffEffortRecord = {
   strict_accuracy: 0.54,
-  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/my-book/vanilla",
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/my-book/vanilla",
   run_config: {
     llm_recipe_pipeline: "off",
     line_role_pipeline: "off",
@@ -1307,7 +1307,7 @@ const lineRoleOnlyEffortRecord = {
 };
 const legacyCodexfarmRecord = {
   strict_accuracy: 0.54,
-  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm",
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codexfarm",
   run_config: {
     llm_recipe_pipeline: "codex-recipe-shard-v1",
     codex_farm_model: "gpt-5.1-codex-mini",
@@ -1315,13 +1315,13 @@ const legacyCodexfarmRecord = {
 };
 const legacyVanillaRecord = {
   strict_accuracy: 0.54,
-  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/vanilla",
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/vanilla",
   run_config: {},
 };
 const legacyRunDirCodexfarmRecord = {
   strict_accuracy: 0.54,
-  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm",
-  report_path: "/tmp/output/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm/2026-03-03_13.08.47/report.json",
+  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codexfarm",
+  report_path: "/tmp/output/2026-03-03_13.00.00/single-book-benchmark/my-book/codexfarm/2026-03-03_13.08.47/report.json",
   run_config: {
     llm_recipe_pipeline: "codex-recipe-shard-v1",
     line_role_pipeline: "off",
@@ -1329,8 +1329,8 @@ const legacyRunDirCodexfarmRecord = {
 };
 const legacyRunDirVanillaRecord = {
   strict_accuracy: 0.54,
-  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/vanilla",
-  report_path: "/tmp/output/2026-03-03_13.00.00/single-offline-benchmark/my-book/vanilla/2026-03-03_13.07.43/report.json",
+  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/vanilla",
+  report_path: "/tmp/output/2026-03-03_13.00.00/single-book-benchmark/my-book/vanilla/2026-03-03_13.07.43/report.json",
   run_config: {},
 };
 const unknownEffortRecord = {
@@ -2250,7 +2250,7 @@ class TestCollectors:
             / "golden"
             / "benchmark-vs-golden"
             / run_ts
-            / "single-offline-benchmark"
+            / "single-book-benchmark"
         )
         vanilla_dir = single_offline_root / "vanilla"
         codex_dir = single_offline_root / "codexfarm"
@@ -2276,7 +2276,7 @@ class TestCollectors:
         records = [
             r
             for r in data.benchmark_records
-            if "single-offline-benchmark/" in str(r.artifact_dir)
+            if "single-book-benchmark/" in str(r.artifact_dir)
         ]
         assert len(records) == 2
         assert {r.run_timestamp for r in records} == {run_ts}
@@ -2387,7 +2387,7 @@ class TestCollectors:
         nested_history_dir = (
             output_root
             / "2026-03-03_01.24.28"
-            / "single-offline-benchmark"
+            / "single-book-benchmark"
             / "seaandsmokecutdown"
             / ".history"
         )
@@ -2402,7 +2402,7 @@ class TestCollectors:
                     / "golden"
                     / "benchmark-vs-golden"
                     / "2026-03-03_01.24.28"
-                    / "single-offline-benchmark"
+                    / "single-book-benchmark"
                     / "seaandsmokecutdown"
                     / "vanilla"
                 ),
@@ -2427,7 +2427,7 @@ class TestCollectors:
         assert len(data.benchmark_records) == 1
         artifact_dirs = {str(record.artifact_dir) for record in data.benchmark_records}
         assert any(
-            "2026-03-03_01.24.28/single-offline-benchmark/seaandsmokecutdown/vanilla"
+            "2026-03-03_01.24.28/single-book-benchmark/seaandsmokecutdown/vanilla"
             in path
             for path in artifact_dirs
         )
@@ -2446,7 +2446,7 @@ class TestCollectors:
             / "golden"
             / "benchmark-vs-golden"
             / "2026-03-03_01.24.28"
-            / "single-offline-benchmark"
+            / "single-book-benchmark"
             / "seaandsmokecutdown"
             / "codexfarm"
         )
@@ -2526,7 +2526,7 @@ class TestCollectors:
             / "golden"
             / "benchmark-vs-golden"
             / "2026-03-03_01.24.28"
-            / "single-offline-benchmark"
+            / "single-book-benchmark"
             / "seaandsmokecutdown"
             / "codexfarm"
         )
@@ -2606,7 +2606,7 @@ class TestCollectors:
                     / "golden"
                     / "benchmark-vs-golden"
                     / "2026-03-03_01.24.28"
-                    / "single-offline-benchmark"
+                    / "single-book-benchmark"
                     / "seaandsmokecutdown"
                     / "codexfarm"
                 ),
@@ -2886,7 +2886,7 @@ class TestCollectors:
             / "golden"
             / "benchmark-vs-golden"
             / "2026-03-03_01.24.28"
-            / "single-offline-benchmark"
+            / "single-book-benchmark"
             / "seaandsmokecutdown"
             / "vanilla"
         )
@@ -2895,7 +2895,7 @@ class TestCollectors:
             / "golden"
             / "benchmark-vs-golden"
             / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
-            / "single-offline-benchmark"
+            / "single-book-benchmark"
             / "thefoodlabcutdown"
             / "codexfarm"
         )
@@ -3658,7 +3658,7 @@ class TestRenderer:
         assert "(manual|smoke|test|debug|quick|probe|sample|trial)" in js
         assert "function isOfficialGoldenBenchmarkRecord(record)" in js
         assert 'if (!path.includes("/benchmark-vs-golden/")) return false;' in js
-        assert 'if (!path.includes("/single-offline-benchmark/")) return false;' in js
+        assert 'if (!path.includes("/single-book-benchmark/")) return false;' in js
         assert 'const pathVariant = benchmarkVariantFromPathOrPipeline(record);' in js
         assert '(pathVariant === "vanilla" && profile === "deterministic")' in js
         assert '(pathVariant === "codexfarm" && profile === "full_stack")' in js
@@ -3849,7 +3849,7 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:12:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-offline-benchmark/book_a/2026-03-04_08.12.01/vanilla"
+                    "2026-03-04_08.00.00/single-book-benchmark/book_a/2026-03-04_08.12.01/vanilla"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "off",
@@ -3864,7 +3864,7 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:11:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-offline-benchmark/book_b/2026-03-04_08.11.01/codexfarm"
+                    "2026-03-04_08.00.00/single-book-benchmark/book_b/2026-03-04_08.11.01/codexfarm"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -3881,7 +3881,7 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:10:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-offline-benchmark/book_c/2026-03-04_08.10.01/codexfarm"
+                    "2026-03-04_08.00.00/single-book-benchmark/book_c/2026-03-04_08.10.01/codexfarm"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -3898,7 +3898,7 @@ class TestRenderer:
                 "run_timestamp": "2026-03-03T20:10:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-03_20.00.00/single-offline-benchmark/book_d/2026-03-03_20.10.01/codexfarm"
+                    "2026-03-03_20.00.00/single-book-benchmark/book_d/2026-03-03_20.10.01/codexfarm"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -3990,10 +3990,10 @@ class TestBenchmarkSemantics:
         record = {
             "run_dir": (
                 "/tmp/golden/benchmark-vs-golden/2026-03-03_13.07.22/"
-                "single-offline-benchmark/seaandsmokecutdown/codexfarm"
+                "single-book-benchmark/seaandsmokecutdown/codexfarm"
             ),
             "report_path": (
-                "/tmp/output/2026-03-03_13.07.22/single-offline-benchmark/"
+                "/tmp/output/2026-03-03_13.07.22/single-book-benchmark/"
                 "seaandsmokecutdown/codexfarm/2026-03-03_13.07.43/report.json"
             ),
             "run_config": {
@@ -4091,7 +4091,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-01T10:01:00",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.01.00/vanilla"
                 ),
                 "run_config": {
@@ -4104,7 +4104,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-01T10:06:00",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.06.00/codexfarm"
                 ),
                 "run_config": {
@@ -4130,7 +4130,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-01T10:01:00",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.01.00/vanilla"
                 ),
                 "run_config": {
@@ -4143,7 +4143,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-01T10:06:00",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.06.00/codexfarm"
                 ),
                 "run_config": {
@@ -4173,7 +4173,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-01T10:01:00",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/vanilla"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/vanilla"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "off",
@@ -4185,7 +4185,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-01T10:06:00",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/codexfarm"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/codexfarm"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -4197,7 +4197,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-15T15:38:16",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/2026-03-15_15.37.33/"
-                    "single-offline-benchmark/saltfatacidheatcutdown/line_role_only"
+                    "single-book-benchmark/saltfatacidheatcutdown/line_role_only"
                 ),
                 "benchmark_variant": "deterministic",
                 "run_config": {
@@ -4249,7 +4249,7 @@ class TestBenchmarkSemantics:
                 "source_file": "/data/input/Sea And Smoke.epub",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.01.00/vanilla"
                 ),
                 "run_config": {
@@ -4263,7 +4263,7 @@ class TestBenchmarkSemantics:
                 "source_file": "/data/input/Sea And Smoke.epub",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.06.00/codexfarm"
                 ),
                 "run_config": {

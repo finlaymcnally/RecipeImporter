@@ -15,13 +15,14 @@ Interactive run-settings UI helpers.
   - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
+  - checked block labelling preserves the current/default `atomic_block_splitter` value instead of auto-enabling `atomic-v1`
   - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)
 - `off` resolves `Vanilla automatic top-tier`.
 - `CodexFarm` profile keeps the winner-preferred resolver path (quality-suite winner settings first, otherwise built-in top-tier baseline), then harmonizes the full top-tier contract:
-  - `llm_knowledge_pipeline=codex-knowledge-shard-v1`, `line_role_pipeline=codex-line-role-shard-v1`, `atomic_block_splitter=atomic-v1`
+  - `llm_knowledge_pipeline=codex-knowledge-shard-v1`, `line_role_pipeline=codex-line-role-shard-v1`, `atomic_block_splitter=off`
   - parsing stack pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`
   - deterministic parsing knobs pinned to `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`
   - recipe routing is fixed to the shard-v1 pipeline; only model/reasoning overrides remain operator-adjustable

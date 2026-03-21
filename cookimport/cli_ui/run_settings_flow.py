@@ -490,7 +490,11 @@ def _choose_interactive_codex_surfaces(
         llm_knowledge_pipeline=(
             KNOWLEDGE_CODEX_PIPELINE_SHARD_V1 if "knowledge" in selected_step_ids else "off"
         ),
-        atomic_block_splitter=("atomic-v1" if "line_role" in selected_step_ids else "off"),
+        atomic_block_splitter=(
+            selected_settings.atomic_block_splitter.value
+            if "line_role" in selected_step_ids
+            else "off"
+        ),
     )
     if prompt_text is None or not selected_step_ids:
         return selected_settings

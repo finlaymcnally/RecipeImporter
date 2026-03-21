@@ -8,6 +8,32 @@ read_when:
 
 This file is the anti-loop log for CLI work. It now keeps only notes for surfaces that still exist in the current CLI.
 
+### 2026-03-21 shared progress ETA reset
+
+Preserved finding:
+- the shared spinner and saved benchmark sampler could inherit avg-per-task timing from the previous structured stage whenever the next stage reused the same `task X/Y` counter shape
+
+Current rule:
+- clear structured rate/ETA samples whenever `stage_label` changes
+- do this in both the live spinner path and the single-profile dashboard sampler
+- for structured parallel stages, bootstrap ETA should use active/configured worker-wave math instead of treating the remaining work as fully serial
+
+Anti-loop note:
+- if a new stage opens with a cartoonish `avg .../task` before it has produced any timing of its own, inspect sampler reset and stage labels before changing stage emitters
+
+### 2026-03-20 prompt-target count preservation and runtime-stage ordering
+
+Preserved finding:
+- interactive Codex prompt-target choices were easy to misapply because benchmark prompts asked for counts in a non-runtime order and adapter plumbing could drop the selected values before the live run config was built
+
+Current rule:
+- interactive benchmark Codex counts are asked in runtime order: `line_role`, `recipe`, `knowledge`
+- stage/import and benchmark adapters must preserve `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count` into live `RunSettings`
+- `recipe_prompt_target_count` now means requested recipe shard count, not preferred worker-session count
+
+Anti-loop note:
+- if an operator-picked `10 / 5 / 5` run executes as `5 / 5 / 5`, fix the adapter/chooser seam before retuning stage planners
+
 ### 2026-03-16_15.07.07 interactive chooser versus persistent Settings gap
 
 Preserved finding:

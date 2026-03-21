@@ -9,6 +9,7 @@ from cookimport.runs import (
     RECIPE_MANIFEST_FILE_NAME,
     KNOWLEDGE_MANIFEST_FILE_NAME,
     KNOWLEDGE_STAGE_STATUS_FILE_NAME,
+    build_line_role_stage_summary,
     build_stage_observability_report,
     summarize_knowledge_stage_artifacts,
     write_stage_observability_report,
@@ -159,6 +160,150 @@ def test_write_stage_observability_report_writes_knowledge_stage_summary_artifac
         run_root
         / workbook["artifact_paths"]["knowledge_stage_summary_json"]
     ).exists()
+
+
+def test_write_stage_observability_report_writes_recipe_and_line_role_stage_summaries(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    recipe_root = run_root / "raw" / "llm" / "book" / "recipe_phase_runtime"
+    recipe_root.mkdir(parents=True, exist_ok=True)
+    (recipe_root / "proposals").mkdir(parents=True, exist_ok=True)
+    (recipe_root / "workers" / "worker-001" / "shards" / "recipe-shard-0001").mkdir(
+        parents=True, exist_ok=True
+    )
+    (recipe_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
+    (recipe_root / "workers" / "worker-001" / "live_status.json").write_text(
+        json.dumps({"state": "completed"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    _write_json(recipe_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
+    (recipe_root / "task_manifest.jsonl").write_text(
+        json.dumps({"task_id": "recipe-shard-0001.task-001"}) + "\n",
+        encoding="utf-8",
+    )
+    (recipe_root / "workers" / "worker-001" / "out" / "recipe-shard-0001.task-001.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    _write_json(
+        recipe_root / "workers" / "worker-001" / "shards" / "recipe-shard-0001" / "status.json",
+        {"status": "validated"},
+    )
+    _write_json(
+        recipe_root.parent / RECIPE_MANIFEST_FILE_NAME,
+        {
+            "pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+            "paths": {
+                "recipe_phase_runtime_dir": str(recipe_root),
+                "recipe_phase_input_dir": str(recipe_root / "inputs"),
+                "recipe_phase_proposals_dir": str(recipe_root / "proposals"),
+            },
+            "process_runs": {"recipe_correction": {}},
+        },
+    )
+
+    line_role_root = run_root / "line-role-pipeline" / "runtime" / "line_role"
+    line_role_root.mkdir(parents=True, exist_ok=True)
+    (line_role_root / "proposals").mkdir(parents=True, exist_ok=True)
+    (line_role_root / "workers" / "worker-001" / "shards" / "line-role-canonical-0001").mkdir(
+        parents=True, exist_ok=True
+    )
+    (line_role_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
+    (line_role_root / "workers" / "worker-001" / "live_status.json").write_text(
+        json.dumps({"state": "completed"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    _write_json(line_role_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
+    (line_role_root / "task_manifest.jsonl").write_text(
+        json.dumps({"task_id": "line-role-canonical-0001.task-001"}) + "\n",
+        encoding="utf-8",
+    )
+    (line_role_root / "workers" / "worker-001" / "out" / "line-role-canonical-0001.task-001.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    _write_json(
+        line_role_root / "workers" / "worker-001" / "shards" / "line-role-canonical-0001" / "status.json",
+        {"status": "validated"},
+    )
+
+    report = build_stage_observability_report(
+        run_root=run_root,
+        run_kind="bench_pred_run",
+        created_at=dt.datetime(2026, 3, 21, 16, 0, 0).isoformat(timespec="seconds"),
+        run_config={},
+    )
+
+    path = write_stage_observability_report(run_root=run_root, report=report)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    recipe_stage = next(
+        stage for stage in payload["stages"] if stage["stage_key"] == "recipe_llm_correct_and_link"
+    )
+    line_role_stage = next(
+        stage for stage in payload["stages"] if stage["stage_key"] == "line_role"
+    )
+
+    assert (run_root / recipe_stage["workbooks"][0]["artifact_paths"]["recipe_stage_summary_json"]).exists()
+    assert (run_root / line_role_stage["workbooks"][0]["artifact_paths"]["line_role_stage_summary_json"]).exists()
+
+
+def test_build_line_role_stage_summary_reports_packet_and_line_rollups(tmp_path: Path) -> None:
+    stage_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
+    (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
+    _write_json(stage_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
+    (stage_root / "task_manifest.jsonl").write_text(
+        json.dumps({"task_id": "line-role-canonical-0001.task-001"}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "canonical_line_table.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"line_id": "0", "atomic_index": 0}),
+                json.dumps({"line_id": "1", "atomic_index": 1}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "task_status.jsonl").write_text(
+        json.dumps(
+            {
+                "task_id": "line-role-canonical-0001.task-001",
+                "state": "validated",
+                "terminal_outcome": "validated",
+                "last_attempt_type": "resume_existing_output",
+                "metadata": {
+                    "llm_authoritative_row_count": 2,
+                    "fallback_row_count": 0,
+                    "suspicious_row_count": 2,
+                    "suspicious_packet": True,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        stage_root / "workers" / "worker-001" / "live_status.json",
+        {"state": "completed", "reason_code": "resume_existing_outputs"},
+    )
+    _write_json(
+        stage_root / "workers" / "worker-001" / "shards" / "line-role-canonical-0001" / "status.json",
+        {"status": "validated"},
+    )
+
+    summary = build_line_role_stage_summary(stage_root)
+
+    assert summary["lines"]["canonical_line_total"] == 2
+    assert summary["lines"]["llm_authoritative_row_count"] == 2
+    assert summary["lines"]["fallback_row_count"] == 0
+    assert summary["packets"]["packet_total"] == 1
+    assert summary["packets"]["state_counts"] == {"validated": 1}
+    assert summary["packets"]["attempt_type_counts"] == {"resume_existing_output": 1}
+    assert summary["packets"]["suspicious_packet_count"] == 1
+    assert summary["important_artifacts"]["canonical_line_table_jsonl"] == "canonical_line_table.jsonl"
+    assert summary["important_artifacts"]["task_status_jsonl"] == "task_status.jsonl"
 
 
 def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ runner = CliRunner()
 
 
 def _sample_records() -> list[dict[str, object]]:
-    base = "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/book"
+    base = "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book"
     return [
         {
             "run_timestamp": "2026-03-03_23.00.00",

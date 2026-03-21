@@ -882,7 +882,7 @@ def test_build_upload_bundle_reconciles_sharded_recipe_ids_to_per_recipe_counts(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "codexfarm"
     baseline_run_id = "vanilla"
 
@@ -1834,7 +1834,7 @@ def test_main_starter_pack_omits_outside_trace_when_threshold_not_met(tmp_path: 
 
 def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path: Path) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "2026-03-03_10.14.00"
     baseline_run_id = "2026-03-03_10.13.00"
 
@@ -1884,7 +1884,7 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "2026-03-03_10.16.00"
     baseline_run_id = "2026-03-03_10.15.00"
 
@@ -1937,7 +1937,7 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
 
 def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Path) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "2026-03-03_10.18.00"
     baseline_run_id = "2026-03-03_10.17.00"
 
@@ -2265,7 +2265,7 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "codexfarm"
     baseline_run_id = "vanilla"
 
@@ -2422,7 +2422,7 @@ def test_build_upload_bundle_stage_separated_comparison_scores_recipe_correction
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "2026-03-03_10.40.00"
     baseline_run_id = "2026-03-03_10.39.00"
 
@@ -2503,7 +2503,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "codexfarm"
     baseline_run_id = "vanilla"
 
@@ -2623,7 +2623,7 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     run_id = "codex-standalone"
 
     _make_run_record(
@@ -2729,7 +2729,7 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
 
     _make_run_record(
         module,
@@ -2905,7 +2905,7 @@ def test_build_upload_bundle_discovers_current_single_offline_knowledge_layout(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark" / "book_a"
+    session_root = tmp_path / "single-book-benchmark" / "book_a"
     codex_run_id = "codexfarm"
     baseline_run_id = "vanilla"
 
@@ -3605,7 +3605,7 @@ def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "2026-03-03_10.20.00"
     baseline_run_id = "2026-03-03_10.19.00"
 
@@ -3654,7 +3654,7 @@ def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
 
 def test_build_upload_bundle_critical_row_locator_coverage_gate(tmp_path: Path) -> None:
     module = _load_cutdown_module()
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "2026-03-03_10.22.00"
     baseline_run_id = "2026-03-03_10.21.00"
 

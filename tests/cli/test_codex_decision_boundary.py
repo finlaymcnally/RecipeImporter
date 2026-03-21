@@ -8,6 +8,9 @@ import typer
 
 from cookimport import cli, entrypoint
 from cookimport.config.codex_decision import (
+    apply_benchmark_baseline_contract,
+    apply_benchmark_codex_contract_from_baseline,
+    apply_benchmark_variant_contract,
     classify_codex_surfaces,
     normalize_codex_execution_policy_mode,
 )
@@ -260,6 +263,25 @@ def test_labelstudio_benchmark_live_codex_interactive_mode_bypasses_agent_block(
         cli._INTERACTIVE_CLI_ACTIVE.reset(interactive_token)
 
     assert failures == []
+
+
+def test_benchmark_contracts_preserve_selected_atomic_block_splitter() -> None:
+    payload = {
+        "llm_recipe_pipeline": "codex-recipe-shard-v1",
+        "line_role_pipeline": "codex-line-role-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "atomic_block_splitter": "atomic-v1",
+    }
+
+    baseline = apply_benchmark_baseline_contract(payload)
+    codex = apply_benchmark_codex_contract_from_baseline(baseline)
+    baseline_variant = apply_benchmark_variant_contract(payload, "vanilla")
+    codex_variant = apply_benchmark_variant_contract(payload, "codexfarm")
+
+    assert baseline["atomic_block_splitter"] == "atomic-v1"
+    assert codex["atomic_block_splitter"] == "atomic-v1"
+    assert baseline_variant["atomic_block_splitter"] == "atomic-v1"
+    assert codex_variant["atomic_block_splitter"] == "atomic-v1"
 
 
 def test_import_entrypoint_forwards_allow_codex_flag(

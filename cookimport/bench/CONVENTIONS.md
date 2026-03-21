@@ -7,7 +7,7 @@ Durable scoring and orchestration contracts for benchmark flows in `cookimport/b
 - `labelstudio-benchmark` supports two evaluator modes:
   - `stage-blocks`: stage evidence manifests (`stage_block_predictions.json`) scored against freeform gold block labels from `freeform_span_labels.jsonl`.
   - `canonical-text`: stage evidence labels projected through prediction-text alignment into canonical gold text/lines (`canonical_text.txt`, `canonical_span_labels.jsonl`), so extractor/blockization parity is not required.
-- Interactive benchmark modes (`single_offline`, `single_offline_selected_matched`, and `single_offline_all_matched`) run `labelstudio-benchmark` in `canonical-text` mode for extractor-agnostic comparison against freeform gold.
+- Interactive benchmark modes (`single_book`, `selected_matched_books`, and `all_matched_books`) run `labelstudio-benchmark` in `canonical-text` mode for extractor-agnostic comparison against freeform gold.
 - `labelstudio-benchmark` defaults to `stage-blocks` unless `--eval-mode canonical-text` is selected.
 - In `stage-blocks` mode, source hash equality alone is not enough for valid block-level comparison. Gold-generation and benchmark-prediction runs should keep extractor/blockization settings aligned (for example `epub_extractor`, parser version, preprocess mode, and header/footer skipping), or block-index drift can turn real predictions into missing-gold `OTHER` defaults and false positives.
 - Freeform gold may contain multiple labels for the same block; stage-block eval should treat a prediction as correct when it matches any allowed gold label for that block, while writing multi-label diagnostics to `gold_conflicts.jsonl`.

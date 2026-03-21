@@ -82,7 +82,7 @@ def test_resolve_oracle_benchmark_bundle_accepts_bundle_dir_and_parent(tmp_path:
 
 
 def test_resolve_oracle_benchmark_bundle_rejects_missing_files(tmp_path: Path) -> None:
-    session_root = tmp_path / "single-offline-benchmark"
+    session_root = tmp_path / "single-book-benchmark"
     bundle_dir = session_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     bundle_dir.mkdir(parents=True, exist_ok=True)
     (bundle_dir / "upload_bundle_overview.md").write_text("overview\n", encoding="utf-8")
@@ -95,7 +95,7 @@ def test_build_oracle_benchmark_prompt_describes_synthetic_attachment_transport(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
@@ -146,7 +146,7 @@ def test_build_oracle_benchmark_prompt_marks_test_helpers_clearly(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
@@ -204,7 +204,7 @@ def test_resolve_oracle_browser_profile_dir_prefers_most_recent_populated_profil
 
 def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
@@ -290,7 +290,7 @@ def test_run_oracle_benchmark_upload_helper_mode_uses_test_model(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     monkeypatch.setenv("ORACLE_TEST_MODEL", "gpt-5.3-instant-test")
@@ -339,7 +339,7 @@ def test_run_oracle_benchmark_upload_adds_chatgpt_target_url_when_configured(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     monkeypatch.setenv(
@@ -471,7 +471,7 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     payload_rows = []
     while len("".join(payload_rows).encode("utf-8")) <= (
@@ -553,7 +553,7 @@ def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_sessi
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
@@ -637,7 +637,7 @@ def test_run_oracle_benchmark_upload_browser_duplicate_guard_backfills_conversat
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
@@ -725,7 +725,7 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     payload_rows = []
     while len("".join(payload_rows).encode("utf-8")) <= (
@@ -819,7 +819,7 @@ def test_start_oracle_benchmark_upload_background_marks_running_when_process_ali
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
@@ -858,7 +858,7 @@ def test_start_oracle_benchmark_upload_background_recovers_session_from_oracle_s
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
@@ -912,7 +912,7 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     launch = oracle_upload.OracleBackgroundUploadLaunch(
@@ -969,7 +969,7 @@ def test_start_background_oracle_followup_worker_uses_resolved_launch_model_when
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     launch_dir = bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-21_11.27.35"
@@ -1014,7 +1014,7 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     launch = oracle_upload.OracleBackgroundUploadLaunch(
@@ -1060,7 +1060,7 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
 
     cli._start_benchmark_bundle_oracle_upload_background(
         bundle_dir=bundle_dir,
-        scope="single_offline",
+        scope="single_book",
         model=None,
     )
 
@@ -1102,7 +1102,7 @@ def test_oracle_upload_log_audit_accepts_grounded_single_profile_answer(tmp_path
 
 def test_oracle_upload_log_audit_rejects_wrong_bundle_identity(tmp_path: Path) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "2026-03-18_21.10.12" / "single-offline-benchmark" / "dinnerfor2cutdown" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+        tmp_path / "2026-03-18_21.10.12" / "single-book-benchmark" / "dinnerfor2cutdown" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
         run_count=2,
         pair_count=1,
         changed_lines_total=202,
@@ -1116,7 +1116,7 @@ def test_oracle_upload_log_audit_rejects_wrong_bundle_identity(tmp_path: Path) -
                 "oracle (gpt-5.2)",
                 "Answer:",
                 "Top regressions",
-                "- I could not verify the requested 2026-03-18_21.10.12/single-offline-benchmark root.",
+                "- I could not verify the requested 2026-03-18_21.10.12/single-book-benchmark root.",
                 "- The attached packet appears to be 2026-03-18_19.42.18/single-profile-benchmark with pair_count = 0.",
                 "Likely cause buckets",
                 "- stale bundle identity",
@@ -1134,7 +1134,7 @@ def test_oracle_upload_log_audit_marks_disconnect_as_reattachable_when_session_i
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "2026-03-18_21.17.59" / "single-offline-benchmark" / "saltfatacidheatcutdown" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "2026-03-18_21.17.59" / "single-book-benchmark" / "saltfatacidheatcutdown" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
@@ -1212,7 +1212,7 @@ def test_maybe_upload_benchmark_bundle_to_oracle_is_best_effort(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
-        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
@@ -1225,5 +1225,5 @@ def test_maybe_upload_benchmark_bundle_to_oracle_is_best_effort(
 
     cli._maybe_upload_benchmark_bundle_to_oracle(
         bundle_dir=bundle_dir,
-        scope="single_offline",
+        scope="single_book",
     )

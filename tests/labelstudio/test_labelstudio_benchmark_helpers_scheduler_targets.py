@@ -261,7 +261,7 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     } == {"off"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in baseline_variants
-    } == {"off"}
+    } == {"atomic-v1"}
     assert {
         variant.run_settings.llm_recipe_pipeline.value for variant in codex_variants
     } == {"codex-recipe-shard-v1"}
@@ -313,7 +313,7 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() ->
     } == {"off"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in variants
-    } == {"off"}
+    } == {"atomic-v1"}
 
 
 def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:

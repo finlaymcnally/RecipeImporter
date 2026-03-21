@@ -66,31 +66,31 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
 
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: {
-            "bundle_version": "1",
-            "shard_id": payload.get("sid"),
-            "recipes": [
+            "v": "1",
+            "sid": payload.get("sid"),
+            "r": [
                 {
-                    "bundle_version": "1",
-                    "recipe_id": payload["r"][0]["rid"],
-                    "repair_status": "repaired",
-                    "status_reason": None,
-                    "canonical_recipe": {
-                        "title": "Toast",
-                        "ingredients": ["1 slice bread"],
-                        "steps": ["Toast the bread."],
-                        "description": None,
-                        "recipeYield": None,
+                    "v": "1",
+                    "rid": payload["r"][0]["rid"],
+                    "st": "repaired",
+                    "sr": None,
+                    "cr": {
+                        "t": "Toast",
+                        "i": ["1 slice bread"],
+                        "s": ["Toast the bread."],
+                        "d": None,
+                        "y": None,
                     },
-                    "ingredient_step_mapping": [],
-                    "ingredient_step_mapping_reason": "not_needed_single_step",
-                    "selected_tags": [
+                    "m": [],
+                    "mr": "not_needed_single_step",
+                    "g": [
                         {
-                            "category": "meal",
-                            "label": "breakfast",
-                            "confidence": 0.8,
+                            "c": "meal",
+                            "l": "breakfast",
+                            "f": 0.8,
                         }
                     ],
-                    "warnings": [],
+                    "w": [],
                 }
             ],
         }

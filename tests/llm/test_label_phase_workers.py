@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
+from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
@@ -325,3 +326,41 @@ def test_line_role_prompt_target_count_is_a_direct_shard_override(
 
     assert phase_manifest["shard_count"] == 2
     assert [len(shard["owned_ids"]) for shard in shard_manifest] == [3, 2]
+
+
+def test_line_role_phase_workers_report_task_packet_progress(
+    tmp_path: Path,
+) -> None:
+    class _SlowRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_workspace_worker(*args, **kwargs)
+            time.sleep(0.2)
+            return result
+
+    progress_messages: list[str] = []
+    label_atomic_lines(
+        [_candidate(0), _candidate(1), _candidate(2), _candidate(3)],
+        _settings(line_role_worker_count=2, line_role_prompt_target_count=2),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+        codex_runner=_SlowRunner(
+            output_builder=_line_role_builder(
+                {0: "OTHER", 1: "OTHER", 2: "OTHER", 3: "OTHER"}
+            )
+        ),
+        live_llm_allowed=True,
+        progress_callback=progress_messages.append,
+    )
+
+    payloads = [
+        payload
+        for message in progress_messages
+        for payload in [parse_stage_progress(message)]
+        if payload is not None and payload.get("stage_label") == "canonical line-role pipeline"
+    ]
+
+    assert payloads
+    assert payloads[-1]["work_unit_label"] == "task packet"
+    assert payloads[-1]["task_current"] == payloads[-1]["task_total"] == 2
+    assert any(int(payload.get("worker_total") or 0) == 2 for payload in payloads)
+    assert any(payload.get("followup_label") == "shard finalization" for payload in payloads)

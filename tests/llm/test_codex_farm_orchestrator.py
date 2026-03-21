@@ -103,45 +103,45 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     )
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: {
-            "bundle_version": "1",
-            "shard_id": payload.get("sid"),
-            "recipes": [
+            "v": "1",
+            "sid": payload.get("sid"),
+            "r": [
                 {
-                    "bundle_version": "1",
-                    "recipe_id": payload["r"][0]["rid"],
-                    "repair_status": "repaired",
-                    "status_reason": None,
-                    "canonical_recipe": {
-                        "title": "Toast",
-                        "ingredients": [
+                    "v": "1",
+                    "rid": payload["r"][0]["rid"],
+                    "st": "repaired",
+                    "sr": None,
+                    "cr": {
+                        "t": "Toast",
+                        "i": [
                             "1 slice bread",
                             "1 tablespoon butter",
                         ],
-                        "steps": [
+                        "s": [
                             "Toast the bread until golden.",
                             "Spread with butter and serve hot.",
                         ],
-                        "description": None,
-                        "recipeYield": None,
+                        "d": None,
+                        "y": None,
                     },
-                    "ingredient_step_mapping": [
-                        {"ingredient_index": 0, "step_indexes": [0]},
-                        {"ingredient_index": 1, "step_indexes": [1]},
+                    "m": [
+                        {"i": 0, "s": [0]},
+                        {"i": 1, "s": [1]},
                     ],
-                    "ingredient_step_mapping_reason": None,
-                    "selected_tags": [
+                    "mr": None,
+                    "g": [
                         {
-                            "category": "meal",
-                            "label": "breakfast",
-                            "confidence": 0.83,
+                            "c": "meal",
+                            "l": "breakfast",
+                            "f": 0.83,
                         },
                         {
-                            "category": "method",
-                            "label": "toasted",
-                            "confidence": 0.79,
+                            "c": "method",
+                            "l": "toasted",
+                            "f": 0.79,
                         },
                     ],
-                    "warnings": [],
+                    "w": [],
                 }
             ],
         }
@@ -298,19 +298,19 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     )
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: {
-            "bundle_version": "1",
-            "shard_id": payload.get("sid"),
-            "recipes": [
+            "v": "1",
+            "sid": payload.get("sid"),
+            "r": [
                 {
-                    "bundle_version": "1",
-                    "recipe_id": payload["r"][0]["rid"],
-                    "repair_status": "not_a_recipe",
-                    "status_reason": "reference_table",
-                    "canonical_recipe": None,
-                    "ingredient_step_mapping": [],
-                    "ingredient_step_mapping_reason": "not_applicable_not_a_recipe",
-                    "selected_tags": [],
-                    "warnings": ["candidate_rejected"],
+                    "v": "1",
+                    "rid": payload["r"][0]["rid"],
+                    "st": "not_a_recipe",
+                    "sr": "reference_table",
+                    "cr": None,
+                    "m": [],
+                    "mr": "not_applicable_not_a_recipe",
+                    "g": [],
+                    "w": ["candidate_rejected"],
                 }
             ],
         }
@@ -374,32 +374,32 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
             authoritative_input = payload["authoritative_input"]
             recipe_row = authoritative_input["r"][0]
             return {
-                "bundle_version": "1",
-                "shard_id": authoritative_input["sid"],
-                "recipes": [
+                "v": "1",
+                "sid": authoritative_input["sid"],
+                "r": [
                     {
-                        "bundle_version": "1",
-                        "recipe_id": recipe_row["rid"],
-                        "repair_status": "repaired",
-                        "status_reason": None,
-                        "canonical_recipe": {
-                            "title": recipe_row["h"]["n"],
-                            "ingredients": recipe_row["h"]["i"],
-                            "steps": recipe_row["h"]["s"],
-                            "description": None,
-                            "recipeYield": None,
+                        "v": "1",
+                        "rid": recipe_row["rid"],
+                        "st": "repaired",
+                        "sr": None,
+                        "cr": {
+                            "t": recipe_row["h"]["n"],
+                            "i": recipe_row["h"]["i"],
+                            "s": recipe_row["h"]["s"],
+                            "d": None,
+                            "y": None,
                         },
-                        "ingredient_step_mapping": [],
-                        "ingredient_step_mapping_reason": "repair_pass",
-                        "selected_tags": [],
-                        "warnings": [],
+                        "m": [],
+                        "mr": "repair_pass",
+                        "g": [],
+                        "w": [],
                     }
                 ],
             }
         return {
-            "bundle_version": "1",
-            "shard_id": payload.get("sid"),
-            "recipes": [],
+            "v": "1",
+            "sid": payload.get("sid"),
+            "r": [],
         }
 
     runner = FakeCodexExecRunner(output_builder=_output_builder)
@@ -555,9 +555,9 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
         workbook_slug="book",
         runner=_WatchdogRunner(
             output_builder=lambda payload: {
-                "bundle_version": "1",
-                "shard_id": payload.get("sid") if payload is not None else None,
-                "recipes": [],
+                "v": "1",
+                "sid": payload.get("sid") if payload is not None else None,
+                "r": [],
             }
         ),
     )
