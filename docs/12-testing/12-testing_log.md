@@ -105,7 +105,7 @@ Anti-loop note:
 
 - If raw-pytest guidance starts firing in the wrong places, fix the gate in `tests/conftest.py` instead of adding more doc-only warnings.
 
-### 2026-03-14 single-offline benchmark smoke boundary
+### 2026-03-14 single-book benchmark smoke boundary
 
 Still-active outcomes:
 
@@ -161,16 +161,16 @@ Still-active outcomes:
 - pre-cleanup measurements showed:
   - full non-slow `tests/labelstudio`: about `227.82s`
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py`: about `121s`
-  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py`: about `79s`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py`: about `79s`
   - progress/import-eval/artifact helper files were single-digit seconds
-- the heavy cost came from routing tests still reaching the real `_interactive_single_offline_benchmark(...)` helper and paying for comparison, bundle, and dashboard work
+- the heavy cost came from routing tests still reaching the real `_interactive_single_book_benchmark(...)` helper and paying for comparison, bundle, and dashboard work
 - the durable split is:
-  - keep full single-offline helper coverage in the slow slice
+  - keep full single-book helper coverage in the slow slice
   - keep routing-only interactive tests at the helper boundary with stubs
 
 Anti-loop note:
 
-- if the `labelstudio` domain gets slow again, inspect whether routing tests stopped stubbing the single-offline helper before changing global pytest policy
+- if the `labelstudio` domain gets slow again, inspect whether routing tests stopped stubbing the single-book helper before changing global pytest policy
 
 ### 2026-03-16 fast Codex-helper regression anchors and synthetic benchmark fixtures
 

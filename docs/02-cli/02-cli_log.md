@@ -93,7 +93,7 @@ Current rule:
 ### 2026-03-03_23.30.00 selected-matched benchmark mode
 
 Preserved finding:
-- Interactive benchmark needed a middle path between one-book single-offline and all matched books.
+- Interactive benchmark needed a middle path between one-book single-book and all matched books.
 
 Current rule:
 - The benchmark menu includes `Single config, selected matched sets: Pick which matched books to run`.

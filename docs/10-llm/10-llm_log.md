@@ -331,10 +331,10 @@ Anti-loop note:
 ## 2026-03-16 benchmark prompt/export and runner follow-through
 
 Problem captured:
-- benchmark single-offline runs exposed several easy-to-misread seams at once:
+- benchmark single-book runs exposed several easy-to-misread seams at once:
   - older stderr progress lines looked like terminal corruption
   - missing benchmark-level `prompts/` exports looked like Codex non-execution
-  - prompt budgets could lose split-token fields on the single-offline manifest shape
+  - prompt budgets could lose split-token fields on the single-book manifest shape
   - reasoning models still produced zero reasoning-summary events in live traces
 
 Durable decisions:
@@ -344,7 +344,7 @@ Durable decisions:
   - reviewer-facing merged prompt exports live under benchmark `prompts/` when the export step runs
 - prompt preview should reuse exact saved recipe/knowledge input payloads when available and only reconstruct locally as fallback
 - preview budget output should stay reviewer-blunt: emit a heuristic budget summary plus danger warnings when rendered prompt volume or call fan-out is obviously expensive
-- prompt-budget aggregation must support the single-offline top-level telemetry-row layout
+- prompt-budget aggregation must support the single-book top-level telemetry-row layout
 - missing reasoning-summary events in `.trace.json` files are usually upstream Codex CLI / CodexFarm transport behavior, not a local prompt-artifact regression
 
 Evidence worth keeping:

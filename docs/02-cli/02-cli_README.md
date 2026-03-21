@@ -406,7 +406,7 @@ Interactive benchmark now has a mode submenu before execution:
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
    - source slug is derived from the selected source filename stem (slugified),
    - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-book-benchmark/<source_slug>/.split-cache`),
-   - single-book split-cache controls are available on `labelstudio-benchmark`: `--single-offline-split-cache-mode`, `--single-offline-split-cache-dir`, `--single-offline-split-cache-force`,
+   - single-book split-cache controls are available on `labelstudio-benchmark`: `--single-book-split-cache-mode`, `--single-book-split-cache-dir`, `--single-book-split-cache-force`,
    - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
      - `single-book-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
      - comparison JSON metadata now includes `per_label_breakdown` aggregated across the latest paired evals (`label`, strict `precision`, strict `recall`, `gold_total`, `pred_total`)
@@ -905,9 +905,9 @@ Behavior note:
   - For prompt/cost inspection, use prompt preview.
   - For zero-token handoff rehearsal, run the normal execute path with `--codex-farm-cmd scripts/fake-codex-farm.py`.
 - Single-book split-cache controls:
-  - `--single-offline-split-cache-mode off|auto` toggles single-book split cache usage.
-  - `--single-offline-split-cache-dir PATH` overrides the single-book cache root.
-  - `--single-offline-split-cache-force` forces single-book cache rebuild for that run.
+  - `--single-book-split-cache-mode off|auto` toggles single-book split cache usage.
+  - `--single-book-split-cache-dir PATH` overrides the single-book cache root.
+  - `--single-book-split-cache-force` forces single-book cache rebuild for that run.
 - Prediction-record roundtrip supports evaluate-only replays:
   - `--predictions-out` writes prediction-stage records to JSONL.
   - `--predictions-in` skips generation and evaluates from a prior record JSONL.
@@ -946,9 +946,9 @@ Options:
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.
-- `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for single-book benchmark prediction generation.
-- `--single-offline-split-cache-dir PATH`: optional root for single-book split-cache entries.
-- `--single-offline-split-cache-force / --no-single-offline-split-cache-force` (default disabled): force split-cache rebuild for the current run.
+- `--single-book-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for single-book benchmark prediction generation.
+- `--single-book-split-cache-dir PATH`: optional root for single-book split-cache entries.
+- `--single-book-split-cache-force / --no-single-book-split-cache-force` (default disabled): force split-cache rebuild for the current run.
 - `--predictions-out PATH`: optional JSONL output for prediction-stage records (for later evaluate-only runs).
 - `--predictions-in PATH`: optional JSONL input to run evaluate-only without generating predictions.
 - `--baseline PATH`: compare action only; baseline all-method benchmark directory/report JSON or single-eval `eval_report.json` path/directory.

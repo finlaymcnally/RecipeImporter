@@ -9,7 +9,7 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
+def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -78,9 +78,9 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
 
     monkeypatch.setattr(
         cli,
-        "_write_single_offline_starter_pack",
+        "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("starter pack should not run by default for single-offline")
+            AssertionError("starter pack should not run by default for single-book")
         ),
     )
     monkeypatch.setattr(
@@ -89,7 +89,7 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -113,7 +113,7 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     assert [call["recipe_prompt_target_count"] for call in benchmark_calls] == [10, 10]
     assert [call["line_role_prompt_target_count"] for call in benchmark_calls] == [5, 5]
     assert [call["knowledge_prompt_target_count"] for call in benchmark_calls] == [5, 5]
-    assert [call["single_offline_split_cache_mode"] for call in benchmark_calls] == [
+    assert [call["single_book_split_cache_mode"] for call in benchmark_calls] == [
         "auto",
         "auto",
     ]
@@ -159,7 +159,7 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     )
 
 
-def test_interactive_single_offline_preserves_selected_codex_recipe_pipeline(
+def test_interactive_single_book_preserves_selected_codex_recipe_pipeline(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -197,14 +197,14 @@ def test_interactive_single_offline_preserves_selected_codex_recipe_pipeline(
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
     monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
-    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(cli, "_write_single_book_starter_pack", lambda **_kwargs: None)
     monkeypatch.setattr(
         cli,
         "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -217,7 +217,7 @@ def test_interactive_single_offline_preserves_selected_codex_recipe_pipeline(
     ]
 
 
-def test_interactive_single_offline_preserves_selected_atomic_splitter_across_variants(
+def test_interactive_single_book_preserves_selected_atomic_splitter_across_variants(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -226,7 +226,7 @@ def test_interactive_single_offline_preserves_selected_atomic_splitter_across_va
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "atomic_block_splitter": "atomic-v1",
         },
-        warn_context="test single-offline shared atomic splitter",
+        warn_context="test single-book shared atomic splitter",
     )
     benchmark_eval_output = (
         tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
@@ -258,14 +258,14 @@ def test_interactive_single_offline_preserves_selected_atomic_splitter_across_va
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
     monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
-    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(cli, "_write_single_book_starter_pack", lambda **_kwargs: None)
     monkeypatch.setattr(
         cli,
         "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -278,17 +278,17 @@ def test_interactive_single_offline_preserves_selected_atomic_splitter_across_va
     ]
 
 
-def test_interactive_single_offline_variants_ignore_persistence_only_metadata() -> None:
+def test_interactive_single_book_variants_ignore_persistence_only_metadata() -> None:
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "codex_farm_model": "gpt-5.3-codex-spark",
             "codex_farm_reasoning_effort": "low",
         },
-        warn_context="test metadata-safe single-offline variants",
+        warn_context="test metadata-safe single-book variants",
     )
 
-    variants = cli._interactive_single_offline_variants(selected_settings)
+    variants = cli._interactive_single_book_variants(selected_settings)
 
     assert [slug for slug, _settings in variants] == ["vanilla", "codexfarm"]
     assert [settings.llm_recipe_pipeline.value for _, settings in variants] == [
@@ -311,13 +311,13 @@ def test_interactive_single_offline_variants_ignore_persistence_only_metadata() 
         "low",
     ]
 
-def test_interactive_single_offline_uses_book_slug_in_session_root_when_source_selected(
+def test_interactive_single_book_uses_book_slug_in_session_root_when_source_selected(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
         {"llm_recipe_pipeline": "off"},
-        warn_context="test source-slugged-single-offline-root",
+        warn_context="test source-slugged-single-book-root",
     )
     benchmark_eval_output = (
         tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
@@ -358,7 +358,7 @@ def test_interactive_single_offline_uses_book_slug_in_session_root_when_source_s
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -381,7 +381,7 @@ def test_interactive_single_offline_uses_book_slug_in_session_root_when_source_s
         / "vanilla"
     )
 
-def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_comparison(
+def test_interactive_single_book_codex_disabled_runs_only_vanilla_and_skips_comparison(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -419,9 +419,9 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
     )
     monkeypatch.setattr(
         cli,
-        "_write_single_offline_starter_pack",
+        "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("starter pack should not run for vanilla-only single-offline")
+            AssertionError("starter pack should not run for vanilla-only single-book")
         ),
     )
     monkeypatch.setattr(
@@ -435,7 +435,7 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
         lambda **_kwargs: None,
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -472,7 +472,7 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
     )
 
 
-def test_interactive_single_offline_fully_vanilla_still_uses_vanilla_slug(
+def test_interactive_single_book_fully_vanilla_still_uses_vanilla_slug(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -522,7 +522,7 @@ def test_interactive_single_offline_fully_vanilla_still_uses_vanilla_slug(
         lambda **_kwargs: None,
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -543,7 +543,7 @@ def test_interactive_single_offline_fully_vanilla_still_uses_vanilla_slug(
         / "vanilla"
     )
 
-def test_interactive_single_offline_hybrid_run_uses_profile_slug_not_vanilla(
+def test_interactive_single_book_hybrid_run_uses_profile_slug_not_vanilla(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -553,7 +553,7 @@ def test_interactive_single_offline_hybrid_run_uses_profile_slug_not_vanilla(
             "line_role_pipeline": "codex-line-role-shard-v1",
             "atomic_block_splitter": "atomic-v1",
         },
-        warn_context="test line-role-only single-offline",
+        warn_context="test line-role-only single-book",
     )
     benchmark_eval_output = (
         tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
@@ -593,7 +593,7 @@ def test_interactive_single_offline_hybrid_run_uses_profile_slug_not_vanilla(
         lambda **_kwargs: None,
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -624,7 +624,7 @@ def test_interactive_single_offline_hybrid_run_uses_profile_slug_not_vanilla(
         / "codex_vs_vanilla_comparison.json"
     ).exists()
 
-def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summary(
+def test_interactive_single_book_markdown_enabled_writes_one_top_level_summary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -671,13 +671,13 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
 
     monkeypatch.setattr(
         cli,
-        "_write_single_offline_starter_pack",
+        "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("starter pack should not run by default")
         ),
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -705,13 +705,13 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     assert "codex_vs_vanilla_comparison.json" in summary_text
     assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
 
-def test_interactive_single_offline_starts_background_oracle_upload(
+def test_interactive_single_book_starts_background_oracle_upload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
         {"llm_recipe_pipeline": "off"},
-        warn_context="test oracle single-offline",
+        warn_context="test oracle single-book",
     )
     benchmark_eval_output = (
         tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-05_23.01.17"
@@ -755,7 +755,7 @@ def test_interactive_single_offline_starts_background_oracle_upload(
         lambda **kwargs: launch_calls.append(dict(kwargs)),
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
@@ -769,7 +769,7 @@ def test_interactive_single_offline_starts_background_oracle_upload(
         }
     ]
 
-def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_comparison(
+def test_interactive_single_book_codex_failure_returns_unsuccessful_without_comparison(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -791,7 +791,7 @@ def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_c
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
     monkeypatch.setattr(
         cli,
-        "_write_single_offline_starter_pack",
+        "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("starter pack should not run when codex variant fails")
         ),
@@ -802,7 +802,7 @@ def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_c
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
-    completed = cli._interactive_single_offline_benchmark(
+    completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,

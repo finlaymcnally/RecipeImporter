@@ -77,7 +77,10 @@ _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
 )
 _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
 _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
-_WORKSPACE_FORBIDDEN_EXECUTABLES = {
+# These are the clearly off-contract tools for long-lived workspace workers.
+# Local interpreters such as python3 and node stay allowed here as long as
+# the command still obeys the workspace path boundary checks below.
+_WORKSPACE_FORBIDDEN_BOUNDARY_EXECUTABLES = {
     "apt",
     "apt-get",
     "brew",
@@ -87,14 +90,11 @@ _WORKSPACE_FORBIDDEN_EXECUTABLES = {
     "git",
     "go",
     "kubectl",
-    "node",
     "npm",
     "npx",
     "php",
     "pip",
     "pip3",
-    "python",
-    "python3",
     "ruby",
     "scp",
     "ssh",
@@ -1121,7 +1121,7 @@ def _build_direct_exec_agents_text(
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
             "Prefer opening the named files directly instead of exploring the workspace.\n"
             "Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `scratch/` plus the approved result path.\n"
-            "The watchdog is boundary-based: stay inside this workspace and avoid repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.\n"
+            "The watchdog is boundary-based: stay inside this workspace, keep every visible path local, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
             "When the prompt gives you a leased-packet loop, finish the current packet, then re-open the current-packet files instead of inventing your own batch scheduler.\n"
@@ -1960,8 +1960,9 @@ def _write_direct_exec_worker_manifest(
             "Use `scratch/` for bounded helper work and the approved `out/` path for final results.",
         ],
         "workspace_shell_policy": (
-            "Allow ordinary local shell use inside this workspace. Block visible "
-            "path escapes and obvious repo/network/interpreter tools."
+            "Allow ordinary local shell use inside this workspace, including bounded "
+            "`python`/`python3`/`node` transforms. Block visible path escapes and "
+            "obvious repo/network/package-manager tools."
         ),
         "workspace_local_shell_examples": (
             [
@@ -1976,13 +1977,13 @@ def _write_direct_exec_worker_manifest(
                 "rg -n \"needle\" -n",
                 "jq '.[0] | keys' assigned_shards.json",
                 "jq '.[0] | keys' assigned_tasks.json",
+                "python3 -c \"from pathlib import Path; Path('out/<shard>.json').write_text(Path('in/<shard>.json').read_text())\"",
                 "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
                 "cat <<'EOF' > out/<shard>.json",
             ]
         ),
         "workspace_commands_forbidden": [
-            "repo/network/interpreter commands such as git, python, node, curl, wget, or package managers",
-            "inline interpreters such as python - <<'PY' or python -c",
+            "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
             "absolute paths",
             "/tmp paths",
             "parent-directory traversal",
@@ -2133,7 +2134,7 @@ def detect_workspace_worker_boundary_violation(
     inner_tokens = _command_tokens_for_watchdog(command_text)
     if inner_tokens:
         executable = _workspace_watchdog_executable(inner_tokens)
-        if executable in _WORKSPACE_FORBIDDEN_EXECUTABLES:
+        if executable in _WORKSPACE_FORBIDDEN_BOUNDARY_EXECUTABLES:
             return WorkspaceCommandClassification(
                 command_text=cleaned_command,
                 allowed=False,
@@ -2326,7 +2327,7 @@ def _detect_workspace_worker_boundary_violation_in_text(
 ) -> WorkspaceCommandClassification | None:
     stripped_text = re.sub(r"^\s*#![^\n]*(?:\n|$)", "", shell_text, flags=re.MULTILINE)
     for executable in _workspace_shell_executables(stripped_text):
-        if executable in _WORKSPACE_FORBIDDEN_EXECUTABLES:
+        if executable in _WORKSPACE_FORBIDDEN_BOUNDARY_EXECUTABLES:
             return WorkspaceCommandClassification(
                 command_text=command_text,
                 allowed=False,
@@ -2352,7 +2353,7 @@ def _detect_workspace_worker_boundary_violation_in_text(
             reason="workspace shell commands must stay on relative local paths",
         )
     absolute_path_match = re.search(
-        r"(^|[\s\"'])/(?!dev/null(?:$|[\s\"']))",
+        r"(^|[\s\"'])/(?!/|dev/null(?:$|[\s\"']))",
         stripped_text,
     )
     if absolute_path_match is not None:

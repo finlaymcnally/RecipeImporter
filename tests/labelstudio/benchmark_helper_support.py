@@ -234,7 +234,7 @@ def _fake_offline_prediction_stage(
         if predictions_out_path is not None
         else [],
         codexfarm_prompt_response_log_path=None,
-        single_offline_split_cache_metadata=None,
+        single_book_split_cache_metadata=None,
     )
 
 

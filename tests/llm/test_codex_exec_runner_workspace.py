@@ -134,18 +134,18 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert worker_manifest["scratch_dir"] == "scratch"
     assert worker_manifest["mirrored_example_files"] == ["valid_repaired_task_output.json"]
     assert worker_manifest["workspace_shell_policy"].startswith(
-        "Allow ordinary local shell use inside this workspace."
+        "Allow ordinary local shell use inside this workspace"
     )
     assert worker_manifest["workspace_local_shell_examples"] == [
         "rg -n \"needle\" -n",
         "jq '.[0] | keys' assigned_shards.json",
         "jq '.[0] | keys' assigned_tasks.json",
+        "python3 -c \"from pathlib import Path; Path('out/<shard>.json').write_text(Path('in/<shard>.json').read_text())\"",
         "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
         "cat <<'EOF' > out/<shard>.json",
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
-        "repo/network/interpreter commands such as git, python, node, curl, wget, or package managers",
-        "inline interpreters such as python - <<'PY' or python -c",
+        "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "absolute paths",
         "/tmp paths",
         "parent-directory traversal",
@@ -157,7 +157,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
     assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
     assert "The watchdog is boundary-based" in agents_text
-    assert "avoid repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers" in agents_text
+    assert "avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`" in agents_text
     assert "Use `scratch/` for bounded helper files." in agents_text
     assert (workspace.execution_working_dir / "out").exists()
     assert (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
@@ -219,6 +219,44 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
     assert (workspace.execution_working_dir / "current_result_path.txt").exists()
     assert (workspace.execution_working_dir / "packet_lease_status.json").exists()
     assert (workspace.execution_working_dir / "scratch").exists()
+
+
+def test_workspace_boundary_detector_allows_jq_fallback_operator_with_output_redirection() -> None:
+    command = (
+        "/bin/bash -lc \"jq '{rows: .rows | map({atomic_index: .[0], "
+        "label: ({\\\"L0\\\":\\\"RECIPE_TITLE\\\"}[.[1]] // \\\"UNKNOWN\\\")})}' "
+        "in/task-001.json > out/task-001.json\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+    verdict = classify_workspace_worker_command(command)
+    assert verdict.allowed is True
+    assert verdict.policy in {
+        "shell_script_workspace_local",
+        "tolerated_workspace_shell_command",
+    }
+
+
+def test_workspace_boundary_detector_allows_bounded_python_and_node_transforms() -> None:
+    for command in (
+        "/bin/bash -lc \"python3 -c "
+        "'from pathlib import Path; "
+        "Path(\\\"out/task-001.json\\\").write_text(Path(\\\"in/task-001.json\\\").read_text())'\"",
+        "/bin/bash -lc \"python3 - <<'PY'\n"
+        "from pathlib import Path\n"
+        "Path('out/task-001.json').write_text(Path('in/task-001.json').read_text())\n"
+        "PY\"",
+        "/bin/bash -lc \"node -e "
+        "\\\"const fs=require('fs'); "
+        "fs.writeFileSync('out/task-001.json', fs.readFileSync('in/task-001.json', 'utf8'));\\\"\"",
+    ):
+        assert detect_workspace_worker_boundary_violation(command) is None
+        verdict = classify_workspace_worker_command(command)
+        assert verdict.allowed is True
+        assert verdict.policy in {
+            "shell_script_workspace_local",
+            "tolerated_workspace_shell_command",
+        }
 
 
 def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(

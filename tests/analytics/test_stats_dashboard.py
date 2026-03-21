@@ -1243,7 +1243,7 @@ const record = {
   tokens_total: 1100,
   recipes: 4,
   run_config: {
-    single_offline_split_cache: {
+    single_book_split_cache: {
       conversion_seconds: 20,
     },
   },
@@ -2240,20 +2240,20 @@ class TestCollectors:
             for r in data.benchmark_records
         )
 
-    def test_benchmark_collector_includes_nested_single_offline_variant_eval_reports(
+    def test_benchmark_collector_includes_nested_single_book_variant_eval_reports(
         self,
         tmp_path,
     ):
         run_ts = "2026-03-02_12.34.56"
-        single_offline_root = (
+        single_book_root = (
             tmp_path
             / "golden"
             / "benchmark-vs-golden"
             / run_ts
             / "single-book-benchmark"
         )
-        vanilla_dir = single_offline_root / "vanilla"
-        codex_dir = single_offline_root / "codexfarm"
+        vanilla_dir = single_book_root / "vanilla"
+        codex_dir = single_book_root / "codexfarm"
         vanilla_dir.mkdir(parents=True)
         codex_dir.mkdir(parents=True)
         (vanilla_dir / "eval_report.json").write_text(

@@ -325,18 +325,18 @@ QUALITYSUITE_AGENT_BRIDGE_OUTCOME_FIELDS: tuple[str, ...] = (
     "strict_accuracy",
     "macro_f1_excluding_other",
 )
-SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION = "codex_vs_vanilla_comparison.v2"
-SINGLE_OFFLINE_COMPARISON_METRICS: tuple[tuple[str, str], ...] = (
+SINGLE_BOOK_COMPARISON_SCHEMA_VERSION = "codex_vs_vanilla_comparison.v2"
+SINGLE_BOOK_COMPARISON_METRICS: tuple[tuple[str, str], ...] = (
     ("strict_accuracy", "strict_accuracy"),
     ("macro_f1_excluding_other", "macro_f1_excluding_other"),
 )
-SINGLE_OFFLINE_PER_LABEL_BREAKDOWN_SCHEMA_VERSION = "single_offline_per_label_breakdown.v1"
-SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION = "single_offline_split_cache.v1"
-SINGLE_OFFLINE_SPLIT_CACHE_KEY_SCHEMA_VERSION = "single_offline_split_cache_key.v1"
-SINGLE_OFFLINE_SPLIT_CACHE_ROOT_ENV = "COOKIMPORT_SINGLE_OFFLINE_SPLIT_CACHE_ROOT"
-SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
-SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
-SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
+SINGLE_BOOK_PER_LABEL_BREAKDOWN_SCHEMA_VERSION = "single_book_per_label_breakdown.v1"
+SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION = "single_book_split_cache.v1"
+SINGLE_BOOK_SPLIT_CACHE_KEY_SCHEMA_VERSION = "single_book_split_cache_key.v1"
+SINGLE_BOOK_SPLIT_CACHE_ROOT_ENV = "COOKIMPORT_SINGLE_BOOK_SPLIT_CACHE_ROOT"
+SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = 120.0
+SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = 0.25
+SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
 BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
 BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
@@ -460,16 +460,16 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "codex_farm_context_blocks",
     "codex_farm_failure_mode",
 )
-SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS = (
+SINGLE_BOOK_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS = (
     "llm_recipe_pipeline",
     "codex_farm_cmd",
     "codex_farm_context_blocks",
     "codex_farm_failure_mode",
 )
-SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_FIELDS = tuple(
+SINGLE_BOOK_SPLIT_CONVERT_INPUT_FIELDS = tuple(
     field_name
     for field_name in ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS
-    if field_name not in SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS
+    if field_name not in SINGLE_BOOK_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS
 )
 PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
@@ -479,8 +479,8 @@ COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV = "COOKIMPORT_BENCH_WRITE_MARKDOWN"
 COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV = (
     "COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS"
 )
-COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK_ENV = (
-    "COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK"
+COOKIMPORT_BENCH_SINGLE_BOOK_WRITE_STARTER_PACK_ENV = (
+    "COOKIMPORT_BENCH_SINGLE_BOOK_WRITE_STARTER_PACK"
 )
 BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES: dict[str, str] = {
     "dmp": "DMP",
@@ -2960,7 +2960,7 @@ def _interactive_single_profile_all_matched_benchmark(
         typer.secho("No books selected. Single-profile benchmark cancelled.", fg=typer.colors.YELLOW)
         return False
 
-    variants = _interactive_single_offline_variants(selected_benchmark_settings)
+    variants = _interactive_single_book_variants(selected_benchmark_settings)
     if not variants:
         typer.secho("No single-profile benchmark variants were planned.", fg=typer.colors.YELLOW)
         return False
@@ -3222,7 +3222,7 @@ def _interactive_single_profile_all_matched_benchmark(
                     ):
                         labelstudio_benchmark(**variant_kwargs)
                 variant_eval_outputs[variant_slug] = variant_eval_output
-                source_file = _load_single_offline_source_path(variant_eval_output)
+                source_file = _load_single_book_source_path(variant_eval_output)
                 if source_file and not source_file_for_comparison:
                     source_file_for_comparison = source_file
                 if single_profile_dashboard is not None:
@@ -3279,7 +3279,7 @@ def _interactive_single_profile_all_matched_benchmark(
             and "vanilla" in variant_eval_outputs
             and "codexfarm" in variant_eval_outputs
         ):
-            comparison_paths = _write_single_offline_comparison_artifacts(
+            comparison_paths = _write_single_book_comparison_artifacts(
                 run_timestamp=benchmark_eval_output.name,
                 session_root=target_eval_output,
                 source_file=source_file_for_comparison or str(target.source_file),
@@ -3468,7 +3468,7 @@ def _interactive_single_profile_all_matched_benchmark(
     return True
 
 
-def _interactive_single_offline_variants(
+def _interactive_single_book_variants(
     selected_benchmark_settings: RunSettings,
 ) -> list[tuple[str, RunSettings]]:
     run_config = project_run_config_payload(
@@ -3509,13 +3509,13 @@ def _interactive_single_offline_variants(
         ]
     return [
         (
-            _single_offline_variant_slug(selected_benchmark_settings),
+            _single_book_variant_slug(selected_benchmark_settings),
             selected_benchmark_settings,
         )
     ]
 
 
-def _single_offline_variant_slug(settings: RunSettings) -> str:
+def _single_book_variant_slug(settings: RunSettings) -> str:
     run_config = settings.to_run_config_dict()
     recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
     line_role_pipeline = str(run_config.get("line_role_pipeline") or "off").strip().lower()
@@ -3610,25 +3610,25 @@ def _load_json_dict(path: Path) -> dict[str, Any] | None:
     return payload
 
 
-def _load_single_offline_eval_metrics(
+def _load_single_book_eval_metrics(
     eval_output_dir: Path,
 ) -> dict[str, float | None] | None:
     eval_report = _load_json_dict(eval_output_dir / "eval_report.json")
     if eval_report is None:
         return None
-    return _single_offline_eval_metrics_from_report(eval_report)
+    return _single_book_eval_metrics_from_report(eval_report)
 
 
-def _single_offline_eval_metrics_from_report(
+def _single_book_eval_metrics_from_report(
     eval_report: dict[str, Any],
 ) -> dict[str, float | None]:
     return {
         metric_name: _benchmark_report_metric_value(eval_report, metric_name)
-        for metric_name, _display_name in SINGLE_OFFLINE_COMPARISON_METRICS
+        for metric_name, _display_name in SINGLE_BOOK_COMPARISON_METRICS
     }
 
 
-def _build_single_offline_per_label_breakdown(
+def _build_single_book_per_label_breakdown(
     *,
     run_timestamp: str,
     eval_reports: Iterable[dict[str, Any] | None],
@@ -3718,14 +3718,14 @@ def _build_single_offline_per_label_breakdown(
         )
 
     return {
-        "schema_version": SINGLE_OFFLINE_PER_LABEL_BREAKDOWN_SCHEMA_VERSION,
+        "schema_version": SINGLE_BOOK_PER_LABEL_BREAKDOWN_SCHEMA_VERSION,
         "run_timestamp": run_timestamp,
         "eval_count": eval_count,
         "rows": rows,
     }
 
 
-def _single_offline_display_metric_value(
+def _single_book_display_metric_value(
     metrics: dict[str, Any] | None,
     metric_name: str,
 ) -> float | None:
@@ -3771,7 +3771,7 @@ def _benchmark_report_metric_value(
     metrics: dict[str, Any] | None,
     metric_name: str,
 ) -> float | None:
-    return _single_offline_display_metric_value(metrics, metric_name)
+    return _single_book_display_metric_value(metrics, metric_name)
 
 
 def _benchmark_report_metric_bundle(
@@ -3836,7 +3836,7 @@ def _benchmark_report_metric_bundle(
     }
 
 
-def _load_single_offline_source_path(eval_output_dir: Path) -> str | None:
+def _load_single_book_source_path(eval_output_dir: Path) -> str | None:
     manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
     if not isinstance(manifest_payload, dict):
         return None
@@ -3847,7 +3847,7 @@ def _load_single_offline_source_path(eval_output_dir: Path) -> str | None:
     return source_path or None
 
 
-def _load_single_offline_split_cache_metadata(
+def _load_single_book_split_cache_metadata(
     eval_output_dir: Path,
 ) -> dict[str, Any] | None:
     manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
@@ -3856,24 +3856,24 @@ def _load_single_offline_split_cache_metadata(
     run_config_payload = manifest_payload.get("run_config")
     if not isinstance(run_config_payload, dict):
         return None
-    split_cache_payload = run_config_payload.get("single_offline_split_cache")
+    split_cache_payload = run_config_payload.get("single_book_split_cache")
     if isinstance(split_cache_payload, dict):
         return dict(split_cache_payload)
     return None
 
 
-def _single_offline_text_or_none(value: Any) -> str | None:
+def _single_book_text_or_none(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
 
 
-def _resolve_single_offline_reasoning_effort(
+def _resolve_single_book_reasoning_effort(
     effort: str | None,
     *,
     codex_cmd: str | None,
     codex_model: str | None = None,
 ) -> str | None:
-    normalized_effort = _single_offline_text_or_none(effort)
+    normalized_effort = _single_book_text_or_none(effort)
     if normalized_effort is None:
         return default_codex_reasoning_effort_for_model(
             codex_model,
@@ -3892,7 +3892,7 @@ def _resolve_single_offline_reasoning_effort(
         return normalized_effort
 
 
-def _find_single_offline_llm_manifest_path(
+def _find_single_book_llm_manifest_path(
     prediction_run_dir: Path,
 ) -> Path | None:
     prediction_manifest = _load_json_dict(prediction_run_dir / "run_manifest.json")
@@ -3921,8 +3921,8 @@ def _find_single_offline_llm_manifest_path(
 def _extract_codex_farm_runtime_from_llm_manifest(
     llm_manifest: dict[str, Any],
 ) -> tuple[str | None, str | None]:
-    model = _single_offline_text_or_none(llm_manifest.get("codex_farm_model"))
-    reasoning_effort = _single_offline_text_or_none(
+    model = _single_book_text_or_none(llm_manifest.get("codex_farm_model"))
+    reasoning_effort = _single_book_text_or_none(
         llm_manifest.get("codex_farm_reasoning_effort")
     )
 
@@ -3937,9 +3937,9 @@ def _extract_codex_farm_runtime_from_llm_manifest(
         process_payload = pass_payload.get("process_payload")
         if isinstance(process_payload, dict):
             if model is None:
-                model = _single_offline_text_or_none(process_payload.get("codex_model"))
+                model = _single_book_text_or_none(process_payload.get("codex_model"))
             if reasoning_effort is None:
-                reasoning_effort = _single_offline_text_or_none(
+                reasoning_effort = _single_book_text_or_none(
                     process_payload.get("codex_reasoning_effort")
                 )
 
@@ -3960,8 +3960,8 @@ def _extract_codex_farm_runtime_from_llm_manifest(
                     if not isinstance(row, dict):
                         continue
                     if model is None:
-                        model = _single_offline_text_or_none(row.get("model"))
-                    candidate_reasoning = _single_offline_text_or_none(
+                        model = _single_book_text_or_none(row.get("model"))
+                    candidate_reasoning = _single_book_text_or_none(
                         row.get("reasoning_effort")
                     )
                     if candidate_reasoning is not None:
@@ -3974,7 +3974,7 @@ def _extract_codex_farm_runtime_from_llm_manifest(
     return model, reasoning_effort
 
 
-def _single_offline_nonnegative_int_or_none(value: Any) -> int | None:
+def _single_book_nonnegative_int_or_none(value: Any) -> int | None:
     text = str(value or "").strip()
     if not text:
         return None
@@ -4023,7 +4023,7 @@ def _extract_codex_farm_token_usage_from_process_run_payload(
             if not isinstance(row, dict):
                 continue
             for key in token_keys:
-                value = _single_offline_nonnegative_int_or_none(row.get(key))
+                value = _single_book_nonnegative_int_or_none(row.get(key))
                 if value is None:
                     continue
                 current = totals.get(key)
@@ -4057,7 +4057,7 @@ def _extract_codex_farm_token_usage_from_process_run_payload(
         for key, raw_value in summary_value_map.items():
             if totals.get(key) is not None:
                 continue
-            parsed_value = _single_offline_nonnegative_int_or_none(raw_value)
+            parsed_value = _single_book_nonnegative_int_or_none(raw_value)
             if parsed_value is not None:
                 totals[key] = parsed_value
 
@@ -4133,7 +4133,7 @@ def _extract_codex_farm_token_usage_from_llm_manifest(
     )
 
 
-def _append_single_offline_summary_payload(
+def _append_single_book_summary_payload(
     summary: dict[str, Any],
     summaries: list[dict[str, Any]],
     seen: set[int],
@@ -4145,7 +4145,7 @@ def _append_single_offline_summary_payload(
     summaries.append(summary)
 
 
-def _collect_single_offline_summary_payloads(
+def _collect_single_book_summary_payloads(
     payload: Any,
     summaries: list[dict[str, Any]],
     seen: set[int],
@@ -4153,20 +4153,20 @@ def _collect_single_offline_summary_payloads(
     if isinstance(payload, dict):
         summary = payload.get("summary")
         if isinstance(summary, dict):
-            _append_single_offline_summary_payload(summary, summaries, seen)
+            _append_single_book_summary_payload(summary, summaries, seen)
         telemetry_report = payload.get("telemetry_report")
         if isinstance(telemetry_report, dict):
             nested_summary = telemetry_report.get("summary")
             if isinstance(nested_summary, dict):
-                _append_single_offline_summary_payload(nested_summary, summaries, seen)
+                _append_single_book_summary_payload(nested_summary, summaries, seen)
         for value in payload.values():
-            _collect_single_offline_summary_payloads(value, summaries, seen)
+            _collect_single_book_summary_payloads(value, summaries, seen)
     elif isinstance(payload, list):
         for value in payload:
-            _collect_single_offline_summary_payloads(value, summaries, seen)
+            _collect_single_book_summary_payloads(value, summaries, seen)
 
 
-def _single_offline_token_usage_from_summary_payloads(
+def _single_book_token_usage_from_summary_payloads(
     summaries: list[dict[str, Any]],
 ) -> tuple[int | None, int | None, int | None, int | None, int | None]:
     token_keys = (
@@ -4182,7 +4182,7 @@ def _single_offline_token_usage_from_summary_payloads(
             raw_value = summary.get(key)
             if key == "tokens_reasoning" and raw_value is None:
                 raw_value = summary.get("tokens_reasoning_total")
-            value = _single_offline_nonnegative_int_or_none(raw_value)
+            value = _single_book_nonnegative_int_or_none(raw_value)
             if value is None:
                 continue
             current = totals.get(key)
@@ -4196,7 +4196,7 @@ def _single_offline_token_usage_from_summary_payloads(
     )
 
 
-def _single_offline_line_role_summaries_from_attempts(
+def _single_book_line_role_summaries_from_attempts(
     telemetry_payload: dict[str, Any],
 ) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
@@ -4248,26 +4248,26 @@ def _extract_line_role_token_usage_from_manifest(
             continue
         summary = telemetry_payload.get("summary")
         direct_tokens = (
-            _single_offline_nonnegative_int_or_none(summary.get("tokens_input"))
+            _single_book_nonnegative_int_or_none(summary.get("tokens_input"))
             if isinstance(summary, dict)
             else None,
-            _single_offline_nonnegative_int_or_none(summary.get("tokens_cached_input"))
+            _single_book_nonnegative_int_or_none(summary.get("tokens_cached_input"))
             if isinstance(summary, dict)
             else None,
-            _single_offline_nonnegative_int_or_none(summary.get("tokens_output"))
+            _single_book_nonnegative_int_or_none(summary.get("tokens_output"))
             if isinstance(summary, dict)
             else None,
-            _single_offline_nonnegative_int_or_none(summary.get("tokens_reasoning"))
+            _single_book_nonnegative_int_or_none(summary.get("tokens_reasoning"))
             if isinstance(summary, dict)
             else None,
-            _single_offline_nonnegative_int_or_none(summary.get("tokens_total"))
+            _single_book_nonnegative_int_or_none(summary.get("tokens_total"))
             if isinstance(summary, dict)
             else None,
         )
-        nested_summaries = _single_offline_line_role_summaries_from_attempts(
+        nested_summaries = _single_book_line_role_summaries_from_attempts(
             telemetry_payload
         )
-        fallback_tokens = _single_offline_token_usage_from_summary_payloads(
+        fallback_tokens = _single_book_token_usage_from_summary_payloads(
             nested_summaries
         )
         resolved_tokens = tuple(
@@ -4331,7 +4331,7 @@ def _sum_token_usage(
     )
 
 
-def _load_single_offline_codex_farm_runtime(
+def _load_single_book_codex_farm_runtime(
     eval_output_dir: Path,
 ) -> dict[str, Any] | None:
     manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
@@ -4342,11 +4342,11 @@ def _load_single_offline_codex_farm_runtime(
     if not isinstance(run_config_payload, dict):
         run_config_payload = {}
 
-    codex_cmd = _single_offline_text_or_none(run_config_payload.get("codex_farm_cmd"))
-    codex_model = _single_offline_text_or_none(
+    codex_cmd = _single_book_text_or_none(run_config_payload.get("codex_farm_cmd"))
+    codex_model = _single_book_text_or_none(
         run_config_payload.get("codex_farm_model")
-    ) or _single_offline_text_or_none(run_config_payload.get("codex_model"))
-    codex_reasoning_effort = _resolve_single_offline_reasoning_effort(
+    ) or _single_book_text_or_none(run_config_payload.get("codex_model"))
+    codex_reasoning_effort = _resolve_single_book_reasoning_effort(
         run_config_payload.get("codex_farm_reasoning_effort")
         or run_config_payload.get("codex_reasoning_effort"),
         codex_cmd=codex_cmd,
@@ -4365,7 +4365,7 @@ def _load_single_offline_codex_farm_runtime(
 
     llm_manifest = None
     if prediction_run_dir.exists() and prediction_run_dir.is_dir():
-        llm_manifest_path = _find_single_offline_llm_manifest_path(prediction_run_dir)
+        llm_manifest_path = _find_single_book_llm_manifest_path(prediction_run_dir)
         if llm_manifest_path is not None:
             llm_manifest = _load_json_dict(llm_manifest_path)
     if isinstance(llm_manifest, dict):
@@ -4375,7 +4375,7 @@ def _load_single_offline_codex_farm_runtime(
         if codex_model is None:
             codex_model = inferred_model
         if codex_reasoning_effort is None:
-            codex_reasoning_effort = _resolve_single_offline_reasoning_effort(
+            codex_reasoning_effort = _resolve_single_book_reasoning_effort(
                 inferred_reasoning_effort,
                 codex_cmd=codex_cmd,
                 codex_model=codex_model,
@@ -4389,20 +4389,20 @@ def _load_single_offline_codex_farm_runtime(
     }
 
 
-def _resolve_single_offline_split_cache_root(
+def _resolve_single_book_split_cache_root(
     *,
     session_root: Path,
     split_cache_dir: Path | None,
 ) -> Path:
     if split_cache_dir is not None:
         return split_cache_dir.expanduser()
-    env_override = str(os.getenv(SINGLE_OFFLINE_SPLIT_CACHE_ROOT_ENV, "") or "").strip()
+    env_override = str(os.getenv(SINGLE_BOOK_SPLIT_CACHE_ROOT_ENV, "") or "").strip()
     if env_override:
         return Path(env_override).expanduser()
     return session_root / ".split-cache"
 
 
-def _single_offline_split_cache_summary(
+def _single_book_split_cache_summary(
     *,
     vanilla_metadata: dict[str, Any] | None,
     codex_metadata: dict[str, Any] | None,
@@ -4434,19 +4434,19 @@ def _single_offline_split_cache_summary(
         if vanilla_key and vanilla_key == codex_key:
             shared_key = vanilla_key
     return {
-        "schema_version": SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION,
+        "schema_version": SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION,
         "shared_key": shared_key,
         "variants": variant_rows,
     }
 
 
-def _single_offline_metric_deltas(
+def _single_book_metric_deltas(
     *,
     codex_metrics: dict[str, float | None],
     vanilla_metrics: dict[str, float | None],
 ) -> dict[str, float | None]:
     deltas: dict[str, float | None] = {}
-    for metric_name, _display_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+    for metric_name, _display_name in SINGLE_BOOK_COMPARISON_METRICS:
         codex_value = _benchmark_report_metric_value(codex_metrics, metric_name)
         vanilla_value = _benchmark_report_metric_value(vanilla_metrics, metric_name)
         if codex_value is None or vanilla_value is None:
@@ -4456,7 +4456,7 @@ def _single_offline_metric_deltas(
     return deltas
 
 
-def _single_offline_optional_delta(
+def _single_book_optional_delta(
     candidate: float | int | None,
     baseline: float | int | None,
 ) -> float | None:
@@ -4465,7 +4465,7 @@ def _single_offline_optional_delta(
     return float(candidate) - float(baseline)
 
 
-def _single_offline_eval_segmentation_summary(
+def _single_book_eval_segmentation_summary(
     eval_report: dict[str, Any] | None,
 ) -> dict[str, Any]:
     if not isinstance(eval_report, dict):
@@ -4499,12 +4499,12 @@ def _single_offline_eval_segmentation_summary(
         else None
     )
     boundary_false_positive_count = (
-        _single_offline_nonnegative_int_or_none(overall_micro.get("fp"))
+        _single_book_nonnegative_int_or_none(overall_micro.get("fp"))
         if isinstance(overall_micro, dict)
         else None
     )
     boundary_missed_count = (
-        _single_offline_nonnegative_int_or_none(overall_micro.get("fn"))
+        _single_book_nonnegative_int_or_none(overall_micro.get("fn"))
         if isinstance(overall_micro, dict)
         else None
     )
@@ -4518,7 +4518,7 @@ def _single_offline_eval_segmentation_summary(
     if isinstance(bucket_counts_payload, dict):
         for key, value in sorted(bucket_counts_payload.items()):
             name = str(key or "").strip()
-            parsed = _single_offline_nonnegative_int_or_none(value)
+            parsed = _single_book_nonnegative_int_or_none(value)
             if not name or parsed is None:
                 continue
             bucket_counts[name] = parsed
@@ -4542,7 +4542,7 @@ def _single_offline_eval_segmentation_summary(
     }
 
 
-def _single_offline_eval_gold_adaptation_summary(
+def _single_book_eval_gold_adaptation_summary(
     eval_report: dict[str, Any] | None,
 ) -> dict[str, Any]:
     if not isinstance(eval_report, dict):
@@ -4576,7 +4576,7 @@ def _single_offline_eval_gold_adaptation_summary(
     if isinstance(confidence_counts_payload, dict):
         for key, value in sorted(confidence_counts_payload.items()):
             name = str(key or "").strip()
-            parsed = _single_offline_nonnegative_int_or_none(value)
+            parsed = _single_book_nonnegative_int_or_none(value)
             if not name or parsed is None:
                 continue
             confidence_counts[name] = parsed
@@ -4584,10 +4584,10 @@ def _single_offline_eval_gold_adaptation_summary(
         "applied": True,
         "mode": str(adaptation_payload.get("mode") or "auto").strip() or "auto",
         "coverage_ratio": _report_optional_metric(adaptation_payload.get("coverage_ratio")),
-        "ambiguous_gold_blocks": _single_offline_nonnegative_int_or_none(
+        "ambiguous_gold_blocks": _single_book_nonnegative_int_or_none(
             adaptation_payload.get("ambiguous_gold_blocks")
         ),
-        "unresolved_gold_blocks": _single_offline_nonnegative_int_or_none(
+        "unresolved_gold_blocks": _single_book_nonnegative_int_or_none(
             adaptation_payload.get("unresolved_gold_blocks")
         ),
         "confidence_counts": confidence_counts,
@@ -4595,7 +4595,7 @@ def _single_offline_eval_gold_adaptation_summary(
     }
 
 
-def _build_single_offline_variant_diagnostics(
+def _build_single_book_variant_diagnostics(
     *,
     codex_eval_report: dict[str, Any] | None,
     vanilla_eval_report: dict[str, Any] | None,
@@ -4619,12 +4619,12 @@ def _build_single_offline_variant_diagnostics(
         practical_error_rate = (
             max(0.0, 1.0 - macro_f1) if macro_f1 is not None else None
         )
-        segmentation_summary = _single_offline_eval_segmentation_summary(eval_report)
+        segmentation_summary = _single_book_eval_segmentation_summary(eval_report)
         boundary_f1 = _report_optional_metric(segmentation_summary.get("boundary_f1"))
         segmentation_boundary_error_rate = (
             max(0.0, 1.0 - boundary_f1) if boundary_f1 is not None else None
         )
-        adaptation_summary = _single_offline_eval_gold_adaptation_summary(eval_report)
+        adaptation_summary = _single_book_eval_gold_adaptation_summary(eval_report)
         variant_rows[variant_slug] = {
             "strict_accuracy": strict_accuracy,
             "macro_f1_excluding_other": macro_f1,
@@ -4660,10 +4660,10 @@ def _build_single_offline_variant_diagnostics(
         | set(str(key) for key in vanilla_confidence_counts.keys())
     )
     for key in confidence_count_keys:
-        codex_value = _single_offline_nonnegative_int_or_none(
+        codex_value = _single_book_nonnegative_int_or_none(
             codex_confidence_counts.get(key)
         )
-        vanilla_value = _single_offline_nonnegative_int_or_none(
+        vanilla_value = _single_book_nonnegative_int_or_none(
             vanilla_confidence_counts.get(key)
         )
         if codex_value is None or vanilla_value is None:
@@ -4671,19 +4671,19 @@ def _build_single_offline_variant_diagnostics(
         confidence_count_deltas[key] = codex_value - vanilla_value
 
     deltas: dict[str, Any] = {
-        "classification_error_rate_delta": _single_offline_optional_delta(
+        "classification_error_rate_delta": _single_book_optional_delta(
             codex_row.get("classification_error_rate"),
             vanilla_row.get("classification_error_rate"),
         ),
-        "practical_error_rate_delta": _single_offline_optional_delta(
+        "practical_error_rate_delta": _single_book_optional_delta(
             codex_row.get("practical_error_rate"),
             vanilla_row.get("practical_error_rate"),
         ),
-        "segmentation_boundary_error_rate_delta": _single_offline_optional_delta(
+        "segmentation_boundary_error_rate_delta": _single_book_optional_delta(
             codex_row.get("segmentation_boundary_error_rate"),
             vanilla_row.get("segmentation_boundary_error_rate"),
         ),
-        "segmentation_boundary_f1_delta": _single_offline_optional_delta(
+        "segmentation_boundary_f1_delta": _single_book_optional_delta(
             (
                 codex_seg.get("boundary_f1")
                 if isinstance(codex_seg, dict)
@@ -4695,7 +4695,7 @@ def _build_single_offline_variant_diagnostics(
                 else None
             ),
         ),
-        "gold_adaptation_coverage_ratio_delta": _single_offline_optional_delta(
+        "gold_adaptation_coverage_ratio_delta": _single_book_optional_delta(
             (
                 codex_adaptation.get("coverage_ratio")
                 if isinstance(codex_adaptation, dict)
@@ -4707,7 +4707,7 @@ def _build_single_offline_variant_diagnostics(
                 else None
             ),
         ),
-        "gold_adaptation_ambiguous_delta": _single_offline_optional_delta(
+        "gold_adaptation_ambiguous_delta": _single_book_optional_delta(
             (
                 codex_adaptation.get("ambiguous_gold_blocks")
                 if isinstance(codex_adaptation, dict)
@@ -4719,7 +4719,7 @@ def _build_single_offline_variant_diagnostics(
                 else None
             ),
         ),
-        "gold_adaptation_unresolved_delta": _single_offline_optional_delta(
+        "gold_adaptation_unresolved_delta": _single_book_optional_delta(
             (
                 codex_adaptation.get("unresolved_gold_blocks")
                 if isinstance(codex_adaptation, dict)
@@ -4781,7 +4781,7 @@ def _build_single_offline_variant_diagnostics(
         )
 
     return {
-        "schema_version": "single_offline_variant_diagnostics.v1",
+        "schema_version": "single_book_variant_diagnostics.v1",
         "variants": variant_rows,
         "deltas": deltas,
         "likely_driver": likely_driver,
@@ -4789,7 +4789,7 @@ def _build_single_offline_variant_diagnostics(
     }
 
 
-def _format_single_offline_comparison_markdown(
+def _format_single_book_comparison_markdown(
     payload: dict[str, Any],
 ) -> str:
     run_timestamp = str(payload.get("run_timestamp") or "").strip() or "unknown"
@@ -4828,7 +4828,7 @@ def _format_single_offline_comparison_markdown(
     per_label_breakdown_payload = None
     variant_diagnostics_payload = None
     if isinstance(metadata_payload, dict):
-        split_cache_payload = metadata_payload.get("single_offline_split_cache")
+        split_cache_payload = metadata_payload.get("single_book_split_cache")
         codex_runtime_payload = metadata_payload.get("codex_farm_runtime")
         per_label_breakdown_payload = metadata_payload.get("per_label_breakdown")
         variant_diagnostics_payload = metadata_payload.get("variant_diagnostics")
@@ -4844,7 +4844,7 @@ def _format_single_offline_comparison_markdown(
         )
 
     metric_rows: list[tuple[str, str, str, str]] = []
-    for metric_name, display_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+    for metric_name, display_name in SINGLE_BOOK_COMPARISON_METRICS:
         codex_value = _benchmark_report_metric_value(
             codex_metrics if isinstance(codex_metrics, dict) else None,
             metric_name,
@@ -4878,7 +4878,7 @@ def _format_single_offline_comparison_markdown(
     lines: list[str] = [
         "# CodexFarm vs Vanilla Comparison",
         "",
-        f"- Schema version: {SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION}",
+        f"- Schema version: {SINGLE_BOOK_COMPARISON_SCHEMA_VERSION}",
         f"- Run timestamp: {run_timestamp}",
         f"- Source file: {source_file}",
         f"- Codex model: {codex_model or 'unknown'}",
@@ -5116,7 +5116,7 @@ def _format_single_offline_comparison_markdown(
     return "\n".join(lines) + "\n"
 
 
-def _write_single_offline_comparison_artifacts(
+def _write_single_book_comparison_artifacts(
     *,
     run_timestamp: str,
     session_root: Path,
@@ -5131,11 +5131,11 @@ def _write_single_offline_comparison_artifacts(
     vanilla_eval_report = _load_json_dict(vanilla_eval_output_dir / "eval_report.json")
     if codex_eval_report is None or vanilla_eval_report is None:
         return None
-    codex_metrics = _single_offline_eval_metrics_from_report(codex_eval_report)
-    vanilla_metrics = _single_offline_eval_metrics_from_report(vanilla_eval_report)
+    codex_metrics = _single_book_eval_metrics_from_report(codex_eval_report)
+    vanilla_metrics = _single_book_eval_metrics_from_report(vanilla_eval_report)
 
     comparison_payload = {
-        "schema_version": SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION,
+        "schema_version": SINGLE_BOOK_COMPARISON_SCHEMA_VERSION,
         "run_timestamp": run_timestamp,
         "source_file": source_file,
         "variants": {
@@ -5147,21 +5147,21 @@ def _write_single_offline_comparison_artifacts(
             "vanilla": vanilla_metrics,
         },
         "deltas": {
-            "codex_minus_vanilla": _single_offline_metric_deltas(
+            "codex_minus_vanilla": _single_book_metric_deltas(
                 codex_metrics=codex_metrics,
                 vanilla_metrics=vanilla_metrics,
             )
         },
     }
     metadata_payload: dict[str, Any] = {}
-    codex_runtime_payload = _load_single_offline_codex_farm_runtime(codex_eval_output_dir)
+    codex_runtime_payload = _load_single_book_codex_farm_runtime(codex_eval_output_dir)
     if isinstance(codex_runtime_payload, dict):
         metadata_payload["codex_farm_runtime"] = codex_runtime_payload
-    per_label_breakdown = _build_single_offline_per_label_breakdown(
+    per_label_breakdown = _build_single_book_per_label_breakdown(
         run_timestamp=run_timestamp,
         eval_reports=(vanilla_eval_report, codex_eval_report),
     )
-    variant_diagnostics = _build_single_offline_variant_diagnostics(
+    variant_diagnostics = _build_single_book_variant_diagnostics(
         codex_eval_report=codex_eval_report,
         vanilla_eval_report=vanilla_eval_report,
     )
@@ -5169,9 +5169,9 @@ def _write_single_offline_comparison_artifacts(
     if isinstance(per_label_breakdown, dict):
         metadata_payload["per_label_breakdown"] = per_label_breakdown
     if isinstance(split_cache_metadata, dict):
-        metadata_payload["single_offline_split_cache"] = split_cache_metadata
+        metadata_payload["single_book_split_cache"] = split_cache_metadata
     if write_starter_pack:
-        starter_pack_dir = _write_single_offline_starter_pack(session_root=session_root)
+        starter_pack_dir = _write_single_book_starter_pack(session_root=session_root)
         if starter_pack_dir is not None:
             metadata_payload["starter_pack_v1"] = {
                 "path": str(starter_pack_dir),
@@ -5194,7 +5194,7 @@ def _write_single_offline_comparison_artifacts(
     )
     if write_markdown:
         comparison_md_path.write_text(
-            _format_single_offline_comparison_markdown(comparison_payload),
+            _format_single_book_comparison_markdown(comparison_payload),
             encoding="utf-8",
         )
     else:
@@ -5203,7 +5203,7 @@ def _write_single_offline_comparison_artifacts(
     return comparison_json_path, comparison_md_path
 
 
-def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
+def _write_single_book_starter_pack(*, session_root: Path) -> Path | None:
     build_starter_pack_for_existing_runs = None
 
     try:
@@ -5690,7 +5690,7 @@ def _maybe_upload_benchmark_bundle_to_oracle(
             )
 
 
-def _write_single_offline_summary_markdown(
+def _write_single_book_summary_markdown(
     *,
     run_timestamp: str,
     session_root: Path,
@@ -5736,7 +5736,7 @@ def _write_single_offline_summary_markdown(
             else eval_report_json
         )
         metrics = (
-            _load_single_offline_eval_metrics(eval_output_dir)
+            _load_single_book_eval_metrics(eval_output_dir)
             if eval_output_dir is not None and status == "ok"
             else None
         )
@@ -5746,7 +5746,7 @@ def _write_single_offline_summary_markdown(
         if relative_eval_report_json is not None:
             lines.append(f"- Eval report JSON: `{relative_eval_report_json}`")
         if isinstance(metrics, dict):
-            for metric_name, _display_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+            for metric_name, _display_name in SINGLE_BOOK_COMPARISON_METRICS:
                 metric_value = _benchmark_report_metric_value(metrics, metric_name)
                 metric_text = (
                     f"{metric_value:.6f}" if metric_value is not None else "null"
@@ -5770,7 +5770,7 @@ def _write_single_offline_summary_markdown(
                 ]
             )
             comparison_md_lines = (
-                _format_single_offline_comparison_markdown(comparison_payload)
+                _format_single_book_comparison_markdown(comparison_payload)
                 .strip()
                 .splitlines()
             )
@@ -5787,7 +5787,7 @@ def _write_single_offline_summary_markdown(
     return summary_md_path
 
 
-def _interactive_single_offline_benchmark(
+def _interactive_single_book_benchmark(
     *,
     selected_benchmark_settings: RunSettings,
     benchmark_eval_output: Path,
@@ -5795,11 +5795,11 @@ def _interactive_single_offline_benchmark(
     write_markdown: bool = False,
     write_label_studio_tasks: bool = False,
     write_starter_pack: bool = False,
-    single_offline_split_cache_mode: str = "auto",
-    single_offline_split_cache_dir: Path | None = None,
-    single_offline_split_cache_force: bool = False,
+    single_book_split_cache_mode: str = "auto",
+    single_book_split_cache_dir: Path | None = None,
+    single_book_split_cache_force: bool = False,
 ) -> bool:
-    variants = _interactive_single_offline_variants(selected_benchmark_settings)
+    variants = _interactive_single_book_variants(selected_benchmark_settings)
     if not variants:
         typer.secho("No single-book benchmark variants were planned.", fg=typer.colors.YELLOW)
         return False
@@ -5832,21 +5832,21 @@ def _interactive_single_offline_benchmark(
         fg=typer.colors.CYAN,
     )
 
-    selected_split_cache_mode = _normalize_single_offline_split_cache_mode(
-        single_offline_split_cache_mode
+    selected_split_cache_mode = _normalize_single_book_split_cache_mode(
+        single_book_split_cache_mode
     )
     split_cache_key: str | None = None
     split_cache_root: Path | None = None
     split_cache_source_hash: str | None = None
     if len(variants) > 1 and selected_split_cache_mode != "off":
-        split_cache_root = _resolve_single_offline_split_cache_root(
+        split_cache_root = _resolve_single_book_split_cache_root(
             session_root=session_root,
-            split_cache_dir=single_offline_split_cache_dir,
+            split_cache_dir=single_book_split_cache_dir,
         )
         key_source_path = (
             selected_source
             if selected_source is not None
-            else session_root / "__single_offline_split_cache_source__"
+            else session_root / "__single_book_split_cache_source__"
         )
         try:
             split_cache_source_hash = (
@@ -5856,7 +5856,7 @@ def _interactive_single_offline_benchmark(
             )
         except Exception:  # noqa: BLE001
             split_cache_source_hash = None
-        split_cache_key = _build_single_offline_split_cache_key(
+        split_cache_key = _build_single_book_split_cache_key(
             source_file=key_source_path,
             source_hash=split_cache_source_hash,
             pipeline="auto",
@@ -5900,11 +5900,11 @@ def _interactive_single_offline_benchmark(
         if split_cache_root is not None and split_cache_key:
             variant_kwargs.update(
                 {
-                    "single_offline_split_cache_mode": selected_split_cache_mode,
-                    "single_offline_split_cache_dir": split_cache_root,
-                    "single_offline_split_cache_key": split_cache_key,
-                    "single_offline_split_cache_force": bool(
-                        single_offline_split_cache_force and index == 1
+                    "single_book_split_cache_mode": selected_split_cache_mode,
+                    "single_book_split_cache_dir": split_cache_root,
+                    "single_book_split_cache_key": split_cache_key,
+                    "single_book_split_cache_force": bool(
+                        single_book_split_cache_force and index == 1
                     ),
                 }
             )
@@ -5914,8 +5914,8 @@ def _interactive_single_offline_benchmark(
                 suppress_output_prune=True,
             ):
                 labelstudio_benchmark(**variant_kwargs)
-            source_file = _load_single_offline_source_path(variant_eval_output)
-            split_cache_metadata = _load_single_offline_split_cache_metadata(
+            source_file = _load_single_book_source_path(variant_eval_output)
+            split_cache_metadata = _load_single_book_split_cache_metadata(
                 variant_eval_output
             )
             variant_results[variant_slug] = {
@@ -5924,7 +5924,7 @@ def _interactive_single_offline_benchmark(
                 "eval_output_dir": variant_eval_output,
                 "processed_output_dir": variant_processed_output,
                 "source_file": source_file,
-                "single_offline_split_cache": split_cache_metadata,
+                "single_book_split_cache": split_cache_metadata,
             }
         except typer.Exit as exc:
             exit_code = int(getattr(exc, "exit_code", 1))
@@ -5990,20 +5990,20 @@ def _interactive_single_offline_benchmark(
             or str(vanilla_result.get("source_file") or "").strip()
             or None
         )
-        comparison_paths = _write_single_offline_comparison_artifacts(
+        comparison_paths = _write_single_book_comparison_artifacts(
             run_timestamp=benchmark_eval_output.name,
             session_root=session_root,
             source_file=source_file,
             codex_eval_output_dir=Path(str(codex_result["eval_output_dir"])),
             vanilla_eval_output_dir=Path(str(vanilla_result["eval_output_dir"])),
-            split_cache_metadata=_single_offline_split_cache_summary(
+            split_cache_metadata=_single_book_split_cache_summary(
                 vanilla_metadata=cast(
                     dict[str, Any] | None,
-                    vanilla_result.get("single_offline_split_cache"),
+                    vanilla_result.get("single_book_split_cache"),
                 ),
                 codex_metadata=cast(
                     dict[str, Any] | None,
-                    codex_result.get("single_offline_split_cache"),
+                    codex_result.get("single_book_split_cache"),
                 ),
             ),
             write_markdown=False,
@@ -6040,7 +6040,7 @@ def _interactive_single_offline_benchmark(
         )
 
     if write_markdown:
-        summary_md_path = _write_single_offline_summary_markdown(
+        summary_md_path = _write_single_book_summary_markdown(
             run_timestamp=benchmark_eval_output.name,
             session_root=session_root,
             variant_results=variant_results,
@@ -8651,19 +8651,19 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 os.getenv(COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV),
                 default=False,
             )
-            benchmark_write_single_offline_starter_pack = _coerce_bool_setting(
-                os.getenv(COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK_ENV),
+            benchmark_write_single_book_starter_pack = _coerce_bool_setting(
+                os.getenv(COOKIMPORT_BENCH_SINGLE_BOOK_WRITE_STARTER_PACK_ENV),
                 default=False,
             )
 
             if benchmark_mode == INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK:
-                _interactive_single_offline_benchmark(
+                _interactive_single_book_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
                     write_markdown=benchmark_write_markdown,
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
-                    write_starter_pack=benchmark_write_single_offline_starter_pack,
+                    write_starter_pack=benchmark_write_single_book_starter_pack,
                 )
             elif benchmark_mode in {
                 INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS,
@@ -9255,7 +9255,7 @@ def _normalize_gold_adaptation_mode(value: str) -> str:
     return "off"
 
 
-def _normalize_single_offline_split_cache_mode(value: str) -> str:
+def _normalize_single_book_split_cache_mode(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     if normalized in {"", "off", "none", "disabled", "false", "0"}:
         return "off"
@@ -11702,7 +11702,7 @@ class BenchmarkPredictionStageResult:
     prediction_bundle: BenchmarkPredictionBundle
     prediction_records: list[PredictionRecord]
     codexfarm_prompt_response_log_path: Path | None
-    single_offline_split_cache_metadata: dict[str, Any] | None
+    single_book_split_cache_metadata: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -13117,35 +13117,35 @@ def _load_pred_run_recipe_context(
     if isinstance(run_config, dict) and isinstance(llm_codex_farm_payload, dict):
         merged_run_config = dict(run_config)
         run_config_updated = False
-        codex_cmd = _single_offline_text_or_none(merged_run_config.get("codex_farm_cmd"))
-        existing_model = _single_offline_text_or_none(
+        codex_cmd = _single_book_text_or_none(merged_run_config.get("codex_farm_cmd"))
+        existing_model = _single_book_text_or_none(
             merged_run_config.get("codex_farm_model")
-        ) or _single_offline_text_or_none(merged_run_config.get("codex_model"))
+        ) or _single_book_text_or_none(merged_run_config.get("codex_model"))
         inferred_model, inferred_reasoning_effort = _extract_codex_farm_runtime_from_llm_manifest(
             llm_codex_farm_payload
         )
-        resolved_model = existing_model or _single_offline_text_or_none(inferred_model)
-        if resolved_model is not None and not _single_offline_text_or_none(
+        resolved_model = existing_model or _single_book_text_or_none(inferred_model)
+        if resolved_model is not None and not _single_book_text_or_none(
             merged_run_config.get("codex_farm_model")
         ):
             merged_run_config["codex_farm_model"] = resolved_model
             run_config_updated = True
 
-        resolved_reasoning_effort = _resolve_single_offline_reasoning_effort(
+        resolved_reasoning_effort = _resolve_single_book_reasoning_effort(
             merged_run_config.get("codex_farm_reasoning_effort")
             or merged_run_config.get("codex_reasoning_effort"),
             codex_cmd=codex_cmd,
             codex_model=resolved_model,
         )
         if resolved_reasoning_effort is None:
-            resolved_reasoning_effort = _resolve_single_offline_reasoning_effort(
+            resolved_reasoning_effort = _resolve_single_book_reasoning_effort(
                 inferred_reasoning_effort,
                 codex_cmd=codex_cmd,
                 codex_model=resolved_model,
             )
         if (
             resolved_reasoning_effort is not None
-            and _single_offline_text_or_none(
+            and _single_book_text_or_none(
                 merged_run_config.get("codex_farm_reasoning_effort")
             )
             != resolved_reasoning_effort
@@ -13438,12 +13438,12 @@ def _run_offline_benchmark_prediction_stage(
         "write_markdown": write_markdown,
         "write_label_studio_tasks": write_label_studio_tasks,
     }
-    single_offline_split_cache_metadata = import_result.get(
-        "single_offline_split_cache"
+    single_book_split_cache_metadata = import_result.get(
+        "single_book_split_cache"
     )
-    if isinstance(single_offline_split_cache_metadata, dict):
-        prediction_stage_run_config["single_offline_split_cache"] = dict(
-            single_offline_split_cache_metadata
+    if isinstance(single_book_split_cache_metadata, dict):
+        prediction_stage_run_config["single_book_split_cache"] = dict(
+            single_book_split_cache_metadata
         )
     if pred_context.run_config is not None:
         prediction_stage_run_config["prediction_run_config"] = pred_context.run_config
@@ -13527,9 +13527,9 @@ def _run_offline_benchmark_prediction_stage(
         prediction_bundle=prediction_bundle,
         prediction_records=prediction_records,
         codexfarm_prompt_response_log_path=codexfarm_prompt_response_log_path,
-        single_offline_split_cache_metadata=(
-            dict(single_offline_split_cache_metadata)
-            if isinstance(single_offline_split_cache_metadata, dict)
+        single_book_split_cache_metadata=(
+            dict(single_book_split_cache_metadata)
+            if isinstance(single_book_split_cache_metadata, dict)
             else None
         ),
     )
@@ -16067,7 +16067,7 @@ def _build_all_method_split_convert_input_key(
     )
 
 
-def _single_offline_split_cache_key_payload(
+def _single_book_split_cache_key_payload(
     *,
     source_file: Path,
     source_hash: str | None,
@@ -16077,12 +16077,12 @@ def _single_offline_split_cache_key_payload(
     run_config = run_settings.to_run_config_dict()
     selected_inputs = {
         key: run_config.get(key)
-        for key in SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_FIELDS
+        for key in SINGLE_BOOK_SPLIT_CONVERT_INPUT_FIELDS
         if key in run_config
     }
     normalized_pipeline = str(pipeline or "auto").strip().lower()
     return {
-        "schema_version": SINGLE_OFFLINE_SPLIT_CACHE_KEY_SCHEMA_VERSION,
+        "schema_version": SINGLE_BOOK_SPLIT_CACHE_KEY_SCHEMA_VERSION,
         "source_file": str(source_file),
         "source_hash": str(source_hash or "").strip() or None,
         "pipeline": normalized_pipeline or "auto",
@@ -16090,7 +16090,7 @@ def _single_offline_split_cache_key_payload(
     }
 
 
-def _build_single_offline_split_cache_key(
+def _build_single_book_split_cache_key(
     *,
     source_file: Path,
     source_hash: str | None,
@@ -16098,7 +16098,7 @@ def _build_single_offline_split_cache_key(
     run_settings: RunSettings,
 ) -> str:
     return _stable_json_sha256(
-        _single_offline_split_cache_key_payload(
+        _single_book_split_cache_key_payload(
             source_file=source_file,
             source_hash=source_hash,
             pipeline=pipeline,
@@ -16107,7 +16107,7 @@ def _build_single_offline_split_cache_key(
     )
 
 
-def _single_offline_split_cache_entry_path(
+def _single_book_split_cache_entry_path(
     *,
     cache_root: Path,
     split_cache_key: str,
@@ -16118,15 +16118,15 @@ def _single_offline_split_cache_entry_path(
     return cache_root / f"{safe_key}.json"
 
 
-def _single_offline_split_cache_lock_path(
+def _single_book_split_cache_lock_path(
     cache_path: Path,
 ) -> Path:
     return cache_path.with_suffix(
-        f"{cache_path.suffix}{SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX}"
+        f"{cache_path.suffix}{SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX}"
     )
 
 
-def _load_single_offline_split_cache_entry(
+def _load_single_book_split_cache_entry(
     *,
     cache_path: Path,
     expected_key: str,
@@ -16141,10 +16141,10 @@ def _load_single_offline_split_cache_entry(
         return None
     if (
         str(payload.get("schema_version") or "").strip()
-        != SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION
+        != SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION
     ):
         return None
-    cached_key = str(payload.get("single_offline_split_cache_key") or "").strip()
+    cached_key = str(payload.get("single_book_split_cache_key") or "").strip()
     if cached_key != str(expected_key or "").strip():
         return None
     conversion_payload = payload.get("conversion_result")
@@ -16153,7 +16153,7 @@ def _load_single_offline_split_cache_entry(
     return payload
 
 
-def _write_single_offline_split_cache_entry(
+def _write_single_book_split_cache_entry(
     *,
     cache_path: Path,
     payload: dict[str, Any],
@@ -16169,7 +16169,7 @@ def _write_single_offline_split_cache_entry(
     tmp_path.replace(cache_path)
 
 
-def _acquire_single_offline_split_cache_lock(lock_path: Path) -> bool:
+def _acquire_single_book_split_cache_lock(lock_path: Path) -> bool:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     try:
@@ -16200,25 +16200,25 @@ def _acquire_single_offline_split_cache_lock(lock_path: Path) -> bool:
     return True
 
 
-def _release_single_offline_split_cache_lock(lock_path: Path) -> None:
+def _release_single_book_split_cache_lock(lock_path: Path) -> None:
     try:
         lock_path.unlink()
     except OSError:
         return
 
 
-def _wait_for_single_offline_split_cache_entry(
+def _wait_for_single_book_split_cache_entry(
     *,
     cache_path: Path,
     expected_key: str,
     lock_path: Path,
-    wait_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS,
-    poll_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS,
+    wait_seconds: float = SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS,
+    poll_seconds: float = SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS,
 ) -> dict[str, Any] | None:
     deadline = time.monotonic() + max(0.0, float(wait_seconds))
     sleep_seconds = max(0.05, float(poll_seconds))
     while time.monotonic() < deadline:
-        cached = _load_single_offline_split_cache_entry(
+        cached = _load_single_book_split_cache_entry(
             cache_path=cache_path,
             expected_key=expected_key,
         )
@@ -16227,7 +16227,7 @@ def _wait_for_single_offline_split_cache_entry(
         if not lock_path.exists():
             break
         time.sleep(sleep_seconds)
-    return _load_single_offline_split_cache_entry(
+    return _load_single_book_split_cache_entry(
         cache_path=cache_path,
         expected_key=expected_key,
     )
@@ -28160,27 +28160,27 @@ def labelstudio_benchmark(
         hidden=True,
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
     )] = "fail",
-    single_offline_split_cache_mode: Annotated[str, typer.Option(
-        "--single-offline-split-cache-mode",
+    single_book_split_cache_mode: Annotated[str, typer.Option(
+        "--single-book-split-cache-mode",
         help=(
             "Single-book split conversion cache mode: off or auto. "
             "Interactive paired runs use auto by default."
         ),
     )] = "off",
-    single_offline_split_cache_dir: Annotated[Path | None, typer.Option(
-        "--single-offline-split-cache-dir",
+    single_book_split_cache_dir: Annotated[Path | None, typer.Option(
+        "--single-book-split-cache-dir",
         help=(
             "Root directory for single-book split cache entries "
             "(JSON conversion payloads keyed by source+split inputs)."
         ),
     )] = None,
-    single_offline_split_cache_key: Annotated[str | None, typer.Option(
-        "--single-offline-split-cache-key",
+    single_book_split_cache_key: Annotated[str | None, typer.Option(
+        "--single-book-split-cache-key",
         help="Internal: explicit single-book split cache key.",
         hidden=True,
     )] = None,
-    single_offline_split_cache_force: Annotated[bool, typer.Option(
-        "--single-offline-split-cache-force/--no-single-offline-split-cache-force",
+    single_book_split_cache_force: Annotated[bool, typer.Option(
+        "--single-book-split-cache-force/--no-single-book-split-cache-force",
         help="Force rebuild of single-book split cache entry for this run.",
     )] = False,
     alignment_cache_dir: Annotated[Path | None, typer.Option(
@@ -28409,20 +28409,20 @@ def labelstudio_benchmark(
         int(gold_adaptation_max_ambiguous),
     )
     selected_sequence_matcher = fixed_bucket1_behavior.benchmark_sequence_matcher
-    selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
-        single_offline_split_cache_mode
+    selected_single_book_split_cache_mode = _normalize_single_book_split_cache_mode(
+        single_book_split_cache_mode
     )
-    selected_single_offline_split_cache_dir = (
-        single_offline_split_cache_dir.expanduser()
-        if single_offline_split_cache_dir is not None
+    selected_single_book_split_cache_dir = (
+        single_book_split_cache_dir.expanduser()
+        if single_book_split_cache_dir is not None
         else None
     )
-    selected_single_offline_split_cache_key = (
-        str(single_offline_split_cache_key or "").strip() or None
+    selected_single_book_split_cache_key = (
+        str(single_book_split_cache_key or "").strip() or None
     )
-    if selected_single_offline_split_cache_mode == "off":
-        selected_single_offline_split_cache_dir = None
-        selected_single_offline_split_cache_key = None
+    if selected_single_book_split_cache_mode == "off":
+        selected_single_book_split_cache_dir = None
+        selected_single_book_split_cache_key = None
 
     predictions_in_path = predictions_in.expanduser() if predictions_in is not None else None
     predictions_out_path = (
@@ -28445,9 +28445,9 @@ def labelstudio_benchmark(
     should_generate_predictions = predictions_in_path is None
     should_upload_predictions = should_generate_predictions and not no_upload
     if not should_generate_predictions:
-        selected_single_offline_split_cache_mode = "off"
-        selected_single_offline_split_cache_dir = None
-        selected_single_offline_split_cache_key = None
+        selected_single_book_split_cache_mode = "off"
+        selected_single_book_split_cache_dir = None
+        selected_single_book_split_cache_key = None
 
     if should_upload_predictions and not write_label_studio_tasks:
         _fail("--no-write-labelstudio-tasks can only be used with --no-upload.")
@@ -28475,10 +28475,10 @@ def labelstudio_benchmark(
     # Keep benchmark prediction scratch inside the resolved eval root so one
     # benchmark session does not spill sibling timestamp folders.
     benchmark_prediction_output_dir = eval_output_dir
-    if selected_single_offline_split_cache_mode != "off":
-        if selected_single_offline_split_cache_dir is None:
-            selected_single_offline_split_cache_dir = eval_output_dir / ".split-cache"
-        if selected_single_offline_split_cache_key is None:
+    if selected_single_book_split_cache_mode != "off":
+        if selected_single_book_split_cache_dir is None:
+            selected_single_book_split_cache_dir = eval_output_dir / ".split-cache"
+        if selected_single_book_split_cache_key is None:
             try:
                 split_cache_source_hash = compute_file_hash(selected_source)
             except Exception:  # noqa: BLE001
@@ -28548,7 +28548,7 @@ def labelstudio_benchmark(
                     all_epub=selected_source.suffix.lower() == ".epub",
                 ),
             )
-            selected_single_offline_split_cache_key = _build_single_offline_split_cache_key(
+            selected_single_book_split_cache_key = _build_single_book_split_cache_key(
                 source_file=selected_source,
                 source_hash=split_cache_source_hash,
                 pipeline=pipeline,
@@ -28570,8 +28570,8 @@ def labelstudio_benchmark(
     prediction_records_output: list[PredictionRecord] = []
     pipelined_replay_bundle: BenchmarkPredictionBundle | None = None
     codexfarm_prompt_response_log_path: Path | None = None
-    single_offline_split_cache_metadata: dict[str, Any] | None = None
-    single_offline_split_cache_run_config: dict[str, Any] | None = None
+    single_book_split_cache_metadata: dict[str, Any] | None = None
+    single_book_split_cache_run_config: dict[str, Any] | None = None
 
     try:
         if should_generate_predictions:
@@ -28678,17 +28678,17 @@ def labelstudio_benchmark(
                                 split_phase_slots=split_phase_slots,
                                 split_phase_gate_dir=split_phase_gate_dir,
                                 split_phase_status_label=split_phase_status_label,
-                                single_offline_split_cache_mode=(
-                                    selected_single_offline_split_cache_mode
+                                single_book_split_cache_mode=(
+                                    selected_single_book_split_cache_mode
                                 ),
-                                single_offline_split_cache_dir=(
-                                    selected_single_offline_split_cache_dir
+                                single_book_split_cache_dir=(
+                                    selected_single_book_split_cache_dir
                                 ),
-                                single_offline_split_cache_key=(
-                                    selected_single_offline_split_cache_key
+                                single_book_split_cache_key=(
+                                    selected_single_book_split_cache_key
                                 ),
-                                single_offline_split_cache_force=(
-                                    single_offline_split_cache_force
+                                single_book_split_cache_force=(
+                                    single_book_split_cache_force
                                 ),
                                 scheduler_event_callback=scheduler_event_callback,
                                 progress_callback=callback,
@@ -28792,17 +28792,17 @@ def labelstudio_benchmark(
                             split_phase_slots=split_phase_slots,
                             split_phase_gate_dir=split_phase_gate_dir,
                             split_phase_status_label=split_phase_status_label,
-                            single_offline_split_cache_mode=(
-                                selected_single_offline_split_cache_mode
+                            single_book_split_cache_mode=(
+                                selected_single_book_split_cache_mode
                             ),
-                            single_offline_split_cache_dir=(
-                                selected_single_offline_split_cache_dir
+                            single_book_split_cache_dir=(
+                                selected_single_book_split_cache_dir
                             ),
-                            single_offline_split_cache_key=(
-                                selected_single_offline_split_cache_key
+                            single_book_split_cache_key=(
+                                selected_single_book_split_cache_key
                             ),
-                            single_offline_split_cache_force=(
-                                single_offline_split_cache_force
+                            single_book_split_cache_force=(
+                                single_book_split_cache_force
                             ),
                             scheduler_event_callback=scheduler_event_callback,
                             auto_project_name_on_scope_mismatch=True,
@@ -28893,16 +28893,16 @@ def labelstudio_benchmark(
             prediction_records_output = list(prediction_record_input)
 
         import_result = prediction_bundle.import_result
-        imported_split_cache_payload = import_result.get("single_offline_split_cache")
+        imported_split_cache_payload = import_result.get("single_book_split_cache")
         if isinstance(imported_split_cache_payload, dict):
-            single_offline_split_cache_metadata = dict(imported_split_cache_payload)
+            single_book_split_cache_metadata = dict(imported_split_cache_payload)
             _append_processing_timeseries_marker(
                 telemetry_path=(
                     eval_output_dir / "processing_timeseries_prediction.jsonl"
                 ),
-                event="single_offline_split_cache",
+                event="single_book_split_cache",
                 payload={
-                    "single_offline_split_cache": single_offline_split_cache_metadata
+                    "single_book_split_cache": single_book_split_cache_metadata
                 },
             )
 
@@ -28955,32 +28955,32 @@ def labelstudio_benchmark(
         _fail(str(exc))
 
     if (
-        selected_single_offline_split_cache_mode != "off"
-        or single_offline_split_cache_metadata is not None
+        selected_single_book_split_cache_mode != "off"
+        or single_book_split_cache_metadata is not None
     ):
-        single_offline_split_cache_run_config = {
-            "enabled": selected_single_offline_split_cache_mode != "off",
-            "mode": selected_single_offline_split_cache_mode,
-            "key": selected_single_offline_split_cache_key,
+        single_book_split_cache_run_config = {
+            "enabled": selected_single_book_split_cache_mode != "off",
+            "mode": selected_single_book_split_cache_mode,
+            "key": selected_single_book_split_cache_key,
             "dir": (
-                str(selected_single_offline_split_cache_dir)
-                if selected_single_offline_split_cache_dir is not None
+                str(selected_single_book_split_cache_dir)
+                if selected_single_book_split_cache_dir is not None
                 else None
             ),
-            "force": bool(single_offline_split_cache_force),
+            "force": bool(single_book_split_cache_force),
             "hit": bool(
-                isinstance(single_offline_split_cache_metadata, dict)
-                and single_offline_split_cache_metadata.get("hit")
+                isinstance(single_book_split_cache_metadata, dict)
+                and single_book_split_cache_metadata.get("hit")
             ),
             "source_hash": (
                 str(
-                    (single_offline_split_cache_metadata or {}).get("source_hash")
+                    (single_book_split_cache_metadata or {}).get("source_hash")
                     or ""
                 ).strip()
                 or None
             ),
             "conversion_seconds": _report_optional_metric(
-                (single_offline_split_cache_metadata or {}).get("conversion_seconds")
+                (single_book_split_cache_metadata or {}).get("conversion_seconds")
             ),
         }
 
@@ -29576,9 +29576,9 @@ def labelstudio_benchmark(
             benchmark_codex_execution,
         )
     )
-    if single_offline_split_cache_run_config is not None:
-        benchmark_run_config["single_offline_split_cache"] = (
-            single_offline_split_cache_run_config
+    if single_book_split_cache_run_config is not None:
+        benchmark_run_config["single_book_split_cache"] = (
+            single_book_split_cache_run_config
         )
     if codex_farm_root is not None:
         benchmark_run_config["codex_farm_root"] = str(codex_farm_root)
@@ -29825,7 +29825,7 @@ def labelstudio_benchmark(
             eval_output_dir,
             processed_run_root,
         )
-    llm_manifest_path = _find_single_offline_llm_manifest_path(pred_run)
+    llm_manifest_path = _find_single_book_llm_manifest_path(pred_run)
     if llm_manifest_path is not None:
         benchmark_llm_manifest = _path_for_manifest(
             eval_output_dir,

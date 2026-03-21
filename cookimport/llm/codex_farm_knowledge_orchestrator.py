@@ -2688,7 +2688,7 @@ def _build_knowledge_workspace_worker_prompt(
         "2. Treat those `current_*` files as the only authoritative packet contract. `assigned_tasks.json` is inventory only; do not invent a batch scheduler from it.",
         "3. Prefer opening the named files directly instead of exploring the workspace. Bounded local orientation commands such as `pwd`, `ls`, `find`, or `tree` are allowed, but they should help you stay on the current leased packet rather than drift away from it.",
         "4. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Use `scratch/` for temporary helper files and the path named in `current_result_path.txt` for the final packet result.",
-        "5. Stay inside this workspace: do not inspect parent directories or the repository, and do not use repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.",
+        "5. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "6. Write one completed semantic packet result file for the current leased packet only.",
         "7. After writing the current packet result, re-open `packet_lease_status.json`. If it names another current packet, continue with the new `current_*` files. If it says all packets are settled, stop.",
         "8. Do not run extra shell checks against finished files in `out/` unless the current leased packet is clearly incomplete or invalid while you are still writing it.",

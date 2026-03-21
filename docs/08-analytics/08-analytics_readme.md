@@ -72,7 +72,7 @@ Regression anchors:
 - `tests/analytics/test_compare_control_engine.py`
 - `tests/analytics/test_compare_control_cli.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py`
-- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py`
 - `tests/bench/test_bench.py`
 
 ## 3) Artifact contracts
@@ -187,7 +187,7 @@ Collector behavior (`collect_dashboard_data`):
 Benchmark history appenders:
 - `cookimport labelstudio-eval` appends benchmark rows and refreshes the dashboard.
 - `cookimport labelstudio-benchmark` appends benchmark rows and refreshes the dashboard.
-- Interactive single-offline and all-method benchmark flows batch refreshes so they do not rewrite the dashboard after every sub-run.
+- Interactive single-book and all-method benchmark flows batch refreshes so they do not rewrite the dashboard after every sub-run.
 
 ## 5) Dashboard surface (current)
 

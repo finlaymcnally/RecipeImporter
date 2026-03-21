@@ -131,7 +131,7 @@ Anti-loop note:
 
 - if throughput changes diverge by scheduler path, check mirrored slot/admission logic before adding new knobs
 
-## 7. 2026-03-02 interactive single-offline and single-profile benchmark contract
+## 7. 2026-03-02 interactive single-book and single-profile benchmark contract
 
 Problem captured:
 
@@ -139,7 +139,7 @@ Problem captured:
 
 Durable decisions:
 
-- `single_offline` writes one session root under `single-book-benchmark/<source_slug>/`
+- `single_book` writes one session root under `single-book-benchmark/<source_slug>/`
 - Codex-enabled paired runs normalize into explicit `vanilla` and `codexfarm` roots
 - paired success can emit one `codex_vs_vanilla_comparison.json`, one session summary markdown, and one `upload_bundle_v1/`
 - single-profile matched-book flows write under `single-profile-benchmark/`
@@ -463,12 +463,12 @@ The following removed benchmark workflows were intentionally pruned from this lo
 - line-role projection as the primary scored truth
 - fast canonical alignment production scoring
 
-## 19. 2026-03-16 Codex single-offline follow-through
+## 19. 2026-03-16 Codex single-book follow-through
 
 ### 2026-03-16_18.20.49, 2026-03-16_19.01.54, and 2026-03-16_19.18.20 upload-bundle artifact discovery on current layouts
 
 Problem captured:
-- fresh single-offline benchmark runs were healthy on disk but `upload_bundle_v1` under-reported prompt and knowledge evidence because the existing-output builder no longer matched the refactored artifact layout
+- fresh single-book benchmark runs were healthy on disk but `upload_bundle_v1` under-reported prompt and knowledge evidence because the existing-output builder no longer matched the refactored artifact layout
 
 Durable decisions:
 - existing-output discovery must search current run-local roots first:
@@ -533,7 +533,7 @@ Anti-loop note:
 ### 2026-03-16_19.56.57 and 2026-03-16_19.58.11 whole-book intent versus projected final authority
 
 Problem captured:
-- single-offline benchmark behavior was easy to misread as "whole-book line-role Codex authority" when the scored artifact was actually a projection built from authoritative outputs and only a small escalated subset went through live Codex
+- single-book benchmark behavior was easy to misread as "whole-book line-role Codex authority" when the scored artifact was actually a projection built from authoritative outputs and only a small escalated subset went through live Codex
 
 Durable decisions:
 - token spend and scored surface are different seams:
@@ -625,18 +625,18 @@ Evidence worth keeping:
 Anti-loop note:
 - if Oracle upload fails after bundle generation works, debug launcher/profile/model-ignore behavior before reworking `upload_bundle_v1`
 
-### 2026-03-17 benchmark progress rendering and single-offline interpretation
+### 2026-03-17 benchmark progress rendering and single-book interpretation
 
 Problem captured:
-- benchmark progress rows could under-report active worker state, and single-offline canonical results were easy to over-read as pure recipe-structure failures
+- benchmark progress rows could under-report active worker state, and single-book canonical results were easy to over-read as pure recipe-structure failures
 
 Durable decisions:
 - generic `task X/Y | running N` benchmark messages should populate worker rows the same way codex-farm-prefixed messages do
 - plain legacy stderr `run=... queued=... running=...` snapshots are compatibility progress noise when structured events are already present
-- on current canonical single-offline runs, strong boundary exactness does not imply the remaining misses are mostly structural; large error mass can still live in `KNOWLEDGE` vs `OTHER`
+- on current canonical single-book runs, strong boundary exactness does not imply the remaining misses are mostly structural; large error mass can still live in `KNOWLEDGE` vs `OTHER`
 
 Evidence worth keeping:
-- on the 2026-03-17 `saltfatacidheatcutdown` single-offline run, codexfarm had perfect-or-near-perfect boundary counts but wrong-label rows were still dominated by `KNOWLEDGE -> OTHER` and `OTHER -> KNOWLEDGE`
+- on the 2026-03-17 `saltfatacidheatcutdown` single-book run, codexfarm had perfect-or-near-perfect boundary counts but wrong-label rows were still dominated by `KNOWLEDGE -> OTHER` and `OTHER -> KNOWLEDGE`
 
 Anti-loop note:
 - if canonical benchmark accuracy looks "too low for a solved structure problem," inspect wrong-label distribution before chasing scorer or boundary changes
@@ -742,7 +742,7 @@ Durable decisions:
   - `single_book`
   - `selected_matched_books`
   - `all_matched_books`
-- older mode ids remain compatibility aliases; artifact roots such as `single_offline` are unchanged
+- older mode ids remain compatibility aliases; artifact roots such as `single_book` are unchanged
 
 Anti-loop note:
 - if a paired benchmark comparison moves because one side silently switched representation, inspect `atomic_block_splitter` in the planned run payload before blaming Codex surfaces or scorer drift

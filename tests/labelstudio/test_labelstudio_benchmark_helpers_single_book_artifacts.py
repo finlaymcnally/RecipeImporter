@@ -9,7 +9,7 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_single_offline_comparison_markdown_table_columns_are_width_aligned() -> None:
+def test_single_book_comparison_markdown_table_columns_are_width_aligned() -> None:
     payload = {
         "schema_version": "codex_vs_vanilla_comparison.v2",
         "run_timestamp": "2026-03-02_21.25.24",
@@ -37,7 +37,7 @@ def test_single_offline_comparison_markdown_table_columns_are_width_aligned() ->
         "metadata": {},
     }
 
-    markdown = cli._format_single_offline_comparison_markdown(payload)
+    markdown = cli._format_single_book_comparison_markdown(payload)
     table_lines = [line for line in markdown.splitlines() if line.startswith("|")]
     assert len(table_lines) == 4
 
@@ -51,7 +51,7 @@ def test_single_offline_comparison_markdown_table_columns_are_width_aligned() ->
     assert table_lines[3] == "| `macro_f1_excluding_other` |  0.295998 | 0.290594 |        0.005404 |"
     assert "Duplicate alias metrics in eval JSON" not in markdown
 
-def test_single_offline_comparison_markdown_includes_per_label_breakdown() -> None:
+def test_single_book_comparison_markdown_includes_per_label_breakdown() -> None:
     payload = {
         "schema_version": "codex_vs_vanilla_comparison.v2",
         "run_timestamp": "2026-03-02_21.25.24",
@@ -64,7 +64,7 @@ def test_single_offline_comparison_markdown_includes_per_label_breakdown() -> No
         "deltas": {"codex_minus_vanilla": {}},
         "metadata": {
             "per_label_breakdown": {
-                "schema_version": "single_offline_per_label_breakdown.v1",
+                "schema_version": "single_book_per_label_breakdown.v1",
                 "run_timestamp": "2026-03-02_21.25.24",
                 "eval_count": 2,
                 "rows": [
@@ -87,7 +87,7 @@ def test_single_offline_comparison_markdown_includes_per_label_breakdown() -> No
         },
     }
 
-    markdown = cli._format_single_offline_comparison_markdown(payload)
+    markdown = cli._format_single_book_comparison_markdown(payload)
     assert "## Per-Label Breakdown (2026-03-02_21.25.24, 2 evals)" in markdown
     assert (
         "Per label: precision answers false alarms, recall answers misses."
@@ -97,7 +97,7 @@ def test_single_offline_comparison_markdown_includes_per_label_breakdown() -> No
     assert "| INGREDIENT_LINE |    0.7453 | 0.1373 |  874 |  161 |" in markdown
     assert "| RECIPE_TITLE    |    0.8111 | 0.5984 |  122 |   90 |" in markdown
 
-def test_single_offline_comparison_artifacts_include_per_label_breakdown(
+def test_single_book_comparison_artifacts_include_per_label_breakdown(
     tmp_path: Path,
 ) -> None:
     session_root = tmp_path / "session"
@@ -143,7 +143,7 @@ def test_single_offline_comparison_artifacts_include_per_label_breakdown(
         encoding="utf-8",
     )
 
-    written = cli._write_single_offline_comparison_artifacts(
+    written = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-02_21.25.24",
         session_root=session_root,
         source_file="book.epub",
@@ -156,7 +156,7 @@ def test_single_offline_comparison_artifacts_include_per_label_breakdown(
     comparison_json_path, comparison_md_path = written
     payload = json.loads(comparison_json_path.read_text(encoding="utf-8"))
     per_label_breakdown = payload["metadata"]["per_label_breakdown"]
-    assert per_label_breakdown["schema_version"] == "single_offline_per_label_breakdown.v1"
+    assert per_label_breakdown["schema_version"] == "single_book_per_label_breakdown.v1"
     assert per_label_breakdown["run_timestamp"] == "2026-03-02_21.25.24"
     assert per_label_breakdown["eval_count"] == 2
     assert len(per_label_breakdown["rows"]) == 1
@@ -172,7 +172,7 @@ def test_single_offline_comparison_artifacts_include_per_label_breakdown(
     assert "## Per-Label Breakdown (2026-03-02_21.25.24, 2 evals)" in markdown
     assert "| RECIPE_TITLE |    0.6923 | 0.6429 |   14 |   13 |" in markdown
 
-def test_single_offline_comparison_artifacts_include_variant_diagnostics(
+def test_single_book_comparison_artifacts_include_variant_diagnostics(
     tmp_path: Path,
 ) -> None:
     session_root = tmp_path / "session"
@@ -220,7 +220,7 @@ def test_single_offline_comparison_artifacts_include_variant_diagnostics(
         encoding="utf-8",
     )
 
-    written = cli._write_single_offline_comparison_artifacts(
+    written = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-04_11.00.00",
         session_root=session_root,
         source_file="book.epub",
@@ -232,7 +232,7 @@ def test_single_offline_comparison_artifacts_include_variant_diagnostics(
     comparison_json_path, comparison_md_path = written
     payload = json.loads(comparison_json_path.read_text(encoding="utf-8"))
     diagnostics = payload["metadata"]["variant_diagnostics"]
-    assert diagnostics["schema_version"] == "single_offline_variant_diagnostics.v1"
+    assert diagnostics["schema_version"] == "single_book_variant_diagnostics.v1"
     assert diagnostics["likely_driver"] in {
         "segmentation_driven",
         "classification_driven",
@@ -253,7 +253,7 @@ def test_single_offline_comparison_artifacts_include_variant_diagnostics(
     assert "## Delta Attribution" in markdown
     assert "gold_adaptation_coverage_ratio" in markdown
 
-def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> None:
+def test_single_book_comparison_artifacts_markdown_toggle(tmp_path: Path) -> None:
     session_root = tmp_path / "session"
     codex_eval_output_dir = session_root / "codexfarm"
     vanilla_eval_output_dir = session_root / "vanilla"
@@ -269,7 +269,7 @@ def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> 
         encoding="utf-8",
     )
 
-    comparison_paths = cli._write_single_offline_comparison_artifacts(
+    comparison_paths = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file="book.epub",
@@ -284,7 +284,7 @@ def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> 
     assert comparison_md_path is None
     assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
 
-    comparison_paths_markdown = cli._write_single_offline_comparison_artifacts(
+    comparison_paths_markdown = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file="book.epub",
@@ -297,7 +297,7 @@ def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> 
     assert comparison_md_path_markdown is not None
     assert comparison_md_path_markdown.exists()
 
-def test_single_offline_comparison_artifacts_trigger_starter_pack(
+def test_single_book_comparison_artifacts_trigger_starter_pack(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -328,9 +328,9 @@ def test_single_offline_comparison_artifacts_trigger_starter_pack(
         )
         return starter_dir
 
-    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", _fake_starter_pack_writer)
+    monkeypatch.setattr(cli, "_write_single_book_starter_pack", _fake_starter_pack_writer)
 
-    comparison_paths = cli._write_single_offline_comparison_artifacts(
+    comparison_paths = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file="book.epub",
@@ -354,7 +354,7 @@ def test_single_offline_comparison_artifacts_trigger_starter_pack(
     assert flattened_metadata.get("relative_path") == "benchmark_summary.md"
     assert starter_calls == [session_root]
 
-def test_single_offline_starter_pack_fallback_loader_registers_module(
+def test_single_book_starter_pack_fallback_loader_registers_module(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -402,13 +402,13 @@ def test_single_offline_starter_pack_fallback_loader_registers_module(
         _fake_spec_from_file_location,
     )
 
-    starter_dir = cli._write_single_offline_starter_pack(session_root=session_root)
+    starter_dir = cli._write_single_book_starter_pack(session_root=session_root)
 
     assert starter_dir == session_root / "starter_pack_v1"
     assert (session_root / "starter_pack_v1").is_dir()
     assert (session_root / "benchmark_summary.md").is_file()
 
-def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fallback(
+def test_single_book_comparison_includes_codex_runtime_from_llm_manifest_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -484,7 +484,7 @@ def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fall
         encoding="utf-8",
     )
 
-    written = cli._write_single_offline_comparison_artifacts(
+    written = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file=str(tmp_path / "book.epub"),

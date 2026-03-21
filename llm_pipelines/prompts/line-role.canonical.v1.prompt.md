@@ -9,6 +9,7 @@ Task boundary:
 - Do not describe your plan, reasoning, or heuristics.
 - Your first response must be the final JSON object.
 - Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth.
+- Treat the deterministic label as a strong prior, not a neutral starting guess.
 - Never invent lines or labels.
 
 Return strict JSON as a JSON object with one `rows` array:
@@ -47,11 +48,16 @@ Rules:
   - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
   - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
   - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
+  - If a row is plausible under its current deterministic label, leave it there.
   - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
   - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
   - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
   - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
+  - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
+  - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
   - Dedications, front matter, and table-of-contents entries are usually `OTHER`.
+
+{{PACKET_CONTEXT_BLOCK}}
 
 Authoritative shard rows (each row is [atomic_index, label_code, current_line]):
 <BEGIN_AUTHORITATIVE_ROWS>

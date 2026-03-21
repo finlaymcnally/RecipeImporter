@@ -161,22 +161,22 @@ try:  # pragma: no cover - Windows fallback keeps behavior deterministic.
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
-SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION = "single_offline_split_cache.v1"
-SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
-SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
-SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
-def _normalize_single_offline_split_cache_mode(value: str | None) -> str:
+SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION = "single_book_split_cache.v1"
+SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
+SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = 120.0
+SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = 0.25
+def _normalize_single_book_split_cache_mode(value: str | None) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     if normalized in {"", "off", "none", "disabled", "false", "0"}:
         return "off"
     if normalized in {"auto", "on", "enabled", "true", "1"}:
         return "auto"
     raise ValueError(
-        "Invalid single_offline_split_cache_mode. Expected one of: off, auto."
+        "Invalid single_book_split_cache_mode. Expected one of: off, auto."
     )
 
 
-def _single_offline_split_cache_entry_path(
+def _single_book_split_cache_entry_path(
     *,
     cache_root: Path,
     split_cache_key: str,
@@ -187,13 +187,13 @@ def _single_offline_split_cache_entry_path(
     return cache_root / f"{safe_key}.json"
 
 
-def _single_offline_split_cache_lock_path(cache_path: Path) -> Path:
+def _single_book_split_cache_lock_path(cache_path: Path) -> Path:
     return cache_path.with_suffix(
-        f"{cache_path.suffix}{SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX}"
+        f"{cache_path.suffix}{SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX}"
     )
 
 
-def _load_single_offline_split_cache_entry(
+def _load_single_book_split_cache_entry(
     *,
     cache_path: Path,
     expected_key: str,
@@ -208,10 +208,10 @@ def _load_single_offline_split_cache_entry(
         return None
     if (
         str(payload.get("schema_version") or "").strip()
-        != SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION
+        != SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION
     ):
         return None
-    cached_key = str(payload.get("single_offline_split_cache_key") or "").strip()
+    cached_key = str(payload.get("single_book_split_cache_key") or "").strip()
     if cached_key != str(expected_key or "").strip():
         return None
     conversion_payload = payload.get("conversion_result")
@@ -220,7 +220,7 @@ def _load_single_offline_split_cache_entry(
     return payload
 
 
-def _write_single_offline_split_cache_entry(
+def _write_single_book_split_cache_entry(
     *,
     cache_path: Path,
     payload: dict[str, Any],
@@ -236,7 +236,7 @@ def _write_single_offline_split_cache_entry(
     tmp_path.replace(cache_path)
 
 
-def _acquire_single_offline_split_cache_lock(lock_path: Path) -> bool:
+def _acquire_single_book_split_cache_lock(lock_path: Path) -> bool:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     try:
@@ -267,25 +267,25 @@ def _acquire_single_offline_split_cache_lock(lock_path: Path) -> bool:
     return True
 
 
-def _release_single_offline_split_cache_lock(lock_path: Path) -> None:
+def _release_single_book_split_cache_lock(lock_path: Path) -> None:
     try:
         lock_path.unlink()
     except OSError:
         return
 
 
-def _wait_for_single_offline_split_cache_entry(
+def _wait_for_single_book_split_cache_entry(
     *,
     cache_path: Path,
     expected_key: str,
     lock_path: Path,
-    wait_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS,
-    poll_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS,
+    wait_seconds: float = SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS,
+    poll_seconds: float = SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS,
 ) -> dict[str, Any] | None:
     deadline = time.monotonic() + max(0.0, float(wait_seconds))
     sleep_seconds = max(0.05, float(poll_seconds))
     while time.monotonic() < deadline:
-        cached = _load_single_offline_split_cache_entry(
+        cached = _load_single_book_split_cache_entry(
             cache_path=cache_path,
             expected_key=expected_key,
         )
@@ -294,7 +294,7 @@ def _wait_for_single_offline_split_cache_entry(
         if not lock_path.exists():
             break
         time.sleep(sleep_seconds)
-    return _load_single_offline_split_cache_entry(
+    return _load_single_book_split_cache_entry(
         cache_path=cache_path,
         expected_key=expected_key,
     )
@@ -1702,10 +1702,10 @@ def generate_pred_run_artifacts(
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
     split_phase_status_label: str | None = None,
-    single_offline_split_cache_mode: str = "off",
-    single_offline_split_cache_dir: Path | str | None = None,
-    single_offline_split_cache_key: str | None = None,
-    single_offline_split_cache_force: bool = False,
+    single_book_split_cache_mode: str = "off",
+    single_book_split_cache_dir: Path | str | None = None,
+    single_book_split_cache_key: str | None = None,
+    single_book_split_cache_force: bool = False,
     prelabel: bool = False,
     prelabel_provider: str = "codex-farm",
     codex_cmd: str | None = None,
@@ -1941,56 +1941,56 @@ def generate_pred_run_artifacts(
             ocr_batch_size=run_settings.ocr_batch_size,
         )
     file_hash = compute_file_hash(path)
-    selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
-        single_offline_split_cache_mode
+    selected_single_book_split_cache_mode = _normalize_single_book_split_cache_mode(
+        single_book_split_cache_mode
     )
-    selected_single_offline_split_cache_key = (
-        str(single_offline_split_cache_key or "").strip() or None
+    selected_single_book_split_cache_key = (
+        str(single_book_split_cache_key or "").strip() or None
     )
-    selected_single_offline_split_cache_dir = (
-        Path(single_offline_split_cache_dir).expanduser()
-        if single_offline_split_cache_dir is not None
+    selected_single_book_split_cache_dir = (
+        Path(single_book_split_cache_dir).expanduser()
+        if single_book_split_cache_dir is not None
         else None
     )
-    single_offline_split_cache_enabled = (
-        selected_single_offline_split_cache_mode != "off"
-        and selected_single_offline_split_cache_dir is not None
-        and selected_single_offline_split_cache_key is not None
+    single_book_split_cache_enabled = (
+        selected_single_book_split_cache_mode != "off"
+        and selected_single_book_split_cache_dir is not None
+        and selected_single_book_split_cache_key is not None
     )
-    single_offline_split_cache_hit = False
-    single_offline_split_cache_entry_path: Path | None = None
-    single_offline_split_cache_lock_path: Path | None = None
-    single_offline_split_cache_lock_acquired = False
-    single_offline_split_cache_payload: dict[str, Any] | None = None
-    if single_offline_split_cache_enabled:
-        single_offline_split_cache_entry_path = _single_offline_split_cache_entry_path(
-            cache_root=selected_single_offline_split_cache_dir,
-            split_cache_key=selected_single_offline_split_cache_key or "",
+    single_book_split_cache_hit = False
+    single_book_split_cache_entry_path: Path | None = None
+    single_book_split_cache_lock_path: Path | None = None
+    single_book_split_cache_lock_acquired = False
+    single_book_split_cache_payload: dict[str, Any] | None = None
+    if single_book_split_cache_enabled:
+        single_book_split_cache_entry_path = _single_book_split_cache_entry_path(
+            cache_root=selected_single_book_split_cache_dir,
+            split_cache_key=selected_single_book_split_cache_key or "",
         )
-        single_offline_split_cache_lock_path = _single_offline_split_cache_lock_path(
-            single_offline_split_cache_entry_path
+        single_book_split_cache_lock_path = _single_book_split_cache_lock_path(
+            single_book_split_cache_entry_path
         )
-        if not single_offline_split_cache_force:
-            cached_payload = _load_single_offline_split_cache_entry(
-                cache_path=single_offline_split_cache_entry_path,
-                expected_key=selected_single_offline_split_cache_key or "",
+        if not single_book_split_cache_force:
+            cached_payload = _load_single_book_split_cache_entry(
+                cache_path=single_book_split_cache_entry_path,
+                expected_key=selected_single_book_split_cache_key or "",
             )
-            if cached_payload is None and single_offline_split_cache_lock_path is not None:
-                single_offline_split_cache_lock_acquired = (
-                    _acquire_single_offline_split_cache_lock(
-                        single_offline_split_cache_lock_path
+            if cached_payload is None and single_book_split_cache_lock_path is not None:
+                single_book_split_cache_lock_acquired = (
+                    _acquire_single_book_split_cache_lock(
+                        single_book_split_cache_lock_path
                     )
                 )
-                if single_offline_split_cache_lock_acquired:
-                    cached_payload = _load_single_offline_split_cache_entry(
-                        cache_path=single_offline_split_cache_entry_path,
-                        expected_key=selected_single_offline_split_cache_key or "",
+                if single_book_split_cache_lock_acquired:
+                    cached_payload = _load_single_book_split_cache_entry(
+                        cache_path=single_book_split_cache_entry_path,
+                        expected_key=selected_single_book_split_cache_key or "",
                     )
                 else:
-                    cached_payload = _wait_for_single_offline_split_cache_entry(
-                        cache_path=single_offline_split_cache_entry_path,
-                        expected_key=selected_single_offline_split_cache_key or "",
-                        lock_path=single_offline_split_cache_lock_path,
+                    cached_payload = _wait_for_single_book_split_cache_entry(
+                        cache_path=single_book_split_cache_entry_path,
+                        expected_key=selected_single_book_split_cache_key or "",
+                        lock_path=single_book_split_cache_lock_path,
                     )
             if cached_payload is not None:
                 try:
@@ -2000,8 +2000,8 @@ def generate_pred_run_artifacts(
                 except Exception:  # noqa: BLE001
                     cached_payload = None
                 else:
-                    single_offline_split_cache_hit = True
-                    single_offline_split_cache_payload = cached_payload
+                    single_book_split_cache_hit = True
+                    single_book_split_cache_payload = cached_payload
                     conversion_seconds = max(
                         0.0,
                         _safe_float(cached_payload.get("conversion_seconds")) or 0.0,
@@ -2014,14 +2014,14 @@ def generate_pred_run_artifacts(
                         0.0,
                         _safe_float(cached_payload.get("split_convert_seconds")) or 0.0,
                     )
-                    _notify("Reusing single-offline split cache conversion payload.")
-                    if single_offline_split_cache_lock_acquired:
-                        _release_single_offline_split_cache_lock(
-                            single_offline_split_cache_lock_path
+                    _notify("Reusing single-book split cache conversion payload.")
+                    if single_book_split_cache_lock_acquired:
+                        _release_single_book_split_cache_lock(
+                            single_book_split_cache_lock_path
                         )
-                        single_offline_split_cache_lock_acquired = False
+                        single_book_split_cache_lock_acquired = False
 
-    if not single_offline_split_cache_hit:
+    if not single_book_split_cache_hit:
         conversion_started = time.monotonic()
         try:
             with _temporary_epub_runtime_env(
@@ -2252,23 +2252,23 @@ def generate_pred_run_artifacts(
             conversion_seconds = max(0.0, time.monotonic() - conversion_started)
 
             if (
-                single_offline_split_cache_enabled
-                and single_offline_split_cache_entry_path is not None
-                and selected_single_offline_split_cache_key is not None
+                single_book_split_cache_enabled
+                and single_book_split_cache_entry_path is not None
+                and selected_single_book_split_cache_key is not None
             ):
                 if (
-                    not single_offline_split_cache_lock_acquired
-                    and single_offline_split_cache_lock_path is not None
+                    not single_book_split_cache_lock_acquired
+                    and single_book_split_cache_lock_path is not None
                 ):
-                    single_offline_split_cache_lock_acquired = (
-                        _acquire_single_offline_split_cache_lock(
-                            single_offline_split_cache_lock_path
+                    single_book_split_cache_lock_acquired = (
+                        _acquire_single_book_split_cache_lock(
+                            single_book_split_cache_lock_path
                         )
                     )
-                if single_offline_split_cache_lock_acquired:
+                if single_book_split_cache_lock_acquired:
                     cache_write_payload = {
-                        "schema_version": SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION,
-                        "single_offline_split_cache_key": selected_single_offline_split_cache_key,
+                        "schema_version": SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION,
+                        "single_book_split_cache_key": selected_single_book_split_cache_key,
                         "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
                             timespec="milliseconds"
                         ),
@@ -2283,24 +2283,24 @@ def generate_pred_run_artifacts(
                             by_alias=True,
                         ),
                     }
-                    _write_single_offline_split_cache_entry(
-                        cache_path=single_offline_split_cache_entry_path,
+                    _write_single_book_split_cache_entry(
+                        cache_path=single_book_split_cache_entry_path,
                         payload=cache_write_payload,
                     )
-                    single_offline_split_cache_payload = cache_write_payload
+                    single_book_split_cache_payload = cache_write_payload
         finally:
             if (
-                single_offline_split_cache_lock_acquired
-                and single_offline_split_cache_lock_path is not None
+                single_book_split_cache_lock_acquired
+                and single_book_split_cache_lock_path is not None
             ):
-                _release_single_offline_split_cache_lock(
-                    single_offline_split_cache_lock_path
+                _release_single_book_split_cache_lock(
+                    single_book_split_cache_lock_path
                 )
-                single_offline_split_cache_lock_acquired = False
-    elif single_offline_split_cache_payload is not None:
+                single_book_split_cache_lock_acquired = False
+    elif single_book_split_cache_payload is not None:
         conversion_seconds = max(
             0.0,
-            _safe_float(single_offline_split_cache_payload.get("conversion_seconds"))
+            _safe_float(single_book_split_cache_payload.get("conversion_seconds"))
             or conversion_seconds,
         )
     _notify_scheduler_event_callback(
@@ -3135,22 +3135,22 @@ def generate_pred_run_artifacts(
         timing=timing_payload,
         notify=_notify,
     )
-    single_offline_split_cache_summary: dict[str, Any] | None = None
-    if single_offline_split_cache_enabled or single_offline_split_cache_payload is not None:
-        single_offline_split_cache_summary = {
-            "enabled": bool(single_offline_split_cache_enabled),
-            "mode": selected_single_offline_split_cache_mode,
-            "key": selected_single_offline_split_cache_key,
+    single_book_split_cache_summary: dict[str, Any] | None = None
+    if single_book_split_cache_enabled or single_book_split_cache_payload is not None:
+        single_book_split_cache_summary = {
+            "enabled": bool(single_book_split_cache_enabled),
+            "mode": selected_single_book_split_cache_mode,
+            "key": selected_single_book_split_cache_key,
             "dir": (
-                str(selected_single_offline_split_cache_dir)
-                if selected_single_offline_split_cache_dir is not None
+                str(selected_single_book_split_cache_dir)
+                if selected_single_book_split_cache_dir is not None
                 else None
             ),
-            "force": bool(single_offline_split_cache_force),
-            "hit": bool(single_offline_split_cache_hit),
+            "force": bool(single_book_split_cache_force),
+            "hit": bool(single_book_split_cache_hit),
             "entry_path": (
-                str(single_offline_split_cache_entry_path)
-                if single_offline_split_cache_entry_path is not None
+                str(single_book_split_cache_entry_path)
+                if single_book_split_cache_entry_path is not None
                 else None
             ),
             "source_hash": file_hash,
@@ -3158,7 +3158,7 @@ def generate_pred_run_artifacts(
             "split_wait_seconds": split_wait_seconds,
             "split_convert_seconds": split_convert_seconds,
             "created_at": (
-                str((single_offline_split_cache_payload or {}).get("created_at") or "").strip()
+                str((single_book_split_cache_payload or {}).get("created_at") or "").strip()
                 or None
             ),
         }
@@ -3237,8 +3237,8 @@ def generate_pred_run_artifacts(
             str(prelabel_prompt_log_path) if prelabel_prompt_log_path is not None else None
         ),
     }
-    if single_offline_split_cache_summary is not None:
-        manifest["single_offline_split_cache"] = single_offline_split_cache_summary
+    if single_book_split_cache_summary is not None:
+        manifest["single_book_split_cache"] = single_book_split_cache_summary
 
     prompt_budget_summary_path: Path | None = None
     prompt_budget_summary = build_prediction_run_prompt_budget_summary(
@@ -3428,9 +3428,9 @@ def generate_pred_run_artifacts(
     )
 
     run_manifest_run_config = dict(run_config)
-    if single_offline_split_cache_summary is not None:
-        run_manifest_run_config["single_offline_split_cache"] = (
-            single_offline_split_cache_summary
+    if single_book_split_cache_summary is not None:
+        run_manifest_run_config["single_book_split_cache"] = (
+            single_book_split_cache_summary
         )
 
     run_manifest_payload = RunManifest(
@@ -3490,7 +3490,7 @@ def generate_pred_run_artifacts(
         "run_config": run_config,
         "run_config_hash": run_config_hash,
         "run_config_summary": run_config_summary,
-        "single_offline_split_cache": single_offline_split_cache_summary,
+        "single_book_split_cache": single_book_split_cache_summary,
         "llm_codex_farm": llm_report,
         "book_id": book_id,
         "file_hash": file_hash,
@@ -3587,10 +3587,10 @@ def run_labelstudio_import(
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
     split_phase_status_label: str | None = None,
-    single_offline_split_cache_mode: str = "off",
-    single_offline_split_cache_dir: Path | str | None = None,
-    single_offline_split_cache_key: str | None = None,
-    single_offline_split_cache_force: bool = False,
+    single_book_split_cache_mode: str = "off",
+    single_book_split_cache_dir: Path | str | None = None,
+    single_book_split_cache_key: str | None = None,
+    single_book_split_cache_force: bool = False,
     prelabel: bool = False,
     prelabel_provider: str = "codex-farm",
     codex_cmd: str | None = None,
@@ -3698,10 +3698,10 @@ def run_labelstudio_import(
         split_phase_slots=split_phase_slots,
         split_phase_gate_dir=split_phase_gate_dir,
         split_phase_status_label=split_phase_status_label,
-        single_offline_split_cache_mode=single_offline_split_cache_mode,
-        single_offline_split_cache_dir=single_offline_split_cache_dir,
-        single_offline_split_cache_key=single_offline_split_cache_key,
-        single_offline_split_cache_force=single_offline_split_cache_force,
+        single_book_split_cache_mode=single_book_split_cache_mode,
+        single_book_split_cache_dir=single_book_split_cache_dir,
+        single_book_split_cache_key=single_book_split_cache_key,
+        single_book_split_cache_force=single_book_split_cache_force,
         prelabel=prelabel,
         prelabel_provider=prelabel_provider,
         codex_cmd=codex_cmd,

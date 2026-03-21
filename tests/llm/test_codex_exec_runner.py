@@ -252,9 +252,34 @@ def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
         )
         is True
     )
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"python3 -c "
+            "'from pathlib import Path; "
+            "Path(\\\"out/task-001.json\\\").write_text(Path(\\\"in/task-001.json\\\").read_text())'\""
+        )
+        is True
+    )
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"python3 - <<'PY'\n"
+            "from pathlib import Path\n"
+            "Path('out/task-001.json').write_text(Path('in/task-001.json').read_text())\n"
+            "PY\""
+        )
+        is True
+    )
+    assert (
+        is_tolerated_workspace_worker_command(
+            "/bin/bash -lc \"node -e "
+            "\\\"const fs=require('fs'); "
+            "fs.writeFileSync('out/task-001.json', fs.readFileSync('in/task-001.json', 'utf8'));\\\"\""
+        )
+        is True
+    )
 
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc \"python -c 'print(1)'\"") is False
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'env python -c \"print(1)\"'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'pip install foo'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'curl https://example.com'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat ../secret.txt'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /tmp/secret.txt'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'git status --short'") is False
@@ -286,9 +311,15 @@ def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None
     assert root_relative.allowed is True
     assert root_relative.policy == "tolerated_workspace_shell_command"
 
-    forbidden = classify_workspace_worker_command(
-        "/bin/bash -lc \"python -c 'print(1)'\""
+    python_transform = classify_workspace_worker_command(
+        "/bin/bash -lc \"python3 -c "
+        "'from pathlib import Path; "
+        "Path(\\\"out/task-001.json\\\").write_text(Path(\\\"in/task-001.json\\\").read_text())'\""
     )
+    assert python_transform.allowed is True
+    assert python_transform.policy == "tolerated_workspace_shell_command"
+
+    forbidden = classify_workspace_worker_command("/bin/bash -lc 'pip install foo'")
     assert forbidden.allowed is False
     assert forbidden.policy == "forbidden_non_helper_executable"
 
@@ -309,8 +340,25 @@ def test_codex_exec_runner_detects_boundary_violations_separately_from_telemetry
         is None
     )
 
+    assert (
+        detect_workspace_worker_boundary_violation(
+            "/bin/bash -lc \"python3 -c "
+            "'from pathlib import Path; "
+            "Path(\\\"out/task-001.json\\\").write_text(Path(\\\"in/task-001.json\\\").read_text())'\""
+        )
+        is None
+    )
+    assert (
+        detect_workspace_worker_boundary_violation(
+            "/bin/bash -lc \"node -e "
+            "\\\"const fs=require('fs'); "
+            "fs.writeFileSync('out/task-001.json', fs.readFileSync('in/task-001.json', 'utf8'));\\\"\""
+        )
+        is None
+    )
+
     forbidden_tool = detect_workspace_worker_boundary_violation(
-        "/bin/bash -lc \"python -c 'print(1)'\""
+        "/bin/bash -lc 'pip install foo'"
     )
     assert forbidden_tool is not None
     assert forbidden_tool.policy == "forbidden_non_helper_executable"

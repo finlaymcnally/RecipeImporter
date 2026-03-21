@@ -14778,7 +14778,7 @@ def build_starter_pack_for_existing_runs(
 ) -> dict[str, Any]:
     """Build starter-pack artifacts from existing benchmark run dirs.
 
-    This helper is used by interactive single-offline benchmark flows to emit
+    This helper is used by interactive single-book benchmark flows to emit
     `starter_pack_v1/` directly into the session folder without building a full
     cutdown package.
     """

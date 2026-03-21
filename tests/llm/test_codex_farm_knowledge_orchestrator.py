@@ -168,6 +168,71 @@ def test_knowledge_workspace_watchdog_allows_orientation_and_helper_scripts(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
+def test_knowledge_workspace_watchdog_allows_jq_fallback_operator_output_command(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.7,
+            last_event_seconds_ago=0.0,
+            event_count=18,
+            command_execution_count=7,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"jq '{rows: .rows | map({atomic_index: .[0], "
+                "label: ({\\\"L8\\\":\\\"KNOWLEDGE\\\"}[.[1]] // \\\"OTHER\\\")})}' "
+                "current_packet.json > out/task-001.json\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
+def test_knowledge_workspace_watchdog_allows_bounded_python_heredoc(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.7,
+            last_event_seconds_ago=0.0,
+            event_count=18,
+            command_execution_count=7,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"python3 - <<'PY'\n"
+                "from pathlib import Path\n"
+                "Path('out/task-001.json').write_text(Path('current_packet.json').read_text())\n"
+                "PY\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
 def test_knowledge_strict_json_watchdog_kills_silent_retry(
     tmp_path: Path,
 ) -> None:

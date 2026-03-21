@@ -22,6 +22,7 @@ _INLINE_TEMPLATE_FALLBACK = """You are reviewing deterministic canonical line-ro
 TASK BOUNDARY
 - This is a grounded line-role correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
+- Treat the deterministic label as a strong prior, not a neutral starting guess.
 - Treat `span_code` as a weak provenance hint only. It may be unknown and it is not authoritative recipe-boundary truth.
 - Never invent lines or labels.
 
@@ -47,10 +48,13 @@ Negative rules (must-not-do):
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - If `span_code` is `N` (outside recipe), default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
+- If a row is plausible under its current deterministic label, leave it there.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
+- Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
+- First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -239,6 +243,7 @@ def build_canonical_line_role_file_prompt(
             "- Do not describe your plan, reasoning, or heuristics.\n"
             "- Your first response must be the final JSON object.\n"
             "- Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth.\n"
+            "- Treat the deterministic label as a strong prior, not a neutral starting guess.\n"
             "- Never invent lines or labels.\n\n"
             "Return strict JSON as a JSON object with one `rows` array:\n"
             '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}\n\n'
@@ -272,11 +277,15 @@ def build_canonical_line_role_file_prompt(
             "  - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.\n"
             "  - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.\n"
             "  - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.\n"
+            "  - If a row is plausible under its current deterministic label, leave it there.\n"
             "  - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.\n"
             "  - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.\n"
             "  - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.\n"
             "  - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.\n"
+            "  - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.\n"
+            "  - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n"
             "  - Dedications, front matter, and table-of-contents entries are usually `OTHER`.\n\n"
+            "{{PACKET_CONTEXT_BLOCK}}"
             "Authoritative shard rows (each row is [atomic_index, label_code, current_line]):\n"
             "<BEGIN_AUTHORITATIVE_ROWS>\n"
             "{{AUTHORITATIVE_ROWS}}\n"
@@ -285,6 +294,10 @@ def build_canonical_line_role_file_prompt(
     )
     rendered = template.replace("{{INPUT_PATH}}", str(input_path))
     rendered = rendered.replace("{{LABEL_CODE_LEGEND}}", label_code_legend)
+    rendered = rendered.replace(
+        "{{PACKET_CONTEXT_BLOCK}}",
+        _render_packet_context_block(input_payload),
+    )
     rendered = rendered.replace("{{AUTHORITATIVE_ROWS}}", authoritative_rows)
     return rendered.strip() + "\n"
 
@@ -358,6 +371,71 @@ def _render_authoritative_rows_for_prompt(
                 json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
             )
     return "\n".join(rendered_rows) if rendered_rows else "[no shard rows available]"
+
+
+def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str:
+    payload = dict(input_payload or {})
+    summary = str(payload.get("packet_summary") or "").strip()
+    default_posture = str(payload.get("default_posture") or "").strip()
+    packet_mode = str(payload.get("packet_mode") or "").strip()
+    context_confidence = str(payload.get("context_confidence") or "").strip()
+    flip_policy = [
+        str(item).strip()
+        for item in (payload.get("flip_policy") or [])
+        if str(item).strip()
+    ]
+    strong_signals = [
+        str(item).strip()
+        for item in (payload.get("strong_signals") or [])
+        if str(item).strip()
+    ]
+    weak_signals = [
+        str(item).strip()
+        for item in (payload.get("weak_signals") or [])
+        if str(item).strip()
+    ]
+    example_files = [
+        str(item).strip()
+        for item in (payload.get("example_files") or [])
+        if str(item).strip()
+    ]
+    if not any(
+        (
+            summary,
+            default_posture,
+            packet_mode,
+            context_confidence,
+            flip_policy,
+            strong_signals,
+            weak_signals,
+            example_files,
+        )
+    ):
+        return ""
+    lines = ["Packet-local guidance:"]
+    if summary:
+        lines.append(f"- Packet summary: {summary}")
+    if packet_mode or context_confidence:
+        lines.append(
+            "- Packet mode: "
+            f"{packet_mode or 'unknown'}"
+            + (
+                f" (confidence: {context_confidence})"
+                if context_confidence
+                else ""
+            )
+        )
+    if default_posture:
+        lines.append(f"- Default posture: {default_posture}")
+    for item in flip_policy:
+        lines.append(f"- Flip policy: {item}")
+    for item in strong_signals:
+        lines.append(f"- Strong signal: {item}")
+    for item in weak_signals:
+        lines.append(f"- Weak signal: {item}")
+    if example_files:
+        lines.append("- Repo-written contrast examples: " + ", ".join(example_files))
+    return "\n".join(lines) + "\n\n"
 
 
 def _build_label_code_by_label(labels: Sequence[str]) -> dict[str, str]:

@@ -54,7 +54,7 @@ Current layout exceptions and intentional split seams:
   - interactive/import/export/artifact flows: `..._interactive.py`, `..._import_eval.py`, `..._export_selection.py`, `..._artifacts.py`, `..._progress.py`
   - eval payload seams: `..._eval_payload_compare.py`, `..._eval_payload_execution.py`, `..._eval_payload_pipelined.py`, `..._eval_payload_artifacts.py`
   - scheduler seams: `..._scheduler_targets.py`, `..._scheduler_planning.py`, `..._scheduler_global_queue.py`, `..._scheduler_prediction_reuse.py`, `..._scheduler_run_reports.py`, `..._scheduler_multi_source.py`
-  - single-offline and single-profile seams: `..._single_offline_run.py`, `..._single_offline_artifacts.py`, `..._single_profile.py`
+  - single-book and single-profile seams: `..._single_book_run.py`, `..._single_book_artifacts.py`, `..._single_profile.py`
 - Shared Label Studio benchmark helper support belongs in `tests/labelstudio/benchmark_helper_support.py`; do not rebuild a large support pseudo-test module.
 - Label Studio prelabel coverage is split into:
   - `tests/labelstudio/test_labelstudio_prelabel.py`
@@ -101,15 +101,15 @@ Current contracts:
 - `slow` and `smoke` routing is controlled centrally by `_SLOW_FILES` and `_SMOKE_FILES` in `tests/conftest.py`.
 - If you add or rename a test file, update `_FILE_MARKERS` and then decide whether the file also belongs in `_SLOW_FILES` or `_SMOKE_FILES`.
 - The `slow` slice is intentionally narrow and currently covers only the explicitly high-cost files in `tests/conftest.py`; do not widen it without measuring runtime first.
-- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py` is part of `slow`; routine `labelstudio` domain runs should not pay for full single-offline comparison/bundle/dashboard helper coverage.
-- Routing-only interactive benchmark tests should stub `_interactive_single_offline_benchmark(...)` and assert the handoff arguments instead of re-exercising the helper internals from `test_labelstudio_benchmark_helpers_interactive.py`.
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py` is part of `slow`; routine `labelstudio` domain runs should not pay for full single-book comparison/bundle/dashboard helper coverage.
+- Routing-only interactive benchmark tests should stub `_interactive_single_book_benchmark(...)` and assert the handoff arguments instead of re-exercising the helper internals from `test_labelstudio_benchmark_helpers_interactive.py`.
 - Several historically named “fast” integration files are intentionally slow-marked because measured runtime is too high for routine loops: `tests/analytics/test_stats_dashboard.py`, `tests/ingestion/test_performance_features.py`, `tests/cli/test_cli_output_structure_epub_fast.py`, `tests/cli/test_cli_output_structure_text_fast.py`, and `tests/parsing/test_canonical_line_roles.py`.
 - Historical filename hints are not enough to classify cost: measured hotspot files now include roughly `45s` for `tests/analytics/test_stats_dashboard.py`, `15s` for `tests/ingestion/test_performance_features.py`, `11s` each for the EPUB/text CLI output-structure files, and `24s` for `tests/parsing/test_canonical_line_roles.py`, so those files stay slow-marked despite their old names.
 - Broad compact pytest runs are a poor hotspot profiler here; use one-file pytest invocations when measuring candidate slow files because the compact reporter suppresses most useful `--durations` detail in broad runs.
 - Prefer moving proven heavy helper-internal suites into `_SLOW_FILES` before changing production code for test speed; production edits need a stronger reason than loop runtime alone.
-- The benchmark smoke slice includes the real interactive single-offline benchmark path while stubbing `labelstudio_benchmark(...)` so smoke runs catch routing and artifact regressions without spending tokens.
+- The benchmark smoke slice includes the real interactive single-book benchmark path while stubbing `labelstudio_benchmark(...)` so smoke runs catch routing and artifact regressions without spending tokens.
 - for shard-shape assertions, set `line_role_prompt_target_count=None` or an explicit `line_role_shard_target_lines`; otherwise current defaults will legally regroup several rows into one shard
-- Before the Label Studio fast-slice cleanup, `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py` was about `121s` and `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py` was about `79s`; keep interactive routing tests at the handoff boundary unless you intentionally want full helper coverage in the slow slice.
+- Before the Label Studio fast-slice cleanup, `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py` was about `121s` and `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py` was about `79s`; keep interactive routing tests at the handoff boundary unless you intentionally want full helper coverage in the slow slice.
 - Broad routine runs should go through `./scripts/test-suite.sh` or the equivalent `make test-*` targets. `scripts/test-suite.sh` exports `COOKIMPORT_TEST_SUITE=1` so pytest can tell wrapper-driven runs from ad hoc broad raw invocations.
 
 Common run patterns:
@@ -158,7 +158,7 @@ Design intent:
 - 2026-03-04: mixed-cost and mixed-seam suites were split into focused files; keep fast files fast and isolate expensive EPUB, OCR, browser, and benchmark scheduler/eval coverage explicitly.
 - 2026-03-05: broad default-surface tests should assert durable contracts, not freeze mutable product-policy snapshots.
 - 2026-03-06: broad routine runs should use the wrapper script; raw broad pytest runs warn instead of silently normalizing that path.
-- 2026-03-14: the benchmark smoke boundary is the real interactive single-offline flow with only `labelstudio_benchmark(...)` stubbed.
+- 2026-03-14: the benchmark smoke boundary is the real interactive single-book flow with only `labelstudio_benchmark(...)` stubbed.
 - 2026-03-15: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is a scoped deep-debug tool for one explicit file or nodeid, not a broad-run mode switch.
 - 2026-03-15: benchmark-helper tests that only need local artifact wiring should stub the offline execute path directly, and mixed `RunSettings` payloads must be projected to live model fields before `RunSettings.from_dict(...)`.
 - 2026-03-16: direct helper seams on live Codex paths need their own fast regression anchors; relying only on slow benchmark coverage leaves routine `fast` runs blind to simple import/env crashes.

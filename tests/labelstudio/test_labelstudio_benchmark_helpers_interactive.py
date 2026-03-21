@@ -11,21 +11,21 @@ globals().update({
 })
 
 
-def _capture_interactive_single_offline_helper(
+def _capture_interactive_single_book_helper(
     monkeypatch: pytest.MonkeyPatch,
     *,
     return_value: bool = True,
 ) -> list[dict[str, object]]:
     helper_calls: list[dict[str, object]] = []
 
-    def fake_single_offline_helper(**kwargs):
+    def fake_single_book_helper(**kwargs):
         helper_calls.append(dict(kwargs))
         return return_value
 
     monkeypatch.setattr(
         cli,
-        "_interactive_single_offline_benchmark",
-        fake_single_offline_helper,
+        "_interactive_single_book_benchmark",
+        fake_single_book_helper,
     )
     return helper_calls
 
@@ -485,7 +485,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
         raise AssertionError("Interactive benchmark upload should not ask for confirmation.")
 
     monkeypatch.setattr(cli.questionary, "confirm", _unexpected_confirm)
-    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
+    helper_calls = _capture_interactive_single_book_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
@@ -504,7 +504,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert not any("uploads to Label Studio" in title for title in mode_prompts[0])
     assert not any("All method benchmark" in title for title in mode_prompts[0])
 
-def test_interactive_benchmark_single_offline_mode_skips_credentials(
+def test_interactive_benchmark_single_book_mode_skips_credentials(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     configured_output = tmp_path / "custom-output"
@@ -540,7 +540,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
             AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
         ),
     )
-    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
+    helper_calls = _capture_interactive_single_book_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
@@ -550,7 +550,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     assert helper_calls[0]["processed_output_root"] == configured_output
 
 
-def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_helper_without_credentials(
+def test_interactive_benchmark_single_book_codex_pipeline_passes_settings_to_helper_without_credentials(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -562,7 +562,7 @@ def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_
             "codex_farm_model": "gpt-5.3-codex-spark",
             "codex_farm_reasoning_effort": "low",
         },
-        warn_context="test interactive benchmark codex single-offline defaults",
+        warn_context="test interactive benchmark codex single-book defaults",
     )
     menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
 
@@ -587,7 +587,7 @@ def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_
         ),
     )
 
-    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
+    helper_calls = _capture_interactive_single_book_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
@@ -636,7 +636,7 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
             AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
         ),
     )
-    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
+    helper_calls = _capture_interactive_single_book_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
@@ -734,7 +734,7 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     monkeypatch.setattr(cli, "_discover_prediction_runs", lambda *_: [pred_run])
     eval_calls: list[dict[str, object]] = []
     monkeypatch.setattr(cli, "labelstudio_eval", lambda **kwargs: eval_calls.append(kwargs))
-    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
+    helper_calls = _capture_interactive_single_book_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()

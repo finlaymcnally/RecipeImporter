@@ -11,7 +11,7 @@ globals().update({
 })
 
 
-def _patch_single_offline_smoke_runtime(
+def _patch_single_book_smoke_runtime(
     monkeypatch: pytest.MonkeyPatch,
     *,
     cli_module,
@@ -63,7 +63,7 @@ def _patch_single_offline_smoke_runtime(
     )
     monkeypatch.setattr(
         cli_module,
-        "_write_single_offline_starter_pack",
+        "_write_single_book_starter_pack",
         lambda **_kwargs: None,
     )
 
@@ -107,7 +107,7 @@ def _patch_single_offline_smoke_runtime(
     return benchmark_calls
 
 
-def test_interactive_benchmark_single_offline_vanilla_smoke(
+def test_interactive_benchmark_single_book_vanilla_smoke(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -120,10 +120,10 @@ def test_interactive_benchmark_single_offline_vanilla_smoke(
             "atomic_block_splitter": "off",
             "epub_extractor": "beautifulsoup",
         },
-        warn_context="single-offline vanilla smoke",
+        warn_context="single-book vanilla smoke",
     )
 
-    benchmark_calls = _patch_single_offline_smoke_runtime(
+    benchmark_calls = _patch_single_book_smoke_runtime(
         monkeypatch,
         cli_module=cli,
         tmp_path=tmp_path,
@@ -141,7 +141,7 @@ def test_interactive_benchmark_single_offline_vanilla_smoke(
     assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
 
 
-def test_interactive_benchmark_single_offline_codex_shaped_smoke(
+def test_interactive_benchmark_single_book_codex_shaped_smoke(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -153,10 +153,10 @@ def test_interactive_benchmark_single_offline_codex_shaped_smoke(
             "codex_farm_model": "gpt-5.3-codex-spark",
             "codex_farm_reasoning_effort": "low",
         },
-        warn_context="single-offline codex-shaped smoke",
+        warn_context="single-book codex-shaped smoke",
     )
 
-    benchmark_calls = _patch_single_offline_smoke_runtime(
+    benchmark_calls = _patch_single_book_smoke_runtime(
         monkeypatch,
         cli_module=cli,
         tmp_path=tmp_path,

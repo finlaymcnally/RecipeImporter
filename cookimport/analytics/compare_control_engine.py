@@ -12,7 +12,7 @@ from .dashboard_collect import collect_dashboard_data
 COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD = "strict_accuracy"
 ANALYSIS_FIELD_LABEL_OVERRIDES = {
     "source_file_basename": "Book",
-    "run_config.single_offline_split_cache.conversion_seconds": "Conversion seconds",
+    "run_config.single_book_split_cache.conversion_seconds": "Conversion seconds",
     "conversion_seconds_per_recipe": "Conversion seconds per recipe",
     "all_token_use_per_recipe": "Token use per recipe",
 }
@@ -551,7 +551,7 @@ def previous_runs_field_value(record: dict[str, Any], field_path: str) -> Any:
         return previous_runs_metric_per_recipe(
             previous_runs_field_value(
                 record,
-                "run_config.single_offline_split_cache.conversion_seconds",
+                "run_config.single_book_split_cache.conversion_seconds",
             ),
             record.get("recipes"),
         )

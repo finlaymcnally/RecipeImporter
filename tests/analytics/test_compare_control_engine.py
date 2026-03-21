@@ -111,7 +111,7 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "codex_farm_model": "gpt-5",
             "codex_farm_reasoning_effort": "medium",
-            "single_offline_split_cache": {
+            "single_book_split_cache": {
                 "conversion_seconds": 20,
             },
         },

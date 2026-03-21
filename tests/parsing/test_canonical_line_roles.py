@@ -1680,6 +1680,22 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         input_payload={
             "v": 1,
             "shard_id": "line-role-canonical-0001-a000123-a000456",
+            "packet_mode": "lesson_prose",
+            "context_confidence": "high",
+            "packet_summary": (
+                "This packet reads like cookbook lesson prose: explanatory teaching around a topic, not recipe-local structure."
+            ),
+            "default_posture": (
+                "Default to `KNOWLEDGE` or `OTHER`; only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+            ),
+            "flip_policy": [
+                "Treat the deterministic label as a strong prior, not a neutral starting guess.",
+                "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay `KNOWLEDGE` when surrounding rows are explanatory prose.",
+            ],
+            "example_files": [
+                "01-lesson-prose-vs-howto.md",
+                "02-memoir-vs-knowledge.md",
+            ],
             "rows": [[123, "L4", "1 cup flour"]],
         },
     )
@@ -1698,6 +1714,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
     assert "Your first response must be the final JSON object." in prompt
+    assert "Treat the deterministic label as a strong prior" in prompt
     assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
     assert "Label codes:" in prompt
     assert "Return one result for every input row." in prompt
@@ -1706,10 +1723,85 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
     assert "default to `KNOWLEDGE` or `OTHER`" in prompt
+    assert "Balancing Fat" in prompt
+    assert "WHAT IS ACID?" in prompt
     assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Salt and Pepper" in prompt
+    assert "Packet-local guidance:" in prompt
+    assert "Packet mode: lesson_prose (confidence: high)" in prompt
+    assert "Repo-written contrast examples: 01-lesson-prose-vs-howto.md, 02-memoir-vs-knowledge.md" in prompt
     assert '<BEGIN_AUTHORITATIVE_ROWS>\n[123, "L4", "1 cup flour"]\n<END_AUTHORITATIVE_ROWS>' in prompt
+
+
+def test_line_role_packet_context_marks_lesson_heading_packet_as_conservative_knowledge() -> None:
+    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+        rows=[
+            {
+                "atomic_index": 598,
+                "within_recipe_span": None,
+                "deterministic_label": "KNOWLEDGE",
+                "rule_tags": ["title_like"],
+                "current_line": "Balancing Fat",
+            },
+            {
+                "atomic_index": 599,
+                "within_recipe_span": None,
+                "deterministic_label": "KNOWLEDGE",
+                "rule_tags": ["instruction_like"],
+                "current_line": (
+                    "As with salt, the best way to correct overly fatty food is to rebalance the dish."
+                ),
+            },
+            {
+                "atomic_index": 600,
+                "within_recipe_span": None,
+                "deterministic_label": "KNOWLEDGE",
+                "rule_tags": ["explicit_prose"],
+                "current_line": (
+                    "Foods that are too dry can be corrected with a bit more fat."
+                ),
+            },
+        ]
+    )
+
+    assert packet_context["packet_mode"] == "lesson_prose"
+    assert packet_context["packet_summary"].startswith(
+        "This packet reads like cookbook lesson prose"
+    )
+    assert any(
+        "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?`" in line
+        for line in packet_context["flip_policy"]
+    )
+
+
+def test_line_role_packet_context_marks_memoir_packet_as_other_first() -> None:
+    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+        rows=[
+            {
+                "atomic_index": 10,
+                "within_recipe_span": False,
+                "deterministic_label": "OTHER",
+                "rule_tags": ["explicit_prose"],
+                "current_line": (
+                    "Then I fell in love with Johnny, who introduced me to the culinary delights of his native San Francisco."
+                ),
+            },
+            {
+                "atomic_index": 11,
+                "within_recipe_span": False,
+                "deterministic_label": "OTHER",
+                "rule_tags": ["instruction_like"],
+                "current_line": "I was never patient enough to wait for cake to cool.",
+            },
+        ]
+    )
+
+    assert packet_context["packet_mode"] == "memoir_front_matter"
+    assert packet_context["packet_summary"].startswith(
+        "This packet reads like memoir/front matter"
+    )
+    assert packet_context["default_posture"].startswith("Default to `OTHER`")
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -2224,6 +2316,73 @@ def test_label_atomic_lines_allows_line_role_workspace_orientation_commands(
     assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["last_command_policy"] == "tolerated_orientation_command"
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
+def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command(
+    tmp_path: Path,
+) -> None:
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.1,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"jq '{rows: .rows | map({atomic_index: .[0], "
+                "label: ({\\\"L0\\\":\\\"RECIPE_TITLE\\\",\\\"L1\\\":\\\"INGREDIENT_LINE\\\"}"
+                "[.[1]] // \\\"OTHER\\\")})}' "
+                "in/line-role-canonical-0001-a000000-a000000.json "
+                "> out/line-role-canonical-0001-a000000-a000000.json\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
+def test_label_atomic_lines_allows_line_role_node_transform(
+    tmp_path: Path,
+) -> None:
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.1,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"node -e "
+                "\\\"const fs=require('fs'); "
+                "fs.writeFileSync('out/line-role-canonical-0001-a000000-a000000.json', "
+                "fs.readFileSync('in/line-role-canonical-0001-a000000-a000000.json', 'utf8'));\\\"\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
 
@@ -2924,11 +3083,13 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     ).read_text(encoding="utf-8")
     assert "You are processing many canonical line-role task packets inside one local worker workspace." in prompt_text
     assert "Start by opening `worker_manifest.json`, then `assigned_tasks.json`, then `assigned_shards.json`." in prompt_text
-    assert "Do not orient yourself with `pwd`, `ls`, `find`, `tree`" in prompt_text
     assert "keep them narrow and grounded on the named local files only" in prompt_text
     assert "Stay inside this workspace" in prompt_text
     assert "Read `assigned_tasks.json` and process the assigned task packets in order." in prompt_text
     assert "open `hints/<task_id>.md` first" in prompt_text
+    assert "Treat each packet's deterministic label code as a strong prior." in prompt_text
+    assert "If `examples/` exists, use those repo-written contrast examples" in prompt_text
+    assert "Balancing Fat" in prompt_text
     assert "write exactly one JSON object to `out/<task_id>.json`." in prompt_text
     worker_prompt_text = (
         tmp_path
@@ -2960,7 +3121,13 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
+    assert worker_manifest_payload["examples_dir"] == "examples"
     assert worker_manifest_payload["hints_dir"] == "hints"
+    assert worker_manifest_payload["mirrored_example_files"] == [
+        "01-lesson-prose-vs-howto.md",
+        "02-memoir-vs-knowledge.md",
+        "03-recipe-internal-sections.md",
+    ]
     worker_hint_text = (
         tmp_path
         / "line-role-pipeline"
@@ -2971,8 +3138,12 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "hints"
         / "line-role-canonical-0001-a000000-a000000.md"
     ).read_text(encoding="utf-8")
+    assert "Packet interpretation" in worker_hint_text
+    assert "Decision policy" in worker_hint_text
+    assert "Packet examples" in worker_hint_text
     assert "Label code legend" in worker_hint_text
     assert "Attention rows" in worker_hint_text
+    assert "Make the smallest safe correction" in worker_hint_text
     worker_input_text = (
         tmp_path
         / "line-role-pipeline"
@@ -2984,6 +3155,13 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line-role-canonical-0001-a000000-a000000.json"
     ).read_text(encoding="utf-8")
     worker_input_payload = json.loads(worker_input_text)
+    assert worker_input_payload["packet_summary"]
+    assert worker_input_payload["default_posture"]
+    assert worker_input_payload["flip_policy"]
+    assert worker_input_payload["example_files"] == [
+        "01-lesson-prose-vs-howto.md",
+        "03-recipe-internal-sections.md",
+    ]
     assert worker_input_payload["rows"] == [[0, "L9", "Ambiguous line 0"]]
     input_payload = json.loads(
         (
@@ -3013,6 +3191,16 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert debug_payload["rows"][0]["current_line"] == "Ambiguous line 0"
     assert "prev_text" not in debug_payload["rows"][0]
     assert "next_text" not in debug_payload["rows"][0]
+    assert (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "examples"
+        / "01-lesson-prose-vs-howto.md"
+    ).exists()
 
 
 def test_label_atomic_lines_splits_one_shard_into_multiple_task_packets(

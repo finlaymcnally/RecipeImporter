@@ -4507,7 +4507,7 @@ _JS = """\
       title: "Single-book conversion time divided by predicted recipe count.",
       numeric: true,
     },
-    "run_config.single_offline_split_cache.conversion_seconds": {
+    "run_config.single_book_split_cache.conversion_seconds": {
       label: "Conversion seconds",
       title: "Single-book split-cache conversion time for this benchmark row.",
       numeric: true,
@@ -9335,7 +9335,7 @@ _JS = """\
     }
     if (fieldPath === "conversion_seconds_per_recipe") {
       return previousRunsMetricPerRecipe(
-        previousRunsFieldValue(record, "run_config.single_offline_split_cache.conversion_seconds"),
+        previousRunsFieldValue(record, "run_config.single_book_split_cache.conversion_seconds"),
         record && record.recipes,
       );
     }

@@ -126,12 +126,12 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
         "cli",
     ),
     "test_labelstudio_benchmark_smoke.py": ("labelstudio", "bench", "cli"),
-    "test_labelstudio_benchmark_helpers_single_offline_artifacts.py": (
+    "test_labelstudio_benchmark_helpers_single_book_artifacts.py": (
         "labelstudio",
         "bench",
         "cli",
     ),
-    "test_labelstudio_benchmark_helpers_single_offline_run.py": (
+    "test_labelstudio_benchmark_helpers_single_book_run.py": (
         "labelstudio",
         "bench",
         "cli",
@@ -218,7 +218,7 @@ _SLOW_FILES = {
     "test_labelstudio_benchmark_helpers_scheduler_prediction_reuse.py",
     "test_labelstudio_benchmark_helpers_scheduler_run_reports.py",
     "test_labelstudio_benchmark_helpers_scheduler_targets.py",
-    "test_labelstudio_benchmark_helpers_single_offline_run.py",
+    "test_labelstudio_benchmark_helpers_single_book_run.py",
     "test_performance_features.py",
     "test_pdf_importer_ocr_slow.py",
     "test_stats_dashboard.py",

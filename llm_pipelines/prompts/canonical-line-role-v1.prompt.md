@@ -3,6 +3,7 @@ You are reviewing deterministic canonical line-role labels for cookbook atomic l
 TASK BOUNDARY
 - This is a grounded line-role correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
+- Treat the deterministic label as a strong prior, not a neutral starting guess.
 - Treat `span_code` as a weak provenance hint only. It may be unknown and it is not authoritative recipe-boundary truth.
 - Do not run shell commands, Python, or any other tools.
 - Never invent lines or labels.
@@ -29,10 +30,13 @@ Negative rules (must-not-do):
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - If `span_code` is `N` (outside recipe), default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
+- If a row is plausible under its current deterministic label, leave it there.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
+- Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
+- First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
 
 Few-shot examples:
 1) Context: inside recipe, heading line

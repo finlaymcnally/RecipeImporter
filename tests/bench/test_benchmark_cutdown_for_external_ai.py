@@ -2901,7 +2901,7 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
     )
 
 
-def test_build_upload_bundle_discovers_current_single_offline_knowledge_layout(
+def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()

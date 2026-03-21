@@ -248,7 +248,7 @@ What changed:
 Problem:
 
 - line-role prompt trimming was easy to land in one caller and accidentally desynchronize live Codex runs from prompt preview
-- the single-offline Codex benchmark path also exposed that a tiny env/helper seam could crash before the broader slow suite caught it
+- the single-book Codex benchmark path also exposed that a tiny env/helper seam could crash before the broader slow suite caught it
 
 What stuck:
 

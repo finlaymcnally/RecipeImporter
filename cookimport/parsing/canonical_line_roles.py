@@ -115,6 +115,29 @@ _LINE_ROLE_TASK_TARGET_ROWS = 80
 _LINE_ROLE_PATHOLOGY_MIN_ROWS = 4
 _LINE_ROLE_PATHOLOGY_MIN_BASELINE_DISTINCT_LABELS = 3
 _LINE_ROLE_PATHOLOGY_NEAR_UNIFORM_MIN_ROWS = 8
+_LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
+    (
+        "01-lesson-prose-vs-howto.md",
+        "# Lesson prose vs recipe how-to\n\n"
+        "- Keep lesson headings such as `Balancing Fat` or `WHAT IS ACID?` as `KNOWLEDGE` when nearby rows are explanatory prose.\n"
+        "- Upgrade a heading to `HOWTO_SECTION` only when immediate neighboring rows are recipe-local ingredients or method subsections.\n"
+        "- A heading by itself is weak evidence.\n",
+    ),
+    (
+        "02-memoir-vs-knowledge.md",
+        "# Memoir vs knowledge\n\n"
+        "- First-person narrative or autobiographical prose is usually `OTHER`.\n"
+        "- Use `KNOWLEDGE` only when the prose is clearly teaching a reusable cooking idea.\n"
+        "- Do not turn memoir into recipe structure.\n",
+    ),
+    (
+        "03-recipe-internal-sections.md",
+        "# Recipe-internal section headings\n\n"
+        "- `FOR THE SAUCE`, `FOR SERVING`, or similar headings become `HOWTO_SECTION` only when the packet is clearly inside one recipe.\n"
+        "- Ingredient lines, yield lines, and imperative steps are strong recipe-local evidence.\n"
+        "- Preserve structured recipe labels when those strong signals are present.\n",
+    ),
+)
 _TITLE_CONNECTOR_WORDS = {
     "a",
     "an",
@@ -737,22 +760,25 @@ def build_line_role_debug_input_payload(
     candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
 ) -> dict[str, Any]:
+    rows = [
+        serialize_line_role_file_row(
+            candidate=candidate,
+            deterministic_label=str(
+                deterministic_baseline[int(candidate.atomic_index)].label
+                or "OTHER"
+            ),
+            escalation_reasons=deterministic_baseline[
+                int(candidate.atomic_index)
+            ].escalation_reasons,
+        )
+        for candidate in candidates
+    ]
+    packet_context = _build_line_role_packet_context(rows=rows)
     return {
         "shard_id": shard_id,
         "phase_key": "line_role",
-        "rows": [
-            serialize_line_role_file_row(
-                candidate=candidate,
-                deterministic_label=str(
-                    deterministic_baseline[int(candidate.atomic_index)].label
-                    or "OTHER"
-                ),
-                escalation_reasons=deterministic_baseline[
-                    int(candidate.atomic_index)
-                ].escalation_reasons,
-            )
-            for candidate in candidates
-        ],
+        **packet_context,
+        "rows": rows,
     }
 
 
@@ -761,11 +787,14 @@ def build_line_role_model_input_payload(
     shard_id: str,
     candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
+    debug_rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     label_code_by_label = build_line_role_label_code_by_label(FREEFORM_LABELS)
+    packet_context = _build_line_role_packet_context(rows=debug_rows or ())
     return {
         "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
         "shard_id": shard_id,
+        **packet_context,
         "rows": [
             serialize_line_role_model_row(
                 atomic_index=int(candidate.atomic_index),
@@ -779,6 +808,224 @@ def build_line_role_model_input_payload(
             for candidate in candidates
         ],
     }
+
+
+def _build_line_role_packet_context(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    packet_mode, context_confidence = _classify_line_role_packet_mode(rows=rows)
+    return {
+        "packet_mode": packet_mode,
+        "context_confidence": context_confidence,
+        "packet_summary": _line_role_packet_summary(packet_mode=packet_mode),
+        "default_posture": _line_role_default_posture(packet_mode=packet_mode),
+        "strong_signals": _line_role_strong_signals(packet_mode=packet_mode),
+        "weak_signals": _line_role_weak_signals(),
+        "flip_policy": _line_role_flip_policy(packet_mode=packet_mode),
+        "example_files": _line_role_example_files(packet_mode=packet_mode),
+    }
+
+
+def _classify_line_role_packet_mode(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[str, str]:
+    label_counts: dict[str, int] = {}
+    tag_counts: dict[str, int] = {}
+    span_inside = 0
+    span_outside = 0
+    first_person_count = 0
+    recipe_structure_count = 0
+    note_like_count = 0
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        label = str(row.get("deterministic_label") or "OTHER").strip() or "OTHER"
+        label_counts[label] = label_counts.get(label, 0) + 1
+        within_recipe_span = row.get("within_recipe_span")
+        if within_recipe_span is True:
+            span_inside += 1
+        elif within_recipe_span is False:
+            span_outside += 1
+        current_line = str(row.get("current_line") or "")
+        if _FIRST_PERSON_RE.search(current_line):
+            first_person_count += 1
+        row_tags = {
+            str(tag).strip()
+            for tag in (row.get("rule_tags") or ())
+            if str(tag).strip()
+        }
+        for tag in row_tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        if label in {
+            "RECIPE_TITLE",
+            "RECIPE_VARIANT",
+            "YIELD_LINE",
+            "TIME_LINE",
+            "INGREDIENT_LINE",
+            "INSTRUCTION_LINE",
+            "HOWTO_SECTION",
+        }:
+            recipe_structure_count += 1
+        if label == "RECIPE_NOTES" or "note_like_prose" in row_tags:
+            note_like_count += 1
+
+    knowledge_count = label_counts.get("KNOWLEDGE", 0)
+    other_count = label_counts.get("OTHER", 0)
+    title_like_count = tag_counts.get("title_like", 0)
+    explicit_prose_count = tag_counts.get("explicit_prose", 0)
+    ingredient_like_count = tag_counts.get("ingredient_like", 0) + label_counts.get(
+        "INGREDIENT_LINE", 0
+    )
+    instruction_like_count = tag_counts.get(
+        "instruction_like", 0
+    ) + label_counts.get("INSTRUCTION_LINE", 0)
+
+    if recipe_structure_count >= 2 and (
+        span_inside > 0 or ingredient_like_count + instruction_like_count >= 3
+    ):
+        if note_like_count > 0 and knowledge_count + other_count > 0:
+            return "recipe_adjacent_notes", "medium"
+        confidence = "high" if ingredient_like_count + instruction_like_count >= 3 else "medium"
+        return "recipe_body", confidence
+    if first_person_count > 0 and recipe_structure_count == 0 and other_count >= max(1, knowledge_count):
+        confidence = "high" if other_count >= 2 or first_person_count >= 2 else "medium"
+        return "memoir_front_matter", confidence
+    if knowledge_count >= max(2, other_count) and recipe_structure_count <= 1 and (
+        title_like_count > 0 or explicit_prose_count > 0
+    ):
+        confidence = "high" if knowledge_count >= 3 or title_like_count > 0 else "medium"
+        return "lesson_prose", confidence
+    if note_like_count > 0 and recipe_structure_count > 0:
+        return "recipe_adjacent_notes", "medium"
+    return "mixed_boundaries", "low"
+
+
+def _line_role_packet_summary(*, packet_mode: str) -> str:
+    summaries = {
+        "recipe_body": (
+            "This packet reads like recipe-local structure: ingredient lines, step lines, "
+            "or recipe-internal headings dominate."
+        ),
+        "recipe_adjacent_notes": (
+            "This packet mixes real recipe structure with nearby notes or explanatory prose."
+        ),
+        "lesson_prose": (
+            "This packet reads like cookbook lesson prose: explanatory teaching around a topic, "
+            "not recipe-local structure."
+        ),
+        "memoir_front_matter": (
+            "This packet reads like memoir/front matter or narrative prose, not recipe-local structure."
+        ),
+        "mixed_boundaries": (
+            "This packet is mixed: some rows look structural and some look like surrounding prose."
+        ),
+    }
+    return summaries.get(packet_mode, summaries["mixed_boundaries"])
+
+
+def _line_role_default_posture(*, packet_mode: str) -> str:
+    postures = {
+        "recipe_body": (
+            "Preserve recipe-structure labels unless a row clearly reads as note text or explanatory prose."
+        ),
+        "recipe_adjacent_notes": (
+            "Keep recipe-body rows structured, but treat surrounding prose conservatively."
+        ),
+        "lesson_prose": (
+            "Default to `KNOWLEDGE` or `OTHER`; only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+        ),
+        "memoir_front_matter": (
+            "Default to `OTHER`; upgrade only if a row clearly teaches reusable cooking knowledge."
+        ),
+        "mixed_boundaries": (
+            "Make the smallest safe correction and leave ambiguous rows near the deterministic seed."
+        ),
+    }
+    return postures.get(packet_mode, postures["mixed_boundaries"])
+
+
+def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
+    signals = {
+        "recipe_body": [
+            "Immediate ingredient lines, yield/time metadata, or imperative recipe steps.",
+            "Recipe-internal headings such as `FOR THE SAUCE` with nearby structured rows.",
+        ],
+        "recipe_adjacent_notes": [
+            "A real recipe body remains visible, but one or two note/prose rows interrupt it.",
+            "Keep the structured cluster and isolate the explanatory rows instead of flattening everything.",
+        ],
+        "lesson_prose": [
+            "A topic heading followed by explanatory prose about technique, science, or broad culinary guidance.",
+            "Repeated `KNOWLEDGE` rows are a stronger signal than title casing alone.",
+        ],
+        "memoir_front_matter": [
+            "First-person narrative, acknowledgments, dedication-style prose, or autobiographical sentences.",
+            "Narrative voice is a stronger signal than a stray cooking verb.",
+        ],
+        "mixed_boundaries": [
+            "Trust immediate neighboring rows more than one isolated heading or verb phrase.",
+            "Prefer the smallest locally grounded correction.",
+        ],
+    }
+    return list(signals.get(packet_mode, signals["mixed_boundaries"]))
+
+
+def _line_role_weak_signals() -> list[str]:
+    return [
+        "Title casing or all caps by itself is weak evidence.",
+        "Generic verbs such as `use`, `choose`, `let`, or `remember` do not make prose an instruction line.",
+        "Unknown recipe-span status is not permission to invent recipe structure.",
+    ]
+
+
+def _line_role_flip_policy(*, packet_mode: str) -> list[str]:
+    policy = [
+        "Treat the deterministic label as a strong prior, not a neutral starting guess.",
+        "Only flip a row when packet-local evidence is clearer than the seed label.",
+        "A heading alone is weak evidence; promote to `HOWTO_SECTION` only with immediate recipe-local support.",
+        "Generic advice or science explanations are `KNOWLEDGE`/`OTHER`, not `INSTRUCTION_LINE`.",
+    ]
+    if packet_mode == "lesson_prose":
+        policy.append(
+            "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose."
+        )
+    elif packet_mode == "memoir_front_matter":
+        policy.append(
+            "First-person narrative should stay `OTHER` unless the row clearly teaches a reusable cooking concept."
+        )
+    elif packet_mode == "recipe_body":
+        policy.append(
+            "When strong recipe-local structure is present, preserve ingredient/instruction labels unless a row clearly breaks pattern."
+        )
+    return policy
+
+
+def _line_role_example_files(*, packet_mode: str) -> list[str]:
+    packet_specific = {
+        "recipe_body": [
+            "03-recipe-internal-sections.md",
+            "01-lesson-prose-vs-howto.md",
+        ],
+        "recipe_adjacent_notes": [
+            "03-recipe-internal-sections.md",
+            "02-memoir-vs-knowledge.md",
+        ],
+        "lesson_prose": [
+            "01-lesson-prose-vs-howto.md",
+            "02-memoir-vs-knowledge.md",
+        ],
+        "memoir_front_matter": [
+            "02-memoir-vs-knowledge.md",
+            "01-lesson-prose-vs-howto.md",
+        ],
+        "mixed_boundaries": [
+            "01-lesson-prose-vs-howto.md",
+            "03-recipe-internal-sections.md",
+        ],
+    }
+    return list(packet_specific.get(packet_mode, packet_specific["mixed_boundaries"]))
 
 
 def _build_line_role_canonical_plans(
@@ -833,6 +1080,7 @@ def _build_line_role_canonical_plans(
                 shard_id=shard_id,
                 candidates=shard_candidates,
                 deterministic_baseline=deterministic_baseline,
+                debug_rows=list(debug_input_payload.get("rows") or []),
             ),
             metadata={
                 "phase_key": "line_role",
@@ -1393,12 +1641,14 @@ def _build_line_role_task_plans(
             **input_payload,
             "shard_id": task_id,
             "parent_shard_id": shard.shard_id,
+            **_build_line_role_packet_context(rows=task_debug_rows),
             "rows": task_rows,
         }
         task_debug_payload = {
             **_coerce_mapping_dict(debug_payload),
             "shard_id": task_id,
             "parent_shard_id": shard.shard_id,
+            **_build_line_role_packet_context(rows=task_debug_rows),
             "rows": task_debug_rows,
         }
         task_manifest = ShardManifestEntryV1(
@@ -2073,6 +2323,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             for task in all_task_plans
         ],
     )
+    _write_line_role_worker_examples(worker_root=worker_root)
     for task in all_task_plans:
         task_manifest = task.manifest_entry
         task_id = task_manifest.shard_id
@@ -3468,12 +3719,13 @@ def _build_line_role_workspace_worker_prompt(
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
         "- Start by opening `worker_manifest.json`, then `assigned_tasks.json`, then `assigned_shards.json`.\n"
-        "- Prefer opening the named files directly. Bounded local orientation commands such as `pwd`, `ls`, `find`, or `tree` are allowed, but they should help you stay on the current task files rather than drift away from them.\n"
-        "- If you need shell helpers, keep them narrow and grounded on the named local files only.\n"
-        "- Stay inside this workspace: do not inspect parent directories or the repository, and do not use repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.\n"
+        "- Prefer opening the named files directly. If you need shell helpers, keep them narrow and grounded on the named local files only.\n"
+        "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
         "- Read `assigned_tasks.json` and process the assigned task packets in order.\n"
         "- For each assigned task, open `hints/<task_id>.md` first, then open `in/<task_id>.json`.\n"
         "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned rows for that packet.\n"
+        "- Treat each packet's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
+        "- If `examples/` exists, use those repo-written contrast examples for calibration only; do not copy them into outputs.\n"
         "- Recompute labels from that task file's rows and write exactly one JSON object to `out/<task_id>.json`.\n"
         "- If `out/<task_id>.json` already exists and is complete, leave it alone and continue.\n"
         "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
@@ -3497,11 +3749,24 @@ def _build_line_role_workspace_worker_prompt(
         "- Never label a quantity ingredient line as `KNOWLEDGE`.\n"
         "- Never label an imperative recipe step as `KNOWLEDGE`.\n"
         "- Do not use `INSTRUCTION_LINE` for generic culinary advice or cookbook teaching prose.\n"
-        "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n\n"
+        "- Generic cooking advice that spans many dishes belongs in `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.\n"
+        "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n"
+        "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as `KNOWLEDGE` when nearby rows are explanatory prose.\n"
+        "- First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n\n"
         "Do not return task labels in your final message. The authoritative results are the `out/<task_id>.json` files.\n\n"
         "Assigned task files:\n"
         f"{assignments}\n"
     )
+
+
+def _write_line_role_worker_examples(*, worker_root: Path) -> list[str]:
+    examples_dir = worker_root / "examples"
+    examples_dir.mkdir(parents=True, exist_ok=True)
+    written_files: list[str] = []
+    for filename, content in _LINE_ROLE_PACKET_EXAMPLE_FILES:
+        (examples_dir / filename).write_text(content, encoding="utf-8")
+        written_files.append(filename)
+    return written_files
 
 
 def _write_line_role_worker_hint(
@@ -3537,6 +3802,7 @@ def _write_line_role_worker_hint(
     span_outside = 0
     span_unknown = 0
     attention_lines: list[str] = []
+    packet_context = _build_line_role_packet_context(rows=debug_rows)
     for row in debug_rows:
         if not isinstance(row, Mapping):
             continue
@@ -3594,6 +3860,28 @@ def _write_line_role_worker_hint(
         f"`{code}` = `{label}`"
         for label, code in sorted(code_by_label.items(), key=lambda item: item[1])
     ]
+    packet_interpretation = [
+        str(packet_context.get("packet_summary") or "No packet summary available."),
+        (
+            "Confidence: "
+            f"{str(packet_context.get('context_confidence') or 'low')}. "
+            f"Packet mode: {str(packet_context.get('packet_mode') or 'mixed_boundaries')}."
+        ),
+        str(packet_context.get("default_posture") or "Make conservative packet-local corrections."),
+    ]
+    decision_policy = list(packet_context.get("flip_policy") or [])
+    decision_policy.extend(
+        f"Strong signal: {value}"
+        for value in list(packet_context.get("strong_signals") or [])
+    )
+    decision_policy.extend(
+        f"Weak signal: {value}"
+        for value in list(packet_context.get("weak_signals") or [])
+    )
+    packet_examples = [
+        f"`examples/{filename}`"
+        for filename in list(packet_context.get("example_files") or [])
+    ] or ["Worker-local examples are not available for this packet."]
     if not attention_lines:
         attention_lines = [
             "No special attention rows were flagged. Read the authoritative rows in order and use nearby neighbors for disambiguation."
@@ -3608,6 +3896,9 @@ def _write_line_role_worker_hint(
         ],
         sections=[
             ("Packet profile", packet_profile),
+            ("Packet interpretation", packet_interpretation),
+            ("Decision policy", decision_policy),
+            ("Packet examples", packet_examples),
             ("Label code legend", legend_lines),
             ("Attention rows", attention_lines),
         ],

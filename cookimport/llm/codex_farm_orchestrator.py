@@ -1543,7 +1543,7 @@ def _build_recipe_workspace_worker_prompt(
         "1. Open `worker_manifest.json`, then `OUTPUT_CONTRACT.md`, then read `assigned_tasks.json` for task order and `assigned_shards.json` for shard ownership context.",
         "2. Prefer opening the named files directly instead of exploring the workspace.",
         "3. Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `out/`.",
-        "4. Stay inside this workspace: do not inspect parent directories or the repository, and do not use repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.",
+        "4. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "5. For each task id, open `hints/<task_id>.md` first, then `in/<task_id>.json`.",
         "6. Write one completed output file to `out/<task_id>.json`.",
         "7. Continue until every assigned task has an output file or you cannot proceed.",

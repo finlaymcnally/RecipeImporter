@@ -253,6 +253,72 @@ def test_recipe_workspace_watchdog_allows_orientation_and_helper_scripts(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
+def test_recipe_workspace_watchdog_allows_jq_fallback_operator_output_command(
+    tmp_path: Path,
+) -> None:
+    callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        stage_label="workspace worker stage",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.8,
+            last_event_seconds_ago=0.0,
+            event_count=20,
+            command_execution_count=8,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"jq '{rows: .rows | map({atomic_index: .[0], "
+                "label: ({\\\"L0\\\":\\\"RECIPE_TITLE\\\"}[.[1]] // \\\"UNKNOWN\\\")})}' "
+                "in/task-001.json > out/task-001.json\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
+def test_recipe_workspace_watchdog_allows_bounded_python_transform(
+    tmp_path: Path,
+) -> None:
+    callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        stage_label="workspace worker stage",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.8,
+            last_event_seconds_ago=0.0,
+            event_count=20,
+            command_execution_count=8,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"python3 -c "
+                "'from pathlib import Path; "
+                "Path(\\\"out/task-001.json\\\").write_text(Path(\\\"in/task-001.json\\\").read_text())'\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
 def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
