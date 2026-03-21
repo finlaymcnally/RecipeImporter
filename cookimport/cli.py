@@ -215,12 +215,14 @@ from cookimport.plugins import (
     webschema,
 )  # noqa: F401
 from cookimport.runs import (
+    KNOWLEDGE_STAGE_STATUS_FILE_NAME,
     RECIPE_MANIFEST_FILE_NAME,
     RunManifest,
     RunSource,
     build_stage_observability_report,
     load_stage_observability_report,
     stage_artifact_stem,
+    summarize_knowledge_stage_artifacts,
     write_eval_run_manifest,
     write_run_manifest,
     write_stage_observability_report,
@@ -21932,10 +21934,33 @@ def _finalize_interrupted_benchmark_run(
                             prompt_budget_summary,
                         )
                     )
+    knowledge_stage_summaries: list[dict[str, Any]] = []
+    if resolved_pred_run is not None:
+        raw_llm_root = resolved_pred_run / "raw" / "llm"
+        if raw_llm_root.exists() and raw_llm_root.is_dir():
+            for workbook_dir in sorted(path for path in raw_llm_root.iterdir() if path.is_dir()):
+                knowledge_stage_dir = workbook_dir / stage_artifact_stem(
+                    "nonrecipe_knowledge_review"
+                )
+                if not knowledge_stage_dir.exists() or not knowledge_stage_dir.is_dir():
+                    continue
+                knowledge_summary = summarize_knowledge_stage_artifacts(knowledge_stage_dir)
+                knowledge_summary["workbook_slug"] = workbook_dir.name
+                knowledge_summary["stage_dir"] = _path_for_manifest(
+                    eval_output_dir,
+                    knowledge_stage_dir,
+                )
+                knowledge_summary["status_artifact"] = _path_for_manifest(
+                    eval_output_dir,
+                    knowledge_stage_dir / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
+                )
+                knowledge_stage_summaries.append(knowledge_summary)
     status_payload = {
         "schema_version": 1,
         "status": "interrupted",
         "completed": False,
+        "interruption_cause": "operator",
+        "finalization_completeness": "interrupted_before_completion",
         "interrupted_at": interrupted_at,
         "phase": str(phase or "").strip() or None,
         "source_file": str(source_path) if source_path is not None else None,
@@ -21949,6 +21974,8 @@ def _finalize_interrupted_benchmark_run(
     partial_summary_payload = {
         "schema_version": 1,
         "status": "interrupted",
+        "interruption_cause": "operator",
+        "finalization_completeness": "interrupted_before_completion",
         "summary": (
             "Benchmark interrupted before completion. Inspect the preserved prediction "
             "artifacts and telemetry under this run root."
@@ -21975,6 +22002,10 @@ def _finalize_interrupted_benchmark_run(
             ),
         },
     }
+    if len(knowledge_stage_summaries) == 1:
+        partial_summary_payload["knowledge_stage"] = knowledge_stage_summaries[0]
+    elif knowledge_stage_summaries:
+        partial_summary_payload["knowledge_stages"] = knowledge_stage_summaries
     partial_summary_path = eval_output_dir / "partial_benchmark_summary.json"
     partial_summary_path.write_text(
         json.dumps(partial_summary_payload, indent=2, sort_keys=True) + "\n",

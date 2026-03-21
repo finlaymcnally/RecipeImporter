@@ -46,6 +46,7 @@ Recipe CodexFarm path:
 Other active Codex-backed surfaces:
 
 - Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`, `cookimport/llm/knowledge_prompt_builder.py`
+- the knowledge stage now keeps two small runtime ledgers beside the normal manifests: `task_status.jsonl` records per-packet attempt/terminal state, while `stage_status.json` records stage finalization and interruption attribution. Interrupted runs should still leave partial `phase_manifest.json`, `promotion_report.json`, `telemetry.json`, and `failures.json` beside those status files.
 - Canonical line-role: `cookimport/parsing/canonical_line_roles.py`, `cookimport/llm/canonical_line_role_prompt.py`, `cookimport/llm/codex_exec_runner.py`
 - Freeform prelabel: `cookimport/labelstudio/prelabel.py`
 - Prompt/debug artifact export: `cookimport/llm/prompt_artifacts.py`
@@ -187,6 +188,7 @@ Knowledge runtime note:
 - the live knowledge model call now goes through `codex_exec_runner.py`, but it keeps the same shard-manifest / worker-assignment artifact shape the shared runtime established
 - knowledge worker assignments now launch one long-lived workspace-worker Codex session per worker assignment with shared `assigned_shards.json`, worker-local `assigned_tasks.json`, `hints/*.md`, authoritative `in/*.json`, and harvested `out/*.json`; multi-chunk shards now fan out into bounded knowledge task packets, workers write `out/<task_id>.json`, and deterministic code rejoins validated task outputs into the shard proposal before promotion
 - knowledge runtime now also writes `task_manifest.jsonl` plus worker-local `assigned_tasks.json`; those task rows are now the normal knowledge answer units for any multi-chunk shard, while single-chunk shards still keep the trivial `task_id == shard_id` case
+- knowledge progress now treats those task packets as the live truth: stage counters use packet totals instead of shard totals, worker labels show local packet progress, and retry/repair follow-up calls surface in structured `detail_lines` instead of leaving the CLI stuck on shard-only counters such as `task 0/10`
 - knowledge worker roots now also carry `worker_manifest.json`, and the shared worker prompt explicitly forbids orientation commands in favor of opening the named local files directly
 - `codex_farm_knowledge_ingest.py` validates exact owned `chunk_id` coverage and rejects any `block_decisions` or snippet evidence that point outside the shard's eligible block surface
 - the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, `knowledge/proposals/*.json` validated shard proposals, then deterministic promotion into `08_nonrecipe_spans.json`, `09_knowledge_outputs.json`, and reviewer-facing knowledge artifacts
@@ -196,6 +198,7 @@ Knowledge runtime note:
 - completed knowledge workspace workers should now always carry a non-null `reason_code` in `live_status.json`; `workspace_outputs_stabilized` remains the benign output-stable path, and plain clean exits normalize to `process_exited_without_watchdog_intervention`
 - the runtime cutover did not require a brand-new pack immediately; `codex-knowledge-shard-v1` still reuses the compact knowledge pack underneath, and the important authority seam is shard ownership plus validation, not a new prompt asset family
 - knowledge worker assignments now launch concurrently and merge back in planned order so `running N` reflects real in-flight work
+- knowledge progress callbacks now also report packet truth rather than shard truth: `task_current/task_total` track task packets, detail lines carry shard totals, and `active_tasks` rows identify the worker-owned shard plus live packet counts or an inline follow-up state
 - the billed knowledge payload now avoids chunk-level semantic hints entirely; it carries raw block text, block ids, and mechanically true structure only
 - prompt-cost control for this stage lives before worker execution:
   - `cookimport/parsing/chunks.py` still provides deterministic chunk boundaries, but its semantic lane guesses no longer suppress review
@@ -347,7 +350,7 @@ Shard-runtime observability note:
   - compact CSV `telemetry` slices
 - When callers provide progress callbacks, runner requires `codex-farm process --progress-events --json`.
 - Current runners must emit structured progress events plus JSON stdout when `--json` is requested; older stderr-only progress and missing-flag fallbacks are no longer supported.
-- Direct line-role and knowledge runtimes now also emit repo-owned structured stage-progress callback payloads (task counters, effective worker counts, active shard labels, queued-shard detail) so CLI benchmark/import spinners and `processing_timeseries*.jsonl` capture the same stage metadata.
+- Direct line-role and knowledge runtimes now also emit repo-owned structured stage-progress callback payloads. Knowledge specifically reports task-packet counters, effective worker counts, active worker labels, completed-shard detail, queued task packets, and live retry/repair follow-up counts so CLI benchmark/import spinners and `processing_timeseries*.jsonl` capture the same stage metadata.
 - The shared recipe `phase_worker_runtime.py` seam now emits the same outer structured progress snapshots for recipe shard work, reporting configured workers, queued shards, and active worker buckets even though each worker still runs one classic CodexFarm `process` call for its assigned shard set.
 - Recoverable partial-output failures include `no last agent message` and `nonzero_exit_no_payload`.
 - In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing recipe-correction bundles.

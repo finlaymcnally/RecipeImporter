@@ -8,7 +8,9 @@ from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.runs import (
     RECIPE_MANIFEST_FILE_NAME,
     KNOWLEDGE_MANIFEST_FILE_NAME,
+    KNOWLEDGE_STAGE_STATUS_FILE_NAME,
     build_stage_observability_report,
+    summarize_knowledge_stage_artifacts,
     write_stage_observability_report,
 )
 
@@ -118,3 +120,85 @@ def test_write_stage_observability_report_writes_json(tmp_path: Path) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "stage_observability.v1"
     assert payload["stages"][0]["stage_key"] == "write_outputs"
+
+
+def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) -> None:
+    stage_root = tmp_path / "raw" / "llm" / "book" / "knowledge"
+    proposals_dir = stage_root / "proposals"
+    proposals_dir.mkdir(parents=True, exist_ok=True)
+    (proposals_dir / "book.ks0000.nr.json").write_text("{}", encoding="utf-8")
+    (stage_root / "worker_assignments.json").write_text("[]", encoding="utf-8")
+    (stage_root.parent / KNOWLEDGE_MANIFEST_FILE_NAME).write_text(
+        json.dumps({"pipeline_id": "recipe.knowledge.compact.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    _write_json(
+        stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
+        {
+            "schema_version": "knowledge_stage_status.v1",
+            "stage_key": "nonrecipe_knowledge_review",
+            "stage_state": "interrupted",
+            "termination_cause": "operator_interrupt",
+            "finalization_completeness": "interrupted_before_finalization",
+            "artifact_states": {
+                "phase_manifest.json": "skipped_due_to_interrupt",
+                "task_status.jsonl": "skipped_due_to_interrupt",
+                "worker_assignments.json": "present",
+                "promotion_report.json": "skipped_due_to_interrupt",
+                "telemetry.json": "skipped_due_to_interrupt",
+                "failures.json": "skipped_due_to_interrupt",
+                "knowledge_manifest.json": "present",
+                "proposals/*": "present",
+            },
+            "pre_kill_failure_counts": {
+                "worker_terminal_states": {"watchdog_killed": 1},
+                "worker_reason_codes": {"watchdog_malformed_final_output": 1},
+            },
+        },
+    )
+
+    summary = summarize_knowledge_stage_artifacts(stage_root)
+
+    assert summary["authoritative"] is True
+    assert summary["stage_state"] == "interrupted"
+    assert summary["termination_cause"] == "operator_interrupt"
+    assert summary["finalization_completeness"] == "interrupted_before_finalization"
+    assert summary["pre_kill_failures_observed"] is True
+    assert summary["artifact_states"]["phase_manifest.json"] == "skipped_due_to_interrupt"
+    assert summary["artifact_states"]["task_status.jsonl"] == "skipped_due_to_interrupt"
+    assert summary["artifact_states"]["worker_assignments.json"] == "present"
+    assert summary["artifact_states"]["knowledge_manifest.json"] == "present"
+
+
+def test_summarize_knowledge_stage_artifacts_marks_unexpected_missing(tmp_path: Path) -> None:
+    stage_root = tmp_path / "raw" / "llm" / "book" / "knowledge"
+    stage_root.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
+        {
+            "schema_version": "knowledge_stage_status.v1",
+            "stage_key": "nonrecipe_knowledge_review",
+            "stage_state": "completed",
+            "termination_cause": "completed",
+            "finalization_completeness": "complete",
+            "artifact_states": {
+                "phase_manifest.json": "present",
+                "task_status.jsonl": "present",
+                "worker_assignments.json": "present",
+                "promotion_report.json": "present",
+                "telemetry.json": "present",
+                "failures.json": "present",
+                "knowledge_manifest.json": "present",
+                "proposals/*": "present",
+            },
+            "pre_kill_failure_counts": {},
+        },
+    )
+
+    summary = summarize_knowledge_stage_artifacts(stage_root)
+
+    assert summary["authoritative"] is True
+    assert summary["artifact_states"]["phase_manifest.json"] == "unexpectedly_missing"
+    assert summary["artifact_states"]["task_status.jsonl"] == "unexpectedly_missing"
+    assert summary["artifact_states"]["worker_assignments.json"] == "unexpectedly_missing"
+    assert summary["artifact_states"]["proposals/*"] == "unexpectedly_missing"

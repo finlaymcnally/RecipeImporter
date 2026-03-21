@@ -1144,6 +1144,37 @@ def test_labelstudio_benchmark_interrupt_writes_partial_run_artifacts(
         eval_root = Path(kwargs["run_root_override"])
         pred_run = eval_root / "prediction-run"
         pred_run.mkdir(parents=True, exist_ok=True)
+        knowledge_stage_root = pred_run / "raw" / "llm" / "book" / "knowledge"
+        knowledge_stage_root.mkdir(parents=True, exist_ok=True)
+        (knowledge_stage_root / "worker_assignments.json").write_text("[]\n", encoding="utf-8")
+        (knowledge_stage_root / "stage_status.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "knowledge_stage_status.v1",
+                    "stage_key": "nonrecipe_knowledge_review",
+                    "stage_state": "interrupted",
+                    "termination_cause": "operator_interrupt",
+                    "finalization_completeness": "interrupted_before_finalization",
+                    "artifact_states": {
+                        "phase_manifest.json": "skipped_due_to_interrupt",
+                        "task_status.jsonl": "skipped_due_to_interrupt",
+                        "worker_assignments.json": "present",
+                        "promotion_report.json": "skipped_due_to_interrupt",
+                        "telemetry.json": "skipped_due_to_interrupt",
+                        "failures.json": "skipped_due_to_interrupt",
+                        "knowledge_manifest.json": "skipped_due_to_interrupt",
+                        "proposals/*": "skipped_due_to_interrupt",
+                    },
+                    "pre_kill_failure_counts": {
+                        "worker_terminal_states": {"watchdog_killed": 1},
+                        "worker_reason_codes": {"watchdog_malformed_final_output": 1},
+                    },
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         (pred_run / "extracted_archive.json").write_text(
             json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
             encoding="utf-8",
@@ -1204,16 +1235,25 @@ def test_labelstudio_benchmark_interrupt_writes_partial_run_artifacts(
     )
     assert status_payload["status"] == "interrupted"
     assert status_payload["completed"] is False
+    assert status_payload["interruption_cause"] == "operator"
 
     partial_summary = json.loads(
         (eval_root / "partial_benchmark_summary.json").read_text(encoding="utf-8")
     )
     assert partial_summary["status"] == "interrupted"
+    assert partial_summary["interruption_cause"] == "operator"
     assert partial_summary["prediction_artifacts"]["prediction_run_dir"] == "prediction-run"
     assert (
         partial_summary["prediction_artifacts"]["processing_timeseries_prediction_jsonl"]
         == "processing_timeseries_prediction.jsonl"
     )
+    assert partial_summary["knowledge_stage"]["stage_state"] == "interrupted"
+    assert partial_summary["knowledge_stage"]["termination_cause"] == "operator_interrupt"
+    assert (
+        partial_summary["knowledge_stage"]["artifact_states"]["phase_manifest.json"]
+        == "skipped_due_to_interrupt"
+    )
+    assert partial_summary["knowledge_stage"]["pre_kill_failures_observed"] is True
 
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["run_kind"] == "labelstudio_benchmark"

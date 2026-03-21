@@ -48,8 +48,11 @@ Chunking note:
 Per staged workbook (`<workbook_slug>`):
 
 - Runtime artifacts:
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/stage_status.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/shard_manifest.jsonl`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/task_manifest.jsonl`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/task_status.jsonl`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/worker_assignments.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/promotion_report.json`
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/telemetry.json`
@@ -75,6 +78,11 @@ Manifest/runtime note:
 - manifest `counts` now distinguish shard count (`shards_written`) from surviving chunk count (`chunks_written`).
 - If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero shards.
 - Live execution and prompt/debug reconstruction both read immutable shard payloads from `knowledge/in/*.json` and validated proposal wrappers from `knowledge/proposals/*.json`; there is no `knowledge/out/*.json` compatibility copy anymore.
+- `stage_status.json` is the small fallback record for interruption and wrap-up attribution. It records `stage_state`, `termination_cause`, `finalization_completeness`, `pre_kill_failure_counts`, and normalized `artifact_states`.
+- `task_status.jsonl` is the packet-level runtime ledger. Each task packet starts `pending`, records its current attempt type (`main_worker`, `watchdog_retry`, `retry_split`, `repair`), and ends in one explicit terminal state such as `validated`, `retry_failed`, `repair_recovered`, `missing_output`, or `cancelled_due_to_interrupt`.
+- A missing stage wrap-up file is only evidence of a bug when `stage_status.json` says finalization should have been complete. If `finalization_completeness` is `interrupted_before_finalization`, the missing wrap-up files are expected kill fallout and should classify as `skipped_due_to_interrupt`.
+- Interrupted runs now still flush partial `phase_manifest.json`, `promotion_report.json`, `telemetry.json`, and `failures.json` before the stage reraises, then mark any still-running retry / repair live-status files as `cancelled_due_to_interrupt`.
+- structured progress for this stage is now packet-based: `task_current/task_total` counts task packets rather than parent shards, worker labels show local packet progress, and detail lines call out configured workers, completed shards, queued task packets, and any live retry/repair follow-up calls.
 
 ## Pipeline assets
 

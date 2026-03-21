@@ -12,6 +12,21 @@ from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 STAGE_OBSERVABILITY_SCHEMA_VERSION = "stage_observability.v1"
 RECIPE_MANIFEST_FILE_NAME = "recipe_manifest.json"
 KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
+KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
+KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
+
+_KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
+    "phase_manifest.json",
+    "shard_manifest.jsonl",
+    "task_manifest.jsonl",
+    "task_status.jsonl",
+    "worker_assignments.json",
+    "promotion_report.json",
+    "telemetry.json",
+    "failures.json",
+    "knowledge_manifest.json",
+    "proposals/*",
+)
 
 
 class StageWorkbookObservation(BaseModel):
@@ -174,6 +189,106 @@ def _has_json_payloads(path: Path) -> bool:
     return any(child.is_file() for child in path.iterdir())
 
 
+def _knowledge_stage_artifact_paths(stage_root: Path) -> dict[str, Path]:
+    workbook_root = stage_root.parent
+    return {
+        "phase_manifest.json": stage_root / "phase_manifest.json",
+        "shard_manifest.jsonl": stage_root / "shard_manifest.jsonl",
+        "task_manifest.jsonl": stage_root / "task_manifest.jsonl",
+        "task_status.jsonl": stage_root / "task_status.jsonl",
+        "worker_assignments.json": stage_root / "worker_assignments.json",
+        "promotion_report.json": stage_root / "promotion_report.json",
+        "telemetry.json": stage_root / "telemetry.json",
+        "failures.json": stage_root / "failures.json",
+        "knowledge_manifest.json": workbook_root / KNOWLEDGE_MANIFEST_FILE_NAME,
+        "proposals/*": stage_root / "proposals",
+    }
+
+
+def _knowledge_stage_artifact_present(path: Path, artifact_key: str) -> bool:
+    if artifact_key == "proposals/*":
+        return _has_json_payloads(path)
+    return path.exists() and path.is_file()
+
+
+def classify_knowledge_stage_artifacts(
+    stage_root: Path,
+    *,
+    declared_states: Mapping[str, Any] | None = None,
+    finalization_completeness: str | None = None,
+) -> dict[str, str]:
+    declared = {
+        str(key): str(value).strip()
+        for key, value in dict(declared_states or {}).items()
+        if str(key).strip()
+    }
+    finalization = str(finalization_completeness or "").strip().lower()
+    interrupted_before_finalization = finalization == "interrupted_before_finalization"
+    states: dict[str, str] = {}
+    for artifact_key, path in _knowledge_stage_artifact_paths(stage_root).items():
+        if _knowledge_stage_artifact_present(path, artifact_key):
+            states[artifact_key] = "present"
+            continue
+        declared_state = declared.get(artifact_key)
+        if declared_state == "skipped_due_to_interrupt" or interrupted_before_finalization:
+            states[artifact_key] = "skipped_due_to_interrupt"
+            continue
+        states[artifact_key] = "unexpectedly_missing"
+    return states
+
+
+def _count_nested_positive_values(payload: Any) -> int:
+    if isinstance(payload, Mapping):
+        return sum(_count_nested_positive_values(value) for value in payload.values())
+    if isinstance(payload, list):
+        return sum(_count_nested_positive_values(value) for value in payload)
+    try:
+        return max(0, int(payload))
+    except (TypeError, ValueError):
+        return 0
+
+
+def summarize_knowledge_stage_artifacts(stage_root: Path) -> dict[str, Any]:
+    status_path = stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME
+    status_payload = _load_json_dict(status_path) or {}
+    pre_kill_failure_counts = status_payload.get("pre_kill_failure_counts")
+    if not isinstance(pre_kill_failure_counts, Mapping):
+        pre_kill_failure_counts = {}
+    finalization_completeness = (
+        str(status_payload.get("finalization_completeness") or "").strip() or None
+    )
+    artifact_states = classify_knowledge_stage_artifacts(
+        stage_root,
+        declared_states=(
+            status_payload.get("artifact_states")
+            if isinstance(status_payload.get("artifact_states"), Mapping)
+            else None
+        ),
+        finalization_completeness=finalization_completeness,
+    )
+    return {
+        "authoritative": bool(status_payload),
+        "schema_version": (
+            str(status_payload.get("schema_version") or "").strip()
+            or KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION
+        ),
+        "stage_key": (
+            str(status_payload.get("stage_key") or "").strip()
+            or "nonrecipe_knowledge_review"
+        ),
+        "stage_state": str(status_payload.get("stage_state") or "").strip() or None,
+        "termination_cause": str(status_payload.get("termination_cause") or "").strip() or None,
+        "finalization_completeness": finalization_completeness,
+        "artifact_states": {
+            key: artifact_states[key]
+            for key in _KNOWLEDGE_STAGE_ARTIFACT_KEYS
+            if key in artifact_states
+        },
+        "pre_kill_failure_counts": dict(pre_kill_failure_counts),
+        "pre_kill_failures_observed": _count_nested_positive_values(pre_kill_failure_counts) > 0,
+    }
+
+
 def _recipe_stage_key_map(
     *,
     recipe_manifest_payload: Mapping[str, Any],
@@ -298,6 +413,15 @@ def build_stage_observability_report(
                         output_dir=_relative_to(run_root, knowledge_output_dir)
                         if knowledge_output_dir.exists()
                         else None,
+                        artifact_paths={
+                            "stage_status_json": _relative_to(
+                                run_root,
+                                knowledge_dir / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
+                            )
+                            or ""
+                        }
+                        if (knowledge_dir / KNOWLEDGE_STAGE_STATUS_FILE_NAME).exists()
+                        else {},
                     )
                 )
 

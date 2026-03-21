@@ -106,6 +106,9 @@ Current behavior notes:
   - `--allow-codex`
   - `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
 - agent-run environments are blocked from that live non-interactive Codex path; use prompt preview or a fake-codex-farm rehearsal instead
+- knowledge-phase progress now reports task packets rather than top-level shard counts, and worker rows can show packet-scale labels such as `book.ks0000.nr (47/48 task packets)`
+- interrupted benchmark runs now write `partial_benchmark_summary.json` plus `benchmark_status.json` so the preserved worker/artifact tree stays diagnosable after an abort
+- interrupted benchmark runs now also record `interruption_cause = "operator"` in both files, and when the prediction run contains `raw/llm/<workbook>/knowledge/stage_status.json` the partial summary carries forward the normalized knowledge-stage attribution instead of treating missing wrap-up artifacts as generic failure by default
 
 Interactive benchmark modes are still active and remain offline canonical-text workflows:
 
@@ -123,6 +126,7 @@ Current interactive contracts:
   - `upload_bundle_v1/`
 - benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log volume only
 - benchmark status panels now treat generic `task X/Y | running N` progress strings as worker activity, so shard-backed line-role and similar phases do not collapse back to one stale status line
+- knowledge-stage benchmark progress is now packet-based rather than shard-based: the visible `task X/Y` counter tracks knowledge task packets, while the worker rows stay worker-based and show shard ownership plus packet counts or an active follow-up label such as repair/watchdog retry
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
 - interactive single-offline writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up

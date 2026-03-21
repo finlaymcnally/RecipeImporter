@@ -15,6 +15,7 @@ from cookimport.llm import codex_farm_knowledge_orchestrator as knowledge_module
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
     _preflight_knowledge_shard,
     _is_pathological_knowledge_response_text,
+    _run_direct_knowledge_workers_v1,
     run_codex_farm_nonrecipe_knowledge_review,
 )
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot, FakeCodexExecRunner
@@ -383,6 +384,255 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     ]
     assert worker_manifest["hints_dir"] == "hints"
     assert (worker_root / "hints").exists()
+
+
+def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 1,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[{"index": 4, "text": "Technique: Whisk constantly."}],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={"blocks": [{"index": 4, "text": "Technique: Whisk constantly."}]},
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+
+    def _interrupting_worker_run(**kwargs: object) -> tuple[object, list[object], dict[str, object]]:
+        run_root = Path(str(kwargs["run_root"]))
+        worker_root = run_root / "workers" / "worker-001"
+        worker_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "worker_assignments.json").write_text("[]\n", encoding="utf-8")
+        (worker_root / "live_status.json").write_text(
+            json.dumps(
+                {
+                    "state": "watchdog_killed",
+                    "reason_code": "watchdog_malformed_final_output",
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        knowledge_module,
+        "_run_direct_knowledge_workers_v1",
+        _interrupting_worker_run,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        run_codex_farm_nonrecipe_knowledge_review(
+            conversion_result=result,
+            nonrecipe_stage_result=NonRecipeStageResult(
+                nonrecipe_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.knowledge.4.5",
+                        category="knowledge",
+                        block_start_index=4,
+                        block_end_index=5,
+                        block_indices=[4],
+                        block_ids=["b4"],
+                    )
+                ],
+                knowledge_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.knowledge.4.5",
+                        category="knowledge",
+                        block_start_index=4,
+                        block_end_index=5,
+                        block_indices=[4],
+                        block_ids=["b4"],
+                    )
+                ],
+                other_spans=[],
+                block_category_by_index={4: "knowledge"},
+            ),
+            recipe_spans=[],
+            run_settings=settings,
+            run_root=run_root,
+            workbook_slug="book",
+            runner=FakeCodexExecRunner(output_builder=lambda payload: dict(payload or {})),
+        )
+
+    stage_status_path = run_root / "raw" / "llm" / "book" / "knowledge" / "stage_status.json"
+    stage_status = json.loads(stage_status_path.read_text(encoding="utf-8"))
+    assert stage_status["stage_state"] == "interrupted"
+    assert stage_status["termination_cause"] == "operator_interrupt"
+    assert stage_status["finalization_completeness"] == "interrupted_before_finalization"
+    assert stage_status["artifact_states"]["worker_assignments.json"] == "present"
+    assert stage_status["artifact_states"]["phase_manifest.json"] == "skipped_due_to_interrupt"
+    assert stage_status["artifact_states"]["proposals/*"] == "skipped_due_to_interrupt"
+    assert stage_status["pre_kill_failure_counts"]["worker_terminal_states"] == {
+        "watchdog_killed": 1
+    }
+    assert stage_status["pre_kill_failure_counts"]["worker_reason_codes"] == {
+        "watchdog_malformed_final_output": 1
+    }
+
+
+def test_mark_running_knowledge_status_files_interrupted_cancels_followups_and_tasks(
+    tmp_path: Path,
+) -> None:
+    stage_root = tmp_path / "knowledge"
+    shard_root = stage_root / "workers" / "worker-001" / "shards" / "book.ks0000.nr"
+    retry_root = shard_root / "watchdog_retry"
+    for path in (
+        stage_root / "workers" / "worker-001" / "live_status.json",
+        retry_root / "live_status.json",
+        shard_root / "repair_live_status.json",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"state": "running"}, sort_keys=True), encoding="utf-8")
+
+    task_status_path = stage_root / "task_status.jsonl"
+    rows_by_task_id = {
+        "book.ks0000.nr.t000": {
+            "schema_version": "knowledge_task_status.v1",
+            "task_id": "book.ks0000.nr.t000",
+            "state": "pending",
+            "terminal": False,
+            "active_attempt_type": "repair",
+            "last_attempt_type": None,
+            "attempt_state": "running",
+            "metadata": {},
+        },
+        "book.ks0000.nr.t001": {
+            "schema_version": "knowledge_task_status.v1",
+            "task_id": "book.ks0000.nr.t001",
+            "state": "validated",
+            "terminal": True,
+            "active_attempt_type": None,
+            "last_attempt_type": "main_worker",
+            "attempt_state": "completed",
+            "metadata": {},
+        },
+    }
+    knowledge_module._KnowledgeTaskStatusTracker(  # noqa: SLF001
+        path=task_status_path,
+        rows_by_task_id=rows_by_task_id,
+    )
+
+    knowledge_module._mark_running_knowledge_status_files_interrupted(stage_root)  # noqa: SLF001
+    tracker = knowledge_module._KnowledgeTaskStatusTracker(  # noqa: SLF001
+        path=task_status_path,
+        rows_by_task_id=rows_by_task_id,
+    )
+    tracker.mark_interrupted()
+
+    repair_status = json.loads((shard_root / "repair_status.json").read_text(encoding="utf-8"))
+    retry_status = json.loads((retry_root / "status.json").read_text(encoding="utf-8"))
+    task_rows = [
+        json.loads(line)
+        for line in task_status_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    task_rows_by_id = {row["task_id"]: row for row in task_rows}
+
+    assert json.loads((shard_root / "repair_live_status.json").read_text(encoding="utf-8"))["state"] == (
+        "cancelled_due_to_interrupt"
+    )
+    assert json.loads((retry_root / "live_status.json").read_text(encoding="utf-8"))["state"] == (
+        "cancelled_due_to_interrupt"
+    )
+    assert repair_status["status"] == "cancelled_due_to_interrupt"
+    assert retry_status["status"] == "cancelled_due_to_interrupt"
+    assert task_rows_by_id["book.ks0000.nr.t000"]["state"] == "cancelled_due_to_interrupt"
+    assert task_rows_by_id["book.ks0000.nr.t000"]["attempt_state"] == "cancelled"
+    assert task_rows_by_id["book.ks0000.nr.t001"]["state"] == "validated"
+
+
+def test_run_direct_knowledge_workers_writes_partial_runtime_artifacts_before_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "knowledge"
+    shard = ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=("chunk-1",),
+        input_payload={"shard_id": "book.ks0000.nr", "c": []},
+        input_text='{"shard_id":"book.ks0000.nr","c":[]}',
+        metadata={},
+    )
+
+    def _interrupting_assignment(**kwargs):
+        worker_root = Path(kwargs["assignment"].workspace_root)
+        (worker_root / "live_status.json").parent.mkdir(parents=True, exist_ok=True)
+        (worker_root / "live_status.json").write_text(
+            json.dumps({"state": "running", "reason_code": None}, sort_keys=True),
+            encoding="utf-8",
+        )
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        knowledge_module,
+        "_run_direct_knowledge_worker_assignment_v1",
+        _interrupting_assignment,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        _run_direct_knowledge_workers_v1(
+            phase_key="nonrecipe_knowledge_review",
+            pipeline_id="recipe.knowledge.compact.v1",
+            run_root=run_root,
+            shards=[shard],
+            runner=FakeCodexExecRunner(output_builder=lambda payload: dict(payload or {})),
+            worker_count=1,
+            env={},
+            model=None,
+            reasoning_effort=None,
+            output_schema_path=None,
+            settings={},
+            runtime_metadata={},
+        )
+
+    assert (run_root / "phase_manifest.json").exists()
+    assert (run_root / "promotion_report.json").exists()
+    assert (run_root / "telemetry.json").exists()
+    assert (run_root / "failures.json").exists()
+    assert (run_root / "task_status.jsonl").exists()
+
+    telemetry = json.loads((run_root / "telemetry.json").read_text(encoding="utf-8"))
+    promotion_report = json.loads((run_root / "promotion_report.json").read_text(encoding="utf-8"))
+    task_rows = [
+        json.loads(line)
+        for line in (run_root / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert telemetry["worker_count"] == 1
+    assert promotion_report["validated_shards"] == 0
+    assert task_rows[0]["state"] == "cancelled_due_to_interrupt"
 
 
 def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
