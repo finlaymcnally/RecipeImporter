@@ -22,6 +22,7 @@ def test_atomize_hollandaise_merged_block_into_atomic_candidates() -> None:
         blocks,
         recipe_id=recipe_id,
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
 
     by_text = {candidate.text: candidate for candidate in candidates}
@@ -54,6 +55,7 @@ def test_atomize_range_ingredient_not_yield() -> None:
         blocks,
         recipe_id=str(payload.get("recipe_id") or ""),
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
     by_text = {candidate.text: candidate for candidate in candidates}
 
@@ -71,6 +73,7 @@ def test_atomize_omelet_variant_fixture() -> None:
         blocks,
         recipe_id=str(payload.get("recipe_id") or ""),
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
     by_text = {candidate.text: candidate for candidate in candidates}
 
@@ -88,6 +91,7 @@ def test_atomize_inline_numbered_steps_into_multiple_instruction_candidates() ->
         blocks,
         recipe_id=str(payload.get("recipe_id") or ""),
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
 
     texts = [candidate.text for candidate in candidates]

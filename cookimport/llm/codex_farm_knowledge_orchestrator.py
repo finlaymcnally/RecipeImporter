@@ -2686,7 +2686,7 @@ def _build_knowledge_workspace_worker_prompt(
         "Required local loop:",
         "1. Open `worker_manifest.json`, then open `current_packet.json`, `current_hint.md`, and `current_result_path.txt`.",
         "2. Treat those `current_*` files as the only authoritative packet contract. `assigned_tasks.json` is inventory only; do not invent a batch scheduler from it.",
-        "3. Prefer opening the named files directly instead of exploring the workspace. Off-task orientation commands such as `pwd`, `ls`, `find`, or `tree` can be stopped early.",
+        "3. Prefer opening the named files directly instead of exploring the workspace. Bounded local orientation commands such as `pwd`, `ls`, `find`, or `tree` are allowed, but they should help you stay on the current leased packet rather than drift away from it.",
         "4. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Use `scratch/` for temporary helper files and the path named in `current_result_path.txt` for the final packet result.",
         "5. Stay inside this workspace: do not inspect parent directories or the repository, and do not use repo/network/interpreter commands such as `git`, `python`, `node`, `curl`, or package managers.",
         "6. Write one completed semantic packet result file for the current leased packet only.",
@@ -5151,14 +5151,6 @@ def _build_strict_json_watchdog_callback(
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_verdict = classify_workspace_worker_command(snapshot.last_command)
-        prevention_command_verdict = (
-            classify_workspace_worker_command(
-                snapshot.last_command,
-                allow_orientation_commands=False,
-            )
-            if allow_workspace_commands
-            else last_command_verdict
-        )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,
         )
@@ -5210,23 +5202,7 @@ def _build_strict_json_watchdog_callback(
             )
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
-                if (
-                    prevention_command_verdict is not None
-                    and prevention_command_verdict.allowed is False
-                    and prevention_command_verdict.policy == "forbidden_orientation_command"
-                ):
-                    decision = CodexExecSupervisionDecision.terminate(
-                        reason_code="watchdog_off_task_command_prevented",
-                        reason_detail=(
-                            prevention_command_verdict.reason
-                            or format_watchdog_command_reason_detail(
-                                stage_label="workspace worker stage",
-                                last_command=snapshot.last_command,
-                            )
-                        ),
-                        retryable=True,
-                    )
-                elif last_command_boundary_violation is None:
+                if last_command_boundary_violation is None:
                     command_execution_tolerated = True
                 else:
                     decision = CodexExecSupervisionDecision.terminate(

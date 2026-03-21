@@ -267,7 +267,7 @@ def test_benchmark_gc_apply_is_idempotent_without_csv_backup_or_mutation(
 
 def test_benchmark_gc_preserves_dashboard_rows_after_prune(tmp_path: Path) -> None:
     run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
-    run_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
+    run_dir = run_root / "single-book-benchmark" / "book" / "vanilla"
     _write_eval_report(run_dir)
     output_root = tmp_path / "output"
     csv_path = tmp_path / ".history" / "performance_history.csv"
@@ -390,7 +390,7 @@ def test_benchmark_gc_can_prune_labelstudio_benchmark_roots_when_enabled(
     tmp_path: Path,
 ) -> None:
     run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
-    eval_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
+    eval_dir = run_root / "single-book-benchmark" / "book" / "vanilla"
     _write_eval_report(eval_dir)
 
     csv_path = tmp_path / ".history" / "performance_history.csv"
@@ -413,7 +413,7 @@ def test_benchmark_gc_can_prune_labelstudio_benchmark_roots_when_enabled(
 
 def test_benchmark_gc_keep_sentinel_skips_labelstudio_prune(tmp_path: Path) -> None:
     run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
-    eval_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
+    eval_dir = run_root / "single-book-benchmark" / "book" / "vanilla"
     _write_eval_report(eval_dir)
     (run_root / ".gc_keep.2026-02-20_10.00.00.txt").write_text(
         "Pinned.\n",
@@ -443,7 +443,7 @@ def test_benchmark_gc_can_prune_labelstudio_processed_outputs_when_confirmed(
     tmp_path: Path,
 ) -> None:
     run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
-    eval_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
+    eval_dir = run_root / "single-book-benchmark" / "book" / "vanilla"
     _write_eval_report(eval_dir)
 
     output_root = tmp_path / "output"
@@ -507,7 +507,7 @@ def test_benchmark_gc_keeps_five_newest_labelstudio_runs_and_cache_dir(
     kept_names = []
     for day in range(1, 8):
         run_root = benchmark_root / f"2026-03-0{day}_10.00.00"
-        _write_eval_report(run_root / "single-offline-benchmark" / "book" / "vanilla")
+        _write_eval_report(run_root / "single-book-benchmark" / "book" / "vanilla")
         kept_names.append(run_root.name)
     cache_dir = benchmark_root / ".cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -539,8 +539,8 @@ def test_benchmark_gc_collects_hyphen_suffixed_labelstudio_run_dirs(
     benchmark_root = tmp_path / "golden" / "benchmark-vs-golden"
     old_run = benchmark_root / "2026-03-16_19.50.00-title-probe"
     new_run = benchmark_root / "2026-03-21_11.17.08"
-    _write_eval_report(old_run / "single-offline-benchmark" / "book" / "vanilla")
-    _write_eval_report(new_run / "single-offline-benchmark" / "book" / "vanilla")
+    _write_eval_report(old_run / "single-book-benchmark" / "book" / "vanilla")
+    _write_eval_report(new_run / "single-book-benchmark" / "book" / "vanilla")
 
     result = run_benchmark_gc(
         golden_root=tmp_path / "golden",

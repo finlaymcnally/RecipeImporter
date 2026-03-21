@@ -14,18 +14,18 @@ runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-20_11.00.44/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
 KNOWLEDGE_SAMPLE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-20_11.00.44/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
 KNOWLEDGE_SOURCE_KEY = (
     "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
 )
 SPARSE_SINGLE_PROFILE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-16_13.34.01/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-20_11.00.44/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
 SPARSE_SINGLE_PROFILE_SOURCE_KEY = (
     "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"

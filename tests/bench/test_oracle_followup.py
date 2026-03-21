@@ -21,7 +21,7 @@ from cookimport.bench.oracle_upload import OracleUploadResult, resolve_oracle_be
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_BUNDLE = (
     REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-21_11.17.08/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
+    / "data/golden/benchmark-vs-golden/2026-03-21_11.17.08/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
 )
 
 

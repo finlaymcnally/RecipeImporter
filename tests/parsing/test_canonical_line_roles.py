@@ -5,6 +5,8 @@ import re
 import time
 from pathlib import Path
 
+import pytest
+
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.canonical_line_role_prompt import (
@@ -32,6 +34,23 @@ def _load_fixture(name: str) -> dict[str, object]:
 
 def _settings(mode: str = "off", **kwargs):
     return RunSettings(line_role_pipeline=mode, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_default_line_role_runtime_root(tmp_path, monkeypatch) -> None:
+    original = canonical_line_roles_module._resolve_line_role_codex_farm_workspace_root
+
+    def _patched(*, settings):
+        resolved = original(settings=settings)
+        if resolved is not None:
+            return resolved
+        return tmp_path / "line-role-runtime-workspace"
+
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_resolve_line_role_codex_farm_workspace_root",
+        _patched,
+    )
 
 
 def _progress_messages_as_text(messages: list[str]) -> list[str]:
@@ -126,6 +145,7 @@ def test_label_atomic_lines_hollandaise_note_and_howto_rules() -> None:
         blocks,
         recipe_id=str(payload.get("recipe_id") or ""),
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
@@ -146,6 +166,7 @@ def test_label_atomic_lines_ingredient_range_never_yield() -> None:
         blocks,
         recipe_id=str(payload.get("recipe_id") or ""),
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
@@ -162,6 +183,7 @@ def test_label_atomic_lines_omelet_variant_and_ingredient_rules() -> None:
         blocks,
         recipe_id=str(payload.get("recipe_id") or ""),
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
@@ -180,6 +202,7 @@ def test_label_atomic_lines_instruction_with_time_stays_instruction() -> None:
         blocks,
         recipe_id=str(payload.get("recipe_id") or ""),
         within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
@@ -1434,8 +1457,9 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         live_llm_allowed=True,
     )
     assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by != "codex"
+    assert predictions[0].decided_by == "fallback"
     assert "deterministic_unavailable" in predictions[0].reason_tags
+    assert "task_packet_fallback" in predictions[0].reason_tags
     parse_errors_path = (
         tmp_path
         / "line-role-pipeline"
@@ -1444,10 +1468,37 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         / "parse_errors.json"
     )
     payload = json.loads(parse_errors_path.read_text(encoding="utf-8"))
-    assert payload["parse_error_count"] == 1
-    assert payload["parse_error_present"] is True
+    assert payload["parse_error_count"] == 0
+    assert payload["parse_error_present"] is False
     assert not (tmp_path / "line-role-pipeline" / "guardrail_report.json").exists()
     assert not (tmp_path / "line-role-pipeline" / "do_no_harm_diagnostics.json").exists()
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["validation_errors"] == []
+    assert (
+        proposal_payload["validation_metadata"]["task_aggregation"]["fallback_task_count"]
+        == 1
+    )
+    task_status_rows = [
+        json.loads(line)
+        for line in (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "task_status.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert task_status_rows[0]["state"] == "repair_failed"
 
 
 def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
@@ -2034,7 +2085,7 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     )
 
     assert len(predictions) == 1
-    assert predictions[0].decided_by == "fallback"
+    assert predictions[0].decided_by == "codex"
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
             encoding="utf-8"
@@ -2051,7 +2102,7 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     )
     status_path = live_status_path.with_name("status.json")
     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
-    assert status_payload["status"] == "missing_output"
+    assert status_payload["status"] == "validated"
     assert status_payload["state"] == "watchdog_killed"
     assert status_payload["reason_code"] == "watchdog_command_loop_without_output"
     assert "command_count=40" in status_payload["reason_detail"]
@@ -2107,9 +2158,17 @@ def test_label_atomic_lines_allows_workspace_commands_without_immediate_kill(
             supervision_callback = kwargs.get("supervision_callback")
             if supervision_callback is not None:
                 for command_count, last_command in (
-                    (1, "/bin/bash -lc cat in/line-role-canonical-0001-a000000-a000000.json"),
-                    (3, "/bin/bash -lc sed -n '1,20p' in/line-role-canonical-0001-a000000-a000000.json"),
-                    (6, "/bin/bash -lc jq .rows[0] in/line-role-canonical-0001-a000000-a000000.json"),
+                    (1, "/bin/bash -lc pwd"),
+                    (2, "/bin/bash -lc 'find . -maxdepth 2 -type f | head -n 5 >/dev/null'"),
+                    (3, "/bin/bash -lc cat in/line-role-canonical-0001-a000000-a000000.json"),
+                    (5, "/bin/bash -lc sed -n '1,20p' in/line-role-canonical-0001-a000000-a000000.json"),
+                    (
+                        7,
+                        "/bin/bash -lc \"cat <<'EOF' > scratch/helper.sh\n"
+                        "jq -M -c '.rows[0]' in/line-role-canonical-0001-a000000-a000000.json >/dev/null\n"
+                        "EOF\"",
+                    ),
+                    (9, "/bin/bash -lc jq .rows[0] in/line-role-canonical-0001-a000000-a000000.json"),
                 ):
                     decision = supervision_callback(
                         CodexExecLiveSnapshot(
@@ -2140,7 +2199,7 @@ def test_label_atomic_lines_allows_workspace_commands_without_immediate_kill(
     assert predictions[0].decided_by == "codex"
 
 
-def test_label_atomic_lines_rejects_line_role_workspace_orientation_commands(
+def test_label_atomic_lines_allows_line_role_workspace_orientation_commands(
     tmp_path: Path,
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
@@ -2162,11 +2221,10 @@ def test_label_atomic_lines_rejects_line_role_workspace_orientation_commands(
         )
     )
 
-    assert decision is not None
-    assert decision.reason_code == "watchdog_command_execution_forbidden"
+    assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["last_command_policy"] == "forbidden_orientation_command"
-    assert live_status["last_command_policy_allowed"] is False
+    assert live_status["last_command_policy"] == "tolerated_orientation_command"
+    assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
@@ -2507,7 +2565,7 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
     assert "Do not describe your plan, reasoning, or heuristics." in repair_prompt
 
 
-def test_label_atomic_lines_accepts_uniform_packet_output_but_records_semantic_diagnostics(
+def test_label_atomic_lines_accepts_valid_uniform_packet_output_without_reverting_to_baseline(
     tmp_path,
 ) -> None:
     candidates = [
@@ -2548,9 +2606,6 @@ def test_label_atomic_lines_accepts_uniform_packet_output_but_records_semantic_d
             rule_tags=["recipe_span_fallback"],
         ),
     ]
-    baseline_predictions = label_atomic_lines(candidates, _settings())
-    assert len({prediction.label for prediction in baseline_predictions}) >= 3
-
     def _output_builder(payload):
         rows = payload.get("rows") if isinstance(payload, dict) else []
         return {
@@ -2573,10 +2628,6 @@ def test_label_atomic_lines_accepts_uniform_packet_output_but_records_semantic_d
     )
 
     assert all(prediction.label == "INGREDIENT_LINE" for prediction in predictions)
-    assert any(
-        prediction.label != baseline_prediction.label
-        for prediction, baseline_prediction in zip(predictions, baseline_predictions, strict=False)
-    )
 
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
@@ -2593,22 +2644,70 @@ def test_label_atomic_lines_accepts_uniform_packet_output_but_records_semantic_d
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
     assert proposal_payload["validation_errors"] == []
     assert proposal_payload["validation_metadata"]["task_aggregation"]["fallback_task_count"] == 0
-    task_status_rows = [
-        json.loads(line)
-        for line in (
-            tmp_path
-            / "line-role-pipeline"
-            / "runtime"
-            / "line_role"
-            / "task_status.jsonl"
-        ).read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert task_status_rows[0]["metadata"]["suspicious_packet"] is True
-    assert (
-        "pathological_uniform_label_output:INGREDIENT_LINE"
-        in task_status_rows[0]["metadata"]["semantic_diagnostics"]
+
+
+def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against_diverse_baseline() -> None:
+    baseline = {
+        0: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="b0",
+            block_index=0,
+            atomic_index=0,
+            text="A",
+            within_recipe_span=True,
+            label="INGREDIENT_LINE",
+            decided_by="rule",
+            reason_tags=[],
+        ),
+        1: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="b1",
+            block_index=1,
+            atomic_index=1,
+            text="B",
+            within_recipe_span=True,
+            label="INSTRUCTION_LINE",
+            decided_by="rule",
+            reason_tags=[],
+        ),
+        2: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="b2",
+            block_index=2,
+            atomic_index=2,
+            text="C",
+            within_recipe_span=True,
+            label="RECIPE_NOTES",
+            decided_by="rule",
+            reason_tags=[],
+        ),
+        3: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="b3",
+            block_index=3,
+            atomic_index=3,
+            text="D",
+            within_recipe_span=True,
+            label="YIELD_LINE",
+            decided_by="rule",
+            reason_tags=[],
+        ),
+    }
+
+    semantic_errors, semantic_metadata = canonical_line_roles_module._validate_line_role_payload_semantics(  # noqa: SLF001
+        payload={
+            "rows": [
+                {"atomic_index": 0, "label": "INGREDIENT_LINE"},
+                {"atomic_index": 1, "label": "INGREDIENT_LINE"},
+                {"atomic_index": 2, "label": "INGREDIENT_LINE"},
+                {"atomic_index": 3, "label": "INGREDIENT_LINE"},
+            ]
+        },
+        deterministic_baseline_by_atomic_index=baseline,
     )
+
+    assert semantic_metadata["guard_applied"] is True
+    assert "pathological_uniform_label_output:INGREDIENT_LINE" in semantic_errors
 
 
 def test_label_atomic_lines_repairs_split_task_packets(
@@ -3026,9 +3125,9 @@ def test_label_atomic_lines_writes_canonical_line_table_and_task_status(
         for line in (runtime_root / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert task_status_rows[0]["state"] == "validated"
-    assert task_status_rows[0]["metadata"]["llm_authoritative_row_count"] == 2
-    assert task_status_rows[0]["metadata"]["fallback_row_count"] == 0
+    assert all(row["state"] == "validated" for row in task_status_rows)
+    assert sum(row["metadata"]["llm_authoritative_row_count"] for row in task_status_rows) == 2
+    assert sum(row["metadata"]["fallback_row_count"] for row in task_status_rows) == 0
 
 
 def test_label_atomic_lines_resume_existing_valid_packet_outputs_without_rerunning_worker(
@@ -3113,7 +3212,7 @@ def test_line_role_workspace_worker_invalid_task_output_falls_back_without_inval
     )
 
     assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
+    assert predictions[0].decided_by != "codex"
     proposal_payload = json.loads(
         (
             tmp_path

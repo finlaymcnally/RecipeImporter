@@ -250,14 +250,14 @@ def _build_benchmark_root_with_vanilla_and_codex(tmp_path: Path) -> tuple[Path, 
     )
 
     _write_json(
-        benchmark_root / "single-offline-benchmark" / "fixturebook" / "vanilla" / "run_manifest.json",
+        benchmark_root / "single-book-benchmark" / "fixturebook" / "vanilla" / "run_manifest.json",
         {
             "artifacts": {"processed_output_run_dir": str(vanilla_run_dir)},
             "run_config": vanilla_report["runConfig"],
         },
     )
     _write_json(
-        benchmark_root / "single-offline-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
+        benchmark_root / "single-book-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
         {
             "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
             "run_config": codex_report["runConfig"],
@@ -712,7 +712,7 @@ def test_prompt_preview_predictive_rejects_codex_only_benchmark_manifest(tmp_pat
     )
     benchmark_root = tmp_path / "benchmark-root"
     _write_json(
-        benchmark_root / "single-offline-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
+        benchmark_root / "single-book-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
         {
             "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
             "run_config": {

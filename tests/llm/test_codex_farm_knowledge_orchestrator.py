@@ -129,6 +129,45 @@ def test_knowledge_workspace_watchdog_allows_shell_work_until_command_loop(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
+def test_knowledge_workspace_watchdog_allows_orientation_and_helper_scripts(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.7,
+            last_event_seconds_ago=0.0,
+            event_count=18,
+            command_execution_count=7,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"pwd\n"
+                "find . -maxdepth 2 -type f | head -n 5 >/dev/null\n"
+                "cat <<'EOF' > scratch/helper.sh\n"
+                "jq -M -c '{v: \\\"2\\\", bid: .task_id, r: []}' current_packet.json > \\\"$1\\\"\n"
+                "EOF\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_policy"] in {
+        "shell_script_workspace_local",
+        "tolerated_orientation_command",
+        "tolerated_workspace_shell_command",
+    }
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
 def test_knowledge_strict_json_watchdog_kills_silent_retry(
     tmp_path: Path,
 ) -> None:
@@ -1908,7 +1947,7 @@ def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_re
         bundle_id = str(payload.get("bid") or "")
         chunks = payload.get("c") or []
         chunk = chunks[0]
-        block = chunk["b"][0]
+        blocks = list(chunk["b"])
         return {
             "v": "2",
             "bid": bundle_id,
@@ -1916,8 +1955,16 @@ def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_re
                 {
                     "cid": chunk["cid"],
                     "u": True,
-                    "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
-                    "s": [{"b": block["t"], "e": [{"i": block["i"], "q": block["t"]}]}],
+                    "d": [
+                        {"i": block["i"], "c": "knowledge", "rc": "knowledge"}
+                        for block in blocks
+                    ],
+                    "s": [
+                        {
+                            "b": blocks[0]["t"],
+                            "e": [{"i": blocks[0]["i"], "q": blocks[0]["t"]}],
+                        }
+                    ],
                 }
             ],
         }
@@ -2037,7 +2084,7 @@ def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_me
         bundle_id = str(payload.get("bid") or "")
         chunks = payload.get("c") or []
         chunk = chunks[0]
-        block = chunk["b"][0]
+        blocks = list(chunk["b"])
         return {
             "v": "2",
             "bid": bundle_id,
@@ -2045,8 +2092,16 @@ def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_me
                 {
                     "cid": chunk["cid"],
                     "u": True,
-                    "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
-                    "s": [{"b": block["t"], "e": [{"i": block["i"], "q": block["t"]}]}],
+                    "d": [
+                        {"i": block["i"], "c": "knowledge", "rc": "knowledge"}
+                        for block in blocks
+                    ],
+                    "s": [
+                        {
+                            "b": blocks[0]["t"],
+                            "e": [{"i": blocks[0]["i"], "q": blocks[0]["t"]}],
+                        }
+                    ],
                 }
             ],
         }

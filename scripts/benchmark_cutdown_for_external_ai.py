@@ -14693,7 +14693,7 @@ def build_upload_bundle_for_existing_output(
 
 
 def write_flattened_summary_for_existing_runs(*, output_dir: Path) -> Path:
-    """Write a flattened benchmark summary for in-place single-offline sessions."""
+    """Write a flattened benchmark summary for in-place single-book sessions."""
 
     output_root = output_dir.resolve()
     comparison_json_path = output_root / "codex_vs_vanilla_comparison.json"
@@ -14702,7 +14702,7 @@ def write_flattened_summary_for_existing_runs(*, output_dir: Path) -> Path:
     starter_manifest_path = starter_pack_dir / STARTER_PACK_MANIFEST_FILE_NAME
     starter_comparison_path = starter_pack_dir / STARTER_PACK_COMPARISON_MIRROR_FILE_NAME
     starter_breakdown_path = starter_pack_dir / STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME
-    single_offline_summary_path = output_root / "single_offline_summary.md"
+    single_book_summary_path = output_root / "single_book_summary.md"
 
     sections: list[str] = [
         "# Benchmark Need-To-Know Package (Flattened)",
@@ -14712,9 +14712,9 @@ def write_flattened_summary_for_existing_runs(*, output_dir: Path) -> Path:
         "",
     ]
 
-    if single_offline_summary_path.is_file():
-        sections.append("## single_offline_summary.md")
-        sections.append(single_offline_summary_path.read_text(encoding="utf-8").rstrip())
+    if single_book_summary_path.is_file():
+        sections.append("## single_book_summary.md")
+        sections.append(single_book_summary_path.read_text(encoding="utf-8").rstrip())
         sections.append("")
 
     if comparison_json_path.is_file():

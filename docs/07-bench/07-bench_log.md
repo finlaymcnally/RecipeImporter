@@ -139,7 +139,7 @@ Problem captured:
 
 Durable decisions:
 
-- `single_offline` writes one session root under `single-offline-benchmark/<source_slug>/`
+- `single_offline` writes one session root under `single-book-benchmark/<source_slug>/`
 - Codex-enabled paired runs normalize into explicit `vanilla` and `codexfarm` roots
 - paired success can emit one `codex_vs_vanilla_comparison.json`, one session summary markdown, and one `upload_bundle_v1/`
 - single-profile matched-book flows write under `single-profile-benchmark/`
@@ -358,7 +358,7 @@ Durable decisions:
 
 Evidence worth keeping:
 
-- the checked bundle at `data/golden/benchmark-vs-golden/2026-03-16_12.14.35/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1` loaded cleanly with `topline.run_count=1`, `pair_count=0`, and semantic single-correction recipe context
+- the checked bundle at `data/golden/benchmark-vs-golden/2026-03-16_12.14.35/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1` loaded cleanly with `topline.run_count=1`, `pair_count=0`, and semantic single-correction recipe context
 
 Anti-loop note:
 

@@ -275,11 +275,11 @@ def test_replay_knowledge_runtime_matches_saved_march20_saltfat_artifacts() -> N
     repo_root = Path(__file__).resolve().parents[2]
     knowledge_root = (
         repo_root
-        / "data/output/2026-03-20_21.44.20/single-offline-benchmark/saltfatacidheatcutdown/codexfarm/2026-03-20_21.44.56/raw/llm/saltfatacidheatcutdown/knowledge"
+        / "data/output/2026-03-20_21.44.20/single-book-benchmark/saltfatacidheatcutdown/codexfarm/2026-03-20_21.44.56/raw/llm/saltfatacidheatcutdown/knowledge"
     )
     benchmark_root = (
         repo_root
-        / "data/golden/benchmark-vs-golden/2026-03-20_21.44.20/single-offline-benchmark/saltfatacidheatcutdown/codexfarm"
+        / "data/golden/benchmark-vs-golden/2026-03-20_21.44.20/single-book-benchmark/saltfatacidheatcutdown/codexfarm"
     )
 
     summary = replay_knowledge_runtime(
