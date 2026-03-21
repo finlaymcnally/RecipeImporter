@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
@@ -254,7 +255,20 @@ def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
     assert phase_manifest["worker_count"] == 2
 
 
-def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> None:
+def test_recipe_phase_runtime_forwards_structured_progress(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class _SlowFakeCodexExecRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):
+            result = super().run_workspace_worker(*args, **kwargs)
+            time.sleep(0.25)
+            return result
+
+    codex_home = str(tmp_path / "codex-home")
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", codex_home)
+    monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", codex_home)
+    monkeypatch.setenv("CODEX_HOME", codex_home)
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     settings = RunSettings.model_validate(
@@ -270,7 +284,7 @@ def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> No
         (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
 
     progress_messages: list[str] = []
-    runner = FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
+    runner = _SlowFakeCodexExecRunner(output_builder=_build_recipe_shard_output)
 
     run_codex_farm_recipe_pipeline(
         conversion_result=_build_multi_recipe_conversion_result(source),
@@ -289,9 +303,28 @@ def test_recipe_phase_runtime_forwards_structured_progress(tmp_path: Path) -> No
     ]
     assert payloads
     assert payloads[0]["stage_label"] == "recipe pipeline"
-    assert payloads[0]["task_total"] == 2
+    assert payloads[0]["task_total"] == 3
+    assert payloads[0]["task_current"] == 0
     assert int(payloads[0]["worker_total"] or 0) >= 1
+    assert any(
+        str(line) == "completed shards: 0/2"
+        for line in (payloads[0].get("detail_lines") or [])
+    )
+    assert any(
+        str(task).startswith("recipe-shard-0000-r0000-r0001.task-001")
+        for task in (payloads[0].get("active_tasks") or [])
+    )
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
+    assert any(
+        any("finalize" in str(task) for task in (payload.get("active_tasks") or []))
+        for payload in payloads
+        if payload.get("task_current") == payload.get("task_total")
+    )
+    assert any(
+        str(line) == "workers finalizing shards: 2"
+        for payload in payloads
+        for line in (payload.get("detail_lines") or [])
+    )
 
 
 def test_recipe_prompt_target_count_controls_shard_count_when_single_recipe_shards(

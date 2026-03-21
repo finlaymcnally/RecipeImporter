@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import logging
+import math
 import multiprocessing
 import os
 import pickle
@@ -3475,10 +3476,19 @@ def _interactive_single_offline_variants(
     current_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
     if current_pipeline != "off":
         baseline_payload = _all_method_apply_baseline_contract(run_config)
+        shared_atomic_block_splitter = _normalize_atomic_block_splitter(
+            str(
+                run_config.get("atomic_block_splitter")
+                or baseline_payload.get("atomic_block_splitter")
+                or "off"
+            )
+        )
+        baseline_payload["atomic_block_splitter"] = shared_atomic_block_splitter
         codex_payload = _all_method_apply_codex_contract_from_baseline(
             baseline_payload
         )
         codex_payload["llm_recipe_pipeline"] = current_pipeline
+        codex_payload["atomic_block_splitter"] = shared_atomic_block_splitter
         return [
             (
                 "vanilla",
@@ -5516,12 +5526,13 @@ def _start_background_oracle_followup_worker(
     *,
     target: OracleBenchmarkBundleTarget,
     launch: OracleBackgroundUploadLaunch,
-    model: str,
+    model: str | None,
     popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
 ) -> OracleBackgroundUploadLaunch:
     source_launch_dir = launch.launch_dir
     status_path = source_launch_dir / ORACLE_AUTO_FOLLOWUP_STATUS_NAME
     log_path = source_launch_dir / ORACLE_AUTO_FOLLOWUP_LOG_NAME
+    effective_model = str(model or launch.model or "").strip() or None
     status_path.write_text(
         json.dumps(
             {
@@ -5530,7 +5541,7 @@ def _start_background_oracle_followup_worker(
                 "updated_at": dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S"),
                 "bundle_dir": str(target.bundle_dir),
                 "source_run": source_launch_dir.name,
-                "model": model,
+                "model": effective_model,
             },
             indent=2,
             sort_keys=True,
@@ -5547,9 +5558,9 @@ def _start_background_oracle_followup_worker(
         str(target.bundle_dir),
         "--from-run",
         source_launch_dir.name,
-        "--model",
-        model,
     ]
+    if effective_model is not None:
+        command.extend(["--model", effective_model])
     with log_path.open("w", encoding="utf-8") as log_handle:
         worker = popen(
             command,
@@ -5583,12 +5594,6 @@ def _start_benchmark_bundle_oracle_upload_background(
             mode=mode,
             model=model,
         )
-        if launch.mode == "browser":
-            launch = _start_background_oracle_followup_worker(
-                target=target,
-                launch=launch,
-                model=model,
-            )
     except Exception as exc:  # noqa: BLE001
         typer.secho(
             f"Oracle benchmark upload not started for {bundle_dir}: {exc}",
@@ -5599,6 +5604,25 @@ def _start_benchmark_bundle_oracle_upload_background(
             fg=typer.colors.BRIGHT_BLACK,
         )
         return
+    if launch.mode == "browser":
+        try:
+            launch = _start_background_oracle_followup_worker(
+                target=target,
+                launch=launch,
+                model=launch.model,
+            )
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"Oracle auto-follow-up worker not started for {bundle_dir}: {exc}",
+                fg=typer.colors.YELLOW,
+            )
+            typer.secho(
+                (
+                    "Retry manually after turn 1 finishes: "
+                    f"cookimport bench oracle-followup {bundle_dir} --from-run {launch.launch_dir.name}"
+                ),
+                fg=typer.colors.BRIGHT_BLACK,
+            )
     _print_background_oracle_upload_summary(target=target, launch=launch)
 
 
@@ -9807,6 +9831,22 @@ def _recent_rate_average_seconds_per_task(
     )
 
 
+def _parallel_bootstrap_eta_seconds(
+    *,
+    avg_seconds_per_task: float,
+    remaining: int,
+    parallelism: int | None,
+) -> int:
+    safe_remaining = max(0, int(remaining))
+    if safe_remaining <= 0:
+        return 0
+    effective_parallelism = max(1, int(parallelism or 1))
+    if effective_parallelism <= 1:
+        return max(0, int(round(avg_seconds_per_task * safe_remaining)))
+    remaining_waves = math.ceil(safe_remaining / float(effective_parallelism))
+    return max(0, int(round(avg_seconds_per_task * remaining_waves)))
+
+
 def _format_status_progress_message(
     message: str,
     *,
@@ -10573,6 +10613,11 @@ def _run_with_progress_status(
             sampled_units = rate_sampled_units
             recent_avg = _recent_rate_average_seconds_per_task(rate_recent_samples)
             dashboard_metrics = dict(all_method_metrics)
+            running_workers_hint = latest_running_workers
+            worker_total_hint = latest_worker_total
+            active_tasks_hint = (
+                None if latest_active_tasks is None else list(latest_active_tasks)
+            )
         if not message:
             base = str(initial_status).strip() or str(progress_prefix).strip()
         else:
@@ -10599,7 +10644,21 @@ def _run_with_progress_status(
                     and avg_seconds_per_task is not None
                     and avg_seconds_per_task > 0
                 ):
-                    eta_seconds = int(round(avg_seconds_per_task * remaining))
+                    active_parallelism = max(
+                        0,
+                        int(running_workers_hint or 0),
+                        len(active_tasks_hint or []),
+                    )
+                    configured_parallelism = max(0, int(worker_total_hint or 0))
+                    bootstrap_parallelism = active_parallelism or configured_parallelism or 1
+                    if recent_avg is None and not (sampled_units > 0 and sampled_seconds > 0):
+                        eta_seconds = _parallel_bootstrap_eta_seconds(
+                            avg_seconds_per_task=avg_seconds_per_task,
+                            remaining=remaining,
+                            parallelism=bootstrap_parallelism,
+                        )
+                    else:
+                        eta_seconds = int(round(avg_seconds_per_task * remaining))
                     active_hint = max(0, int(dashboard_metrics.get("active") or 0))
                     eval_hint = max(0, int(dashboard_metrics.get("eval") or 0))
                     if (
@@ -10730,6 +10789,7 @@ def _run_with_progress_status(
         structured_worker_total: int | None = None
         structured_active_tasks: list[str] | None = None
         current_stage_label: str | None = None
+        stage_changed = False
         if stage_progress is not None:
             cleaned = str(stage_progress.get("message") or "").strip() or cleaned
             task_current = stage_progress.get("task_current")
@@ -10844,7 +10904,8 @@ def _run_with_progress_status(
                 if counter is not None:
                     counter_current, counter_total = counter
                     should_reset = (
-                        rate_total is None
+                        stage_changed
+                        or rate_total is None
                         or rate_last_current is None
                         or rate_last_progress_at is None
                         or counter_total != rate_total
@@ -12216,6 +12277,17 @@ class _SingleProfileProgressDashboard:
                 avg_seconds_per_task = bootstrap_elapsed / float(current)
         if avg_seconds_per_task is None or avg_seconds_per_task <= 0:
             return None
+        if row.rate_sampled_units <= 0 or row.rate_sampled_seconds <= 0:
+            bootstrap_parallelism = max(
+                1,
+                len(row.worker_statuses),
+                row.worker_total,
+            )
+            return _parallel_bootstrap_eta_seconds(
+                avg_seconds_per_task=avg_seconds_per_task,
+                remaining=remaining,
+                parallelism=bootstrap_parallelism,
+            )
         return max(0, int(round(avg_seconds_per_task * remaining)))
 
     def start_source(self, source_index: int) -> None:
@@ -12386,6 +12458,7 @@ class _SingleProfileProgressDashboard:
                     or _extract_progress_stage_label(cleaned)
                     or "running"
                 )
+                previous_stage_label = row.current_stage_label
                 active_tasks = stage_progress.get("active_tasks")
                 running_workers = stage_progress.get("running_workers")
                 worker_total_hint = stage_progress.get("worker_total")
@@ -12402,6 +12475,13 @@ class _SingleProfileProgressDashboard:
                 if worker_total_hint is not None:
                     worker_total = max(worker_total, max(0, int(worker_total_hint)))
                 row.worker_total = worker_total
+                if stage_label != previous_stage_label:
+                    row.rate_total = None
+                    row.rate_last_current = None
+                    row.rate_last_progress_at = None
+                    row.rate_sampled_seconds = 0.0
+                    row.rate_sampled_units = 0
+                    row.rate_recent_samples.clear()
                 return
 
             if cleaned.lower().startswith("codex-farm "):
@@ -30093,19 +30173,34 @@ def bench_gc(
         ),
     ),
     include_labelstudio_benchmark: bool = typer.Option(
-        False,
+        True,
         "--include-labelstudio-benchmark/--no-include-labelstudio-benchmark",
         help=(
-            "Also consider pruning timestamped Label Studio benchmark roots under "
-            "`data/golden/benchmark-vs-golden/*` (requires durable CSV history confirmation)."
+            "Also prune timestamped Label Studio benchmark roots under "
+            "`data/golden/benchmark-vs-golden/*` while keeping only the newest "
+            "`--keep-labelstudio-runs` roots plus pinned runs."
+        ),
+    ),
+    keep_labelstudio_runs: int = typer.Option(
+        5,
+        "--keep-labelstudio-runs",
+        min=0,
+        help="Keep this many newest run roots under `data/golden/benchmark-vs-golden/`.",
+    ),
+    wipe_output_runs: bool = typer.Option(
+        True,
+        "--wipe-output-runs/--keep-output-runs",
+        help=(
+            "Delete all timestamped run roots directly under `--output-root/` while leaving "
+            "non-run folders such as `history/dashboard` untouched."
         ),
     ),
     prune_benchmark_processed_outputs: bool = typer.Option(
         False,
         "--prune-benchmark-processed-outputs/--keep-benchmark-processed-outputs",
         help=(
-            "When pruning Label Studio benchmark roots, also prune matching processed output "
-            "roots under `--output-root/<run_id>/` when confirmed by CSV history."
+            "Legacy mode: when `--keep-output-runs` is set, also prune matching processed "
+            "output roots under `--output-root/<run_id>/` when confirmed by CSV history."
         ),
     ),
     dry_run: bool = typer.Option(
@@ -30125,6 +30220,8 @@ def bench_gc(
         dry_run=dry_run,
         drop_speed_artifacts=drop_speed_artifacts,
         include_labelstudio_benchmark=include_labelstudio_benchmark,
+        keep_labelstudio_runs=keep_labelstudio_runs,
+        wipe_output_runs=wipe_output_runs,
         prune_benchmark_processed_outputs=prune_benchmark_processed_outputs,
     )
 
@@ -30136,9 +30233,12 @@ def bench_gc(
         f"keep_full_days={result.keep_full_days} "
         f"drop_speed_artifacts={str(result.drop_speed_artifacts).lower()} "
         f"include_labelstudio_benchmark={str(result.include_labelstudio_benchmark).lower()} "
+        f"keep_labelstudio_runs={result.keep_labelstudio_runs} "
+        f"wipe_output_runs={str(result.wipe_output_runs).lower()} "
         f"prune_benchmark_processed_outputs={str(result.prune_benchmark_processed_outputs).lower()}"
     )
     typer.echo(f"candidate run roots: {result.total_run_roots}")
+    typer.echo(f"candidate output run roots: {result.total_output_run_roots}")
     typer.echo(f"full keep (policy): {result.policy_kept_run_roots}")
     if result.pinned_kept_run_roots:
         typer.echo(f"pinned keep (sentinel): {result.pinned_kept_run_roots}")
@@ -30147,10 +30247,15 @@ def bench_gc(
         "prune: "
         f"{result.pruned_run_roots} "
         f"(quality={result.pruned_quality_run_roots}, "
-        f"speed={result.pruned_speed_run_roots}, "
-        f"labelstudio={result.pruned_labelstudio_run_roots})"
+            f"speed={result.pruned_speed_run_roots}, "
+            f"labelstudio={result.pruned_labelstudio_run_roots})"
     )
+    typer.echo(f"prune output runs: {result.pruned_output_run_roots}")
     reclaim_parts = [_format_size_compact(result.reclaimed_bytes)]
+    if result.reclaimed_output_run_bytes:
+        reclaim_parts.append(
+            f"+ output_runs={_format_size_compact(result.reclaimed_output_run_bytes)}"
+        )
     if result.reclaimed_processed_output_bytes:
         reclaim_parts.append(
             f"+ processed_outputs={_format_size_compact(result.reclaimed_processed_output_bytes)}"

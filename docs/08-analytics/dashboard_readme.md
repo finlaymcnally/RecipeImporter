@@ -70,7 +70,7 @@ Collector mode:
 - benchmark CSV writes now persist Codex token usage columns (`tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`) when available from prediction manifests
 - CSV benchmark rows also backfill missing codex model/effort from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) so `AI Model` / `AI Effort` columns stay populated without full report scanning
 - recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)
-- benchmark history rows remain dashboard-visible after `bench gc --apply` because GC does not mutate/prune benchmark CSV history and refuses run-root pruning without confirmed durable retention
+- benchmark history rows remain dashboard-visible after `bench gc --apply` because GC does not mutate/prune benchmark CSV history, even when it deletes old `data/golden/benchmark-vs-golden/*` roots or wipes timestamped `data/output/<run_id>/` folders
 
 Optional enrichment files in each eval directory:
 

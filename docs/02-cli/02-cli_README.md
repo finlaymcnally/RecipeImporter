@@ -99,6 +99,8 @@ Current spinner/status rule:
 - stage-specific emitters for recipe shard work, line-role, non-recipe knowledge review, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
 - recipe shard work should report outer worker-bucket truth from `phase_worker_runtime.py` (configured workers, queued shards, active worker buckets, current first shard), not pretend the CLI can see true inner per-shard Codex progress once one worker hands a whole bucket to a single classic `process` call
 - `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, task counts, active tasks, worker counts, and detail lines when present
+- ETA/rate sampling is stage-local, so a new structured `stage_label` must reset avg-per-task history instead of inheriting timings from the previous stage
+- bootstrap ETA for structured parallel stages should use active/configured worker count to estimate remaining worker-waves, instead of treating all remaining tasks as fully serial work
 
 ### [C] Main Menu
 
@@ -394,6 +396,7 @@ Interactive benchmark now has a mode submenu before execution:
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
      - `single-offline-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-recipe-shard-v1`),
+     - both paired variants now share the same operator-selected `atomic_block_splitter` value instead of forcing `off` for `vanilla` and `atomic-v1` for `codexfarm`,
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,

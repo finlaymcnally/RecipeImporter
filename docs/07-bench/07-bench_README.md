@@ -45,7 +45,7 @@ Active commands:
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a cross-source leaderboard and Pareto frontier
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-success gates
 - `bench eval-stage`: evaluate an existing stage run directly from `.bench/*/stage_block_predictions.json`
-- `bench gc`: prune old benchmark artifacts using CSV durability checks
+- `bench gc`: prune old benchmark artifacts, keep only the newest five Label Studio benchmark runs by default, and wipe timestamped `data/output` run roots while preserving non-run folders
 - `bench pin` / `bench unpin`: add or remove GC keep sentinels
 - `bench oracle-upload`: upload an existing `upload_bundle_v1` to Oracle without rerunning the benchmark
 
@@ -81,7 +81,7 @@ Important current constraints:
   - `dinnerfor2cutdown`
   - `roastchickenandotherstoriescutdown`
 - `bench quality-lightweight-series` remains only as a disabled stub. It exits immediately and is not an active workflow.
-- `bench gc` is benchmark-only retention, not a general `data/output` sweeper. It can prune matching benchmark-generated processed-output roots while preserving `performance_history.csv` and refusing destructive cleanup when durable history checks fail.
+- `bench gc` now has a split retention policy: quality/speed roots still require durable CSV confirmation, Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` keep only the newest five by default, and timestamped `data/output/<run_id>/` roots are wiped by default while preserving non-run folders such as `data/output/history/dashboard`.
 
 ### 2.2 `cookimport labelstudio-benchmark`
 
@@ -121,6 +121,7 @@ Current interactive contracts:
 
 - `single_offline` writes one session root under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/`
 - when Codex-backed recipe extraction is selected, paired runs are written under sibling `vanilla/` and `codexfarm/` roots in that session
+- paired single-offline variants now share the same selected `atomic_block_splitter`; the benchmark helper no longer hardcodes `off` for `vanilla` and `atomic-v1` for `codexfarm`
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`
   - `single_offline_summary.md`
@@ -387,10 +388,11 @@ Active quality comparison gates:
 Current rules:
 
 - dry-run is the default; `--apply` is required to delete files
-- benchmark roots are pruned only when CSV durability is already present
+- quality/speed benchmark roots are pruned only when CSV durability is already present
 - `performance_history.csv` is not rewritten by GC
-- optional label-studio benchmark pruning covers `data/golden/benchmark-vs-golden/*`
-- matching processed outputs under `data/output/<run_id>/` can also be pruned when explicitly requested
+- label-studio benchmark pruning is on by default and keeps only the newest five timestamped roots under `data/golden/benchmark-vs-golden/*` unless you override `--keep-labelstudio-runs`
+- timestamped run roots directly under `data/output/<run_id>/` are wiped by default; non-run folders such as `data/output/history/dashboard` are preserved
+- legacy matched processed-output pruning still exists behind `--keep-output-runs --prune-benchmark-processed-outputs`
 - any root containing `.gc_keep*`, `.keep`, or `.pinned` is retained
 - pytest temp eval fixtures are excluded so tests can inspect artifacts after command completion
 

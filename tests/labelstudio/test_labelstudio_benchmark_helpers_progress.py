@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from cookimport.core.progress_messages import format_stage_progress
 import tests.labelstudio.benchmark_helper_support as _base
 
 # Reuse shared imports/helpers from the benchmark helper support module.
@@ -482,6 +483,116 @@ def test_run_with_progress_status_shows_eta_for_xy_progress(
         and "s/task" in message
         for message in capture.messages
     )
+
+
+def test_run_with_progress_status_resets_eta_history_when_stage_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Stage one task 1/10",
+                stage_label="stage one",
+                task_current=1,
+                task_total=10,
+            )
+        )
+        time.sleep(0.05)
+        update_progress(
+            format_stage_progress(
+                "Stage one task 2/10",
+                stage_label="stage one",
+                task_current=2,
+                task_total=10,
+            )
+        )
+        time.sleep(0.05)
+        update_progress(
+            format_stage_progress(
+                "Stage two task 2/10",
+                stage_label="stage two",
+                task_current=2,
+                task_total=10,
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.01,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    stage_two_messages = [
+        message for message in capture.messages if "Stage two task 2/10" in message
+    ]
+    assert stage_two_messages, "Expected stage two progress updates"
+    assert not any("avg " in message for message in stage_two_messages)
+
+
+def test_parallel_bootstrap_eta_seconds_uses_worker_waves() -> None:
+    assert (
+        cli._parallel_bootstrap_eta_seconds(
+            avg_seconds_per_task=1.0,
+            remaining=9,
+            parallelism=9,
+        )
+        == 1
+    )
+    assert (
+        cli._parallel_bootstrap_eta_seconds(
+            avg_seconds_per_task=1.0,
+            remaining=9,
+            parallelism=1,
+        )
+        == 9
+    )
+
+
+def test_single_profile_dashboard_bootstrap_eta_uses_parallel_workers() -> None:
+    now = time.monotonic()
+    row = cli._SingleProfileBookDashboardRow(
+        source_name="saltfatacidheatCUTDOWN.epub",
+        total_configs=1,
+        status="running",
+        current_counter=(1, 10),
+        worker_total=10,
+        worker_statuses={index: "busy" for index in range(1, 10)},
+        phase_started_at=now - 1.2,
+    )
+
+    eta_seconds = cli._SingleProfileProgressDashboard._estimate_eta_seconds(row, now)
+
+    assert eta_seconds is not None
+    assert eta_seconds <= 2
 
 
 def test_run_with_progress_status_bootstraps_eta_when_first_counter_starts_above_one(

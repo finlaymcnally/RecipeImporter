@@ -965,6 +965,110 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
     assert not any(message.startswith("Oracle launch metadata:") for message in messages)
 
 
+def test_start_background_oracle_followup_worker_uses_resolved_launch_model_when_override_blank(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    launch_dir = bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-21_11.27.35"
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    launch = oracle_upload.OracleBackgroundUploadLaunch(
+        mode="browser",
+        model="gpt-5.4",
+        command=["oracle", "--engine", "browser", "--model", "gpt-5.4"],
+        bundle_dir=bundle_dir,
+        launch_dir=launch_dir,
+        log_path=launch_dir / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME,
+        metadata_path=launch_dir / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME,
+        pid=4242,
+    )
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        def __init__(self, command: list[str], **kwargs: object) -> None:
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+            self.pid = 4243
+
+    updated_launch = cli._start_background_oracle_followup_worker(
+        target=target,
+        launch=launch,
+        model=None,
+        popen=FakePopen,
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[-2:] == ["--model", "gpt-5.4"]
+    status_payload = json.loads(
+        (launch_dir / cli.ORACLE_AUTO_FOLLOWUP_STATUS_NAME).read_text(encoding="utf-8")
+    )
+    assert status_payload["model"] == "gpt-5.4"
+    assert updated_launch.auto_followup_worker_pid == 4243
+
+
+def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch_failure_separately(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-offline-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    launch = oracle_upload.OracleBackgroundUploadLaunch(
+        mode="browser",
+        model="gpt-5.4",
+        command=["oracle", "--engine", "browser", "--model", "gpt-5.4"],
+        bundle_dir=bundle_dir,
+        launch_dir=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-21_11.27.35",
+        log_path=bundle_dir
+        / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME
+        / "2026-03-21_11.27.35"
+        / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME,
+        metadata_path=bundle_dir
+        / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME
+        / "2026-03-21_11.27.35"
+        / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME,
+        pid=4242,
+        status="running",
+        status_reason="Oracle session is running; session store metadata is available.",
+        session_id="you-are-reviewing-a-benchmark-313",
+        reattach_command="oracle session you-are-reviewing-a-benchmark-313",
+    )
+    messages: list[str] = []
+    summary_calls: list[
+        tuple[oracle_upload.OracleBenchmarkBundleTarget, oracle_upload.OracleBackgroundUploadLaunch]
+    ] = []
+
+    monkeypatch.setattr(cli, "resolve_oracle_benchmark_bundle", lambda _path: target)
+    monkeypatch.setattr(cli, "start_oracle_benchmark_upload_background", lambda **_kwargs: launch)
+    monkeypatch.setattr(
+        cli,
+        "_start_background_oracle_followup_worker",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("expected str, bytes or os.PathLike object, not NoneType")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_print_background_oracle_upload_summary",
+        lambda *, target, launch: summary_calls.append((target, launch)),
+    )
+    monkeypatch.setattr(cli.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
+
+    cli._start_benchmark_bundle_oracle_upload_background(
+        bundle_dir=bundle_dir,
+        scope="single_offline",
+        model=None,
+    )
+
+    assert summary_calls == [(target, launch)]
+    assert any("Oracle auto-follow-up worker not started" in message for message in messages)
+    assert not any("Oracle benchmark upload not started" in message for message in messages)
+
+
 def test_oracle_upload_log_audit_accepts_grounded_single_profile_answer(tmp_path: Path) -> None:
     bundle_dir = _make_bundle(
         tmp_path / "2026-03-18_19.42.18" / "single-profile-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,

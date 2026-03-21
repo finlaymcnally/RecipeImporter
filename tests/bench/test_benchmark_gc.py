@@ -281,6 +281,7 @@ def test_benchmark_gc_preserves_dashboard_rows_after_prune(tmp_path: Path) -> No
         dry_run=False,
         drop_speed_artifacts=False,
         include_labelstudio_benchmark=True,
+        keep_labelstudio_runs=0,
     )
     assert result.pruned_run_roots == 1
     assert not run_root.exists()
@@ -381,6 +382,7 @@ def test_bench_gc_cli_dry_run_outputs_summary(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Benchmark GC Dry Run" in result.stdout
+    assert "candidate output run roots:" in result.stdout
     assert "no files changed (dry-run)" in result.stdout
 
 
@@ -402,6 +404,7 @@ def test_benchmark_gc_can_prune_labelstudio_benchmark_roots_when_enabled(
         dry_run=False,
         drop_speed_artifacts=False,
         include_labelstudio_benchmark=True,
+        keep_labelstudio_runs=0,
     )
 
     assert result.pruned_labelstudio_run_roots == 1
@@ -428,6 +431,7 @@ def test_benchmark_gc_keep_sentinel_skips_labelstudio_prune(tmp_path: Path) -> N
         dry_run=False,
         drop_speed_artifacts=False,
         include_labelstudio_benchmark=True,
+        keep_labelstudio_runs=0,
     )
 
     assert result.pruned_labelstudio_run_roots == 0
@@ -459,6 +463,8 @@ def test_benchmark_gc_can_prune_labelstudio_processed_outputs_when_confirmed(
         dry_run=False,
         drop_speed_artifacts=False,
         include_labelstudio_benchmark=True,
+        keep_labelstudio_runs=0,
+        wipe_output_runs=False,
         prune_benchmark_processed_outputs=True,
     )
 
@@ -466,6 +472,91 @@ def test_benchmark_gc_can_prune_labelstudio_processed_outputs_when_confirmed(
     assert result.pruned_processed_output_roots == 1
     assert not run_root.exists()
     assert not processed_root.exists()
+
+
+def test_benchmark_gc_wipes_output_run_roots_but_preserves_history_dashboard(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "output"
+    run_root = output_root / "2026-03-20_11.16.53"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "report.json").write_text("{}", encoding="utf-8")
+    dashboard_dir = output_root / "history" / "dashboard"
+    dashboard_dir.mkdir(parents=True, exist_ok=True)
+    (dashboard_dir / "index.html").write_text("ok", encoding="utf-8")
+
+    result = run_benchmark_gc(
+        golden_root=tmp_path / "golden",
+        output_root=output_root,
+        keep_full_runs=0,
+        keep_full_days=0,
+        dry_run=False,
+        drop_speed_artifacts=False,
+    )
+
+    assert result.total_output_run_roots == 1
+    assert result.pruned_output_run_roots == 1
+    assert not run_root.exists()
+    assert dashboard_dir.exists()
+
+
+def test_benchmark_gc_keeps_five_newest_labelstudio_runs_and_cache_dir(
+    tmp_path: Path,
+) -> None:
+    benchmark_root = tmp_path / "golden" / "benchmark-vs-golden"
+    kept_names = []
+    for day in range(1, 8):
+        run_root = benchmark_root / f"2026-03-0{day}_10.00.00"
+        _write_eval_report(run_root / "single-offline-benchmark" / "book" / "vanilla")
+        kept_names.append(run_root.name)
+    cache_dir = benchmark_root / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "cache.txt").write_text("ok", encoding="utf-8")
+
+    result = run_benchmark_gc(
+        golden_root=tmp_path / "golden",
+        output_root=tmp_path / "output",
+        keep_full_runs=0,
+        keep_full_days=0,
+        dry_run=False,
+        drop_speed_artifacts=False,
+        include_labelstudio_benchmark=True,
+        keep_labelstudio_runs=5,
+        wipe_output_runs=False,
+    )
+
+    assert result.pruned_labelstudio_run_roots == 2
+    remaining = sorted(
+        path.name for path in benchmark_root.iterdir() if path.is_dir() and not path.name.startswith(".")
+    )
+    assert remaining == kept_names[-5:]
+    assert cache_dir.exists()
+
+
+def test_benchmark_gc_collects_hyphen_suffixed_labelstudio_run_dirs(
+    tmp_path: Path,
+) -> None:
+    benchmark_root = tmp_path / "golden" / "benchmark-vs-golden"
+    old_run = benchmark_root / "2026-03-16_19.50.00-title-probe"
+    new_run = benchmark_root / "2026-03-21_11.17.08"
+    _write_eval_report(old_run / "single-offline-benchmark" / "book" / "vanilla")
+    _write_eval_report(new_run / "single-offline-benchmark" / "book" / "vanilla")
+
+    result = run_benchmark_gc(
+        golden_root=tmp_path / "golden",
+        output_root=tmp_path / "output",
+        keep_full_runs=0,
+        keep_full_days=0,
+        dry_run=False,
+        drop_speed_artifacts=False,
+        include_labelstudio_benchmark=True,
+        keep_labelstudio_runs=1,
+        wipe_output_runs=False,
+    )
+
+    assert result.pruned_labelstudio_run_roots == 1
+    assert not old_run.exists()
+    assert new_run.exists()
 
 
 def test_prune_benchmark_outputs_removes_eval_and_processed_dirs(

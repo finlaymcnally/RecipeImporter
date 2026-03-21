@@ -13,10 +13,10 @@ from cookimport.paths import history_csv_for_output
 
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
 _TIMESTAMP_DIR_RE = re.compile(
-    r"^(?P<ts>\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2})(?:$|_.+)$"
+    r"^(?P<ts>\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2})(?:$|[-_].+)$"
 )
 _LEGACY_TIMESTAMP_DIR_RE = re.compile(
-    r"^(?P<ts>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})(?:$|_.+)$"
+    r"^(?P<ts>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})(?:$|[-_].+)$"
 )
 _KEEP_SENTINEL_PREFIXES = (".gc_keep",)
 _KEEP_SENTINEL_EXACT = (".keep", ".pinned", "KEEP", "PINNED")
@@ -29,6 +29,8 @@ class BenchmarkGcResult:
     keep_full_days: int
     drop_speed_artifacts: bool
     include_labelstudio_benchmark: bool
+    keep_labelstudio_runs: int
+    wipe_output_runs: bool
     prune_benchmark_processed_outputs: bool
     total_run_roots: int
     policy_kept_run_roots: int
@@ -39,8 +41,11 @@ class BenchmarkGcResult:
     pruned_quality_run_roots: int
     pruned_speed_run_roots: int
     pruned_labelstudio_run_roots: int
+    total_output_run_roots: int
+    pruned_output_run_roots: int
     pruned_processed_output_roots: int
     reclaimed_bytes: int
+    reclaimed_output_run_bytes: int
     reclaimed_processed_output_bytes: int
     history_rows_scanned: int
     history_rows_updated: int
@@ -67,27 +72,39 @@ def run_benchmark_gc(
     dry_run: bool,
     drop_speed_artifacts: bool,
     include_labelstudio_benchmark: bool = False,
+    keep_labelstudio_runs: int = 5,
+    wipe_output_runs: bool = True,
     prune_benchmark_processed_outputs: bool = False,
 ) -> BenchmarkGcResult:
     if keep_full_runs < 0:
         raise ValueError("keep_full_runs must be >= 0")
     if keep_full_days < 0:
         raise ValueError("keep_full_days must be >= 0")
+    if keep_labelstudio_runs < 0:
+        raise ValueError("keep_labelstudio_runs must be >= 0")
 
-    runs = _collect_benchmark_run_roots(
-        golden_root,
-        include_labelstudio_benchmark=include_labelstudio_benchmark,
-    )
+    benchmark_runs = _collect_benchmark_run_roots(golden_root)
     keep_paths, pinned_kept = _resolve_keep_paths(
-        runs,
+        benchmark_runs,
         keep_full_runs=keep_full_runs,
         keep_full_days=keep_full_days,
         now=dt.datetime.now(),
     )
+    labelstudio_runs: list[_BenchmarkRunRoot] = []
+    labelstudio_keep_paths: set[Path] = set()
+    if include_labelstudio_benchmark:
+        labelstudio_runs = _collect_labelstudio_run_roots(golden_root)
+        labelstudio_keep_paths, labelstudio_pinned = _resolve_keep_paths(
+            labelstudio_runs,
+            keep_full_runs=keep_labelstudio_runs,
+            keep_full_days=0,
+            now=dt.datetime.now(),
+        )
+        pinned_kept += labelstudio_pinned
 
     pruned_by_policy: list[_BenchmarkRunRoot] = []
     kept_by_policy: list[_BenchmarkRunRoot] = []
-    for run in runs:
+    for run in benchmark_runs:
         pinned = _has_keep_sentinel(run.path)
         keep = run.path in keep_paths or pinned
         if drop_speed_artifacts and run.category == "speed" and not pinned:
@@ -96,6 +113,15 @@ def run_benchmark_gc(
             kept_by_policy.append(run)
         else:
             pruned_by_policy.append(run)
+
+    pruned_labelstudio_by_policy: list[_BenchmarkRunRoot] = []
+    for run in labelstudio_runs:
+        pinned = _has_keep_sentinel(run.path)
+        keep = run.path in labelstudio_keep_paths or pinned
+        if keep:
+            kept_by_policy.append(run)
+        else:
+            pruned_labelstudio_by_policy.append(run)
 
     warnings: list[str] = []
     history_rows_scanned = 0
@@ -133,10 +159,13 @@ def run_benchmark_gc(
         )
 
     confirmed_processed_output_roots: list[Path] = []
-    if prune_benchmark_processed_outputs and history_rows_available and rows:
-        for run in confirmed_pruned:
-            if run.category != "labelstudio":
-                continue
+    if (
+        prune_benchmark_processed_outputs
+        and not wipe_output_runs
+        and history_rows_available
+        and rows
+    ):
+        for run in pruned_labelstudio_by_policy:
             candidate = output_root.expanduser() / run.path.name
             if not candidate.exists() or not candidate.is_dir():
                 continue
@@ -157,6 +186,17 @@ def run_benchmark_gc(
         if run.size_bytes is None:
             run.size_bytes = _directory_size(run.path)
         reclaimed_bytes += int(run.size_bytes or 0)
+    for run in pruned_labelstudio_by_policy:
+        if run.size_bytes is None:
+            run.size_bytes = _directory_size(run.path)
+        reclaimed_bytes += int(run.size_bytes or 0)
+
+    output_run_roots: list[Path] = []
+    if wipe_output_runs:
+        output_run_roots = _collect_output_run_roots(output_root)
+    reclaimed_output_run_bytes = 0
+    for output_run_root in output_run_roots:
+        reclaimed_output_run_bytes += _directory_size(output_run_root)
 
     reclaimed_processed_output_bytes = 0
     for processed_root in confirmed_processed_output_roots:
@@ -168,6 +208,16 @@ def run_benchmark_gc(
                 shutil.rmtree(run.path)
             except OSError as exc:
                 warnings.append(f"Failed to remove {run.path}: {exc}")
+        for run in pruned_labelstudio_by_policy:
+            try:
+                shutil.rmtree(run.path)
+            except OSError as exc:
+                warnings.append(f"Failed to remove {run.path}: {exc}")
+        for output_run_root in output_run_roots:
+            try:
+                shutil.rmtree(output_run_root)
+            except OSError as exc:
+                warnings.append(f"Failed to remove {output_run_root}: {exc}")
         for processed_root in confirmed_processed_output_roots:
             try:
                 shutil.rmtree(processed_root)
@@ -180,24 +230,27 @@ def run_benchmark_gc(
         keep_full_days=keep_full_days,
         drop_speed_artifacts=drop_speed_artifacts,
         include_labelstudio_benchmark=include_labelstudio_benchmark,
+        keep_labelstudio_runs=keep_labelstudio_runs,
+        wipe_output_runs=wipe_output_runs,
         prune_benchmark_processed_outputs=prune_benchmark_processed_outputs,
-        total_run_roots=len(runs),
+        total_run_roots=len(benchmark_runs) + len(labelstudio_runs),
         policy_kept_run_roots=len(kept_by_policy),
         pinned_kept_run_roots=pinned_kept,
         skipped_unconfirmed_run_roots=len(skipped_unconfirmed),
         kept_run_roots=len(kept_by_policy) + len(skipped_unconfirmed),
-        pruned_run_roots=len(confirmed_pruned),
+        pruned_run_roots=len(confirmed_pruned) + len(pruned_labelstudio_by_policy),
         pruned_quality_run_roots=sum(
             1 for run in confirmed_pruned if run.category == "quality"
         ),
         pruned_speed_run_roots=sum(
             1 for run in confirmed_pruned if run.category == "speed"
         ),
-        pruned_labelstudio_run_roots=sum(
-            1 for run in confirmed_pruned if run.category == "labelstudio"
-        ),
+        pruned_labelstudio_run_roots=len(pruned_labelstudio_by_policy),
+        total_output_run_roots=len(output_run_roots),
+        pruned_output_run_roots=len(output_run_roots),
         pruned_processed_output_roots=len(confirmed_processed_output_roots),
         reclaimed_bytes=reclaimed_bytes,
+        reclaimed_output_run_bytes=reclaimed_output_run_bytes,
         reclaimed_processed_output_bytes=reclaimed_processed_output_bytes,
         history_rows_scanned=history_rows_scanned,
         history_rows_updated=history_rows_updated,
@@ -209,8 +262,6 @@ def run_benchmark_gc(
 
 def _collect_benchmark_run_roots(
     golden_root: Path,
-    *,
-    include_labelstudio_benchmark: bool,
 ) -> list[_BenchmarkRunRoot]:
     collected: list[_BenchmarkRunRoot] = []
     for category, root in (
@@ -235,26 +286,49 @@ def _collect_benchmark_run_roots(
                 )
             )
 
-    if include_labelstudio_benchmark:
-        root = golden_root / "benchmark-vs-golden"
-        if root.is_dir():
-            for candidate in sorted(root.iterdir()):
-                if not candidate.is_dir():
-                    continue
-                parsed = _parse_run_timestamp(candidate.name)
-                if parsed is None:
-                    continue
-                run_timestamp, run_started = parsed
-                collected.append(
-                    _BenchmarkRunRoot(
-                        category="labelstudio",
-                        run_timestamp=run_timestamp,
-                        run_started=run_started,
-                        path=candidate,
-                    )
-                )
-
     collected.sort(key=lambda run: (run.run_started, run.path.name), reverse=True)
+    return collected
+
+
+def _collect_labelstudio_run_roots(golden_root: Path) -> list[_BenchmarkRunRoot]:
+    collected: list[_BenchmarkRunRoot] = []
+    root = golden_root / "benchmark-vs-golden"
+    if not root.is_dir():
+        return collected
+    for candidate in sorted(root.iterdir()):
+        if not candidate.is_dir():
+            continue
+        parsed = _parse_run_timestamp(candidate.name)
+        if parsed is None:
+            continue
+        run_timestamp, run_started = parsed
+        collected.append(
+            _BenchmarkRunRoot(
+                category="labelstudio",
+                run_timestamp=run_timestamp,
+                run_started=run_started,
+                path=candidate,
+            )
+        )
+    collected.sort(key=lambda run: (run.run_started, run.path.name), reverse=True)
+    return collected
+
+
+def _collect_output_run_roots(output_root: Path) -> list[Path]:
+    collected: list[Path] = []
+    resolved_root = output_root.expanduser()
+    if not resolved_root.is_dir():
+        return collected
+    for candidate in sorted(resolved_root.iterdir()):
+        if not candidate.is_dir():
+            continue
+        if _parse_run_timestamp(candidate.name) is None:
+            continue
+        collected.append(candidate)
+    collected.sort(
+        key=lambda path: (_parse_run_timestamp(path.name) or ("", dt.datetime.min))[1],
+        reverse=True,
+    )
     return collected
 
 

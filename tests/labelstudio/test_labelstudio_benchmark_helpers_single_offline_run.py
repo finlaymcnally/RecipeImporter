@@ -107,7 +107,7 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
         "off",
-        "atomic-v1",
+        "off",
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
     assert [call["recipe_prompt_target_count"] for call in benchmark_calls] == [10, 10]
@@ -214,6 +214,67 @@ def test_interactive_single_offline_preserves_selected_codex_recipe_pipeline(
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
         "codex-recipe-shard-v1",
+    ]
+
+
+def test_interactive_single_offline_preserves_selected_atomic_splitter_across_variants(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "atomic_block_splitter": "atomic-v1",
+        },
+        warn_context="test single-offline shared atomic splitter",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.40, "recall": 0.31, "f1": 0.35}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "source": {"path": str(tmp_path / "book.epub")},
+                    "run_config": {
+                        "atomic_block_splitter": kwargs.get("atomic_block_splitter"),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
+    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
+        "atomic-v1",
+        "atomic-v1",
     ]
 
 

@@ -5,7 +5,7 @@ import logging
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2466,27 +2466,183 @@ def _run_direct_recipe_workers_v1(
     completed_shards = 0
     total_shards = len(shards)
     progress_lock = threading.Lock()
+    last_progress_snapshot: tuple[Any, ...] | None = None
+    task_ids_by_worker: dict[str, tuple[str, ...]] = {
+        assignment.worker_id: tuple(
+            task_plan.task_id
+            for shard_id in assignment.shard_ids
+            for task_plan in _build_recipe_task_plans(shard_by_id[shard_id])
+        )
+        for assignment in assignments
+    }
+    total_tasks = sum(len(task_ids) for task_ids in task_ids_by_worker.values())
     pending_shards_by_worker = {
         assignment.worker_id: list(assignment.shard_ids)
         for assignment in assignments
     }
-    if progress_callback is not None and total_shards > 0:
+
+    def _recipe_worker_followup_status(
+        *,
+        worker_id: str,
+    ) -> tuple[int, int, int]:
+        repair_attempted = 0
+        repair_completed = 0
+        repair_running = 0
+        for task_id in task_ids_by_worker.get(worker_id, ()):
+            task_root = run_root / "workers" / worker_id / "shards" / task_id
+            repair_prompt_path = task_root / "repair_prompt.txt"
+            repair_status_path = task_root / "repair_status.json"
+            if repair_prompt_path.exists():
+                repair_attempted += 1
+            if repair_status_path.exists():
+                repair_completed += 1
+            elif repair_prompt_path.exists():
+                repair_running += 1
+        return repair_attempted, repair_completed, repair_running
+
+    def _render_recipe_progress_label(
+        *,
+        worker_id: str,
+        completed_task_ids: set[str],
+    ) -> str | None:
+        remaining_task_ids = [
+            task_id
+            for task_id in task_ids_by_worker.get(worker_id, ())
+            if task_id not in completed_task_ids
+        ]
+        if remaining_task_ids:
+            first_task_id = remaining_task_ids[0]
+            remaining = max(0, len(remaining_task_ids) - 1)
+            if remaining <= 0:
+                return first_task_id
+            return f"{first_task_id} (+{remaining} more)"
+        pending_shards = pending_shards_by_worker.get(worker_id) or []
+        if pending_shards:
+            first_shard_id = str(pending_shards[0]).strip() or "[unknown shard]"
+            remaining = max(0, len(pending_shards) - 1)
+            repair_attempted, repair_completed, repair_running = (
+                _recipe_worker_followup_status(worker_id=worker_id)
+            )
+            if repair_running > 0:
+                suffix = f" repair {repair_completed}/{repair_attempted}"
+            elif repair_attempted > 0:
+                suffix = f" finalize repaired {repair_completed}/{repair_attempted}"
+            else:
+                suffix = " finalize"
+            if remaining <= 0:
+                return f"{first_shard_id}{suffix}"
+            return f"{first_shard_id}{suffix} (+{remaining} more)"
+        return None
+
+    def _emit_progress_locked(*, force: bool = False) -> None:
+        nonlocal last_progress_snapshot
+        if progress_callback is None:
+            return
+        if total_tasks <= 0 and total_shards <= 0:
+            return
+        completed_task_ids: set[str] = set()
+        for assignment in assignments:
+            out_dir = run_root / "workers" / assignment.worker_id / "out"
+            if not out_dir.exists():
+                continue
+            for output_path in out_dir.glob("*.json"):
+                completed_task_ids.add(output_path.stem)
+        completed_tasks = min(total_tasks, len(completed_task_ids))
         active_tasks = [
+            label
+            for assignment in assignments
+            for label in [
+                _render_recipe_progress_label(
+                    worker_id=assignment.worker_id,
+                    completed_task_ids=completed_task_ids,
+                )
+            ]
+            if label is not None
+        ]
+        running_workers = len(active_tasks)
+        if total_tasks > 0:
+            message = f"Running recipe correction... task {completed_tasks}/{total_tasks}"
+            repair_attempted = 0
+            repair_completed = 0
+            repair_running = 0
+            finalize_workers = 0
+            for assignment in assignments:
+                worker_repair_attempted, worker_repair_completed, worker_repair_running = (
+                    _recipe_worker_followup_status(worker_id=assignment.worker_id)
+                )
+                repair_attempted += worker_repair_attempted
+                repair_completed += worker_repair_completed
+                repair_running += worker_repair_running
+                if not any(
+                    task_id not in completed_task_ids
+                    for task_id in task_ids_by_worker.get(assignment.worker_id, ())
+                ) and (pending_shards_by_worker.get(assignment.worker_id) or []):
+                    finalize_workers += 1
+            detail_lines = [
+                f"configured workers: {len(assignments)}",
+                f"completed shards: {completed_shards}/{total_shards}",
+                f"queued recipe tasks: {max(0, total_tasks - completed_tasks)}",
+            ]
+            if finalize_workers > 0:
+                detail_lines.append(f"workers finalizing shards: {finalize_workers}")
+            if repair_attempted > 0:
+                detail_lines.append(
+                    f"recipe repair attempts: {repair_completed}/{repair_attempted}"
+                )
+            if repair_running > 0:
+                detail_lines.append(f"repair calls running: {repair_running}")
+            snapshot = (
+                completed_tasks,
+                total_tasks,
+                completed_shards,
+                total_shards,
+                running_workers,
+                tuple(active_tasks),
+                tuple(detail_lines),
+            )
+            if not force and snapshot == last_progress_snapshot:
+                return
+            last_progress_snapshot = snapshot
+            progress_callback(
+                format_stage_progress(
+                    message,
+                    stage_label="recipe pipeline",
+                    task_current=completed_tasks,
+                    task_total=total_tasks,
+                    running_workers=running_workers,
+                    worker_total=len(assignments),
+                    active_tasks=active_tasks,
+                    detail_lines=detail_lines,
+                )
+            )
+            return
+        active_shards = [
             assignment.shard_ids[0]
             for assignment in assignments
             if assignment.shard_ids
         ]
+        snapshot = (
+            completed_shards,
+            total_shards,
+            tuple(active_shards),
+        )
+        if not force and snapshot == last_progress_snapshot:
+            return
+        last_progress_snapshot = snapshot
         progress_callback(
             format_stage_progress(
-                "Running recipe correction... task 0/" + str(total_shards),
+                f"Running recipe correction... task {completed_shards}/{total_shards}",
                 stage_label="recipe pipeline",
-                task_current=0,
+                task_current=completed_shards,
                 task_total=total_shards,
-                running_workers=min(len(active_tasks), total_shards),
+                running_workers=min(len(active_shards), max(0, total_shards - completed_shards)),
                 worker_total=len(assignments),
-                active_tasks=active_tasks[:total_shards],
+                active_tasks=active_shards[: max(0, total_shards - completed_shards)],
             )
         )
+
+    if progress_callback is not None and (total_tasks > 0 or total_shards > 0):
+        _emit_progress_locked(force=True)
 
     def _mark_shard_completed(*, worker_id: str, shard_id: str) -> None:
         nonlocal completed_shards
@@ -2497,23 +2653,7 @@ def _run_direct_recipe_workers_v1(
             if shard_id in pending:
                 pending.remove(shard_id)
             completed_shards += 1
-            remaining = max(0, total_shards - completed_shards)
-            active_tasks = [
-                worker_pending[0]
-                for worker_pending in pending_shards_by_worker.values()
-                if worker_pending
-            ]
-            progress_callback(
-                format_stage_progress(
-                    f"Running recipe correction... task {completed_shards}/{total_shards}",
-                    stage_label="recipe pipeline",
-                    task_current=completed_shards,
-                    task_total=total_shards,
-                    running_workers=min(len(active_tasks), remaining),
-                    worker_total=len(assignments),
-                    active_tasks=active_tasks[:remaining] if remaining > 0 else [],
-                )
-            )
+            _emit_progress_locked()
 
     with ThreadPoolExecutor(
         max_workers=max(1, len(assignments)),
@@ -2537,12 +2677,28 @@ def _run_direct_recipe_workers_v1(
             )
             for assignment in assignments
         }
-        for assignment in assignments:
-            result = futures_by_worker_id[assignment.worker_id].result()
-            worker_reports.append(result.report)
-            all_proposals.extend(result.proposals)
-            failures.extend(result.failures)
-            stage_rows.extend(result.stage_rows)
+        pending_futures = {
+            future: assignment
+            for assignment in assignments
+            for future in [futures_by_worker_id[assignment.worker_id]]
+        }
+        while pending_futures:
+            done_futures, _ = wait(
+                pending_futures.keys(),
+                timeout=0.2,
+                return_when=FIRST_COMPLETED,
+            )
+            with progress_lock:
+                _emit_progress_locked()
+            if not done_futures:
+                continue
+            for future in done_futures:
+                assignment = pending_futures.pop(future)
+                result = future.result()
+                worker_reports.append(result.report)
+                all_proposals.extend(result.proposals)
+                failures.extend(result.failures)
+                stage_rows.extend(result.stage_rows)
 
     recipe_result_rows = _recipe_result_rows_from_proposals(all_proposals)
     promotion_report = {
