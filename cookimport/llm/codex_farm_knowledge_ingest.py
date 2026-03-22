@@ -4,7 +4,7 @@ from copy import deepcopy
 import json
 import re
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .phase_worker_runtime import ShardManifestEntryV1
 from .codex_farm_knowledge_models import (
@@ -22,6 +22,36 @@ _SEMANTIC_CATEGORY_ALIAS_DEFAULTS: dict[str, tuple[str, str]] = {
     "noise": ("other", "endorsement_or_marketing"),
     "heading": ("other", "decorative_heading"),
 }
+_KNOWLEDGE_SNIPPET_COPY_VALIDATION_ERRORS = frozenset(
+    {
+        "semantic_snippet_echoes_full_chunk",
+        "semantic_snippet_copies_evidence_quote",
+    }
+)
+_KNOWLEDGE_SCHEMA_OR_SHAPE_VALIDATION_ERRORS = frozenset(
+    {
+        "response_json_invalid",
+        "response_not_json_object",
+        "schema_invalid",
+    }
+)
+_KNOWLEDGE_COVERAGE_VALIDATION_ERRORS = frozenset(
+    {
+        "missing_owned_chunk_results",
+        "unexpected_chunk_results",
+        "chunk_result_order_mismatch",
+    }
+)
+_KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
+    {
+        "response_json_invalid",
+        "response_not_json_object",
+        "schema_invalid",
+        "missing_owned_chunk_results",
+        "unexpected_chunk_results",
+        "chunk_result_order_mismatch",
+    }
+)
 
 
 def normalize_knowledge_worker_payload(
@@ -171,6 +201,10 @@ def validate_knowledge_shard_output(
 
     chunk_block_indices_by_id = _chunk_block_indices_by_id(shard)
     if chunk_block_indices_by_id:
+        metadata["chunk_block_count_by_id"] = {
+            chunk_id: len(block_indices)
+            for chunk_id, block_indices in sorted(chunk_block_indices_by_id.items())
+        }
         chunk_coverage_mismatches: dict[str, dict[str, list[int]]] = {}
         cross_chunk_evidence: dict[str, list[int]] = {}
         for result in parsed.chunk_results:
@@ -216,15 +250,29 @@ def validate_knowledge_shard_output(
 
     non_grounded_snippet_chunk_ids: list[str] = []
     echoed_full_chunk_ids: list[str] = []
+    snippet_echo_reasons_by_chunk_id: dict[str, set[str]] = {}
+    evidence_surface_echoes_by_chunk_id: dict[str, list[dict[str, Any]]] = {}
+    aggregate_copied_surface_by_chunk_id: dict[str, dict[str, Any]] = {}
     chunk_source_text_by_id = _chunk_source_text_by_id(shard)
+    chunk_block_texts_by_id = _chunk_block_texts_by_id(shard)
     for result in parsed.chunk_results:
         source_text = chunk_source_text_by_id.get(result.chunk_id)
         normalized_source_text = _normalize_semantic_comparison_text(source_text)
         expected_block_indices = chunk_block_indices_by_id.get(result.chunk_id) or []
-        for snippet in result.snippets:
+        copied_block_indices: set[int] = set()
+        copied_snippet_count = 0
+        for snippet_index, snippet in enumerate(result.snippets):
             if not _contains_grounded_text(snippet.body):
                 non_grounded_snippet_chunk_ids.append(result.chunk_id)
             normalized_body = _normalize_semantic_comparison_text(snippet.body)
+            evidence_surface_text = " ".join(
+                str(evidence.quote).strip()
+                for evidence in snippet.evidence
+                if str(evidence.quote).strip()
+            ).strip()
+            normalized_evidence_surface = _normalize_semantic_comparison_text(
+                evidence_surface_text
+            )
             snippet_block_indices = sorted(
                 {
                     int(evidence.block_index)
@@ -236,18 +284,82 @@ def validate_knowledge_shard_output(
                 and len(normalized_source_text) >= 160
                 and len(normalized_body) >= max(120, int(len(normalized_source_text) * 0.85))
                 and snippet_block_indices == expected_block_indices
-                and (
-                    normalized_body in normalized_source_text
-                    or normalized_source_text in normalized_body
+                and _looks_like_verbatim_surface_echo(
+                    normalized_body,
+                    normalized_source_text,
+                    min_surface_chars=160,
+                    min_body_chars=120,
                 )
             ):
                 echoed_full_chunk_ids.append(result.chunk_id)
+                snippet_echo_reasons_by_chunk_id.setdefault(result.chunk_id, set()).add(
+                    "full_chunk_surface"
+                )
+            if _looks_like_verbatim_surface_echo(
+                normalized_body,
+                normalized_evidence_surface,
+                min_surface_chars=80,
+                min_body_chars=80,
+            ):
+                echoed_full_chunk_ids.append(result.chunk_id)
+                snippet_echo_reasons_by_chunk_id.setdefault(result.chunk_id, set()).add(
+                    "evidence_surface"
+                )
+                copied_snippet_count += 1
+                copied_block_indices.update(snippet_block_indices)
+                evidence_surface_echoes_by_chunk_id.setdefault(result.chunk_id, []).append(
+                    {
+                        "snippet_index": snippet_index,
+                        "block_indices": list(snippet_block_indices),
+                        "body_char_count": len(normalized_body),
+                        "evidence_surface_char_count": len(normalized_evidence_surface),
+                    }
+                )
+        aggregate_copied_surface = _chunk_surface_for_block_indices(
+            chunk_block_texts_by_id.get(result.chunk_id) or {},
+            expected_block_indices=expected_block_indices,
+            selected_block_indices=sorted(copied_block_indices),
+        )
+        normalized_aggregate_copied_surface = _normalize_semantic_comparison_text(
+            aggregate_copied_surface
+        )
+        if (
+            copied_snippet_count >= 2
+            and _copied_surface_covers_most_of_chunk(
+                copied_surface_text=normalized_aggregate_copied_surface,
+                full_chunk_text=normalized_source_text,
+            )
+        ):
+            echoed_full_chunk_ids.append(result.chunk_id)
+            snippet_echo_reasons_by_chunk_id.setdefault(result.chunk_id, set()).add(
+                "aggregate_copied_surface"
+            )
+            aggregate_copied_surface_by_chunk_id[result.chunk_id] = {
+                "copied_block_indices": sorted(copied_block_indices),
+                "copied_surface_char_count": len(normalized_aggregate_copied_surface),
+                "full_chunk_char_count": len(normalized_source_text),
+                "copied_snippet_count": copied_snippet_count,
+            }
     if non_grounded_snippet_chunk_ids:
         errors.append("semantic_snippet_body_not_grounded_text")
         metadata["non_grounded_snippet_chunk_ids"] = sorted(set(non_grounded_snippet_chunk_ids))
     if echoed_full_chunk_ids:
         errors.append("semantic_snippet_echoes_full_chunk")
         metadata["echoed_full_chunk_ids"] = sorted(set(echoed_full_chunk_ids))
+        metadata["snippet_echo_reasons_by_chunk_id"] = {
+            chunk_id: sorted(reasons)
+            for chunk_id, reasons in sorted(snippet_echo_reasons_by_chunk_id.items())
+        }
+    if evidence_surface_echoes_by_chunk_id:
+        metadata["evidence_surface_echoes_by_chunk_id"] = {
+            chunk_id: details
+            for chunk_id, details in sorted(evidence_surface_echoes_by_chunk_id.items())
+        }
+    if aggregate_copied_surface_by_chunk_id:
+        metadata["aggregate_copied_surface_by_chunk_id"] = {
+            chunk_id: details
+            for chunk_id, details in sorted(aggregate_copied_surface_by_chunk_id.items())
+        }
 
     knowledge_cue_chunk_ids = sorted(_knowledge_cue_chunk_ids(shard))
     metadata["knowledge_cue_chunk_ids"] = knowledge_cue_chunk_ids
@@ -276,6 +388,152 @@ def validate_knowledge_shard_output(
     return not errors, tuple(errors), metadata
 
 
+def classify_knowledge_validation_failure(
+    *,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    errors = tuple(
+        str(error).strip()
+        for error in validation_errors
+        if str(error).strip()
+    )
+    metadata = dict(validation_metadata or {})
+    error_set = set(errors)
+    has_snippet_copy_error = bool(
+        error_set.intersection(_KNOWLEDGE_SNIPPET_COPY_VALIDATION_ERRORS)
+    )
+    snippet_copy_only = bool(error_set) and error_set.issubset(
+        _KNOWLEDGE_SNIPPET_COPY_VALIDATION_ERRORS
+    )
+    has_schema_or_shape_error = bool(
+        error_set.intersection(_KNOWLEDGE_SCHEMA_OR_SHAPE_VALIDATION_ERRORS)
+    )
+    has_coverage_error = bool(error_set.intersection(_KNOWLEDGE_COVERAGE_VALIDATION_ERRORS))
+    has_semantic_rejection = bool(metadata.get("semantic_rejection"))
+    has_non_grounded_snippet = bool(metadata.get("non_grounded_snippet_chunk_ids"))
+    repairable_near_miss = False
+    classification = "other_invalid"
+
+    if snippet_copy_only:
+        classification = "snippet_copy_only"
+        repairable_near_miss = True
+    elif (
+        error_set
+        and len(error_set) <= 2
+        and error_set.issubset(_KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS)
+        and not has_semantic_rejection
+        and not has_non_grounded_snippet
+        and not has_snippet_copy_error
+    ):
+        classification = "repairable_near_miss"
+        repairable_near_miss = True
+    elif has_schema_or_shape_error:
+        classification = "schema_or_shape_invalid"
+    elif has_coverage_error:
+        classification = "coverage_mismatch"
+    elif has_snippet_copy_error or has_non_grounded_snippet or any(
+        error.startswith("semantic_") for error in error_set
+    ):
+        classification = "semantic_invalid"
+
+    return {
+        "classification": classification,
+        "errors": list(errors),
+        "snippet_copy_only": snippet_copy_only,
+        "has_snippet_copy_error": has_snippet_copy_error,
+        "has_schema_or_shape_error": has_schema_or_shape_error,
+        "has_coverage_error": has_coverage_error,
+        "repairable_near_miss": repairable_near_miss,
+        "snippet_only_repair": snippet_copy_only,
+    }
+
+
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _normalize_validation_errors(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return ()
+    return tuple(str(error).strip() for error in value if str(error).strip())
+
+
+def extract_promotable_knowledge_bundle(
+    *,
+    payload: Mapping[str, Any] | None,
+    validation_errors: Sequence[str] = (),
+    validation_metadata: Mapping[str, Any] | None = None,
+) -> tuple[KnowledgeBundleOutputV2, dict[str, Any]] | None:
+    normalized_errors = _normalize_validation_errors(validation_errors)
+    error_set = set(normalized_errors)
+    if error_set and error_set != {"missing_owned_chunk_results"}:
+        return None
+
+    payload_dict = _coerce_dict(payload)
+    if not payload_dict:
+        if error_set:
+            return None
+        raise ValueError("Invalid proposal wrapper: missing payload object.")
+    parsed = KnowledgeBundleOutputV2.model_validate(payload_dict)
+
+    if not error_set:
+        promoted_chunk_ids = [result.chunk_id for result in parsed.chunk_results]
+        return parsed, {
+            "promotion_mode": "validated_wrapper",
+            "partial": False,
+            "promoted_chunk_ids": promoted_chunk_ids,
+            "promoted_chunk_count": len(promoted_chunk_ids),
+        }
+
+    metadata = _coerce_dict(validation_metadata)
+    task_aggregation = _coerce_dict(metadata.get("task_aggregation"))
+    accepted_task_ids = {
+        str(task_id).strip()
+        for task_id in (task_aggregation.get("accepted_task_ids") or [])
+        if str(task_id).strip()
+    }
+    task_id_by_chunk_id_raw = task_aggregation.get("task_id_by_chunk_id")
+    if not accepted_task_ids or not isinstance(task_id_by_chunk_id_raw, Mapping):
+        return None
+
+    task_id_by_chunk_id = {
+        str(chunk_id).strip(): str(task_id).strip()
+        for chunk_id, task_id in task_id_by_chunk_id_raw.items()
+        if str(chunk_id).strip() and str(task_id).strip()
+    }
+    promoted_chunk_results = [
+        result
+        for result in parsed.chunk_results
+        if task_id_by_chunk_id.get(result.chunk_id) in accepted_task_ids
+    ]
+    if not promoted_chunk_results:
+        return None
+
+    promoted_bundle = KnowledgeBundleOutputV2(
+        v=parsed.bundle_version,
+        bid=parsed.bundle_id,
+        r=promoted_chunk_results,
+    )
+    promoted_chunk_ids = [result.chunk_id for result in promoted_chunk_results]
+    return promoted_bundle, {
+        "promotion_mode": "accepted_task_subset",
+        "partial": True,
+        "promoted_chunk_ids": promoted_chunk_ids,
+        "promoted_chunk_count": len(promoted_chunk_ids),
+        "accepted_task_ids": sorted(accepted_task_ids),
+        "missing_chunk_ids": [
+            str(chunk_id).strip()
+            for chunk_id in (
+                task_aggregation.get("missing_chunk_ids")
+                or metadata.get("missing_owned_chunk_ids")
+                or []
+            )
+            if str(chunk_id).strip()
+        ],
+    }
+
+
 def read_validated_knowledge_outputs_from_proposals(
     proposals_dir: Path,
 ) -> tuple[dict[str, KnowledgeChunkResultV2], dict[str, dict[str, Any]]]:
@@ -285,14 +543,22 @@ def read_validated_knowledge_outputs_from_proposals(
         wrapper = json.loads(proposal_path.read_text(encoding="utf-8"))
         if not isinstance(wrapper, Mapping):
             raise ValueError(f"Invalid proposal wrapper {proposal_path}: expected object.")
-        validation_errors = wrapper.get("validation_errors") or []
-        if isinstance(validation_errors, list) and validation_errors:
+        promoted_bundle = extract_promotable_knowledge_bundle(
+            payload=wrapper.get("payload"),
+            validation_errors=wrapper.get("validation_errors") or (),
+            validation_metadata=(
+                wrapper.get("validation_metadata")
+                if isinstance(wrapper.get("validation_metadata"), Mapping)
+                else wrapper.get("metadata")
+            ),
+        )
+        if promoted_bundle is None:
             continue
-        payload = wrapper.get("payload")
-        if not isinstance(payload, dict):
-            raise ValueError(f"Invalid proposal wrapper {proposal_path}: missing payload object.")
-        parsed = KnowledgeBundleOutputV2.model_validate(payload)
-        payloads_by_shard_id[str(parsed.bundle_id)] = payload
+        parsed, _promotion_metadata = promoted_bundle
+        payloads_by_shard_id[str(parsed.bundle_id)] = parsed.model_dump(
+            mode="json",
+            by_alias=True,
+        )
         for chunk_result in parsed.chunk_results:
             if chunk_result.chunk_id in outputs:
                 raise ValueError(
@@ -392,9 +658,83 @@ def _chunk_source_text_by_id(shard: ShardManifestEntryV1) -> dict[str, str]:
     return source_text_by_id
 
 
+def _chunk_block_texts_by_id(shard: ShardManifestEntryV1) -> dict[str, dict[int, str]]:
+    payload = dict(shard.input_payload) if isinstance(shard.input_payload, Mapping) else {}
+    chunks = payload.get("c")
+    if not isinstance(chunks, list):
+        return {}
+    block_texts_by_id: dict[str, dict[int, str]] = {}
+    for chunk in chunks:
+        if not isinstance(chunk, Mapping):
+            continue
+        chunk_id = str(chunk.get("cid") or "").strip()
+        if not chunk_id:
+            continue
+        block_texts: dict[int, str] = {}
+        for block in chunk.get("b") or []:
+            if not isinstance(block, Mapping):
+                continue
+            block_index = _coerce_int(block.get("i"))
+            block_text = str(block.get("t") or "").strip()
+            if block_index is None or not block_text:
+                continue
+            block_texts[block_index] = block_text
+        if block_texts:
+            block_texts_by_id[chunk_id] = block_texts
+    return block_texts_by_id
+
+
+def _chunk_surface_for_block_indices(
+    chunk_block_texts: Mapping[int, str],
+    *,
+    expected_block_indices: list[int],
+    selected_block_indices: list[int],
+) -> str:
+    if not chunk_block_texts or not selected_block_indices:
+        return ""
+    selected = set(selected_block_indices)
+    return " ".join(
+        str(chunk_block_texts.get(block_index) or "").strip()
+        for block_index in expected_block_indices
+        if block_index in selected and str(chunk_block_texts.get(block_index) or "").strip()
+    ).strip()
+
+
 def _contains_grounded_text(value: object) -> bool:
     return bool(re.search(r"[A-Za-z]", str(value or "")))
 
 
 def _normalize_semantic_comparison_text(value: object) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def _looks_like_verbatim_surface_echo(
+    normalized_body: str,
+    normalized_surface: str,
+    *,
+    min_surface_chars: int,
+    min_body_chars: int,
+) -> bool:
+    if not normalized_body or not normalized_surface:
+        return False
+    if len(normalized_surface) < min_surface_chars:
+        return False
+    if len(normalized_body) < max(min_body_chars, int(len(normalized_surface) * 0.85)):
+        return False
+    return (
+        normalized_body == normalized_surface
+        or normalized_body in normalized_surface
+        or normalized_surface in normalized_body
+    )
+
+
+def _copied_surface_covers_most_of_chunk(
+    *,
+    copied_surface_text: str,
+    full_chunk_text: str,
+) -> bool:
+    if not copied_surface_text or not full_chunk_text:
+        return False
+    if len(full_chunk_text) < 160:
+        return False
+    return len(copied_surface_text) >= max(120, int(len(full_chunk_text) * 0.85))

@@ -142,6 +142,8 @@ def test_build_oracle_benchmark_prompt_describes_synthetic_attachment_transport(
     assert "logical contents come from an existing `upload_bundle_v1` benchmark package" in prompt
     assert "synthetic text attachment such as `attachments-bundle.txt`" in prompt
     assert "Within that attachment, start with `upload_bundle_overview.md`" in prompt
+    assert "help improve Codex benchmark accuracy" in prompt
+    assert "Only write `None` in `Requested follow-up data`" in prompt
     assert "Useful local follow-up tools include `cf-debug structure-report`" in prompt
     assert "exactly four sections" in prompt
     assert "`Requested follow-up data`" in prompt
@@ -213,6 +215,11 @@ def test_resolve_oracle_benchmark_model_uses_test_lane_for_helper_mode(
         oracle_upload.resolve_oracle_benchmark_model("gpt-explicit-override")
         == "gpt-explicit-override"
     )
+
+
+def test_oracle_browser_upload_defaults_to_explicit_pro_selection() -> None:
+    assert oracle_upload.ORACLE_BROWSER_MODEL_STRATEGY == "select"
+    assert oracle_upload.ORACLE_DEFAULT_MODEL == "gpt-5-pro"
 
 
 def test_resolve_oracle_browser_profile_dir_prefers_most_recent_populated_profile(
@@ -1046,6 +1053,7 @@ def test_start_oracle_benchmark_upload_background_prefers_starter_packet_subset_
     prompt = command[command.index("-p") + 1]
     assert "browser-safe starter-pack subset" in prompt
     assert "request narrow follow-up data" in prompt
+    assert "--browser-keep-browser" not in command
 
 
 def test_start_oracle_benchmark_upload_background_marks_running_when_process_alive_but_no_session_hint(
@@ -1057,9 +1065,11 @@ def test_start_oracle_benchmark_upload_background_marks_running_when_process_ali
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+    captured: dict[str, object] = {}
 
     class FakePopen:
         def __init__(self, command: list[str], **kwargs: object) -> None:
+            captured["command"] = command
             log_handle = kwargs["stdout"]
             assert log_handle is not None
             log_handle.write(
@@ -1078,6 +1088,7 @@ def test_start_oracle_benchmark_upload_background_marks_running_when_process_ali
         popen=FakePopen,
     )
 
+    assert "--browser-keep-browser" not in captured["command"]
     assert launch.status == "running"
     assert launch.status_reason == "Oracle process is still running; awaiting session hint or answer."
     assert launch.session_id == ""
@@ -1129,6 +1140,7 @@ def test_start_oracle_benchmark_upload_background_recovers_session_from_oracle_s
         popen=FakePopen,
     )
 
+    assert "--browser-keep-browser" not in launch.command
     assert launch.status == "running"
     assert launch.status_reason == "Oracle session is running; session store metadata is available."
     assert launch.session_id == "you-are-reviewing-a-benchmark-269"

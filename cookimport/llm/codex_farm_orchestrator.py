@@ -56,6 +56,7 @@ from .phase_worker_runtime import (
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
 )
+from .recipe_workspace_tools import render_recipe_worker_cli_script
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
 from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
@@ -1540,13 +1541,13 @@ def _build_recipe_workspace_worker_prompt(
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then `OUTPUT_CONTRACT.md`, then read `assigned_tasks.json` for task order and `assigned_shards.json` for shard ownership context.",
-        "2. Prefer opening the named files directly instead of exploring the workspace.",
-        "3. Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `out/`.",
-        "4. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
-        "5. For each task id, open `hints/<task_id>.md` first, then `in/<task_id>.json`.",
-        "6. Write one completed output file to `out/<task_id>.json`.",
-        "7. Continue until every assigned task has an output file or you cannot proceed.",
+        "1. Open `worker_manifest.json`, then `current_task.json`, then `OUTPUT_CONTRACT.md`.",
+        "2. If you need queue context, run `python3 tools/recipe_worker.py overview` or `python3 tools/recipe_worker.py show <task_id>` instead of dumping whole manifests by hand.",
+        "3. For the current task, open `hints/<task_id>.md` first, then `in/<task_id>.json`.",
+        "4. The cheapest paved road is batch-first: run `python3 tools/recipe_worker.py prepare-all --dest-dir scratch/` once, edit the needed `scratch/<task_id>.json` drafts, then run `python3 tools/recipe_worker.py finalize-all scratch/` once.",
+        "5. Single-task fallback is still available: `python3 tools/recipe_worker.py show <task_id>`, then `check scratch/<task_id>.json`, then `finalize scratch/<task_id>.json`.",
+        "6. Continue through the remaining `assigned_tasks.json` rows in order until every assigned task has an output file or you cannot proceed.",
+        "7. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local or in approved temp roots, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Output contract for each `out/<task_id>.json`:",
         "- Write exactly one JSON object.",
@@ -1556,6 +1557,7 @@ def _build_recipe_workspace_worker_prompt(
         "- Return exactly one recipe result for each owned recipe id in the task input and no extras.",
         "- Legacy keys are invalid here, including `results`, `recipes`, `recipe_id`, `repair_status`, `canonical_recipe`, `not_a_recipe`, `fragmentary`, and `notes`.",
         "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned input.",
+        "- Large batch heredocs are unnecessary here because `tools/recipe_worker.py finalize` and `finalize-all` are the approved write paths.",
         "",
         "Your final message is optional telemetry only. Do not paste shard outputs there. The authoritative result is the set of valid files written under `out/`.",
     ]
@@ -1797,6 +1799,15 @@ def _write_recipe_workspace_contract_sidecars(
         )
 
 
+def _write_recipe_workspace_helper_tools(*, worker_root: Path) -> None:
+    tools_dir = worker_root / "tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    (tools_dir / "recipe_worker.py").write_text(
+        render_recipe_worker_cli_script(),
+        encoding="utf-8",
+    )
+
+
 def _distribute_recipe_session_value(value: Any, task_count: int) -> list[int]:
     normalized_task_count = max(1, int(task_count))
     total = int(value or 0)
@@ -2020,6 +2031,10 @@ def _build_recipe_task_runtime_manifest_entry(
     task_plan: _RecipeTaskPlan,
 ) -> TaskManifestEntryV1:
     task_manifest = task_plan.manifest_entry
+    metadata = dict(task_manifest.metadata or {})
+    metadata.setdefault("input_path", f"in/{task_plan.task_id}.json")
+    metadata.setdefault("hint_path", f"hints/{task_plan.task_id}.md")
+    metadata.setdefault("result_path", f"out/{task_plan.task_id}.json")
     return TaskManifestEntryV1(
         task_id=task_plan.task_id,
         task_kind="recipe_correction_recipe",
@@ -2027,7 +2042,7 @@ def _build_recipe_task_runtime_manifest_entry(
         owned_ids=tuple(task_manifest.owned_ids),
         input_payload=task_manifest.input_payload,
         input_text=task_manifest.input_text,
-        metadata=dict(task_manifest.metadata or {}),
+        metadata=metadata,
     )
 
 
@@ -2241,6 +2256,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             worker_root=worker_root,
             tasks=runnable_tasks,
         )
+        _write_recipe_workspace_helper_tools(worker_root=worker_root)
     for task in runnable_tasks:
         task_manifest = task.manifest_entry
         input_path = in_dir / f"{task_manifest.shard_id}.json"

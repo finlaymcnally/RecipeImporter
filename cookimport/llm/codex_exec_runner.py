@@ -35,12 +35,16 @@ _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
 _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME = "assigned_tasks.json"
 _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
+_DIRECT_EXEC_CURRENT_TASK_FILE_NAME = "current_task.json"
+_DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
+_DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
 _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME = "current_packet.json"
 _DIRECT_EXEC_CURRENT_HINT_FILE_NAME = "current_hint.md"
 _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME = "current_result_path.txt"
 _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME = "packet_lease_status.json"
 _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME = "OUTPUT_CONTRACT.md"
 _DIRECT_EXEC_EXAMPLES_DIR_NAME = "examples"
+_DIRECT_EXEC_TOOLS_DIR_NAME = "tools"
 _DIRECT_EXEC_OUTPUT_DIR_NAME = "out"
 _DIRECT_EXEC_SCRATCH_DIR_NAME = "scratch"
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
@@ -50,6 +54,9 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
@@ -58,6 +65,7 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_INPUT_DIR_NAME,
     _DIRECT_EXEC_DEBUG_DIR_NAME,
     _DIRECT_EXEC_EXAMPLES_DIR_NAME,
+    _DIRECT_EXEC_TOOLS_DIR_NAME,
     _DIRECT_EXEC_HINTS_DIR_NAME,
     _DIRECT_EXEC_LOGS_DIR_NAME,
     _DIRECT_EXEC_OUTPUT_DIR_NAME,
@@ -74,6 +82,9 @@ _WORKSPACE_ALLOWED_TEMP_ROOTS = (
 )
 _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
@@ -249,7 +260,14 @@ class CodexExecRunResult:
             - visible_output_tokens,
             0,
         )
-        event_summary = _summarize_codex_events(self.events)
+        event_summary = _summarize_codex_events(
+            self.events,
+            allowed_absolute_roots=(
+                [self.execution_working_dir]
+                if self.workspace_mode == "workspace_worker" and self.execution_working_dir
+                else None
+            ),
+        )
         pathological_flags = _pathological_flags_for_row(
             command_execution_count=event_summary["command_execution_count"],
             reasoning_item_count=event_summary["reasoning_item_count"],
@@ -833,6 +851,10 @@ def prepare_direct_exec_workspace(
     mode: DirectExecWorkspaceMode = "structured_json",
 ) -> PreparedDirectExecWorkspace:
     source_root = Path(source_working_dir).resolve()
+    _write_direct_exec_current_task_sidecar(
+        workspace_root=source_root,
+        mode=mode,
+    )
     _write_direct_exec_worker_manifest(
         workspace_root=source_root,
         task_label=task_label,
@@ -871,8 +893,12 @@ def build_direct_exec_workspace_manifest(
         "assigned_shards_path": None,
         "assigned_tasks_path": None,
         "worker_manifest_path": None,
+        "current_task_path": None,
+        "current_task_brief_path": None,
+        "current_task_feedback_path": None,
         "output_contract_path": None,
         "examples_dir": None,
+        "tools_dir": None,
         "current_packet_path": None,
         "current_hint_path": None,
         "current_result_path_path": None,
@@ -882,6 +908,7 @@ def build_direct_exec_workspace_manifest(
         "mirrored_debug_files": [],
         "mirrored_hint_files": [],
         "mirrored_example_files": [],
+        "mirrored_tool_files": [],
         "mirrored_output_files": [],
         "mirrored_scratch_files": [],
     }
@@ -901,12 +928,24 @@ def build_direct_exec_workspace_manifest(
     worker_manifest_path = execution_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME
     if worker_manifest_path.exists():
         payload["worker_manifest_path"] = str(worker_manifest_path)
+    current_task_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME
+    if current_task_path.exists():
+        payload["current_task_path"] = str(current_task_path)
+    current_task_brief_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME
+    if current_task_brief_path.exists():
+        payload["current_task_brief_path"] = str(current_task_brief_path)
+    current_task_feedback_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME
+    if current_task_feedback_path.exists():
+        payload["current_task_feedback_path"] = str(current_task_feedback_path)
     output_contract_path = execution_root / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
     if output_contract_path.exists():
         payload["output_contract_path"] = str(output_contract_path)
     examples_dir = execution_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME
     if examples_dir.exists() and examples_dir.is_dir():
         payload["examples_dir"] = str(examples_dir)
+    tools_dir = execution_root / _DIRECT_EXEC_TOOLS_DIR_NAME
+    if tools_dir.exists() and tools_dir.is_dir():
+        payload["tools_dir"] = str(tools_dir)
     current_packet_path = execution_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME
     if current_packet_path.exists():
         payload["current_packet_path"] = str(current_packet_path)
@@ -933,6 +972,9 @@ def build_direct_exec_workspace_manifest(
     )
     payload["mirrored_example_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME
+    )
+    payload["mirrored_tool_files"] = _list_workspace_relative_files(
+        execution_root / _DIRECT_EXEC_TOOLS_DIR_NAME
     )
     payload["mirrored_output_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_OUTPUT_DIR_NAME
@@ -1016,6 +1058,18 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     )
     _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
+    )
+    _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
+    )
+    _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
+    )
+    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
     )
@@ -1046,6 +1100,10 @@ def _populate_direct_exec_workspace(
     _copy_tree_if_present(
         source_working_dir / _DIRECT_EXEC_EXAMPLES_DIR_NAME,
         execution_working_dir / _DIRECT_EXEC_EXAMPLES_DIR_NAME,
+    )
+    _copy_tree_if_present(
+        source_working_dir / _DIRECT_EXEC_TOOLS_DIR_NAME,
+        execution_working_dir / _DIRECT_EXEC_TOOLS_DIR_NAME,
     )
     _copy_tree_if_present(
         source_working_dir / _DIRECT_EXEC_HINTS_DIR_NAME,
@@ -1118,8 +1176,10 @@ def _build_direct_exec_agents_text(
             "The current working directory is already the workspace root.\n"
             "Start by reading `worker_manifest.json`, then open the prompt-named local files directly.\n"
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
+            "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
+            "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`, treat that current-task surface as authoritative and open it before touching the broader queue.\n"
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
-            "If `assigned_tasks.json` exists, treat it as background inventory or coarse progress only unless the prompt says otherwise.\n"
+            "If `assigned_tasks.json` exists, use it as a lightweight ordered queue/progress view after the current task surface unless the prompt says otherwise.\n"
             "Read the local task manifests and input files directly.\n"
             "Use `scratch/` or short-lived local temp files such as `/tmp` or `/var/tmp` for bounded helper files. Write completed results only to the local path named by `current_result_path.txt` or the prompt.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
@@ -1131,6 +1191,7 @@ def _build_direct_exec_agents_text(
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
             "When the prompt gives you a leased-packet loop, finish the current packet, then re-open the current-packet files instead of inventing your own batch scheduler.\n"
+            "When the workspace offers a repo-written `complete-current` or `check-current` helper, use that paved road instead of scripting your own queue processor.\n"
         )
     return (
         "# RecipeImport Direct Codex Worker\n\n"
@@ -1512,7 +1573,12 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             summary["workspace_worker_row_count"] += 1
             if bool(row.get("worker_session_primary_row")):
                 summary["workspace_worker_session_count"] += 1
-        if prompt_input_mode in {"inline_watchdog_retry", "inline_retry", "inline_repair"}:
+        if prompt_input_mode in {
+            "inline_watchdog_retry",
+            "inline_retry",
+            "inline_repair",
+            "inline_snippet_repair",
+        }:
             summary["structured_followup_call_count"] += 1
             summary["structured_followup_tokens_total"] += tokens_total
         command_execution_count = int(row.get("command_execution_count") or 0)
@@ -1752,7 +1818,9 @@ def _sum_ints(*values: int | None) -> int | None:
 
 
 def _summarize_codex_events(
-    events: tuple[dict[str, Any], ...] | list[dict[str, Any]]
+    events: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    *,
+    allowed_absolute_roots: Sequence[str | Path] | None = None,
 ) -> dict[str, Any]:
     command_execution_count = 0
     reasoning_item_count = 0
@@ -1775,7 +1843,10 @@ def _summarize_codex_events(
             if command_text and command_text not in seen_commands:
                 seen_commands.add(command_text)
                 command_execution_commands.append(command_text)
-                verdict = classify_workspace_worker_command(command_text)
+                verdict = classify_workspace_worker_command(
+                    command_text,
+                    allowed_absolute_roots=allowed_absolute_roots,
+                )
                 command_execution_policy_counts[verdict.policy] = (
                     int(command_execution_policy_counts.get(verdict.policy) or 0) + 1
                 )
@@ -1902,14 +1973,26 @@ def should_terminate_workspace_command_loop(
     snapshot: CodexExecLiveSnapshot,
     max_command_count: int = _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT,
     max_repeat_count: int = _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT,
+    recent_output_progress: bool = False,
+    completed_output_count: int = 0,
 ) -> bool:
     if int(snapshot.command_execution_count or 0) <= 0:
         return False
     if snapshot.has_final_agent_message:
         return False
-    if int(snapshot.command_execution_count or 0) >= max(1, int(max_command_count)):
+    progress_command_bonus = min(
+        180,
+        max(0, int(completed_output_count or 0)) * 20 + (80 if recent_output_progress else 0),
+    )
+    progress_repeat_bonus = min(
+        12,
+        max(0, int(completed_output_count or 0)) + (6 if recent_output_progress else 0),
+    )
+    effective_max_command_count = max(1, int(max_command_count)) + progress_command_bonus
+    effective_max_repeat_count = max(1, int(max_repeat_count)) + progress_repeat_bonus
+    if int(snapshot.command_execution_count or 0) >= effective_max_command_count:
         return True
-    return int(snapshot.last_command_repeat_count or 0) >= max(1, int(max_repeat_count))
+    return int(snapshot.last_command_repeat_count or 0) >= effective_max_repeat_count
 
 
 def _write_direct_exec_worker_manifest(
@@ -1920,7 +2003,20 @@ def _write_direct_exec_worker_manifest(
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
     has_packet_leasing = (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists()
+    has_current_task = (
+        not has_packet_leasing
+        and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME).exists()
+    )
+    mirrored_tool_files = _list_workspace_relative_files(
+        workspace_root / _DIRECT_EXEC_TOOLS_DIR_NAME
+    )
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
+    if has_current_task:
+        entry_files.append(_DIRECT_EXEC_CURRENT_TASK_FILE_NAME)
+        if (workspace_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME).exists():
+            entry_files.append(_DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME)
+        if (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME).exists():
+            entry_files.append(_DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME)
     if has_packet_leasing:
         entry_files.extend(
             [
@@ -1944,6 +2040,21 @@ def _write_direct_exec_worker_manifest(
         "entry_files": entry_files,
         "assigned_shards_file": _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
         "assigned_tasks_file": _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+        "current_task_file": (
+            _DIRECT_EXEC_CURRENT_TASK_FILE_NAME if has_current_task else None
+        ),
+        "current_task_brief_file": (
+            _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME
+            if has_current_task
+            and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME).exists()
+            else None
+        ),
+        "current_task_feedback_file": (
+            _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME
+            if has_current_task
+            and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME).exists()
+            else None
+        ),
         "output_contract_file": (
             _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
             if (workspace_root / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME).exists()
@@ -1952,6 +2063,11 @@ def _write_direct_exec_worker_manifest(
         "examples_dir": (
             _DIRECT_EXEC_EXAMPLES_DIR_NAME
             if (workspace_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME).exists()
+            else None
+        ),
+        "tools_dir": (
+            _DIRECT_EXEC_TOOLS_DIR_NAME
+            if (workspace_root / _DIRECT_EXEC_TOOLS_DIR_NAME).exists()
             else None
         ),
         "current_packet_file": (
@@ -1978,6 +2094,8 @@ def _write_direct_exec_worker_manifest(
                 "Treat the repo-written current-packet files as authoritative and use "
                 "`assigned_tasks.json` only as background inventory."
                 if has_packet_leasing
+                else "Treat `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative current-task surface, and `assigned_tasks.json` as the ordered queue/progress view."
+                if has_current_task
                 else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
             ),
             "Use `scratch/` or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
@@ -1997,13 +2115,38 @@ def _write_direct_exec_worker_manifest(
                 "cat <<'EOF' > /tmp/local-helper.json",
             ]
             if has_packet_leasing
-            else [
-                "sed -n '1,80p' hints/<task>.md",
-                "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('assigned_tasks.json').read_text())[0]; print(row['task_id'])\"",
-                "python3 -c \"from pathlib import Path; Path('out/<shard>.json').write_text(Path('in/<shard>.json').read_text())\"",
-                "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
-                "cat <<'EOF' > /tmp/local-helper.json",
-            ]
+            else (
+                [
+                    "sed -n '1,80p' hints/<task>.md",
+                    "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\"",
+                    "jq '.metadata' current_task.json",
+                ]
+                + (
+                    [
+                        "python3 tools/knowledge_worker.py overview",
+                        "python3 tools/knowledge_worker.py scaffold <task_id> --dest scratch/<task_id>.json",
+                        "python3 tools/knowledge_worker.py install scratch/<task_id>.json",
+                    ]
+                    if "knowledge_worker.py" in mirrored_tool_files
+                    else [
+                        "python3 tools/recipe_worker.py overview",
+                        "python3 tools/recipe_worker.py prepare-all --dest-dir scratch/",
+                        "python3 tools/recipe_worker.py finalize-all scratch/",
+                    ]
+                    if "recipe_worker.py" in mirrored_tool_files
+                    else [
+                        "python3 tools/line_role_worker.py overview",
+                        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row.get('metadata', {}).get('scratch_draft_path', ''))\"",
+                        "python3 tools/line_role_worker.py finalize scratch/<task>.json",
+                        "python3 tools/line_role_worker.py finalize-all scratch/",
+                    ]
+                    if "line_role_worker.py" in mirrored_tool_files
+                    else [
+                        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); Path(row['metadata']['result_path']).write_text(Path(row['metadata']['input_path']).read_text())\"",
+                        "cat <<'EOF' > /tmp/local-helper.json",
+                    ]
+                )
+            )
         ),
         "workspace_commands_forbidden": [
             "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
@@ -2022,12 +2165,49 @@ def _write_direct_exec_worker_manifest(
         "mirrored_example_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME
         ),
+        "mirrored_tool_files": mirrored_tool_files,
         "mirrored_scratch_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_SCRATCH_DIR_NAME
         ),
     }
     (workspace_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME).write_text(
         json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _write_direct_exec_current_task_sidecar(
+    *,
+    workspace_root: Path,
+    mode: DirectExecWorkspaceMode,
+) -> None:
+    current_task_path = workspace_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME
+    if mode != "workspace_worker" or (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
+        if current_task_path.exists() and current_task_path.is_file():
+            current_task_path.unlink()
+        return
+    assigned_tasks_path = workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+    if not assigned_tasks_path.exists():
+        if current_task_path.exists() and current_task_path.is_file():
+            current_task_path.unlink()
+        return
+    try:
+        assigned_tasks = json.loads(assigned_tasks_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        assigned_tasks = []
+    first_task = (
+        assigned_tasks[0]
+        if isinstance(assigned_tasks, list)
+        and assigned_tasks
+        and isinstance(assigned_tasks[0], Mapping)
+        else None
+    )
+    if first_task is None:
+        if current_task_path.exists() and current_task_path.is_file():
+            current_task_path.unlink()
+        return
+    current_task_path.write_text(
+        json.dumps(first_task, indent=2, sort_keys=True),
         encoding="utf-8",
     )
 
@@ -2056,10 +2236,12 @@ def classify_workspace_worker_command(
     *,
     allow_orientation_commands: bool = True,
     allow_output_paths: bool = True,
+    allowed_absolute_roots: Sequence[str | Path] | None = None,
 ) -> WorkspaceCommandClassification:
     boundary_violation = detect_workspace_worker_boundary_violation(
         command_text,
         allow_output_paths=allow_output_paths,
+        allowed_absolute_roots=allowed_absolute_roots,
     )
     if boundary_violation is not None:
         return boundary_violation
@@ -2115,6 +2297,7 @@ def classify_workspace_worker_command(
             path_verdict = _classify_workspace_path_argument(
                 normalized_argument,
                 allow_output_paths=allow_output_paths,
+                allowed_absolute_roots=allowed_absolute_roots,
             )
             if not path_verdict.allowed:
                 return WorkspaceCommandClassification(
@@ -2141,6 +2324,7 @@ def detect_workspace_worker_boundary_violation(
     command_text: str | None,
     *,
     allow_output_paths: bool = True,
+    allowed_absolute_roots: Sequence[str | Path] | None = None,
 ) -> WorkspaceCommandClassification | None:
     cleaned_command = str(command_text or "").strip() or None
     if cleaned_command is None:
@@ -2151,6 +2335,7 @@ def detect_workspace_worker_boundary_violation(
             shell_body,
             command_text=cleaned_command,
             allow_output_paths=allow_output_paths,
+            allowed_absolute_roots=allowed_absolute_roots,
         )
 
     inner_tokens = _command_tokens_for_watchdog(command_text)
@@ -2170,6 +2355,7 @@ def detect_workspace_worker_boundary_violation(
             path_verdict = _classify_workspace_path_argument(
                 normalized_argument,
                 allow_output_paths=allow_output_paths,
+                allowed_absolute_roots=allowed_absolute_roots,
             )
             if not path_verdict.allowed:
                 return WorkspaceCommandClassification(
@@ -2187,11 +2373,22 @@ def detect_workspace_worker_boundary_violation(
         approximate_shell_body,
         command_text=cleaned_command,
         allow_output_paths=allow_output_paths,
+        allowed_absolute_roots=allowed_absolute_roots,
     )
 
 
-def is_tolerated_workspace_worker_command(command_text: str | None) -> bool:
-    return detect_workspace_worker_boundary_violation(command_text) is None
+def is_tolerated_workspace_worker_command(
+    command_text: str | None,
+    *,
+    allowed_absolute_roots: Sequence[str | Path] | None = None,
+) -> bool:
+    return (
+        detect_workspace_worker_boundary_violation(
+            command_text,
+            allowed_absolute_roots=allowed_absolute_roots,
+        )
+        is None
+    )
 
 
 def _extract_workspace_shell_body(command_text: str | None) -> str | None:
@@ -2346,6 +2543,7 @@ def _detect_workspace_worker_boundary_violation_in_text(
     *,
     command_text: str | None,
     allow_output_paths: bool,
+    allowed_absolute_roots: Sequence[str | Path] | None = None,
 ) -> WorkspaceCommandClassification | None:
     stripped_text = re.sub(r"^\s*#![^\n]*(?:\n|$)", "", shell_text, flags=re.MULTILINE)
     for executable in _workspace_shell_executables(stripped_text):
@@ -2375,6 +2573,18 @@ def _detect_workspace_worker_boundary_violation_in_text(
             reason="workspace shell commands must stay on relative local paths",
         )
     scrubbed_text = _strip_allowed_workspace_temp_paths(stripped_text)
+    scrubbed_text, absolute_path_verdict = _strip_allowed_workspace_execution_root_paths(
+        scrubbed_text,
+        allow_output_paths=allow_output_paths,
+        allowed_absolute_roots=allowed_absolute_roots,
+    )
+    if absolute_path_verdict is not None:
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy=absolute_path_verdict.policy,
+            reason=absolute_path_verdict.reason,
+        )
     absolute_path_match = re.search(
         r"(^|[\s\"'])/(?!/|dev/null(?:$|[\s\"']))",
         scrubbed_text,
@@ -2460,6 +2670,81 @@ def _strip_allowed_workspace_temp_paths(shell_text: str) -> str:
     )
 
 
+def _strip_allowed_workspace_execution_root_paths(
+    shell_text: str,
+    *,
+    allow_output_paths: bool,
+    allowed_absolute_roots: Sequence[str | Path] | None,
+) -> tuple[str, WorkspaceCommandClassification | None]:
+    if not shell_text:
+        return shell_text, None
+    if not allowed_absolute_roots:
+        return shell_text, None
+
+    verdict: WorkspaceCommandClassification | None = None
+
+    def _replace(match: re.Match[str]) -> str:
+        nonlocal verdict
+        path_token = str(match.group("path") or "").strip()
+        normalized_argument = _normalize_visible_workspace_path_token(path_token)
+        if normalized_argument is None:
+            return match.group(0)
+        path_verdict = _classify_workspace_path_argument(
+            normalized_argument,
+            allow_output_paths=allow_output_paths,
+            allowed_absolute_roots=allowed_absolute_roots,
+        )
+        if path_verdict.allowed:
+            return f"{match.group(1)}__WORKSPACE_EXECUTION_ROOT_PATH__"
+        if verdict is None:
+            verdict = path_verdict
+        return match.group(0)
+
+    scrubbed_text = re.sub(
+        r"(^|[\s\"'])(?P<path>/(?!/|dev/null(?:$|[\s\"']))[^\s\"']*)",
+        _replace,
+        shell_text,
+        flags=re.MULTILINE,
+    )
+    return scrubbed_text, verdict
+
+
+def _normalize_allowed_workspace_roots(
+    allowed_absolute_roots: Sequence[str | Path] | None,
+) -> tuple[Path, ...]:
+    normalized_roots: list[Path] = []
+    seen: set[str] = set()
+    for root in allowed_absolute_roots or ():
+        cleaned = str(root or "").strip()
+        if not cleaned:
+            continue
+        try:
+            normalized_root = Path(cleaned).expanduser().resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not normalized_root.is_absolute():
+            continue
+        normalized_key = normalized_root.as_posix()
+        if normalized_key in seen:
+            continue
+        seen.add(normalized_key)
+        normalized_roots.append(normalized_root)
+    return tuple(sorted(normalized_roots, key=lambda path: len(path.parts), reverse=True))
+
+
+def _workspace_relative_path_under_allowed_roots(
+    path: Path,
+    *,
+    allowed_absolute_roots: Sequence[str | Path] | None,
+) -> Path | None:
+    for root in _normalize_allowed_workspace_roots(allowed_absolute_roots):
+        try:
+            return path.relative_to(root)
+        except ValueError:
+            continue
+    return None
+
+
 def _token_looks_like_workspace_path(token: str) -> bool:
     cleaned = str(token or "").strip()
     if not cleaned or cleaned.startswith("-"):
@@ -2479,6 +2764,7 @@ def _classify_workspace_path_argument(
     token: str,
     *,
     allow_output_paths: bool = True,
+    allowed_absolute_roots: Sequence[str | Path] | None = None,
 ) -> WorkspaceCommandClassification:
     cleaned = str(token or "").strip()
     if not cleaned:
@@ -2502,12 +2788,45 @@ def _classify_workspace_path_argument(
             policy="tolerated_workspace_temp_path",
             reason="local temp-root helper path stayed inside the relaxed workspace policy",
         )
-    if cleaned.startswith(("~", "/")):
+    if cleaned.startswith("~"):
         return WorkspaceCommandClassification(
             command_text=cleaned,
             allowed=False,
             policy="forbidden_absolute_path",
             reason="workspace shell commands must stay on relative local paths",
+        )
+    if cleaned.startswith("/"):
+        try:
+            absolute_path = Path(cleaned).resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            absolute_path = Path(cleaned)
+        relative_allowed_path = _workspace_relative_path_under_allowed_roots(
+            absolute_path,
+            allowed_absolute_roots=allowed_absolute_roots,
+        )
+        if relative_allowed_path is None:
+            return WorkspaceCommandClassification(
+                command_text=cleaned,
+                allowed=False,
+                policy="forbidden_absolute_path",
+                reason="workspace shell commands must stay on relative local paths",
+            )
+        normalized_text = relative_allowed_path.as_posix()
+        if not allow_output_paths and (
+            normalized_text == _DIRECT_EXEC_OUTPUT_DIR_NAME
+            or normalized_text.startswith(f"{_DIRECT_EXEC_OUTPUT_DIR_NAME}/")
+        ):
+            return WorkspaceCommandClassification(
+                command_text=cleaned,
+                allowed=False,
+                policy="forbidden_output_path",
+                reason="this workspace policy does not allow helper commands against `out/`",
+            )
+        return WorkspaceCommandClassification(
+            command_text=cleaned,
+            allowed=True,
+            policy="tolerated_workspace_execution_root_path",
+            reason="absolute path stayed inside the assigned workspace execution root",
         )
     normalized = cleaned[2:] if cleaned.startswith("./") else cleaned
     if not normalized:

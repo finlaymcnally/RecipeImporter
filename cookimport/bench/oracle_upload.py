@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping
 ORACLE_BROWSER_CMD = "/home/mcnal/.local/bin/oracle"
 ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-oracle-auto"
 ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
-ORACLE_BROWSER_MODEL_STRATEGY = "ignore"
+ORACLE_BROWSER_MODEL_STRATEGY = "select"
 ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")
 ORACLE_BROWSER_PROFILE_DIR = str(Path(ORACLE_HOME_DIR) / "browser-profile")
 ORACLE_LEGACY_HOME_DIR = str(Path.home() / ".oracle")
@@ -37,7 +37,7 @@ ORACLE_DEFAULT_MODEL = os.environ.get(
         "ORACLE_PRO_MODEL",
         os.environ.get(
             "ORACLE_REVIEW_MODEL",
-            os.environ.get("ORACLE_DEEP_REVIEW_MODEL", "gpt-5.4"),
+            os.environ.get("ORACLE_DEEP_REVIEW_MODEL", "gpt-5-pro"),
         ),
     ),
 )
@@ -90,6 +90,8 @@ ORACLE_BENCHMARK_PROMPT_TEMPLATE_FALLBACK = "\n".join(
         "Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.",
         "Within that attachment, start with `upload_bundle_overview.md`, then use `upload_bundle_index.json` and `upload_bundle_payload.jsonl` only as needed to verify details.",
         "The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.",
+        "Your primary goal is to help improve Codex benchmark accuracy, not merely to judge whether the current packet is internally consistent.",
+        "Prioritize the remaining highest-leverage errors, regressions, and observability gaps that block the next concrete accuracy improvement.",
         "Return a concise review with exactly three sections: `Top regressions`, `Likely cause buckets`, and `Immediate next checks`.",
         "Keep the response factual and grounded in the attached bundle. Do not suggest rerunning the benchmark unless the bundle is clearly missing required evidence.",
     ]

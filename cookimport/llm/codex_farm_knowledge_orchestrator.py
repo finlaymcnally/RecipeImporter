@@ -27,6 +27,8 @@ from cookimport.staging.nonrecipe_stage import (
 
 from .codex_farm_ids import sanitize_for_filename
 from .codex_farm_knowledge_ingest import (
+    classify_knowledge_validation_failure,
+    extract_promotable_knowledge_bundle,
     normalize_knowledge_worker_payload,
     read_validated_knowledge_outputs_from_proposals,
     validate_knowledge_shard_output,
@@ -59,6 +61,15 @@ from .codex_farm_runner import (
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
+from .knowledge_workspace_tools import (
+    build_workspace_inventory_task_row,
+    check_workspace_draft,
+    current_task_draft_path,
+    resolve_current_task_row,
+    write_current_task_sidecars,
+    write_current_task_scaffold,
+    write_knowledge_workspace_sidecars,
+)
 from .knowledge_prompt_builder import build_knowledge_direct_prompt
 from .phase_worker_runtime import (
     PhaseManifestV1,
@@ -87,6 +98,7 @@ _KNOWLEDGE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _KNOWLEDGE_WATCHDOG_RETRY_SILENCE_TIMEOUT_SECONDS = 90
 _KNOWLEDGE_WATCHDOG_RETRY_TIMEOUT_SECONDS = 300
 _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
+_KNOWLEDGE_WORKSPACE_PROGRESS_GRACE_COMMANDS = 24
 _KNOWLEDGE_TASK_STATUS_FILE_NAME = "task_status.jsonl"
 _KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 _KNOWLEDGE_TASK_STATUS_SCHEMA_VERSION = "knowledge_task_status.v1"
@@ -1234,6 +1246,10 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "review_status": review_status,
             "reviewed_shards_with_useful_chunks": review_rollup["reviewed_shards_with_useful_chunks"],
             "reviewed_shards_all_other": review_rollup["reviewed_shards_all_other"],
+            "partially_promoted_shard_count": review_rollup["partially_promoted_shard_count"],
+            "wholly_unpromoted_invalid_shard_count": review_rollup[
+                "wholly_unpromoted_invalid_shard_count"
+            ],
             "semantic_rejection_shard_count": review_rollup["semantic_rejection_shard_count"],
             "all_false_empty_shard_count": review_rollup["all_false_empty_shard_count"],
             "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
@@ -1289,6 +1305,11 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "validated_shards": int(promotion_report.get("validated_shards") or 0),
                 "invalid_shards": int(promotion_report.get("invalid_shards") or 0),
                 "missing_output_shards": int(promotion_report.get("missing_output_shards") or 0),
+                "partially_promoted_shards": review_rollup["partially_promoted_shard_count"],
+                "wholly_unpromoted_invalid_shards": review_rollup[
+                    "wholly_unpromoted_invalid_shard_count"
+                ],
+                "promoted_chunk_count": int(promotion_report.get("promoted_chunk_count") or 0),
                 "reviewed_shards_with_useful_chunks": review_rollup["reviewed_shards_with_useful_chunks"],
                 "reviewed_shards_all_other": review_rollup["reviewed_shards_all_other"],
                 "semantic_rejection_shard_count": review_rollup["semantic_rejection_shard_count"],
@@ -1453,6 +1474,9 @@ def _build_noop_knowledge_llm_report(
             "validated_shards": 0,
             "invalid_shards": 0,
             "missing_output_shards": 0,
+            "partially_promoted_shards": 0,
+            "wholly_unpromoted_invalid_shards": 0,
+            "promoted_chunk_count": 0,
             "reviewed_shards_with_useful_chunks": 0,
             "reviewed_shards_all_other": 0,
             "semantic_rejection_shard_count": 0,
@@ -1486,6 +1510,8 @@ def _build_noop_knowledge_llm_report(
             "validated_shard_count": 0,
             "invalid_shard_count": 0,
             "missing_output_shard_count": 0,
+            "partially_promoted_shard_count": 0,
+            "wholly_unpromoted_invalid_shard_count": 0,
             "reviewed_shards_with_useful_chunks": 0,
             "reviewed_shards_all_other": 0,
             "semantic_rejection_shard_count": 0,
@@ -1545,6 +1571,9 @@ def _build_runtime_failed_knowledge_llm_report(
             "validated_shards": 0,
             "invalid_shards": 0,
             "missing_output_shards": int(build_report.shards_written),
+            "partially_promoted_shards": 0,
+            "wholly_unpromoted_invalid_shards": 0,
+            "promoted_chunk_count": 0,
             "reviewed_shards_with_useful_chunks": 0,
             "reviewed_shards_all_other": 0,
             "semantic_rejection_shard_count": 0,
@@ -1573,6 +1602,8 @@ def _build_runtime_failed_knowledge_llm_report(
                 "validated_shard_count": 0,
                 "invalid_shard_count": 0,
                 "missing_output_shard_count": int(build_report.shards_written),
+                "partially_promoted_shard_count": 0,
+                "wholly_unpromoted_invalid_shard_count": 0,
                 "reviewed_shards_with_useful_chunks": 0,
                 "reviewed_shards_all_other": 0,
                 "semantic_rejection_shard_count": 0,
@@ -1644,6 +1675,12 @@ def _build_review_summary(
         "validated_shard_count": int(counts.get("validated_shard_count") or 0),
         "invalid_shard_count": int(counts.get("invalid_shard_count") or 0),
         "missing_output_shard_count": int(counts.get("missing_output_shard_count") or 0),
+        "partially_promoted_shard_count": int(
+            counts.get("partially_promoted_shard_count") or 0
+        ),
+        "wholly_unpromoted_invalid_shard_count": int(
+            counts.get("wholly_unpromoted_invalid_shard_count") or 0
+        ),
         "reviewed_shards_with_useful_chunks": int(
             counts.get("reviewed_shards_with_useful_chunks") or 0
         ),
@@ -1673,6 +1710,10 @@ def _build_knowledge_review_rollup(
         report.get("reviewed_shards_with_useful_chunks") or 0
     )
     reviewed_shards_all_other = int(report.get("reviewed_shards_all_other") or 0)
+    partially_promoted_shard_count = int(report.get("partially_promoted_shards") or 0)
+    wholly_unpromoted_invalid_shard_count = int(
+        report.get("wholly_unpromoted_invalid_shards") or 0
+    )
     semantic_rejection_shard_count = int(
         report.get("semantic_rejection_shard_count") or 0
     )
@@ -1692,12 +1733,16 @@ def _build_knowledge_review_rollup(
         "missing_output_shard_count": missing_output_shard_count,
         "reviewed_shards_with_useful_chunks": reviewed_shards_with_useful_chunks,
         "reviewed_shards_all_other": reviewed_shards_all_other,
+        "partially_promoted_shard_count": partially_promoted_shard_count,
+        "wholly_unpromoted_invalid_shard_count": wholly_unpromoted_invalid_shard_count,
         "semantic_rejection_shard_count": semantic_rejection_shard_count,
         "all_false_empty_shard_count": all_false_empty_shard_count,
         "meaningfully_reviewed_shard_count": (
             reviewed_shards_with_useful_chunks + reviewed_shards_all_other
         ),
-        "unreviewed_shard_count": invalid_shard_count + missing_output_shard_count,
+        "unreviewed_shard_count": (
+            wholly_unpromoted_invalid_shard_count + missing_output_shard_count
+        ),
         "unreviewed_chunk_count": unreviewed_chunk_count,
         "unreviewed_block_count": unreviewed_block_count,
     }
@@ -1706,9 +1751,12 @@ def _build_knowledge_review_rollup(
 def _derive_knowledge_review_status(review_rollup: Mapping[str, Any]) -> str:
     reviewed_shard_count = int(review_rollup.get("meaningfully_reviewed_shard_count") or 0)
     unreviewed_shard_count = int(review_rollup.get("unreviewed_shard_count") or 0)
-    if reviewed_shard_count <= 0 and unreviewed_shard_count > 0:
+    unreviewed_chunk_count = int(review_rollup.get("unreviewed_chunk_count") or 0)
+    if reviewed_shard_count <= 0 and (
+        unreviewed_shard_count > 0 or unreviewed_chunk_count > 0
+    ):
         return "unreviewed"
-    if unreviewed_shard_count > 0:
+    if unreviewed_shard_count > 0 or unreviewed_chunk_count > 0:
         return "partial"
     return "complete"
 
@@ -2002,6 +2050,114 @@ def _write_knowledge_runtime_summary_artifacts(
                 return True
         return False
 
+    def _promotable_bundle_for_proposal(
+        proposal: ShardProposalV1,
+    ) -> tuple[Any, dict[str, Any]] | None:
+        return extract_promotable_knowledge_bundle(
+            payload=proposal.payload,
+            validation_errors=proposal.validation_errors,
+            validation_metadata=proposal.metadata,
+        )
+
+    def _promoted_rows_are_all_other(bundle: Any) -> bool:
+        chunk_results = tuple(getattr(bundle, "chunk_results", ()) or ())
+        if not chunk_results:
+            return False
+        return all(
+            (not bool(result.is_useful))
+            and (not result.snippets)
+            and all(decision.category == "other" for decision in result.block_decisions)
+            for result in chunk_results
+        )
+
+    def _unreviewed_chunk_count_for_proposal(
+        proposal: ShardProposalV1,
+        promotion_info: Mapping[str, Any] | None,
+    ) -> int:
+        metadata = _coerce_dict(proposal.metadata)
+        owned_chunk_count = int(metadata.get("owned_chunk_count") or 0)
+        if proposal.status == "validated":
+            return 0
+        if proposal.status == "missing_output":
+            return owned_chunk_count
+        if not promotion_info or not bool(promotion_info.get("partial")):
+            return owned_chunk_count
+        missing_chunk_ids = [
+            str(chunk_id).strip()
+            for chunk_id in (
+                promotion_info.get("missing_chunk_ids")
+                or metadata.get("missing_owned_chunk_ids")
+                or []
+            )
+            if str(chunk_id).strip()
+        ]
+        if missing_chunk_ids:
+            return len(set(missing_chunk_ids))
+        return max(0, owned_chunk_count - int(promotion_info.get("promoted_chunk_count") or 0))
+
+    def _unreviewed_block_count_for_proposal(
+        proposal: ShardProposalV1,
+        promotion_info: Mapping[str, Any] | None,
+    ) -> int:
+        metadata = _coerce_dict(proposal.metadata)
+        owned_block_count = int(metadata.get("owned_block_count") or 0)
+        if proposal.status == "validated":
+            return 0
+        if proposal.status == "missing_output":
+            return owned_block_count
+        if not promotion_info or not bool(promotion_info.get("partial")):
+            return owned_block_count
+        chunk_block_count_by_id = metadata.get("chunk_block_count_by_id")
+        if not isinstance(chunk_block_count_by_id, Mapping):
+            return owned_block_count
+        missing_chunk_ids = [
+            str(chunk_id).strip()
+            for chunk_id in (
+                promotion_info.get("missing_chunk_ids")
+                or metadata.get("missing_owned_chunk_ids")
+                or []
+            )
+            if str(chunk_id).strip()
+        ]
+        if missing_chunk_ids:
+            return sum(
+                int(chunk_block_count_by_id.get(chunk_id) or 0)
+                for chunk_id in missing_chunk_ids
+            )
+        promoted_chunk_ids = {
+            str(chunk_id).strip()
+            for chunk_id in (promotion_info.get("promoted_chunk_ids") or [])
+            if str(chunk_id).strip()
+        }
+        promoted_block_count = sum(
+            int(block_count or 0)
+            for chunk_id, block_count in chunk_block_count_by_id.items()
+            if str(chunk_id).strip() in promoted_chunk_ids
+        )
+        return max(0, owned_block_count - promoted_block_count)
+
+    proposal_promotion_rows: list[dict[str, Any]] = []
+    for proposal in all_proposals:
+        promoted_bundle = _promotable_bundle_for_proposal(proposal)
+        promoted_results = tuple(promoted_bundle[0].chunk_results) if promoted_bundle else ()
+        promotion_info = dict(promoted_bundle[1]) if promoted_bundle else {}
+        proposal_promotion_rows.append(
+            {
+                "proposal": proposal,
+                "promoted_results": promoted_results,
+                "promotion_info": promotion_info,
+                "partially_promoted": bool(promotion_info.get("partial")),
+                "reviewed_with_useful_chunks": any(
+                    bool(result.is_useful) for result in promoted_results
+                ),
+                "reviewed_all_other": _promoted_rows_are_all_other(
+                    promoted_bundle[0] if promoted_bundle else None
+                )
+                if promoted_bundle is not None
+                else False,
+            }
+        )
+
     promotion_report = {
         "schema_version": "phase_worker_runtime.promotion_report.v1",
         "phase_key": phase_key,
@@ -2009,17 +2165,28 @@ def _write_knowledge_runtime_summary_artifacts(
         "validated_shards": sum(1 for proposal in all_proposals if proposal.status == "validated"),
         "invalid_shards": sum(1 for proposal in all_proposals if proposal.status == "invalid"),
         "missing_output_shards": sum(1 for proposal in all_proposals if proposal.status == "missing_output"),
-        "reviewed_shards_with_useful_chunks": sum(
+        "partially_promoted_shards": sum(
+            1 for row in proposal_promotion_rows if row["partially_promoted"]
+        ),
+        "wholly_unpromoted_invalid_shards": sum(
             1
             for proposal in all_proposals
-            if proposal.status == "validated"
-            and bool((proposal.metadata or {}).get("reviewed_with_useful_chunks"))
+            if proposal.status == "invalid"
+            and not any(row["proposal"] is proposal and row["partially_promoted"] for row in proposal_promotion_rows)
+        ),
+        "promoted_chunk_count": sum(
+            int(row["promotion_info"].get("promoted_chunk_count") or 0)
+            for row in proposal_promotion_rows
+        ),
+        "reviewed_shards_with_useful_chunks": sum(
+            1
+            for row in proposal_promotion_rows
+            if row["reviewed_with_useful_chunks"]
         ),
         "reviewed_shards_all_other": sum(
             1
-            for proposal in all_proposals
-            if proposal.status == "validated"
-            and bool((proposal.metadata or {}).get("reviewed_all_other"))
+            for row in proposal_promotion_rows
+            if row["reviewed_all_other"]
         ),
         "semantic_rejection_shard_count": sum(
             1
@@ -2042,14 +2209,12 @@ def _write_knowledge_runtime_summary_artifacts(
             )
         ),
         "unreviewed_chunk_count": sum(
-            int((proposal.metadata or {}).get("owned_chunk_count") or 0)
-            for proposal in all_proposals
-            if proposal.status != "validated"
+            _unreviewed_chunk_count_for_proposal(row["proposal"], row["promotion_info"])
+            for row in proposal_promotion_rows
         ),
         "unreviewed_block_count": sum(
-            int((proposal.metadata or {}).get("owned_block_count") or 0)
-            for proposal in all_proposals
-            if proposal.status != "validated"
+            _unreviewed_block_count_for_proposal(row["proposal"], row["promotion_info"])
+            for row in proposal_promotion_rows
         ),
     }
     telemetry = {
@@ -2286,6 +2451,182 @@ def _build_knowledge_task_status_tracker(
             "updated_at_utc": created_at,
         }
     return _KnowledgeTaskStatusTracker(path=path, rows_by_task_id=rows_by_task_id)
+
+
+@dataclass
+class _KnowledgeWorkspaceTaskQueueController:
+    worker_root: Path
+    task_entries: tuple[TaskManifestEntryV1, ...]
+    worker_id: str | None = None
+    task_status_tracker: _KnowledgeTaskStatusTracker | None = None
+    current_index: int = 0
+    validated_task_ids: set[str] = field(default_factory=set)
+    current_validation_errors: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        self._write_current_sidecars()
+
+    @property
+    def total_task_count(self) -> int:
+        return len(self.task_entries)
+
+    @property
+    def validated_task_count(self) -> int:
+        return len(self.validated_task_ids)
+
+    def is_complete(self) -> bool:
+        return self.current_index >= len(self.task_entries)
+
+    def current_task_entry(self) -> TaskManifestEntryV1 | None:
+        if self.is_complete():
+            return None
+        return self.task_entries[self.current_index]
+
+    def current_task_id(self) -> str | None:
+        entry = self.current_task_entry()
+        if entry is None:
+            return None
+        cleaned = str(entry.task_id).strip()
+        return cleaned or None
+
+    def status_payload(self) -> dict[str, Any]:
+        return {
+            "queue_total_task_count": self.total_task_count,
+            "queue_validated_task_count": self.validated_task_count,
+            "queue_remaining_task_count": max(
+                self.total_task_count - self.validated_task_count,
+                0,
+            ),
+            "queue_complete": self.is_complete(),
+            "current_task_id": self.current_task_id(),
+            "current_validation_errors": list(self.current_validation_errors),
+        }
+
+    def observe_current_output(self) -> dict[str, Any]:
+        entry = self.current_task_entry()
+        if entry is None:
+            self.current_validation_errors = ()
+            self._write_current_sidecars()
+            return {
+                "current_task_id": None,
+                "current_output_present": False,
+                "advanced": False,
+                "valid": True,
+                "validation_errors": (),
+                "queue_complete": True,
+            }
+        task_row = build_workspace_inventory_task_row(asdict(entry))
+        output_path = self._output_path(entry)
+        if not output_path.exists():
+            self.current_validation_errors = ()
+            return {
+                "current_task_id": str(entry.task_id),
+                "current_output_present": False,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": (),
+                "queue_complete": False,
+            }
+        try:
+            check_result = check_workspace_draft(
+                workspace_root=self.worker_root,
+                draft_path=output_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.current_validation_errors = ("draft_validation_exception",)
+            write_current_task_sidecars(
+                workspace_root=self.worker_root,
+                task_row=task_row,
+                current_draft_path=output_path,
+            )
+            feedback_path = self.worker_root / "CURRENT_TASK_FEEDBACK.md"
+            feedback_path.write_text(
+                "\n".join(
+                    [
+                        "# Current Task Feedback",
+                        "",
+                        f"Task id: `{task_row.get('task_id')}`",
+                        "Validation status: FAILED.",
+                        "",
+                        "Validator errors:",
+                        f"- `draft_validation_exception`",
+                        "",
+                        "How to fix it:",
+                        f"- {str(exc).strip() or 'Fix the JSON shape and re-run check-current.'}",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return {
+                "current_task_id": str(entry.task_id),
+                "current_output_present": True,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": ("draft_validation_exception",),
+                "queue_complete": False,
+            }
+        self.current_validation_errors = tuple(check_result.errors)
+        if not check_result.valid:
+            write_current_task_sidecars(
+                workspace_root=self.worker_root,
+                task_row=task_row,
+                check_result=check_result,
+                current_draft_path=output_path,
+            )
+            return {
+                "current_task_id": str(entry.task_id),
+                "current_output_present": True,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": tuple(check_result.errors),
+                "queue_complete": False,
+            }
+        task_id = str(entry.task_id).strip()
+        if task_id:
+            self.validated_task_ids.add(task_id)
+        if self.task_status_tracker is not None and task_id:
+            self.task_status_tracker.mark_main_output_written(
+                task_id=task_id,
+                metadata={
+                    "leased_packet_result_path": str(
+                        (entry.metadata or {}).get("result_path") or ""
+                    ).strip()
+                    or None,
+                    "live_validated": True,
+                },
+            )
+        self.current_index += 1
+        self.current_validation_errors = ()
+        self._write_current_sidecars()
+        return {
+            "current_task_id": task_id or None,
+            "current_output_present": True,
+            "advanced": True,
+            "valid": True,
+            "validation_errors": (),
+            "queue_complete": self.is_complete(),
+        }
+
+    def _write_current_sidecars(self) -> None:
+        entry = self.current_task_entry()
+        task_row = (
+            build_workspace_inventory_task_row(asdict(entry))
+            if entry is not None
+            else None
+        )
+        write_current_task_sidecars(
+            workspace_root=self.worker_root,
+            task_row=task_row,
+            current_draft_path=current_task_draft_path(workspace_root=self.worker_root),
+        )
+
+    def _output_path(self, entry: TaskManifestEntryV1) -> Path:
+        metadata = dict(entry.metadata or {})
+        result_path = str(metadata.get("result_path") or "").strip()
+        if not result_path:
+            raise ValueError(f"task {entry.task_id!r} is missing metadata.result_path")
+        return self.worker_root / result_path
 
 
 def _load_task_status_state_counts(path: Path) -> dict[str, int]:
@@ -2534,22 +2875,25 @@ def _build_knowledge_workspace_worker_prompt(
 ) -> str:
     final_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)
     reviewer_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)
-    task_ids = [str(task.task_id).strip() for task in tasks if str(task.task_id).strip()]
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "",
-        "Process the repo-written ordered packet queue in `assigned_tasks.json`. The current working directory is already the workspace root.",
+        "Process the repo-written ordered packet queue in this workspace one current task at a time. The current working directory is already the workspace root.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then open `assigned_tasks.json`.",
-        "2. `assigned_tasks.json` is authoritative for this worker. Process its task rows in order. Do not wait for the repo to mutate other lease files mid-session.",
-        "3. Each task row tells you the packet id plus `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`. Open those named files directly instead of exploring the workspace or dumping the whole queue back to yourself.",
-        "4. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Use `scratch/` or short-lived local temp files such as `/tmp` for helper files, prefer a short direct `python3` helper or one targeted query against the current task row's named files, and use each task row's `metadata.result_path` only for the final packet result.",
-        "5. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
-        "6. Write one completed semantic packet result file per assigned task row. Finish the whole ordered queue before stopping.",
-        "7. Do not invent extra packets, skip owned chunks, or write outside the listed `metadata.result_path` files.",
-        "8. Do not invent your own batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, or run extra shell checks against finished files in `out/` unless a listed task result is clearly incomplete or invalid while you are still writing it.",
+        "1. Open `worker_manifest.json`, then `CURRENT_TASK.md`, then `current_task.json`, then `CURRENT_TASK_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
+        "2. Treat `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative current-task surface. `assigned_tasks.json` is only the ordered queue/progress view.",
+        "3. Open only the files named by the current task row: `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`.",
+        "4. Use the paved road: run `python3 tools/knowledge_worker.py complete-current`, edit `scratch/current_task.json`, run `python3 tools/knowledge_worker.py check-current`, and run `python3 tools/knowledge_worker.py install-current` only after `check-current` says OK.",
+        "5. A task is not finished until `check-current` prints `OK ...`. Direct writes to `out/<task_id>.json` without a passing `check-current` are incomplete work.",
+        "6. After each install or validation failure, re-open `CURRENT_TASK_FEEDBACK.md`. Do not advance yourself; the repo will mutate the current-task files when the validator accepts the packet.",
+        "7. If you need orientation, use `python3 tools/knowledge_worker.py current`, `python3 tools/knowledge_worker.py explain-failure`, `python3 tools/knowledge_worker.py overview`, or `python3 tools/knowledge_worker.py show <task_id>` instead of dumping the queue back to yourself.",
+        "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, broad inline schedulers, or one-off validators.",
+        "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
+        "10. Write one completed semantic packet result file for the current task only. Do not work ahead on later tasks while the current task is still failing validation or awaiting repo advancement.",
+        "11. Do not invent extra packets, skip owned chunks, or write outside the listed `metadata.result_path` file.",
+        "12. Do not invent your own batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, or run extra shell checks against finished files in `out/` beyond the repo-written `check-current` loop.",
         "",
         "Semantic packet result contract for each assigned result path:",
         "- Write exactly one JSON object.",
@@ -2574,6 +2918,15 @@ def _build_knowledge_workspace_worker_prompt(
             "- Keep each snippet body as a short grounded extraction, not a whole-block dump, "
             "full-chunk echo, or stitched quote list."
         ),
+        (
+            "- Good snippet pattern: body `Use low heat to prevent curdling.` with one or "
+            "two evidence quotes pointing at the exact supporting block text."
+        ),
+        (
+            "- Bad snippet pattern: a body that restates nearly every sentence from the "
+            "owned chunk or stitches long quotes from every owned block into one snippet."
+        ),
+        "- If `check` says the packet copied source prose, keep the evidence pointers and rewrite only the snippet body into a shorter grounded claim before installing.",
         "- Keep all block decisions and snippet evidence on the current task row's own block indices only.",
         "- If a chunk is not useful, still include its result row with `is_useful: false` and an empty snippet list.",
         "- Treat each task row's `metadata.hint_path` file as guidance and its `metadata.input_path` file as the authoritative owned input.",
@@ -2581,14 +2934,6 @@ def _build_knowledge_workspace_worker_prompt(
         "",
         "Do not return the packet outputs in your final message. The authoritative result is the set of files written to the repo-declared local result paths.",
     ]
-    if task_ids:
-        lines.extend(
-            [
-                "",
-                "Assigned packet ids in required processing order:",
-                *[f"- {task_id}" for task_id in task_ids],
-            ]
-        )
     return "\n".join(lines)
 
 
@@ -2648,6 +2993,8 @@ def _write_knowledge_worker_hint(
                     "Use the hint file to understand whether this bundle looks like front matter, navigation, headings, or real reusable technique/reference text.",
                     "Use only chunk-local block text from `in/<shard_id>.json` as evidence in the final output.",
                     "A short chunk can still be real knowledge if it is genuinely technical or reference-like.",
+                    "Good snippet body: a shorter grounded claim. Bad snippet body: copied evidence quote text.",
+                    "Do not treat the task as finished until `python3 tools/knowledge_worker.py check-current` passes.",
                 ],
             ),
             ("Chunk previews", chunk_summaries or ["No chunk previews available."]),
@@ -3025,6 +3372,8 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 cohort_watchdog_state=cohort_watchdog_state,
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
+                execution_workspace_root=worker_root,
+                forbid_inline_python_heredocs=True,
                 expected_workspace_output_paths=[
                     out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
                 ],
@@ -3495,12 +3844,18 @@ def _run_knowledge_workspace_worker_assignment_v1(
 
             repair_attempted = False
             repair_status = "not_attempted"
+            repair_mode: str | None = None
             repair_skip_reason_code: str | None = None
             repair_skip_reason_detail: str | None = None
             if (
                 (interruption_requested is None or not interruption_requested.is_set())
                 and proposal_status == "invalid"
             ):
+                snippet_repair_applicable = _should_attempt_knowledge_snippet_repair(
+                    proposal_status=proposal_status,
+                    validation_errors=validation_errors,
+                    validation_metadata=validation_metadata,
+                )
                 current_failure_signature = _knowledge_failure_signature(
                     proposal_status=proposal_status,
                     validation_errors=validation_errors,
@@ -3528,6 +3883,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
                     }
                 else:
                     repair_attempted = True
+                    repair_mode = "snippet_only" if snippet_repair_applicable else "general"
                     if progress_state is not None:
                         progress_state.begin_followup(
                             worker_id=assignment.worker_id,
@@ -3544,19 +3900,34 @@ def _run_knowledge_workspace_worker_assignment_v1(
                             attempt_type="repair",
                         )
                     try:
-                        repair_run_result = _run_knowledge_repair_attempt(
-                            runner=runner,
-                            worker_root=worker_root,
-                            shard=shard,
-                            env=env,
-                            output_schema_path=output_schema_path,
-                            model=model,
-                            reasoning_effort=reasoning_effort,
-                            original_response_text=active_response_text,
-                            validation_errors=validation_errors,
-                            validation_metadata=validation_metadata,
-                            live_status_path=shard_root / "repair_live_status.json",
-                        )
+                        if snippet_repair_applicable:
+                            repair_run_result = _run_knowledge_snippet_repair_attempt(
+                                runner=runner,
+                                worker_root=worker_root,
+                                shard=shard,
+                                env=env,
+                                output_schema_path=output_schema_path,
+                                model=model,
+                                reasoning_effort=reasoning_effort,
+                                original_response_text=active_response_text,
+                                validation_errors=validation_errors,
+                                validation_metadata=validation_metadata,
+                                live_status_path=shard_root / "repair_live_status.json",
+                            )
+                        else:
+                            repair_run_result = _run_knowledge_repair_attempt(
+                                runner=runner,
+                                worker_root=worker_root,
+                                shard=shard,
+                                env=env,
+                                output_schema_path=output_schema_path,
+                                model=model,
+                                reasoning_effort=reasoning_effort,
+                                original_response_text=active_response_text,
+                                validation_errors=validation_errors,
+                                validation_metadata=validation_metadata,
+                                live_status_path=shard_root / "repair_live_status.json",
+                            )
                     finally:
                         if progress_state is not None:
                             progress_state.end_followup(
@@ -3574,7 +3945,11 @@ def _run_knowledge_workspace_worker_assignment_v1(
                         run_result=repair_run_result,
                         model=model,
                         reasoning_effort=reasoning_effort,
-                        prompt_input_mode="inline_repair",
+                        prompt_input_mode=(
+                            "inline_snippet_repair"
+                            if snippet_repair_applicable
+                            else "inline_repair"
+                        ),
                     )
                     worker_runner_results.append(dict(repair_payload))
                     repair_runner_rows = (
@@ -3635,6 +4010,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
                         {
                             "attempted": True,
                             "status": repair_status,
+                            "repair_mode": repair_mode,
                             "original_validation_errors": list(validation_errors),
                             "repair_validation_errors": list(repair_errors),
                             "state": repair_run_result.supervision_state or "completed",
@@ -3671,6 +4047,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 primary_row["retry_child_shard_ids"] = list(retry_child_shard_ids)
                 primary_row["repair_attempted"] = repair_attempted
                 primary_row["repair_status"] = repair_status
+                primary_row["repair_mode"] = repair_mode
                 primary_row["repair_skip_reason_code"] = repair_skip_reason_code
                 primary_row["repair_skip_reason_detail"] = repair_skip_reason_detail
             if primary_runner_row is not None:
@@ -3689,6 +4066,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 primary_runner_row["retry_child_shard_ids"] = list(retry_child_shard_ids)
                 primary_runner_row["repair_attempted"] = repair_attempted
                 primary_runner_row["repair_status"] = repair_status
+                primary_runner_row["repair_mode"] = repair_mode
                 primary_runner_row["repair_skip_reason_code"] = repair_skip_reason_code
                 primary_runner_row["repair_skip_reason_detail"] = repair_skip_reason_detail
             proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
@@ -3708,6 +4086,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
                     "retry_child_shard_ids": list(retry_child_shard_ids),
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
+                    "repair_mode": repair_mode,
                     "repair_skip_reason_code": repair_skip_reason_code,
                     "repair_skip_reason_detail": repair_skip_reason_detail,
                 },
@@ -4054,11 +4433,19 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
     workspace_task_entries = _build_knowledge_workspace_task_runtime_entries(runnable_tasks)
+    inventory_task_rows = [
+        build_workspace_inventory_task_row(asdict(task_entry))
+        for task_entry in workspace_task_entries
+    ]
     _write_json(
-        [asdict(task_entry) for task_entry in workspace_task_entries],
+        inventory_task_rows,
         worker_root / "assigned_tasks.json",
     )
     (worker_root / _KNOWLEDGE_SCRATCH_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    write_knowledge_workspace_sidecars(
+        worker_root=worker_root,
+        tasks=[asdict(task_entry) for task_entry in workspace_task_entries],
+    )
     for task in runnable_tasks:
         task_manifest = task.manifest_entry
         _write_worker_input(
@@ -4070,6 +4457,13 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
             path=hints_dir / f"{task_manifest.shard_id}.md",
             shard=task_manifest,
         )
+
+    task_queue_controller = _KnowledgeWorkspaceTaskQueueController(
+        worker_root=worker_root,
+        task_entries=tuple(workspace_task_entries),
+        worker_id=assignment.worker_id,
+        task_status_tracker=task_status_tracker,
+    )
 
     if runnable_shards and runnable_tasks:
         worker_prompt_text = _build_knowledge_workspace_worker_prompt(
@@ -4114,9 +4508,12 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 cohort_watchdog_state=cohort_watchdog_state,
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
+                execution_workspace_root=worker_root,
+                forbid_inline_python_heredocs=True,
                 expected_workspace_output_paths=[
                     out_dir / f"{task.task_id}.json" for task in runnable_tasks
                 ],
+                task_queue_controller=task_queue_controller,
                 workspace_output_observer=(
                     None
                     if progress_state is None
@@ -4141,6 +4538,37 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 run_result=run_result,
                 watchdog_policy="workspace_worker_v1",
             )
+        if str(run_result.supervision_state or "completed").strip() == "completed" and task_queue_controller.is_complete():
+            completed_payload = {
+                "state": "completed",
+                "reason_code": "workspace_validated_task_queue_completed",
+                "reason_detail": (
+                    "knowledge workspace worker produced repo-validated outputs for "
+                    "every assigned current-task packet"
+                ),
+                "retryable": False,
+                "watchdog_policy": "workspace_worker_v1",
+                **task_queue_controller.status_payload(),
+            }
+            _write_live_status(worker_live_status_path, completed_payload)
+            for live_status_path in shard_live_status_paths:
+                _write_live_status(live_status_path, completed_payload)
+        elif str(run_result.supervision_state or "completed").strip() == "completed":
+            incomplete_reason_detail = (
+                "knowledge workspace worker exited before every current-task packet "
+                "was individually validated by the repo-owned checker"
+            )
+            incomplete_payload = {
+                "state": "completed_with_failures",
+                "reason_code": "workspace_validated_task_queue_incomplete",
+                "reason_detail": incomplete_reason_detail,
+                "retryable": True,
+                "watchdog_policy": "workspace_worker_v1",
+                **task_queue_controller.status_payload(),
+            }
+            _write_live_status(worker_live_status_path, incomplete_payload)
+            for live_status_path in shard_live_status_paths:
+                _write_live_status(live_status_path, incomplete_payload)
         (worker_root / "events.jsonl").write_text(
             _render_events_jsonl(run_result.events),
             encoding="utf-8",
@@ -4169,6 +4597,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
         task_watchdog_retry_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_watchdog_retry_skip_reason_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
+        task_repair_mode_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_skip_reason_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
         for task_index, task in enumerate(runnable_tasks):
@@ -4359,12 +4788,18 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
 
             repair_attempted = False
             repair_status = "not_attempted"
+            repair_mode: str | None = None
             repair_skip_reason_code: str | None = None
             repair_skip_reason_detail: str | None = None
             if (
                 (interruption_requested is None or not interruption_requested.is_set())
                 and proposal_status == "invalid"
             ):
+                snippet_repair_applicable = _should_attempt_knowledge_snippet_repair(
+                    proposal_status=proposal_status,
+                    validation_errors=validation_errors,
+                    validation_metadata=validation_metadata,
+                )
                 current_failure_signature = _knowledge_failure_signature(
                     proposal_status=proposal_status,
                     validation_errors=validation_errors,
@@ -4392,6 +4827,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                     }
                 else:
                     repair_attempted = True
+                    repair_mode = "snippet_only" if snippet_repair_applicable else "general"
                     if progress_state is not None:
                         progress_state.begin_followup(
                             worker_id=assignment.worker_id,
@@ -4409,19 +4845,34 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                             attempt_type="repair",
                         )
                     try:
-                        repair_run_result = _run_knowledge_repair_attempt(
-                            runner=runner,
-                            worker_root=worker_root,
-                            shard=task_manifest,
-                            env=env,
-                            output_schema_path=output_schema_path,
-                            model=model,
-                            reasoning_effort=reasoning_effort,
-                            original_response_text=active_response_text,
-                            validation_errors=validation_errors,
-                            validation_metadata=validation_metadata,
-                            live_status_path=task_root / "repair_live_status.json",
-                        )
+                        if snippet_repair_applicable:
+                            repair_run_result = _run_knowledge_snippet_repair_attempt(
+                                runner=runner,
+                                worker_root=worker_root,
+                                shard=task_manifest,
+                                env=env,
+                                output_schema_path=output_schema_path,
+                                model=model,
+                                reasoning_effort=reasoning_effort,
+                                original_response_text=active_response_text,
+                                validation_errors=validation_errors,
+                                validation_metadata=validation_metadata,
+                                live_status_path=task_root / "repair_live_status.json",
+                            )
+                        else:
+                            repair_run_result = _run_knowledge_repair_attempt(
+                                runner=runner,
+                                worker_root=worker_root,
+                                shard=task_manifest,
+                                env=env,
+                                output_schema_path=output_schema_path,
+                                model=model,
+                                reasoning_effort=reasoning_effort,
+                                original_response_text=active_response_text,
+                                validation_errors=validation_errors,
+                                validation_metadata=validation_metadata,
+                                live_status_path=task_root / "repair_live_status.json",
+                            )
                     finally:
                         if progress_state is not None:
                             progress_state.end_followup(
@@ -4439,7 +4890,11 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                         run_result=repair_run_result,
                         model=model,
                         reasoning_effort=reasoning_effort,
-                        prompt_input_mode="inline_repair",
+                        prompt_input_mode=(
+                            "inline_snippet_repair"
+                            if snippet_repair_applicable
+                            else "inline_repair"
+                        ),
                     )
                     repair_payload["process_payload"]["runtime_task_id"] = task_manifest.shard_id
                     repair_payload["process_payload"]["runtime_parent_shard_id"] = parent_shard_id
@@ -4481,6 +4936,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                         {
                             "attempted": True,
                             "status": repair_status,
+                            "repair_mode": repair_mode,
                             "repair_validation_errors": list(repair_errors),
                             "state": repair_run_result.supervision_state or "completed",
                             "reason_code": repair_run_result.supervision_reason_code,
@@ -4492,6 +4948,10 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                     task_repair_status_by_shard_id.setdefault(parent_shard_id, {})[
                         task_manifest.shard_id
                     ] = repair_status
+                    if repair_mode:
+                        task_repair_mode_by_shard_id.setdefault(parent_shard_id, {})[
+                            task_manifest.shard_id
+                        ] = repair_mode
                     task_repair_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
                         task_manifest.shard_id
                     ] = tuple(repair_errors if repair_status == "failed" else ())
@@ -4511,6 +4971,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 primary_row["watchdog_retry_skip_reason_detail"] = watchdog_retry_skip_reason_detail
                 primary_row["repair_attempted"] = repair_attempted
                 primary_row["repair_status"] = repair_status
+                primary_row["repair_mode"] = repair_mode
                 primary_row["repair_skip_reason_code"] = repair_skip_reason_code
                 primary_row["repair_skip_reason_detail"] = repair_skip_reason_detail
             if primary_runner_row is not None:
@@ -4524,6 +4985,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 primary_runner_row["watchdog_retry_skip_reason_detail"] = watchdog_retry_skip_reason_detail
                 primary_runner_row["repair_attempted"] = repair_attempted
                 primary_runner_row["repair_status"] = repair_status
+                primary_runner_row["repair_mode"] = repair_mode
                 primary_runner_row["repair_skip_reason_code"] = repair_skip_reason_code
                 primary_runner_row["repair_skip_reason_detail"] = repair_skip_reason_detail
             task_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
@@ -4594,6 +5056,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
             task_watchdog_statuses = task_watchdog_retry_status_by_shard_id.get(shard.shard_id, {})
             task_watchdog_skip_reasons = task_watchdog_retry_skip_reason_by_shard_id.get(shard.shard_id, {})
             task_repair_statuses = task_repair_status_by_shard_id.get(shard.shard_id, {})
+            task_repair_modes = task_repair_mode_by_shard_id.get(shard.shard_id, {})
             task_repair_skip_reasons = task_repair_skip_reason_by_shard_id.get(shard.shard_id, {})
             task_repair_errors = task_repair_validation_errors_by_shard_id.get(shard.shard_id, {})
             payload, aggregation_metadata = _aggregate_knowledge_task_payloads(
@@ -4635,6 +5098,15 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 if task_repair_skip_reasons
                 else None
             )
+            repair_mode = (
+                "snippet_only"
+                if any(str(mode).strip() == "snippet_only" for mode in task_repair_modes.values())
+                else (
+                    "general"
+                    if any(str(mode).strip() == "general" for mode in task_repair_modes.values())
+                    else None
+                )
+            )
             repair_skip_reason_detail = (
                 f"task-level skip reasons: {dict(sorted(task_repair_skip_reasons.items()))}"
                 if task_repair_skip_reasons
@@ -4659,6 +5131,11 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                     task_id: status
                     for task_id, status in sorted(task_repair_statuses.items())
                 }
+            if task_repair_modes:
+                validation_metadata["task_repair_mode_by_task_id"] = {
+                    task_id: mode
+                    for task_id, mode in sorted(task_repair_modes.items())
+                }
             if task_repair_skip_reasons:
                 validation_metadata["task_repair_skip_reason_by_task_id"] = {
                     task_id: reason_code
@@ -4674,7 +5151,20 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
             )
             if repair_validation_errors:
                 validation_metadata["repair_validation_errors"] = repair_validation_errors
-            final_payload = payload_candidate if proposal_status == "validated" else None
+            promotable_invalid_bundle = (
+                extract_promotable_knowledge_bundle(
+                    payload=payload_candidate,
+                    validation_errors=validation_errors,
+                    validation_metadata=validation_metadata,
+                )
+                if proposal_status != "validated"
+                else None
+            )
+            final_payload = (
+                payload_candidate
+                if proposal_status == "validated" or promotable_invalid_bundle is not None
+                else None
+            )
             proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
             _write_json(
                 {
@@ -4692,6 +5182,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                     "retry_child_shard_ids": [],
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
+                    "repair_mode": repair_mode,
                     "repair_skip_reason_code": repair_skip_reason_code,
                     "repair_skip_reason_detail": repair_skip_reason_detail,
                 },
@@ -5038,8 +5529,11 @@ def _build_strict_json_watchdog_callback(
     shard_id: str | None = None,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
     allow_workspace_commands: bool = False,
+    execution_workspace_root: Path | None = None,
+    forbid_inline_python_heredocs: bool = False,
     silence_timeout_seconds: float | None = None,
     expected_workspace_output_paths: Sequence[Path] | None = None,
+    task_queue_controller: _KnowledgeWorkspaceTaskQueueController | None = None,
     workspace_output_observer: Callable[[int, int], None] | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
@@ -5050,15 +5544,30 @@ def _build_strict_json_watchdog_callback(
     workspace_output_paths = [Path(path) for path in (expected_workspace_output_paths or [])]
     last_complete_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
     workspace_output_stable_passes = 0
+    last_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
+    last_workspace_present_count = 0
+    last_output_progress_command_count: int | None = None
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         nonlocal last_complete_workspace_signature
         nonlocal workspace_output_stable_passes
+        nonlocal last_workspace_signature
+        nonlocal last_workspace_present_count
+        nonlocal last_output_progress_command_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
-        last_command_verdict = classify_workspace_worker_command(snapshot.last_command)
+        allowed_absolute_roots = (
+            [execution_workspace_root]
+            if execution_workspace_root is not None
+            else None
+        )
+        last_command_verdict = classify_workspace_worker_command(
+            snapshot.last_command,
+            allowed_absolute_roots=allowed_absolute_roots,
+        )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,
+            allowed_absolute_roots=allowed_absolute_roots,
         )
         final_agent_message_state = str(snapshot.final_agent_message_state or "absent")
         cohort_snapshot = (
@@ -5082,18 +5591,53 @@ def _build_strict_json_watchdog_callback(
                 int(workspace_output_status["present_count"]),
                 int(workspace_output_status["expected_count"]),
             )
+        current_workspace_signature = tuple(workspace_output_status["signature"])
+        current_workspace_present_count = int(workspace_output_status["present_count"])
+        task_queue_observation = (
+            task_queue_controller.observe_current_output()
+            if task_queue_controller is not None
+            else None
+        )
+        workspace_output_progress_observed = False
+        if current_workspace_present_count > last_workspace_present_count:
+            workspace_output_progress_observed = True
+        elif current_workspace_signature and current_workspace_signature != last_workspace_signature:
+            workspace_output_progress_observed = True
+        if workspace_output_progress_observed:
+            last_output_progress_command_count = int(snapshot.command_execution_count or 0)
+        last_workspace_present_count = current_workspace_present_count
+        last_workspace_signature = current_workspace_signature or None
+        recent_workspace_output_progress = (
+            last_output_progress_command_count is not None
+            and int(snapshot.command_execution_count or 0) - last_output_progress_command_count
+            <= _KNOWLEDGE_WORKSPACE_PROGRESS_GRACE_COMMANDS
+        )
         if workspace_output_status["complete"]:
-            current_signature = tuple(workspace_output_status["signature"])
-            if current_signature == last_complete_workspace_signature:
+            if current_workspace_signature == last_complete_workspace_signature:
                 workspace_output_stable_passes += 1
             else:
-                last_complete_workspace_signature = current_signature
+                last_complete_workspace_signature = current_workspace_signature
                 workspace_output_stable_passes = 1
         else:
             last_complete_workspace_signature = None
             workspace_output_stable_passes = 0
         if (
             allow_workspace_commands
+            and task_queue_controller is not None
+            and task_queue_controller.is_complete()
+        ):
+            decision = CodexExecSupervisionDecision.terminate(
+                reason_code="workspace_validated_task_queue_completed",
+                reason_detail=(
+                    "knowledge workspace worker produced repo-validated outputs for "
+                    "every assigned current-task packet"
+                ),
+                retryable=False,
+                supervision_state="completed",
+            )
+        elif (
+            allow_workspace_commands
+            and task_queue_controller is None
             and workspace_output_status["complete"]
             and workspace_output_stable_passes >= _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES
         ):
@@ -5108,9 +5652,24 @@ def _build_strict_json_watchdog_callback(
             )
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
-                if last_command_boundary_violation is None:
+                if (
+                    forbid_inline_python_heredocs
+                    and re.search(
+                        r"\bpython3?\b\s+-\s*<<['\"]?PY['\"]?",
+                        str(snapshot.last_command or ""),
+                    )
+                ):
+                    decision = CodexExecSupervisionDecision.terminate(
+                        reason_code="watchdog_inline_python_heredoc_forbidden",
+                        reason_detail=(
+                            "workspace worker used inline python heredoc execution instead "
+                            "of the repo-written helper or a short local file"
+                        ),
+                        retryable=True,
+                    )
+                if decision is None and last_command_boundary_violation is None:
                     command_execution_tolerated = True
-                else:
+                elif decision is None:
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code="watchdog_command_execution_forbidden",
                         reason_detail=format_watchdog_command_reason_detail(
@@ -5119,7 +5678,11 @@ def _build_strict_json_watchdog_callback(
                         ),
                         retryable=True,
                     )
-                if decision is None and should_terminate_workspace_command_loop(snapshot=snapshot):
+                if decision is None and should_terminate_workspace_command_loop(
+                    snapshot=snapshot,
+                    recent_output_progress=recent_workspace_output_progress,
+                    completed_output_count=current_workspace_present_count,
+                ):
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code="watchdog_command_loop_without_output",
                         reason_detail=format_watchdog_command_loop_reason_detail(
@@ -5239,6 +5802,28 @@ def _build_strict_json_watchdog_callback(
             "workspace_output_complete": workspace_output_status["complete"],
             "workspace_output_missing_files": workspace_output_status["missing_files"],
             "workspace_output_stable_passes": workspace_output_stable_passes,
+            "workspace_output_progress_observed": workspace_output_progress_observed,
+            "workspace_recent_output_progress": recent_workspace_output_progress,
+            **(
+                task_queue_controller.status_payload()
+                if task_queue_controller is not None
+                else {}
+            ),
+            "queue_current_output_present": (
+                bool(task_queue_observation.get("current_output_present"))
+                if isinstance(task_queue_observation, Mapping)
+                else None
+            ),
+            "queue_last_observed_task_id": (
+                task_queue_observation.get("current_task_id")
+                if isinstance(task_queue_observation, Mapping)
+                else None
+            ),
+            "queue_last_observation_advanced": (
+                bool(task_queue_observation.get("advanced"))
+                if isinstance(task_queue_observation, Mapping)
+                else None
+            ),
             "reason_code": decision.reason_code if decision is not None else None,
             "reason_detail": decision.reason_detail if decision is not None else None,
             "retryable": decision.retryable if decision is not None else False,
@@ -5511,12 +6096,18 @@ def _knowledge_failure_signature(
     reason_code = str(
         ((run_result.supervision_reason_code) if run_result is not None else "") or ""
     ).strip()
+    failure_classification = classify_knowledge_validation_failure(
+        validation_errors=validation_errors,
+        validation_metadata=metadata,
+    )
     if proposal_status == "missing_output" or "missing_output_file" in errors:
         return "missing_output"
     if reason_code == "watchdog_command_execution_forbidden":
         return "watchdog_boundary"
     if reason_code == "watchdog_command_loop_without_output":
         return "watchdog_command_loop"
+    if bool(failure_classification.get("snippet_copy_only")):
+        return "snippet_copy_only"
     if "response_json_invalid" in errors or "response_not_json_object" in errors:
         return "invalid_json"
     if "schema_invalid" in errors:
@@ -5544,17 +6135,26 @@ def _is_knowledge_near_miss(
 ) -> bool:
     if proposal_status != "invalid":
         return False
-    errors = {str(error).strip() for error in validation_errors if str(error).strip()}
-    if not errors or len(errors) > 2:
+    failure_classification = classify_knowledge_validation_failure(
+        validation_errors=validation_errors,
+        validation_metadata=validation_metadata,
+    )
+    return bool(failure_classification.get("repairable_near_miss"))
+
+
+def _should_attempt_knowledge_snippet_repair(
+    *,
+    proposal_status: str,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any] | None,
+) -> bool:
+    if proposal_status != "invalid":
         return False
-    if not errors.issubset(_KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS):
-        return False
-    metadata = dict(validation_metadata or {})
-    if metadata.get("semantic_rejection"):
-        return False
-    if metadata.get("non_grounded_snippet_chunk_ids") or metadata.get("echoed_full_chunk_ids"):
-        return False
-    return True
+    failure_classification = classify_knowledge_validation_failure(
+        validation_errors=validation_errors,
+        validation_metadata=validation_metadata,
+    )
+    return bool(failure_classification.get("snippet_only_repair"))
 
 
 def _should_attempt_knowledge_watchdog_retry(
@@ -5778,8 +6378,15 @@ def _should_attempt_knowledge_repair(
     *,
     proposal_status: str,
     validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any] | None = None,
 ) -> bool:
     if proposal_status != "invalid":
+        return False
+    failure_classification = classify_knowledge_validation_failure(
+        validation_errors=validation_errors,
+        validation_metadata=validation_metadata,
+    )
+    if bool(failure_classification.get("snippet_only_repair")):
         return False
     repairable_errors = {
         "response_json_invalid",
@@ -5789,6 +6396,56 @@ def _should_attempt_knowledge_repair(
         "unexpected_chunk_results",
     }
     return bool(set(validation_errors).intersection(repairable_errors))
+
+
+def _run_knowledge_snippet_repair_attempt(
+    *,
+    runner: CodexExecRunner,
+    worker_root: Path,
+    shard: ShardManifestEntryV1,
+    env: Mapping[str, str],
+    output_schema_path: Path | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    original_response_text: str,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+    live_status_path: Path | None = None,
+) -> CodexExecRunResult:
+    prompt_text = _build_knowledge_snippet_repair_prompt(
+        shard=shard,
+        original_response_text=original_response_text,
+        validation_errors=validation_errors,
+        validation_metadata=validation_metadata,
+    )
+    (worker_root / "shards" / shard.shard_id / "snippet_repair_prompt.txt").write_text(
+        prompt_text,
+        encoding="utf-8",
+    )
+    return runner.run_structured_prompt(
+        prompt_text=prompt_text,
+        input_payload={
+            "repair_mode": "knowledge_snippet_only",
+            "bid": shard.shard_id,
+            "shard_id": shard.shard_id,
+            "owned_ids": list(shard.owned_ids),
+            "validation_errors": list(validation_errors),
+            "validation_metadata": dict(validation_metadata or {}),
+            "authoritative_input": _coerce_dict(shard.input_payload),
+            "previous_output": _truncate_for_repair(original_response_text),
+        },
+        working_dir=worker_root,
+        env=env,
+        output_schema_path=output_schema_path,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        workspace_task_label="knowledge snippet repair shard",
+        supervision_callback=(
+            _build_strict_json_watchdog_callback(live_status_path=live_status_path)
+            if live_status_path is not None
+            else None
+        ),
+    )
 
 
 def _run_knowledge_repair_attempt(
@@ -5975,6 +6632,51 @@ def _build_knowledge_repair_prompt(
         "- Preserve chunk-local evidence and do not invent synthetic ids.\n\n"
         f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
         f"Missing owned chunk ids: {missing_ids or '[none recorded]'}\n\n"
+        "Authoritative shard input:\n"
+        "<BEGIN_INPUT_JSON>\n"
+        f"{authoritative_input}\n"
+        "<END_INPUT_JSON>\n\n"
+        "Previous invalid output:\n"
+        "<BEGIN_PREVIOUS_OUTPUT>\n"
+        f"{_truncate_for_repair(original_response_text)}\n"
+        "<END_PREVIOUS_OUTPUT>\n"
+    )
+
+
+def _build_knowledge_snippet_repair_prompt(
+    *,
+    shard: ShardManifestEntryV1,
+    original_response_text: str,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+) -> str:
+    owned_ids = ", ".join(str(chunk_id) for chunk_id in shard.owned_ids)
+    echoed_chunk_ids = ", ".join(
+        str(chunk_id)
+        for chunk_id in (validation_metadata.get("echoed_full_chunk_ids") or [])
+    )
+    authoritative_input = json.dumps(
+        _coerce_dict(shard.input_payload),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return (
+        "Repair the invalid knowledge shard output by rewriting snippet bodies only.\n\n"
+        "Rules:\n"
+        "- Return JSON only.\n"
+        "- Return compact minified JSON on a single line.\n"
+        "- Do not run shell commands, Python, or any other tools.\n"
+        "- The first emitted character must be `{`.\n"
+        f"- `bid` must be `{shard.shard_id}`.\n"
+        "- Return exactly one result row for each owned chunk id.\n"
+        f"- Owned chunk ids: {owned_ids}\n"
+        "- Preserve every existing `chunk_id`, `is_useful`, `block_decisions`, `reason_code`, and evidence pointer.\n"
+        "- Rewrite only `snippets[*].body`.\n"
+        "- Each rewritten snippet body must be a short grounded extraction, not copied evidence prose.\n"
+        "- Do not add new snippets, drop snippets, or change evidence quotes.\n\n"
+        f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
+        f"Copied-snippet chunk ids: {echoed_chunk_ids or '[none recorded]'}\n\n"
         "Authoritative shard input:\n"
         "<BEGIN_INPUT_JSON>\n"
         f"{authoritative_input}\n"

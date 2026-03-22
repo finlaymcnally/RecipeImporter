@@ -266,8 +266,12 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     worker_root = runtime_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
+    assert "current_task.json" in worker_prompt
     assert "OUTPUT_CONTRACT.md" in worker_prompt
-    assert "Workspace-local shell commands are broadly allowed when they materially help" in worker_prompt
+    assert "python3 tools/recipe_worker.py overview" in worker_prompt
+    assert "python3 tools/recipe_worker.py prepare-all --dest-dir scratch/" in worker_prompt
+    assert "python3 tools/recipe_worker.py finalize-all scratch/" in worker_prompt
+    assert "finalize scratch/<task_id>.json" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "open `hints/<task_id>.md` first" in worker_prompt
     assert "Legacy keys are invalid here" in worker_prompt
@@ -276,19 +280,24 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
+        "current_task.json",
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
+    assert worker_manifest["current_task_file"] == "current_task.json"
     assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest["examples_dir"] == "examples"
+    assert worker_manifest["tools_dir"] == "tools"
     assert worker_manifest["hints_dir"] == "hints"
     assert "valid_repaired_task_output.json" in worker_manifest["mirrored_example_files"]
+    assert worker_manifest["mirrored_tool_files"] == ["recipe_worker.py"]
     output_contract = (worker_root / "OUTPUT_CONTRACT.md").read_text(encoding="utf-8")
     assert "Compact keys only" in output_contract
     assert "Forbidden legacy keys" in output_contract
     assert (worker_root / "examples" / "valid_repaired_task_output.json").exists()
     assert (worker_root / "examples" / "valid_fragmentary_task_output.json").exists()
     assert (worker_root / "examples" / "valid_not_a_recipe_task_output.json").exists()
+    assert (worker_root / "tools" / "recipe_worker.py").exists()
     assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-001.md").exists()
     assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-002.md").exists()
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))

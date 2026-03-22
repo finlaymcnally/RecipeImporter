@@ -235,10 +235,20 @@ def test_codex_exec_runner_only_kills_pathological_workspace_command_loops() -> 
     )
     assert should_terminate_workspace_command_loop(snapshot=over_budget_snapshot) is True
 
+    assert (
+        should_terminate_workspace_command_loop(
+            snapshot=over_budget_snapshot,
+            recent_output_progress=True,
+            completed_output_count=2,
+        )
+        is False
+    )
+
 
 def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat assigned_shards.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc cat assigned_shards.json") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat current_task.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'head -n 20 in/shard-001.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'jq .rows[0] in/shard-001.json'") is True
     assert (
@@ -418,6 +428,75 @@ def test_codex_exec_runner_detects_boundary_violations_separately_from_telemetry
     )
     assert forbidden_path is not None
     assert forbidden_path.policy == "forbidden_absolute_path"
+
+
+def test_codex_exec_runner_allows_absolute_paths_inside_explicit_execution_root() -> None:
+    execution_root = Path(
+        "/home/mcnal/.codex-recipe/recipeimport-direct-exec-workspaces/worker-004"
+    )
+    startup_command = (
+        '/bin/bash -lc "cd '
+        f"{execution_root}"
+        ' && printf \'=== worker_manifest.json\\n\' && sed -n \'1,220p\' worker_manifest.json"'
+    )
+    helper_command = (
+        '/bin/bash -lc "python3 '
+        f"{execution_root / 'tools' / 'knowledge_worker.py'}"
+        ' overview"'
+    )
+
+    for command in (startup_command, helper_command):
+        baseline_verdict = detect_workspace_worker_boundary_violation(command)
+        assert baseline_verdict is not None
+        assert baseline_verdict.policy == "forbidden_absolute_path"
+
+        assert (
+            detect_workspace_worker_boundary_violation(
+                command,
+                allowed_absolute_roots=[execution_root],
+            )
+            is None
+        )
+        classification = classify_workspace_worker_command(
+            command,
+            allowed_absolute_roots=[execution_root],
+        )
+        assert classification.allowed is True
+        assert classification.policy in {
+            "shell_script_workspace_local",
+            "tolerated_workspace_shell_command",
+        }
+
+
+def test_codex_exec_runner_keeps_outside_roots_and_absolute_out_paths_forbidden() -> None:
+    execution_root = Path(
+        "/home/mcnal/.codex-recipe/recipeimport-direct-exec-workspaces/worker-004"
+    )
+    outside_root = Path("/home/mcnal/projects/recipeimport")
+    outside_command = (
+        '/bin/bash -lc "cd '
+        f"{outside_root}"
+        ' && sed -n \'1,40p\' pyproject.toml"'
+    )
+    outside_verdict = detect_workspace_worker_boundary_violation(
+        outside_command,
+        allowed_absolute_roots=[execution_root],
+    )
+    assert outside_verdict is not None
+    assert outside_verdict.policy == "forbidden_absolute_path"
+
+    out_path_command = (
+        '/bin/bash -lc "sed -n \'1,20p\' '
+        f"{execution_root / 'out' / 'task-001.json'}"
+        '"'
+    )
+    out_path_verdict = detect_workspace_worker_boundary_violation(
+        out_path_command,
+        allow_output_paths=False,
+        allowed_absolute_roots=[execution_root],
+    )
+    assert out_path_verdict is not None
+    assert out_path_verdict.policy == "forbidden_output_path"
 
 
 def test_codex_exec_runner_keeps_unparseable_but_bounded_shell_unclassified() -> None:

@@ -1014,6 +1014,43 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
     assert summary["structural_status_counts"]["warning"] == 1
 
 
+def test_build_pair_diagnostics_keeps_correction_empty_mapping_out_of_final_recipe_flag(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    codex_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_12.05.00",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture()[:2],
+    )
+    baseline_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_12.04.00",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+    )
+
+    diagnostics = module._build_pair_diagnostics(
+        source_key="source-hash",
+        source_file="book.epub",
+        codex_run=codex_record,
+        baseline_run=baseline_record,
+        excerpt_limit=120,
+        targeted_case_limit=10,
+    )
+
+    triage_row = next(
+        row for row in diagnostics.recipe_triage_rows if row["recipe_id"] == "recipe:c0"
+    )
+    assert triage_row["correction_empty_mapping"] is True
+    assert triage_row["final_recipe_empty_mapping"] is False
+    assert triage_row["build_final_call_id"] == ""
+
+
 def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> None:
     module = _load_cutdown_module()
     codex_record = _make_run_record(
@@ -2333,6 +2370,18 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
     assert codex_diag["projection_trace_status"] == "written"
     assert codex_diag["wrong_label_full_context_status"] == "written"
     assert codex_diag["preprocess_trace_failures_status"] == "written"
+    payload_rows = _read_jsonl(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+    baseline_trace_parity = next(
+        row["content_json"]
+        for row in payload_rows
+        if row.get("path")
+        == f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/16_baseline_trace_parity.json"
+    )
+    pair_row = baseline_trace_parity["pair_rows"][0]
+    assert pair_row["codex_statuses"][module.PROMPT_WARNING_AGGREGATE_FILE_NAME] == "present"
+    assert pair_row["codex_statuses"][module.PROJECTION_TRACE_FILE_NAME] == "present"
+    assert pair_row["codex_statuses"][module.PREPROCESS_TRACE_FAILURES_FILE_NAME] == "present"
+    assert pair_row["parity_flags"]["codex_only_trace_fields_present_for_codex"] is True
 
     artifact_index = index_payload.get("artifact_index")
     assert isinstance(artifact_index, list)

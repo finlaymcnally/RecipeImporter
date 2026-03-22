@@ -5,7 +5,10 @@ The logical contents come from an existing `upload_bundle_v1` benchmark package,
 Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.
 Within that attachment, start with `upload_bundle_overview.md`, then use `upload_bundle_index.json` and `upload_bundle_payload.jsonl` only as needed to verify details.
 The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.
-Follow-up data is available locally. If the first-pass bundle is not enough to confirm or falsify your hypotheses, ask for narrow follow-up artifacts rather than a rerun or a duplicate copy of the bundle.
+Your primary goal is to help improve Codex benchmark accuracy, not merely to judge whether the current packet is internally consistent.
+Prioritize the remaining highest-leverage errors, regressions, and observability gaps that block the next concrete accuracy improvement.
+Follow-up data is available locally. Ask for narrow follow-up artifacts whenever they would materially sharpen the next accuracy-improvement step, even if the first-pass bundle is already enough to write a plausible high-level review.
+Only write `None` in `Requested follow-up data` when the attached packet is already sufficient to identify the next concrete fix or experiment without additional local evidence.
 Prefer requests keyed to exact artifact names, `upload_bundle_index.json` row locators, case ids, source keys, line ranges, or knowledge output subdirs when possible.
 Useful local follow-up tools include `cf-debug structure-report`, `select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, and `build-followup`.
 Return a detailed report with exactly four sections: `Top regressions`, `Likely cause buckets`, `Immediate next checks`, and `Requested follow-up data`.

@@ -15,7 +15,10 @@ from cookimport.bench.oracle_followup import (
     run_oracle_benchmark_followup,
 )
 from cookimport.bench.oracle_followup import OracleFollowupWorkspace
-from cookimport.bench.oracle_upload import OracleUploadResult, resolve_oracle_benchmark_bundle
+from cookimport.bench.oracle_upload import (
+    OracleUploadResult,
+    resolve_oracle_benchmark_bundle,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -131,6 +134,7 @@ def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(tmp_p
         "continue-session",
         "you-are-reviewing-a-benchmark-301",
     ]
+    assert "--browser-keep-browser" not in result.command
     assert workspace.handoff_path.is_file()
     assert workspace.request_json_path.is_file()
     assert workspace.prompt_path.is_file()

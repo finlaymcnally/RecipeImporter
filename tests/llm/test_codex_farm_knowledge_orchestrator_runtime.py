@@ -599,22 +599,21 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
             out_dir = working_dir / "out"
             out_dir.mkdir(parents=True, exist_ok=True)
             supervision_callback = kwargs.get("supervision_callback")
+            current_task_path = working_dir / "current_task.json"
 
             while True:
-                lease_status = json.loads(
-                    (working_dir / "packet_lease_status.json").read_text(encoding="utf-8")
-                )
-                if lease_status["worker_state"] == "all_packets_settled":
+                if not current_task_path.exists():
                     break
-                current_packet = json.loads(
-                    (working_dir / "current_packet.json").read_text(encoding="utf-8")
-                )
-                current_hint = (working_dir / "current_hint.md").read_text(encoding="utf-8")
-                result_path_text = (
-                    working_dir / "current_result_path.txt"
-                ).read_text(encoding="utf-8").strip()
+                current_task = json.loads(current_task_path.read_text(encoding="utf-8"))
+                task_metadata = dict(current_task.get("metadata") or {})
+                task_id = str(current_task.get("task_id") or "").strip()
+                hint_path = working_dir / str(task_metadata.get("hint_path") or "").strip()
+                current_hint = hint_path.read_text(encoding="utf-8")
+                result_path_text = str(task_metadata.get("result_path") or "").strip()
                 result_path = working_dir / result_path_text
-                self.seen_task_ids.append(current_packet["task_id"])
+                input_path = working_dir / str(task_metadata.get("input_path") or "").strip()
+                input_payload = json.loads(input_path.read_text(encoding="utf-8"))
+                self.seen_task_ids.append(task_id)
                 self.seen_result_paths.append(result_path_text)
                 self.seen_hint_prefixes.append(current_hint.splitlines()[0].strip())
 
@@ -622,7 +621,7 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
                     json.dumps(
                         build_structural_pipeline_output(
                             "recipe.knowledge.compact.v1",
-                            dict(current_packet["input_payload"] or {}),
+                            dict(input_payload or {}),
                         ),
                         indent=2,
                         sort_keys=True,
@@ -637,7 +636,7 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
                             event_count=len(self.seen_task_ids),
                             command_execution_count=len(self.seen_task_ids),
                             reasoning_item_count=0,
-                            last_command="/bin/bash -lc 'cat current_packet.json'",
+                            last_command="/bin/bash -lc 'cat current_task.json'",
                             last_command_repeat_count=1,
                             has_final_agent_message=False,
                             timeout_seconds=kwargs.get("timeout_seconds"),
@@ -645,13 +644,11 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
                     )
                 deadline = time.time() + 2.0
                 while time.time() < deadline:
-                    refreshed_status = json.loads(
-                        (working_dir / "packet_lease_status.json").read_text(encoding="utf-8")
-                    )
-                    if (
-                        refreshed_status["worker_state"] == "all_packets_settled"
-                        or refreshed_status["current_task_id"] != current_packet["task_id"]
-                    ):
+                    if not current_task_path.exists():
+                        break
+                    refreshed_task = json.loads(current_task_path.read_text(encoding="utf-8"))
+                    refreshed_task_id = str(refreshed_task.get("task_id") or "").strip()
+                    if refreshed_task_id != task_id:
                         break
                     time.sleep(0.05)
 
@@ -767,10 +764,6 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
         if line.strip()
     ]
     proposal = json.loads((phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8"))
-    final_current_packet = json.loads(
-        (worker_root / "current_packet.json").read_text(encoding="utf-8")
-    )
-
     assert runner.seen_task_ids == [
         "book.ks0000.nr.task-001",
         "book.ks0000.nr.task-002",
@@ -780,10 +773,13 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
         "out/book.ks0000.nr.task-002.json",
     ]
     assert all("Knowledge review hints" in prefix for prefix in runner.seen_hint_prefixes)
-    assert json.loads(
-        (worker_root / "packet_lease_status.json").read_text(encoding="utf-8")
-    )["worker_state"] == "all_packets_settled"
-    assert final_current_packet["task_id"] is None
+    assert not (worker_root / "current_task.json").exists()
+    assert "No current task is active" in (
+        worker_root / "CURRENT_TASK.md"
+    ).read_text(encoding="utf-8")
+    assert "queue is complete" in (
+        worker_root / "CURRENT_TASK_FEEDBACK.md"
+    ).read_text(encoding="utf-8").lower()
     assert [row["state"] for row in task_status_rows] == ["validated", "validated"]
     assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == (
         runner.seen_task_ids

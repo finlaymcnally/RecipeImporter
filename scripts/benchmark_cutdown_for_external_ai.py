@@ -4396,7 +4396,7 @@ def _build_pair_diagnostics(
         final_recipe_mapping_count = _mapping_count(
             build_final_parsed.get("ingredient_step_mapping")
         )
-        final_recipe_empty_mapping = _is_empty_mapping_value(
+        final_recipe_empty_mapping = bool(build_final_row) and _is_empty_mapping_value(
             build_final_parsed.get("ingredient_step_mapping")
         )
         final_recipe_warnings = _coerce_str_list(build_final_parsed.get("warnings"))
@@ -4500,7 +4500,7 @@ def _build_pair_diagnostics(
                 "build_intermediate_extra_block_count": 0,
                 "final_recipe_step_count": final_recipe_step_count,
                 "final_recipe_mapping_count": final_recipe_mapping_count,
-                "final_recipe_empty_mapping": final_recipe_empty_mapping or correction_empty_mapping,
+                "final_recipe_empty_mapping": final_recipe_empty_mapping,
                 "final_recipe_warning_count": final_recipe_warning_count,
                 "final_recipe_warning_buckets": final_recipe_warning_buckets,
                 "build_intermediate_clamped_block_loss_count": 0,
@@ -10116,10 +10116,16 @@ def _starter_pack_build_baseline_trace_parity_cues(
     comparison_pairs: list[dict[str, Any]],
     run_rows: list[dict[str, Any]],
     run_dir_by_id: dict[str, Path],
+    run_diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     row_by_run_id = {
         str(row.get("run_id") or "").strip(): row
         for row in run_rows
+        if isinstance(row, dict) and str(row.get("run_id") or "").strip()
+    }
+    diagnostic_by_run_id = {
+        str(row.get("run_id") or "").strip(): row
+        for row in (run_diagnostics or [])
         if isinstance(row, dict) and str(row.get("run_id") or "").strip()
     }
     artifact_names = (
@@ -10129,6 +10135,30 @@ def _starter_pack_build_baseline_trace_parity_cues(
         WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
         PREPROCESS_TRACE_FAILURES_FILE_NAME,
     )
+
+    def _diagnostic_status_for_artifact(
+        *,
+        run_diagnostic: dict[str, Any] | None,
+        artifact_name: str,
+    ) -> str | None:
+        if not isinstance(run_diagnostic, dict):
+            return None
+        field_by_artifact = {
+            PROMPT_WARNING_AGGREGATE_FILE_NAME: "prompt_warning_aggregate_status",
+            PROJECTION_TRACE_FILE_NAME: "projection_trace_status",
+            WRONG_LABEL_FULL_CONTEXT_FILE_NAME: "wrong_label_full_context_status",
+            PREPROCESS_TRACE_FAILURES_FILE_NAME: "preprocess_trace_failures_status",
+        }
+        field_name = field_by_artifact.get(artifact_name)
+        if not field_name:
+            return None
+        status = str(run_diagnostic.get(field_name) or "").strip()
+        if not status:
+            return None
+        if status == "written":
+            return "present"
+        return status
+
     pair_rows: list[dict[str, Any]] = []
     parity_counter: Counter[str] = Counter()
     for pair in comparison_pairs:
@@ -10144,6 +10174,8 @@ def _starter_pack_build_baseline_trace_parity_cues(
         baseline_row = row_by_run_id.get(baseline_run_id, {})
         codex_dir = run_dir_by_id.get(codex_run_id)
         baseline_dir = run_dir_by_id.get(baseline_run_id)
+        codex_diag = diagnostic_by_run_id.get(codex_run_id)
+        baseline_diag = diagnostic_by_run_id.get(baseline_run_id)
         codex_enabled = _upload_bundle_is_codex_pipeline_enabled(
             codex_row.get("llm_recipe_pipeline")
         )
@@ -10153,24 +10185,37 @@ def _starter_pack_build_baseline_trace_parity_cues(
         codex_statuses: dict[str, str] = {}
         baseline_statuses: dict[str, str] = {}
         for artifact_name in artifact_names:
-            codex_statuses[artifact_name] = (
-                _starter_pack_status_for_artifact(
-                    run_dir=codex_dir,
-                    artifact_name=artifact_name,
-                    codex_enabled=codex_enabled,
-                )
-                if isinstance(codex_dir, Path)
-                else "missing"
+            codex_status = _diagnostic_status_for_artifact(
+                run_diagnostic=codex_diag,
+                artifact_name=artifact_name,
             )
-            baseline_statuses[artifact_name] = (
-                _starter_pack_status_for_artifact(
-                    run_dir=baseline_dir,
-                    artifact_name=artifact_name,
-                    codex_enabled=baseline_enabled,
+            if codex_status is None:
+                codex_status = (
+                    _starter_pack_status_for_artifact(
+                        run_dir=codex_dir,
+                        artifact_name=artifact_name,
+                        codex_enabled=codex_enabled,
+                    )
+                    if isinstance(codex_dir, Path)
+                    else "missing"
                 )
-                if isinstance(baseline_dir, Path)
-                else "missing"
+            codex_statuses[artifact_name] = codex_status
+
+            baseline_status = _diagnostic_status_for_artifact(
+                run_diagnostic=baseline_diag,
+                artifact_name=artifact_name,
             )
+            if baseline_status is None:
+                baseline_status = (
+                    _starter_pack_status_for_artifact(
+                        run_dir=baseline_dir,
+                        artifact_name=artifact_name,
+                        codex_enabled=baseline_enabled,
+                    )
+                    if isinstance(baseline_dir, Path)
+                    else "missing"
+                )
+            baseline_statuses[artifact_name] = baseline_status
         parity_flags = {
             "need_to_know_summary_parity": (
                 codex_statuses.get("need_to_know_summary.json")
@@ -12553,6 +12598,7 @@ def _write_upload_bundle_three_files(
         comparison_pairs=comparison_pairs,
         run_rows=run_rows,
         run_dir_by_id=run_dir_by_id,
+        run_diagnostics=run_diagnostics,
     )
     (
         explicit_escalation_changed_lines_summary,

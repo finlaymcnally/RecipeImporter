@@ -1030,6 +1030,170 @@ def test_label_atomic_lines_long_to_make_variant_paragraph_is_not_howto_heading(
     assert predictions[0].label == "RECIPE_VARIANT"
 
 
+def test_label_atomic_lines_variations_heading_can_anchor_outside_recipe_variant_run() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:heading:1",
+            "block_index": 1,
+            "text": "Variations",
+        },
+        {
+            "block_id": "block:variant:heading:2",
+            "block_index": 2,
+            "text": (
+                "If you don't have cabbage on hand, or simply want to try something "
+                "new, make an Alterna-slaw, using 1 large bunch raw kale, 1 1/2 "
+                "pounds raw Brussels sprouts, or 1 1/2 pounds raw kohlrabi instead."
+            ),
+        },
+        {
+            "block_id": "block:variant:heading:3",
+            "block_index": 3,
+            "text": (
+                "For Mexi-Slaw, substitute a neutral-tasting oil for the olive oil, "
+                "lime juice for the lemon juice, and cilantro for the parsley."
+            ),
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+    ]
+
+
+def test_label_atomic_lines_lead_variant_paragraph_keeps_following_rows_in_variant_run() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:run:1",
+            "block_index": 1,
+            "text": (
+                "To make Caprese Salad, alternate heirloom tomato slices with 1/2-inch "
+                "slices of fresh mozzarella or burrata cheese before seasoning and "
+                "dressing."
+            ),
+        },
+        {
+            "block_id": "block:variant:run:2",
+            "block_index": 2,
+            "text": "12 torn basil leaves",
+        },
+        {
+            "block_id": "block:variant:run:3",
+            "block_index": 3,
+            "text": "Mound the cherry tomatoes over the tomato slices and serve.",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:variant",
+        within_recipe_span=True,
+    )
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+    ]
+
+
+def test_label_atomic_lines_generic_to_make_step_stays_instruction_not_variant() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:false-positive:generic-make:1",
+            "block_index": 1,
+            "text": (
+                "To make the salad, use your hands to toss the greens and Torn "
+                "Croutons with an abundant amount of dressing in a large bowl to coat "
+                "evenly."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:caesar",
+        within_recipe_span=True,
+    )
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert predictions[0].label == "INSTRUCTION_LINE"
+
+
+def test_label_atomic_lines_variant_run_does_not_pull_following_notes_into_variant() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:notes:1",
+            "block_index": 1,
+            "text": "Variation",
+        },
+        {
+            "block_id": "block:variant:notes:2",
+            "block_index": 2,
+            "text": (
+                "To make Goma-Ae dressing, substitute 1/4 cup seasoned rice wine "
+                "vinegar for the lemon juice and omit the cumin."
+            ),
+        },
+        {
+            "block_id": "block:variant:notes:3",
+            "block_index": 3,
+            "text": "Ideal for drizzling over roasted vegetables or grilled fish.",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+        "RECIPE_NOTES",
+    ]
+
+
+def test_label_atomic_lines_bare_variations_heading_without_variant_body_stays_other() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:false-positive:1",
+            "block_index": 1,
+            "text": "Variations",
+        },
+        {
+            "block_id": "block:variant:false-positive:2",
+            "block_index": 2,
+            "text": (
+                "Different acids behave differently in emulsions, and each one changes "
+                "flavor in its own way."
+            ),
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert predictions[0].label == "OTHER"
+    assert predictions[1].label == "OTHER"
+
+
 def test_label_atomic_lines_long_to_serve_sentence_defaults_away_from_howto_section() -> None:
     blocks = [
         {
@@ -3919,16 +4083,23 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
     assert "You are processing many canonical line-role task packets inside one local worker workspace." in prompt_text
-    assert "Start by opening `worker_manifest.json`, then `assigned_tasks.json`, then `assigned_shards.json`." in prompt_text
+    assert "Start by opening `worker_manifest.json`, then `current_task.json`, then `OUTPUT_CONTRACT.md`" in prompt_text
+    assert "`tools/line_role_worker.py` exists, use it as the paved road" in prompt_text
+    assert "metadata.scratch_draft_path" in prompt_text
+    assert "python3 tools/line_role_worker.py finalize <draft_path>" in prompt_text
+    assert "python3 tools/line_role_worker.py finalize-all scratch/" in prompt_text
+    assert "`prepare-all --dest-dir scratch/`, and `scaffold <task_id> --dest scratch/<task_id>.json` are fallback/debug tools" in prompt_text
+    assert "Long handwritten `jq` transforms are unnecessary here" in prompt_text
     assert "keep them narrow and grounded on the named local files only" in prompt_text
     assert "Stay inside this workspace" in prompt_text
-    assert "Read `assigned_tasks.json` and process the assigned task packets in order." in prompt_text
+    assert "Treat `current_task.json` as the cheapest repo-written next task row." in prompt_text
+    assert "Use `assigned_tasks.json` for the ordered queue" in prompt_text
     assert "open `hints/<task_id>.md` first" in prompt_text
     assert "Treat each packet's deterministic label code as a strong prior." in prompt_text
-    assert "If `examples/` exists, use those repo-written contrast examples" in prompt_text
+    assert "If `OUTPUT_CONTRACT.md` or `examples/` exists" in prompt_text
     assert "`HOWTO_SECTION` is book-optional" in prompt_text
     assert "Balancing Fat" in prompt_text
-    assert "write exactly one JSON object to `out/<task_id>.json`." in prompt_text
+    assert "Write exactly one JSON object to `out/<task_id>.json`." in prompt_text
     worker_prompt_text = (
         tmp_path
         / "line-role-pipeline"
@@ -3956,17 +4127,61 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     )
     assert worker_manifest_payload["entry_files"] == [
         "worker_manifest.json",
+        "current_task.json",
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
+    assert worker_manifest_payload["current_task_file"] == "current_task.json"
+    assert worker_manifest_payload["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest_payload["examples_dir"] == "examples"
+    assert worker_manifest_payload["tools_dir"] == "tools"
     assert worker_manifest_payload["hints_dir"] == "hints"
     assert worker_manifest_payload["mirrored_example_files"] == [
         "01-lesson-prose-vs-howto.md",
         "02-memoir-vs-knowledge.md",
         "03-recipe-internal-sections.md",
         "04-book-optional-howto.md",
+        "valid_line_role_output.json",
     ]
+    assert worker_manifest_payload["mirrored_tool_files"] == ["line_role_worker.py"]
+    assert worker_manifest_payload["mirrored_scratch_files"] == [
+        "line-role-canonical-0001-a000000-a000000.json"
+    ]
+    current_task_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "current_task.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert current_task_payload["metadata"]["input_path"].startswith("in/")
+    assert current_task_payload["metadata"]["hint_path"].startswith("hints/")
+    assert current_task_payload["metadata"]["result_path"].startswith("out/")
+    assert current_task_payload["metadata"]["scratch_draft_path"].startswith("scratch/")
+    assert current_task_payload["metadata"]["owned_row_count"] == 1
+    assert current_task_payload["metadata"]["atomic_index_start"] == 0
+    assert current_task_payload["metadata"]["atomic_index_end"] == 0
+    assert current_task_payload["metadata"]["deterministic_label_counts"] == {
+        "OTHER": 1
+    }
+    scratch_draft_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / current_task_payload["metadata"]["scratch_draft_path"]
+        ).read_text(encoding="utf-8")
+    )
+    assert scratch_draft_payload == {
+        "rows": [{"atomic_index": 0, "label": "OTHER"}]
+    }
     worker_hint_text = (
         tmp_path
         / "line-role-pipeline"
@@ -4044,6 +4259,35 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "worker-001"
         / "examples"
         / "01-lesson-prose-vs-howto.md"
+    ).exists()
+    assert (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "OUTPUT_CONTRACT.md"
+    ).exists()
+    assert (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "examples"
+        / "valid_line_role_output.json"
+    ).exists()
+    assert (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "tools"
+        / "line_role_worker.py"
     ).exists()
 
 
@@ -4143,7 +4387,7 @@ def test_label_atomic_lines_writes_canonical_line_table_and_task_status(
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == ["OTHER", "KNOWLEDGE"]
+    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
     runtime_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
     line_table_rows = [
         json.loads(line)

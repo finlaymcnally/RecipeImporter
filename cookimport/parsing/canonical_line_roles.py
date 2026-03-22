@@ -76,6 +76,16 @@ from cookimport.parsing.recipe_block_atomizer import (
     build_atomic_index_lookup,
     get_atomic_line_neighbor_texts,
 )
+from cookimport.parsing.line_role_workspace_tools import (
+    LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
+    LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME,
+    LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD,
+    LINE_ROLE_WORKER_TOOL_FILENAME,
+    build_line_role_scratch_draft_path,
+    build_line_role_seed_output,
+    build_line_role_workspace_task_metadata,
+    render_line_role_worker_script,
+)
 
 _PROSE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
 _QUANTITY_LINE_RE = re.compile(
@@ -148,6 +158,12 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "- Prefer a conservative non-structural label unless the local packet shows immediate recipe-local support.\n",
     ),
 )
+_LINE_ROLE_OUTPUT_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
+    (
+        LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME,
+        json.dumps(LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD, indent=2, sort_keys=True) + "\n",
+    ),
+)
 _TITLE_CONNECTOR_WORDS = {
     "a",
     "an",
@@ -203,7 +219,8 @@ _SERVING_NOTE_PREFIX_RE = re.compile(
     r"^\s*(?:ideal for|serve with)\b",
     re.IGNORECASE,
 )
-_VARIANT_EXPLICIT_HEADINGS = {"variation", "for a crowd"}
+_VARIANT_GENERIC_HEADINGS = {"variation", "variations"}
+_VARIANT_EXPLICIT_HEADINGS = {*_VARIANT_GENERIC_HEADINGS, "for a crowd"}
 _VARIANT_RECIPE_SUFFIXES = (
     "OMELET",
     "HASH",
@@ -2104,6 +2121,15 @@ def _build_line_role_task_manifest_entry(
     task_plan: _LineRoleTaskPlan,
 ) -> TaskManifestEntryV1:
     task_manifest = task_plan.manifest_entry
+    metadata = build_line_role_workspace_task_metadata(
+        task_id=task_plan.task_id,
+        parent_shard_id=task_plan.parent_shard_id,
+        input_payload=_coerce_mapping_dict(task_manifest.input_payload),
+        input_path=f"in/{task_plan.task_id}.json",
+        hint_path=f"hints/{task_plan.task_id}.md",
+        result_path=f"out/{task_plan.task_id}.json",
+        scratch_draft_path=build_line_role_scratch_draft_path(task_plan.task_id),
+    )
     return TaskManifestEntryV1(
         task_id=task_plan.task_id,
         task_kind="line_role_label_packet",
@@ -2113,7 +2139,7 @@ def _build_line_role_task_manifest_entry(
         input_text=task_manifest.input_text,
         metadata={
             **_coerce_mapping_dict(task_manifest.metadata),
-            "phase_key": "line_role",
+            **metadata,
         },
     )
 
@@ -2511,6 +2537,8 @@ def _run_line_role_workspace_worker_assignment_v1(
 ) -> _DirectLineRoleWorkerResult:
     out_dir = worker_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
+    scratch_dir = worker_root / "scratch"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     worker_failure_count = 0
     worker_proposal_count = 0
     worker_runner_results: list[dict[str, Any]] = []
@@ -2633,17 +2661,29 @@ def _run_line_role_workspace_worker_assignment_v1(
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
-    _write_runtime_json(
-        worker_root / "assigned_tasks.json",
-        [
-            _line_role_asdict(_build_line_role_task_manifest_entry(task))
-            for task in all_task_plans
-        ],
-    )
+    assigned_task_rows = [
+        _line_role_asdict(_build_line_role_task_manifest_entry(task))
+        for task in all_task_plans
+    ]
+    assigned_task_row_by_task_id = {
+        str(task_row.get("task_id") or "").strip(): task_row
+        for task_row in assigned_task_rows
+        if str(task_row.get("task_id") or "").strip()
+    }
+    _write_runtime_json(worker_root / "assigned_tasks.json", assigned_task_rows)
     _write_line_role_worker_examples(worker_root=worker_root)
+    _write_line_role_output_contract(worker_root=worker_root)
+    _write_line_role_worker_tools(worker_root=worker_root)
     for task in all_task_plans:
         task_manifest = task.manifest_entry
         task_id = task_manifest.shard_id
+        task_row = assigned_task_row_by_task_id.get(task_id)
+        if task_row is not None:
+            draft_path = worker_root / build_line_role_scratch_draft_path(task_id)
+            _write_runtime_json(
+                draft_path,
+                build_line_role_seed_output(task_row),
+            )
         _write_worker_debug_input(
             path=in_dir / f"{task_id}.json",
             payload=task_manifest.input_payload,
@@ -4126,15 +4166,22 @@ def _build_line_role_workspace_worker_prompt(
         "You are processing many canonical line-role task packets inside one local worker workspace.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
-        "- Start by opening `worker_manifest.json`, then `assigned_tasks.json`, then `assigned_shards.json`.\n"
-        "- Prefer opening the named files directly. If you need shell helpers, keep them narrow and grounded on the named local files only.\n"
+        "- Start by opening `worker_manifest.json`, then `current_task.json`, then `OUTPUT_CONTRACT.md`.\n"
+        "- The normal path is repo-written already: open `hints/<task_id>.md`, `in/<task_id>.json`, and the `metadata.scratch_draft_path` named in `current_task.json`; edit that prewritten draft only where the deterministic seed is wrong; then run `python3 tools/line_role_worker.py finalize <draft_path>`.\n"
+        "- If several prewritten drafts are ready, `python3 tools/line_role_worker.py finalize-all scratch/` is the preferred bulk completion path.\n"
+        "- If `tools/line_role_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.\n"
+        "- `python3 tools/line_role_worker.py overview`, `show <task_id>`, `check <json_path>`, `prepare-all --dest-dir scratch/`, and `scaffold <task_id> --dest scratch/<task_id>.json` are fallback/debug tools, not the default starting path.\n"
+        "- Long handwritten `jq` transforms are unnecessary here because the helper can already expand the deterministic label codes into the correct output shape.\n"
+        "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on the named local files only.\n"
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
-        "- Read `assigned_tasks.json` and process the assigned task packets in order.\n"
+        "- Treat `current_task.json` as the cheapest repo-written next task row. Open its named files first.\n"
+        "- Use `assigned_tasks.json` for the ordered queue and `assigned_shards.json` only for shard ownership context.\n"
         "- For each assigned task, open `hints/<task_id>.md` first, then open `in/<task_id>.json`.\n"
         "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative task packet for that worker step.\n"
         "- Treat each packet's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
-        "- If `examples/` exists, use those repo-written contrast examples for calibration only; do not copy them into outputs.\n"
-        "- Recompute labels from that task file and write exactly one JSON object to `out/<task_id>.json`.\n"
+        "- If `OUTPUT_CONTRACT.md` or `examples/` exists, use those repo-written files as the authoritative output-shape reference.\n"
+        "- If `examples/*.md` exists, use those contrast examples for calibration only; do not copy them into outputs.\n"
+        "- Write exactly one JSON object to `out/<task_id>.json`.\n"
         "- If `out/<task_id>.json` already exists and is complete, leave it alone and continue.\n"
         "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
         "- Stay inside this workspace; do not inspect parent directories or the repository.\n"
@@ -4147,7 +4194,7 @@ def _build_line_role_workspace_worker_prompt(
         "- Use only the keys `rows`, `atomic_index`, and `label` in each output file.\n"
         "- `context_before_rows` and `context_after_rows` are reference-only neighboring rows. Read them if helpful, but never emit labels for them.\n"
         "- Return one result for every owned input row in `rows`, in the same order.\n"
-        "- Convert `label_code` into the correct full label string.\n"
+        "- Convert `label_code` into the correct full label string. The helper scaffold already does this deterministically.\n"
         "- `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
         "- `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.\n"
         "- `TIME_LINE`: stand-alone timing or temperature lines, not full instruction sentences.\n"
@@ -4173,10 +4220,28 @@ def _write_line_role_worker_examples(*, worker_root: Path) -> list[str]:
     examples_dir = worker_root / "examples"
     examples_dir.mkdir(parents=True, exist_ok=True)
     written_files: list[str] = []
-    for filename, content in _LINE_ROLE_PACKET_EXAMPLE_FILES:
+    for filename, content in (
+        *_LINE_ROLE_PACKET_EXAMPLE_FILES,
+        *_LINE_ROLE_OUTPUT_EXAMPLE_FILES,
+    ):
         (examples_dir / filename).write_text(content, encoding="utf-8")
         written_files.append(filename)
     return written_files
+
+
+def _write_line_role_output_contract(*, worker_root: Path) -> None:
+    (worker_root / "OUTPUT_CONTRACT.md").write_text(
+        LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
+        encoding="utf-8",
+    )
+
+
+def _write_line_role_worker_tools(*, worker_root: Path) -> list[str]:
+    tools_dir = worker_root / "tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    tool_path = tools_dir / LINE_ROLE_WORKER_TOOL_FILENAME
+    tool_path.write_text(render_line_role_worker_script(), encoding="utf-8")
+    return [LINE_ROLE_WORKER_TOOL_FILENAME]
 
 
 def _write_line_role_worker_hint(
@@ -6198,20 +6263,16 @@ def _deterministic_label(
     )
     if howto_prose_label is not None:
         return howto_prose_label, howto_prose_reason_tags
+    variant_context_label, variant_context_reason_tags = _classify_variant_run_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if variant_context_label is not None:
+        return variant_context_label, variant_context_reason_tags
     if "note_prefix" in tags or _looks_note_text(candidate.text):
         return "RECIPE_NOTES", ["note_prefix"]
     if _looks_storage_or_serving_note(candidate.text):
         return "RECIPE_NOTES", ["storage_or_serving_note"]
-    if "variant_heading" in tags or _looks_variant_heading_text(candidate.text):
-        if (
-            _is_outside_recipe_span(candidate)
-            and _outside_span_variant_should_be_recipe_title(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            )
-        ):
-            return "RECIPE_TITLE", ["title_like", "variant_heading_title_override"]
-        return "RECIPE_VARIANT", ["variant_heading"]
     if _looks_editorial_note(candidate.text):
         if _is_within_recipe_span(candidate):
             return "RECIPE_NOTES", ["editorial_note"]
@@ -6436,8 +6497,18 @@ def _sanitize_prediction(
             reason_tags.append(
                 "sanitized_yield_to_instruction"
                 if label == "INSTRUCTION_LINE"
-                else "sanitized_yield_non_header"
+            else "sanitized_yield_non_header"
             )
+    if label == "RECIPE_VARIANT" and not _variant_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        label = _variant_fallback_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        decided_by = "fallback"
+        reason_tags.append("sanitized_variant_without_local_support")
     if (
         _is_outside_recipe_span(candidate)
         and label in _RECIPEISH_OUTSIDE_SPAN_LABELS
@@ -6555,7 +6626,10 @@ def _outside_span_structured_label_allowed(
             by_atomic_index=by_atomic_index,
         )
     if label == "RECIPE_VARIANT":
-        return _looks_variant_heading_text(text) or has_neighboring_component_structure
+        return _variant_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ) or has_neighboring_component_structure
     if label == "HOWTO_SECTION":
         return _howto_section_label_allowed(
             candidate,
@@ -6635,10 +6709,33 @@ def _classify_non_heading_howto_prose(
     lowered = text.lower()
     if lowered.startswith("to make "):
         if _is_within_recipe_span(candidate):
-            return "RECIPE_VARIANT", ["howto_prefix_prose", "recipe_local_variant_prose"]
-        if by_atomic_index is not None and _outside_span_has_neighboring_component_structure(
-            candidate,
-            by_atomic_index=by_atomic_index,
+            if _looks_named_variant_recipe_name_prefix(text) or (
+                by_atomic_index is not None
+                and _has_neighboring_variant_heading(
+                    candidate,
+                    by_atomic_index=by_atomic_index,
+                )
+            ):
+                return "RECIPE_VARIANT", [
+                    "howto_prefix_prose",
+                    "recipe_local_variant_prose",
+                ]
+            return "INSTRUCTION_LINE", ["howto_prefix_prose", "recipe_local_make_step"]
+        if (
+            _looks_named_variant_recipe_name_prefix(text)
+            or (
+                by_atomic_index is not None
+                and (
+                    _outside_span_has_neighboring_component_structure(
+                        candidate,
+                        by_atomic_index=by_atomic_index,
+                    )
+                    or _has_neighboring_variant_heading(
+                        candidate,
+                        by_atomic_index=by_atomic_index,
+                    )
+                )
+            )
         ):
             return "RECIPE_VARIANT", [
                 "howto_prefix_prose",
@@ -6682,6 +6779,36 @@ def _classify_non_heading_howto_prose(
     if _is_outside_recipe_span(candidate):
         return "OTHER", ["howto_prefix_prose", "outside_recipe_default_other"]
     return "OTHER", ["howto_prefix_prose", "default_other"]
+
+
+def _classify_variant_run_context(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> tuple[str | None, list[str]]:
+    text = str(candidate.text or "").strip()
+    if _variant_heading_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        if (
+            _is_outside_recipe_span(candidate)
+            and _outside_span_variant_should_be_recipe_title(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            return "RECIPE_TITLE", ["title_like", "variant_heading_title_override"]
+        tags = ["variant_heading"]
+        if _normalized_variant_heading_text(text) in _VARIANT_GENERIC_HEADINGS:
+            tags.append("variant_heading_supported")
+        return "RECIPE_VARIANT", tags
+    if by_atomic_index is not None and _is_within_variant_run(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "RECIPE_VARIANT", ["variant_run_continuation"]
+    return None, []
 
 
 def _howto_section_label_allowed(
@@ -6830,6 +6957,45 @@ def _instruction_line_fallback_label(
             candidate,
             by_atomic_index=by_atomic_index,
         )
+    return "OTHER"
+
+
+def _variant_fallback_label(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> str:
+    howto_prose_label, _ = _classify_non_heading_howto_prose(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if howto_prose_label is not None and howto_prose_label != "RECIPE_VARIANT":
+        return howto_prose_label
+    if _looks_recipe_title_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "RECIPE_TITLE"
+    if _looks_obvious_ingredient(candidate):
+        return "INGREDIENT_LINE"
+    if _instruction_line_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "INSTRUCTION_LINE"
+    if _looks_storage_or_serving_note(candidate.text) or _looks_recipe_note_prose(
+        candidate.text
+    ):
+        return "RECIPE_NOTES"
+    if _is_outside_recipe_span(candidate):
+        return _outside_span_nonstructured_fallback_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    if _looks_direct_instruction_start(candidate) or _looks_instructional_neighbor(
+        candidate
+    ):
+        return "INSTRUCTION_LINE"
     return "OTHER"
 
 def _is_primary_time_line(text: str) -> bool:
@@ -7256,6 +7422,10 @@ def _looks_note_text(text: str) -> bool:
     return bool(_NOTE_PREFIX_RE.match(text))
 
 
+def _normalized_variant_heading_text(text: str) -> str:
+    return str(text or "").strip().rstrip(":").lower()
+
+
 def _looks_variant_heading_text(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped:
@@ -7279,7 +7449,7 @@ def _looks_variant_heading_text(text: str) -> bool:
     words = _PROSE_WORD_RE.findall(stripped)
     if not words or len(words) > 8:
         return False
-    lowered = stripped.lower()
+    lowered = _normalized_variant_heading_text(stripped)
     if lowered in _VARIANT_EXPLICIT_HEADINGS:
         return True
     if lowered.startswith("with "):
@@ -7291,6 +7461,209 @@ def _looks_variant_heading_text(text: str) -> bool:
         uppercase_ratio = (uppercase_chars / alpha_chars) if alpha_chars else 0.0
         return uppercase_ratio >= 0.70
     return False
+
+
+def _looks_named_variant_recipe_name_prefix(text: str) -> bool:
+    stripped = str(text or "").strip()
+    match = re.match(r"^\s*To make\s+(.+)$", stripped, re.IGNORECASE)
+    if match is None:
+        return False
+    remainder = match.group(1).strip()
+    if not remainder:
+        return False
+    words = _PROSE_WORD_RE.findall(remainder)
+    if len(words) < 2:
+        return False
+    lead_words = list(words[:6])
+    while lead_words and lead_words[0].lower() in {"a", "an", "the"}:
+        lead_words.pop(0)
+    if len(lead_words) < 2:
+        return False
+    capitalized_word_count = 0
+    consumed_any = False
+    for word in lead_words:
+        lowered = word.lower()
+        if word[:1].isupper() or word.upper() == word:
+            capitalized_word_count += 1
+            consumed_any = True
+            continue
+        if consumed_any and lowered in _TITLE_CONNECTOR_WORDS:
+            continue
+        break
+    return capitalized_word_count >= 2
+
+
+def _has_neighboring_variant_heading(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    radius: int = 2,
+) -> bool:
+    center = int(candidate.atomic_index)
+    for offset in range(1, max(1, int(radius)) + 1):
+        for neighbor_index in (center - offset, center + offset):
+            neighbor = by_atomic_index.get(neighbor_index)
+            if neighbor is None:
+                continue
+            if _looks_variant_heading_text(neighbor.text):
+                return True
+    return False
+
+
+def _looks_variant_run_body_line(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    text = str(candidate.text or "").strip()
+    lowered = text.lower()
+    if not text:
+        return False
+    if _looks_obvious_ingredient(candidate):
+        return True
+    if _looks_direct_instruction_start(candidate) or _looks_instructional_neighbor(
+        candidate
+    ):
+        return True
+    if lowered.startswith("to make ") and _looks_non_heading_howto_prose(text):
+        return True
+    if not _looks_prose(text):
+        return False
+    if (
+        _looks_editorial_note(text)
+        or _looks_narrative_prose(text)
+        or _looks_book_framing_or_exhortation_prose(text)
+        or _outside_recipe_knowledge_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        return False
+    if _looks_named_variant_recipe_name_prefix(text):
+        return True
+    if lowered.startswith("if you don't have "):
+        return True
+    if lowered.startswith("for ") and "," in text:
+        return True
+    return any(
+        cue in lowered
+        for cue in (
+            " substitute ",
+            " instead",
+            " variation",
+            " variations",
+            " version",
+            " skip ",
+        )
+    )
+
+
+def _variant_heading_label_allowed(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    text = str(candidate.text or "").strip()
+    if not _looks_variant_heading_text(text):
+        return False
+    if _normalized_variant_heading_text(text) not in _VARIANT_GENERIC_HEADINGS:
+        return True
+    if by_atomic_index is None:
+        return False
+    center = int(candidate.atomic_index)
+    for offset in range(1, 3):
+        for neighbor_index in (center - offset, center + offset):
+            neighbor = by_atomic_index.get(neighbor_index)
+            if neighbor is None:
+                continue
+            if _looks_variant_run_body_line(
+                neighbor,
+                by_atomic_index=by_atomic_index,
+            ):
+                return True
+    return False
+
+
+def _looks_variant_run_anchor(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    text = str(candidate.text or "").strip()
+    lowered = text.lower()
+    if (
+        _normalized_variant_heading_text(text) in _VARIANT_GENERIC_HEADINGS
+        and _variant_heading_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        return True
+    if not (lowered.startswith("to make ") and _looks_non_heading_howto_prose(text)):
+        return False
+    if _is_within_recipe_span(candidate):
+        return True
+    if _looks_named_variant_recipe_name_prefix(text):
+        return True
+    return _outside_span_has_neighboring_component_structure(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ) or _has_neighboring_variant_heading(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+
+
+def _is_within_variant_run(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    max_distance: int = 6,
+) -> bool:
+    if _looks_variant_run_anchor(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return False
+    if not _looks_variant_run_body_line(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return False
+    center = int(candidate.atomic_index)
+    for offset in range(1, max(1, int(max_distance)) + 1):
+        previous = by_atomic_index.get(center - offset)
+        if previous is None:
+            break
+        if _looks_variant_run_anchor(
+            previous,
+            by_atomic_index=by_atomic_index,
+        ):
+            return True
+        if not _looks_variant_run_body_line(
+            previous,
+            by_atomic_index=by_atomic_index,
+        ):
+            break
+    return False
+
+
+def _variant_label_allowed(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    howto_prose_label, _ = _classify_non_heading_howto_prose(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if howto_prose_label == "RECIPE_VARIANT":
+        return True
+    variant_context_label, _ = _classify_variant_run_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    return variant_context_label == "RECIPE_VARIANT"
 
 
 def _looks_editorial_note(text: str) -> bool:

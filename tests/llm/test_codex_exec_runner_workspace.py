@@ -22,7 +22,19 @@ def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(
         encoding="utf-8",
     )
     (source_root / "assigned_tasks.json").write_text(
-        json.dumps([{"task_id": "shard-001", "parent_shard_id": "shard-001"}]),
+        json.dumps(
+            [
+                {
+                    "task_id": "shard-001",
+                    "parent_shard_id": "shard-001",
+                    "metadata": {
+                        "input_path": "in/shard-001.json",
+                        "hint_path": "hints/shard-001.md",
+                        "result_path": "out/shard-001.json",
+                    },
+                }
+            ]
+        ),
         encoding="utf-8",
     )
     (source_root / "in" / "shard-001.json").write_text(
@@ -85,6 +97,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     (source_root / "in").mkdir(parents=True, exist_ok=True)
     (source_root / "hints").mkdir(parents=True, exist_ok=True)
     (source_root / "examples").mkdir(parents=True, exist_ok=True)
+    (source_root / "tools").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps([{"shard_id": "shard-001"}]),
         encoding="utf-8",
@@ -109,6 +122,10 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
         json.dumps({"v": "1", "sid": "shard-001", "r": []}),
         encoding="utf-8",
     )
+    (source_root / "tools" / "line_role_worker.py").write_text(
+        "print('helper')\n",
+        encoding="utf-8",
+    )
 
     workspace = prepare_direct_exec_workspace(
         source_working_dir=source_root,
@@ -125,23 +142,29 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
+        "current_task.json",
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
+    assert worker_manifest["current_task_file"] == "current_task.json"
     assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest["examples_dir"] == "examples"
+    assert worker_manifest["tools_dir"] == "tools"
     assert worker_manifest["hints_dir"] == "hints"
     assert worker_manifest["scratch_dir"] == "scratch"
     assert worker_manifest["mirrored_example_files"] == ["valid_repaired_task_output.json"]
+    assert worker_manifest["mirrored_tool_files"] == ["line_role_worker.py"]
     assert worker_manifest["workspace_shell_policy"].startswith(
         "Allow ordinary local shell use inside this workspace"
     )
     assert worker_manifest["workspace_local_shell_examples"] == [
         "sed -n '1,80p' hints/<task>.md",
-        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('assigned_tasks.json').read_text())[0]; print(row['task_id'])\"",
-        "python3 -c \"from pathlib import Path; Path('out/<shard>.json').write_text(Path('in/<shard>.json').read_text())\"",
-        "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
-        "cat <<'EOF' > /tmp/local-helper.json",
+        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\"",
+        "jq '.metadata' current_task.json",
+        "python3 tools/line_role_worker.py overview",
+        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row.get('metadata', {}).get('scratch_draft_path', ''))\"",
+        "python3 tools/line_role_worker.py finalize scratch/<task>.json",
+        "python3 tools/line_role_worker.py finalize-all scratch/",
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
@@ -151,6 +174,8 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "Read the local task manifests and input files directly." in agents_text
     assert "Start by reading `worker_manifest.json`" in agents_text
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
+    assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
+    assert "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`" in agents_text
     assert "`assigned_tasks.json`" in agents_text
     assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
     assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
@@ -159,9 +184,15 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "`/tmp` or `/var/tmp` for bounded helper files" in agents_text
     assert "dumping whole manifests just to orient yourself" in agents_text
     assert "prefer a short local `python3` helper" in agents_text
+    assert "repo-written `complete-current` or `check-current` helper" in agents_text
+    current_task = json.loads(
+        (workspace.execution_working_dir / "current_task.json").read_text(encoding="utf-8")
+    )
+    assert current_task["task_id"] == "shard-001"
     assert (workspace.execution_working_dir / "out").exists()
     assert (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
     assert (workspace.execution_working_dir / "examples" / "valid_repaired_task_output.json").exists()
+    assert (workspace.execution_working_dir / "tools" / "line_role_worker.py").exists()
     assert (workspace.execution_working_dir / "hints" / "shard-001.md").exists()
     assert (workspace.execution_working_dir / "scratch").exists()
 
@@ -209,6 +240,7 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
+    assert worker_manifest["current_task_file"] is None
     assert worker_manifest["current_packet_file"] == "current_packet.json"
     assert worker_manifest["current_hint_file"] == "current_hint.md"
     assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
@@ -218,6 +250,7 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
     assert (workspace.execution_working_dir / "current_hint.md").exists()
     assert (workspace.execution_working_dir / "current_result_path.txt").exists()
     assert (workspace.execution_working_dir / "packet_lease_status.json").exists()
+    assert not (workspace.execution_working_dir / "current_task.json").exists()
     assert (workspace.execution_working_dir / "scratch").exists()
 
 
@@ -235,6 +268,17 @@ def test_workspace_boundary_detector_allows_jq_fallback_operator_with_output_red
         "shell_script_workspace_local",
         "tolerated_workspace_shell_command",
     }
+
+
+def test_workspace_boundary_detector_allows_workspace_tool_helper() -> None:
+    command = (
+        "/bin/bash -lc "
+        "\"python3 tools/line_role_worker.py scaffold task-001 --dest scratch/task-001.json\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+    verdict = classify_workspace_worker_command(command)
+    assert verdict.allowed is True
 
 
 def test_workspace_boundary_detector_allows_bounded_python_and_node_transforms() -> None:

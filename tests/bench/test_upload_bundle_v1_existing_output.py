@@ -234,6 +234,61 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
     ]
 
 
+def test_existing_output_adapter_counts_final_recipe_calls_only_when_observed(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "session"
+    source_root.mkdir(parents=True, exist_ok=True)
+
+    def _load_json_object(path: Path) -> dict[str, object]:
+        if path.name == "run_index.json":
+            return {
+                "runs": [
+                    {
+                        "run_id": "codexfarm",
+                        "output_subdir": "codexfarm",
+                        "source_file": "book.epub",
+                        "source_hash": "book-hash",
+                        "source_key": "book-hash",
+                        "llm_recipe_pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+                    }
+                ]
+            }
+        if path.name == "10_process_manifest.json":
+            return {"schema_version": "starter_pack_manifest.v1"}
+        return {}
+
+    helpers = ExistingOutputAdapterHelpers(
+        load_json_object=_load_json_object,
+        iter_jsonl=lambda _path: [],
+        load_recipe_triage_rows=lambda _path: [
+            {
+                "recipe_id": "recipe:c0",
+                "correction_call_id": "correction-call",
+                "build_final_call_id": "",
+            }
+        ],
+        discover_run_dirs=lambda _path: [],
+        build_run_record_from_existing_run=lambda _path: SimpleNamespace(),
+        build_comparison_summary=lambda **_kwargs: ({}, [], [], [], [], [], []),
+        coerce_int=_coerce_int,
+        source_file_name=lambda value: str(value or ""),
+        source_key=_source_key,
+        select_starter_pack_recipe_cases=lambda rows: rows,
+        build_selected_recipe_packets=lambda **_kwargs: [],
+    )
+    model = build_upload_bundle_source_model_from_existing_root(
+        source_root=source_root,
+        helpers=helpers,
+    )
+
+    assert model.topology["observed_recipe_stage_call_counts"] == {
+        "build_intermediate_det": 1,
+        "recipe_llm_correct_and_link": 1,
+        "build_final_recipe": 0,
+    }
+
+
 def test_stage_renderer_accepts_synthetic_alternate_topology_model() -> None:
     model = UploadBundleSourceModel(
         source_root=Path("/tmp/fake"),

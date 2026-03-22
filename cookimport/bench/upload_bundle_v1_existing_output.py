@@ -283,6 +283,7 @@ def build_recipe_pipeline_topology(
             continue
         if str(row.get("correction_call_id") or "").strip():
             observed_correction_call_count += 1
+        if str(row.get("build_final_call_id") or "").strip():
             observed_final_recipe_build_count += 1
         execution_mode = str(row.get("build_final_status") or "").strip()
         routing_reason = str(row.get("final_mapping_reason") or "").strip()

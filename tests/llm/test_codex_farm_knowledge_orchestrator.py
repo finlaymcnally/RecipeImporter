@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -23,6 +25,7 @@ from cookimport.llm.codex_exec_runner import CodexExecRunResult
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
+from cookimport.llm.phase_worker_runtime import TaskManifestEntryV1
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 
@@ -33,6 +36,8 @@ def _semantic_packet_output(
     chunk_id: str,
     block_indices: list[int],
     useful: bool = True,
+    snippet_body: str = "Fake knowledge snippet.",
+    evidence_quote: str = "Fake knowledge snippet.",
 ) -> dict[str, object]:
     return {
         "packet_id": packet_id,
@@ -50,11 +55,11 @@ def _semantic_packet_output(
                 "snippets": (
                     [
                         {
-                            "body": "Fake knowledge snippet.",
+                            "body": snippet_body,
                             "evidence": [
                                 {
                                     "block_index": block_indices[0],
-                                    "quote": "Fake knowledge snippet.",
+                                    "quote": evidence_quote,
                                 }
                             ],
                         }
@@ -233,6 +238,114 @@ def test_knowledge_workspace_watchdog_allows_bounded_python_heredoc(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
+def test_knowledge_workspace_watchdog_can_forbid_inline_python_heredoc(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        forbid_inline_python_heredocs=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.7,
+            last_event_seconds_ago=0.0,
+            event_count=18,
+            command_execution_count=7,
+            reasoning_item_count=0,
+            last_command=(
+                "/bin/bash -lc \"python3 - <<'PY'\n"
+                "from pathlib import Path\n"
+                "Path('out/task-001.json').write_text(Path('current_task.json').read_text())\n"
+                "PY\""
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_inline_python_heredoc_forbidden"
+
+
+def test_knowledge_workspace_watchdog_allows_execution_root_cd_prefix(
+    tmp_path: Path,
+) -> None:
+    worker_root = Path(
+        "/home/mcnal/.codex-recipe/recipeimport-direct-exec-workspaces/worker-root"
+    )
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        execution_workspace_root=worker_root,
+    )
+    command = (
+        '/bin/bash -lc "cd '
+        f"{worker_root}"
+        ' && printf \'=== worker_manifest.json\\n\' && sed -n \'1,220p\' worker_manifest.json"'
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.8,
+            last_event_seconds_ago=0.0,
+            event_count=18,
+            command_execution_count=7,
+            reasoning_item_count=0,
+            last_command=command,
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
+def test_knowledge_workspace_watchdog_still_rejects_absolute_paths_outside_execution_root(
+    tmp_path: Path,
+) -> None:
+    worker_root = Path(
+        "/home/mcnal/.codex-recipe/recipeimport-direct-exec-workspaces/worker-root"
+    )
+    outside_root = Path("/home/mcnal/projects/recipeimport")
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        execution_workspace_root=worker_root,
+    )
+    command = (
+        '/bin/bash -lc "cd '
+        f"{outside_root}"
+        ' && printf \'=== worker_manifest.json\\n\' && sed -n \'1,220p\' worker_manifest.json"'
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.8,
+            last_event_seconds_ago=0.0,
+            event_count=18,
+            command_execution_count=7,
+            reasoning_item_count=0,
+            last_command=command,
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_command_execution_forbidden"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy"] == "forbidden_absolute_path"
+    assert live_status["last_command_boundary_violation_detected"] is True
+
+
 def test_knowledge_strict_json_watchdog_kills_silent_retry(
     tmp_path: Path,
 ) -> None:
@@ -323,6 +436,7 @@ def test_knowledge_workspace_watchdog_stops_after_outputs_stabilize(
             timeout_seconds=30,
         )
     )
+    first_live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     second = callback(
         CodexExecLiveSnapshot(
             elapsed_seconds=0.7,
@@ -347,6 +461,187 @@ def test_knowledge_workspace_watchdog_stops_after_outputs_stabilize(
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
     assert live_status["last_command_boundary_violation_detected"] is False
+
+
+def test_knowledge_workspace_watchdog_completes_only_after_live_task_validation(
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    task_id = "book.ks0000.nr.task-001"
+    input_payload = {
+        "v": "2",
+        "bid": task_id,
+        "c": [
+            {
+                "cid": "chunk-001",
+                "b": [
+                    {
+                        "i": 0,
+                        "t": "Use low heat to keep the milk from curdling.",
+                    }
+                ],
+            }
+        ],
+    }
+    (in_dir / f"{task_id}.json").write_text(
+        json.dumps(input_payload),
+        encoding="utf-8",
+    )
+    (tmp_path / "assigned_tasks.json").write_text(
+        json.dumps(
+            [
+                {
+                    "task_id": task_id,
+                    "parent_shard_id": "book.ks0000.nr",
+                    "owned_ids": ["chunk-001"],
+                    "metadata": {
+                        "input_path": f"in/{task_id}.json",
+                        "hint_path": f"hints/{task_id}.md",
+                        "result_path": f"out/{task_id}.json",
+                        "task_sequence": 1,
+                        "task_total": 1,
+                        "workspace_processing_contract": "ordered_task_queue_v1",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (out_dir / f"{task_id}.json").write_text(
+        json.dumps(
+            _semantic_packet_output(
+                packet_id=task_id,
+                chunk_id="chunk-001",
+                block_indices=[0],
+                snippet_body="Use low heat to keep milk from curdling.",
+                evidence_quote="Use low heat to keep the milk from curdling.",
+            )
+        ),
+        encoding="utf-8",
+    )
+    controller = knowledge_module._KnowledgeWorkspaceTaskQueueController(  # noqa: SLF001
+        worker_root=tmp_path,
+        task_entries=(
+            TaskManifestEntryV1(
+                task_id=task_id,
+                task_kind="knowledge_review_chunk_packet",
+                parent_shard_id="book.ks0000.nr",
+                owned_ids=("chunk-001",),
+                input_payload=input_payload,
+                metadata={
+                    "input_path": f"in/{task_id}.json",
+                    "hint_path": f"hints/{task_id}.md",
+                    "result_path": f"out/{task_id}.json",
+                    "task_sequence": 1,
+                    "task_total": 1,
+                    "workspace_processing_contract": "ordered_task_queue_v1",
+                },
+            ),
+        ),
+    )
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[out_dir / f"{task_id}.json"],
+        task_queue_controller=controller,
+    )
+
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.4,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc python3 tools/knowledge_worker.py install-current",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "workspace_validated_task_queue_completed"
+    assert decision.supervision_state == "completed"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["state"] == "completed"
+    assert live_status["queue_complete"] is True
+    assert live_status["queue_validated_task_count"] == 1
+    assert live_status["current_task_id"] is None
+    assert not (tmp_path / "current_task.json").exists()
+
+
+def test_knowledge_workspace_watchdog_gives_recent_output_progress_extra_budget(
+    tmp_path: Path,
+) -> None:
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    output_path = out_dir / "book.ks0000.nr.task-001.json"
+    missing_output_path = out_dir / "book.ks0000.nr.task-002.json"
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path, missing_output_path],
+    )
+    output_path.write_text(
+        json.dumps({"packet_id": "book.ks0000.nr.task-001", "chunk_results": []}),
+        encoding="utf-8",
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.4,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=250,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc cat current_task.json",
+            last_command_repeat_count=4,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    first_live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.7,
+            last_event_seconds_ago=0.0,
+            event_count=5,
+            command_execution_count=305,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc cat current_task.json",
+            last_command_repeat_count=20,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    second_live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    third = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=1.0,
+            last_event_seconds_ago=0.0,
+            event_count=6,
+            command_execution_count=406,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc cat current_task.json",
+            last_command_repeat_count=32,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is None
+    assert third is not None
+    assert third.reason_code == "watchdog_command_loop_without_output"
+    assert first_live_status["workspace_output_progress_observed"] is True
+    assert first_live_status["workspace_recent_output_progress"] is True
+    assert second_live_status["workspace_recent_output_progress"] is False
 
 
 def test_finalize_live_status_normalizes_completed_reason_code(tmp_path: Path) -> None:
@@ -556,6 +851,28 @@ def test_knowledge_recovery_governor_opens_repair_circuit_breaker_after_repeated
     assert "bounded recovery circuit breaker opened" in str(decision.reason_detail)
 
 
+def test_knowledge_recovery_governor_does_not_poison_snippet_copy_only_failures() -> None:
+    governor = knowledge_module._KnowledgeRecoveryGovernor()  # noqa: SLF001
+
+    assert governor.observe_main_failure(  # noqa: SLF001
+        worker_id="worker-001",
+        failure_signature="snippet_copy_only",
+    ) is None
+    assert governor.observe_main_failure(  # noqa: SLF001
+        worker_id="worker-001",
+        failure_signature="snippet_copy_only",
+    ) is None
+
+    repair_decision = governor.allow_followup(  # noqa: SLF001
+        kind="repair",
+        worker_id="worker-001",
+        failure_signature="snippet_copy_only",
+        near_miss=True,
+    )
+
+    assert repair_decision.allowed is True
+
+
 def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) -> None:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
@@ -723,14 +1040,21 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     worker_root = phase_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
+    assert "`CURRENT_TASK.md`" in worker_prompt
+    assert "`current_task.json`" in worker_prompt
+    assert "`CURRENT_TASK_FEEDBACK.md`" in worker_prompt
+    assert "OUTPUT_CONTRACT.md" in worker_prompt
+    assert "tools/knowledge_worker.py complete-current" in worker_prompt
+    assert "tools/knowledge_worker.py check-current" in worker_prompt
+    assert "tools/knowledge_worker.py install-current" in worker_prompt
+    assert "tools/knowledge_worker.py explain-failure" in worker_prompt
     assert "`assigned_tasks.json`" in worker_prompt
-    assert "assigned_tasks.json` is authoritative for this worker" in worker_prompt
+    assert "authoritative current-task surface" in worker_prompt
     assert "`metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`" in worker_prompt
-    assert "`scratch/` or short-lived local temp files such as `/tmp`" in worker_prompt
+    assert "A task is not finished until `check-current` prints `OK ...`." in worker_prompt
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
-    assert "dumping the whole queue back to yourself" in worker_prompt
-    assert "prefer a short direct `python3` helper" in worker_prompt
+    assert "repo-written helper under `tools/`" in worker_prompt
     assert "Top level keys: `packet_id`, `chunk_results`." in worker_prompt
     assert (
         "Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`."
@@ -749,33 +1073,326 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
         in worker_prompt
     )
     assert "short grounded extraction, not a whole-block dump, full-chunk echo" in worker_prompt
+    assert "Good snippet pattern: body `Use low heat to prevent curdling.`" in worker_prompt
+    assert "Bad snippet pattern: a body that restates nearly every sentence" in worker_prompt
     assert "The repo will write the final canonical `v` / `bid` / `r` packet artifact" in worker_prompt
-    assert "Finish the whole ordered queue before stopping." in worker_prompt
+    assert "Do not work ahead on later tasks" in worker_prompt
     assert "Do not invent your own batch scheduler" in worker_prompt
-    assert "run extra shell checks against finished files in `out/`" in worker_prompt
+    assert "repo-written `check-current` loop" in worker_prompt
+    assert "Assigned packet ids in required processing order:" not in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
+        "current_task.json",
+        "CURRENT_TASK.md",
+        "CURRENT_TASK_FEEDBACK.md",
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
     assert worker_manifest["hints_dir"] == "hints"
+    assert worker_manifest["current_task_file"] == "current_task.json"
+    assert worker_manifest["current_task_brief_file"] == "CURRENT_TASK.md"
+    assert worker_manifest["current_task_feedback_file"] == "CURRENT_TASK_FEEDBACK.md"
+    assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
+    assert worker_manifest["examples_dir"] == "examples"
+    assert worker_manifest["tools_dir"] == "tools"
     assert worker_manifest["current_packet_file"] is None
     assert worker_manifest["current_hint_file"] is None
     assert worker_manifest["current_result_path_file"] is None
     assert worker_manifest["packet_lease_status_file"] is None
     assert worker_manifest["scratch_dir"] == "scratch"
+    assert "valid_semantic_packet.json" in worker_manifest["mirrored_example_files"]
+    assert "invalid_echo_packet.json" in worker_manifest["mirrored_example_files"]
+    assert worker_manifest["mirrored_tool_files"] == ["knowledge_worker.py"]
+    output_contract = (worker_root / "OUTPUT_CONTRACT.md").read_text(encoding="utf-8")
+    assert "Knowledge Workspace Output Contract" in output_contract
+    assert "Good snippet" in output_contract
+    assert "Intentionally invalid echo example" in output_contract
+    assert "A task is not finished until `check` passes." in output_contract
+    assert (worker_root / "examples" / "valid_semantic_packet.json").exists()
+    assert (worker_root / "examples" / "invalid_echo_packet.json").exists()
+    assert (worker_root / "tools" / "knowledge_worker.py").exists()
     assert (worker_root / "hints").exists()
     assert (worker_root / "scratch").exists()
+    assert (worker_root / "CURRENT_TASK.md").exists()
+    assert (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
     assigned_tasks = json.loads((worker_root / "assigned_tasks.json").read_text(encoding="utf-8"))
     assert assigned_tasks
+    assert "input_payload" not in assigned_tasks[0]
+    assert not (worker_root / "current_task.json").exists()
     first_task_metadata = dict(assigned_tasks[0]["metadata"])
     assert first_task_metadata["input_path"].startswith("in/")
     assert first_task_metadata["hint_path"].startswith("hints/")
     assert first_task_metadata["result_path"].startswith("out/")
     assert first_task_metadata["workspace_processing_contract"] == "ordered_task_queue_v1"
+    hint_text = (
+        worker_root / first_task_metadata["hint_path"]
+    ).read_text(encoding="utf-8")
+    assert "Good snippet body: a shorter grounded claim." in hint_text
+    assert "check-current" in hint_text
+    valid_example_payload = json.loads(
+        (worker_root / "examples" / "valid_semantic_packet.json").read_text(encoding="utf-8")
+    )
+    valid_example_row = valid_example_payload["chunk_results"][0]
+    valid_example_snippet = valid_example_row["snippets"][0]
+    assert valid_example_snippet["body"] != valid_example_snippet["evidence"][0]["quote"]
+    invalid_example_payload = json.loads(
+        (worker_root / "examples" / "invalid_echo_packet.json").read_text(encoding="utf-8")
+    )
+    invalid_example_row = invalid_example_payload["chunk_results"][0]
+    invalid_surface = " ".join(
+        evidence["quote"] for evidence in invalid_example_row["snippets"][0]["evidence"]
+    )
+    assert invalid_example_row["snippets"][0]["body"] == invalid_surface
+    assert "No current task is active" in (worker_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
+    assert "queue is complete" in (
+        worker_root / "CURRENT_TASK_FEEDBACK.md"
+    ).read_text(encoding="utf-8").lower()
+
+
+def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "codex_farm_cmd": "codex exec",
+        }
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: _semantic_packet_output(
+            packet_id=str((payload or {}).get("bid") or ""),
+            chunk_id=str(((payload or {}).get("c") or [{}])[0].get("cid") or ""),
+            block_indices=[
+                int(block.get("i"))
+                for block in ((((payload or {}).get("c") or [{}])[0].get("b") or []))
+                if isinstance(block, dict) and block.get("i") is not None
+            ],
+        )
+    )
+
+    run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=ConversionResult(
+            recipes=[],
+            tips=[],
+            tipCandidates=[],
+            topicCandidates=[],
+            nonRecipeBlocks=[
+                {"index": 0, "text": "Use low heat to keep the milk from curdling."},
+                {"index": 1, "text": "Stir constantly so the sauce stays smooth and glossy."},
+            ],
+            rawArtifacts=[
+                RawArtifact(
+                    importer="text",
+                    sourceHash="hash123",
+                    locationId="full_text",
+                    extension="json",
+                    content={
+                        "blocks": [
+                            {
+                                "index": 0,
+                                "text": "Use low heat to keep the milk from curdling.",
+                            },
+                            {
+                                "index": 1,
+                                "text": "Stir constantly so the sauce stays smooth and glossy.",
+                            },
+                        ]
+                    },
+                    metadata={},
+                )
+            ],
+            report=ConversionReport(),
+            workbook="book",
+            workbookPath=str(source),
+        ),
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.2",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=2,
+                    block_indices=[0, 1],
+                    block_ids=["b0", "b1"],
+                )
+            ],
+            seed_nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.2",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=2,
+                    block_indices=[0, 1],
+                    block_ids=["b0", "b1"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.2",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=2,
+                    block_indices=[0, 1],
+                    block_ids=["b0", "b1"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={0: "knowledge", 1: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+        full_blocks=[
+            {"index": 0, "id": "b0", "text": "Use low heat to keep the milk from curdling."},
+            {"index": 1, "id": "b1", "text": "Stir constantly so the sauce stays smooth and glossy."},
+        ],
+    )
+
+    worker_root = run_root / "raw" / "llm" / "book" / "knowledge" / "workers" / "worker-001"
+    tool_path = worker_root / "tools" / "knowledge_worker.py"
+    assigned_tasks = json.loads((worker_root / "assigned_tasks.json").read_text(encoding="utf-8"))
+    task_id = assigned_tasks[0]["task_id"]
+    result_path = worker_root / assigned_tasks[0]["metadata"]["result_path"]
+    knowledge_module.write_current_task_sidecars(  # noqa: SLF001
+        workspace_root=worker_root,
+        task_row=assigned_tasks[0],
+        current_draft_path=worker_root / "scratch" / "current_task.json",
+    )
+    if result_path.exists():
+        result_path.unlink()
+
+    overview = subprocess.run(
+        [sys.executable, str(tool_path), "overview"],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "current_task:" in overview.stdout
+    assert task_id in overview.stdout
+
+    current = subprocess.run(
+        [sys.executable, str(tool_path), "current"],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "# Current Knowledge Task" in current.stdout
+    assert f"Task id: `{task_id}`" in current.stdout
+
+    explain_failure = subprocess.run(
+        [sys.executable, str(tool_path), "explain-failure"],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "# Current Task Feedback" in explain_failure.stdout
+
+    show = subprocess.run(
+        [sys.executable, str(tool_path), "show", task_id],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert f"task_id: {task_id}" in show.stdout
+    assert "input_path:" in show.stdout
+
+    scaffold_path = worker_root / "scratch" / "current_task.json"
+    if scaffold_path.exists():
+        scaffold_path.unlink()
+    scaffold = subprocess.run(
+        [
+            sys.executable,
+            str(tool_path),
+            "complete-current",
+        ],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "wrote current scaffold" in scaffold.stdout
+    scaffold_payload = json.loads(scaffold_path.read_text(encoding="utf-8"))
+    assert scaffold_payload["packet_id"] == task_id
+    assert scaffold_payload["chunk_results"]
+
+    valid_check = subprocess.run(
+        [
+            sys.executable,
+            str(tool_path),
+            "check-current",
+            "examples/valid_semantic_packet.json",
+        ],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert f"OK {task_id}" in valid_check.stdout
+
+    invalid_check = subprocess.run(
+        [
+            sys.executable,
+            str(tool_path),
+            "check-current",
+            "examples/invalid_echo_packet.json",
+        ],
+        cwd=worker_root,
+        capture_output=True,
+        text=True,
+    )
+    assert invalid_check.returncode == 1
+    assert "semantic_snippet_echoes_full_chunk" in invalid_check.stderr
+    assert "copied evidence" in invalid_check.stderr
+    assert "Run `check` again" in invalid_check.stderr
+    assert "Validation status: FAILED." in (
+        worker_root / "CURRENT_TASK_FEEDBACK.md"
+    ).read_text(encoding="utf-8")
+
+    invalid_install = subprocess.run(
+        [
+            sys.executable,
+            str(tool_path),
+            "install-current",
+            "examples/invalid_echo_packet.json",
+        ],
+        cwd=worker_root,
+        capture_output=True,
+        text=True,
+    )
+    assert invalid_install.returncode == 1
+    assert "copied evidence" in invalid_install.stderr
+
+    install = subprocess.run(
+        [
+            sys.executable,
+            str(tool_path),
+            "install-current",
+            "examples/valid_semantic_packet.json",
+        ],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "installed valid_semantic_packet.json" in install.stdout
+    installed_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    example_payload = json.loads(
+        (worker_root / "examples" / "valid_semantic_packet.json").read_text(encoding="utf-8")
+    )
+    assert installed_payload == example_payload
+    assert "Validation status: OK." in (
+        worker_root / "CURRENT_TASK_FEEDBACK.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
@@ -1147,7 +1764,7 @@ def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert process_summary["call_count"] == 2
     assert process_summary["repaired_shard_count"] == 1
-    assert process_summary["invalid_output_shard_count"] == 1
+    assert process_summary["invalid_output_shard_count"] == 0
     assert process_summary["workspace_worker_session_count"] == 1
     assert process_summary["structured_followup_call_count"] == 1
     assert process_summary["prompt_input_mode_counts"] == {
@@ -1182,6 +1799,281 @@ def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
     assert "Authoritative shard input:" in runner.calls[1]["prompt_text"]
     assert "Missing owned chunk ids: book.c0000.nr" in runner.calls[1]["prompt_text"]
     assert "<BEGIN_INPUT_JSON>" in runner.calls[1]["prompt_text"]
+
+
+def test_knowledge_orchestrator_repairs_snippet_copy_outputs_before_poison_skip(
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 1,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    source_text = (
+        "Keep the sauce at a gentle simmer and stir constantly so the emulsion stays glossy, "
+        "smooth, and cohesive instead of tightening, scorching, or breaking around the edges "
+        "while the heat keeps rising under the pan."
+    )
+
+    def _snippet_payload(payload: object, *, snippet_body: str) -> dict[str, object]:
+        packet = dict(payload or {})
+        authoritative_input = dict(packet.get("authoritative_input") or packet)
+        chunk = dict(((authoritative_input.get("c") or [{}])[0]))
+        chunk_id = str(chunk.get("cid") or "")
+        block_indices = [
+            int(block.get("i"))
+            for block in (chunk.get("b") or [])
+            if isinstance(block, dict) and block.get("i") is not None
+        ]
+        return _semantic_packet_output(
+            packet_id=str(packet.get("bid") or packet.get("shard_id") or ""),
+            chunk_id=chunk_id,
+            block_indices=block_indices,
+            snippet_body=snippet_body,
+            evidence_quote=source_text,
+        )
+
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: (
+            _snippet_payload(
+                payload,
+                snippet_body="Simmer gently and stir constantly to keep the sauce smooth.",
+            )
+            if payload and payload.get("repair_mode") == "knowledge_snippet_only"
+            else _snippet_payload(payload, snippet_body=source_text)
+        )
+    )
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=ConversionResult(
+            recipes=[],
+            tips=[],
+            tipCandidates=[],
+            topicCandidates=[],
+            nonRecipeBlocks=[{"index": 4, "text": source_text}],
+            rawArtifacts=[
+                RawArtifact(
+                    importer="text",
+                    sourceHash="hash123",
+                    locationId="full_text",
+                    extension="json",
+                    content={"blocks": [{"index": 4, "text": source_text}]},
+                    metadata={},
+                )
+            ],
+            report=ConversionReport(),
+            workbook="book",
+            workbookPath="book.txt",
+        ),
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={4: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
+    assert process_summary["call_count"] == 2
+    assert process_summary["repaired_shard_count"] == 1
+    assert process_summary["prompt_input_mode_counts"] == {
+        "inline_snippet_repair": 1,
+        "workspace_worker": 1,
+    }
+    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[1]["mode"] == "structured_prompt"
+    assert runner.calls[1]["input_payload"]["repair_mode"] == "knowledge_snippet_only"
+    assert "Rewrite only `snippets[*].body`." in runner.calls[1]["prompt_text"]
+
+    proposal = json.loads(
+        (
+            run_root / "raw" / "llm" / "book" / "knowledge" / "proposals" / "book.ks0000.nr.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "repaired"
+    assert proposal["repair_mode"] == "snippet_only"
+    assert proposal["validation_errors"] == []
+
+    repair_status = json.loads(
+        (
+            run_root
+            / "raw"
+            / "llm"
+            / "book"
+            / "knowledge"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "book.ks0000.nr"
+            / "repair_status.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert repair_status["status"] == "repaired"
+    assert repair_status["repair_mode"] == "snippet_only"
+
+
+def test_knowledge_orchestrator_hard_fails_when_snippet_only_repair_still_copies_source(
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 1,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    source_text = (
+        "All salt comes from the ocean, be it the Atlantic or a long-forgotten inland sea, "
+        "and careful cooks use it in layers so seasoning develops depth instead of landing "
+        "all at once at the very end of cooking."
+    )
+
+    def _always_invalid(payload: object) -> dict[str, object]:
+        packet = dict(payload or {})
+        authoritative_input = dict(packet.get("authoritative_input") or packet)
+        chunk = dict(((authoritative_input.get("c") or [{}])[0]))
+        chunk_id = str(chunk.get("cid") or "")
+        block_indices = [
+            int(block.get("i"))
+            for block in (chunk.get("b") or [])
+            if isinstance(block, dict) and block.get("i") is not None
+        ]
+        return _semantic_packet_output(
+            packet_id=str(packet.get("bid") or packet.get("shard_id") or ""),
+            chunk_id=chunk_id,
+            block_indices=block_indices,
+            snippet_body=source_text,
+            evidence_quote=source_text,
+        )
+
+    runner = FakeCodexExecRunner(output_builder=_always_invalid)
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=ConversionResult(
+            recipes=[],
+            tips=[],
+            tipCandidates=[],
+            topicCandidates=[],
+            nonRecipeBlocks=[{"index": 4, "text": source_text}],
+            rawArtifacts=[
+                RawArtifact(
+                    importer="text",
+                    sourceHash="hash123",
+                    locationId="full_text",
+                    extension="json",
+                    content={"blocks": [{"index": 4, "text": source_text}]},
+                    metadata={},
+                )
+            ],
+            report=ConversionReport(),
+            workbook="book",
+            workbookPath="book.txt",
+        ),
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={4: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
+    assert process_summary["call_count"] == 2
+    assert process_summary["invalid_output_shard_count"] == 1
+    assert process_summary["prompt_input_mode_counts"] == {
+        "inline_snippet_repair": 1,
+        "workspace_worker": 1,
+    }
+
+    proposal = json.loads(
+        (
+            run_root / "raw" / "llm" / "book" / "knowledge" / "proposals" / "book.ks0000.nr.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "failed"
+    assert proposal["repair_mode"] == "snippet_only"
+    assert proposal["validation_errors"] == ["missing_owned_chunk_results"]
+    assert proposal["validation_metadata"]["repair_validation_errors"] == [
+        "semantic_snippet_echoes_full_chunk"
+    ]
+
+    task_rows = [
+        json.loads(line)
+        for line in (
+            run_root / "raw" / "llm" / "book" / "knowledge" / "task_status.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert task_rows[0]["state"] == "repair_failed"
+    assert task_rows[0]["terminal_reason_code"] == "semantic_snippet_echoes_full_chunk"
 
 
 def test_pathological_knowledge_response_text_detects_giant_whitespace_run() -> None:
@@ -2841,6 +3733,208 @@ def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_ass
         "book.ks0000.nr.task-002",
     ]
     assert apply_result.llm_report["counts"]["validated_shards"] == 1
+
+
+def test_knowledge_orchestrator_partially_promotes_accepted_task_packets_from_invalid_parent_shard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-0",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Sauce Basics",
+                text="Always whisk constantly when adding butter.",
+                blockIds=[0],
+            ),
+            KnowledgeChunk(
+                id="chunk-1",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Serving",
+                text="Serve the sauce immediately while it is still glossy.",
+                blockIds=[1],
+            ),
+            KnowledgeChunk(
+                id="chunk-2",
+                lane=ChunkLane.KNOWLEDGE,
+                title="Storage",
+                text="Cool leftovers quickly before refrigeration.",
+                blockIds=[2],
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 1,
+            "knowledge_worker_count": 1,
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Always whisk constantly when adding butter."},
+                        {
+                            "index": 1,
+                            "text": "Serve the sauce immediately while it is still glossy.",
+                        },
+                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+
+    def _task_output(payload: dict[str, object]) -> dict[str, object]:
+        task_id = str(payload["bid"])
+        chunk = payload["c"][0]
+        block = chunk["b"][0]
+        if task_id.endswith("task-001"):
+            return {
+                "v": "2",
+                "bid": task_id,
+                "r": [
+                    {
+                        "cid": chunk["cid"],
+                        "u": True,
+                        "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
+                        "s": [{"b": "Whisk constantly.", "e": [{"i": block["i"], "q": "Whisk constantly."}]}],
+                    }
+                ],
+            }
+        if task_id.endswith("task-002"):
+            return {
+                "v": "2",
+                "bid": task_id,
+                "r": [
+                    {
+                        "cid": chunk["cid"],
+                        "u": True,
+                        "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
+                        "s": [
+                            {
+                                "b": "Serve immediately while the sauce is glossy.",
+                                "e": [{"i": block["i"], "q": "Serve the sauce immediately while it is still glossy."}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        return {
+            "v": "2",
+            "bid": task_id,
+            "r": [
+                {
+                    "cid": chunk["cid"],
+                    "u": True,
+                    "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
+                    "s": [{"b": "...", "e": [{"i": block["i"], "q": str(block["t"])}]}],
+                }
+            ],
+        }
+
+    runner = FakeCodexExecRunner(output_builder=_task_output)
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.3",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=3,
+                    block_indices=[0, 1, 2],
+                    block_ids=["b0", "b1", "b2"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.0.3",
+                    category="knowledge",
+                    block_start_index=0,
+                    block_end_index=3,
+                    block_indices=[0, 1, 2],
+                    block_ids=["b0", "b1", "b2"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
+    proposal = json.loads((phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8"))
+    task_rows = [
+        json.loads(line)
+        for line in (phase_dir / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert apply_result.refined_stage_result.block_category_by_index == {
+        0: "knowledge",
+        1: "knowledge",
+        2: "knowledge",
+    }
+    assert proposal["validation_errors"] == ["missing_owned_chunk_results"]
+    assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
+        "book.ks0000.nr.task-001",
+        "book.ks0000.nr.task-002",
+    ]
+    assert task_rows[1]["state"] == "validated"
+    assert task_rows[2]["validation_errors"] == ["semantic_snippet_body_not_grounded_text"]
+    assert apply_result.llm_report["stage_status"] == "completed_with_failures"
+    assert apply_result.llm_report["review_status"] == "partial"
+    assert apply_result.llm_report["counts"]["validated_shards"] == 0
+    assert apply_result.llm_report["counts"]["invalid_shards"] == 1
+    assert apply_result.llm_report["counts"]["partially_promoted_shards"] == 1
+    assert apply_result.llm_report["counts"]["wholly_unpromoted_invalid_shards"] == 0
+    assert apply_result.llm_report["counts"]["promoted_chunk_count"] == 2
+    assert apply_result.llm_report["counts"]["outputs_parsed"] == 2
+    assert apply_result.llm_report["counts"]["unreviewed_shard_count"] == 0
+    assert apply_result.llm_report["counts"]["unreviewed_chunk_count"] == 1
+    assert apply_result.llm_report["counts"]["chunks_missing"] == 1
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 1
+    assert apply_result.llm_report["review_summary"]["partially_promoted_shard_count"] == 1
+    assert apply_result.llm_report["review_summary"]["unreviewed_shard_count"] == 0
+    assert apply_result.llm_report["review_summary"]["reviewed_chunk_count"] == 2
+    assert apply_result.llm_report["missing_chunk_ids"] == ["book.c0002.nr"]
 
 
 def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
