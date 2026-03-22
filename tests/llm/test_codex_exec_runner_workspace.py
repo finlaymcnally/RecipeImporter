@@ -137,17 +137,15 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
         "Allow ordinary local shell use inside this workspace"
     )
     assert worker_manifest["workspace_local_shell_examples"] == [
-        "rg -n \"needle\" -n",
-        "jq '.[0] | keys' assigned_shards.json",
-        "jq '.[0] | keys' assigned_tasks.json",
+        "sed -n '1,80p' hints/<task>.md",
+        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('assigned_tasks.json').read_text())[0]; print(row['task_id'])\"",
         "python3 -c \"from pathlib import Path; Path('out/<shard>.json').write_text(Path('in/<shard>.json').read_text())\"",
         "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
-        "cat <<'EOF' > out/<shard>.json",
+        "cat <<'EOF' > /tmp/local-helper.json",
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
-        "absolute paths",
-        "/tmp paths",
+        "non-temp absolute paths outside approved local temp roots",
         "parent-directory traversal",
     ]
     assert "Read the local task manifests and input files directly." in agents_text
@@ -158,7 +156,9 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
     assert "The watchdog is boundary-based" in agents_text
     assert "avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`" in agents_text
-    assert "Use `scratch/` for bounded helper files." in agents_text
+    assert "`/tmp` or `/var/tmp` for bounded helper files" in agents_text
+    assert "dumping whole manifests just to orient yourself" in agents_text
+    assert "prefer a short local `python3` helper" in agents_text
     assert (workspace.execution_working_dir / "out").exists()
     assert (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
     assert (workspace.execution_working_dir / "examples" / "valid_repaired_task_output.json").exists()

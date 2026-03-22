@@ -769,6 +769,73 @@ def test_interactive_single_book_starts_background_oracle_upload(
         }
     ]
 
+
+def test_interactive_single_book_writes_capped_high_level_upload_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test capped single-book upload bundle",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-22_10.00.00"
+    )
+    processed_output_root = tmp_path / "output"
+
+    def fake_labelstudio_benchmark(**kwargs):
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.20, "recall": 0.30, "f1": 0.24}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_refresh_dashboard_after_history_write",
+        lambda **_kwargs: None,
+    )
+
+    upload_bundle_calls: list[dict[str, object]] = []
+    session_bundle_dir = (
+        benchmark_eval_output
+        / "single-book-benchmark"
+        / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+
+    def _fake_write_benchmark_upload_bundle(**kwargs):
+        upload_bundle_calls.append(dict(kwargs))
+        return session_bundle_dir
+
+    monkeypatch.setattr(cli, "_write_benchmark_upload_bundle", _fake_write_benchmark_upload_bundle)
+    monkeypatch.setattr(
+        cli,
+        "_start_benchmark_bundle_oracle_upload_background",
+        lambda **_kwargs: None,
+    )
+
+    completed = cli._interactive_single_book_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert len(upload_bundle_calls) == 1
+    call = upload_bundle_calls[0]
+    assert call["high_level_only"] is True
+    assert (
+        call["target_bundle_size_bytes"]
+        == cli.BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES
+    )
+
 def test_interactive_single_book_codex_failure_returns_unsuccessful_without_comparison(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

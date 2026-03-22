@@ -412,8 +412,31 @@ def _is_numbered_instruction(text: str) -> bool:
     return bool(_NUMBERED_STEP_RE.match(text))
 
 
-def _is_howto_heading(text: str) -> bool:
+def _has_howto_prefix(text: str) -> bool:
     return bool(_HOWTO_PREFIX_RE.match(text))
+
+
+def _looks_compact_howto_heading(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or not _has_howto_prefix(stripped):
+        return False
+    if stripped[-1:] in {".", "!", "?"}:
+        return False
+    heading_text = stripped[:-1].rstrip() if stripped.endswith(":") else stripped
+    if not heading_text:
+        return False
+    if any(mark in heading_text for mark in ",;()"):
+        return False
+    words = _VARIANT_WORD_RE.findall(heading_text)
+    if not (2 <= len(words) <= 8):
+        return False
+    if len(heading_text) > 72:
+        return False
+    return True
+
+
+def _is_howto_heading(text: str) -> bool:
+    return _looks_compact_howto_heading(text)
 
 
 def _looks_like_heading(text: str) -> bool:

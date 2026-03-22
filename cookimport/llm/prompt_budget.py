@@ -30,6 +30,7 @@ _BREAKDOWN_KEYS = (
 _PATHOLOGY_KEYS = (
     "preflight_rejected_shard_count",
     "watchdog_killed_shard_count",
+    "watchdog_recovered_shard_count",
     "command_execution_count_total",
     "command_executing_shard_count",
     "command_execution_tokens_total",

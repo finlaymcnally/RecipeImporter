@@ -726,17 +726,33 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert "`assigned_tasks.json`" in worker_prompt
     assert "assigned_tasks.json` is authoritative for this worker" in worker_prompt
     assert "`metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`" in worker_prompt
-    assert "`scratch/` for temporary helper files" in worker_prompt
+    assert "`scratch/` or short-lived local temp files such as `/tmp`" in worker_prompt
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
+    assert "dumping the whole queue back to yourself" in worker_prompt
+    assert "prefer a short direct `python3` helper" in worker_prompt
     assert "Top level keys: `packet_id`, `chunk_results`." in worker_prompt
     assert (
         "Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`."
         in worker_prompt
     )
+    assert "`category` must be exactly one of `knowledge`, `other`." in worker_prompt
+    assert (
+        "`reviewer_category` may be omitted or must be one of `knowledge`, "
+        "`chapter_taxonomy`, `decorative_heading`, `front_matter`, `toc_navigation`, "
+        "`endorsement_or_marketing`, `memoir_or_scene_setting`, "
+        "`reference_back_matter`, `other`."
+        in worker_prompt
+    )
+    assert (
+        "Never invent category labels such as `content`, `noise`, or `heading`"
+        in worker_prompt
+    )
+    assert "short grounded extraction, not a whole-block dump, full-chunk echo" in worker_prompt
     assert "The repo will write the final canonical `v` / `bid` / `r` packet artifact" in worker_prompt
     assert "Finish the whole ordered queue before stopping." in worker_prompt
-    assert "Do not run extra shell checks against finished files in `out/`" in worker_prompt
+    assert "Do not invent your own batch scheduler" in worker_prompt
+    assert "run extra shell checks against finished files in `out/`" in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )

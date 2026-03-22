@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 from pathlib import Path
@@ -10,15 +11,23 @@ from .codex_farm_knowledge_models import (
     KnowledgeBundleOutputV2,
     KnowledgeChunkResultV2,
     KnowledgePacketSemanticResultV1,
+    ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
+    ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
     semantic_result_from_canonical_bundle,
     serialize_canonical_knowledge_packet,
 )
+
+_SEMANTIC_CATEGORY_ALIAS_DEFAULTS: dict[str, tuple[str, str]] = {
+    "content": ("knowledge", "knowledge"),
+    "noise": ("other", "endorsement_or_marketing"),
+    "heading": ("other", "decorative_heading"),
+}
 
 
 def normalize_knowledge_worker_payload(
     payload: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    payload_dict = dict(payload)
+    payload_dict, alias_metadata = _normalize_semantic_category_aliases(dict(payload))
     semantic_parse_error: Exception | None = None
     try:
         semantic_result = KnowledgePacketSemanticResultV1.model_validate(payload_dict)
@@ -27,6 +36,7 @@ def normalize_knowledge_worker_payload(
     else:
         return serialize_canonical_knowledge_packet(semantic_result), {
             "worker_output_contract": "semantic_packet_result_v1",
+            **alias_metadata,
         }
 
     try:
@@ -43,6 +53,50 @@ def normalize_knowledge_worker_payload(
         semantic_result_from_canonical_bundle(canonical_bundle)
     ), {
         "worker_output_contract": "canonical_bundle_v2_compat",
+        **alias_metadata,
+    }
+
+
+def _normalize_semantic_category_aliases(
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    chunk_results = payload.get("chunk_results")
+    if not isinstance(chunk_results, list):
+        return payload, {}
+
+    normalized_payload = deepcopy(payload)
+    rewrite_counts: dict[str, int] = {}
+    for chunk_result in normalized_payload.get("chunk_results") or []:
+        if not isinstance(chunk_result, dict):
+            continue
+        block_decisions = chunk_result.get("block_decisions")
+        if not isinstance(block_decisions, list):
+            continue
+        for decision in block_decisions:
+            if not isinstance(decision, dict):
+                continue
+            category = str(decision.get("category") or "").strip()
+            if category not in _SEMANTIC_CATEGORY_ALIAS_DEFAULTS:
+                continue
+            normalized_category, default_reviewer_category = (
+                _SEMANTIC_CATEGORY_ALIAS_DEFAULTS[category]
+            )
+            if normalized_category not in ALLOWED_KNOWLEDGE_FINAL_CATEGORIES:
+                continue
+            decision["category"] = normalized_category
+            reviewer_category = decision.get("reviewer_category")
+            if reviewer_category is None or (
+                isinstance(reviewer_category, str) and not reviewer_category.strip()
+            ):
+                if default_reviewer_category in ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES:
+                    decision["reviewer_category"] = default_reviewer_category
+            rewrite_counts[category] = rewrite_counts.get(category, 0) + 1
+
+    if not rewrite_counts:
+        return payload, {}
+    return normalized_payload, {
+        "semantic_category_alias_rewrites": dict(sorted(rewrite_counts.items())),
+        "semantic_category_alias_rewrite_count": sum(rewrite_counts.values()),
     }
 
 

@@ -48,14 +48,16 @@ Negative rules (must-not-do):
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
-- If `span_code` is `N` (outside recipe), default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
+- If `span_code` is `N` (outside recipe), default to `OTHER` unless the line clearly teaches reusable cooking explanation/reference prose; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
 - If a row is plausible under its current deterministic label, leave it there.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
+- A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the entire line is a short heading-shaped header.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
 - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
 - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
+- Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -102,15 +104,15 @@ Few-shot examples:
     Line: `Acknowledgments`
     Label: `OTHER`
 
-12) Context: explanatory cookbook guidance spanning many dishes
-    Line: `Use limes in guacamole, pho ga, green papaya salad, and kachumbar.`
-    Label: `KNOWLEDGE`
+12) Context: broad outside-recipe action-verb advice
+   Line: `Use limes in guacamole, pho ga, green papaya salad, and kachumbar.`
+   Label: `OTHER`
 
 13) Context: general teaching/setup prose, not a recipe step
    Line: `Think about making a grilled cheese sandwich.`
    Label: `OTHER`
 
-14) Context: outside recipe, generic lesson heading
+14) Context: outside recipe, lesson heading with explanatory prose nearby
     Line: `Gentle Cooking Methods`
     Label: `KNOWLEDGE`
 
@@ -282,14 +284,16 @@ def build_canonical_line_role_file_prompt(
             "  - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.\n"
             "  - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.\n"
             "  - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.\n"
-            "  - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.\n"
+            "  - If the shard rows are outside recipe context, default to `OTHER` unless the row clearly teaches reusable cooking explanation/reference prose; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.\n"
             "  - If a row is plausible under its current deterministic label, leave it there.\n"
             "  - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.\n"
             "  - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.\n"
+            "  - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the whole line is a short heading-shaped header.\n"
             "  - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.\n"
             "  - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.\n"
             "  - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.\n"
             "  - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n"
+            "  - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.\n"
             "  - Dedications, front matter, and table-of-contents entries are usually `OTHER`.\n\n"
             "{{PACKET_CONTEXT_BLOCK}}"
             "{{REFERENCE_CONTEXT_BLOCK}}"

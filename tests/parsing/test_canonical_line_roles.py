@@ -383,7 +383,7 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
     assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
 
 
-def test_label_atomic_lines_outside_recipe_first_person_learning_prose_is_not_recipe_notes() -> None:
+def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:first-person",
@@ -416,7 +416,7 @@ def test_label_atomic_lines_outside_recipe_first_person_learning_prose_is_not_re
             "food from great, understanding when pasta water needed more salt "
             "and when vinegar was needed to balance a rich stew."
         ].label
-        == "KNOWLEDGE"
+        == "OTHER"
     )
 
 
@@ -1007,6 +1007,79 @@ def test_label_atomic_lines_component_heading_prefers_howto_section() -> None:
     assert by_text["AGING THE DUCK"].decided_by == "rule"
 
 
+def test_label_atomic_lines_long_to_make_variant_paragraph_is_not_howto_heading() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:long:1",
+            "block_index": 1,
+            "text": (
+                "To make Caprese Salad, alternate heirloom tomato slices with 1/2-inch "
+                "slices of fresh mozzarella or burrata cheese before seasoning and "
+                "dressing. Skip the herb salad. Instead, when seasoning the cherry "
+                "tomatoes in a separate bowl, add 12 torn basil leaves."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:variant",
+        within_recipe_span=True,
+    )
+    assert "howto_heading" not in candidates[0].rule_tags
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "RECIPE_VARIANT"
+
+
+def test_label_atomic_lines_long_to_serve_sentence_defaults_away_from_howto_section() -> None:
+    blocks = [
+        {
+            "block_id": "block:serve:outside:1",
+            "block_index": 1,
+            "text": (
+                "To serve, arrange the wedges on the platter-the rule when plating "
+                "beets is: put them down confidently, and do not move them or they "
+                "will stain, leaving a messy trail in their wake."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    assert "howto_heading" not in candidates[0].rule_tags
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "OTHER"
+
+
+def test_label_atomic_lines_short_to_serve_heading_stays_howto_section() -> None:
+    blocks = [
+        {
+            "block_id": "block:serve:heading:1",
+            "block_index": 1,
+            "text": "TO SERVE",
+        },
+        {
+            "block_id": "block:serve:heading:2",
+            "block_index": 2,
+            "text": "1 bunch watercress",
+        },
+        {
+            "block_id": "block:serve:heading:3",
+            "block_index": 3,
+            "text": "Arrange the duck on a platter and scatter with watercress.",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:duck",
+        within_recipe_span=True,
+    )
+    assert "howto_heading" in candidates[0].rule_tags
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].label == "HOWTO_SECTION"
+
+
 def test_label_atomic_lines_recipe_title_with_immediate_yield_stays_recipe_title() -> None:
     blocks = [
         {
@@ -1323,7 +1396,7 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
     ]
 
 
-def test_label_atomic_lines_recovers_outside_recipe_pedagogical_and_endorsement_prose() -> None:
+def test_label_atomic_lines_outside_recipe_requires_high_evidence_for_knowledge() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -1331,8 +1404,8 @@ def test_label_atomic_lines_recovers_outside_recipe_pedagogical_and_endorsement_
             block_index=5,
             atomic_index=0,
             text=(
-                "Whether you've never picked up a knife and fork or you cook every "
-                "day, mastering these four elements will make every meal better."
+                "Salt also reduces our perception of bitterness, with the secondary "
+                "effect of emphasizing other flavors present in bitter dishes."
             ),
             within_recipe_span=False,
             rule_tags=[],
@@ -1346,12 +1419,25 @@ def test_label_atomic_lines_recovers_outside_recipe_pedagogical_and_endorsement_
             within_recipe_span=False,
             rule_tags=[],
         ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:7",
+            block_index=7,
+            atomic_index=2,
+            text=(
+                "Let Salt, Fat, and Acid work together in concert to improve "
+                "anything you eat, whether you cooked it or not."
+            ),
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
     ]
 
     predictions = label_atomic_lines(candidates, _settings())
     assert [prediction.label for prediction in predictions] == [
         "KNOWLEDGE",
-        "KNOWLEDGE",
+        "OTHER",
+        "OTHER",
     ]
 
 
@@ -1446,6 +1532,32 @@ def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -
     assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
 
 
+def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:endorsement:1",
+            block_index=1,
+            atomic_index=0,
+            text="-Alice Waters , New York Times bestselling author of The Art of Simple Food",
+            within_recipe_span=False,
+            rule_tags=[],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "KNOWLEDGE"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_outside_recipe_knowledge_without_evidence" in predictions[0].reason_tags
+
+
 def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_stay_structured(
     tmp_path,
 ) -> None:
@@ -1481,6 +1593,77 @@ def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_
     assert predictions[0].label == "HOWTO_SECTION"
     assert predictions[0].decided_by == "codex"
     assert predictions[1].label == "INGREDIENT_LINE"
+
+
+def test_codex_long_to_make_variant_paragraph_demotes_howto_to_recipe_variant(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:variant",
+            block_id="block:variant:codex:1",
+            block_index=1,
+            atomic_index=0,
+            text=(
+                "To make Brown Butter Vinaigrette for dressing bread salads or "
+                "roasted vegetables, substitute 4 tablespoons brown butter for the "
+                "olive oil and continue as above. Bring refrigerated leftovers back "
+                "to room temperature before using."
+            ),
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback", "explicit_prose"],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "HOWTO_SECTION"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "RECIPE_VARIANT"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
+
+
+def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:heading:1",
+            block_index=1,
+            atomic_index=0,
+            text="HOW SALT WORKS",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:heading:2",
+            block_index=2,
+            atomic_index=1,
+            text=(
+                "Salt changes how food absorbs moisture and how aromas reach your "
+                "nose, so small adjustments can reshape both texture and flavor."
+            ),
+            within_recipe_span=False,
+            rule_tags=["outside_recipe_span", "explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "HOWTO_SECTION", 1: "KNOWLEDGE"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
 
 
 def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
@@ -1759,25 +1942,25 @@ def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() ->
     ) != canonical_line_roles_module._canonical_candidate_fingerprint(updated)
 
 
-def test_line_role_shard_plans_include_reference_only_overlap_context(
+def test_line_role_task_plans_include_reference_only_neighbor_context(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
         canonical_line_roles_module,
-        "_LINE_ROLE_CONTEXT_OVERLAP_ROWS",
-        1,
+        "_LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS",
+        3,
     )
     candidates = [
         AtomicLineCandidate(
-            recipe_id=f"recipe:{index // 2}",
+            recipe_id="recipe:0",
             block_id=f"block:{index}",
             block_index=index,
             atomic_index=index,
             text=f"Line {index}",
-            within_recipe_span=True if index >= 2 else False,
+            within_recipe_span=True,
             rule_tags=[],
         )
-        for index in range(6)
+        for index in range(8)
     ]
     deterministic_baseline = {
         index: canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -1799,59 +1982,90 @@ def test_line_role_shard_plans_include_reference_only_overlap_context(
         deterministic_baseline=deterministic_baseline,
         settings=_settings(
             "codex-line-role-shard-v1",
-            line_role_shard_target_lines=2,
+            line_role_shard_target_lines=8,
         ),
-        codex_batch_size=2,
+        codex_batch_size=8,
     )
 
-    assert len(plans) == 3
-    assert [[candidate.atomic_index for candidate in plan.candidates] for plan in plans] == [
-        [0, 1],
-        [2, 3],
-        [4, 5],
-    ]
-    assert [
-        [candidate.atomic_index for candidate in plan.context_before_candidates]
-        for plan in plans
-    ] == [
-        [],
-        [1],
-        [3],
-    ]
-    assert [
-        [candidate.atomic_index for candidate in plan.context_after_candidates]
-        for plan in plans
-    ] == [
-        [2],
-        [4],
-        [],
+    assert len(plans) == 1
+    shard_plan = plans[0]
+    assert [candidate.atomic_index for candidate in shard_plan.candidates] == list(range(8))
+    assert "context_before_rows" not in shard_plan.manifest_entry.input_payload
+    assert "context_after_rows" not in shard_plan.manifest_entry.input_payload
+    assert "context_before_rows" not in shard_plan.debug_input_payload
+    assert "context_after_rows" not in shard_plan.debug_input_payload
+
+    task_plans = canonical_line_roles_module._build_line_role_task_plans(  # noqa: SLF001
+        shard=shard_plan.manifest_entry,
+        debug_payload=shard_plan.debug_input_payload,
+        target_rows=2,
+    )
+
+    assert [task.task_id for task in task_plans] == [
+        "line-role-canonical-0001-a000000-a000007.task-001",
+        "line-role-canonical-0001-a000000-a000007.task-002",
+        "line-role-canonical-0001-a000000-a000007.task-003",
+        "line-role-canonical-0001-a000000-a000007.task-004",
     ]
 
-    middle_plan = plans[1]
-    assert middle_plan.manifest_entry.owned_ids == ("2", "3")
-    assert middle_plan.manifest_entry.metadata["owned_row_count"] == 2
-    assert middle_plan.manifest_entry.metadata["context_before_row_count"] == 1
-    assert middle_plan.manifest_entry.metadata["context_after_row_count"] == 1
-    assert [row[0] for row in middle_plan.manifest_entry.input_payload["rows"]] == [2, 3]
-    assert middle_plan.manifest_entry.input_payload["context_before_rows"] == [
-        [1, "Line 1"]
+    first_task = task_plans[0]
+    middle_task = task_plans[1]
+    last_task = task_plans[-1]
+
+    assert first_task.manifest_entry.owned_ids == ("0", "1")
+    assert first_task.manifest_entry.metadata["context_before_row_count"] == 0
+    assert first_task.manifest_entry.metadata["context_after_row_count"] == 3
+    assert first_task.manifest_entry.input_payload["context_before_rows"] == []
+    assert first_task.manifest_entry.input_payload["context_after_rows"] == [
+        [2, "Line 2"],
+        [3, "Line 3"],
+        [4, "Line 4"],
     ]
-    assert middle_plan.manifest_entry.input_payload["context_after_rows"] == [
-        [4, "Line 4"]
+    assert first_task.debug_input_payload["context_before_rows"] == []
+    assert first_task.debug_input_payload["context_after_rows"] == [
+        {"atomic_index": 2, "current_line": "Line 2"},
+        {"atomic_index": 3, "current_line": "Line 3"},
+        {"atomic_index": 4, "current_line": "Line 4"},
+    ]
+
+    assert middle_task.manifest_entry.owned_ids == ("2", "3")
+    assert middle_task.manifest_entry.metadata["context_before_row_count"] == 2
+    assert middle_task.manifest_entry.metadata["context_after_row_count"] == 3
+    assert [row[0] for row in middle_task.manifest_entry.input_payload["rows"]] == [2, 3]
+    assert middle_task.manifest_entry.input_payload["context_before_rows"] == [
+        [0, "Line 0"],
+        [1, "Line 1"],
+    ]
+    assert middle_task.manifest_entry.input_payload["context_after_rows"] == [
+        [4, "Line 4"],
+        [5, "Line 5"],
+        [6, "Line 6"],
     ]
     assert all(
         len(row) == 2
         for row in (
-            middle_plan.manifest_entry.input_payload["context_before_rows"]
-            + middle_plan.manifest_entry.input_payload["context_after_rows"]
+            middle_task.manifest_entry.input_payload["context_before_rows"]
+            + middle_task.manifest_entry.input_payload["context_after_rows"]
         )
     )
-    assert middle_plan.debug_input_payload["context_before_rows"] == [
-        {"atomic_index": 1, "current_line": "Line 1"}
+    assert middle_task.debug_input_payload["context_before_rows"] == [
+        {"atomic_index": 0, "current_line": "Line 0"},
+        {"atomic_index": 1, "current_line": "Line 1"},
     ]
-    assert middle_plan.debug_input_payload["context_after_rows"] == [
-        {"atomic_index": 4, "current_line": "Line 4"}
+    assert middle_task.debug_input_payload["context_after_rows"] == [
+        {"atomic_index": 4, "current_line": "Line 4"},
+        {"atomic_index": 5, "current_line": "Line 5"},
+        {"atomic_index": 6, "current_line": "Line 6"},
     ]
+    assert last_task.manifest_entry.owned_ids == ("6", "7")
+    assert last_task.manifest_entry.metadata["context_before_row_count"] == 3
+    assert last_task.manifest_entry.metadata["context_after_row_count"] == 0
+    assert last_task.manifest_entry.input_payload["context_before_rows"] == [
+        [3, "Line 3"],
+        [4, "Line 4"],
+        [5, "Line 5"],
+    ]
+    assert last_task.manifest_entry.input_payload["context_after_rows"] == []
 
 
 def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> None:
@@ -1866,7 +2080,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
                 "This packet reads like cookbook lesson prose: explanatory teaching around a topic, not recipe-local structure."
             ),
             "default_posture": (
-                "Default to `KNOWLEDGE` or `OTHER`; only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+                "Default to `OTHER`; upgrade to `KNOWLEDGE` only when a row clearly teaches reusable cooking explanation/reference prose. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
             ),
             "howto_section_availability": "absent_or_unproven",
             "howto_section_evidence_count": 0,
@@ -1912,7 +2126,8 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Recompute labels from the task file rows themselves" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
-    assert "default to `KNOWLEDGE` or `OTHER`" in prompt
+    assert "default to `OTHER` unless the row clearly teaches reusable cooking explanation/reference prose" in prompt
+    assert "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`" in prompt
     assert "HOWTO_SECTION availability: absent_or_unproven (evidence rows: 0)" in prompt
     assert "HOWTO_SECTION policy: This book may legitimately use zero `HOWTO_SECTION` labels." in prompt
     assert "Balancing Fat" in prompt
@@ -3083,7 +3298,8 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
             encoding="utf-8"
         )
     )
-    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 1
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
+    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 1
     assert telemetry_payload["summary"]["attempt_count"] == 5
 
     proposal_paths = list(
@@ -3096,6 +3312,32 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
     )
     assert recovered_proposal["watchdog_retry_status"] == "recovered"
     assert recovered_proposal["validation_errors"] == []
+
+    recovered_status_path = next(
+        path
+        for path in (tmp_path / "line-role-pipeline" / "runtime").rglob("status.json")
+        if "shards" in path.parts
+        and json.loads(path.read_text(encoding="utf-8")).get("watchdog_retry_status")
+        == "recovered"
+    )
+    recovered_status = json.loads(recovered_status_path.read_text(encoding="utf-8"))
+    assert recovered_status["status"] == "validated"
+    assert recovered_status["state"] == "completed"
+    assert recovered_status["reason_code"] == "watchdog_retry_recovered"
+    assert recovered_status["finalization_path"] == "watchdog_retry_recovered"
+    assert recovered_status["raw_supervision_state"] == "watchdog_killed"
+    assert recovered_status["raw_supervision_reason_code"] == "watchdog_cohort_runtime_outlier"
+
+    failures = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "failures.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert failures == []
 
     retry_status_path = next(
         (tmp_path / "line-role-pipeline" / "runtime").rglob("watchdog_retry_status.json")
@@ -3111,6 +3353,86 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
     assert "Authoritative shard rows to relabel" in retry_prompt
     assert "Your first response must be the final JSON object." in retry_prompt
     assert "Do not describe your plan, reasoning, or heuristics." in retry_prompt
+
+
+def test_label_atomic_lines_keeps_unrecovered_forbidden_watchdog_kill_visible(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:forbidden:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    class _ForbiddenWorkspaceRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text=None,
+                turn_failed_message="workspace worker stage attempted forbidden tool use",
+                events=(),
+                usage={
+                    "input_tokens": 7,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                },
+                source_working_dir=str(kwargs.get("working_dir")),
+                execution_working_dir=str(kwargs.get("working_dir")),
+                execution_agents_path=None,
+                duration_ms=50,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                supervision_state="watchdog_killed",
+                supervision_reason_code="watchdog_command_execution_forbidden",
+                supervision_reason_detail=(
+                    "workspace worker stage attempted tool use: /bin/bash -lc 'git status --short'"
+                ),
+                supervision_retryable=False,
+            )
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=_ForbiddenWorkspaceRunner(
+            output_builder=lambda payload: {"rows": []}
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert len(predictions) == 1
+
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 1
+    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 0
+
+    status_path = next(
+        path
+        for path in (tmp_path / "line-role-pipeline" / "runtime").rglob("status.json")
+        if "shards" in path.parts
+    )
+    status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+    assert status_payload["state"] == "watchdog_killed"
+    assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+    assert status_payload["watchdog_retry_status"] == "not_attempted"
 
 
 def test_label_atomic_lines_accepts_valid_workspace_outputs_without_final_message(
@@ -3210,7 +3532,7 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
     )
     assert telemetry_payload["summary"]["attempt_count"] == 2
     assert telemetry_payload["summary"]["repaired_shard_count"] == 1
-    assert telemetry_payload["summary"]["invalid_output_shard_count"] == 1
+    assert telemetry_payload["summary"]["invalid_output_shard_count"] == 0
 
     repair_status_path = next(
         (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
@@ -3223,6 +3545,20 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
     assert "Authoritative shard rows to relabel" in repair_prompt
     assert "Your first response must be the final JSON object." in repair_prompt
     assert "Do not describe your plan, reasoning, or heuristics." in repair_prompt
+
+    runtime_telemetry = json.loads(
+        (
+            tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "telemetry.json"
+        ).read_text(encoding="utf-8")
+    )
+    workspace_rows = [
+        row
+        for row in runtime_telemetry["rows"]
+        if row.get("prompt_input_mode") == "workspace_worker"
+    ]
+    assert workspace_rows
+    assert workspace_rows[0]["proposal_status"] == "invalid"
+    assert workspace_rows[0]["final_proposal_status"] == "validated"
 
 
 def test_label_atomic_lines_accepts_valid_uniform_packet_output_without_reverting_to_baseline(

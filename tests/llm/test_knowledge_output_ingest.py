@@ -89,6 +89,76 @@ def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() 
     }
 
 
+def test_normalize_knowledge_worker_payload_rewrites_known_semantic_category_aliases() -> None:
+    payload, metadata = normalize_knowledge_worker_payload(
+        {
+            "packet_id": "book.ks0099.nr.task-002",
+            "chunk_results": [
+                {
+                    "chunk_id": "book.c0100.nr",
+                    "is_useful": True,
+                    "block_decisions": [
+                        {"block_index": 8, "category": "content"},
+                        {"block_index": 9, "category": "heading"},
+                        {
+                            "block_index": 10,
+                            "category": "noise",
+                            "reviewer_category": "front_matter",
+                        },
+                    ],
+                    "snippets": [
+                        {
+                            "body": "Use enough salt to wake up the stew.",
+                            "evidence": [
+                                {
+                                    "block_index": 8,
+                                    "quote": "Use enough salt to wake up the stew.",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert metadata == {
+        "worker_output_contract": "semantic_packet_result_v1",
+        "semantic_category_alias_rewrites": {
+            "content": 1,
+            "heading": 1,
+            "noise": 1,
+        },
+        "semantic_category_alias_rewrite_count": 3,
+    }
+    assert payload == {
+        "v": "2",
+        "bid": "book.ks0099.nr.task-002",
+        "r": [
+            {
+                "cid": "book.c0100.nr",
+                "u": True,
+                "d": [
+                    {"i": 8, "c": "knowledge", "rc": "knowledge"},
+                    {"i": 9, "c": "other", "rc": "decorative_heading"},
+                    {"i": 10, "c": "other", "rc": "front_matter"},
+                ],
+                "s": [
+                    {
+                        "b": "Use enough salt to wake up the stew.",
+                        "e": [
+                            {
+                                "i": 8,
+                                "q": "Use enough salt to wake up the stew.",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
 def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
         ShardManifestEntryV1(
@@ -112,6 +182,50 @@ def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> Non
     assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
     assert metadata["bundle_id"] == "book.ks0099.nr.task-001"
     assert metadata["result_chunk_count"] == 1
+
+
+def test_validate_knowledge_shard_output_rewrites_known_semantic_category_aliases() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0099.nr.task-002",
+            owned_ids=("book.c0100.nr",),
+            metadata={
+                "owned_block_indices": [8, 9],
+                "ordered_chunk_ids": ["book.c0100.nr"],
+                "chunk_block_indices_by_id": {"book.c0100.nr": [8, 9]},
+            },
+        ),
+        {
+            "packet_id": "book.ks0099.nr.task-002",
+            "chunk_results": [
+                {
+                    "chunk_id": "book.c0100.nr",
+                    "is_useful": True,
+                    "block_decisions": [
+                        {"block_index": 8, "category": "content"},
+                        {"block_index": 9, "category": "content"},
+                    ],
+                    "snippets": [
+                        {
+                            "body": "Keep the broth at a lazy simmer.",
+                            "evidence": [
+                                {
+                                    "block_index": 8,
+                                    "quote": "Keep the broth at a lazy simmer.",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert valid is True
+    assert errors == ()
+    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
+    assert metadata["semantic_category_alias_rewrites"] == {"content": 2}
+    assert metadata["semantic_category_alias_rewrite_count"] == 2
 
 
 def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> None:
@@ -444,6 +558,75 @@ def test_validate_knowledge_shard_output_requires_useful_rows_to_include_snippet
     assert valid is False
     assert errors == ("schema_invalid",)
     assert "useful chunk results must include at least one snippet" in metadata["parse_error"]
+
+
+def test_validate_knowledge_shard_output_rejects_unknown_semantic_category_alias() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0008.nr",
+            owned_ids=("book.c0008.nr",),
+            metadata={
+                "owned_block_indices": [41],
+                "ordered_chunk_ids": ["book.c0008.nr"],
+                "chunk_block_indices_by_id": {"book.c0008.nr": [41]},
+            },
+        ),
+        {
+            "packet_id": "book.ks0008.nr",
+            "chunk_results": [
+                {
+                    "chunk_id": "book.c0008.nr",
+                    "is_useful": False,
+                    "block_decisions": [{"block_index": 41, "category": "marketing"}],
+                    "snippets": [],
+                }
+            ],
+        },
+    )
+
+    assert valid is False
+    assert errors == ("schema_invalid",)
+    assert "marketing" in metadata["parse_error"]
+
+
+def test_validate_knowledge_shard_output_rejects_saved_run_style_near_full_chunk_echo() -> None:
+    source_text = (
+        "Salt, Fat, Acid, Heat is a wildly informative culinary resource with clear science, "
+        "beautiful storytelling, and inspiration for cooks at every level. It meets you "
+        "wherever you are in the kitchen and turns confidence into habit through practice."
+    )
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0009.nr",
+            owned_ids=("book.c0009.nr",),
+            input_payload={
+                "v": "2",
+                "bid": "book.ks0009.nr",
+                "c": [
+                    {
+                        "cid": "book.c0009.nr",
+                        "b": [{"i": 42, "t": source_text}],
+                    }
+                ],
+            },
+            metadata={
+                "owned_block_indices": [42],
+                "ordered_chunk_ids": ["book.c0009.nr"],
+                "chunk_block_indices_by_id": {"book.c0009.nr": [42]},
+            },
+        ),
+        _semantic_packet_payload(
+            packet_id="book.ks0009.nr",
+            chunk_id="book.c0009.nr",
+            block_indices=[42],
+            snippet_body=source_text[:-12],
+            evidence_quote="Salt, Fat, Acid, Heat is a wildly informative culinary resource",
+        ),
+    )
+
+    assert valid is False
+    assert errors == ("semantic_snippet_echoes_full_chunk",)
+    assert metadata["echoed_full_chunk_ids"] == ["book.c0009.nr"]
 
 
 def test_read_validated_knowledge_outputs_from_proposals_skips_invalid_rows(

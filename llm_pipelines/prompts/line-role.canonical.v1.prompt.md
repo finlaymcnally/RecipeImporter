@@ -52,14 +52,16 @@ Rules:
   - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
   - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
   - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
-  - If the shard rows are outside recipe context, default to `KNOWLEDGE` or `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
+  - If the shard rows are outside recipe context, default to `OTHER` unless the row clearly teaches reusable cooking explanation/reference prose; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
   - If a row is plausible under its current deterministic label, leave it there.
   - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
   - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
+  - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the whole line is a short heading-shaped header.
   - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
   - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
   - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
   - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
+  - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
   - Dedications, front matter, and table-of-contents entries are usually `OTHER`.
 
 {{PACKET_CONTEXT_BLOCK}}

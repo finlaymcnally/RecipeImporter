@@ -31,6 +31,10 @@ from .codex_farm_knowledge_ingest import (
     read_validated_knowledge_outputs_from_proposals,
     validate_knowledge_shard_output,
 )
+from .codex_farm_knowledge_models import (
+    ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
+    ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
+)
 from .codex_farm_knowledge_jobs import (
     build_knowledge_jobs,
 )
@@ -2528,6 +2532,8 @@ def _build_knowledge_workspace_worker_prompt(
     *,
     tasks: Sequence[TaskManifestEntryV1],
 ) -> str:
+    final_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)
+    reviewer_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)
     task_ids = [str(task.task_id).strip() for task in tasks if str(task.task_id).strip()]
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
@@ -2538,12 +2544,12 @@ def _build_knowledge_workspace_worker_prompt(
         "Required local loop:",
         "1. Open `worker_manifest.json`, then open `assigned_tasks.json`.",
         "2. `assigned_tasks.json` is authoritative for this worker. Process its task rows in order. Do not wait for the repo to mutate other lease files mid-session.",
-        "3. Each task row tells you the packet id plus `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`. Open those named files directly instead of exploring the workspace.",
-        "4. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Use `scratch/` for temporary helper files and each task row's `metadata.result_path` for the final packet result.",
+        "3. Each task row tells you the packet id plus `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`. Open those named files directly instead of exploring the workspace or dumping the whole queue back to yourself.",
+        "4. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Use `scratch/` or short-lived local temp files such as `/tmp` for helper files, prefer a short direct `python3` helper or one targeted query against the current task row's named files, and use each task row's `metadata.result_path` only for the final packet result.",
         "5. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "6. Write one completed semantic packet result file per assigned task row. Finish the whole ordered queue before stopping.",
         "7. Do not invent extra packets, skip owned chunks, or write outside the listed `metadata.result_path` files.",
-        "8. Do not run extra shell checks against finished files in `out/` unless a listed task result is clearly incomplete or invalid while you are still writing it.",
+        "8. Do not invent your own batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, or run extra shell checks against finished files in `out/` unless a listed task result is clearly incomplete or invalid while you are still writing it.",
         "",
         "Semantic packet result contract for each assigned result path:",
         "- Write exactly one JSON object.",
@@ -2553,7 +2559,21 @@ def _build_knowledge_workspace_worker_prompt(
         "- `chunk_results` must contain exactly one result row for each owned chunk in the current task row and no extras.",
         "- Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`.",
         "- Each block decision uses `block_index`, `category`, and optional `reviewer_category`.",
+        f"- `category` must be exactly one of `{final_categories_text}`.",
+        (
+            f"- `reviewer_category` may be omitted or must be one of "
+            f"`{reviewer_categories_text}`."
+        ),
+        "- If `category` is `knowledge`, `reviewer_category` must be `knowledge`.",
+        (
+            "- Never invent category labels such as `content`, `noise`, or `heading`; "
+            "those values are invalid."
+        ),
         "- Each snippet uses `body` and `evidence`; each evidence row uses `block_index` and `quote`.",
+        (
+            "- Keep each snippet body as a short grounded extraction, not a whole-block dump, "
+            "full-chunk echo, or stitched quote list."
+        ),
         "- Keep all block decisions and snippet evidence on the current task row's own block indices only.",
         "- If a chunk is not useful, still include its result row with `is_useful: false` and an empty snippet list.",
         "- Treat each task row's `metadata.hint_path` file as guidance and its `metadata.input_path` file as the authoritative owned input.",

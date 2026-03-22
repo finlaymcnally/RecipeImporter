@@ -338,6 +338,7 @@ SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = 120.0
 SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = 0.25
 SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
+BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
 BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
 BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
     "upload_bundle_overview.md",
@@ -6063,6 +6064,8 @@ def _interactive_single_book_benchmark(
             source_root=session_root,
             output_dir=session_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
             suppress_summary=False,
+            high_level_only=True,
+            target_bundle_size_bytes=BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES,
         )
         if upload_bundle_dir is not None:
             typer.secho(
@@ -29978,6 +29981,8 @@ def labelstudio_benchmark(
             source_root=eval_output_dir,
             output_dir=eval_output_dir / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
             suppress_summary=suppress_summary,
+            high_level_only=True,
+            target_bundle_size_bytes=BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES,
         )
         if upload_bundle_dir is not None:
             typer.secho(

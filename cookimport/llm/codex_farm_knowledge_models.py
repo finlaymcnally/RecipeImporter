@@ -5,6 +5,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _BUNDLE_VERSION_V2: Literal["2"] = "2"
+ALLOWED_KNOWLEDGE_FINAL_CATEGORIES: tuple[str, ...] = ("knowledge", "other")
+ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES: tuple[str, ...] = (
+    "knowledge",
+    "chapter_taxonomy",
+    "decorative_heading",
+    "front_matter",
+    "toc_navigation",
+    "endorsement_or_marketing",
+    "memoir_or_scene_setting",
+    "reference_back_matter",
+    "other",
+)
 
 
 class EvidencePointerV1(BaseModel):

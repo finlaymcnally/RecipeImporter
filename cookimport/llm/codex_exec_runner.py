@@ -67,6 +67,11 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
 _WORKSPACE_ALLOWED_NULL_SINKS = {
     "/dev/null",
 }
+_WORKSPACE_ALLOWED_TEMP_ROOTS = (
+    "/private/tmp",
+    "/var/tmp",
+    "/tmp",
+)
 _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
@@ -1116,12 +1121,13 @@ def _build_direct_exec_agents_text(
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
             "If `assigned_tasks.json` exists, treat it as background inventory or coarse progress only unless the prompt says otherwise.\n"
             "Read the local task manifests and input files directly.\n"
-            "Use `scratch/` for bounded helper files. Write completed results only to the local path named by `current_result_path.txt` or the prompt.\n"
+            "Use `scratch/` or short-lived local temp files such as `/tmp` or `/var/tmp` for bounded helper files. Write completed results only to the local path named by `current_result_path.txt` or the prompt.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
-            "Prefer opening the named files directly instead of exploring the workspace.\n"
-            "Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `scratch/` plus the approved result path.\n"
-            "The watchdog is boundary-based: stay inside this workspace, keep every visible path local, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
+            "Prefer opening the named files directly instead of exploring the workspace or dumping whole manifests just to orient yourself.\n"
+            "If a named JSON file needs structure extraction, prefer a short local `python3` helper or one direct query against that file over a broad shell scheduler.\n"
+            "Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `scratch/`, approved result paths, or short-lived local temp roots such as `/tmp`.\n"
+            "The watchdog is boundary-based: stay inside this workspace, keep every visible path local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
             "When the prompt gives you a leased-packet loop, finish the current packet, then re-open the current-packet files instead of inventing your own batch scheduler.\n"
@@ -1474,6 +1480,7 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         "structured_followup_call_count": 0,
         "structured_followup_tokens_total": 0,
         "command_policy_counts": {},
+        "watchdog_recovered_shard_count": 0,
     }
     prompt_input_mode_counts: dict[str, int] = {}
     command_executing_shards: set[str] = set()
@@ -1483,6 +1490,7 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
     repaired_shards: set[str] = set()
     preflight_rejected_shards: set[str] = set()
     watchdog_killed_shards: set[str] = set()
+    watchdog_recovered_shards: set[str] = set()
     pathological_shards: set[str] = set()
     for row in rows:
         summary["duration_total_ms"] += int(row.get("duration_ms") or 0)
@@ -1530,7 +1538,9 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             if shard_id:
                 reasoning_heavy_shards.add(shard_id)
                 pathological_shards.add(shard_id)
-        proposal_status = str(row.get("proposal_status") or "").strip().lower()
+        proposal_status = str(
+            row.get("final_proposal_status") or row.get("proposal_status") or ""
+        ).strip().lower()
         if proposal_status == "invalid":
             summary["invalid_output_tokens_total"] += tokens_total
             if shard_id:
@@ -1541,12 +1551,24 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             pathological_shards.add(shard_id)
         if str(row.get("repair_status") or "").strip().lower() == "repaired" and shard_id:
             repaired_shards.add(shard_id)
-        supervision_state = str(row.get("supervision_state") or "").strip().lower()
-        if supervision_state == "preflight_rejected" and shard_id:
+        effective_supervision_state = str(
+            row.get("final_supervision_state") or row.get("supervision_state") or ""
+        ).strip().lower()
+        raw_supervision_state = str(
+            row.get("raw_supervision_state") or row.get("supervision_state") or ""
+        ).strip().lower()
+        if effective_supervision_state == "preflight_rejected" and shard_id:
             preflight_rejected_shards.add(shard_id)
             pathological_shards.add(shard_id)
-        if supervision_state == "watchdog_killed" and shard_id:
+        if effective_supervision_state == "watchdog_killed" and shard_id:
             watchdog_killed_shards.add(shard_id)
+            pathological_shards.add(shard_id)
+        if (
+            raw_supervision_state == "watchdog_killed"
+            and effective_supervision_state != "watchdog_killed"
+            and shard_id
+        ):
+            watchdog_recovered_shards.add(shard_id)
             pathological_shards.add(shard_id)
     summary["cost_breakdown"] = {
         "visible_input_tokens": summary["visible_input_tokens"],
@@ -1563,6 +1585,7 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
     summary["repaired_shard_count"] = len(repaired_shards)
     summary["preflight_rejected_shard_count"] = len(preflight_rejected_shards)
     summary["watchdog_killed_shard_count"] = len(watchdog_killed_shards)
+    summary["watchdog_recovered_shard_count"] = len(watchdog_recovered_shards)
     summary["pathological_shard_count"] = len(pathological_shards)
     summary["command_policy_counts"] = dict(
         sorted(dict(summary.get("command_policy_counts") or {}).items())
@@ -1950,42 +1973,41 @@ def _write_direct_exec_worker_manifest(
         "scratch_dir": _DIRECT_EXEC_SCRATCH_DIR_NAME,
         "notes": [
             "The current working directory is already the workspace root.",
-            "Open named task files directly; broad workspace-local shell use is fine when it materially helps.",
+            "Open named task files directly; do not dump whole task inventories just to orient yourself.",
             (
                 "Treat the repo-written current-packet files as authoritative and use "
                 "`assigned_tasks.json` only as background inventory."
                 if has_packet_leasing
                 else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
             ),
-            "Use `scratch/` for bounded helper work and the approved `out/` path for final results.",
+            "Use `scratch/` or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
         ],
         "workspace_shell_policy": (
             "Allow ordinary local shell use inside this workspace, including bounded "
-            "`python`/`python3`/`node` transforms. Block visible path escapes and "
+            "`python`/`python3`/`node` transforms plus short-lived helper files in "
+            "local temp roots such as `/tmp`. Block non-temp visible path escapes and "
             "obvious repo/network/package-manager tools."
         ),
         "workspace_local_shell_examples": (
             [
                 "sed -n '1,80p' current_hint.md",
-                "jq '{task_id, parent_shard_id}' current_packet.json",
-                "cat current_packet.json > scratch/current_packet.snapshot.json",
+                "python3 -c \"import json; from pathlib import Path; packet=json.loads(Path('current_packet.json').read_text()); print(packet.get('task_id'))\"",
+                "python3 -c \"from pathlib import Path; Path('/tmp/current_packet.snapshot.json').write_text(Path('current_packet.json').read_text())\"",
                 "jq '{rows: ...}' current_packet.json > out/<task>.json",
-                "cat <<'EOF' > scratch/helper.json",
+                "cat <<'EOF' > /tmp/local-helper.json",
             ]
             if has_packet_leasing
             else [
-                "rg -n \"needle\" -n",
-                "jq '.[0] | keys' assigned_shards.json",
-                "jq '.[0] | keys' assigned_tasks.json",
+                "sed -n '1,80p' hints/<task>.md",
+                "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('assigned_tasks.json').read_text())[0]; print(row['task_id'])\"",
                 "python3 -c \"from pathlib import Path; Path('out/<shard>.json').write_text(Path('in/<shard>.json').read_text())\"",
                 "jq '{rows: ...}' in/<shard>.json > out/<shard>.json",
-                "cat <<'EOF' > out/<shard>.json",
+                "cat <<'EOF' > /tmp/local-helper.json",
             ]
         ),
         "workspace_commands_forbidden": [
             "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
-            "absolute paths",
-            "/tmp paths",
+            "non-temp absolute paths outside approved local temp roots",
             "parent-directory traversal",
         ],
         "mirrored_input_files": _list_workspace_relative_files(
@@ -2352,9 +2374,10 @@ def _detect_workspace_worker_boundary_violation_in_text(
             policy="forbidden_absolute_path",
             reason="workspace shell commands must stay on relative local paths",
         )
+    scrubbed_text = _strip_allowed_workspace_temp_paths(stripped_text)
     absolute_path_match = re.search(
         r"(^|[\s\"'])/(?!/|dev/null(?:$|[\s\"']))",
-        stripped_text,
+        scrubbed_text,
     )
     if absolute_path_match is not None:
         return WorkspaceCommandClassification(
@@ -2412,6 +2435,31 @@ def _normalize_visible_workspace_path_token(token: str) -> str | None:
     return cleaned
 
 
+def _is_tolerated_workspace_temp_path(token: str) -> bool:
+    cleaned = str(token or "").strip()
+    if not cleaned:
+        return False
+    return any(
+        cleaned == root or cleaned.startswith(f"{root}/")
+        for root in _WORKSPACE_ALLOWED_TEMP_ROOTS
+    )
+
+
+def _strip_allowed_workspace_temp_paths(shell_text: str) -> str:
+    if not shell_text:
+        return shell_text
+    root_pattern = "|".join(
+        re.escape(root)
+        for root in sorted(_WORKSPACE_ALLOWED_TEMP_ROOTS, key=len, reverse=True)
+    )
+    return re.sub(
+        rf"(^|[\s\"'])(?P<path>(?:{root_pattern})(?:/[^\s\"']*)?)",
+        lambda match: f"{match.group(1)}__WORKSPACE_TEMP_PATH__",
+        shell_text,
+        flags=re.MULTILINE,
+    )
+
+
 def _token_looks_like_workspace_path(token: str) -> bool:
     cleaned = str(token or "").strip()
     if not cleaned or cleaned.startswith("-"):
@@ -2446,6 +2494,13 @@ def _classify_workspace_path_argument(
             allowed=True,
             policy="tolerated_workspace_local_path",
             reason="null sink stayed inside the bounded local workspace surface",
+        )
+    if _is_tolerated_workspace_temp_path(cleaned):
+        return WorkspaceCommandClassification(
+            command_text=cleaned,
+            allowed=True,
+            policy="tolerated_workspace_temp_path",
+            reason="local temp-root helper path stayed inside the relaxed workspace policy",
         )
     if cleaned.startswith(("~", "/")):
         return WorkspaceCommandClassification(

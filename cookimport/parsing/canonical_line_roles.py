@@ -136,6 +136,7 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "03-recipe-internal-sections.md",
         "# Recipe-internal section headings\n\n"
         "- `FOR THE SAUCE`, `FOR SERVING`, or similar headings become `HOWTO_SECTION` only when the packet is clearly inside one recipe.\n"
+        "- A full sentence beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not a subsection heading.\n"
         "- Ingredient lines, yield lines, and imperative steps are strong recipe-local evidence.\n"
         "- Preserve structured recipe labels when those strong signals are present.\n",
     ),
@@ -259,6 +260,14 @@ _FIRST_PERSON_RE = re.compile(
     r"\b(?:i|i'm|i'd|i've|my|me|we|we're|our)\b",
     re.IGNORECASE,
 )
+_FIRST_PERSON_SINGULAR_RE = re.compile(
+    r"\b(?:i|i'm|i'd|i've|my|me)\b",
+    re.IGNORECASE,
+)
+_SECOND_PERSON_RE = re.compile(
+    r"\b(?:you|you'd|you'll|you're|you've|your)\b",
+    re.IGNORECASE,
+)
 _EXPLICIT_KNOWLEDGE_CUE_RE = re.compile(
     r"\b(?:conduct heat|heat transfer|this means|which means|in other words|"
     r"for example|for instance|as a rule|in general|rule of thumb|ratio|"
@@ -276,8 +285,10 @@ _KNOWLEDGE_DOMAIN_CUE_RE = re.compile(
 )
 _KNOWLEDGE_EXPLANATION_CUE_RE = re.compile(
     r"\b(?:affect|affects|balance|balances|because|control|controls|"
-    r"determine|determines|enhance|enhances|explained by|explains|improve|"
-    r"improves|means|modify|modifies|relationship|role|this is why|"
+    r"decrease|decreases|determine|determines|emphasize|emphasizes|"
+    r"enhance|enhances|explained by|explains|highlight|highlights|"
+    r"improve|improves|increase|increases|means|modify|modifies|"
+    r"reduce|reduces|relationship|role|secondary effect|this is why|"
     r"without|why)\b",
     re.IGNORECASE,
 )
@@ -298,6 +309,13 @@ _NAVIGATION_SECTION_RE = re.compile(
 )
 _KNOWLEDGE_HEADING_FORM_RE = re.compile(
     r"^(?:what is\b|how .+ works\b|using\b|.+ and flavor\b)$",
+    re.IGNORECASE,
+)
+_BOOK_FRAMING_EXHORTATION_CUE_RE = re.compile(
+    r"\b(?:better cook|cook every day|discover|discoveries|guide|improve "
+    r"anything you eat|initial leap of faith|journey|keep reading|learn|"
+    r"master(?:ing)?|pay attention|teach(?:es|ing)?|taste,? not price|"
+    r"the only way to learn|you've scored)\b",
     re.IGNORECASE,
 )
 _RECIPEISH_OUTSIDE_SPAN_LABELS = {
@@ -790,6 +808,19 @@ def serialize_line_role_debug_context_row(
     }
 
 
+def serialize_line_role_debug_context_row_from_mapping(
+    row: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        atomic_index = int(row.get("atomic_index"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return {
+        "atomic_index": atomic_index,
+        "current_line": str(row.get("current_line") or ""),
+    }
+
+
 def serialize_line_role_model_context_row(
     *,
     candidate: AtomicLineCandidate,
@@ -1060,7 +1091,7 @@ def _line_role_default_posture(*, packet_mode: str) -> str:
             "Keep recipe-body rows structured, but treat surrounding prose conservatively."
         ),
         "lesson_prose": (
-            "Default to `KNOWLEDGE` or `OTHER`; only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+            "Default to `OTHER`; upgrade to `KNOWLEDGE` only when a row clearly teaches reusable cooking explanation/reference prose. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
         ),
         "memoir_front_matter": (
             "Default to `OTHER`; upgrade only if a row clearly teaches reusable cooking knowledge."
@@ -1140,6 +1171,9 @@ def _line_role_flip_policy(
     if packet_mode == "lesson_prose":
         policy.append(
             "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose."
+        )
+        policy.append(
+            "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`."
         )
     elif packet_mode == "front_matter_navigation":
         policy.append(
@@ -1285,7 +1319,6 @@ def _build_line_role_canonical_plans(
     book_context = _build_line_role_book_context(candidates=ordered_candidates)
     prompt_format = _resolve_line_role_prompt_format()
     plans: list[_LineRoleShardPlan] = []
-    owned_start_index = 0
     for prompt_index, shard_candidates in enumerate(
         partition_contiguous_items(
             ordered_candidates,
@@ -1295,14 +1328,6 @@ def _build_line_role_canonical_plans(
     ):
         if not shard_candidates:
             continue
-        owned_end_index = owned_start_index + len(shard_candidates)
-        context_before_candidates, context_after_candidates = (
-            _slice_line_role_context_candidates(
-                ordered_candidates=ordered_candidates,
-                owned_start_index=owned_start_index,
-                owned_end_index=owned_end_index,
-            )
-        )
         baseline_batch = tuple(
             deterministic_baseline[int(candidate.atomic_index)]
             for candidate in shard_candidates
@@ -1317,8 +1342,6 @@ def _build_line_role_canonical_plans(
             shard_id=shard_id,
             candidates=shard_candidates,
             deterministic_baseline=deterministic_baseline,
-            context_before_candidates=context_before_candidates,
-            context_after_candidates=context_after_candidates,
             book_context=book_context,
         )
         manifest_entry = ShardManifestEntryV1(
@@ -1333,8 +1356,6 @@ def _build_line_role_canonical_plans(
                 shard_id=shard_id,
                 candidates=shard_candidates,
                 deterministic_baseline=deterministic_baseline,
-                context_before_candidates=context_before_candidates,
-                context_after_candidates=context_after_candidates,
                 debug_rows=list(debug_input_payload.get("rows") or []),
                 book_context=book_context,
             ),
@@ -1345,8 +1366,6 @@ def _build_line_role_canonical_plans(
                 "first_atomic_index": first_atomic_index,
                 "last_atomic_index": last_atomic_index,
                 "owned_row_count": len(shard_candidates),
-                "context_before_row_count": len(context_before_candidates),
-                "context_after_row_count": len(context_after_candidates),
                 "prompt_format": prompt_format,
             },
         )
@@ -1359,14 +1378,11 @@ def _build_line_role_canonical_plans(
                 shard_id=shard_id,
                 prompt_index=prompt_index,
                 candidates=tuple(shard_candidates),
-                context_before_candidates=context_before_candidates,
-                context_after_candidates=context_after_candidates,
                 baseline_predictions=baseline_batch,
                 debug_input_payload=debug_input_payload,
                 manifest_entry=manifest_entry,
             )
         )
-        owned_start_index = owned_end_index
     return tuple(plans)
 
 
@@ -1394,17 +1410,7 @@ def _line_role_execution_plan_phase(
                 "prompt_index": plan.prompt_index,
                 "candidate_count": len(plan.candidates),
                 "atomic_indices": [int(candidate.atomic_index) for candidate in plan.candidates],
-                "context_before_atomic_indices": [
-                    int(candidate.atomic_index)
-                    for candidate in plan.context_before_candidates
-                ],
-                "context_after_atomic_indices": [
-                    int(candidate.atomic_index)
-                    for candidate in plan.context_after_candidates
-                ],
                 "owned_ids": list(plan.manifest_entry.owned_ids),
-                "context_before_row_count": len(plan.context_before_candidates),
-                "context_after_row_count": len(plan.context_after_candidates),
                 "rows": list(plan.debug_input_payload.get("rows") or []),
             }
             for plan in shard_plans
@@ -1908,11 +1914,47 @@ def _build_line_role_task_plans(
             if task_count == 1
             else f"{shard.shard_id}.task-{task_index:03d}"
         )
+        overlap = max(0, int(_LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS))
+        task_end = start + len(task_rows)
+        task_input_context_before = [
+            list(row)
+            for row in input_rows[max(0, start - overlap) : start]
+            if isinstance(row, (list, tuple)) and len(row) >= 3
+        ]
+        task_input_context_before = [
+            [int(row[0]), str(row[2])]
+            for row in task_input_context_before
+        ]
+        task_input_context_after = [
+            list(row)
+            for row in input_rows[task_end : task_end + overlap]
+            if isinstance(row, (list, tuple)) and len(row) >= 3
+        ]
+        task_input_context_after = [
+            [int(row[0]), str(row[2])]
+            for row in task_input_context_after
+        ]
+        task_debug_context_before: list[dict[str, Any]] = []
+        for row in debug_rows[max(0, start - overlap) : start]:
+            if not isinstance(row, Mapping):
+                continue
+            serialized = serialize_line_role_debug_context_row_from_mapping(row)
+            if serialized is not None:
+                task_debug_context_before.append(serialized)
+        task_debug_context_after: list[dict[str, Any]] = []
+        for row in debug_rows[task_end : task_end + overlap]:
+            if not isinstance(row, Mapping):
+                continue
+            serialized = serialize_line_role_debug_context_row_from_mapping(row)
+            if serialized is not None:
+                task_debug_context_after.append(serialized)
         task_input_payload = {
             **input_payload,
             "shard_id": task_id,
             "parent_shard_id": shard.shard_id,
             **_build_line_role_packet_context(rows=task_debug_rows),
+            "context_before_rows": task_input_context_before,
+            "context_after_rows": task_input_context_after,
             "rows": task_rows,
         }
         task_debug_payload = {
@@ -1920,6 +1962,8 @@ def _build_line_role_task_plans(
             "shard_id": task_id,
             "parent_shard_id": shard.shard_id,
             **_build_line_role_packet_context(rows=task_debug_rows),
+            "context_before_rows": task_debug_context_before,
+            "context_after_rows": task_debug_context_after,
             "rows": task_debug_rows,
         }
         task_manifest = ShardManifestEntryV1(
@@ -1934,6 +1978,8 @@ def _build_line_role_task_plans(
                 "task_index": task_index,
                 "task_count": task_count,
                 "owned_row_count": len(owned_ids),
+                "context_before_row_count": len(task_input_context_before),
+                "context_after_row_count": len(task_input_context_after),
             },
         )
         task_plans.append(
@@ -2816,10 +2862,18 @@ def _run_line_role_workspace_worker_assignment_v1(
         task_root.mkdir(parents=True, exist_ok=True)
         if primary_row is not None:
             primary_row["proposal_status"] = proposal_status
+            _annotate_line_role_final_proposal_status(
+                primary_row,
+                final_proposal_status=proposal_status,
+            )
             primary_row["runtime_task_id"] = task_manifest.shard_id
             primary_row["runtime_parent_shard_id"] = parent_shard_id
         if primary_runner_row is not None:
             primary_runner_row["proposal_status"] = proposal_status
+            _annotate_line_role_final_proposal_status(
+                primary_runner_row,
+                final_proposal_status=proposal_status,
+            )
             primary_runner_row["runtime_task_id"] = task_manifest.shard_id
             primary_runner_row["runtime_parent_shard_id"] = parent_shard_id
         if (
@@ -2956,6 +3010,10 @@ def _run_line_role_workspace_worker_assignment_v1(
                 watchdog_retry_primary_row["proposal_status"] = (
                     watchdog_retry_proposal_status
                 )
+                _annotate_line_role_final_proposal_status(
+                    watchdog_retry_primary_row,
+                    final_proposal_status=watchdog_retry_proposal_status,
+                )
                 watchdog_retry_primary_row["watchdog_retry_status"] = (
                     watchdog_retry_status
                 )
@@ -2964,6 +3022,10 @@ def _run_line_role_workspace_worker_assignment_v1(
             if watchdog_retry_primary_runner_row is not None:
                 watchdog_retry_primary_runner_row["proposal_status"] = (
                     watchdog_retry_proposal_status
+                )
+                _annotate_line_role_final_proposal_status(
+                    watchdog_retry_primary_runner_row,
+                    final_proposal_status=watchdog_retry_proposal_status,
                 )
                 watchdog_retry_primary_runner_row["watchdog_retry_status"] = (
                     watchdog_retry_status
@@ -2984,6 +3046,16 @@ def _run_line_role_workspace_worker_assignment_v1(
                     watchdog_retry_validation_metadata or {}
                 )
                 proposal_status = watchdog_retry_proposal_status
+                if primary_row is not None:
+                    _annotate_line_role_final_proposal_status(
+                        primary_row,
+                        final_proposal_status=proposal_status,
+                    )
+                if primary_runner_row is not None:
+                    _annotate_line_role_final_proposal_status(
+                        primary_runner_row,
+                        final_proposal_status=proposal_status,
+                    )
             else:
                 final_validation_metadata = {
                     **(
@@ -3115,11 +3187,19 @@ def _run_line_role_workspace_worker_assignment_v1(
             )
             if repair_primary_row is not None:
                 repair_primary_row["proposal_status"] = repair_proposal_status
+                _annotate_line_role_final_proposal_status(
+                    repair_primary_row,
+                    final_proposal_status=repair_proposal_status,
+                )
                 repair_primary_row["repair_status"] = repair_status
                 repair_primary_row["runtime_task_id"] = task_manifest.shard_id
                 repair_primary_row["runtime_parent_shard_id"] = parent_shard_id
             if repair_primary_runner_row is not None:
                 repair_primary_runner_row["proposal_status"] = repair_proposal_status
+                _annotate_line_role_final_proposal_status(
+                    repair_primary_runner_row,
+                    final_proposal_status=repair_proposal_status,
+                )
                 repair_primary_runner_row["repair_status"] = repair_status
                 repair_primary_runner_row["runtime_task_id"] = task_manifest.shard_id
                 repair_primary_runner_row["runtime_parent_shard_id"] = parent_shard_id
@@ -3127,6 +3207,16 @@ def _run_line_role_workspace_worker_assignment_v1(
                 payload = repair_payload
                 final_validation_metadata = dict(repair_validation_metadata or {})
                 proposal_status = repair_proposal_status
+                if primary_row is not None:
+                    _annotate_line_role_final_proposal_status(
+                        primary_row,
+                        final_proposal_status=proposal_status,
+                    )
+                if primary_runner_row is not None:
+                    _annotate_line_role_final_proposal_status(
+                        primary_runner_row,
+                        final_proposal_status=proposal_status,
+                    )
             else:
                 final_validation_metadata = {
                     **(
@@ -3287,6 +3377,18 @@ def _run_line_role_workspace_worker_assignment_v1(
         if repair_validation_errors:
             validation_metadata["repair_validation_errors"] = repair_validation_errors
         proposal_status = "validated" if valid else "invalid"
+        resumed_from_existing_outputs = any(
+            task.task_id in resumed_output_path_by_task_id
+            for task in all_task_plans_by_shard_id.get(shard.shard_id, ())
+        )
+        normalized_outcome = _normalize_line_role_shard_outcome(
+            run_result=session_run_result,
+            proposal_status=proposal_status,
+            watchdog_retry_status=watchdog_retry_status,
+            repair_status=repair_status,
+            resumed_from_existing_outputs=resumed_from_existing_outputs,
+            aggregation_metadata=aggregation_metadata,
+        )
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         _write_runtime_json(
             proposal_path,
@@ -3312,40 +3414,36 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "validation_metadata": dict(validation_metadata or {}),
             },
         )
-        shard_state = (
-            session_run_result.supervision_state
-            if session_run_result is not None
-            else "completed"
-        )
-        shard_reason_code = (
-            session_run_result.supervision_reason_code
-            if session_run_result is not None
-            else (
-                "resume_existing_outputs"
-                if any(
-                    task.task_id in resumed_output_path_by_task_id
-                    for task in all_task_plans_by_shard_id.get(shard.shard_id, ())
-                )
-                else "no_tasks_assigned"
+        shard_state = normalized_outcome.get("state")
+        shard_reason_code = normalized_outcome.get("reason_code")
+        shard_reason_detail = normalized_outcome.get("reason_detail")
+        shard_retryable = bool(normalized_outcome.get("retryable"))
+        for row in stage_rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("task_id") or "").strip() != shard.shard_id:
+                continue
+            if str(row.get("prompt_input_mode") or "").strip() != "workspace_worker":
+                continue
+            _annotate_line_role_final_outcome_row(
+                row,
+                normalized_outcome=normalized_outcome,
             )
-        )
-        shard_reason_detail = (
-            session_run_result.supervision_reason_detail
-            if session_run_result is not None
-            else (
-                "all canonical line-role packet outputs were already durable on disk"
-                if any(
-                    task.task_id in resumed_output_path_by_task_id
-                    for task in all_task_plans_by_shard_id.get(shard.shard_id, ())
-                )
-                else "worker had no runnable canonical line-role packets"
+        for payload_row in worker_runner_results:
+            if not isinstance(payload_row, dict):
+                continue
+            process_payload = payload_row.get("process_payload")
+            if not isinstance(process_payload, Mapping):
+                continue
+            if str(process_payload.get("runtime_parent_shard_id") or "").strip() != shard.shard_id:
+                continue
+            if str(process_payload.get("prompt_input_mode") or "").strip() != "workspace_worker":
+                continue
+            _apply_line_role_final_outcome_to_runner_payload(
+                payload_row,
+                shard_id=shard.shard_id,
+                normalized_outcome=normalized_outcome,
             )
-        )
-        shard_retryable = (
-            bool(session_run_result.supervision_retryable)
-            if session_run_result is not None
-            else False
-        )
         _write_runtime_json(
             shard_root / "status.json",
             {
@@ -3357,10 +3455,21 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "watchdog_retry_status": watchdog_retry_status,
                 "repair_attempted": repair_attempted,
                 "repair_status": repair_status,
+                "finalization_path": normalized_outcome.get("finalization_path"),
                 "state": shard_state,
                 "reason_code": shard_reason_code,
                 "reason_detail": shard_reason_detail,
                 "retryable": shard_retryable,
+                "raw_supervision_state": normalized_outcome.get("raw_supervision_state"),
+                "raw_supervision_reason_code": normalized_outcome.get(
+                    "raw_supervision_reason_code"
+                ),
+                "raw_supervision_reason_detail": normalized_outcome.get(
+                    "raw_supervision_reason_detail"
+                ),
+                "raw_supervision_retryable": normalized_outcome.get(
+                    "raw_supervision_retryable"
+                ),
             },
         )
         shard_runner_rows = [
@@ -3395,8 +3504,33 @@ def _run_line_role_workspace_worker_assignment_v1(
         shard_runner_payload["turn_failed_message"] = (
             session_run_result.turn_failed_message if session_run_result is not None else None
         )
+        shard_runner_payload["final_supervision_state"] = normalized_outcome.get("state")
+        shard_runner_payload["final_supervision_reason_code"] = normalized_outcome.get(
+            "reason_code"
+        )
+        shard_runner_payload["final_supervision_reason_detail"] = normalized_outcome.get(
+            "reason_detail"
+        )
+        shard_runner_payload["final_supervision_retryable"] = normalized_outcome.get(
+            "retryable"
+        )
+        shard_runner_payload["finalization_path"] = normalized_outcome.get(
+            "finalization_path"
+        )
+        shard_runner_payload["raw_supervision_state"] = normalized_outcome.get(
+            "raw_supervision_state"
+        )
+        shard_runner_payload["raw_supervision_reason_code"] = normalized_outcome.get(
+            "raw_supervision_reason_code"
+        )
+        shard_runner_payload["raw_supervision_reason_detail"] = normalized_outcome.get(
+            "raw_supervision_reason_detail"
+        )
+        shard_runner_payload["raw_supervision_retryable"] = normalized_outcome.get(
+            "raw_supervision_retryable"
+        )
         runner_results_by_shard_id[shard.shard_id] = shard_runner_payload
-        if proposal_status != "validated":
+        if proposal_status != "validated" or shard_state != "completed":
             worker_failure_count += 1
             worker_failures.append(
                 {
@@ -3997,21 +4131,22 @@ def _build_line_role_workspace_worker_prompt(
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
         "- Read `assigned_tasks.json` and process the assigned task packets in order.\n"
         "- For each assigned task, open `hints/<task_id>.md` first, then open `in/<task_id>.json`.\n"
-        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned rows for that packet.\n"
+        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative task packet for that worker step.\n"
         "- Treat each packet's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
         "- If `examples/` exists, use those repo-written contrast examples for calibration only; do not copy them into outputs.\n"
-        "- Recompute labels from that task file's rows and write exactly one JSON object to `out/<task_id>.json`.\n"
+        "- Recompute labels from that task file and write exactly one JSON object to `out/<task_id>.json`.\n"
         "- If `out/<task_id>.json` already exists and is complete, leave it alone and continue.\n"
         "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
         "- Stay inside this workspace; do not inspect parent directories or the repository.\n"
         "- Keep working through the assigned task files until all of them are handled or you truly cannot proceed.\n\n"
         "Each task input file has this shape:\n"
-        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456.task-001","parent_shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"]]}\n\n'
+        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456.task-001","parent_shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[120,"Earlier row"],[121,"More context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later row"],[125,"More later context"]]}\n\n'
         "Each output file must have this shape:\n"
         '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
         "Rules:\n"
         "- Use only the keys `rows`, `atomic_index`, and `label` in each output file.\n"
-        "- Return one result for every input row, in the same order.\n"
+        "- `context_before_rows` and `context_after_rows` are reference-only neighboring rows. Read them if helpful, but never emit labels for them.\n"
+        "- Return one result for every owned input row in `rows`, in the same order.\n"
         "- Convert `label_code` into the correct full label string.\n"
         "- `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
         "- `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.\n"
@@ -4762,6 +4897,236 @@ def _failure_reason_from_run_result(
     )
 
 
+def _line_role_resume_reason_fields(*, resumed_from_existing_outputs: bool) -> tuple[str, str]:
+    if resumed_from_existing_outputs:
+        return (
+            "resume_existing_outputs",
+            "all canonical line-role packet outputs were already durable on disk",
+        )
+    return (
+        "no_tasks_assigned",
+        "worker had no runnable canonical line-role packets",
+    )
+
+
+def _normalize_line_role_shard_outcome(
+    *,
+    run_result: CodexExecRunResult | None,
+    proposal_status: str,
+    watchdog_retry_status: str,
+    repair_status: str,
+    resumed_from_existing_outputs: bool,
+    aggregation_metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    raw_supervision_state = (
+        str(run_result.supervision_state or "").strip() or None
+        if run_result is not None
+        else None
+    )
+    raw_supervision_reason_code = (
+        str(run_result.supervision_reason_code or "").strip() or None
+        if run_result is not None
+        else None
+    )
+    raw_supervision_reason_detail = (
+        str(run_result.supervision_reason_detail or "").strip() or None
+        if run_result is not None
+        else None
+    )
+    raw_supervision_retryable = (
+        bool(run_result.supervision_retryable)
+        if run_result is not None
+        else False
+    )
+    fallback_task_count = int(
+        (
+            aggregation_metadata.get("fallback_task_count")
+            if isinstance(aggregation_metadata, Mapping)
+            else 0
+        )
+        or 0
+    )
+
+    if proposal_status == "validated":
+        if (
+            str(raw_supervision_state or "").lower() == "watchdog_killed"
+            and fallback_task_count > 0
+        ):
+            return {
+                "state": str(raw_supervision_state or "watchdog_killed"),
+                "reason_code": raw_supervision_reason_code,
+                "reason_detail": raw_supervision_reason_detail,
+                "retryable": raw_supervision_retryable,
+                "finalization_path": "session_result",
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
+        if str(repair_status).strip() == "repaired":
+            detail = "line-role shard validated after a repair attempt corrected the final packet output."
+            if raw_supervision_reason_code:
+                detail += f" Original workspace reason: {raw_supervision_reason_code}."
+            return {
+                "state": "completed",
+                "reason_code": "repair_recovered",
+                "reason_detail": detail,
+                "retryable": False,
+                "finalization_path": "repair_recovered",
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
+        if str(watchdog_retry_status).strip() == "recovered":
+            detail = (
+                "line-role shard validated after a watchdog retry recovered missing packet outputs."
+            )
+            if raw_supervision_reason_code:
+                detail += f" Original workspace reason: {raw_supervision_reason_code}."
+            return {
+                "state": "completed",
+                "reason_code": "watchdog_retry_recovered",
+                "reason_detail": detail,
+                "retryable": False,
+                "finalization_path": "watchdog_retry_recovered",
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
+        if run_result is None:
+            reason_code, reason_detail = _line_role_resume_reason_fields(
+                resumed_from_existing_outputs=resumed_from_existing_outputs
+            )
+            return {
+                "state": "completed",
+                "reason_code": reason_code,
+                "reason_detail": reason_detail,
+                "retryable": False,
+                "finalization_path": reason_code,
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
+        if str(raw_supervision_state or "").lower() == "watchdog_killed":
+            detail = (
+                "line-role shard validated using durable packet outputs even though the main "
+                "workspace worker was killed before it terminated cleanly."
+            )
+            if raw_supervision_reason_code:
+                detail += f" Original workspace reason: {raw_supervision_reason_code}."
+            return {
+                "state": "completed",
+                "reason_code": "validated_after_watchdog_kill",
+                "reason_detail": detail,
+                "retryable": False,
+                "finalization_path": "validated_after_watchdog_kill",
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
+        return {
+            "state": str(raw_supervision_state or "completed"),
+            "reason_code": raw_supervision_reason_code,
+            "reason_detail": raw_supervision_reason_detail,
+            "retryable": False,
+            "finalization_path": "session_completed",
+            "raw_supervision_state": raw_supervision_state,
+            "raw_supervision_reason_code": raw_supervision_reason_code,
+            "raw_supervision_reason_detail": raw_supervision_reason_detail,
+            "raw_supervision_retryable": raw_supervision_retryable,
+        }
+
+    if run_result is None:
+        reason_code, reason_detail = _line_role_resume_reason_fields(
+            resumed_from_existing_outputs=resumed_from_existing_outputs
+        )
+        return {
+            "state": "completed",
+            "reason_code": reason_code,
+            "reason_detail": reason_detail,
+            "retryable": False,
+            "finalization_path": reason_code,
+            "raw_supervision_state": raw_supervision_state,
+            "raw_supervision_reason_code": raw_supervision_reason_code,
+            "raw_supervision_reason_detail": raw_supervision_reason_detail,
+            "raw_supervision_retryable": raw_supervision_retryable,
+        }
+
+    return {
+        "state": str(raw_supervision_state or "completed"),
+        "reason_code": raw_supervision_reason_code,
+        "reason_detail": raw_supervision_reason_detail,
+        "retryable": raw_supervision_retryable,
+        "finalization_path": "session_result",
+        "raw_supervision_state": raw_supervision_state,
+        "raw_supervision_reason_code": raw_supervision_reason_code,
+        "raw_supervision_reason_detail": raw_supervision_reason_detail,
+        "raw_supervision_retryable": raw_supervision_retryable,
+    }
+
+
+def _annotate_line_role_final_outcome_row(
+    row: dict[str, Any],
+    *,
+    normalized_outcome: Mapping[str, Any],
+) -> None:
+    row["final_supervision_state"] = normalized_outcome.get("state")
+    row["final_supervision_reason_code"] = normalized_outcome.get("reason_code")
+    row["final_supervision_reason_detail"] = normalized_outcome.get("reason_detail")
+    row["final_supervision_retryable"] = normalized_outcome.get("retryable")
+    row["finalization_path"] = normalized_outcome.get("finalization_path")
+    row["raw_supervision_state"] = normalized_outcome.get("raw_supervision_state")
+    row["raw_supervision_reason_code"] = normalized_outcome.get(
+        "raw_supervision_reason_code"
+    )
+    row["raw_supervision_reason_detail"] = normalized_outcome.get(
+        "raw_supervision_reason_detail"
+    )
+    row["raw_supervision_retryable"] = normalized_outcome.get(
+        "raw_supervision_retryable"
+    )
+
+
+def _annotate_line_role_final_proposal_status(
+    row: dict[str, Any],
+    *,
+    final_proposal_status: str,
+) -> None:
+    raw_proposal_status = str(row.get("proposal_status") or "").strip()
+    row["raw_proposal_status"] = raw_proposal_status or None
+    row["final_proposal_status"] = str(final_proposal_status or "").strip() or None
+
+
+def _apply_line_role_final_outcome_to_runner_payload(
+    payload: dict[str, Any],
+    *,
+    shard_id: str,
+    normalized_outcome: Mapping[str, Any],
+) -> None:
+    telemetry = payload.get("telemetry")
+    row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+    changed = False
+    if isinstance(row_payloads, list):
+        for row_payload in row_payloads:
+            if not isinstance(row_payload, dict):
+                continue
+            if str(row_payload.get("task_id") or "").strip() != str(shard_id).strip():
+                continue
+            if str(row_payload.get("prompt_input_mode") or "").strip() != "workspace_worker":
+                continue
+            _annotate_line_role_final_outcome_row(
+                row_payload,
+                normalized_outcome=normalized_outcome,
+            )
+            changed = True
+        if changed:
+            telemetry["summary"] = _summarize_direct_rows(row_payloads)
+
+
 def _format_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -5430,6 +5795,9 @@ def _write_line_role_telemetry_summary(
                     "watchdog_killed_shard_count": phase_direct_summary.get(
                         "watchdog_killed_shard_count"
                     ),
+                    "watchdog_recovered_shard_count": phase_direct_summary.get(
+                        "watchdog_recovered_shard_count"
+                    ),
                     "repaired_shard_count": phase_direct_summary.get(
                         "repaired_shard_count"
                     ),
@@ -5549,6 +5917,9 @@ def _write_line_role_telemetry_summary(
                     ),
                     "watchdog_killed_shard_count": direct_summary.get(
                         "watchdog_killed_shard_count"
+                    ),
+                    "watchdog_recovered_shard_count": direct_summary.get(
+                        "watchdog_recovered_shard_count"
                     ),
                     "repaired_shard_count": direct_summary.get("repaired_shard_count"),
                     "pathological_shard_count": direct_summary.get(
@@ -5821,6 +6192,12 @@ def _deterministic_label(
     by_atomic_index: dict[int, AtomicLineCandidate] | None = None,
 ) -> tuple[str | None, list[str]]:
     tags = {str(tag) for tag in candidate.rule_tags}
+    howto_prose_label, howto_prose_reason_tags = _classify_non_heading_howto_prose(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if howto_prose_label is not None:
+        return howto_prose_label, howto_prose_reason_tags
     if "note_prefix" in tags or _looks_note_text(candidate.text):
         return "RECIPE_NOTES", ["note_prefix"]
     if _looks_storage_or_serving_note(candidate.text):
@@ -5856,14 +6233,13 @@ def _deterministic_label(
     ):
         if _looks_narrative_prose(candidate.text):
             return "OTHER", ["outside_recipe_narrative"]
-        if _looks_knowledge_prose_with_context(
+        if _outside_recipe_knowledge_label_allowed(
             candidate,
             by_atomic_index=by_atomic_index,
         ):
             return "KNOWLEDGE", [
                 "outside_recipe_span",
-                "prose_like",
-                "knowledge_context",
+                "knowledge_high_evidence",
             ]
         return "OTHER", ["outside_recipe_span", "prose_default_other"]
     if (
@@ -5875,14 +6251,13 @@ def _deterministic_label(
     ):
         if _looks_narrative_prose(candidate.text):
             return "OTHER", ["unknown_recipe_span", "narrative_default_other"]
-        if _looks_knowledge_prose_with_context(
+        if _outside_recipe_knowledge_label_allowed(
             candidate,
             by_atomic_index=by_atomic_index,
         ):
             return "KNOWLEDGE", [
                 "unknown_recipe_span",
-                "prose_like",
-                "knowledge_context",
+                "knowledge_high_evidence",
             ]
         return "OTHER", ["unknown_recipe_span", "prose_default_other"]
     if "yield_prefix" in tags:
@@ -5929,19 +6304,13 @@ def _deterministic_label(
     if "time_metadata" in tags and _is_primary_time_line(candidate.text):
         return "TIME_LINE", ["time_metadata"]
     if _is_outside_recipe_span(candidate):
-        if _looks_knowledge_heading_with_context(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            return "KNOWLEDGE", ["outside_recipe_span", "knowledge_heading_context"]
-        if _looks_knowledge_prose_with_context(
+        if _outside_recipe_knowledge_label_allowed(
             candidate,
             by_atomic_index=by_atomic_index,
         ):
             return "KNOWLEDGE", [
                 "outside_recipe_span",
-                "prose_like",
-                "knowledge_context",
+                "knowledge_high_evidence",
             ]
     if "outside_recipe_span" in tags:
         if _looks_recipe_title_with_context(
@@ -5952,22 +6321,21 @@ def _deterministic_label(
         if _looks_prose(candidate.text):
             if _looks_narrative_prose(candidate.text):
                 return "OTHER", ["outside_recipe_narrative", "outside_recipe_span"]
-            if _looks_knowledge_prose_with_context(
+            if _outside_recipe_knowledge_label_allowed(
                 candidate,
                 by_atomic_index=by_atomic_index,
             ):
                 return "KNOWLEDGE", [
                     "outside_recipe_span",
-                    "prose_like",
-                    "knowledge_context",
+                    "knowledge_high_evidence",
                 ]
             return "OTHER", ["outside_recipe_span", "prose_default_other"]
         return "OTHER", ["outside_recipe_span"]
-    if candidate.within_recipe_span is None and _looks_knowledge_heading_with_context(
+    if candidate.within_recipe_span is None and _outside_recipe_knowledge_label_allowed(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
-        return "KNOWLEDGE", ["unknown_recipe_span", "knowledge_heading_context"]
+        return "KNOWLEDGE", ["unknown_recipe_span", "knowledge_high_evidence"]
     if (
         "title_like" in tags or _looks_recipe_title(candidate.text)
     ) and _looks_recipe_title_with_context(
@@ -6028,6 +6396,17 @@ def _sanitize_prediction(
         label = "OTHER"
         decided_by = "fallback"
         reason_tags.append("sanitized_knowledge_inside_recipe")
+    if (
+        label == "KNOWLEDGE"
+        and not _is_within_recipe_span(candidate)
+        and not _outside_recipe_knowledge_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        label = "OTHER"
+        decided_by = "fallback"
+        reason_tags.append("sanitized_outside_recipe_knowledge_without_evidence")
     if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
         label = "OTHER" if _is_outside_recipe_span(candidate) else "INSTRUCTION_LINE"
         decided_by = "fallback"
@@ -6245,12 +6624,87 @@ def _outside_span_has_neighboring_component_structure(
     return False
 
 
+def _classify_non_heading_howto_prose(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> tuple[str | None, list[str]]:
+    text = str(candidate.text or "").strip()
+    if not _looks_non_heading_howto_prose(text):
+        return None, []
+    lowered = text.lower()
+    if lowered.startswith("to make "):
+        if _is_within_recipe_span(candidate):
+            return "RECIPE_VARIANT", ["howto_prefix_prose", "recipe_local_variant_prose"]
+        if by_atomic_index is not None and _outside_span_has_neighboring_component_structure(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            return "RECIPE_VARIANT", [
+                "howto_prefix_prose",
+                "outside_recipe_variant_prose",
+            ]
+        if (
+            by_atomic_index is not None
+            and _outside_recipe_knowledge_label_allowed(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            return "KNOWLEDGE", ["howto_prefix_prose", "knowledge_high_evidence"]
+        if _is_outside_recipe_span(candidate):
+            return "OTHER", ["howto_prefix_prose", "outside_recipe_default_other"]
+        return "OTHER", ["howto_prefix_prose", "default_other"]
+    if lowered.startswith("to serve"):
+        if _is_within_recipe_span(candidate):
+            return "INSTRUCTION_LINE", ["howto_prefix_prose", "serving_step_prose"]
+        if (
+            by_atomic_index is not None
+            and _outside_recipe_knowledge_label_allowed(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            return "KNOWLEDGE", ["howto_prefix_prose", "knowledge_high_evidence"]
+        if _is_outside_recipe_span(candidate):
+            return "OTHER", ["howto_prefix_prose", "outside_recipe_serving_prose"]
+        return "OTHER", ["howto_prefix_prose", "default_other"]
+    if _looks_storage_or_serving_note(text) or _looks_recipe_note_prose(text):
+        return "RECIPE_NOTES", ["howto_prefix_prose", "note_like_prose"]
+    if (
+        by_atomic_index is not None
+        and _outside_recipe_knowledge_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        return "KNOWLEDGE", ["howto_prefix_prose", "knowledge_high_evidence"]
+    if _is_outside_recipe_span(candidate):
+        return "OTHER", ["howto_prefix_prose", "outside_recipe_default_other"]
+    return "OTHER", ["howto_prefix_prose", "default_other"]
+
+
 def _howto_section_label_allowed(
     candidate: AtomicLineCandidate,
     *,
     by_atomic_index: dict[int, AtomicLineCandidate] | None,
 ) -> bool:
     if by_atomic_index is None:
+        return False
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if _looks_non_heading_howto_prose(text):
+        return False
+    if _HOWTO_PREFIX_RE.match(text):
+        if not _looks_howto_heading_shape(text):
+            return False
+    elif not _looks_compact_heading(text):
+        return False
+    if _looks_knowledge_heading_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
         return False
     return _has_recipe_local_howto_support(
         candidate,
@@ -6272,6 +6726,8 @@ def _has_recipe_local_howto_support(
             return False
         if not _looks_compact_heading(text):
             return False
+    elif not _looks_howto_heading_shape(text):
+        return False
     prev_candidate = by_atomic_index.get(int(candidate.atomic_index) - 1)
     next_candidate = by_atomic_index.get(int(candidate.atomic_index) + 1)
     if prev_candidate is None and next_candidate is None:
@@ -6334,6 +6790,12 @@ def _howto_section_fallback_label(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> str:
+    howto_prose_label, _ = _classify_non_heading_howto_prose(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if howto_prose_label is not None:
+        return howto_prose_label
     text = str(candidate.text or "").strip()
     if _looks_variant_heading_text(text):
         return "RECIPE_VARIANT"
@@ -6606,7 +7068,7 @@ def _looks_subsection_heading_context(
 ) -> bool:
     if by_atomic_index is None:
         return False
-    return _has_recipe_local_howto_support(
+    return _howto_section_label_allowed(
         candidate,
         by_atomic_index=by_atomic_index,
     )
@@ -6762,6 +7224,34 @@ def _looks_compact_heading(text: str) -> bool:
     return (uppercase_chars / alpha_chars) >= 0.68
 
 
+def _looks_howto_heading_shape(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or not _HOWTO_PREFIX_RE.match(stripped):
+        return False
+    if stripped[-1:] in {".", "!", "?"}:
+        return False
+    heading_text = stripped[:-1].rstrip() if stripped.endswith(":") else stripped
+    if not heading_text:
+        return False
+    if any(mark in heading_text for mark in ",;()"):
+        return False
+    words = _PROSE_WORD_RE.findall(heading_text)
+    if not (2 <= len(words) <= 8):
+        return False
+    if len(heading_text) > 72:
+        return False
+    return True
+
+
+def _looks_non_heading_howto_prose(text: str) -> bool:
+    stripped = str(text or "").strip()
+    return (
+        bool(stripped)
+        and _HOWTO_PREFIX_RE.match(stripped) is not None
+        and not _looks_howto_heading_shape(stripped)
+    )
+
+
 def _looks_note_text(text: str) -> bool:
     return bool(_NOTE_PREFIX_RE.match(text))
 
@@ -6909,7 +7399,49 @@ def _looks_narrative_prose(text: str) -> bool:
     lowered = stripped.lower()
     if any(lowered.startswith(prefix) for prefix in _NON_RECIPE_PROSE_PREFIXES):
         return True
-    return bool(_FIRST_PERSON_RE.search(stripped) and not _RECIPE_CONTEXT_RE.search(stripped))
+    if _FIRST_PERSON_SINGULAR_RE.search(stripped):
+        return True
+    if _FIRST_PERSON_RE.search(stripped) and not (
+        _looks_explicit_knowledge_cue(stripped) or _looks_domain_knowledge_prose(stripped)
+    ):
+        return True
+    return False
+
+
+def _looks_book_framing_or_exhortation_prose(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or not _looks_prose(stripped):
+        return False
+    if _looks_editorial_note(stripped) or _looks_recipe_note_prose(stripped):
+        return False
+    lowered = stripped.lower()
+    second_person_count = len(_SECOND_PERSON_RE.findall(stripped))
+    if "this book" in lowered and _FIRST_PERSON_RE.search(stripped):
+        return True
+    if _BOOK_FRAMING_EXHORTATION_CUE_RE.search(stripped):
+        return True
+    if (
+        second_person_count >= 2
+        and any(
+            cue in lowered
+            for cue in (
+                "better",
+                "learn",
+                "teach",
+                "for you",
+                "pay attention",
+            )
+        )
+        and not _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped)
+    ):
+        return True
+    if (
+        (_INSTRUCTION_VERB_RE.match(stripped) or lowered.startswith("let "))
+        and second_person_count >= 1
+        and not _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped)
+    ):
+        return True
+    return False
 
 
 def _knowledge_domain_cue_count(text: str) -> int:
@@ -6941,7 +7473,7 @@ def _looks_domain_knowledge_prose(text: str) -> bool:
         return False
     if _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped):
         return True
-    return domain_cues >= 3
+    return False
 
 
 def _looks_knowledge_heading_shape(text: str) -> bool:
@@ -6978,7 +7510,7 @@ def _looks_obvious_knowledge_heading(text: str) -> bool:
         return True
     if _KNOWLEDGE_HEADING_FORM_RE.match(lowered):
         return True
-    return _knowledge_domain_cue_count(stripped) > 0
+    return False
 
 
 def _looks_knowledge_heading_with_context(
@@ -7041,13 +7573,20 @@ def _looks_pedagogical_knowledge_prose(text: str) -> bool:
         return False
     if _looks_editorial_note(stripped) or _looks_recipe_note_prose(stripped):
         return False
+    if _looks_book_framing_or_exhortation_prose(stripped):
+        return False
     lowered = stripped.lower()
     if not any(
         cue in lowered
         for cue in ("book", "cook", "cooking", "kitchen", "meal", "recipe")
     ):
         return False
-    return bool(_PEDAGOGICAL_KNOWLEDGE_CUE_RE.search(stripped))
+    if not _PEDAGOGICAL_KNOWLEDGE_CUE_RE.search(stripped):
+        return False
+    return bool(
+        _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped)
+        or _EXPLICIT_KNOWLEDGE_CUE_RE.search(stripped)
+    )
 
 
 def _looks_knowledge_prose_with_context(
@@ -7057,13 +7596,21 @@ def _looks_knowledge_prose_with_context(
 ) -> bool:
     text = str(candidate.text or "").strip()
     if (
+        _looks_narrative_prose(text)
+        or _looks_endorsement_credit(text)
+        or _looks_book_framing_or_exhortation_prose(text)
+    ):
+        return False
+    if (
         _looks_explicit_knowledge_cue(text)
         or _looks_domain_knowledge_prose(text)
-        or _looks_endorsement_credit(text)
         or _looks_pedagogical_knowledge_prose(text)
     ):
         return True
     if by_atomic_index is None:
+        return False
+    words = _PROSE_WORD_RE.findall(text)
+    if _looks_prose(text) and len(words) > 8 and not _looks_knowledge_heading_shape(text):
         return False
     for offset in (-1, 1):
         neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
@@ -7080,6 +7627,33 @@ def _looks_knowledge_prose_with_context(
         ):
             return True
     return False
+
+
+def _outside_recipe_knowledge_label_allowed(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    if _is_within_recipe_span(candidate):
+        return False
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if (
+        _looks_recipe_note_prose(text)
+        or _looks_editorial_note(text)
+        or _looks_endorsement_credit(text)
+        or _looks_narrative_prose(text)
+        or _looks_book_framing_or_exhortation_prose(text)
+    ):
+        return False
+    return _looks_knowledge_heading_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ) or _looks_knowledge_prose_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
 
 
 def _looks_strict_yield_header(text: str) -> bool:

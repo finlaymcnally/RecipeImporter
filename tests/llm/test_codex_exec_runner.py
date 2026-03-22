@@ -149,6 +149,49 @@ def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:
     }
 
 
+def test_summarize_direct_telemetry_rows_prefers_final_supervision_state() -> None:
+    summary = summarize_direct_telemetry_rows(
+        [
+            {
+                "task_id": "shard-001",
+                "supervision_state": "watchdog_killed",
+                "raw_supervision_state": "watchdog_killed",
+                "final_supervision_state": "completed",
+                "finalization_path": "watchdog_retry_recovered",
+            },
+            {
+                "task_id": "shard-002",
+                "supervision_state": "watchdog_killed",
+            },
+        ]
+    )
+
+    assert summary["watchdog_killed_shard_count"] == 1
+    assert summary["watchdog_recovered_shard_count"] == 1
+    assert summary["pathological_shard_count"] == 2
+    assert "watchdog_kills_detected" in summary["pathological_flags"]
+
+
+def test_summarize_direct_telemetry_rows_prefers_final_proposal_status() -> None:
+    summary = summarize_direct_telemetry_rows(
+        [
+            {
+                "task_id": "shard-001",
+                "proposal_status": "invalid",
+                "final_proposal_status": "validated",
+            },
+            {
+                "task_id": "shard-001",
+                "proposal_status": "validated",
+                "repair_status": "repaired",
+            },
+        ]
+    )
+
+    assert summary["invalid_output_shard_count"] == 0
+    assert summary["repaired_shard_count"] == 1
+
+
 def test_codex_exec_runner_classifies_final_agent_messages() -> None:
     assert assess_final_agent_message(None).state == "absent"
     malformed = assess_final_agent_message("thinking...\n{\"v\":\"2\"}")
@@ -281,8 +324,10 @@ def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'pip install foo'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'curl https://example.com'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat ../secret.txt'") is False
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /tmp/secret.txt'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /tmp/secret.txt'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /var/tmp/helper.txt'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'git status --short'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /etc/passwd'") is False
 
 
 def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None:
@@ -363,8 +408,13 @@ def test_codex_exec_runner_detects_boundary_violations_separately_from_telemetry
     assert forbidden_tool is not None
     assert forbidden_tool.policy == "forbidden_non_helper_executable"
 
-    forbidden_path = detect_workspace_worker_boundary_violation(
+    tolerated_temp_path = detect_workspace_worker_boundary_violation(
         "/bin/bash -lc 'cat /tmp/secret.txt'"
+    )
+    assert tolerated_temp_path is None
+
+    forbidden_path = detect_workspace_worker_boundary_violation(
+        "/bin/bash -lc 'cat /etc/passwd'"
     )
     assert forbidden_path is not None
     assert forbidden_path.policy == "forbidden_absolute_path"
