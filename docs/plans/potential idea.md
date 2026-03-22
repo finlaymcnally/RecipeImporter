@@ -1,12 +1,12 @@
 ---
-summary: "Route obviously non-knowledge outside-recipe text off the knowledge path without adding any new LLM passes."
+summary: "Use the existing line-role pass to exclude only obviously non-knowledge outside-recipe material from knowledge review, while leaving semantic knowledge-vs-other authority to the optional knowledge stage."
 read_when:
-  - When changing line-role labels, line-role worker output contracts, or outside-recipe suppression policy
-  - When changing Stage 7 non-recipe ownership, knowledge-stage input eligibility, or `08_nonrecipe_spans.json`
-  - When debugging why table-of-contents, copyright, navigation, or boilerplate text still reaches knowledge review
+  - When reducing knowledge-stage token spend on obvious front matter, navigation, testimonials, or publishing matter
+  - When changing outside-recipe line-role responsibilities without restoring line-role as final `KNOWLEDGE` authority
+  - When changing Stage 7 review-eligibility routing, knowledge-job inputs, or `08_nonrecipe_spans.json`
 ---
 
-# Route obviously non-knowledge outside-recipe text off the knowledge path without adding any new LLM passes
+# Use line-role as a fail-open coarse junk veto for outside-recipe text
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
@@ -14,98 +14,111 @@ This document must be maintained in accordance with `docs/PLANS.md`.
 
 ## Purpose / Big Picture
 
-Right now the first LLM stage in `cookimport/parsing/canonical_line_roles.py` spends a lot of effort on a hard outside-recipe question: whether each non-recipe line is `KNOWLEDGE` or `OTHER`. That is the noisiest part of the benchmark, and it forces the same model pass to solve recipe structure, outside-recipe semantics, and obvious junk filtering all at once. After this change, the line-role LLM will still do all recipe-local labeling, but it will stop being responsible for deciding broad outside-recipe `KNOWLEDGE` versus `OTHER`. Instead, it will do two simpler things outside recipes: leave normal outside-recipe text as provisional `OTHER`, and explicitly mark absurdly obvious non-knowledge material as “suppressed from knowledge review.”
+The line-role stage in `cookimport/parsing/canonical_line_roles.py` already has to read the whole book in order to separate recipe structure from non-recipe material. The knowledge stage in `cookimport/llm/codex_farm_knowledge_orchestrator.py` is the expensive semantic pass that decides whether outside-recipe text is actually reusable cooking knowledge. The goal of this plan is to use the already-paid-for line-role pass to do one narrow extra job: mark obviously useless outside-recipe material so the knowledge stage does not waste prompts on it.
 
-The user-visible behavior after implementation is concrete. Running the normal stage path with the existing optional knowledge stage enabled should still produce `08_nonrecipe_spans.json` and `09_knowledge_outputs.json`, but obvious junk such as table-of-contents rows, running headers, copyright boilerplate, bare page numbers, and similar material should no longer reach the knowledge worker inputs. Those suppressed rows must remain visible in repo artifacts through a dedicated suppression ledger and summary counts, so a human can see exactly what was routed off, why it was routed off, and whether the rules or the LLM are being too aggressive. No new LLM pass is added. The existing line-role pass does the marking, and the existing optional knowledge pass only sees the unsuppressed remainder.
+The key limit is intentional. The line-role stage must not become the final judge of whether subtle prose is useful cooking knowledge. It should only recognize overwhelming low-risk cases such as table-of-contents rows, isolated page numbers, running headers, copyright/legal boilerplate, cataloging metadata, testimonials, and similar publishing/navigation surfaces. Ambiguous outside-recipe prose must fail open and continue to knowledge review.
+
+After this change, running the normal stage path with optional knowledge review enabled should still produce `08_nonrecipe_spans.json` and `09_knowledge_outputs.json`. The knowledge worker should see fewer obviously useless blocks in `knowledge/in/*.json`, while a new or extended artifact surface should make the excluded rows and blocks inspectable by a human. No new LLM pass is added. The existing line-role pass adds only one extra coarse routing bit, and the existing knowledge pass remains the only semantic `knowledge` versus `other` authority for the unsuppressed remainder.
 
 ## Progress
 
-- [x] (2026-03-22 02:22 EDT) Re-read `docs/PLANS.md`, `docs/04-parsing/04-parsing_readme.md`, `docs/10-llm/10-llm_README.md`, and `docs/10-llm/nonrecipe_knowledge_review.md` to anchor this plan in the current label-first parsing and optional knowledge-review contracts.
-- [x] (2026-03-22 02:27 EDT) Inspected the current line-role, label-source-of-truth, nonrecipe-stage, writer, and knowledge-orchestrator seams to confirm where suppression metadata and knowledge eligibility can be introduced without adding another LLM phase.
-- [x] (2026-03-22 02:33 EDT) Authored this ExecPlan with the explicit constraint that no additional LLM passes may be added; the existing line-role pass is the only new decision point.
+- [x] (2026-03-22 13:39 EDT) Re-read `docs/PLANS.md`, `docs/04-parsing/04-parsing_readme.md`, and `docs/10-llm/nonrecipe_knowledge_review.md` to anchor this plan in the current line-role-first and optional-knowledge-review contracts.
+- [x] (2026-03-22 13:39 EDT) Re-inspected `cookimport/parsing/canonical_line_roles.py`, `cookimport/parsing/label_source_of_truth.py`, `cookimport/staging/nonrecipe_stage.py`, `cookimport/staging/writer.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, and `cookimport/llm/codex_farm_knowledge_orchestrator.py` to confirm the current seams.
+- [x] (2026-03-22 13:39 EDT) Replaced the earlier over-broad plan with this narrower version: line-role performs only a fail-open obvious-junk veto, while semantic knowledge judgment stays in the optional knowledge stage.
+- [x] (2026-03-22 13:55 EDT) Re-read `docs/10-llm/10-llm_README.md`, `docs/05-staging/05-staging_readme.md`, `docs/07-bench/07-bench_README.md`, and the current touched tests to align this plan with the current packetized knowledge runtime, stage-summary artifacts, and benchmark projection rules.
 - [ ] Implementation has not started yet.
-- [ ] Deterministic tests, stage-path validation, and benchmark validation remain to be added and recorded here during implementation.
+- [ ] Tests, stage-path validation, and benchmark interpretation updates remain to be added and recorded here during implementation.
 
 ## Surprises & Discoveries
 
-- Observation: the current Stage 7 non-recipe authority already has a natural place to store “final other but not knowledge-review eligible.”
-  Evidence: `cookimport/staging/nonrecipe_stage.py` already separates deterministic seed block categories from final refined categories, and `cookimport/staging/writer.py` already writes both seed and final views into `08_nonrecipe_spans.json`.
+- Observation: current outside-recipe `KNOWLEDGE` authority still lives in line-role today, even after recent tightening.
+  Evidence: `cookimport/parsing/canonical_line_roles.py` still promotes outside-recipe rows to `KNOWLEDGE` in `_deterministic_label(...)`, and `_sanitize_prediction(...)` still treats outside-recipe `KNOWLEDGE` as a line-role-owned final label.
 
-- Observation: the current line-role runtime has no field for “mark this OTHER line as suppressible.”
-  Evidence: worker outputs are still effectively `{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}` and validators key primarily on `atomic_index` plus `label`. There is no explicit suppression channel today.
+- Observation: the repo already has a separate concept of “obvious junk” in parser-owned chunking, but that seam is not the current final routing authority for knowledge review.
+  Evidence: `cookimport/parsing/chunks.py` scores navigation, attribution, dedication, and similar material as `noise`, but `cookimport/llm/codex_farm_knowledge_orchestrator.py` currently calls `build_knowledge_jobs(...)` without using the existing `skip_suggested_lanes` seam.
 
-- Observation: recipe-span grouping does not require `KNOWLEDGE` specifically; it only needs non-recipe gap labels distinct from recipe-local labels.
-  Evidence: `cookimport/parsing/recipe_span_grouping.py` bridges gaps using `_NONRECIPE_GAP_LABELS = {"KNOWLEDGE", "OTHER"}`. A conservative “outside recipe defaults to `OTHER`” approach can preserve grouping behavior.
+- Observation: there is currently no field in the line-role output contract for “this row stays `OTHER`, but do not send it to knowledge review.”
+  Evidence: `CanonicalLineRolePrediction` in `cookimport/parsing/canonical_line_roles.py` still carries only `label`, `decided_by`, `reason_tags`, and `escalation_reasons`.
 
-- Observation: the current knowledge stage already operates on Stage 7 seed non-recipe spans rather than on raw line-role packets.
-  Evidence: `docs/10-llm/nonrecipe_knowledge_review.md` and `cookimport/llm/codex_farm_knowledge_orchestrator.py` both describe knowledge input as “seed Stage 7 non-recipe spans.”
+- Observation: Stage 7 already has the right shape to preserve both seed and final authority, so review-exclusion visibility can be added without changing the public `knowledge` / `other` taxonomy.
+  Evidence: `NonRecipeStageResult` already keeps both seed and final non-recipe spans plus a `refinement_report`, and `cookimport/staging/writer.py` already writes both pre-review and post-review views.
 
-- Observation: a line-role-only benchmark will stop being the right quality gate if line-role no longer emits final `KNOWLEDGE`.
-  Evidence: the current benchmark and several recent plans interpret line-role `KNOWLEDGE` versus `OTHER` errors directly. If line-role intentionally collapses unsuppressed outside-recipe text to provisional `OTHER`, a standalone line-role score will understate the final pipeline quality.
+- Observation: the current knowledge runtime is more packetized and artifact-heavy than the original draft assumed.
+  Evidence: current docs and tests describe `knowledge/in/*.json` immutable shard payloads, packet-level `task_status.jsonl`, stage-level `stage_status.json`, and the compact operator summary `knowledge_stage_summary.json` as first-class runtime seams.
+
+- Observation: benchmark scoring already projects final outside-recipe authority rather than blindly trusting pre-knowledge line-role labels.
+  Evidence: current staging and benchmark docs say canonical scoring must use the final non-recipe authority recorded in `08_nonrecipe_spans.json`, not just the deterministic seed.
 
 ## Decision Log
 
-- Decision: do not add any new LLM pass.
-  Rationale: this plan must work within the existing LLM budget. The only semantic responsibilities changing are moved off the line-role pass and onto the already-existing optional knowledge review stage.
+- Decision: line-role will not own semantic outside-recipe `knowledge` versus `other` decisions after this change.
+  Rationale: the line-role pass is already busy separating recipe structure from everything else. Asking it to also be the final judge of subtle memoir-versus-teaching prose is exactly the overload this plan is meant to reduce.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: keep the public final label taxonomy unchanged.
-  Rationale: changing the user-facing labels would ripple through benchmarks, Label Studio exports, writer contracts, and downstream consumers. “Suppressed from knowledge review” is metadata, not a new final label.
+- Decision: line-role may still own a fail-open coarse veto for obviously useless outside-recipe material.
+  Rationale: that pass is already paid for because it must inspect the whole book. Extracting one extra high-confidence routing bit from that pass is cheaper than adding another LLM stage.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: line-role will no longer be responsible for broad outside-recipe `KNOWLEDGE` promotion.
-  Rationale: the current weak point is forcing one pass to solve recipe structure, prose semantics, and junk filtering simultaneously. Line-role should focus on recipe-local structure plus obvious suppression only.
+- Decision: the public final taxonomy remains `knowledge` and `other`; exclusion from review is metadata, not a new user-facing category.
+  Rationale: a new public label would ripple through benchmarks, writer contracts, Label Studio, and downstream consumers for little user benefit.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: suppression must fail open.
-  Rationale: the only safe hard-suppression targets are rows or blocks that are overwhelmingly obvious non-knowledge. Anything arguable must remain eligible for later knowledge review.
+- Decision: exclusion must fail open.
+  Rationale: only overwhelmingly obvious cases should bypass the knowledge stage. Ambiguous instructional, memoir, essay, or reference prose must remain review-eligible.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: suppression must be visible in first-class artifacts.
-  Rationale: the user explicitly wants to inspect what got “removed.” The correct implementation is not silent filtering; it is explicit routing with counts, reasons, and line/block provenance.
+- Decision: excluded material must remain visible in first-class artifacts.
+  Rationale: the operator needs to audit what was skipped and why. Silent filtering would make prompt savings impossible to debug or trust.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: knowledge eligibility will be promoted from line-level annotations to block-level routing conservatively.
-  Rationale: knowledge input operates on Stage 7 block/span ownership, not atomic lines. A block should be excluded from knowledge review only when its owned outside-recipe lines are all suppressed or when a block-level suppression pattern is explicitly proven.
+- Decision: current chunk-lane `noise` heuristics are useful contrast and validation signals, but they must not become the new final semantic authority for keep/cut.
+  Rationale: the operator requirement is explicit: deterministic logic cannot own useful-versus-useless semantic judgment. This plan uses line-role LLM output for the coarse veto and keeps deterministic logic as supporting evidence or diagnostics only.
   Date/Author: 2026-03-22 / Codex
 
 ## Outcomes & Retrospective
 
-This plan has only been authored so far. No code or docs outside this plan have been changed yet.
+This plan has only been rewritten so far. No code or runtime docs outside this plan have changed yet.
 
-The design target is clear: line-role becomes a recipe-structure-and-suppression pass, while the existing optional knowledge stage becomes the only place that still decides `knowledge` versus `other` for unsuppressed outside-recipe text. The main risks to watch during implementation are silent over-suppression, breaking line-role worker output compatibility, and continuing to read line-role-only benchmark scores as if they still measure final outside-recipe quality.
+The revised design target is narrower and more coherent than the earlier draft. The line-role stage keeps recipe-structure responsibility and adds only an obvious-junk exclusion bit for outside-recipe `OTHER` rows. The optional knowledge stage remains the sole semantic judge for the unsuppressed outside-recipe remainder. The major implementation risks are over-exclusion, mixed eligibility inside one Stage 7 span, and accidentally continuing to interpret line-role-only non-recipe accuracy as if it still measured final outside-recipe quality.
 
 ## Context and Orientation
 
-The current label-first parsing path starts in `cookimport/parsing/label_source_of_truth.py`. That module atomizes archive blocks into labelable lines, calls `cookimport/parsing/canonical_line_roles.py` to assign one final line-role label per atomic line, then projects those labeled lines up to block labels and recipe spans. Recipe-span grouping happens in `cookimport/parsing/recipe_span_grouping.py`. The key fact for this plan is that the line-role stage currently tries to output one final global label for every line, including outside-recipe `KNOWLEDGE` and `OTHER`.
+The current label-first path starts in `cookimport/parsing/label_source_of_truth.py`. That module atomizes full blocks into atomic lines, calls `cookimport/parsing/canonical_line_roles.py` to assign one final line-role label per atomic line, projects those labels back up to block labels, and then groups recipe spans. Outside-recipe `KNOWLEDGE` is still currently decided there.
 
-Stage 7 non-recipe ownership lives in `cookimport/staging/nonrecipe_stage.py`. That module looks at final block labels after recipe spans are accepted, keeps all non-recipe blocks, and assigns each non-recipe block a Stage 7 category of either `knowledge` or `other`. `cookimport/staging/writer.py` then writes that authoritative machine-readable state to `08_nonrecipe_spans.json`. If the optional knowledge stage is enabled, `cookimport/llm/codex_farm_knowledge_orchestrator.py` and `cookimport/llm/codex_farm_knowledge_jobs.py` take those seed non-recipe spans and ask the existing knowledge worker to refine `knowledge` versus `other`.
+Stage 7 non-recipe ownership lives in `cookimport/staging/nonrecipe_stage.py`. It consumes final block labels after recipe spans are accepted, keeps the blocks that are not owned by recipes, and assigns each non-recipe block a Stage 7 category of `knowledge` or `other`. `cookimport/staging/writer.py` writes that state to `08_nonrecipe_spans.json`, and `09_knowledge_outputs.json` later records the final post-review authority when the optional knowledge stage runs.
 
-In this plan, “suppression” does not mean deleting a line or block from final artifacts. It means: “this outside-recipe text is so obviously not reusable cooking knowledge that it should be final `other` immediately and should not be sent into knowledge review.” Examples include table of contents rows with page-number leaders, isolated page numbers, running headers and footers, copyright boilerplate, ISBN / Library of Congress metadata, and similarly obvious navigation or publishing matter. Suppression must remain explicit metadata with a reason code such as `toc_leader_row` or `copyright_boilerplate`.
+The optional non-recipe knowledge review stage lives in `cookimport/llm/codex_farm_knowledge_orchestrator.py` and `cookimport/llm/codex_farm_knowledge_jobs.py`. It currently builds immutable `knowledge/in/*.json` shard payloads from Stage 7 seed non-recipe spans, then executes packetized chunk-review tasks inside worker-local workspaces. Packet-level status lands in `task_status.jsonl`, stage-level state lands in `stage_status.json`, and the compact operator summary lands in `knowledge_stage_summary.json`. Any implementation of this plan must update that fuller runtime surface, not just the input bundle text.
 
-The line-role worker runtime lives in `cookimport/parsing/canonical_line_roles.py` plus `cookimport/llm/canonical_line_role_prompt.py`. The workers currently emit one row result with `atomic_index` and `label`. This plan requires extending that worker output contract to allow an optional suppression annotation for `OTHER` rows. The validator, recovery logic, prompt examples, and worker hints must all agree on that new field.
+In this plan, “excluded from knowledge review” means: “the line-role pass has judged this outside-recipe material to be so obviously not reusable cooking knowledge that it should remain final `other` immediately and should not consume knowledge-review tokens.” It does not mean “the LLM has fully judged all outside-recipe semantics.” Examples include dotted table-of-contents rows, isolated page numbers, running headers and footers, copyright/legal boilerplate, ISBN or Library of Congress cataloging blocks, testimonial blurbs, and other publishing/navigation surfaces. Ambiguous essays, memoir fragments, explanatory headings, and prose with even a plausible chance of carrying reusable cooking advice must remain review-eligible.
 
-The important architectural choice is that this plan does not introduce a new label such as `SUPPRESSED_OTHER` or `NON_RECIPE_TEXT` into the public schema. Final labels remain the existing public labels. Suppression is a side-channel that influences later routing and artifacts, not a replacement taxonomy.
+The important architectural choice is that line-role no longer needs to emit final outside-recipe `KNOWLEDGE` for this design to work. Recipe-local structure remains line-role-owned. Outside-recipe text becomes either `OTHER` plus “review eligible” or `OTHER` plus “exclude from review,” and the optional knowledge stage becomes the only place that can still promote the review-eligible remainder to final `knowledge`.
 
 ## Plan of Work
 
-Start in `cookimport/parsing/canonical_line_roles.py` and `cookimport/llm/canonical_line_role_prompt.py`. Define a stage-local line-role output contract that still allows all recipe-local labels, still allows `OTHER`, but stops instructing the line-role worker to perform open-ended `KNOWLEDGE` promotion for outside-recipe text. The worker prompt should say plainly: identify recipe structure as before; for obviously non-knowledge outside-recipe junk, keep the line as `OTHER` and optionally mark it `suppressed_from_knowledge` with one allowed reason code; otherwise leave outside-recipe text as unsuppressed `OTHER`. The worker should not try to decide final `KNOWLEDGE` anymore.
+Start in `cookimport/parsing/canonical_line_roles.py` and `cookimport/llm/canonical_line_role_prompt.py`. Extend the line-role worker contract so a row may still return the ordinary label, but an outside-recipe `OTHER` row may also carry an optional review-exclusion annotation. The minimum contract should be a boolean plus a small reason code. A concrete shape is:
 
-Add a small, explicit suppression vocabulary owned by the repo. Keep it short and conservative. Good initial reason codes are: `toc_navigation`, `page_number_only`, `running_header_footer`, `copyright_legal`, `isbn_cataloging`, `publisher_metadata`, `index_navigation`, and `decorative_front_matter`. Every code must describe something a human can understand quickly in a ledger. Do not include fuzzy semantic categories such as `probably_not_knowledge` or `editorial_vibes`.
+    {"atomic_index": 123, "label": "OTHER", "exclude_from_knowledge_review": true, "knowledge_review_exclusion_reason": "toc_navigation"}
 
-Extend `CanonicalLineRolePrediction` and the line-role worker output validator so each row may optionally carry suppression metadata. The minimum viable shape is one boolean plus one reason code. A good concrete output shape is `{"atomic_index":123,"label":"OTHER","suppressed_from_knowledge":true,"suppression_reason_code":"toc_navigation"}`. Validation must reject suppression on non-`OTHER` labels, reject unknown reason codes, and strip suppression automatically when the line is inside a recipe span or when the line is later rescued into a recipe-local label. Keep fallback behavior safe: if a malformed worker row tries to suppress with a bad reason, the row should still fall back to ordinary unsuppressed `OTHER` rather than silently preserving invalid metadata.
+The prompt must tell the worker exactly what this new bit means. The worker still does recipe-local labeling as before. It must not try to decide subtle outside-recipe usefulness. For outside-recipe text it should:
 
-Then update the deterministic line-role baseline and sanitizer logic in `cookimport/parsing/canonical_line_roles.py`. The deterministic code should no longer promote outside-recipe `KNOWLEDGE` as a normal line-role end state. Instead it should produce either a recipe-local label or `OTHER`, with optional deterministic suppression tags only for truly obvious patterns. The line-role LLM can then preserve, clear, or add suppression tags within the allowed vocabulary. This keeps the line-role LLM useful for hard table-of-contents and boilerplate recognition without asking it to solve the full `KNOWLEDGE` problem. The existing `_outside_recipe_knowledge_label_allowed(...)` seam should not be deleted immediately; it should be retired deliberately after all callers are updated, because the optional knowledge stage and current benchmarks may still depend on it during migration.
+1. keep obvious recipe structure labels when they are truly recipe-local,
+2. otherwise default non-recipe text to `OTHER`,
+3. set the exclusion bit only for overwhelming obvious-junk cases,
+4. leave ambiguous prose as plain `OTHER` with no exclusion bit.
 
-Next, propagate suppression into authoritative line and block state in `cookimport/parsing/label_source_of_truth.py`. Add fields such as `suppressed_from_knowledge: bool = False` and `suppression_reason_code: str | None = None` to `AuthoritativeLabeledLine` and `AuthoritativeBlockLabel`. Block-level suppression must be conservative. If a block contains any unsuppressed outside-recipe line or any recipe-local label, the block remains knowledge-eligible. A block becomes suppressed only if all surviving relevant lines are `OTHER` with compatible suppression reasons or if a deterministic block-level rule proves that the whole block is the same obvious junk surface. Record both the promoted block-level suppression flag and the set of source atomic indices that caused it.
+At the same time, update line-role sanitization so outside-recipe `KNOWLEDGE` is no longer a required or preferred output of this stage. The safe end state is that outside-recipe non-recipe prose comes out of line-role as `OTHER` plus optional exclusion metadata, not as final `KNOWLEDGE`. During migration, old worker outputs that omit the new fields must still validate and normalize safely.
 
-After that, update `cookimport/staging/nonrecipe_stage.py`. The Stage 7 category should remain `knowledge` or `other`, but the stage result must now carry suppression visibility and knowledge eligibility separately. Add fields to `NonRecipeSpan` and `NonRecipeStageResult` for suppression counts and for the exact block indices that are `other` and suppressed versus `other` and still knowledge-review-eligible. Do not redefine “other” itself. The final Stage 7 result should still say that suppressed blocks are `other`; it should additionally say that they were excluded from knowledge review and why.
+Define a deliberately tiny exclusion vocabulary owned by the repo. Good initial reason codes are `toc_navigation`, `page_number_only`, `running_header_footer`, `copyright_legal`, `isbn_cataloging`, `publisher_metadata`, `testimonial_blurb`, and `index_navigation`. Do not add fuzzy reasons such as `probably_not_knowledge`. The reason codes must describe only surfaces that are obvious to a human reviewer.
 
-Update `cookimport/staging/writer.py` so the routing is inspectable. `08_nonrecipe_spans.json` should gain summary counts such as `suppressed_other_blocks`, `knowledge_review_eligible_other_blocks`, and a block-index map or summary section showing which blocks were suppressed. In addition, write a new sibling artifact such as `08_nonrecipe_suppression.jsonl` that contains one row per suppressed line or block. Each row should include the stable line or block id, the text preview, the final category (`other`), the suppression reason code, and whether the suppression came from a deterministic baseline or a Codex-reviewed line-role correction. This file is the primary debugging surface for “what got removed.”
+Then propagate that metadata through `cookimport/parsing/label_source_of_truth.py`. Add fields such as `exclude_from_knowledge_review: bool = False` and `knowledge_review_exclusion_reason: str | None = None` to `AuthoritativeLabeledLine` and `AuthoritativeBlockLabel`. Block-level promotion must be conservative. A block should become excluded only when all of its relevant outside-recipe lines are excluded for compatible reasons or when a specific block-level normalization rule proves the entire block is the same obvious junk surface. If any line in the block remains plausibly reviewable, the block must remain review-eligible.
 
-Then update the existing knowledge stage input builders in `cookimport/llm/codex_farm_knowledge_orchestrator.py` and `cookimport/llm/codex_farm_knowledge_jobs.py`. When the optional knowledge stage is enabled, its seed input should be the unsuppressed subset of Stage 7 `other` blocks plus any existing seed `knowledge` blocks if that path still exists during migration. Suppressed `other` blocks must remain present in `08_nonrecipe_spans.json`, but they must not contribute chunk text to `knowledge/in/*.json`. The knowledge manifest and task metadata should record how many blocks were suppressed upstream so the absence of those blocks from knowledge jobs is explainable.
+Next, update `cookimport/staging/nonrecipe_stage.py`. Keep the public block categories `knowledge` and `other`, but split “other” into two internal routing views: review-eligible `other` blocks and review-excluded `other` blocks. The stage result should gain fields for exact excluded block indices, exact review-eligible block indices, exclusion reasons by block, and a second set of contiguous spans that represent only the review-eligible subset used to build knowledge jobs. This extra span list is necessary because a single broad Stage 7 `other` span may contain both excluded and reviewable blocks after the new routing logic is introduced.
 
-Finally, update benchmark and validation expectations. A line-role-only benchmark should no longer be interpreted as the final authority on outside-recipe quality, because line-role is intentionally no longer producing final `KNOWLEDGE`. Add a collapsed reporting view for the line-role stage that treats outside-recipe `KNOWLEDGE` and unsuppressed `OTHER` as one provisional non-recipe bucket, or at minimum document that the promotion metric for this feature is the end-to-end staged output with the optional knowledge stage enabled. This is necessary to avoid reading the expected line-role collapse as a regression.
+Update `cookimport/staging/writer.py` so this routing stays inspectable. `08_nonrecipe_spans.json` should continue to report `knowledge` and `other`, but it must also report how many `other` blocks were excluded from review and how many remained review-eligible. In addition, write a dedicated sibling ledger such as `08_nonrecipe_review_exclusions.jsonl` with one row per excluded line or block. Each ledger row should include stable ids, a short preview, the final category `other`, the exclusion reason code, and whether the exclusion came directly from line-role or from conservative block-level promotion of excluded lines.
+
+After that, update `cookimport/llm/codex_farm_knowledge_jobs.py` and `cookimport/llm/codex_farm_knowledge_orchestrator.py`. Knowledge-job planning must read the new review-eligible Stage 7 span list rather than the old full seed-nonrecipe span list. Excluded blocks must remain visible in `08_nonrecipe_spans.json` and the exclusion ledger, but they must not appear in `knowledge/in/*.json`. The manifest, `stage_status.json`, and `knowledge_stage_summary.json` should report excluded-block counts so missing blocks are explainable rather than surprising.
+
+Finally, update benchmark interpretation and current-state docs. Current canonical scoring already projects final non-recipe authority, so this refactor should preserve that contract rather than inventing a new benchmark interpretation surface. The promotion metric for this feature is still the end-to-end staged output with optional knowledge review enabled: fewer obvious-junk blocks in `knowledge/in/*.json`, no regression in recipe structure labeling, and correct final `knowledge` / `other` output after the knowledge stage finishes.
 
 ## Concrete Steps
 
@@ -113,118 +126,187 @@ All commands below run from the repository root:
 
     cd /home/mcnal/projects/recipeimport
 
-Before implementation, re-open the exact seams this plan touches:
+Before implementation, reopen the exact seams this plan touches:
 
-    sed -n '6200,6425p' cookimport/parsing/canonical_line_roles.py
-    sed -n '4010,4175p' cookimport/parsing/canonical_line_roles.py
+    sed -n '360,430p' cookimport/parsing/canonical_line_roles.py
+    sed -n '6250,6495p' cookimport/parsing/canonical_line_roles.py
+    sed -n '8170,8210p' cookimport/parsing/canonical_line_roles.py
     sed -n '1,220p' cookimport/llm/canonical_line_role_prompt.py
-    sed -n '1,220p' cookimport/parsing/label_source_of_truth.py
-    sed -n '1,240p' cookimport/staging/nonrecipe_stage.py
-    sed -n '1180,1315p' cookimport/staging/writer.py
-    sed -n '900,1150p' cookimport/llm/codex_farm_knowledge_orchestrator.py
-    sed -n '1,240p' cookimport/llm/codex_farm_knowledge_jobs.py
+    sed -n '100,160p' cookimport/parsing/label_source_of_truth.py
+    sed -n '1,220p' cookimport/staging/nonrecipe_stage.py
+    sed -n '1176,1360p' cookimport/staging/writer.py
+    sed -n '68,170p' cookimport/llm/codex_farm_knowledge_jobs.py
+    sed -n '964,1085p' cookimport/llm/codex_farm_knowledge_orchestrator.py
+    sed -n '1,120p' docs/10-llm/10-llm_README.md
+    sed -n '140,170p' docs/05-staging/05-staging_readme.md
+    sed -n '240,260p' docs/07-bench/07-bench_README.md
 
 Implement in this order:
 
-1. In `cookimport/parsing/canonical_line_roles.py`, define the suppression reason-code vocabulary, extend the prediction model, and update sanitization and fallback rules so suppression is optional metadata on `OTHER` rows only.
+1. In `cookimport/parsing/canonical_line_roles.py`, define the exclusion reason-code vocabulary, extend `CanonicalLineRolePrediction`, update response parsing and validation, and add sanitization rules so exclusion metadata is accepted only on outside-recipe `OTHER` rows.
 
-2. In `cookimport/llm/canonical_line_role_prompt.py` and the live worker prompt text in `cookimport/parsing/canonical_line_roles.py`, change the line-role worker instructions so they emphasize recipe structure and obvious suppression, not open-ended outside-recipe `KNOWLEDGE`.
+2. In `cookimport/llm/canonical_line_role_prompt.py` and the live worker prompt text in `cookimport/parsing/canonical_line_roles.py`, rewrite the outside-recipe instructions so line-role defaults ambiguous non-recipe prose to `OTHER` and uses the exclusion bit only for overwhelming obvious-junk cases.
 
-3. In `cookimport/parsing/label_source_of_truth.py`, carry suppression metadata into authoritative lines and block labels, and conservatively promote line-level suppression to block-level knowledge ineligibility.
+3. In `cookimport/parsing/label_source_of_truth.py`, carry exclusion metadata into authoritative lines and block labels, then conservatively promote line-level exclusions to block-level review exclusion.
 
-4. In `cookimport/staging/nonrecipe_stage.py`, keep Stage 7 categories unchanged while adding suppression visibility and “knowledge review eligible” tracking.
+4. In `cookimport/staging/nonrecipe_stage.py`, preserve the public `knowledge` / `other` categories while adding explicit review-eligibility routing and a second span set for the knowledge-job builder.
 
-5. In `cookimport/staging/writer.py`, extend `08_nonrecipe_spans.json` and add `08_nonrecipe_suppression.jsonl`.
+5. In `cookimport/staging/writer.py`, extend `08_nonrecipe_spans.json` and add `08_nonrecipe_review_exclusions.jsonl`.
 
-6. In `cookimport/llm/codex_farm_knowledge_orchestrator.py` and `cookimport/llm/codex_farm_knowledge_jobs.py`, exclude suppressed blocks from knowledge input payloads and record suppression counts in manifests and summaries.
+6. In `cookimport/llm/codex_farm_knowledge_jobs.py` and `cookimport/llm/codex_farm_knowledge_orchestrator.py`, build knowledge inputs only from review-eligible Stage 7 spans and record exclusion counts in manifests and summaries.
 
-7. Update the short current-state docs in `docs/04-parsing/04-parsing_readme.md` and `docs/10-llm/nonrecipe_knowledge_review.md` so they explain that line-role suppression is now the hard junk-routing seam and that the optional knowledge stage only sees unsuppressed non-recipe text.
+7. Update `docs/04-parsing/04-parsing_readme.md` and `docs/10-llm/nonrecipe_knowledge_review.md` so the current docs describe line-role as a coarse outside-recipe review-exclusion seam rather than as the final owner of outside-recipe `KNOWLEDGE`.
 
-8. Add or update tests before running broader validation.
+8. Add tests before running broader validation.
 
 Prepare the Python environment if needed:
 
     source .venv/bin/activate
     pip install -e .[dev]
 
-During implementation, prefer these targeted tests first:
+During implementation, prefer these focused tests first:
 
     source .venv/bin/activate
-    pytest -q tests/parsing/test_canonical_line_roles.py -k "suppression or nonrecipe or file_prompt"
+    pytest -q tests/parsing/test_canonical_line_roles.py -k "knowledge_review or exclusion or nonrecipe"
 
-Then validate the stage-ownership seam:
+Then validate label propagation and Stage 7 routing:
 
     source .venv/bin/activate
-    pytest -q tests/parsing/test_label_source_of_truth.py -k "nonrecipe or suppression"
+    pytest -q tests/parsing/test_label_source_of_truth.py -k "knowledge_review or exclusion or nonrecipe"
     source .venv/bin/activate
-    pytest -q tests/staging/test_nonrecipe_stage.py -k "suppression or knowledge"
+    pytest -q tests/staging/test_nonrecipe_stage.py -k "knowledge_review or exclusion"
 
-Then run the broader parsing and staging suites:
+Then validate knowledge-job input pruning and knowledge runtime reporting:
+
+    source .venv/bin/activate
+    pytest -q tests/llm/test_codex_farm_knowledge_orchestrator.py -k "exclusion or review_eligible"
+    source .venv/bin/activate
+    pytest -q tests/llm/test_codex_farm_knowledge_orchestrator_runtime.py -k "knowledge or stage_summary or status"
+    source .venv/bin/activate
+    pytest -q tests/llm/test_prompt_preview.py -k "knowledge or line_role"
+    source .venv/bin/activate
+    pytest -q tests/staging/test_stage_observability.py -k "knowledge_stage_summary or nonrecipe"
+
+Then run the broader suites:
 
     source .venv/bin/activate
     ./scripts/test-suite.sh domain parsing
     source .venv/bin/activate
     ./scripts/test-suite.sh domain staging
+    source .venv/bin/activate
+    ./scripts/test-suite.sh domain llm
 
-If live quality validation is explicitly approved later, use the existing benchmark path and compare both the end-to-end workbook outputs and the new suppression artifact, not just the line-role-only strict accuracy:
+If a live benchmark or staged run is explicitly approved later, verify artifact behavior rather than relying on line-role-only label accuracy:
 
     source .venv/bin/activate
-    cookimport labelstudio-benchmark ...
+    cookimport stage <path> --llm-knowledge-pipeline codex-knowledge-shard-v1
 
-The exact benchmark command should be filled in during implementation after confirming the intended benchmark entrypoint.
+After a live run, inspect:
+
+    data/output/<ts>/08_nonrecipe_spans.json
+    data/output/<ts>/08_nonrecipe_review_exclusions.jsonl
+    data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json
+    data/output/<ts>/09_knowledge_outputs.json
 
 ## Validation and Acceptance
 
 This work is acceptable only if all of the following are true.
 
-The line-role worker can still label recipe structure exactly as before, but its output contract now optionally includes suppression metadata on `OTHER` rows, and repo validation rejects malformed suppression metadata safely.
+The line-role stage can still label recipe structure correctly, but it now also accepts an optional review-exclusion annotation on outside-recipe `OTHER` rows. Validation must reject that annotation on recipe-local labels, on outside-recipe rows labeled something other than `OTHER`, and on unknown exclusion reason codes.
 
-The final Stage 7 artifacts remain understandable to a human. `08_nonrecipe_spans.json` must still report `knowledge` and `other` counts, and it must now also report how many `other` blocks were suppressed away from knowledge review versus how many remained eligible.
+Line-role must no longer be the final semantic authority for outside-recipe `knowledge`. Ambiguous non-recipe prose should remain `OTHER` and review-eligible rather than forcing line-role to decide subtle usefulness.
 
-A new ledger artifact must show exactly what was routed off. Opening `08_nonrecipe_suppression.jsonl` after a stage run should show stable ids, previews, and suppression reason codes for each suppressed line or block.
+`08_nonrecipe_spans.json` must remain understandable to a human. It should still report `knowledge` and `other` counts, and it must now also report excluded-versus-reviewable `other` counts plus the exact review-eligible span list used by the knowledge job builder.
 
-Suppressed blocks must not reach knowledge review. When the optional knowledge stage is enabled, `knowledge/in/*.json` payloads must omit suppressed blocks, and the knowledge manifest or stage summary must report how many blocks were excluded upstream.
+A dedicated exclusion ledger must show exactly what was routed off. Opening `08_nonrecipe_review_exclusions.jsonl` after a stage run should show stable ids, preview text, and exclusion reason codes for each excluded row or block.
 
-The system must fail open. If a row or block is not clearly suppressible, it must remain unsuppressed and eligible for knowledge review.
+Excluded blocks must not reach the knowledge stage. When optional knowledge review is enabled, `knowledge/in/*.json` payloads must omit excluded blocks, and the manifest or stage summary must report how many blocks were filtered upstream.
 
-Recipe-span grouping must not regress. Collapsing broad outside-recipe semantics to provisional `OTHER` must still preserve recipe span acceptance and the current block-gap bridging behavior.
+The packetized knowledge runtime must stay coherent. `task_status.jsonl`, `stage_status.json`, and `knowledge_stage_summary.json` should remain internally consistent with the filtered input set and should expose excluded-block counts in a way that explains why some Stage 7 `other` blocks never appeared in `knowledge/in/*.json`.
 
-Tests must prove both the positive and negative paths. Add deterministic cases for table-of-contents rows, page-number-only rows, copyright/legal boilerplate, and at least one false-positive guard such as a real explanatory heading that must remain eligible for knowledge review.
+The system must fail open. If the line-role pass is not highly confident that material is obviously useless, that material must remain review-eligible.
 
-Acceptance should be demonstrated with both deterministic tests and one stage-path artifact inspection. A human should be able to run the stage pipeline, open `08_nonrecipe_suppression.jsonl`, and verify that obvious junk is present there while absent from `knowledge/in/*.json`.
+Recipe-span grouping must not regress. Removing outside-recipe semantic `KNOWLEDGE` ownership from line-role must not break recipe structure labels or current recipe-span acceptance behavior.
+
+Tests must cover both positive and negative paths. Add deterministic and LLM-shape tests for table-of-contents rows, isolated page numbers, cataloging/copyright blocks, and testimonial blurbs as positive exclusions, plus at least one explanatory heading or essay fragment that must remain review-eligible even if it is later judged `other` by the knowledge stage.
+
+Acceptance should be demonstrated with both targeted tests and one artifact inspection. A human should be able to run the stage pipeline, open `08_nonrecipe_review_exclusions.jsonl`, and verify that obviously useless material appears there while remaining absent from `knowledge/in/*.json`.
 
 ## Idempotence and Recovery
 
-This plan is designed to be implemented additively and safely. Suppression metadata should default to “off” everywhere until a specific row or block is explicitly marked. That means partial implementation can safely land behind empty metadata fields without silently deleting any text from the knowledge path.
+This plan should be implemented additively and fail open. The new exclusion metadata must default to “off” everywhere until a row or block is explicitly marked.
 
-If suppression becomes too aggressive during implementation, the safe rollback is to stop excluding suppressed blocks from the knowledge-job builder while keeping the suppression ledger artifacts intact. That preserves observability while removing the routing effect. Do not delete the ledger first; it is the debugging surface that will show why the rules were too aggressive.
+If the exclusion logic becomes too aggressive, the safe rollback is to keep writing the exclusion metadata and ledger but stop pruning excluded blocks from the knowledge-job builder. That preserves observability while removing the token-saving side effect until the exclusion prompt/rules are corrected.
 
-If worker output compatibility breaks, recover by making suppression fields optional in validators and prompts before reintroducing hard validation of reason codes. A valid old-style worker row with only `atomic_index` and `label` should still normalize cleanly during the migration window.
+If worker-output compatibility breaks during migration, make the new fields fully optional first. Old worker rows shaped like `{"atomic_index": 123, "label": "OTHER"}` must continue to normalize cleanly until all prompt examples, validators, and cached outputs are updated.
+
+If mixed excluded and reviewable blocks inside one Stage 7 span make knowledge-job planning awkward, recover by deriving a second contiguous review-eligible span list rather than weakening the fail-open rule or silently dropping mixed spans.
 
 ## Artifacts and Notes
 
 The most important artifacts after implementation should be:
 
     data/output/<ts>/08_nonrecipe_spans.json
-    data/output/<ts>/08_nonrecipe_suppression.jsonl
+    data/output/<ts>/08_nonrecipe_review_exclusions.jsonl
     data/output/<ts>/raw/llm/<workbook_slug>/line-role-pipeline/runtime/line_role/workers/*/out/*.json
     data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json
+    data/output/<ts>/raw/llm/<workbook_slug>/knowledge/task_status.jsonl
+    data/output/<ts>/raw/llm/<workbook_slug>/knowledge/stage_status.json
+    data/output/<ts>/raw/llm/<workbook_slug>/knowledge/knowledge_stage_summary.json
     data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json
+    data/output/<ts>/09_knowledge_outputs.json
 
 The intended routing contract is:
 
-    recipe-local lines -> line-role final recipe labels
-    obvious outside-recipe junk -> final OTHER + suppressed_from_knowledge=true
-    remaining outside-recipe text -> provisional OTHER + knowledge-review eligible
-    optional knowledge stage -> refines only the unsuppressed remainder to knowledge or other
+    recipe-local rows -> ordinary line-role final recipe labels
+    obvious outside-recipe junk -> final OTHER + exclude_from_knowledge_review=true
+    ambiguous outside-recipe prose -> provisional OTHER + review-eligible
+    optional knowledge stage -> only this stage can promote review-eligible outside-recipe text to final knowledge
 
-One expected suppression-ledger row should look conceptually like this:
+One expected exclusion-ledger row should look conceptually like this:
 
-    {"atomic_index": 44, "source_block_index": 12, "final_label": "OTHER", "suppressed_from_knowledge": true, "suppression_reason_code": "toc_navigation", "text_preview": "CHAPTER 3 ........ 87"}
+    {"atomic_index": 44, "source_block_index": 12, "final_label": "OTHER", "exclude_from_knowledge_review": true, "knowledge_review_exclusion_reason": "toc_navigation", "text_preview": "CHAPTER 3 ........ 87"}
 
 One expected acceptance check for knowledge input should be:
 
-    open 08_nonrecipe_suppression.jsonl and observe the TOC row above
-    open knowledge/in/<shard>.json and verify that block 12 is absent from the chunk payload
+    open 08_nonrecipe_review_exclusions.jsonl and observe the TOC row above
+    open knowledge/in/<shard>.json and verify that block 12 is absent from the job payload
 
-Revision note: Initial draft created on 2026-03-22 to implement explicit hard suppression of obvious non-knowledge text before the existing optional knowledge review stage, with no new LLM passes and no new public label taxonomy.
+## Interfaces and Dependencies
+
+In `cookimport/parsing/canonical_line_roles.py`, extend:
+
+    class CanonicalLineRolePrediction(BaseModel):
+        ...
+        exclude_from_knowledge_review: bool = False
+        knowledge_review_exclusion_reason: str | None = None
+
+The parser and sanitizer must enforce:
+
+    - `exclude_from_knowledge_review=true` is only valid when `label == "OTHER"`
+    - the candidate must be outside any accepted recipe span
+    - `knowledge_review_exclusion_reason` must be one of the repo-owned allowed codes
+    - invalid exclusion metadata falls back safely to plain `OTHER`
+
+In `cookimport/parsing/label_source_of_truth.py`, extend:
+
+    class AuthoritativeLabeledLine(BaseModel):
+        ...
+        exclude_from_knowledge_review: bool = False
+        knowledge_review_exclusion_reason: str | None = None
+
+    class AuthoritativeBlockLabel(BaseModel):
+        ...
+        exclude_from_knowledge_review: bool = False
+        knowledge_review_exclusion_reason: str | None = None
+
+In `cookimport/staging/nonrecipe_stage.py`, extend `NonRecipeStageResult` with exact routing state needed by the knowledge-job builder, for example:
+
+    review_eligible_block_indices: list[int]
+    review_excluded_block_indices: list[int]
+    review_exclusion_reason_by_block: dict[int, str]
+    knowledge_review_candidate_spans: list[NonRecipeSpan]
+
+`cookimport/llm/codex_farm_knowledge_jobs.py` must then accept and use `knowledge_review_candidate_spans` as the sole source for `knowledge/in/*.json` bundle planning, while `cookimport/llm/codex_farm_knowledge_orchestrator.py` and the stage-observability helpers must surface the resulting filtered counts in `knowledge_manifest.json`, `stage_status.json`, and `knowledge_stage_summary.json`.
+
+Revision note: Updated on 2026-03-22 after current codebase churn review. The plan still keeps the token-saving goal and the narrowed line-role role, but now reflects the current packetized knowledge runtime, stage-summary artifacts, benchmark projection rules, and the actual test files present in the repository.

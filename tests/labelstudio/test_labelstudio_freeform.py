@@ -382,9 +382,7 @@ def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:
     assert manifest_rows[0]["segment_id"] == "urn:cookimport:segment:hash123:0:1"
 
 
-def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch) -> None:
-    """Export correctly handles YIELD_LINE and TIME_LINE span labels."""
-
+def _run_freeform_yield_time_export_fixture(tmp_path, monkeypatch):
     class FakeClient:
         def __init__(self, *_args, **_kwargs) -> None:
             return None
@@ -496,10 +494,32 @@ def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch)
         for line in spans_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+    return {
+        "summary": summary,
+        "rows": rows,
+    }
+
+
+def test_export_freeform_spans_includes_yield_and_time_labels(
+    tmp_path, monkeypatch
+) -> None:
+    fixture = _run_freeform_yield_time_export_fixture(tmp_path, monkeypatch)
+    summary = fixture["summary"]
+    rows = fixture["rows"]
+
+    assert summary["counts"]["labeled"] == 3
+    assert summary["counts"]["recipe_headers"] == 0
     labels_found = {row["label"] for row in rows}
     assert "YIELD_LINE" in labels_found
     assert "TIME_LINE" in labels_found
     assert "INGREDIENT_LINE" in labels_found
+
+
+def test_export_freeform_spans_maps_yield_and_time_blocks(
+    tmp_path, monkeypatch
+) -> None:
+    fixture = _run_freeform_yield_time_export_fixture(tmp_path, monkeypatch)
+    rows = fixture["rows"]
 
     yield_row = next(r for r in rows if r["label"] == "YIELD_LINE")
     assert yield_row["selected_text"] == "Serves 4"
@@ -1067,7 +1087,7 @@ def test_eval_freeform_gold_dedupe_conflict_tie_is_dropped(tmp_path) -> None:
     assert dedupe["conflicts"][0]["selected_label"] is None
 
 
-def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
+def _run_app_aligned_freeform_fixture(tmp_path) -> dict[str, object]:
     predicted = [
         # Duplicate ingredient span (same range/label) should dedupe in app-aligned metrics.
         {
@@ -1159,6 +1179,15 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
         overlap_threshold=0.5,
     )
     report = result["report"]
+    return {
+        "report": report,
+        "report_md": format_freeform_eval_report_md(report),
+    }
+
+
+def test_eval_freeform_app_aligned_summary(tmp_path) -> None:
+    fixture = _run_app_aligned_freeform_fixture(tmp_path)
+    report = fixture["report"]
     app = report["app_aligned"]
 
     deduped = app["deduped_predictions"]
@@ -1197,7 +1226,10 @@ def test_eval_freeform_app_aligned_summary_and_md_section(tmp_path) -> None:
     assert "span_width_stats" in report
     assert "granularity_mismatch" in report
 
-    report_md = format_freeform_eval_report_md(report)
+def test_eval_freeform_app_aligned_markdown_section(tmp_path) -> None:
+    fixture = _run_app_aligned_freeform_fixture(tmp_path)
+    report_md = fixture["report_md"]
+
     assert "Practical / Content overlap (any-overlap):" in report_md
     assert "Strict / Localization (IoU>=0.5):" in report_md
     assert "Gold dedupe:" in report_md
@@ -1356,8 +1388,7 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
     assert gold[6].label == "TIME_LINE"
 
 
-def test_eval_freeform_yield_time_are_additive_diagnostics(tmp_path) -> None:
-    """YIELD_LINE and TIME_LINE appear in per-label metrics but not in app-aligned supported labels."""
+def _run_freeform_yield_time_additive_fixture(tmp_path) -> dict[str, object]:
     pred_run = tmp_path / "pred_run"
     pred_run.mkdir(parents=True, exist_ok=True)
     pred_tasks = [
@@ -1433,32 +1464,42 @@ def test_eval_freeform_yield_time_are_additive_diagnostics(tmp_path) -> None:
     gold = load_gold_freeform_ranges(gold_path)
     result = evaluate_predicted_vs_freeform(predicted, gold, overlap_threshold=0.5)
     report = result["report"]
+    return {
+        "report": report,
+        "markdown": format_freeform_eval_report_md(report),
+    }
 
-    # All three labels matched
+
+def test_eval_freeform_yield_time_are_additive_diagnostics(tmp_path) -> None:
+    """YIELD_LINE and TIME_LINE appear in per-label metrics but not in app-aligned supported labels."""
+    fixture = _run_freeform_yield_time_additive_fixture(tmp_path)
+    report = fixture["report"]
+
     assert report["counts"]["gold_matched"] == 3
     assert report["counts"]["gold_total"] == 3
 
-    # Per-label includes yield/time
     assert "YIELD_LINE" in report["per_label"]
     assert "TIME_LINE" in report["per_label"]
     assert report["per_label"]["YIELD_LINE"]["recall"] == 1.0
     assert report["per_label"]["TIME_LINE"]["recall"] == 1.0
 
-    # App-aligned supported labels do NOT include yield/time
     app = report["app_aligned"]
     assert "YIELD_LINE" not in app["supported_labels"]
     assert "TIME_LINE" not in app["supported_labels"]
-    # Supported strict only counts INGREDIENT_LINE (1 gold, 1 match)
     assert app["supported_labels_strict"]["counts"]["gold_total"] == 1
     assert app["supported_labels_strict"]["counts"]["gold_matched"] == 1
 
-    # Classification-only still reports yield/time in per-label
+
+def test_eval_freeform_yield_time_remain_visible_in_classification_and_markdown(
+    tmp_path,
+) -> None:
+    fixture = _run_freeform_yield_time_additive_fixture(tmp_path)
+    report = fixture["report"]
+    md = fixture["markdown"]
+
     cls = report["classification_only"]
     assert "YIELD_LINE" in cls["per_label"]
     assert "TIME_LINE" in cls["per_label"]
-
-    # Markdown report renders without error
-    md = format_freeform_eval_report_md(report)
     assert "YIELD_LINE" in md
     assert "TIME_LINE" in md
 

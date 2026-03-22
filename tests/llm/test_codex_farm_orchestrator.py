@@ -429,6 +429,125 @@ def test_recipe_workspace_watchdog_allows_execution_root_startup_command(
     assert live_status["execution_working_dir"] == str(execution_root)
 
 
+def test_recipe_workspace_queue_controller_advances_current_task_sidecars_from_written_outputs(
+    tmp_path: Path,
+) -> None:
+    worker_root = tmp_path / "worker-001"
+    (worker_root / "out").mkdir(parents=True, exist_ok=True)
+    task_rows = (
+        {
+            "task_id": "task-001",
+            "task_kind": "recipe_correction_recipe",
+            "parent_shard_id": "shard-001",
+            "owned_ids": ["urn:recipe:test:toast"],
+            "input_payload": {
+                "v": "1",
+                "sid": "task-001",
+                "ids": ["urn:recipe:test:toast"],
+                "r": [{"rid": "urn:recipe:test:toast", "h": {"n": "Toast", "i": ["1 slice bread"], "s": ["Toast the bread."]}}],
+            },
+            "metadata": {
+                "hint_path": "hints/task-001.md",
+                "input_path": "in/task-001.json",
+                "scratch_draft_path": "scratch/task-001.json",
+                "result_path": "out/task-001.json",
+            },
+        },
+        {
+            "task_id": "task-002",
+            "task_kind": "recipe_correction_recipe",
+            "parent_shard_id": "shard-001",
+            "owned_ids": ["urn:recipe:test:tea"],
+            "input_payload": {
+                "v": "1",
+                "sid": "task-002",
+                "ids": ["urn:recipe:test:tea"],
+                "r": [{"rid": "urn:recipe:test:tea", "h": {"n": "Tea", "i": ["1 cup water"], "s": ["Boil the water."]}}],
+            },
+            "metadata": {
+                "hint_path": "hints/task-002.md",
+                "input_path": "in/task-002.json",
+                "scratch_draft_path": "scratch/task-002.json",
+                "result_path": "out/task-002.json",
+            },
+        },
+    )
+    controller = recipe_module._RecipeWorkspaceTaskQueueController(  # noqa: SLF001
+        worker_root=worker_root,
+        task_rows=task_rows,
+    )
+
+    assert json.loads((worker_root / "current_task.json").read_text(encoding="utf-8"))["task_id"] == "task-001"
+
+    (worker_root / "out" / "task-001.json").write_text(
+        json.dumps(
+            {
+                "v": "1",
+                "sid": "task-001",
+                "r": [
+                    {
+                        "v": "1",
+                        "rid": "urn:recipe:test:toast",
+                        "st": "repaired",
+                        "sr": None,
+                        "cr": {
+                            "t": "Toast",
+                            "i": ["1 slice bread"],
+                            "s": ["Toast the bread."],
+                            "d": None,
+                            "y": None,
+                        },
+                        "m": [],
+                        "mr": "not_needed_single_step",
+                        "g": [],
+                        "w": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    first_observation = controller.observe_current_output()
+
+    assert first_observation["advanced"] is True
+    assert json.loads((worker_root / "current_task.json").read_text(encoding="utf-8"))["task_id"] == "task-002"
+    assert "task-002" in (worker_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
+
+    (worker_root / "out" / "task-002.json").write_text(
+        json.dumps(
+            {
+                "v": "1",
+                "sid": "task-002",
+                "r": [
+                    {
+                        "v": "1",
+                        "rid": "urn:recipe:test:tea",
+                        "st": "repaired",
+                        "sr": None,
+                        "cr": {
+                            "t": "Tea",
+                            "i": ["1 cup water"],
+                            "s": ["Boil the water."],
+                            "d": None,
+                            "y": None,
+                        },
+                        "m": [],
+                        "mr": "not_needed_single_step",
+                        "g": [],
+                        "w": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    second_observation = controller.observe_current_output()
+
+    assert second_observation["advanced"] is True
+    assert not (worker_root / "current_task.json").exists()
+    assert "No current task is active" in (worker_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
+
+
 def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
@@ -801,9 +920,7 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
     assert live_status_payload["reason_code"] == "watchdog_command_execution_forbidden"
 
 
-def test_orchestrator_recovers_retryable_watchdog_killed_recipe_shard(
-    tmp_path: Path,
-) -> None:
+def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     result = _build_conversion_result(source)
@@ -954,6 +1071,38 @@ def test_orchestrator_recovers_retryable_watchdog_killed_recipe_shard(
             / "status.json"
         ).read_text(encoding="utf-8")
     )
+    return {
+        "runner": runner,
+        "apply_result": apply_result,
+        "process_summary": process_summary,
+        "status_payload": status_payload,
+        "proposal_payload": proposal_payload,
+        "retry_status": retry_status,
+    }
+
+
+def test_orchestrator_recovers_retryable_watchdog_killed_recipe_shard(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_retryable_watchdog_fixture(tmp_path)
+    runner = fixture["runner"]
+    process_summary = fixture["process_summary"]
+
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "structured_prompt",
+    ]
+    assert process_summary["watchdog_killed_shard_count"] == 0
+    assert process_summary["watchdog_recovered_shard_count"] == 1
+
+
+def test_orchestrator_persists_recovered_watchdog_shard_status_artifacts(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_retryable_watchdog_fixture(tmp_path)
+    status_payload = fixture["status_payload"]
+    proposal_payload = fixture["proposal_payload"]
+    retry_status = fixture["retry_status"]
 
     assert status_payload["status"] == "validated"
     assert status_payload["watchdog_retry_status"] == "recovered"
@@ -965,9 +1114,7 @@ def test_orchestrator_recovers_retryable_watchdog_killed_recipe_shard(
     assert retry_status["status"] == "validated"
 
 
-def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker_death(
-    tmp_path: Path,
-) -> None:
+def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     result = _build_conversion_result(source)
@@ -1101,6 +1248,36 @@ def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker
     retry_status = json.loads(
         (shard_root / "watchdog_retry" / "status.json").read_text(encoding="utf-8")
     )
+    return {
+        "runner": runner,
+        "process_summary": process_summary,
+        "status_payload": status_payload,
+        "retry_status": retry_status,
+    }
+
+
+def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker_death(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_packed_watchdog_retry_fixture(tmp_path)
+    runner = fixture["runner"]
+    process_summary = fixture["process_summary"]
+
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "structured_prompt",
+    ]
+    assert process_summary["structured_followup_call_count"] == 1
+    assert process_summary["watchdog_killed_shard_count"] == 0
+    assert process_summary["watchdog_recovered_shard_count"] == 1
+
+
+def test_orchestrator_marks_packed_watchdog_retry_mode_in_status_artifacts(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_packed_watchdog_retry_fixture(tmp_path)
+    status_payload = fixture["status_payload"]
+    retry_status = fixture["retry_status"]
 
     assert status_payload["status"] == "validated"
     assert status_payload["watchdog_retry_status"] == "recovered"

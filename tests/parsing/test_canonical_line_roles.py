@@ -4320,7 +4320,7 @@ def test_label_atomic_lines_keeps_unrecovered_forbidden_watchdog_kill_visible(
                 supervision_state="watchdog_killed",
                 supervision_reason_code="watchdog_command_execution_forbidden",
                 supervision_reason_detail=(
-                    "workspace worker stage attempted tool use: /bin/bash -lc 'git status --short'"
+                    "workspace worker stage attempted tool use: /bin/bash -lc 'pip install foo'"
                 ),
                 supervision_retryable=False,
             )

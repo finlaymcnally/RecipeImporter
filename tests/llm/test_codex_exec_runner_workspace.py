@@ -158,15 +158,21 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert worker_manifest["workspace_shell_policy"].startswith(
         "Allow ordinary local shell use inside this workspace"
     )
-    assert worker_manifest["workspace_local_shell_examples"] == [
-        "sed -n '1,80p' hints/<task>.md",
-        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\"",
-        "jq '.metadata' current_task.json",
-        "python3 tools/line_role_worker.py overview",
-        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row.get('metadata', {}).get('scratch_draft_path', ''))\"",
-        "python3 tools/line_role_worker.py finalize scratch/<task>.json",
-        "python3 tools/line_role_worker.py finalize-all scratch/",
-    ]
+    assert "sed -n '1,80p' hints/<task>.md" in worker_manifest["workspace_local_shell_examples"]
+    assert (
+        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\""
+        in worker_manifest["workspace_local_shell_examples"]
+    )
+    assert "jq '.metadata' current_task.json" in worker_manifest["workspace_local_shell_examples"]
+    assert "python3 tools/line_role_worker.py overview" in worker_manifest["workspace_local_shell_examples"]
+    assert (
+        "python3 tools/line_role_worker.py finalize scratch/<task>.json"
+        in worker_manifest["workspace_local_shell_examples"]
+    )
+    assert (
+        "python3 tools/line_role_worker.py finalize-all scratch/"
+        in worker_manifest["workspace_local_shell_examples"]
+    )
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",
@@ -304,6 +310,41 @@ def test_workspace_boundary_detector_allows_bounded_python_and_node_transforms()
         }
 
 
+def test_workspace_boundary_detector_allows_multi_python_heredoc_shell_body() -> None:
+    command = (
+        "/bin/bash -lc \"python3 - <<'PY1'\n"
+        "from pathlib import Path\n"
+        "Path('scratch/current_task.json').write_text('{}\\n')\n"
+        "PY1\n"
+        "python3 - <<'PY2'\n"
+        "from pathlib import Path\n"
+        "Path('out/task-001.json').write_text(Path('scratch/current_task.json').read_text())\n"
+        "PY2\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+    verdict = classify_workspace_worker_command(command)
+    assert verdict.allowed is True
+    assert verdict.policy == "shell_script_workspace_local"
+
+
+def test_workspace_boundary_detector_allows_slashy_heredoc_write_payload() -> None:
+    command = (
+        "/bin/bash -lc \"cat > scratch/current_task.json <<'EOF'\n"
+        "{\\\"task_id\\\":\\\"task-001\\\",\\\"source\\\":\\\"/home/mcnal/projects/recipeimport/data/input/book.pdf\\\","
+        "\\\"ratio\\\":\\\"3/4\\\"}\n"
+        "EOF\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+    verdict = classify_workspace_worker_command(command)
+    assert verdict.allowed is True
+    assert verdict.policy in {
+        "shell_script_workspace_local",
+        "unclassified_workspace_shell_command",
+    }
+
+
 def test_workspace_boundary_detector_allows_execution_root_cd_and_manifest_reads(
     tmp_path: Path,
 ) -> None:
@@ -327,9 +368,28 @@ def test_workspace_boundary_detector_allows_execution_root_cd_and_manifest_reads
     )
     assert verdict.allowed is True
     assert verdict.policy in {
+        "recipe_contract_lookup_command",
         "shell_script_workspace_local",
         "tolerated_workspace_shell_command",
     }
+
+
+def test_workspace_boundary_detector_classifies_recipe_contract_and_bundle_reads() -> None:
+    contract_command = (
+        "/bin/bash -lc \"cat OUTPUT_CONTRACT.md && echo '---' && "
+        "cat examples/valid_repaired_task_output.json && echo '---' && "
+        "sed -n '1,40p' tools/recipe_worker.py\""
+    )
+    bundle_command = (
+        "/bin/bash -lc \"cat hints/task-001.md && echo '---' && "
+        "cat in/task-001.json && echo '---' && cat scratch/task-001.json\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(contract_command) is None
+    assert classify_workspace_worker_command(contract_command).policy == "recipe_contract_lookup_command"
+
+    assert detect_workspace_worker_boundary_violation(bundle_command) is None
+    assert classify_workspace_worker_command(bundle_command).policy == "recipe_task_bundle_read_command"
 
 
 def test_workspace_boundary_detector_allows_local_cp_and_mv_between_scratch_and_out() -> None:

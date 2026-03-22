@@ -80,10 +80,10 @@ def test_bench_quality_discover_formats_filter(tmp_path: Path) -> None:
     assert payload["selection"]["selected_format_counts"] == {".pdf": 1}
 
 
-def test_bench_quality_run_wires_runner(
+def _run_bench_quality_run_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     monkeypatch.delenv("COOKIMPORT_IO_PACE_EVERY_WRITES", raising=False)
     monkeypatch.delenv("COOKIMPORT_IO_PACE_SLEEP_MS", raising=False)
 
@@ -207,6 +207,26 @@ def test_bench_quality_run_wires_runner(
         resume_run_dir=run_root,
         base_run_settings_file=base_settings_file,
     )
+    return {
+        "captured": captured,
+        "bridge_calls": bridge_calls,
+        "loaded_suite": loaded_suite,
+        "experiments_file": experiments_file,
+        "base_settings_file": base_settings_file,
+        "run_root": run_root,
+    }
+
+
+def test_bench_quality_run_wires_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_bench_quality_run_fixture(monkeypatch, tmp_path)
+    captured = fixture["captured"]
+    loaded_suite = fixture["loaded_suite"]
+    experiments_file = fixture["experiments_file"]
+    base_settings_file = fixture["base_settings_file"]
+    run_root = fixture["run_root"]
 
     assert captured["suite"] == loaded_suite
     assert captured["experiments_file"] == experiments_file
@@ -218,6 +238,16 @@ def test_bench_quality_run_wires_runner(
     assert captured["codex_farm_confirmed"] is False
     assert captured["io_pace_every_writes_env"] == "200"
     assert captured["io_pace_sleep_ms_env"] == "5.0"
+
+
+def test_bench_quality_run_writes_agent_bridge_and_restores_io_pace_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_bench_quality_run_fixture(monkeypatch, tmp_path)
+    bridge_calls = fixture["bridge_calls"]
+    run_root = fixture["run_root"]
+
     assert len(bridge_calls) == 1
     assert bridge_calls[0]["run_root"] == run_root
     assert bridge_calls[0]["output_root"] == cli.DEFAULT_OUTPUT

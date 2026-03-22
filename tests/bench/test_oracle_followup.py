@@ -223,10 +223,10 @@ def test_run_oracle_benchmark_followup_uses_request_file_when_source_run_is_olde
     assert request_payload["request_id"] == "manual_request_01"
 
 
-def test_auto_followup_worker_waits_for_completed_turn1_and_launches_turn2(
+def _run_completed_turn1_followup_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> dict[str, object]:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_17.13.29"
@@ -325,13 +325,41 @@ def test_auto_followup_worker_waits_for_completed_turn1_and_launches_turn2(
         timeout_seconds=1.0,
     )
 
+    status_payload = json.loads((launch_dir / ORACLE_AUTO_FOLLOWUP_STATUS_NAME).read_text(encoding="utf-8"))
+    source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
+    return {
+        "captured": captured,
+        "result": result,
+        "status_payload": status_payload,
+        "source_status": source_status,
+        "source_run": source_run,
+    }
+
+
+def test_auto_followup_worker_waits_for_completed_turn1_and_launches_turn2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_completed_turn1_followup_fixture(tmp_path, monkeypatch)
+    captured = fixture["captured"]
+    result = fixture["result"]
+    source_run = fixture["source_run"]
+
     assert captured["from_run"] == source_run
     assert captured["model"] == "gpt-5.3"
     assert result["status"] == "succeeded"
     assert result["followup_session_id"] == "you-are-reviewing-a-benchmark-390-turn-2"
-    status_payload = json.loads((launch_dir / ORACLE_AUTO_FOLLOWUP_STATUS_NAME).read_text(encoding="utf-8"))
+
+
+def test_auto_followup_worker_marks_completed_turn1_status_succeeded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_completed_turn1_followup_fixture(tmp_path, monkeypatch)
+    status_payload = fixture["status_payload"]
+    source_status = fixture["source_status"]
+
     assert status_payload["status"] == "succeeded"
-    source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
     assert source_status["status"] == "succeeded"
 
 
@@ -591,10 +619,10 @@ def test_auto_followup_worker_appends_recovered_turn1_answer_before_turn2(
     assert "Recovered answer after timeout." in log_text
 
 
-def test_auto_followup_worker_allows_invalid_grounding_turn1_when_followup_was_requested(
+def _run_invalid_grounding_followup_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> dict[str, object]:
     copied_root = (
         tmp_path / "2026-03-21_16.10.40" / "single-book-benchmark" / "saltfatacidheatcutdown"
     )
@@ -699,8 +727,34 @@ def test_auto_followup_worker_allows_invalid_grounding_turn1_when_followup_was_r
         timeout_seconds=1.0,
     )
 
+    source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
+    return {
+        "captured": captured,
+        "result": result,
+        "source_status": source_status,
+        "source_run": source_run,
+    }
+
+
+def test_auto_followup_worker_allows_invalid_grounding_turn1_when_followup_was_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_invalid_grounding_followup_fixture(tmp_path, monkeypatch)
+    captured = fixture["captured"]
+    result = fixture["result"]
+    source_run = fixture["source_run"]
+
     assert captured["from_run"] == source_run
     assert result["status"] == "succeeded"
     assert result["followup_session_id"] == "you-are-reviewing-a-benchmark-317-turn-2"
-    source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
+
+
+def test_auto_followup_worker_preserves_invalid_grounding_source_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_invalid_grounding_followup_fixture(tmp_path, monkeypatch)
+    source_status = fixture["source_status"]
+
     assert source_status["status"] == "invalid_grounding"

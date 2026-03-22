@@ -310,9 +310,7 @@ def _write_worker_status(path: Path, row: dict[str, int]) -> None:
     )
 
 
-def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
-    tmp_path: Path,
-) -> None:
+def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
     run_dir = _build_existing_run(tmp_path)
     out_dir = tmp_path / "preview"
 
@@ -362,19 +360,6 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         ).splitlines()
         if line.strip()
     ]
-    assert {row["stage_key"] for row in full_prompt_rows} == {
-        "line_role",
-        "nonrecipe_knowledge_review",
-        "recipe_llm_correct_and_link",
-    }
-    recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
-    assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
-    assert "authoritative recipe spans" not in recipe_row["rendered_prompt_text"]
-    assert "triage each owned candidate first" in recipe_row["rendered_prompt_text"]
-    assert '"sid":"recipe-preview-shard-0001-r0"' in recipe_row["rendered_prompt_text"]
-    assert recipe_row["runtime_shard_id"] == "recipe-preview-shard-0001-r0"
-    assert recipe_row["runtime_worker_id"] == "worker-001"
-    assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
     recipe_input_payload = json.loads(
         (
             out_dir
@@ -386,6 +371,73 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
             / "recipe-preview-shard-0001-r0.json"
         ).read_text(encoding="utf-8")
     )
+    budget_summary = json.loads(
+        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    )
+    return {
+        "out_dir": out_dir,
+        "manifest": manifest,
+        "full_prompt_rows": {row["stage_key"]: row for row in full_prompt_rows},
+        "recipe_input_payload": recipe_input_payload,
+        "budget_summary": budget_summary,
+    }
+
+
+def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path) -> None:
+    fixture = _run_prompt_preview_fixture(tmp_path)
+    manifest = fixture["manifest"]
+
+    assert manifest["counts"] == {
+        "knowledge_interaction_count": 1,
+        "line_role_interaction_count": 1,
+        "recipe_interaction_count": 1,
+    }
+    assert not any(
+        warning["code"] == "token_estimate_unavailable"
+        for warning in manifest["warnings"]
+    )
+    assert manifest["surfaces"] == {
+        "llm_recipe_pipeline": "codex-recipe-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "line_role_pipeline": "codex-line-role-shard-v1",
+    }
+    phase_plans = manifest["phase_plans"]
+    assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
+    assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
+    assert phase_plans["recipe_llm_correct_and_link"]["shards"][0]["owned_ids"] == [
+        "urn:recipe:test:r0"
+    ]
+    assert phase_plans["line_role"]["worker_count"] == 1
+    assert phase_plans["line_role"]["shard_count"] == 1
+    assert phase_plans["line_role"]["shards"][0]["owned_ids"] == [
+        "0",
+        "1",
+        "2",
+        "3",
+    ]
+    artifacts = manifest["artifacts"]
+    assert artifacts["prompt_preview_budget_summary_json"] == "prompt_preview_budget_summary.json"
+    assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"
+
+
+def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path) -> None:
+    fixture = _run_prompt_preview_fixture(tmp_path)
+    full_prompt_rows = fixture["full_prompt_rows"]
+    recipe_input_payload = fixture["recipe_input_payload"]
+
+    assert set(full_prompt_rows) == {
+        "line_role",
+        "nonrecipe_knowledge_review",
+        "recipe_llm_correct_and_link",
+    }
+    recipe_row = full_prompt_rows["recipe_llm_correct_and_link"]
+    assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
+    assert "authoritative recipe spans" not in recipe_row["rendered_prompt_text"]
+    assert "triage each owned candidate first" in recipe_row["rendered_prompt_text"]
+    assert '"sid":"recipe-preview-shard-0001-r0"' in recipe_row["rendered_prompt_text"]
+    assert recipe_row["runtime_shard_id"] == "recipe-preview-shard-0001-r0"
+    assert recipe_row["runtime_worker_id"] == "worker-001"
+    assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
     assert "draft_hint" not in recipe_input_payload
     assert recipe_input_payload["r"][0]["h"] == {
         "n": "Ambiguous title-ish line",
@@ -397,7 +449,13 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v3"
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
-    knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review")
+
+def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path) -> None:
+    fixture = _run_prompt_preview_fixture(tmp_path)
+    out_dir = fixture["out_dir"]
+    full_prompt_rows = fixture["full_prompt_rows"]
+
+    knowledge_row = full_prompt_rows["nonrecipe_knowledge_review"]
     assert "Only mechanically true structure is provided." in knowledge_row["rendered_prompt_text"]
     assert "compact minified JSON on a single line" in knowledge_row["rendered_prompt_text"]
     assert knowledge_row["request_input_payload"]["v"] == "2"
@@ -408,7 +466,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert knowledge_row["request_input_payload"]["c"][0]["b"][0]["i"] == 2
     assert knowledge_row["request_input_payload"]["c"][1]["b"][0]["i"] == 3
 
-    line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
+    line_role_row = full_prompt_rows["line_role"]
     assert "You are reviewing deterministic canonical line-role labels" in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
     assert '<BEGIN_AUTHORITATIVE_ROWS>\n[0, "L' in line_role_row["rendered_prompt_text"]
@@ -443,6 +501,12 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         out_dir / "line-role-pipeline" / "debug_in" / "line_role_input_0001.json"
     ).read_text(encoding="utf-8") == line_role_row["debug_input_text"]
 
+
+def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> None:
+    fixture = _run_prompt_preview_fixture(tmp_path)
+    out_dir = fixture["out_dir"]
+    budget_summary = fixture["budget_summary"]
+
     assert (
         out_dir
         / "raw"
@@ -455,9 +519,6 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert (out_dir / "line-role-pipeline" / "in" / "line_role_input_0001.json").is_file()
     assert (out_dir / "line-role-pipeline" / "debug_in" / "line_role_input_0001.json").is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
-    budget_summary = json.loads(
-        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
-    )
     assert budget_summary["totals"]["call_count"] == 3
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
     assert budget_summary["totals"]["estimated_request_chars_total"] >= budget_summary["totals"]["prompt_chars_total"]

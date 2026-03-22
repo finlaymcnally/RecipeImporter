@@ -59,8 +59,9 @@ from .phase_worker_runtime import (
 from .recipe_workspace_tools import render_recipe_worker_cli_script
 from .recipe_workspace_tools import (
     prepare_recipe_worker_drafts,
-    render_recipe_worker_current_task_brief,
-    render_recipe_worker_feedback_brief,
+    recipe_worker_task_paths,
+    validate_recipe_worker_draft,
+    write_recipe_worker_current_task_sidecars,
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
@@ -217,6 +218,153 @@ class _RecipeTaskPlan:
     task_id: str
     parent_shard_id: str
     manifest_entry: ShardManifestEntryV1
+
+
+@dataclass
+class _RecipeWorkspaceTaskQueueController:
+    worker_root: Path
+    task_rows: tuple[dict[str, Any], ...]
+    current_index: int = 0
+    validated_task_ids: set[str] = field(default_factory=set)
+    current_validation_errors: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        self._write_current_sidecars()
+
+    def is_complete(self) -> bool:
+        return self.current_index >= len(self.task_rows)
+
+    def current_task_row(self) -> dict[str, Any] | None:
+        if self.is_complete():
+            return None
+        return dict(self.task_rows[self.current_index])
+
+    def current_task_id(self) -> str | None:
+        row = self.current_task_row()
+        if row is None:
+            return None
+        return str(row.get("task_id") or "").strip() or None
+
+    def status_payload(self) -> dict[str, Any]:
+        return {
+            "queue_total_task_count": len(self.task_rows),
+            "queue_validated_task_count": len(self.validated_task_ids),
+            "queue_remaining_task_count": max(len(self.task_rows) - len(self.validated_task_ids), 0),
+            "queue_complete": self.is_complete(),
+            "current_task_id": self.current_task_id(),
+            "current_validation_errors": list(self.current_validation_errors),
+        }
+
+    def observe_current_output(self) -> dict[str, Any]:
+        row = self.current_task_row()
+        if row is None:
+            self.current_validation_errors = ()
+            self._write_current_sidecars()
+            return {
+                "current_task_id": None,
+                "current_output_present": False,
+                "advanced": False,
+                "valid": True,
+                "validation_errors": (),
+                "queue_complete": True,
+            }
+        task_id = str(row.get("task_id") or "").strip()
+        result_path = self.worker_root / recipe_worker_task_paths(row)["result_path"]
+        if not result_path.exists():
+            self.current_validation_errors = ()
+            return {
+                "current_task_id": task_id or None,
+                "current_output_present": False,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": (),
+                "queue_complete": False,
+            }
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.current_validation_errors = ("draft_validation_exception",)
+            self._write_current_sidecars(
+                validation_state="failed",
+                validation_errors=(str(exc).strip() or "draft_validation_exception",),
+                current_draft_path=str(result_path.relative_to(self.worker_root)),
+            )
+            return {
+                "current_task_id": task_id or None,
+                "current_output_present": True,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": ("draft_validation_exception",),
+                "queue_complete": False,
+            }
+        if not isinstance(payload, Mapping):
+            errors = ("draft payload must be a JSON object",)
+            self.current_validation_errors = errors
+            self._write_current_sidecars(
+                validation_state="failed",
+                validation_errors=errors,
+                current_draft_path=str(result_path.relative_to(self.worker_root)),
+            )
+            return {
+                "current_task_id": task_id or None,
+                "current_output_present": True,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": errors,
+                "queue_complete": False,
+            }
+        errors = tuple(validate_recipe_worker_draft(task_row=row, payload=dict(payload)))
+        if errors:
+            self.current_validation_errors = errors
+            self._write_current_sidecars(
+                validation_state="failed",
+                validation_errors=errors,
+                current_draft_path=str(result_path.relative_to(self.worker_root)),
+            )
+            return {
+                "current_task_id": task_id or None,
+                "current_output_present": True,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": errors,
+                "queue_complete": False,
+            }
+        if task_id:
+            self.validated_task_ids.add(task_id)
+        self.current_index += 1
+        self.current_validation_errors = ()
+        self._write_current_sidecars()
+        return {
+            "current_task_id": task_id or None,
+            "current_output_present": True,
+            "advanced": True,
+            "valid": True,
+            "validation_errors": (),
+            "queue_complete": self.is_complete(),
+        }
+
+    def advance_all_completed_outputs(self) -> None:
+        while True:
+            observation = self.observe_current_output()
+            if not observation.get("advanced"):
+                break
+
+    def _write_current_sidecars(
+        self,
+        *,
+        validation_state: str = "pending",
+        validation_errors: Sequence[str] | None = None,
+        current_draft_path: str | None = None,
+    ) -> None:
+        current_row = self.current_task_row()
+        write_recipe_worker_current_task_sidecars(
+            workspace_root=self.worker_root,
+            task_rows=self.task_rows,
+            current_task_id=str(current_row.get("task_id") or "").strip() if current_row else None,
+            validation_state=validation_state if current_row is not None else "queue_complete",
+            validation_errors=validation_errors,
+            current_draft_path=current_draft_path,
+        )
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
     rendered = sanitize_for_filename(str(recipe_id).strip())
@@ -1748,28 +1896,31 @@ def _build_recipe_workspace_worker_prompt(
     lines = [
         "You are a recipe correction worker in a bounded local workspace.",
         "",
-        "Process the assigned shard files locally. The current working directory is already the workspace root.",
+        "Process the repo-written ordered recipe queue in this workspace one current task at a time. The current working directory is already the workspace root.",
+        "The assignment is complete only when `current_task.json` is gone and the current-task sidecars say the queue is complete.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then `CURRENT_TASK.md`, then `current_task.json`, then `CURRENT_TASK_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
-        "2. Treat `CURRENT_TASK.md` and `current_task.json` as the authoritative cheapest first task surface. Use `CURRENT_TASK_FEEDBACK.md` and `assigned_tasks.json` only for queue context after that.",
-        "3. The repo already prewrote the batch drafts under `scratch/` and listed them in `scratch/_prepared_drafts.json`. For the current task, open `hints/<task_id>.md` first, then `in/<task_id>.json`, then edit the `metadata.scratch_draft_path` named in `current_task.json`.",
-        '4. For bulk terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary "<reason>" scratch/*.json` or the same command with `not_a_recipe` instead of writing repetitive JSON by hand.',
-        "5. Finish with `python3 tools/recipe_worker.py finalize-all scratch/` once after the drafts are ready. Single-task fallback is still available: `python3 tools/recipe_worker.py check scratch/<task_id>.json`, then `python3 tools/recipe_worker.py finalize scratch/<task_id>.json`.",
-        "6. `python3 tools/recipe_worker.py overview`, `show <task_id>`, and `prepare-all --dest-dir scratch/` are fallback/debug tools if the repo-written draft surface is missing or you need to regenerate it, not the default first move.",
-        "7. Continue through the remaining queue rows in order until every assigned task has an output file or you cannot proceed.",
-        "8. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local or in approved temp roots, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
+        "1. Open `worker_manifest.json`, then `SHARD_PACKET.md`, then `CURRENT_TASK.md`, then `current_task.json`, then `CURRENT_TASK_FEEDBACK.md`.",
+        "2. Treat `SHARD_PACKET.md` as the authoritative packed shard summary and treat `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative active-task surface. Use `assigned_tasks.json` only as lightweight queue inventory after that.",
+        "3. Edit the prewritten draft at the `metadata.scratch_draft_path` named in `current_task.json`.",
+        "4. Open `hints/<task_id>.md` only if the shard packet or current-task surface is still unclear. Open `in/<task_id>.json` only if the draft, packet, and hint still leave something unresolved.",
+        "5. Use the paved road: run `python3 tools/recipe_worker.py check-current`, then run `python3 tools/recipe_worker.py install-current` only after `check-current` says OK.",
+        "6. After each validation failure, re-open `CURRENT_TASK_FEEDBACK.md`. After each successful `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If a new task is active, continue with it immediately. Do not ask for permission to continue or end the session while later tasks remain.",
+        '7. For obvious terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary "<reason>" scratch/<task_id>.json` or the same command with `not_a_recipe`.',
+        "8. `python3 tools/recipe_worker.py current`, `next`, `overview`, `show <task_id>`, `prepare-all --dest-dir scratch/`, `finalize scratch/<task_id>.json`, and `finalize-all scratch/` are fallback/debug tools, not the default queue loop.",
+        "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local or in approved temp roots, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Output contract for each `out/<task_id>.json`:",
         "- Write exactly one JSON object.",
-        "- Copy the compact shape from `OUTPUT_CONTRACT.md` and `examples/*.json`.",
+        "- The compact shape is summarized in `SHARD_PACKET.md` and the current-task sidecars. Open `OUTPUT_CONTRACT.md` or `examples/*.json` only if those repo-written surfaces are insufficient.",
         "- Use compact keys only: top-level `v`, `sid`, `r`; per-recipe `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.",
         "- `sid` must equal the task id exactly.",
         "- Return exactly one recipe result for each owned recipe id in the task input and no extras.",
         "- Legacy keys are invalid here, including `results`, `recipes`, `recipe_id`, `repair_status`, `canonical_recipe`, `not_a_recipe`, `fragmentary`, and `notes`.",
-        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned input.",
-        "- Large batch heredocs are unnecessary here because the repo already prewrote the drafts and `tools/recipe_worker.py finalize` / `finalize-all` are the approved write paths.",
+        "- Treat `hints/<task_id>.md` as optional guidance and `in/<task_id>.json` as fallback authoritative owned input only when the cheaper task surface is insufficient.",
+        "- Do not dump `examples/*.json`, `tools/recipe_worker.py`, or `OUTPUT_CONTRACT.md` by default just to re-learn the contract.",
+        "- Large batch heredocs are unnecessary here because the repo already prewrote the drafts and the `check-current` / `install-current` loop is the approved write path.",
         "",
         "Your final message is optional telemetry only. Do not paste shard outputs there. The authoritative result is the set of valid files written under `out/`.",
     ]
@@ -2264,21 +2415,9 @@ def _write_recipe_workspace_current_task_sidecars(
     worker_root: Path,
     task_rows: Sequence[Mapping[str, Any]],
 ) -> None:
-    if not task_rows:
-        return
-    current_task_row = dict(task_rows[0])
-    current_task_id = str(current_task_row.get("task_id") or "").strip() or None
-    (worker_root / "CURRENT_TASK.md").write_text(
-        render_recipe_worker_current_task_brief(task_row=current_task_row) + "\n",
-        encoding="utf-8",
-    )
-    (worker_root / "CURRENT_TASK_FEEDBACK.md").write_text(
-        render_recipe_worker_feedback_brief(
-            task_rows=task_rows,
-            current_task_id=current_task_id,
-        )
-        + "\n",
-        encoding="utf-8",
+    write_recipe_worker_current_task_sidecars(
+        workspace_root=worker_root,
+        task_rows=task_rows,
     )
 
 
@@ -2540,6 +2679,10 @@ def _run_recipe_workspace_worker_assignment_v1(
         asdict(_build_recipe_task_runtime_manifest_entry(task))
         for task in runnable_tasks
     ]
+    recipe_task_queue_controller = _RecipeWorkspaceTaskQueueController(
+        worker_root=worker_root,
+        task_rows=tuple(dict(row) for row in task_rows_for_workspace),
+    )
     _write_json(
         task_rows_for_workspace,
         worker_root / "assigned_tasks.json",
@@ -2550,10 +2693,6 @@ def _run_recipe_workspace_worker_assignment_v1(
             tasks=runnable_tasks,
         )
         _write_recipe_workspace_helper_tools(worker_root=worker_root)
-        _write_recipe_workspace_current_task_sidecars(
-            worker_root=worker_root,
-            task_rows=task_rows_for_workspace,
-        )
         prepare_recipe_worker_drafts(
             workspace_root=worker_root,
             dest_dir=Path("scratch"),
@@ -2586,6 +2725,21 @@ def _run_recipe_workspace_worker_assignment_v1(
         shard_live_status_paths = [
             shard_dir / shard.shard_id / "live_status.json" for shard in runnable_shards
         ]
+        base_watchdog_callback = _build_recipe_watchdog_callback(
+            live_status_path=worker_live_status_path,
+            live_status_paths=shard_live_status_paths,
+            watchdog_policy="workspace_worker_v1",
+            stage_label="workspace worker stage",
+            allow_workspace_commands=True,
+            execution_workspace_root=worker_root,
+        )
+
+        def _recipe_workspace_supervision_callback(
+            snapshot: CodexExecLiveSnapshot,
+        ) -> CodexExecSupervisionDecision | None:
+            recipe_task_queue_controller.observe_current_output()
+            return base_watchdog_callback(snapshot)
+
         run_result = runner.run_workspace_worker(
             prompt_text=worker_prompt_text,
             working_dir=worker_root,
@@ -2593,15 +2747,9 @@ def _run_recipe_workspace_worker_assignment_v1(
             model=model,
             reasoning_effort=reasoning_effort,
             workspace_task_label="recipe correction worker session",
-            supervision_callback=_build_recipe_watchdog_callback(
-                live_status_path=worker_live_status_path,
-                live_status_paths=shard_live_status_paths,
-                watchdog_policy="workspace_worker_v1",
-                stage_label="workspace worker stage",
-                allow_workspace_commands=True,
-                execution_workspace_root=worker_root,
-            ),
+            supervision_callback=_recipe_workspace_supervision_callback,
         )
+        recipe_task_queue_controller.advance_all_completed_outputs()
         _finalize_live_status(
             worker_live_status_path,
             run_result=run_result,

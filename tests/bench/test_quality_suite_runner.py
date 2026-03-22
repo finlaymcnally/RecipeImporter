@@ -379,10 +379,10 @@ def test_run_quality_suite_require_process_workers_fails_fast(
     assert resolved["process_worker_probe_error"] is None
 
 
-def test_run_quality_suite_checkpoints_and_resumes_from_partial_run(
+def _run_quality_suite_resume_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     suite = _build_suite(tmp_path)
     experiments_file = tmp_path / "experiments_resume.json"
     _write_json(
@@ -497,14 +497,8 @@ def test_run_quality_suite_checkpoints_and_resumes_from_partial_run(
     assert (run_root / "experiments" / "baseline" / "quality_experiment_result.json").exists()
     assert not (run_root / "summary.json").exists()
 
-    checkpoint = json.loads((run_root / "checkpoint.json").read_text(encoding="utf-8"))
-    assert checkpoint["experiment_count_total"] == 2
-    assert checkpoint["experiment_count_completed"] == 1
-    assert checkpoint["status"] == "in_progress"
-    assert checkpoint["pending_experiment_ids"] == ["candidate"]
-
+    partial_checkpoint = json.loads((run_root / "checkpoint.json").read_text(encoding="utf-8"))
     partial_summary = json.loads((run_root / "summary.partial.json").read_text(encoding="utf-8"))
-    assert [row["id"] for row in partial_summary["experiments"]] == ["baseline"]
 
     resumed_run_root = run_quality_suite(
         suite,
@@ -517,15 +511,52 @@ def test_run_quality_suite_checkpoints_and_resumes_from_partial_run(
         progress_callback=None,
     )
 
-    assert resumed_run_root == run_root
+    summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
+    checkpoint = json.loads((run_root / "checkpoint.json").read_text(encoding="utf-8"))
+    return {
+        "attempts": attempts,
+        "run_root": run_root,
+        "resumed_run_root": resumed_run_root,
+        "partial_checkpoint": partial_checkpoint,
+        "partial_summary": partial_summary,
+        "summary": summary,
+        "checkpoint": checkpoint,
+    }
+
+
+def test_run_quality_suite_checkpoints_partial_progress_before_resume(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_resume_fixture(monkeypatch, tmp_path)
+    attempts = fixture["attempts"]
+    run_root = fixture["run_root"]
+    partial_checkpoint = fixture["partial_checkpoint"]
+    partial_summary = fixture["partial_summary"]
+
     assert attempts["baseline"] == 1
     assert attempts["candidate"] == 2
+    assert (run_root / "experiments" / "baseline" / "quality_experiment_result.json").exists()
+    assert partial_checkpoint["experiment_count_total"] == 2
+    assert partial_checkpoint["experiment_count_completed"] == 1
+    assert partial_checkpoint["status"] == "in_progress"
+    assert partial_checkpoint["pending_experiment_ids"] == ["candidate"]
+    assert [row["id"] for row in partial_summary["experiments"]] == ["baseline"]
 
-    summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
+
+def test_run_quality_suite_resumes_partial_run_to_complete_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_resume_fixture(monkeypatch, tmp_path)
+    run_root = fixture["run_root"]
+    resumed_run_root = fixture["resumed_run_root"]
+    summary = fixture["summary"]
+    checkpoint = fixture["checkpoint"]
+
+    assert resumed_run_root == run_root
     assert [row["id"] for row in summary["experiments"]] == ["baseline", "candidate"]
     assert all(row["status"] == "ok" for row in summary["experiments"])
-
-    checkpoint = json.loads((run_root / "checkpoint.json").read_text(encoding="utf-8"))
     assert checkpoint["status"] == "complete"
     assert checkpoint["experiment_count_completed"] == 2
     assert checkpoint["pending_experiment_ids"] == []
@@ -2265,10 +2296,10 @@ def _build_suite_multi(tmp_path: Path) -> QualitySuite:
     )
 
 
-def test_quality_suite_race_prunes_configs_between_rounds(
+def _run_quality_suite_race_prune_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     suite = _build_suite_multi(tmp_path)
     experiments_file = tmp_path / "experiments.json"
     _write_json(
@@ -2397,13 +2428,6 @@ def test_quality_suite_race_prunes_configs_between_rounds(
         race_finalists=1,
         progress_callback=None,
     )
-
-    # probe round: 1 target * 4 variants
-    # mid round: 2 targets * 2 variants (kept 50%)
-    # final round: 3 targets * 1 variant (finalists=1)
-    counts = [(targets, variants) for _root, targets, variants in observed_round_variant_counts]
-    assert counts == [(1, 4), (2, 4), (3, 3)]
-
     strategy_payload = json.loads(
         (
             run_root
@@ -2412,14 +2436,38 @@ def test_quality_suite_race_prunes_configs_between_rounds(
             / "search_strategy.json"
         ).read_text(encoding="utf-8")
     )
+    return {
+        "observed_round_variant_counts": observed_round_variant_counts,
+        "strategy_payload": strategy_payload,
+    }
+
+
+def test_quality_suite_race_prunes_configs_between_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_race_prune_fixture(monkeypatch, tmp_path)
+    observed_round_variant_counts = fixture["observed_round_variant_counts"]
+
+    counts = [(targets, variants) for _root, targets, variants in observed_round_variant_counts]
+    assert counts == [(1, 4), (2, 4), (3, 3)]
+
+
+def test_quality_suite_race_records_final_pruned_strategy_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_race_prune_fixture(monkeypatch, tmp_path)
+    strategy_payload = fixture["strategy_payload"]
+
     assert strategy_payload["strategy"] == "race"
     assert strategy_payload["final"]["variants_effective"] == 3
 
 
-def test_quality_suite_race_auto_switches_to_exhaustive_when_no_pruning_possible(
+def _run_quality_suite_race_exhaustive_fallback_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     suite = _build_suite_multi(tmp_path)
     experiments_file = tmp_path / "experiments.json"
     _write_json(
@@ -2548,8 +2596,6 @@ def test_quality_suite_race_auto_switches_to_exhaustive_when_no_pruning_possible
         race_finalists=9,
         progress_callback=None,
     )
-
-    assert observed_round_variant_counts == [(3, 6)]
     strategy_payload = json.loads(
         (
             run_root
@@ -2558,6 +2604,29 @@ def test_quality_suite_race_auto_switches_to_exhaustive_when_no_pruning_possible
             / "search_strategy.json"
         ).read_text(encoding="utf-8")
     )
+    return {
+        "observed_round_variant_counts": observed_round_variant_counts,
+        "strategy_payload": strategy_payload,
+    }
+
+
+def test_quality_suite_race_auto_switches_to_exhaustive_when_no_pruning_possible(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_race_exhaustive_fallback_fixture(monkeypatch, tmp_path)
+    observed_round_variant_counts = fixture["observed_round_variant_counts"]
+
+    assert observed_round_variant_counts == [(3, 6)]
+
+
+def test_quality_suite_race_records_exhaustive_fallback_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_race_exhaustive_fallback_fixture(monkeypatch, tmp_path)
+    strategy_payload = fixture["strategy_payload"]
+
     assert strategy_payload["requested_strategy"] == "race"
     assert strategy_payload["effective_strategy"] == "exhaustive"
     assert strategy_payload["reason"] == "race_no_prune_variant_count_le_finalists"

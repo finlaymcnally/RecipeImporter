@@ -420,7 +420,7 @@ def test_knowledge_workspace_watchdog_allows_execution_root_cd_prefix(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
-def test_knowledge_workspace_watchdog_still_rejects_absolute_paths_outside_execution_root(
+def test_knowledge_workspace_watchdog_tolerates_absolute_paths_outside_execution_root_under_relaxed_main_worker_policy(
     tmp_path: Path,
 ) -> None:
     worker_root = Path(
@@ -452,11 +452,10 @@ def test_knowledge_workspace_watchdog_still_rejects_absolute_paths_outside_execu
         )
     )
 
-    assert decision is not None
-    assert decision.reason_code == "watchdog_command_execution_forbidden"
+    assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["last_command_policy"] == "forbidden_absolute_path"
-    assert live_status["last_command_boundary_violation_detected"] is True
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
 
 
 def test_knowledge_strict_json_watchdog_kills_silent_retry(
@@ -2061,9 +2060,7 @@ def test_run_direct_knowledge_workers_marks_clean_exit_relaunch_cap_reached(
     assert telemetry_summary["workspace_relaunch_cap_reached_session_count"] == 1
 
 
-def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
-    tmp_path: Path,
-) -> None:
+def _run_near_miss_repair_fixture(tmp_path: Path) -> dict[str, object]:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -2202,6 +2199,45 @@ def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
         / "repair_status.json"
     )
     repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
+    return {
+        "process_summary": process_summary,
+        "runner": runner,
+        "proposal": proposal,
+        "repair_status": repair_status,
+    }
+
+
+def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_near_miss_repair_fixture(tmp_path)
+    process_summary = fixture["process_summary"]
+    runner = fixture["runner"]
+
+    assert process_summary["call_count"] == 2
+    assert process_summary["repaired_shard_count"] == 1
+    assert process_summary["invalid_output_shard_count"] == 0
+    assert process_summary["workspace_worker_session_count"] == 1
+    assert process_summary["structured_followup_call_count"] == 1
+    assert process_summary["prompt_input_mode_counts"] == {
+        "inline_repair": 1,
+        "workspace_worker": 1,
+    }
+    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[1]["mode"] == "structured_prompt"
+
+
+def test_knowledge_orchestrator_persists_repair_outputs_for_near_miss_invalid_shards(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_near_miss_repair_fixture(tmp_path)
+    runner = fixture["runner"]
+    proposal = fixture["proposal"]
+    repair_status = fixture["repair_status"]
+
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "repaired"
+    assert proposal["validation_errors"] == []
     assert repair_status["status"] == "repaired"
     assert "Authoritative shard input:" in runner.calls[1]["prompt_text"]
     assert "Missing owned chunk ids: book.c0000.nr" in runner.calls[1]["prompt_text"]
@@ -5031,10 +5067,10 @@ def test_knowledge_orchestrator_rejects_semantically_empty_strong_cue_shard(
     assert apply_result.llm_report["missing_chunk_ids"] == ["book.c0000.nr"]
 
 
-def test_knowledge_orchestrator_counts_valid_and_invalid_shards_in_same_run(
+def _run_valid_and_invalid_shard_mix_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     def _fake_chunks(_sequence, overrides=None):
         del overrides
         return [
@@ -5169,20 +5205,40 @@ def test_knowledge_orchestrator_counts_valid_and_invalid_shards_in_same_run(
         workbook_slug="book",
         runner=runner,
     )
+    return {
+        "apply_result": apply_result,
+    }
 
-    assert apply_result.llm_report["stage_status"] == "completed_with_failures"
-    assert apply_result.llm_report["review_status"] == "partial"
-    assert apply_result.llm_report["review_summary"]["planned_shard_count"] == 2
-    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 1
-    assert apply_result.llm_report["review_summary"]["validated_shard_count"] == 1
-    assert apply_result.llm_report["review_summary"]["invalid_shard_count"] == 1
-    assert apply_result.llm_report["review_summary"]["reviewed_shards_with_useful_chunks"] == 1
-    assert apply_result.llm_report["review_summary"]["unreviewed_shard_count"] == 1
-    assert apply_result.llm_report["counts"]["outputs_parsed"] == 2
-    assert apply_result.llm_report["counts"]["invalid_shards"] == 1
-    assert apply_result.llm_report["counts"]["unreviewed_chunk_count"] == 1
-    assert apply_result.llm_report["counts"]["chunks_missing"] == 1
-    assert apply_result.llm_report["missing_chunk_ids"] == ["book.c0002.nr"]
+
+def test_knowledge_orchestrator_counts_valid_and_invalid_shards_in_same_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_valid_and_invalid_shard_mix_fixture(monkeypatch, tmp_path)
+    llm_report = fixture["apply_result"].llm_report
+
+    assert llm_report["stage_status"] == "completed_with_failures"
+    assert llm_report["review_status"] == "partial"
+    assert llm_report["review_summary"]["planned_shard_count"] == 2
+    assert llm_report["review_summary"]["reviewed_shard_count"] == 1
+    assert llm_report["review_summary"]["validated_shard_count"] == 1
+    assert llm_report["review_summary"]["invalid_shard_count"] == 1
+    assert llm_report["review_summary"]["reviewed_shards_with_useful_chunks"] == 1
+    assert llm_report["review_summary"]["unreviewed_shard_count"] == 1
+
+
+def test_knowledge_orchestrator_reports_missing_chunk_counts_for_mixed_shard_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_valid_and_invalid_shard_mix_fixture(monkeypatch, tmp_path)
+    llm_report = fixture["apply_result"].llm_report
+
+    assert llm_report["counts"]["outputs_parsed"] == 2
+    assert llm_report["counts"]["invalid_shards"] == 1
+    assert llm_report["counts"]["unreviewed_chunk_count"] == 1
+    assert llm_report["counts"]["chunks_missing"] == 1
+    assert llm_report["missing_chunk_ids"] == ["book.c0002.nr"]
 
 
 def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warnings(

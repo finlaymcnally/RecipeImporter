@@ -39,6 +39,7 @@ _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
 _DIRECT_EXEC_CURRENT_TASK_FILE_NAME = "current_task.json"
 _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
 _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
+_DIRECT_EXEC_SHARD_PACKET_FILE_NAME = "SHARD_PACKET.md"
 _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME = "current_packet.json"
 _DIRECT_EXEC_CURRENT_HINT_FILE_NAME = "current_hint.md"
 _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME = "current_result_path.txt"
@@ -58,6 +59,7 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
+    _DIRECT_EXEC_SHARD_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
@@ -86,6 +88,7 @@ _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
+    _DIRECT_EXEC_SHARD_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
@@ -94,28 +97,42 @@ _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
 )
 _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
 _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
-# These are the clearly off-contract tools for long-lived workspace workers.
-# Local interpreters such as python3 and node stay allowed here as long as
-# the command still obeys the workspace path boundary checks below.
-_WORKSPACE_FORBIDDEN_BOUNDARY_EXECUTABLES = {
+# These are the clearly egregious off-contract tools for long-lived workspace
+# workers. Local interpreters and read-only inspection commands stay allowed.
+_WORKSPACE_EGREGIOUS_BOUNDARY_EXECUTABLES = {
     "apt",
     "apt-get",
     "brew",
     "cargo",
     "curl",
     "docker",
-    "git",
-    "go",
     "kubectl",
     "npm",
     "npx",
-    "php",
     "pip",
     "pip3",
-    "ruby",
     "scp",
     "ssh",
+    "sudo",
     "wget",
+}
+_WORKSPACE_EGREGIOUS_GIT_SUBCOMMANDS = {
+    "am",
+    "apply",
+    "checkout",
+    "cherry-pick",
+    "clean",
+    "clone",
+    "commit",
+    "fetch",
+    "merge",
+    "pull",
+    "push",
+    "rebase",
+    "reset",
+    "restore",
+    "stash",
+    "switch",
 }
 FinalAgentMessageState = Literal["absent", "informational", "malformed", "json_object"]
 
@@ -2051,6 +2068,8 @@ def _write_direct_exec_worker_manifest(
         workspace_root / _DIRECT_EXEC_TOOLS_DIR_NAME
     )
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
+    if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists():
+        entry_files.append(_DIRECT_EXEC_SHARD_PACKET_FILE_NAME)
     if has_current_task:
         entry_files.append(_DIRECT_EXEC_CURRENT_TASK_FILE_NAME)
         if (workspace_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME).exists():
@@ -2095,6 +2114,11 @@ def _write_direct_exec_worker_manifest(
             and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME).exists()
             else None
         ),
+        "shard_packet_file": (
+            _DIRECT_EXEC_SHARD_PACKET_FILE_NAME
+            if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists()
+            else None
+        ),
         "output_contract_file": (
             _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
             if (workspace_root / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME).exists()
@@ -2134,7 +2158,7 @@ def _write_direct_exec_worker_manifest(
                 "Treat the repo-written current-packet files as authoritative and use "
                 "`assigned_tasks.json` only as background inventory."
                 if has_packet_leasing
-                else "Treat `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative current-task surface, and `assigned_tasks.json` as the ordered queue/progress reference."
+                else "Treat `SHARD_PACKET.md`, `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative recipe/task surface when present, and `assigned_tasks.json` as the ordered queue/progress reference."
                 if has_current_task
                 else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
             ),
@@ -2157,6 +2181,7 @@ def _write_direct_exec_worker_manifest(
             if has_packet_leasing
             else (
                 [
+                    "sed -n '1,120p' SHARD_PACKET.md",
                     "sed -n '1,80p' hints/<task>.md",
                     "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\"",
                     "jq '.metadata' current_task.json",
@@ -2169,8 +2194,9 @@ def _write_direct_exec_worker_manifest(
                     ]
                     if "knowledge_worker.py" in mirrored_tool_files
                     else [
-                        "python3 tools/recipe_worker.py overview",
-                        "python3 tools/recipe_worker.py prepare-all --dest-dir scratch/",
+                        "python3 tools/recipe_worker.py current",
+                        "python3 tools/recipe_worker.py check-current",
+                        "python3 tools/recipe_worker.py install-current",
                         "python3 tools/recipe_worker.py finalize-all scratch/",
                     ]
                     if "recipe_worker.py" in mirrored_tool_files
@@ -2287,8 +2313,20 @@ def classify_workspace_worker_command(
         return boundary_violation
     inner_tokens = _command_tokens_for_watchdog(command_text)
     cleaned_command = str(command_text or "").strip() or None
+    egregious_verdict = _workspace_egregious_command_verdict(
+        command_text=cleaned_command,
+        tokens=inner_tokens,
+    )
+    if egregious_verdict is not None:
+        return egregious_verdict
     shell_body = _extract_workspace_shell_body(command_text)
     if shell_body is not None:
+        special_recipe_read = _classify_recipe_workspace_reference_read(
+            shell_body=shell_body,
+            command_text=cleaned_command,
+        )
+        if special_recipe_read is not None:
+            return special_recipe_read
         return _classify_workspace_worker_shell_script(
             shell_body=shell_body,
             command_text=cleaned_command,
@@ -2380,31 +2418,10 @@ def detect_workspace_worker_boundary_violation(
 
     inner_tokens = _command_tokens_for_watchdog(command_text)
     if inner_tokens:
-        executable = _workspace_watchdog_executable(inner_tokens)
-        if executable in _WORKSPACE_FORBIDDEN_BOUNDARY_EXECUTABLES:
-            return WorkspaceCommandClassification(
-                command_text=cleaned_command,
-                allowed=False,
-                policy="forbidden_non_helper_executable",
-                reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
-            )
-        for argument in inner_tokens[1:]:
-            normalized_argument = _normalize_visible_workspace_path_token(argument)
-            if normalized_argument is None:
-                continue
-            path_verdict = _classify_workspace_path_argument(
-                normalized_argument,
-                allow_output_paths=allow_output_paths,
-                allowed_absolute_roots=allowed_absolute_roots,
-            )
-            if not path_verdict.allowed:
-                return WorkspaceCommandClassification(
-                    command_text=cleaned_command,
-                    allowed=False,
-                    policy=path_verdict.policy,
-                    reason=path_verdict.reason,
-                )
-        return None
+        return _workspace_egregious_command_verdict(
+            command_text=cleaned_command,
+            tokens=inner_tokens,
+        )
 
     approximate_shell_body = _approximate_workspace_shell_body(command_text)
     if approximate_shell_body is None:
@@ -2538,6 +2555,47 @@ def _classify_workspace_worker_shell_script(
     )
 
 
+def _classify_recipe_workspace_reference_read(
+    *,
+    shell_body: str,
+    command_text: str | None,
+) -> WorkspaceCommandClassification | None:
+    normalized = str(shell_body or "").strip()
+    if not normalized:
+        return None
+    lowered = normalized.lower()
+    if "python3 tools/recipe_worker.py" in lowered or "python tools/recipe_worker.py" in lowered:
+        return None
+    recipe_contract_markers = (
+        "output_contract.md",
+        "examples/valid_repaired_task_output.json",
+        "examples/valid_fragmentary_task_output.json",
+        "examples/valid_not_a_recipe_task_output.json",
+        "tools/recipe_worker.py",
+    )
+    if any(marker in lowered for marker in recipe_contract_markers):
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=True,
+            policy="recipe_contract_lookup_command",
+            reason=(
+                "recipe worker reread contract/examples/helper source instead of the "
+                "repo-written current-task surface"
+            ),
+        )
+    if "hints/" in lowered and " in/" in lowered and "scratch/" in lowered:
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=True,
+            policy="recipe_task_bundle_read_command",
+            reason=(
+                "recipe worker reread hint/input/draft bundle instead of working from "
+                "the current-task brief and current draft"
+            ),
+        )
+    return None
+
+
 def _workspace_shell_executables(shell_body: str) -> list[str]:
     shell_keywords = {
         "case",
@@ -2586,73 +2644,23 @@ def _detect_workspace_worker_boundary_violation_in_text(
     allowed_absolute_roots: Sequence[str | Path] | None = None,
 ) -> WorkspaceCommandClassification | None:
     stripped_text = re.sub(r"^\s*#![^\n]*(?:\n|$)", "", shell_text, flags=re.MULTILINE)
-    for executable in _workspace_shell_executables(stripped_text):
-        if executable in _WORKSPACE_FORBIDDEN_BOUNDARY_EXECUTABLES:
-            return WorkspaceCommandClassification(
+    for line in stripped_text.splitlines():
+        try:
+            tokens = shlex.split(line)
+        except ValueError:
+            tokens = []
+        verdict = _workspace_egregious_command_verdict(
             command_text=command_text,
-            allowed=False,
-            policy="forbidden_non_helper_executable",
-            reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
+            tokens=tokens,
         )
-    python_heredoc_handled, python_heredoc_verdict = (
-        _detect_workspace_worker_boundary_violation_in_python_heredoc(
-            shell_text,
-            command_text=command_text,
-            allow_output_paths=allow_output_paths,
-            allowed_absolute_roots=allowed_absolute_roots,
-        )
+        if verdict is not None:
+            return verdict
+    verdict = _workspace_egregious_command_verdict(
+        command_text=command_text,
+        tokens=_command_tokens_for_watchdog(command_text),
     )
-    if python_heredoc_handled:
-        return python_heredoc_verdict
-    if "../" in stripped_text:
-        return WorkspaceCommandClassification(
-            command_text=command_text,
-            allowed=False,
-            policy="forbidden_parent_traversal_path",
-            reason="parent-directory traversal is outside the bounded workspace policy",
-        )
-    if (
-        re.search(r"(^|[\s\"'])~/", stripped_text)
-        or "$HOME/" in stripped_text
-        or "${HOME}/" in stripped_text
-    ):
-        return WorkspaceCommandClassification(
-            command_text=command_text,
-            allowed=False,
-            policy="forbidden_absolute_path",
-            reason="workspace shell commands must stay on relative local paths",
-        )
-    scrubbed_text = _strip_allowed_workspace_temp_paths(stripped_text)
-    scrubbed_text, absolute_path_verdict = _strip_allowed_workspace_execution_root_paths(
-        scrubbed_text,
-        allow_output_paths=allow_output_paths,
-        allowed_absolute_roots=allowed_absolute_roots,
-    )
-    if absolute_path_verdict is not None:
-        return WorkspaceCommandClassification(
-            command_text=command_text,
-            allowed=False,
-            policy=absolute_path_verdict.policy,
-            reason=absolute_path_verdict.reason,
-        )
-    absolute_path_match = re.search(
-        r"(^|[\s\"'])/(?!/|dev/null(?:$|[\s\"']))",
-        scrubbed_text,
-    )
-    if absolute_path_match is not None:
-        return WorkspaceCommandClassification(
-            command_text=command_text,
-            allowed=False,
-            policy="forbidden_absolute_path",
-            reason="workspace shell commands must stay on relative local paths",
-        )
-    if not allow_output_paths and re.search(r'(^|[\s"\'])out/', stripped_text):
-        return WorkspaceCommandClassification(
-            command_text=command_text,
-            allowed=False,
-            policy="forbidden_output_path",
-            reason="this workspace policy does not allow helper commands against `out/`",
-        )
+    if verdict is not None:
+        return verdict
     return None
 
 
@@ -2765,6 +2773,48 @@ def _workspace_watchdog_executable(inner_tokens: Sequence[str]) -> str | None:
             continue
         return Path(cleaned).name.lower() or None
     return executable
+
+
+def _workspace_watchdog_git_subcommand(tokens: Sequence[str]) -> str | None:
+    if not tokens:
+        return None
+    executable = _workspace_watchdog_executable(tokens)
+    if executable != "git":
+        return None
+    for token in tokens[1:]:
+        cleaned = str(token or "").strip().lower()
+        if not cleaned or cleaned.startswith("-"):
+            continue
+        return cleaned
+    return None
+
+
+def _workspace_egregious_command_verdict(
+    *,
+    command_text: str | None,
+    tokens: Sequence[str] | None,
+) -> WorkspaceCommandClassification | None:
+    command_text = str(command_text or "").strip() or None
+    if command_text is None:
+        return None
+    token_list = [str(token or "").strip() for token in (tokens or ()) if str(token or "").strip()]
+    executable = _workspace_watchdog_executable(token_list)
+    if executable in _WORKSPACE_EGREGIOUS_BOUNDARY_EXECUTABLES:
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_non_helper_executable",
+            reason=f"`{executable}` is outside the egregious-only workspace-worker command policy",
+        )
+    git_subcommand = _workspace_watchdog_git_subcommand(token_list)
+    if git_subcommand in _WORKSPACE_EGREGIOUS_GIT_SUBCOMMANDS:
+        return WorkspaceCommandClassification(
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_non_helper_executable",
+            reason=f"`git {git_subcommand}` is outside the egregious-only workspace-worker command policy",
+        )
+    return None
 
 
 def _normalize_visible_workspace_path_token(token: str) -> str | None:

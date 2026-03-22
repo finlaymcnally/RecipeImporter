@@ -393,9 +393,7 @@ def test_summarize_knowledge_stage_artifacts_marks_unexpected_missing(tmp_path: 
     assert summary["artifact_states"]["proposals/*"] == "unexpectedly_missing"
 
 
-def test_summarize_knowledge_stage_artifacts_reports_packet_worker_and_followup_rollups(
-    tmp_path: Path,
-) -> None:
+def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
     stage_root = tmp_path / "raw" / "llm" / "book" / "knowledge"
     (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
     (stage_root / "worker_assignments.json").write_text("[]\n", encoding="utf-8")
@@ -530,6 +528,16 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_worker_and_followup_
     )
 
     summary = summarize_knowledge_stage_artifacts(stage_root)
+    return {
+        "summary": summary,
+    }
+
+
+def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_stage_rollup_fixture(tmp_path)
+    summary = fixture["summary"]
 
     assert summary["packets"]["packet_total"] == 3
     assert summary["packets"]["state_counts"] == {
@@ -546,6 +554,14 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_worker_and_followup_
         "completed_outputs_stabilized": 1,
     }
     assert summary["workers"]["output_count"] == 1
+
+
+def test_summarize_knowledge_stage_artifacts_reports_followup_and_salvage_rollups(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_stage_rollup_fixture(tmp_path)
+    summary = fixture["summary"]
+
     assert summary["followups"]["attempt_counts"] == {
         "repair": 1,
         "watchdog_retry": 1,

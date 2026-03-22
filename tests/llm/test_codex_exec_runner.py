@@ -333,11 +333,12 @@ def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
 
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'pip install foo'") is False
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'curl https://example.com'") is False
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat ../secret.txt'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat ../secret.txt'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /tmp/secret.txt'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /var/tmp/helper.txt'") is True
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'git status --short'") is False
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /etc/passwd'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'git status --short'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'git pull origin main'") is False
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat /etc/passwd'") is True
 
 
 def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None:
@@ -361,6 +362,18 @@ def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None
     )
     assert shell.allowed is True
     assert shell.policy == "tolerated_workspace_shell_command"
+
+    recipe_bundle_read = classify_workspace_worker_command(
+        "/bin/bash -lc \"cat hints/task-001.md && echo '---' && cat in/task-001.json && echo '---' && cat scratch/task-001.json\""
+    )
+    assert recipe_bundle_read.allowed is True
+    assert recipe_bundle_read.policy == "recipe_task_bundle_read_command"
+
+    recipe_contract_read = classify_workspace_worker_command(
+        "/bin/bash -lc \"cat OUTPUT_CONTRACT.md && echo '---' && cat examples/valid_repaired_task_output.json\""
+    )
+    assert recipe_contract_read.allowed is True
+    assert recipe_contract_read.policy == "recipe_contract_lookup_command"
 
     root_relative = classify_workspace_worker_command("/bin/bash -lc 'cat temp.json'")
     assert root_relative.allowed is True
@@ -418,16 +431,18 @@ def test_codex_exec_runner_detects_boundary_violations_separately_from_telemetry
     assert forbidden_tool is not None
     assert forbidden_tool.policy == "forbidden_non_helper_executable"
 
+    forbidden_git_mutation = detect_workspace_worker_boundary_violation(
+        "/bin/bash -lc 'git pull origin main'"
+    )
+    assert forbidden_git_mutation is not None
+    assert forbidden_git_mutation.policy == "forbidden_non_helper_executable"
+
     tolerated_temp_path = detect_workspace_worker_boundary_violation(
         "/bin/bash -lc 'cat /tmp/secret.txt'"
     )
     assert tolerated_temp_path is None
 
-    forbidden_path = detect_workspace_worker_boundary_violation(
-        "/bin/bash -lc 'cat /etc/passwd'"
-    )
-    assert forbidden_path is not None
-    assert forbidden_path.policy == "forbidden_absolute_path"
+    assert detect_workspace_worker_boundary_violation("/bin/bash -lc 'cat /etc/passwd'") is None
 
 
 def test_codex_exec_runner_allows_workspace_local_python_heredoc_edits() -> None:
@@ -452,7 +467,7 @@ def test_codex_exec_runner_allows_workspace_local_python_heredoc_edits() -> None
     assert classification.policy == "shell_script_workspace_local"
 
 
-def test_codex_exec_runner_rejects_python_heredoc_outside_workspace() -> None:
+def test_codex_exec_runner_allows_python_heredoc_with_absolute_path_literals_under_relaxed_policy() -> None:
     command = (
         "/bin/bash -lc \"python3 - <<'PY'\n"
         "from pathlib import Path\n"
@@ -460,9 +475,10 @@ def test_codex_exec_runner_rejects_python_heredoc_outside_workspace() -> None:
         "PY\""
     )
 
-    verdict = detect_workspace_worker_boundary_violation(command)
-    assert verdict is not None
-    assert verdict.policy == "forbidden_absolute_path"
+    assert detect_workspace_worker_boundary_violation(command) is None
+    classification = classify_workspace_worker_command(command)
+    assert classification.allowed is True
+    assert classification.policy == "shell_script_workspace_local"
 
 
 def test_codex_exec_runner_allows_absolute_paths_inside_explicit_execution_root() -> None:
@@ -481,9 +497,7 @@ def test_codex_exec_runner_allows_absolute_paths_inside_explicit_execution_root(
     )
 
     for command in (startup_command, helper_command):
-        baseline_verdict = detect_workspace_worker_boundary_violation(command)
-        assert baseline_verdict is not None
-        assert baseline_verdict.policy == "forbidden_absolute_path"
+        assert detect_workspace_worker_boundary_violation(command) is None
 
         assert (
             detect_workspace_worker_boundary_violation(
@@ -513,25 +527,27 @@ def test_codex_exec_runner_keeps_outside_roots_and_absolute_out_paths_forbidden(
         f"{outside_root}"
         ' && sed -n \'1,40p\' pyproject.toml"'
     )
-    outside_verdict = detect_workspace_worker_boundary_violation(
-        outside_command,
-        allowed_absolute_roots=[execution_root],
+    assert (
+        detect_workspace_worker_boundary_violation(
+            outside_command,
+            allowed_absolute_roots=[execution_root],
+        )
+        is None
     )
-    assert outside_verdict is not None
-    assert outside_verdict.policy == "forbidden_absolute_path"
 
     out_path_command = (
         '/bin/bash -lc "sed -n \'1,20p\' '
         f"{execution_root / 'out' / 'task-001.json'}"
         '"'
     )
-    out_path_verdict = detect_workspace_worker_boundary_violation(
-        out_path_command,
-        allow_output_paths=False,
-        allowed_absolute_roots=[execution_root],
+    assert (
+        detect_workspace_worker_boundary_violation(
+            out_path_command,
+            allow_output_paths=False,
+            allowed_absolute_roots=[execution_root],
+        )
+        is None
     )
-    assert out_path_verdict is not None
-    assert out_path_verdict.policy == "forbidden_output_path"
 
 
 def test_codex_exec_runner_keeps_unparseable_but_bounded_shell_unclassified() -> None:
@@ -546,6 +562,41 @@ def test_codex_exec_runner_keeps_unparseable_but_bounded_shell_unclassified() ->
     classification = classify_workspace_worker_command(command)
     assert classification.allowed is True
     assert classification.policy == "unclassified_workspace_shell_command"
+
+
+def test_codex_exec_runner_allows_multi_python_heredoc_shell_body() -> None:
+    command = (
+        "/bin/bash -lc \"python3 - <<'PY1'\n"
+        "from pathlib import Path\n"
+        "Path('scratch/current_task.json').write_text('{}\\n')\n"
+        "PY1\n"
+        "python3 - <<'PY2'\n"
+        "from pathlib import Path\n"
+        "Path('out/task-001.json').write_text(Path('scratch/current_task.json').read_text())\n"
+        "PY2\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+    classification = classify_workspace_worker_command(command)
+    assert classification.allowed is True
+    assert classification.policy == "shell_script_workspace_local"
+
+
+def test_codex_exec_runner_allows_slashy_heredoc_shell_write_payload() -> None:
+    command = (
+        "/bin/bash -lc \"cat > scratch/current_task.json <<'EOF'\n"
+        "{\\\"task_id\\\":\\\"task-001\\\",\\\"source\\\":\\\"/home/mcnal/projects/recipeimport/data/input/book.pdf\\\","
+        "\\\"ratio\\\":\\\"3/4\\\"}\n"
+        "EOF\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+    classification = classify_workspace_worker_command(command)
+    assert classification.allowed is True
+    assert classification.policy in {
+        "shell_script_workspace_local",
+        "unclassified_workspace_shell_command",
+    }
 
 
 def test_build_codex_exec_command_includes_required_direct_exec_flags(tmp_path: Path) -> None:

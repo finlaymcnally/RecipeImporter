@@ -318,9 +318,9 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
 
-def test_labelstudio_benchmark_predictions_in_runs_evaluate_only(
+def _run_predictions_in_evaluate_only_fixture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
@@ -432,8 +432,38 @@ def test_labelstudio_benchmark_predictions_in_runs_evaluate_only(
             encoding="utf-8"
         )
     )
-    assert replay_stage_payload["block_labels"] == {"0": "RECIPE_TITLE"}
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    return {
+        "captured_eval": captured_eval,
+        "replay_dir": replay_dir,
+        "replay_stage_payload": replay_stage_payload,
+        "run_manifest": run_manifest,
+    }
+
+
+def test_labelstudio_benchmark_predictions_in_replays_stage_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_predictions_in_evaluate_only_fixture(monkeypatch, tmp_path)
+    captured_eval = fixture["captured_eval"]
+    replay_dir = fixture["replay_dir"]
+    replay_stage_payload = fixture["replay_stage_payload"]
+
+    assert captured_eval["stage_predictions_json"] == (
+        replay_dir / "stage_block_predictions.from_records.json"
+    )
+    assert captured_eval["extracted_blocks_json"] == (
+        replay_dir / "extracted_archive.from_records.json"
+    )
+    assert replay_stage_payload["block_labels"] == {"0": "RECIPE_TITLE"}
+
+
+def test_labelstudio_benchmark_predictions_in_manifest_disables_upload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_predictions_in_evaluate_only_fixture(monkeypatch, tmp_path)
+    run_manifest = fixture["run_manifest"]
+
     assert run_manifest["run_config"]["upload"] is False
     assert "prediction_record_input_jsonl" in run_manifest["artifacts"]
 
@@ -855,10 +885,10 @@ def test_run_offline_benchmark_prediction_stage_manifest_omits_removed_mode_fiel
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
 
 
-def test_labelstudio_benchmark_interrupt_writes_partial_run_artifacts(
+def _run_interrupt_partial_artifacts_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
@@ -957,13 +987,36 @@ def test_labelstudio_benchmark_interrupt_writes_partial_run_artifacts(
     status_payload = json.loads(
         (eval_root / "benchmark_status.json").read_text(encoding="utf-8")
     )
+    partial_summary = json.loads(
+        (eval_root / "partial_benchmark_summary.json").read_text(encoding="utf-8")
+    )
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    return {
+        "status_payload": status_payload,
+        "partial_summary": partial_summary,
+        "run_manifest": run_manifest,
+    }
+
+
+def test_labelstudio_benchmark_interrupt_marks_benchmark_status_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_interrupt_partial_artifacts_fixture(monkeypatch, tmp_path)
+    status_payload = fixture["status_payload"]
+
     assert status_payload["status"] == "interrupted"
     assert status_payload["completed"] is False
     assert status_payload["interruption_cause"] == "operator"
 
-    partial_summary = json.loads(
-        (eval_root / "partial_benchmark_summary.json").read_text(encoding="utf-8")
-    )
+
+def test_labelstudio_benchmark_interrupt_writes_partial_knowledge_stage_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_interrupt_partial_artifacts_fixture(monkeypatch, tmp_path)
+    partial_summary = fixture["partial_summary"]
+
     assert partial_summary["status"] == "interrupted"
     assert partial_summary["interruption_cause"] == "operator"
     assert partial_summary["prediction_artifacts"]["prediction_run_dir"] == "prediction-run"
@@ -979,7 +1032,14 @@ def test_labelstudio_benchmark_interrupt_writes_partial_run_artifacts(
     )
     assert partial_summary["knowledge_stage"]["pre_kill_failures_observed"] is True
 
-    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+
+def test_labelstudio_benchmark_interrupt_manifest_points_to_partial_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_interrupt_partial_artifacts_fixture(monkeypatch, tmp_path)
+    run_manifest = fixture["run_manifest"]
+
     assert run_manifest["run_kind"] == "labelstudio_benchmark"
     assert run_manifest["artifacts"]["benchmark_status_json"] == "benchmark_status.json"
     assert (

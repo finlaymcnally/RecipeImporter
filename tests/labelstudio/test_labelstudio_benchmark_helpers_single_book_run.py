@@ -9,10 +9,10 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
+def _run_single_book_codex_enabled_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -94,6 +94,24 @@ def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
     )
+    return {
+        "completed": completed,
+        "benchmark_calls": benchmark_calls,
+        "refresh_calls": refresh_calls,
+        "benchmark_eval_output": benchmark_eval_output,
+        "processed_output_root": processed_output_root,
+    }
+
+
+def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_single_book_codex_enabled_fixture(monkeypatch, tmp_path)
+    completed = fixture["completed"]
+    benchmark_calls = fixture["benchmark_calls"]
+    benchmark_eval_output = fixture["benchmark_eval_output"]
+    processed_output_root = fixture["processed_output_root"]
 
     assert completed is True
     assert len(benchmark_calls) == 2
@@ -131,6 +149,16 @@ def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
         / "single-book-benchmark"
         / "codexfarm",
     ]
+
+
+def test_interactive_single_book_codex_enabled_writes_comparison_and_refreshes_dashboard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_single_book_codex_enabled_fixture(monkeypatch, tmp_path)
+    refresh_calls = fixture["refresh_calls"]
+    benchmark_eval_output = fixture["benchmark_eval_output"]
+    processed_output_root = fixture["processed_output_root"]
 
     comparison_json = (
         benchmark_eval_output
