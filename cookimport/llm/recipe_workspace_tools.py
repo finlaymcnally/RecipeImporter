@@ -131,6 +131,80 @@ def _placeholder(label: str) -> str:
     return f"{_PLACEHOLDER_MARKER}_{label}"
 
 
+def _default_empty_mapping_reason(*, ingredients: Sequence[str], steps: Sequence[str]) -> str:
+    if len(ingredients) <= 1 and len(steps) <= 1:
+        return "not_needed_single_step"
+    return "unclear_alignment"
+
+
+def _scaffold_status_reason(*, task_row: Mapping[str, Any], recipe_id: str) -> str:
+    if _recipe_input_rows(task_row):
+        return "insufficient_source_detail"
+    if recipe_id:
+        return "missing_candidate_packet"
+    return "missing_recipe_id"
+
+
+def _build_recipe_worker_scaffold_row(
+    *,
+    task_row: Mapping[str, Any],
+    recipe_id: str,
+    recipe_row: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    hint = _coerce_mapping((recipe_row or {}).get("h"))
+    title = _sanitize_text(hint.get("n"))
+    ingredients = _sanitize_text_list(hint.get("i"))
+    steps = _sanitize_text_list(hint.get("s"))
+    if title and ingredients and steps:
+        return {
+            "v": "1",
+            "rid": recipe_id,
+            "st": "repaired",
+            "sr": None,
+            "cr": {
+                "t": title,
+                "i": ingredients,
+                "s": steps,
+                "d": None,
+                "y": None,
+            },
+            "m": [],
+            "mr": _default_empty_mapping_reason(
+                ingredients=ingredients,
+                steps=steps,
+            ),
+            "g": [],
+            "w": [],
+        }
+    return {
+        "v": "1",
+        "rid": recipe_id,
+        "st": "fragmentary",
+        "sr": _scaffold_status_reason(task_row=task_row, recipe_id=recipe_id),
+        "cr": None,
+        "m": [],
+        "mr": "not_applicable_fragmentary",
+        "g": [],
+        "w": [],
+    }
+
+
+def _task_title_hint(task_row: Mapping[str, Any]) -> str | None:
+    titles = [
+        _sanitize_text(_coerce_mapping(row.get("h")).get("n"))
+        for row in _recipe_input_rows(task_row)
+    ]
+    compact_titles = [title for title in titles if title]
+    if not compact_titles:
+        return None
+    if len(compact_titles) == 1:
+        return compact_titles[0]
+    preview = ", ".join(compact_titles[:2])
+    if len(compact_titles) > 2:
+        preview += ", ..."
+    return preview
+
+
 def load_recipe_worker_task_rows(*, workspace_root: Path) -> list[dict[str, Any]]:
     assigned_tasks_path = workspace_root / "assigned_tasks.json"
     if not assigned_tasks_path.exists():
@@ -262,6 +336,18 @@ def _task_candidate_packet_lines(*, task_row: Mapping[str, Any]) -> list[str]:
     return lines or ["- no candidate rows available"]
 
 
+def _task_candidate_summary_text(*, task_row: Mapping[str, Any]) -> str:
+    parts: list[str] = []
+    for row in _recipe_input_rows(task_row):
+        recipe_id = _sanitize_text(row.get("rid")) or "[unknown]"
+        hint = _coerce_mapping(row.get("h"))
+        title = _sanitize_text(hint.get("n")) or "[no title hint]"
+        ingredient_count = len(_sanitize_text_list(hint.get("i")))
+        step_count = len(_sanitize_text_list(hint.get("s")))
+        parts.append(f"{recipe_id} {title!r} [{ingredient_count}i/{step_count}s]")
+    return "; ".join(parts) if parts else "[no candidate rows]"
+
+
 def render_recipe_worker_shard_packet(
     *,
     task_rows: Sequence[Mapping[str, Any]],
@@ -311,8 +397,7 @@ def render_recipe_worker_shard_packet(
                 f"  hint fallback: `{paths['hint_path']}`",
                 f"  input fallback: `{paths['input_path']}`",
                 f"  owned_recipe_ids: {', '.join(_owned_recipe_ids(task_row)) or '[none]'}",
-                "  candidate summary:",
-                *[f"  {line}" for line in _task_candidate_packet_lines(task_row=task_row)],
+                f"  summary: {_task_candidate_summary_text(task_row=task_row)}",
             ]
         )
     return "\n".join(lines)
@@ -568,48 +653,30 @@ def build_recipe_worker_scaffold(*, task_row: Mapping[str, Any]) -> dict[str, An
     task_id = _task_id(task_row)
     recipe_rows = _recipe_input_rows(task_row)
     owned_ids = _owned_recipe_ids(task_row)
+    recipe_rows_by_id = {
+        _sanitize_text(recipe_row.get("rid")): recipe_row
+        for recipe_row in recipe_rows
+        if _sanitize_text(recipe_row.get("rid"))
+    }
+    scaffold_ids = owned_ids or [
+        _sanitize_text(recipe_row.get("rid"))
+        for recipe_row in recipe_rows
+        if _sanitize_text(recipe_row.get("rid"))
+    ]
     rows: list[dict[str, Any]] = []
-    if recipe_rows:
-        for recipe_row in recipe_rows:
-            recipe_id = _sanitize_text(recipe_row.get("rid"))
-            hint = _coerce_mapping(recipe_row.get("h"))
-            title = _sanitize_text(hint.get("n")) or _placeholder("TITLE")
-            ingredients = _sanitize_text_list(hint.get("i")) or [_placeholder("INGREDIENT")]
-            steps = _sanitize_text_list(hint.get("s")) or [_placeholder("STEP")]
-            rows.append(
-                {
-                    "v": "1",
-                    "rid": recipe_id,
-                    "st": "repaired",
-                    "sr": None,
-                    "cr": {
-                        "t": title,
-                        "i": ingredients,
-                        "s": steps,
-                        "d": None,
-                        "y": None,
-                    },
-                    "m": [],
-                    "mr": None,
-                    "g": [],
-                    "w": [],
-                }
+    for index, recipe_id in enumerate(scaffold_ids):
+        if not recipe_id:
+            continue
+        recipe_row = recipe_rows_by_id.get(recipe_id)
+        if recipe_row is None and index < len(recipe_rows):
+            recipe_row = recipe_rows[index]
+        rows.append(
+            _build_recipe_worker_scaffold_row(
+                task_row=task_row,
+                recipe_id=recipe_id,
+                recipe_row=recipe_row,
             )
-    else:
-        for recipe_id in owned_ids:
-            rows.append(
-                {
-                    "v": "1",
-                    "rid": recipe_id,
-                    "st": "fragmentary",
-                    "sr": _placeholder("STATUS_REASON"),
-                    "cr": None,
-                    "m": [],
-                    "mr": "not_applicable_fragmentary",
-                    "g": [],
-                    "w": [],
-                }
-            )
+        )
     return {
         "v": "1",
         "sid": task_id,
@@ -815,10 +882,8 @@ def _write_prepared_recipe_worker_manifest(
                         "task_id": _task_id(task_row),
                         "draft_path": _task_paths(task_row)["scratch_draft_path"],
                         "result_path": _task_paths(task_row)["result_path"],
-                        "hint_path": _task_paths(task_row)["hint_path"],
-                        "input_path": _task_paths(task_row)["input_path"],
                         "owned_recipe_ids": _owned_recipe_ids(task_row),
-                        "candidate_summaries": _task_candidate_packet_lines(task_row=task_row),
+                        "title_hint": _task_title_hint(task_row),
                     }
                     for task_row in task_rows
                     if _task_id(task_row)
@@ -989,6 +1054,28 @@ def finalize_recipe_worker_drafts(
             encoding="utf-8",
         )
         written_paths.append(output_path)
+    next_task_row = _next_pending_recipe_worker_task(
+        workspace_root=workspace_root,
+        task_rows=task_rows,
+    )
+    write_recipe_worker_current_task_sidecars(
+        workspace_root=workspace_root,
+        task_rows=task_rows,
+        current_task_id=_task_id(next_task_row or {}),
+        validation_state="pending",
+    )
+    draft_paths = [
+        workspace_root / _task_paths(row)["scratch_draft_path"]
+        for row in task_rows
+        if (workspace_root / _task_paths(row)["scratch_draft_path"]).exists()
+    ]
+    if draft_paths:
+        _write_prepared_recipe_worker_manifest(
+            workspace_root=workspace_root,
+            dest_dir=Path("scratch"),
+            written_paths=draft_paths,
+            task_rows=task_rows,
+        )
     return written_paths
 
 
@@ -1217,6 +1304,87 @@ def render_recipe_worker_cli_script() -> str:
         def placeholder(label: str) -> str:
             return f"{PLACEHOLDER_MARKER}_{label}"
 
+        def default_empty_mapping_reason(*, ingredients: list[str], steps: list[str]) -> str:
+            if len(ingredients) <= 1 and len(steps) <= 1:
+                return "not_needed_single_step"
+            return "unclear_alignment"
+
+        def scaffold_status_reason(task_row: dict[str, Any], recipe_id: str) -> str:
+            if recipe_input_rows(task_row):
+                return "insufficient_source_detail"
+            if recipe_id:
+                return "missing_candidate_packet"
+            return "missing_recipe_id"
+
+        def build_scaffold_row(
+            *,
+            task_row: dict[str, Any],
+            recipe_id: str,
+            recipe_row: dict[str, Any] | None,
+        ) -> dict[str, Any]:
+            hint = coerce_mapping((recipe_row or {}).get("h"))
+            title = sanitize_text(hint.get("n"))
+            ingredients = sanitize_text_list(hint.get("i"))
+            steps = sanitize_text_list(hint.get("s"))
+            if title and ingredients and steps:
+                return {
+                    "v": "1",
+                    "rid": recipe_id,
+                    "st": "repaired",
+                    "sr": None,
+                    "cr": {
+                        "t": title,
+                        "i": ingredients,
+                        "s": steps,
+                        "d": None,
+                        "y": None,
+                    },
+                    "m": [],
+                    "mr": default_empty_mapping_reason(
+                        ingredients=ingredients,
+                        steps=steps,
+                    ),
+                    "g": [],
+                    "w": [],
+                }
+            return {
+                "v": "1",
+                "rid": recipe_id,
+                "st": "fragmentary",
+                "sr": scaffold_status_reason(task_row, recipe_id),
+                "cr": None,
+                "m": [],
+                "mr": "not_applicable_fragmentary",
+                "g": [],
+                "w": [],
+            }
+
+        def task_title_hint(task_row: dict[str, Any]) -> str | None:
+            titles = [
+                sanitize_text(coerce_mapping(row.get("h")).get("n"))
+                for row in recipe_input_rows(task_row)
+            ]
+            compact_titles = [title for title in titles if title]
+            if not compact_titles:
+                return None
+            if len(compact_titles) == 1:
+                return compact_titles[0]
+            preview = ", ".join(compact_titles[:2])
+            if len(compact_titles) > 2:
+                preview += ", ..."
+            return preview
+
+        def task_candidate_summary_text(task_row: dict[str, Any]) -> str:
+            parts: list[str] = []
+            for row in recipe_input_rows(task_row):
+                recipe_id_value = sanitize_text(row.get("rid")) or "[unknown]"
+                hint = coerce_mapping(row.get("h"))
+                title = sanitize_text(hint.get("n")) or "[no title hint]"
+                ingredient_count = len(sanitize_text_list(hint.get("i")))
+                step_count = len(sanitize_text_list(hint.get("s")))
+                parts.append(f"{recipe_id_value} {title!r} [{ingredient_count}i/{step_count}s]")
+            return "; ".join(parts) if parts else "[no candidate rows]"
+
         def load_task_rows(workspace_root: Path) -> list[dict[str, Any]]:
             path = workspace_root / "assigned_tasks.json"
             if not path.exists():
@@ -1321,6 +1489,52 @@ def render_recipe_worker_cli_script() -> str:
                 lines.append(
                     f"- {index}. {row_task_id}{current_marker} | recipes: {recipe_ids} | "
                     f"hint: {paths['hint_path']} | input: {paths['input_path']} | output: {paths['result_path']}"
+                )
+            return "\\n".join(lines)
+
+        def render_shard_packet(task_rows: list[dict[str, Any]], current_task_id: str | None) -> str:
+            rows = [row for row in task_rows if task_id(row)]
+            current_id = sanitize_text(current_task_id)
+            current_task = next(
+                (row for row in rows if task_id(row) == current_id),
+                rows[0] if rows else None,
+            )
+            lines = [
+                "# Recipe Shard Packet",
+                "",
+                "Read this file first. It is the authoritative packed shard summary for the normal recipe worker path.",
+                "The default loop is: read this packet, edit the prewritten drafts under `scratch/`, and run `python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready.",
+                "Use `scratch/_prepared_drafts.json` as the draft inventory. Treat the current-task sidecars as active-draft locators or failure context, not the core loop.",
+                "Open raw `hints/*.md`, `in/*.json`, `OUTPUT_CONTRACT.md`, `examples/*.json`, or `tools/recipe_worker.py` only if this packet, the prepared-drafts manifest, and the current-task sidecars are still insufficient.",
+                "",
+                f"current_task_id: {task_id(current_task)}" if current_task is not None else "current_task_id: [none]",
+                f"task_count: {len(rows)}",
+                "",
+                *render_contract_quick_reference(),
+                "",
+                "Status guide:",
+                "- Use `repaired` only when you can restate a real recipe from the owned source.",
+                "- Use `fragmentary` when recipe evidence exists but the owned text is too incomplete to normalize safely.",
+                "- Use `not_a_recipe` when the owned text is not a recipe at all.",
+                "",
+                "Shard queue:",
+            ]
+            if not rows:
+                lines.append("- no assigned tasks found")
+                return "\\n".join(lines)
+            for index, row in enumerate(rows, start=1):
+                paths = task_paths(row)
+                marker = " current" if task_id(row) == task_id(current_task or {}) else ""
+                lines.extend(
+                    [
+                        f"- {index}. {task_id(row)}{marker}",
+                        f"  draft: `{paths['scratch_draft_path']}`",
+                        f"  output: `{paths['result_path']}`",
+                        f"  hint fallback: `{paths['hint_path']}`",
+                        f"  input fallback: `{paths['input_path']}`",
+                        f"  owned_recipe_ids: {', '.join(owned_recipe_ids(row)) or '[none]'}",
+                        f"  summary: {task_candidate_summary_text(row)}",
+                    ]
                 )
             return "\\n".join(lines)
 
@@ -1508,46 +1722,32 @@ def render_recipe_worker_cli_script() -> str:
             return "\\n".join(lines)
 
         def build_scaffold(task_row: dict[str, Any]) -> dict[str, Any]:
-            rows = []
             recipe_rows = recipe_input_rows(task_row)
             owned_ids = owned_recipe_ids(task_row)
-            if recipe_rows:
-                for recipe_row in recipe_rows:
-                    hint = coerce_mapping(recipe_row.get("h"))
-                    rows.append(
-                        {
-                            "v": "1",
-                            "rid": sanitize_text(recipe_row.get("rid")),
-                            "st": "repaired",
-                            "sr": None,
-                            "cr": {
-                                "t": sanitize_text(hint.get("n")) or placeholder("TITLE"),
-                                "i": sanitize_text_list(hint.get("i")) or [placeholder("INGREDIENT")],
-                                "s": sanitize_text_list(hint.get("s")) or [placeholder("STEP")],
-                                "d": None,
-                                "y": None,
-                            },
-                            "m": [],
-                            "mr": None,
-                            "g": [],
-                            "w": [],
-                        }
+            recipe_rows_by_id = {
+                sanitize_text(recipe_row.get("rid")): recipe_row
+                for recipe_row in recipe_rows
+                if sanitize_text(recipe_row.get("rid"))
+            }
+            scaffold_ids = owned_ids or [
+                sanitize_text(recipe_row.get("rid"))
+                for recipe_row in recipe_rows
+                if sanitize_text(recipe_row.get("rid"))
+            ]
+            rows = []
+            for index, recipe_id_value in enumerate(scaffold_ids):
+                if not recipe_id_value:
+                    continue
+                recipe_row = recipe_rows_by_id.get(recipe_id_value)
+                if recipe_row is None and index < len(recipe_rows):
+                    recipe_row = recipe_rows[index]
+                rows.append(
+                    build_scaffold_row(
+                        task_row=task_row,
+                        recipe_id=recipe_id_value,
+                        recipe_row=recipe_row,
                     )
-            else:
-                for recipe_id_value in owned_ids:
-                    rows.append(
-                        {
-                            "v": "1",
-                            "rid": recipe_id_value,
-                            "st": "fragmentary",
-                            "sr": placeholder("STATUS_REASON"),
-                            "cr": None,
-                            "m": [],
-                            "mr": "not_applicable_fragmentary",
-                            "g": [],
-                            "w": [],
-                        }
-                    )
+                )
             return {"v": "1", "sid": task_id(task_row), "r": rows}
 
         def compact_key_errors(payload: dict[str, Any]) -> list[str]:
@@ -1715,9 +1915,8 @@ def render_recipe_worker_cli_script() -> str:
                                 "task_id": task_id(row),
                                 "draft_path": task_paths(row)["scratch_draft_path"],
                                 "result_path": task_paths(row)["result_path"],
-                                "hint_path": task_paths(row)["hint_path"],
-                                "input_path": task_paths(row)["input_path"],
                                 "owned_recipe_ids": owned_recipe_ids(row),
+                                "title_hint": task_title_hint(row),
                             }
                             for row in load_task_rows(workspace_root)
                             if task_id(row)
@@ -1900,6 +2099,10 @@ def render_recipe_worker_cli_script() -> str:
                     current_draft_path=current_draft_path,
                 )
                 + "\\n",
+                encoding="utf-8",
+            )
+            (workspace_root / "SHARD_PACKET.md").write_text(
+                render_shard_packet(task_rows, task_id(current_task or {})) + "\\n",
                 encoding="utf-8",
             )
             return current_task
@@ -2157,6 +2360,19 @@ def render_recipe_worker_cli_script() -> str:
                         if task_id(row)
                     ]
                     written_paths = install_drafts(workspace_root, draft_paths)
+                    write_current_task_sidecars(
+                        workspace_root,
+                        task_rows,
+                        None,
+                        validation_state="pending",
+                    )
+                    prepared_paths = [
+                        workspace_root / task_paths(task_row)["scratch_draft_path"]
+                        for task_row in task_rows
+                        if (workspace_root / task_paths(task_row)["scratch_draft_path"]).exists()
+                    ]
+                    if prepared_paths:
+                        write_prepared_manifest(workspace_root, Path("scratch"), prepared_paths)
                     task_word = "task output" if len(written_paths) == 1 else "task outputs"
                     print(
                         f"installed {len(written_paths)} {task_word} from "

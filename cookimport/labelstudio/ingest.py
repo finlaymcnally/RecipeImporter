@@ -1171,7 +1171,7 @@ def _apply_nonrecipe_authority_to_predictions(
             "changed_block_indices": [],
         }
 
-    final_categories = dict(nonrecipe_stage_result.block_category_by_index)
+    final_categories = nonrecipe_stage_result.authoritative_block_category_by_index()
     changed_block_indices = sorted(
         int(row.get("block_index"))
         for row in (nonrecipe_stage_result.refinement_report.get("changed_blocks") or [])

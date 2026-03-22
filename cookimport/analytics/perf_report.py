@@ -1787,6 +1787,39 @@ def _extract_line_role_token_usage_from_manifest(
         )
         nested_summaries = _line_role_token_summaries_from_attempts(telemetry_payload)
         fallback_tokens = _token_usage_from_summary_payloads(nested_summaries)
+        summary_looks_incomplete = False
+        if isinstance(summary, dict):
+            direct_has_positive_usage = any(
+                value is not None and value > 0 for value in direct_tokens
+            )
+            attempts_without_usage = _nonnegative_int_or_none(
+                summary.get("attempts_without_usage")
+            )
+            visible_input_tokens = _nonnegative_int_or_none(
+                summary.get("visible_input_tokens")
+            )
+            visible_output_tokens = _nonnegative_int_or_none(
+                summary.get("visible_output_tokens")
+            )
+            command_execution_count_total = _nonnegative_int_or_none(
+                summary.get("command_execution_count_total")
+            )
+            summary_looks_incomplete = bool(
+                (attempts_without_usage is not None and attempts_without_usage > 0)
+                or (
+                    not direct_has_positive_usage
+                    and any(
+                        value is not None and value > 0
+                        for value in (
+                            visible_input_tokens,
+                            visible_output_tokens,
+                            command_execution_count_total,
+                        )
+                    )
+                )
+            )
+        if summary_looks_incomplete:
+            return (None, None, None, None, None)
         resolved_tokens = tuple(
             direct if direct is not None else fallback
             for direct, fallback in zip(direct_tokens, fallback_tokens)

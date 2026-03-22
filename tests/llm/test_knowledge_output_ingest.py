@@ -243,6 +243,11 @@ def test_classify_knowledge_validation_failure_marks_snippet_copy_only_near_miss
     assert classification == {
         "classification": "snippet_copy_only",
         "errors": ["semantic_snippet_echoes_full_chunk"],
+        "reason_code": "snippet_copy_only",
+        "reason_detail": (
+            "At least one snippet body copies the cited evidence or the full owned chunk "
+            "surface too closely."
+        ),
         "snippet_copy_only": True,
         "has_snippet_copy_error": True,
         "has_schema_or_shape_error": False,
@@ -791,7 +796,19 @@ def test_validate_knowledge_shard_output_rejects_semantic_all_false_empty_shard(
     assert valid is False
     assert errors == ("semantic_all_false_empty_shard",)
     assert metadata["knowledge_cue_chunk_ids"] == ["book.c0005.nr"]
+    assert metadata["strong_cue_empty_chunk_ids"] == ["book.c0005.nr"]
+    assert metadata["knowledge_decision_count"] == 0
+    assert metadata["snippet_count"] == 0
+    assert metadata["useful_chunk_count"] == 0
     assert metadata["semantic_rejection"] is True
+
+    classification = classify_knowledge_validation_failure(
+        validation_errors=errors,
+        validation_metadata=metadata,
+    )
+    assert classification["classification"] == "semantic_invalid"
+    assert classification["reason_code"] == "semantic_all_false_empty_shard"
+    assert "book.c0005.nr" in classification["reason_detail"]
 
 
 def test_validate_knowledge_shard_output_allows_true_all_other_front_matter() -> None:

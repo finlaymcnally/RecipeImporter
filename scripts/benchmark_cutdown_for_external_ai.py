@@ -2728,17 +2728,31 @@ def _load_llm_manifest_recipe_diagnostics(
     run_dir: Path,
     run_manifest: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    if pred_run_dir is None:
-        return {}
-
     candidate_paths: list[Path] = []
-    raw_llm_dir = pred_run_dir / "raw" / "llm"
-    if raw_llm_dir.is_dir():
-        candidate_paths.extend(sorted(raw_llm_dir.glob("*/recipe_manifest.json")))
-        direct_raw_llm_manifest = raw_llm_dir / "recipe_manifest.json"
-        if direct_raw_llm_manifest.is_file():
-            candidate_paths.append(direct_raw_llm_manifest)
+    artifacts = run_manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        recipe_manifest_raw = str(artifacts.get("recipe_manifest_json") or "").strip()
+        if recipe_manifest_raw:
+            recipe_manifest_path = Path(recipe_manifest_raw)
+            candidate_paths.append(
+                recipe_manifest_path
+                if recipe_manifest_path.is_absolute()
+                else run_dir / recipe_manifest_path
+            )
+
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
+    raw_llm_dirs: list[Path] = []
+    for stage_root in (pred_run_dir, processed_output_dir):
+        if not isinstance(stage_root, Path):
+            continue
+        raw_llm_dir = stage_root / "raw" / "llm"
+        if raw_llm_dir.is_dir():
+            raw_llm_dirs.append(raw_llm_dir)
+            candidate_paths.extend(sorted(raw_llm_dir.glob("*/recipe_manifest.json")))
+            direct_raw_llm_manifest = raw_llm_dir / "recipe_manifest.json"
+            if direct_raw_llm_manifest.is_file():
+                candidate_paths.append(direct_raw_llm_manifest)
 
     diagnostics_by_recipe: dict[str, dict[str, Any]] = {}
     seen_paths: set[Path] = set()
@@ -2840,9 +2854,9 @@ def _load_llm_manifest_recipe_diagnostics(
         if correction_audit_dir_raw:
             correction_audit_dir = Path(correction_audit_dir_raw)
             if not correction_audit_dir.is_absolute():
-                correction_audit_dir = pred_run_dir / correction_audit_dir
+                correction_audit_dir = manifest_path.parent / correction_audit_dir
         else:
-            correction_audit_dir = raw_llm_dir / "recipe_correction_audit"
+            correction_audit_dir = manifest_path.parent / "recipe_correction_audit"
         if correction_audit_dir.is_dir():
             for audit_path in sorted(correction_audit_dir.glob("*.json")):
                 try:
@@ -11327,14 +11341,23 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
         tuple[str, str, int], list[dict[str, Any]]
     ] = defaultdict(list)
     predictions_by_run_line: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    predictions_by_source_run_atomic: dict[
+        tuple[str, str, int], list[dict[str, Any]]
+    ] = defaultdict(list)
+    predictions_by_run_atomic: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for row in prediction_rows:
         source_key = str(row.get("source_key") or "").strip()
         run_id = str(row.get("run_id") or "")
         line_index = _coerce_int(row.get("line_index"))
-        if not run_id or line_index is None:
+        atomic_index = _coerce_int(row.get("atomic_index"))
+        if not run_id:
             continue
-        predictions_by_source_run_line[(source_key, run_id, int(line_index))].append(row)
-        predictions_by_run_line[(run_id, int(line_index))].append(row)
+        if line_index is not None:
+            predictions_by_source_run_line[(source_key, run_id, int(line_index))].append(row)
+            predictions_by_run_line[(run_id, int(line_index))].append(row)
+        if atomic_index is not None:
+            predictions_by_source_run_atomic[(source_key, run_id, int(atomic_index))].append(row)
+            predictions_by_run_atomic[(run_id, int(atomic_index))].append(row)
 
     def _pick_prediction_row(
         *,
@@ -11369,6 +11392,13 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
         )
         if not candidates:
             candidates = predictions_by_run_line.get((codex_run_id, int(line_index)), [])
+        if not candidates:
+            candidates = predictions_by_source_run_atomic.get(
+                (source_key, codex_run_id, int(line_index)),
+                [],
+            )
+        if not candidates:
+            candidates = predictions_by_run_atomic.get((codex_run_id, int(line_index)), [])
         if not candidates:
             continue
         selected = _pick_prediction_row(

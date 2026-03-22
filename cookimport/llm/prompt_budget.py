@@ -1020,6 +1020,29 @@ def _build_line_role_stage_summary(
             call_count = _aggregate_call_count_from_summaries(nested_summaries)
         if attempt_count is None:
             attempt_count = call_count
+        token_usage_available_call_count = (
+            _nonnegative_int(summary.get("attempts_with_usage"))
+            if isinstance(summary, Mapping)
+            else None
+        )
+        token_usage_missing_call_count = (
+            _nonnegative_int(summary.get("attempts_without_usage"))
+            if isinstance(summary, Mapping)
+            else None
+        )
+        if token_usage_available_call_count is None and nested_summaries:
+            token_usage_available_call_count = sum(
+                1 for item in nested_summaries if _summary_has_any_token_fields(item)
+            )
+        if (
+            token_usage_missing_call_count is None
+            and nested_summaries
+            and token_usage_available_call_count is not None
+        ):
+            token_usage_missing_call_count = max(
+                0,
+                len(nested_summaries) - token_usage_available_call_count,
+            )
 
         duration_total_ms = (
             _nonnegative_int(summary.get("duration_total_ms"))
@@ -1034,6 +1057,25 @@ def _build_line_role_stage_summary(
             and all(value is None for value in token_totals.values())
         ):
             continue
+        summary_looks_incomplete = (
+            isinstance(summary, Mapping)
+            and _summary_looks_like_missing_token_usage(summary)
+        )
+        if summary_looks_incomplete:
+            token_usage_available_call_count = 0
+            token_usage_missing_call_count = attempt_count or call_count
+        token_usage_status: str | None = None
+        if token_usage_missing_call_count is not None and token_usage_missing_call_count > 0:
+            token_usage_status = (
+                "partial"
+                if int(token_usage_available_call_count or 0) > 0
+                else "unavailable"
+            )
+        elif token_usage_available_call_count is not None and token_usage_available_call_count > 0:
+            token_usage_status = "complete"
+        if token_usage_status is not None and token_usage_status != "complete":
+            token_totals = {key: None for key in _TOKEN_KEYS}
+            breakdown_totals = {key: None for key in _BREAKDOWN_KEYS}
 
         phase_rows = payload.get("phases")
         internal_phase_run_counts: dict[str, int] = {}
@@ -1121,6 +1163,18 @@ def _build_line_role_stage_summary(
                 "billed_total_tokens": token_totals.get("tokens_total"),
             },
         }
+        if token_usage_status is not None:
+            stage_summary["token_usage_status"] = token_usage_status
+            stage_summary["token_usage_available_call_count"] = token_usage_available_call_count
+            stage_summary["token_usage_missing_call_count"] = token_usage_missing_call_count
+            if (
+                token_usage_status != "complete"
+                and "token_usage_incomplete" not in stage_summary["pathological_flags"]
+            ):
+                stage_summary["pathological_flags"] = [
+                    *stage_summary["pathological_flags"],
+                    "token_usage_incomplete",
+                ]
         stage_root = pred_run_dir / "line-role-pipeline" / "runtime" / "line_role"
         if stage_root.exists() and stage_root.is_dir():
             observability_summary = build_stage_observability_line_role_summary(stage_root)
@@ -1785,6 +1839,16 @@ def _summary_has_any_token_usage(summary: Mapping[str, Any]) -> bool:
             raw_value = summary.get("tokens_reasoning_total")
         value = _nonnegative_int(raw_value)
         if value is not None and value > 0:
+            return True
+    return False
+
+
+def _summary_has_any_token_fields(summary: Mapping[str, Any]) -> bool:
+    for key in _TOKEN_KEYS:
+        raw_value = summary.get(key)
+        if key == "tokens_reasoning" and raw_value is None:
+            raw_value = summary.get("tokens_reasoning_total")
+        if _nonnegative_int(raw_value) is not None:
             return True
     return False
 

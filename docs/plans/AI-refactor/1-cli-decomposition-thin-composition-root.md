@@ -24,6 +24,7 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 - [x] (2026-03-22 16:57 EDT) Re-ran `bin/docs-list` and read `docs/PLANS.md`, `docs/02-cli/02-cli_README.md`, `docs/01-architecture/01-architecture_README.md`, `docs/12-testing/12-testing_README.md`, and `docs/reports/ai-readiness-improvement-report.md`.
 - [x] (2026-03-22 16:58 EDT) Audited the current command registration surface in [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py), including top-level commands, nested `bench` commands, nested `compare-control` commands, and the interactive callback path.
 - [x] (2026-03-22 16:59 EDT) Authored this standalone CLI decomposition ExecPlan in `docs/plans/`.
+- [x] (2026-03-22 17:30 EDT) Tightened scope and validation after re-checking the live CLI registration tree, including the already-external `epub` sub-app and the need for signature-preservation tests during extraction.
 - [ ] Create the new `cookimport/cli_commands/` package and establish one module per command family.
 - [ ] Move the `stage` command implementation behind the new package while keeping `cookimport.cli:app` stable.
 - [ ] Move the Label Studio command family behind the new package.
@@ -38,6 +39,9 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 
 - Observation: the repo already demonstrates the preferred migration style in one adjacent package.
   Evidence: [cookimport/cli_ui](/home/mcnal/projects/recipeimport/cookimport/cli_ui) already isolates interactive menu and settings helper logic, which means the refactor can extend an existing repo convention instead of inventing a new one.
+
+- Observation: not every CLI surface needs to move as part of this refactor.
+  Evidence: `cookimport/cli.py` registers `epub_app` from `cookimport.epubdebug.cli`; that sub-app is already externally owned and should be preserved as a passthrough registration rather than being pulled into `cookimport/cli_commands/`.
 
 - Observation: this refactor is mostly local and should not require token-spending validation.
   Evidence: the affected surfaces are command wiring, help output, and local orchestration boundaries; routine proof should come from CLI and domain test slices plus command help rendering.
@@ -60,6 +64,10 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
   Rationale: Typer registration mechanics make it safer to leave thin compatibility wrappers at first than to combine command movement with decorator rewrites in one step.
   Date/Author: 2026-03-22 / Codex
 
+- Decision: treat the existing `epub` sub-app registration as explicitly out of scope for this plan unless implementation uncovers a concrete CLI-root coupling problem.
+  Rationale: the goal is to decompose code owned by `cookimport/cli.py`, not to re-home a sub-app that already lives in its own package.
+  Date/Author: 2026-03-22 / Codex
+
 ## Outcomes & Retrospective
 
 No code has been changed yet. The current outcome is a standalone plan for one specific slice of the broader AI-readiness refactor: making the CLI readable and maintainable through real command-group boundaries.
@@ -70,7 +78,7 @@ The main lesson from planning is that the right success metric is not line count
 
 The current public entrypoint is [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py). It defines `app = typer.Typer(...)`, nested `bench_app`, nested `compare_control_app`, and many decorated command functions. It also contains the no-subcommand interactive callback. In this repo, “composition root” means the file that instantiates the Typer apps and wires them together. A healthy composition root should mostly define the public command tree and delegate immediately to the owning command module. It should not be the main home of the workflow implementation.
 
-The current command families are visible directly from the registration lines in `cookimport/cli.py`. The file adds nested apps via `app.add_typer(bench_app)` and `app.add_typer(compare_control_app, name="compare-control")`. It then defines top-level commands such as `stage`, `perf-report`, `stats-dashboard`, `labelstudio-import`, `labelstudio-export`, `labelstudio-eval`, `debug-epub-extract`, and `labelstudio-benchmark`. The bench group defines commands such as `speed-discover`, `speed-run`, `speed-compare`, `quality-discover`, `quality-run`, `quality-compare`, and `quality-leaderboard`. All of that lives beside interactive mode and many utility helpers.
+The current command families are visible directly from the registration lines in `cookimport/cli.py`. The file adds nested apps via `app.add_typer(bench_app)` and `app.add_typer(compare_control_app, name="compare-control")`, and it also passes through the externally owned `epub` sub-app via `app.add_typer(epub_app, name="epub")`. It then defines top-level commands such as `stage`, `perf-report`, `stats-dashboard`, `labelstudio-import`, `labelstudio-export`, `labelstudio-eval`, `debug-epub-extract`, and `labelstudio-benchmark`. The bench group defines commands such as `speed-discover`, `speed-run`, `speed-compare`, `quality-discover`, `quality-run`, `quality-compare`, and `quality-leaderboard`. All of that lives beside interactive mode and many utility helpers.
 
 The target package layout for this plan is:
 
@@ -83,6 +91,8 @@ The target package layout for this plan is:
 - `cookimport/cli_commands/interactive.py`
 
 Each module should own one public family. “Own” here means it becomes the first place a reader opens to understand or modify that family. It does not require moving every helper immediately. Early milestones may still delegate into existing functions while tests and call sites are migrated.
+
+This plan does not move `cookimport.epubdebug.cli`. The `epub` sub-app should remain registered from the composition root exactly as it is today unless a later, separate plan is created for that package.
 
 The module contracts should be simple:
 
@@ -124,7 +134,7 @@ Acceptance is that running `cookimport` with no subcommand still enters interact
 
 ### Milestone 5: Add boundary tests and update docs
 
-At the end of this milestone, the new ownership map is protected by tests and taught in docs. Add CLI registration tests or smoke tests that make it hard to accidentally collapse unrelated command families back into one file. Update [docs/02-cli/02-cli_README.md](/home/mcnal/projects/recipeimport/docs/02-cli/02-cli_README.md) and the architecture readme so they point readers toward the new command package instead of treating `cookimport/cli.py` as the universal source of truth.
+At the end of this milestone, the new ownership map is protected by tests and taught in docs. Add CLI registration tests or smoke tests that make it hard to accidentally collapse unrelated command families back into one file. Also add signature-alignment tests for adapter-driven commands that are most likely to drift during extraction. Update [docs/02-cli/02-cli_README.md](/home/mcnal/projects/recipeimport/docs/02-cli/02-cli_README.md) and the architecture readme so they point readers toward the new command package instead of treating `cookimport/cli.py` as the universal source of truth.
 
 Acceptance is that `bin/docs-list` shows the updated docs, and the tests fail narrowly if future edits break the command boundary.
 
@@ -132,9 +142,11 @@ Acceptance is that `bin/docs-list` shows the updated docs, and the tests fail na
 
 Start by creating the package skeleton under `cookimport/cli_commands/`. Add the module files and define empty or minimal registration helpers. Then update `cookimport/cli.py` so it imports those helpers and uses them to register command families. In the first pass, it is acceptable to leave the decorated functions in `cookimport/cli.py` while their bodies call into the new modules. The crucial rule is that wrappers must stay trivial. The owning logic should move out quickly once the package exists.
 
-Move the command families incrementally. Start with `stage`, because it is the most important public command and the clearest example of why the composition root should stay thin. Then move the Label Studio family, which is a major public surface and one of the next-largest cognitive loads in the file. After that, move analytics and compare-control, which are logically distinct and easy wins for navigation. Then move the nested bench app, which benefits from having its own module but may touch more helper code. Finally, move interactive orchestration.
+Move the command families incrementally. Start with `stage`, because it is the most important public command and the clearest example of why the composition root should stay thin. Then move the Label Studio family, which is a major public surface and one of the next-largest cognitive loads in the file. After that, move analytics and compare-control, which are logically distinct and easy wins for navigation. Then move the nested bench app, which benefits from having its own module but may touch more helper code. Finally, move interactive orchestration. Keep `epub_app` untouched in the composition root throughout; that registration is already as thin as it needs to be.
 
 As each family moves, add or update tests immediately. The right pattern is to capture the command registration boundary at the same time the code boundary appears. Do not postpone tests until the whole CLI split is complete. Also update docs progressively: once a family is truly owned by its new module, the CLI docs should say so.
+
+When moving decorated command functions, preserve the public function signatures used by existing signature-sync tests and helper call sites. If a command needs a new internal helper, add a separately named implementation function in the new module and keep the decorated wrapper signature stable until tests have been updated intentionally.
 
 ## Concrete Steps
 
@@ -163,6 +175,7 @@ For each migration step:
 3. Run a narrow test loop.
 4. Run the broader CLI or bench wrapper.
 5. Update docs if that module is now authoritative.
+6. Confirm `epub` passthrough registration remains unchanged.
 
 Prepare the environment if needed:
 
@@ -199,13 +212,16 @@ Confirm help surfaces after major moves:
     . .venv/bin/activate
     cookimport compare-control --help
 
+    . .venv/bin/activate
+    cookimport epub --help
+
 ## Validation and Acceptance
 
 Acceptance is behavioral first. The public command tree must remain stable. Existing top-level and nested commands must keep their current names and basic invocation shape. A user should not notice the refactor from normal CLI usage.
 
 The second acceptance criterion is navigability. After the refactor, a newcomer should be able to open one command module and understand the implementation surface for that family without reading unrelated command families. `cookimport/cli.py` should become a thin registration layer.
 
-The third acceptance criterion is local proof. The relevant narrow CLI test slices must pass, followed by `./scripts/test-suite.sh domain cli`, `./scripts/test-suite.sh domain bench` for bench moves, and then `./scripts/test-suite.sh fast` before declaring the migration stable.
+The third acceptance criterion is local proof. The relevant narrow CLI test slices must pass, including signature-sync tests for adapter-driven commands, followed by `./scripts/test-suite.sh domain cli`, `./scripts/test-suite.sh domain bench` for bench moves, and then `./scripts/test-suite.sh fast` before declaring the migration stable.
 
 The fourth acceptance criterion is documentation. `docs/02-cli/02-cli_README.md` and any touched architecture docs must point readers to the new command package rather than treating `cookimport/cli.py` as the only source of truth.
 
@@ -224,6 +240,9 @@ Keep short evidence snippets here as work proceeds. Examples:
 
     cookimport bench --help
     # expected: same bench subcommands as before
+
+    cookimport epub --help
+    # expected: existing epub debug subcommands still render because the composition root still registers the external sub-app unchanged
 
     ./scripts/test-suite.sh domain cli
     # expected: CLI domain slice passes after command-family extraction
@@ -260,4 +279,4 @@ The new command modules may depend on their owning runtime domains and shared co
 
 ## Revision note
 
-Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. This file owns only CLI decomposition.
+Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live CLI tree. The revision makes the existing `epub` sub-app scope explicit, adds signature-preservation guidance for extracted Typer commands, and tightens validation so the plan protects the whole public CLI surface rather than only the command families being moved.

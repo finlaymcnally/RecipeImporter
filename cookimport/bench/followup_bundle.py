@@ -27,6 +27,13 @@ PAGE_CONTEXT_SCHEMA_VERSION = "cf.page_context.v1"
 UNCERTAINTY_SCHEMA_VERSION = "cf.uncertainty.v1"
 PACK_SCHEMA_VERSION = "cf.followup_pack.v1"
 ABLATION_SCHEMA_VERSION = "cf.ablation_matrix.v1"
+SUPPORTED_STAGE_FILTERS = {
+    "line_role",
+    "knowledge",
+    "recipe",
+    "recipe_llm_correct_and_link",
+    "build_final_recipe",
+}
 
 OUTSIDE_SPAN_CASE_ID_RE = re.compile(r"^outside_span_window_(?P<start>\d+)_(?P<end>\d+)$")
 
@@ -1003,7 +1010,7 @@ def build_selector_manifest(
     include_knowledge_output_subdirs: list[str],
 ) -> dict[str, Any]:
     stages = [stage.strip().lower() for stage in stage_filters or [] if stage.strip()]
-    unsupported = [stage for stage in stages if stage not in {"line_role", "knowledge"}]
+    unsupported = [stage for stage in stages if stage not in SUPPORTED_STAGE_FILTERS]
     if unsupported:
         raise ValueError(
             f"Unsupported stage filter(s): {', '.join(sorted(set(unsupported)))}"

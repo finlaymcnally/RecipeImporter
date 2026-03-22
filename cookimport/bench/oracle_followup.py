@@ -459,6 +459,40 @@ def _oracle_session_incomplete_reason(payload: dict[str, Any] | None) -> str:
     return str(response.get("incompleteReason") or "").strip()
 
 
+def _oracle_session_controller_pid(payload: dict[str, Any] | None) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    browser = payload.get("browser")
+    if not isinstance(browser, dict):
+        return 0
+    runtime = browser.get("runtime")
+    if not isinstance(runtime, dict):
+        return 0
+    try:
+        return int(runtime.get("controllerPid") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _oracle_turn1_recovery_reason(payload: dict[str, Any] | None) -> tuple[str, str] | None:
+    incomplete_reason = _oracle_session_incomplete_reason(payload)
+    if incomplete_reason == "assistant-timeout":
+        return (
+            "recovering_turn_1",
+            "Oracle turn 1 timed out locally; retrying capture from the saved session.",
+        )
+    if not isinstance(payload, dict):
+        return None
+    session_status = str(payload.get("status") or "").strip().lower()
+    controller_pid = _oracle_session_controller_pid(payload)
+    if session_status == "running" and controller_pid > 0 and not _pid_is_running(controller_pid):
+        return (
+            "recovering_turn_1",
+            "Oracle turn 1 session is still marked running, but its saved controller is gone; retrying capture from the saved session.",
+        )
+    return None
+
+
 def _append_recovered_turn1_output_to_source_log(
     *,
     source_launch_dir: Path,
@@ -497,13 +531,15 @@ def _recover_oracle_turn1_session_if_needed(
         session_id=session_id,
         browser_profile_dir=browser_profile_dir,
     )
-    if _oracle_session_incomplete_reason(session_payload) != "assistant-timeout":
+    recovery_reason = _oracle_turn1_recovery_reason(session_payload)
+    if recovery_reason is None:
         return False
+    recovery_status, recovery_status_reason = recovery_reason
 
     _write_oracle_auto_followup_status(
         source_launch_dir,
-        status="recovering_turn_1",
-        status_reason="Oracle turn 1 timed out locally; retrying capture from the saved session.",
+        status=recovery_status,
+        status_reason=recovery_status_reason,
         extra={
             "bundle_dir": str(metadata.get("bundle_dir") or ""),
             "source_run": source_launch_dir.name,

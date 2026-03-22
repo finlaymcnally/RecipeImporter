@@ -727,6 +727,56 @@ def test_label_atomic_lines_outside_recipe_saltfat_crouton_storage_step_stays_in
     assert predictions[2].review_exclusion_reason is None
 
 
+def test_label_atomic_lines_outside_recipe_tail_step_with_instruction_neighbor_stays_instruction_line() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:croutons",
+            block_id="block:croutons:toast",
+            block_index=0,
+            atomic_index=0,
+            text=(
+                "Toast the croutons for about 18 to 22 minutes, checking them "
+                "after 8 minutes. Rotate the pans and continue baking until "
+                "golden brown."
+            ),
+            within_recipe_span=False,
+            rule_tags=["instruction_with_time"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:croutons",
+            block_id="block:croutons:cool",
+            block_index=1,
+            atomic_index=1,
+            text=(
+                "When done, let the croutons cool in a single layer on the "
+                "baking sheet. Use immediately or keep in an airtight "
+                "container for up to 2 days. To refresh stale croutons, bake "
+                "for 3 to 4 minutes at 400°F."
+            ),
+            within_recipe_span=False,
+            rule_tags=["instruction_with_time"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:croutons",
+            block_id="block:croutons:freeze",
+            block_index=2,
+            atomic_index=2,
+            text="Freeze leftover croutons for up to 2 months and use in Ribollita.",
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "INSTRUCTION_LINE",
+        "INSTRUCTION_LINE",
+        "RECIPE_NOTES",
+    ]
+    assert predictions[1].review_exclusion_reason is None
+
+
 def test_label_atomic_lines_outside_recipe_isolated_howto_heading_defaults_away_from_structure() -> None:
     blocks = [
         {
@@ -3806,6 +3856,69 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
     assert telemetry_payload["phases"][0]["batches"][0]["attempts"][0]["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
 
 
+def test_label_atomic_lines_leave_missing_line_role_usage_unavailable(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:telemetry:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    class _MissingUsageRunner(FakeCodexExecRunner):
+        @staticmethod
+        def _without_usage(result):  # noqa: ANN001
+            return result.__class__(
+                command=result.command,
+                subprocess_exit_code=result.subprocess_exit_code,
+                output_schema_path=result.output_schema_path,
+                prompt_text=result.prompt_text,
+                response_text=result.response_text,
+                turn_failed_message=result.turn_failed_message,
+                events=result.events,
+                usage=None,
+                stderr_text=result.stderr_text,
+                stdout_text=result.stdout_text,
+            )
+
+        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_structured_prompt(*args, **kwargs)
+            return self._without_usage(result)
+
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_workspace_worker(*args, **kwargs)
+            return self._without_usage(result)
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_MissingUsageRunner(
+            output_builder=_line_role_runner({0: "OTHER"}).output_builder
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert len(predictions) == 1
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["attempt_count"] == 1
+    assert telemetry_payload["summary"]["attempts_with_usage"] == 0
+    assert telemetry_payload["summary"]["attempts_without_usage"] == 1
+    assert telemetry_payload["summary"]["tokens_input"] is None
+    assert telemetry_payload["summary"]["tokens_total"] is None
+    batch_payload = telemetry_payload["phases"][0]["batches"][0]
+    assert batch_payload["attempts_with_usage"] == 0
+    assert batch_payload["attempts"][0]["usage"] is None
+
+
 def test_preflight_line_role_shard_rejects_missing_model_facing_rows() -> None:
     shard = ShardManifestEntryV1(
         shard_id="line-role-0001",
@@ -5095,7 +5208,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
     assert "You are processing many canonical line-role task packets inside one local worker workspace." in prompt_text
-    assert "Start by opening `worker_manifest.json`, then `current_task.json`, then `OUTPUT_CONTRACT.md`" in prompt_text
+    assert "Start by opening `worker_manifest.json`, then `CURRENT_TASK.md`, then `OUTPUT_CONTRACT.md`" in prompt_text
     assert "`tools/line_role_worker.py` exists, use it as the paved road" in prompt_text
     assert "metadata.scratch_draft_path" in prompt_text
     assert "python3 tools/line_role_worker.py finalize <draft_path>" in prompt_text
@@ -5104,9 +5217,9 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "Long handwritten `jq` transforms are unnecessary here" in prompt_text
     assert "keep them narrow and grounded on the named local files only" in prompt_text
     assert "Stay inside this workspace" in prompt_text
-    assert "Treat `current_task.json` as the cheapest repo-written next task row." in prompt_text
-    assert "Use `assigned_tasks.json` for the ordered queue" in prompt_text
-    assert "open `hints/<task_id>.md` first" in prompt_text
+    assert "Treat `CURRENT_TASK.md` as the cheapest repo-written first read." in prompt_text
+    assert "Use `assigned_tasks.json` only for ordered queue/progress context" in prompt_text
+    assert "start from the prewritten draft and hint before reopening the raw packet" in prompt_text
     assert "Treat each packet's deterministic label code as a strong prior." in prompt_text
     assert "If `OUTPUT_CONTRACT.md` or `examples/` exists" in prompt_text
     assert "`HOWTO_SECTION` is book-optional" in prompt_text
@@ -5148,10 +5261,12 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert worker_manifest_payload["entry_files"] == [
         "worker_manifest.json",
         "current_task.json",
+        "CURRENT_TASK.md",
         "assigned_shards.json",
         "assigned_tasks.json",
     ]
     assert worker_manifest_payload["current_task_file"] == "current_task.json"
+    assert worker_manifest_payload["current_task_brief_file"] == "CURRENT_TASK.md"
     assert worker_manifest_payload["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest_payload["examples_dir"] == "examples"
     assert worker_manifest_payload["tools_dir"] == "tools"
@@ -5187,6 +5302,7 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert current_task_payload["metadata"]["deterministic_label_counts"] == {
         "OTHER": 1
     }
+    assert "input_payload" not in current_task_payload
     scratch_draft_payload = json.loads(
         (
             prompt_root
@@ -5200,6 +5316,17 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert scratch_draft_payload == {
         "rows": [{"atomic_index": 0, "label": "OTHER"}]
     }
+    current_task_brief = (
+        prompt_root
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "CURRENT_TASK.md"
+    ).read_text(encoding="utf-8")
+    assert "Current Line-Role Task" in current_task_brief
+    assert "Draft:" in current_task_brief
+    assert "Ambiguous line 0" not in current_task_brief
 
 
 def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_artifacts(
@@ -5361,6 +5488,7 @@ def test_label_atomic_lines_splits_one_shard_into_multiple_task_packets(
         "line-role-canonical-0001-a000000-a000003.task-001",
         "line-role-canonical-0001-a000000-a000003.task-002",
     ]
+    assert all("input_payload" not in row for row in assigned_tasks)
     assert sorted(path.name for path in (worker_root / "out").glob("*.json")) == [
         "line-role-canonical-0001-a000000-a000003.task-001.json",
         "line-role-canonical-0001-a000000-a000003.task-002.json",

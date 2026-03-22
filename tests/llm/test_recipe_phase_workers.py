@@ -336,6 +336,7 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert "python3 tools/recipe_worker.py finalize-all scratch/" in worker_prompt
     assert "one batch finish" in worker_prompt
     assert "single-task validation or recovery" in worker_prompt
+    assert "Do not dump or reread the full `assigned_tasks.json` inventory during startup" in worker_prompt
     assert "OUTPUT_CONTRACT.md" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "Open `hints/<task_id>.md` only if" in worker_prompt

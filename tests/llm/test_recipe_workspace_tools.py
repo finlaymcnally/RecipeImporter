@@ -116,6 +116,7 @@ def test_render_recipe_worker_shard_packet_packs_queue_contract_and_draft_paths(
     assert "scratch/_prepared_drafts.json" in packet
     assert "draft: `scratch/recipe-shard-0000-r0000-r0001.task-001.json`" in packet
     assert "hint fallback: `hints/recipe-shard-0000-r0000-r0001.task-001.md`" in packet
+    assert "summary: urn:recipe:test:toast 'Toast' [1i/1s]" in packet
     assert "Open raw `hints/*.md`, `in/*.json`, `OUTPUT_CONTRACT.md`, `examples/*.json`, or `tools/recipe_worker.py` only if" in packet
 
 
@@ -137,7 +138,28 @@ def test_build_recipe_worker_scaffold_uses_exact_task_and_recipe_ids() -> None:
                 "y": None,
             },
             "m": [],
-            "mr": None,
+            "mr": "not_needed_single_step",
+            "g": [],
+            "w": [],
+        }
+    ]
+
+
+def test_build_recipe_worker_scaffold_fail_closed_when_hint_is_incomplete() -> None:
+    task_row = _build_task_row()
+    task_row["input_payload"]["r"][0]["h"] = {"n": "Toast", "i": [], "s": []}
+
+    scaffold = build_recipe_worker_scaffold(task_row=task_row)
+
+    assert scaffold["r"] == [
+        {
+            "v": "1",
+            "rid": "urn:recipe:test:toast",
+            "st": "fragmentary",
+            "sr": "insufficient_source_detail",
+            "cr": None,
+            "m": [],
+            "mr": "not_applicable_fragmentary",
             "g": [],
             "w": [],
         }
@@ -178,26 +200,18 @@ def test_validate_recipe_worker_draft_rejects_legacy_keys_and_wrong_owned_ids() 
     assert any("unexpected recipe ids:" in error for error in errors)
 
 
-def test_validate_recipe_worker_draft_rejects_complex_empty_mapping_without_reason() -> None:
+def test_build_recipe_worker_scaffold_prewrites_mapping_reason_for_complex_recipe() -> None:
     task_row = _build_complex_task_row()
     payload = build_recipe_worker_scaffold(task_row=task_row)
 
-    errors = validate_recipe_worker_draft(task_row=task_row, payload=payload)
-
-    assert any(
-        ".mr must explain an empty mapping when st=repaired" in error for error in errors
-    )
+    assert validate_recipe_worker_draft(task_row=task_row, payload=payload) == []
 
 
-def test_validate_recipe_worker_draft_rejects_multi_ingredient_single_step_empty_mapping_without_reason() -> None:
+def test_build_recipe_worker_scaffold_prewrites_mapping_reason_for_multi_ingredient_single_step_recipe() -> None:
     task_row = _build_multi_ingredient_single_step_task_row()
     payload = build_recipe_worker_scaffold(task_row=task_row)
 
-    errors = validate_recipe_worker_draft(task_row=task_row, payload=payload)
-
-    assert any(
-        ".mr must explain an empty mapping when st=repaired" in error for error in errors
-    )
+    assert validate_recipe_worker_draft(task_row=task_row, payload=payload) == []
 
 
 def test_install_recipe_worker_draft_writes_declared_result_path(tmp_path: Path) -> None:
@@ -257,6 +271,12 @@ def test_prepare_and_finalize_recipe_worker_drafts_batch(tmp_path: Path) -> None
     assert manifest_payload["task_packets"][0]["draft_path"] == (
         "scratch/recipe-shard-0000-r0000-r0001.task-001.json"
     )
+    assert manifest_payload["task_packets"][0]["result_path"] == (
+        "out/recipe-shard-0000-r0000-r0001.task-001.json"
+    )
+    assert manifest_payload["task_packets"][0]["title_hint"] == "Toast"
+    assert "hint_path" not in manifest_payload["task_packets"][0]
+    assert "input_path" not in manifest_payload["task_packets"][0]
 
     installed_paths = finalize_recipe_worker_drafts(
         workspace_root=workspace_root,
@@ -266,6 +286,12 @@ def test_prepare_and_finalize_recipe_worker_drafts_batch(tmp_path: Path) -> None
     assert installed_paths == [
         workspace_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json"
     ]
+    assert not (workspace_root / "current_task.json").exists()
+    assert "No current task is active" in (
+        workspace_root / "CURRENT_TASK.md"
+    ).read_text(encoding="utf-8")
+    refreshed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert refreshed_manifest["current_task_id"] == ""
 
 
 def test_stamp_recipe_worker_drafts_rewrites_fragmentary_payloads(tmp_path: Path) -> None:
@@ -497,6 +523,13 @@ def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) ->
     assert (
         workspace_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json"
     ).exists()
+    assert not (workspace_root / "current_task.json").exists()
+    assert "No current task is active" in (
+        workspace_root / "CURRENT_TASK.md"
+    ).read_text(encoding="utf-8")
+    assert "queue is complete" in (
+        workspace_root / "CURRENT_TASK_FEEDBACK.md"
+    ).read_text(encoding="utf-8")
     installed_payload = json.loads(
         (
             workspace_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json"

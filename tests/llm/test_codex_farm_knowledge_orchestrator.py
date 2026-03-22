@@ -162,7 +162,7 @@ class _PrematureKnowledgeQueueStopRunner(FakeCodexExecRunner):
                     event_count=1,
                     command_execution_count=1,
                     reasoning_item_count=0,
-                    last_command="/bin/bash -lc python3 tools/knowledge_worker.py install-current",
+                    last_command="/bin/bash -lc python3 tools/knowledge_worker.py install-batch",
                     last_command_repeat_count=1,
                     has_final_agent_message=False,
                     timeout_seconds=kwargs.get("timeout_seconds"),
@@ -245,6 +245,7 @@ def test_knowledge_workspace_watchdog_allows_shell_work_until_command_loop(
     assert live_status["last_command_policy"] == "tolerated_workspace_shell_command"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["last_command_stage_violation_detected"] is False
 
 
 def test_knowledge_workspace_watchdog_allows_orientation_and_helper_scripts(
@@ -284,6 +285,7 @@ def test_knowledge_workspace_watchdog_allows_orientation_and_helper_scripts(
         "tolerated_workspace_shell_command",
     }
     assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["last_command_stage_violation_detected"] is False
 
 
 def test_knowledge_workspace_watchdog_allows_jq_fallback_operator_output_command(
@@ -316,6 +318,7 @@ def test_knowledge_workspace_watchdog_allows_jq_fallback_operator_output_command
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["last_command_stage_violation_detected"] is False
 
 
 def test_knowledge_workspace_watchdog_allows_bounded_python_heredoc(
@@ -381,6 +384,134 @@ def test_knowledge_workspace_watchdog_can_forbid_inline_python_heredoc(
 
     assert decision is not None
     assert decision.reason_code == "watchdog_inline_python_heredoc_forbidden"
+
+
+def test_knowledge_workspace_watchdog_kills_single_task_helper_during_batch(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.5,
+            last_event_seconds_ago=0.0,
+            event_count=10,
+            command_execution_count=3,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc python3 tools/knowledge_worker.py install-current",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_batch_contract_bypass_single_task_helper"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_stage_violation_detected"] is True
+    assert live_status["last_command_stage_policy"] == "knowledge_single_task_helper_during_batch"
+
+
+def test_knowledge_workspace_watchdog_kills_assigned_tasks_inventory_dump(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.5,
+            last_event_seconds_ago=0.0,
+            event_count=10,
+            command_execution_count=3,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc \"cat assigned_tasks.json | sed -n '1,140p'\"",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_batch_contract_bypass_inventory_dump"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_stage_violation_detected"] is True
+    assert live_status["last_command_stage_policy"] == "knowledge_assigned_tasks_inventory_dump"
+
+
+def test_knowledge_workspace_watchdog_kills_helper_source_spelunking(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.5,
+            last_event_seconds_ago=0.0,
+            event_count=10,
+            command_execution_count=3,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc \"sed -n '180,240p' tools/knowledge_worker.py\"",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_batch_contract_bypass_helper_source_read"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_stage_violation_detected"] is True
+    assert live_status["last_command_stage_policy"] == "knowledge_helper_source_spelunking"
+
+
+def test_knowledge_workspace_watchdog_kills_runtime_control_rewrite(
+    tmp_path: Path,
+) -> None:
+    callback = knowledge_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    command = (
+        "/bin/bash -lc \"python3 - <<'PY'\n"
+        "import importlib.util\n"
+        "from pathlib import Path\n"
+        "p = Path('tools/knowledge_worker.py')\n"
+        "spec = importlib.util.spec_from_file_location('kw', p)\n"
+        "kw = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(kw)\n"
+        "payload = kw._build_current_batch_payload(49)\n"
+        "kw._write_current_batch_sidecars(payload)\n"
+        "PY\""
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.5,
+            last_event_seconds_ago=0.0,
+            event_count=10,
+            command_execution_count=3,
+            reasoning_item_count=0,
+            last_command=command,
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "watchdog_batch_contract_bypass_runtime_control_rewrite"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_stage_violation_detected"] is True
+    assert live_status["last_command_stage_policy"] == "knowledge_runtime_control_rewrite"
 
 
 def test_knowledge_workspace_watchdog_allows_execution_root_cd_prefix(
@@ -518,7 +649,7 @@ def test_knowledge_strict_json_watchdog_kills_malformed_pseudo_final(
     assert "did not start" in str(live_status["final_agent_message_reason"])
 
 
-def test_knowledge_workspace_watchdog_stops_after_outputs_stabilize(
+def test_knowledge_workspace_watchdog_marks_stable_outputs_incomplete_without_queue_controller(
     tmp_path: Path,
 ) -> None:
     out_dir = tmp_path / "out"
@@ -565,11 +696,11 @@ def test_knowledge_workspace_watchdog_stops_after_outputs_stabilize(
 
     assert first is None
     assert second is not None
-    assert second.reason_code == "workspace_outputs_stabilized"
-    assert second.supervision_state == "completed"
+    assert second.reason_code == "workspace_validated_task_queue_incomplete"
+    assert second.supervision_state == "completed_with_failures"
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["state"] == "completed"
-    assert live_status["reason_code"] == "workspace_outputs_stabilized"
+    assert live_status["state"] == "completed_with_failures"
+    assert live_status["reason_code"] == "workspace_validated_task_queue_incomplete"
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
     assert live_status["last_command_boundary_violation_detected"] is False
@@ -1190,21 +1321,18 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "`CURRENT_BATCH.md`" in worker_prompt
     assert "`current_batch.json`" in worker_prompt
     assert "`CURRENT_BATCH_FEEDBACK.md`" in worker_prompt
-    assert "`CURRENT_TASK.md`" in worker_prompt
-    assert "`current_task.json`" in worker_prompt
-    assert "`CURRENT_TASK_FEEDBACK.md`" in worker_prompt
+    assert "Single-task `CURRENT_TASK*` files are fallback recovery surfaces" in worker_prompt
     assert "OUTPUT_CONTRACT.md" in worker_prompt
     assert "tools/knowledge_worker.py complete-batch" in worker_prompt
     assert "tools/knowledge_worker.py check-batch" in worker_prompt
     assert "tools/knowledge_worker.py install-batch" in worker_prompt
-    assert "tools/knowledge_worker.py complete-current" in worker_prompt
     assert "tools/knowledge_worker.py current-batch" in worker_prompt
     assert "tools/knowledge_worker.py next-batch" in worker_prompt
     assert "tools/knowledge_worker.py show-batch" in worker_prompt
     assert "tools/knowledge_worker.py explain-failure" in worker_prompt
     assert "`assigned_tasks.json`" in worker_prompt
     assert "authoritative current-batch surface" in worker_prompt
-    assert "ordered queue/progress reference" in worker_prompt
+    assert "background queue/progress context only" in worker_prompt
     assert "`tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path`" in worker_prompt
     assert "The assignment is complete only when the repo removes `current_batch.json`" in worker_prompt
     assert "After each successful install, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`." in worker_prompt
@@ -1213,6 +1341,8 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "repo-written helper under `tools/`" in worker_prompt
+    assert "install-current`-style single-task helpers while a batch is active" in worker_prompt
+    assert "The main-worker watchdog treats those detours as off-contract behavior." in worker_prompt
     assert "Top level keys: `packet_id`, `chunk_results`." in worker_prompt
     assert (
         "Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`."
@@ -1274,7 +1404,7 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "Knowledge Workspace Output Contract" in output_contract
     assert "Good snippet" in output_contract
     assert "Intentionally invalid echo example" in output_contract
-    assert "A task is not finished until `check` passes." in output_contract
+    assert "Run `python3 tools/knowledge_worker.py check-batch` before every final batch install step" in output_contract
 
 
 def test_knowledge_orchestrator_materializes_task_metadata_and_examples(
@@ -3874,10 +4004,15 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
         "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
         _fake_chunks,
     )
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
 
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
+    workspace_root = tmp_path / "workspaces"
+    workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -4229,10 +4364,15 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
         "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
         _fake_chunks,
     )
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
 
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
+    workspace_root = tmp_path / "workspaces"
+    workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -4244,6 +4384,7 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
             "knowledge_worker_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
+            "codex_farm_workspace_root": str(workspace_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
         }
     )
@@ -4315,7 +4456,7 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
     worker_root = knowledge_dir / "workers" / "worker-001"
     status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
 
-    assert len(runner.calls) == 2
+    assert len(runner.calls) == 1
     assert {call["mode"] for call in runner.calls} == {"workspace_worker"}
     assert (worker_root / "out" / "book.ks0000.nr.json").exists()
     assert (worker_root / "out" / "book.ks0001.nr.json").exists()

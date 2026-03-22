@@ -116,7 +116,8 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
         and set(conflict.get("labels", [])) == {"INSTRUCTION_LINE", "RECIPE_VARIANT"}
         for conflict in conflicts
     )
-    assert "KNOWLEDGE labels were derived from deterministic Stage 7 categories." in payload["notes"]
+    assert "KNOWLEDGE labels were derived from final non-recipe authority." in payload["notes"]
+    assert "All review-eligible non-recipe blocks had final authority before scoring." in payload["notes"]
 
 
 def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> None:
@@ -154,6 +155,30 @@ def test_build_stage_block_predictions_ignores_stage7_other_blocks() -> None:
     )
 
     assert payload["block_labels"]["8"] == "OTHER"
+
+
+def test_build_stage_block_predictions_ignores_unreviewed_review_eligible_knowledge() -> None:
+    result = _build_result()
+
+    payload = build_stage_block_predictions(
+        result,
+        "simple",
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[],
+            knowledge_spans=[],
+            other_spans=[],
+            block_category_by_index={8: "knowledge"},
+            review_eligible_block_indices=[8],
+            final_authority_block_indices=[],
+            unreviewed_review_eligible_block_indices=[8],
+        ),
+    )
+
+    assert payload["block_labels"]["8"] == "OTHER"
+    assert (
+        "Review-eligible non-recipe blocks without final authority were kept as OTHER for scoring."
+        in payload["notes"]
+    )
 
 
 def test_build_stage_block_predictions_marks_notes_from_description_only() -> None:

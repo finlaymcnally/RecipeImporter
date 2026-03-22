@@ -24,6 +24,7 @@ This plan is standalone. It does not require a parent ExecPlan. It replaces the 
 - [x] (2026-03-22 16:57 EDT) Re-ran `bin/docs-list` and read `docs/PLANS.md`, `docs/01-architecture/01-architecture_README.md`, `docs/02-cli/02-cli_README.md`, `docs/12-testing/12-testing_README.md`, and `docs/reports/ai-readiness-improvement-report.md`.
 - [x] (2026-03-22 16:58 EDT) Inspected the current duplicated planning seams in [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py), [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py), and [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py).
 - [x] (2026-03-22 17:00 EDT) Authored this standalone planning-seam ExecPlan in `docs/plans/`.
+- [x] (2026-03-22 17:30 EDT) Tightened the module contract after re-checking live callers and conventions, including the stale dual-planner guidance in `cookimport/config/CONVENTIONS.md`.
 - [ ] Create `cookimport/staging/job_planning.py` with the authoritative `JobSpec` and shared planner helpers.
 - [ ] Migrate stage planning to the shared module.
 - [ ] Migrate Label Studio import and benchmark planning to the shared module.
@@ -40,6 +41,9 @@ This plan is standalone. It does not require a parent ExecPlan. It replaces the 
 
 - Observation: `compute_effective_workers(...)` is already conceptually part of planning, even though it currently lives in the config module.
   Evidence: [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py) computes effective workers from `workers`, `epub_split_workers`, source file types, and EPUB extractor choice, which is a planning concern rather than a persistence concern.
+
+- Observation: the repo’s written conventions currently encode the duplication this plan is supposed to remove.
+  Evidence: [cookimport/config/CONVENTIONS.md](/home/mcnal/projects/recipeimport/cookimport/config/CONVENTIONS.md) still tells contributors to update both planners and `compute_effective_workers(...)` together, so the migration is not complete until that guidance is replaced.
 
 ## Decision Log
 
@@ -103,9 +107,12 @@ The target interface is:
     def resolve_pdf_page_count(path: Path) -> int | None: ...
     def resolve_epub_spine_count(path: Path) -> int | None: ...
     def plan_source_jobs(...) -> list[JobSpec]: ...
+    def plan_source_job(...) -> list[JobSpec]: ...
     def compute_effective_workers_for_sources(...) -> int: ...
 
 Callers may temporarily adapt `JobSpec` into legacy dictionaries, but the branching logic must live only here.
+
+`plan_source_job(...)` is the single-file convenience wrapper for the current Label Studio calling pattern. It should delegate to `plan_source_jobs(...)` rather than recreate any branching logic.
 
 ## Milestones
 
@@ -135,7 +142,7 @@ Acceptance is that worker-resolution behavior remains unchanged but is easier to
 
 ### Milestone 5: Add tests and docs for the boundary
 
-At the end of this milestone, there will be narrow tests proving that stage and Label Studio flows share planning truth, and docs will describe `cookimport/staging/job_planning.py` as the owner of split-job planning.
+At the end of this milestone, there will be narrow tests proving that stage and Label Studio flows share planning truth, and docs will describe `cookimport/staging/job_planning.py` as the owner of split-job planning. The stale conventions note that mentions “update both planners together” must be removed or rewritten as part of this milestone.
 
 Acceptance is passing tests plus updated architecture docs.
 
@@ -145,11 +152,11 @@ Start by creating `cookimport/staging/job_planning.py` and moving the low-level 
 
 Once the module exists, change the stage path first. Replace direct use of `_plan_jobs(...)` with the new `plan_source_jobs(...)` function. Keep a small compatibility wrapper in `cookimport/cli.py` only if that helps stage migration happen without touching too much call-site code in one change.
 
-Then change the Label Studio path. The easiest safe first step is to call `plan_source_jobs(...)` and convert each `JobSpec` into the current dictionary shape the caller expects. That preserves behavior while still deleting duplicate branching logic. Once tests pass, decide whether the caller should continue adapting to dictionaries or migrate further toward `JobSpec`.
+Then change the Label Studio path. The easiest safe first step is to call `plan_source_job(...)` or `plan_source_jobs(...)` and convert each `JobSpec` into the current dictionary shape the caller expects. That preserves behavior while still deleting duplicate branching logic. Once tests pass, decide whether the caller should continue adapting to dictionaries or migrate further toward `JobSpec`.
 
 Finally, address `compute_effective_workers(...)`. Either move it outright into `job_planning.py` or keep a re-export shim in `run_settings.py` while callers migrate. The important rule is discoverability: the planning contract should be readable in one place.
 
-Add tests as soon as the new module exists. The best pattern is to add shared planner tests that exercise PDFs, EPUBs, markitdown EPUBs, unsplit single-job cases, and all-EPUB worker-resolution cases. Then add or update stage and Label Studio tests that prove both use the shared planner.
+Add tests as soon as the new module exists. The best pattern is to add shared planner tests that exercise PDFs, EPUBs, markitdown EPUBs, unsplit single-job cases, and all-EPUB worker-resolution cases. Then add or update stage and Label Studio tests that prove both use the shared planner. Finish by updating both architecture docs and [cookimport/config/CONVENTIONS.md](/home/mcnal/projects/recipeimport/cookimport/config/CONVENTIONS.md) so contributors are no longer told to maintain duplicated planners.
 
 ## Concrete Steps
 
@@ -176,7 +183,7 @@ Migration order:
 2. Update stage code to import and use them.
 3. Update Label Studio code to import and use them.
 4. Add planner tests.
-5. Update docs.
+5. Update docs and conventions.
 
 Prepare the environment if needed:
 
@@ -189,7 +196,7 @@ Use narrow diagnostic loops first:
     pytest tests/cli -k "stage and split"
 
     . .venv/bin/activate
-    pytest tests/labelstudio -k "planner or split or benchmark"
+    pytest tests/labelstudio -k "planner or split or benchmark or ingest_parallel"
 
 Then run broader wrappers:
 
@@ -212,7 +219,7 @@ The second acceptance criterion is discoverability. A contributor looking for sp
 
 The third acceptance criterion is local proof. Narrow planner-related test slices must pass, followed by `./scripts/test-suite.sh domain cli`, `./scripts/test-suite.sh domain labelstudio`, and then `./scripts/test-suite.sh fast`.
 
-The fourth acceptance criterion is documentation. The architecture docs must describe the new shared planning seam clearly enough that future work no longer relies on a conventions note saying “update both planners together.”
+The fourth acceptance criterion is documentation. The architecture docs and [cookimport/config/CONVENTIONS.md](/home/mcnal/projects/recipeimport/cookimport/config/CONVENTIONS.md) must describe the new shared planning seam clearly enough that future work no longer relies on a conventions note saying “update both planners together.”
 
 ## Idempotence and Recovery
 
@@ -231,6 +238,9 @@ Keep short evidence snippets here as work proceeds. Examples:
     ./scripts/test-suite.sh domain labelstudio
     # expected: both domains still pass after planner extraction
 
+    rg -n "update both planners together" cookimport/config/CONVENTIONS.md
+    # expected: no stale dual-planner rule remains
+
 ## Interfaces and Dependencies
 
 The authoritative interface is:
@@ -248,7 +258,6 @@ The authoritative interface is:
     def plan_source_jobs(
         files: Sequence[Path],
         *,
-        workers: int,
         pdf_pages_per_job: int,
         epub_spine_items_per_job: int,
         pdf_split_workers: int,
@@ -257,10 +266,20 @@ The authoritative interface is:
         epub_extractor_by_file: Mapping[Path, str] | None = None,
     ) -> list[JobSpec]: ...
 
+    def plan_source_job(
+        file_path: Path,
+        *,
+        pdf_pages_per_job: int,
+        epub_spine_items_per_job: int,
+        pdf_split_workers: int,
+        epub_split_workers: int,
+        epub_extractor: str = "unstructured",
+    ) -> list[JobSpec]: ...
+
     def compute_effective_workers_for_sources(...) -> int: ...
 
-Legacy helpers in `cookimport/cli.py`, `cookimport/labelstudio/ingest.py`, and `cookimport/config/run_settings.py` may remain as temporary re-export wrappers only while migration is in progress.
+`plan_source_jobs(...)` should not accept unused arguments merely to mirror old call sites. If a caller needs worker-resolution logic, it should call `compute_effective_workers_for_sources(...)` first and then pass the resolved split inputs to the planner.
 
 ## Revision note
 
-Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. This file owns only the shared source-job planning seam.
+Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live duplicated planner seams. The revision adds the missing conventions-doc cleanup, introduces an explicit single-file convenience wrapper for Label Studio callers, and removes the misleading suggestion that `plan_source_jobs(...)` should keep an unused `workers` parameter. Legacy helpers in `cookimport/cli.py`, `cookimport/labelstudio/ingest.py`, and `cookimport/config/run_settings.py` may remain as temporary re-export wrappers only while migration is in progress.

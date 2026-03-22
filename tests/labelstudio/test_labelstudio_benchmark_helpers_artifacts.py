@@ -1633,6 +1633,92 @@ def test_prompt_budget_summary_recovers_line_role_tokens_from_nested_batch_summa
     assert summary["totals"]["tokens_total"] == 36
 
 
+def test_prompt_budget_summary_marks_line_role_partial_token_usage_unavailable(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "batch_count": 2,
+                    "attempt_count": 2,
+                    "attempts_with_usage": 1,
+                    "attempts_without_usage": 1,
+                    "tokens_input": 40,
+                    "tokens_cached_input": 3,
+                    "tokens_output": 5,
+                    "tokens_reasoning": 0,
+                    "tokens_total": 48,
+                    "visible_input_tokens": 90,
+                    "visible_output_tokens": 8,
+                    "command_execution_count_total": 2,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_prediction_run_prompt_budget_summary(
+        {"line_role_pipeline_telemetry_path": str(telemetry_path)},
+        pred_run,
+    )
+
+    assert summary["by_stage"]["line_role"]["token_usage_status"] == "partial"
+    assert summary["by_stage"]["line_role"]["token_usage_available_call_count"] == 1
+    assert summary["by_stage"]["line_role"]["token_usage_missing_call_count"] == 1
+    assert summary["by_stage"]["line_role"]["tokens_total"] is None
+    assert summary["by_stage"]["line_role"]["visible_input_tokens"] is None
+    assert "token_usage_incomplete" in summary["by_stage"]["line_role"]["pathological_flags"]
+    assert summary["totals"]["token_usage_status"] == "partial"
+    assert summary["totals"]["tokens_total"] is None
+
+
+def test_prompt_budget_summary_marks_bad_line_role_zero_tokens_unavailable(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "batch_count": 2,
+                    "attempt_count": 2,
+                    "attempts_with_usage": 2,
+                    "attempts_without_usage": 0,
+                    "tokens_input": 0,
+                    "tokens_cached_input": 0,
+                    "tokens_output": 0,
+                    "tokens_reasoning": 0,
+                    "tokens_total": 0,
+                    "visible_input_tokens": 90,
+                    "visible_output_tokens": 8,
+                    "command_execution_count_total": 2,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_prediction_run_prompt_budget_summary(
+        {"line_role_pipeline_telemetry_path": str(telemetry_path)},
+        pred_run,
+    )
+
+    assert summary["by_stage"]["line_role"]["token_usage_status"] == "unavailable"
+    assert summary["by_stage"]["line_role"]["token_usage_available_call_count"] == 0
+    assert summary["by_stage"]["line_role"]["token_usage_missing_call_count"] == 2
+    assert summary["by_stage"]["line_role"]["tokens_total"] is None
+    assert summary["totals"]["token_usage_status"] == "unavailable"
+    assert summary["totals"]["tokens_total"] is None
+
+
 def test_prompt_budget_summary_reads_top_level_codex_farm_telemetry_rows(
     tmp_path: Path,
 ) -> None:

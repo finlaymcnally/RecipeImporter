@@ -58,7 +58,10 @@ Rules:
 
 Paved-road helper loop:
 
-    open current_task.json and its metadata.scratch_draft_path
+    open CURRENT_TASK.md
+    open the metadata.scratch_draft_path named in current_task.json
+    use hints/<task_id>.md for the targeted explanation
+    open in/<task_id>.json only if the draft or hint is insufficient
     edit scratch/<task_id>.json only where the deterministic seed is wrong
     python3 tools/line_role_worker.py finalize scratch/<task_id>.json
 
@@ -88,11 +91,35 @@ def _coerce_metadata(task_row: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _coerce_input_rows(task_row: Mapping[str, Any]) -> list[list[Any]]:
+def _load_task_input_payload(
+    task_row: Mapping[str, Any],
+    *,
+    workspace_root: Path | None = None,
+) -> dict[str, Any]:
     input_payload = task_row.get("input_payload")
-    if not isinstance(input_payload, Mapping):
-        return []
-    rows = input_payload.get("rows")
+    if isinstance(input_payload, Mapping):
+        return dict(input_payload)
+    if workspace_root is None:
+        return {}
+    metadata = _coerce_metadata(task_row)
+    input_path = str(metadata.get("input_path") or "").strip()
+    if not input_path:
+        return {}
+    try:
+        payload = json.loads((workspace_root / input_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if isinstance(payload, Mapping):
+        return dict(payload)
+    return {}
+
+
+def _coerce_input_rows(
+    task_row: Mapping[str, Any],
+    *,
+    workspace_root: Path | None = None,
+) -> list[list[Any]]:
+    rows = _load_task_input_payload(task_row, workspace_root=workspace_root).get("rows")
     if not isinstance(rows, list):
         return []
     normalized: list[list[Any]] = []
@@ -154,6 +181,34 @@ def build_line_role_seed_output(task_row: Mapping[str, Any]) -> dict[str, Any]:
     rows_payload: list[dict[str, Any]] = []
     unknown_codes: list[str] = []
     for row in _coerce_input_rows(task_row):
+        try:
+            atomic_index = int(row[0])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("input row is missing a valid atomic_index") from exc
+        label_code = str(row[1]).strip()
+        label = LINE_ROLE_LABEL_BY_CODE.get(label_code)
+        if label is None:
+            unknown_codes.append(label_code or "<blank>")
+            label = "OTHER"
+        rows_payload.append(
+            {
+                "atomic_index": atomic_index,
+                "label": label,
+            }
+        )
+    if unknown_codes:
+        rendered = ", ".join(sorted(set(unknown_codes)))
+        raise ValueError(f"unknown line-role label code(s): {rendered}")
+    return {"rows": rows_payload}
+
+
+def build_line_role_seed_output_for_workspace(
+    workspace_root: Path,
+    task_row: Mapping[str, Any],
+) -> dict[str, Any]:
+    rows_payload: list[dict[str, Any]] = []
+    unknown_codes: list[str] = []
+    for row in _coerce_input_rows(task_row, workspace_root=workspace_root):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError) as exc:
@@ -302,6 +357,37 @@ def render_line_role_task_show(task_row: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_line_role_current_task_brief(task_row: Mapping[str, Any]) -> str:
+    task_id = str(task_row.get("task_id") or "").strip() or "<unknown>"
+    parent_shard_id = str(task_row.get("parent_shard_id") or "").strip() or "<unknown>"
+    metadata = _coerce_metadata(task_row)
+    counts = metadata.get("deterministic_label_counts")
+    rendered_counts = (
+        ", ".join(f"{label}={count}" for label, count in dict(counts).items())
+        if isinstance(counts, Mapping) and counts
+        else "unknown"
+    )
+    return "\n".join(
+        [
+            "# Current Line-Role Task",
+            "",
+            f"Task id: `{task_id}`",
+            f"Parent shard: `{parent_shard_id}`",
+            f"Owned rows: `{metadata.get('owned_row_count')}`",
+            f"Atomic span: `{metadata.get('atomic_index_start')}..{metadata.get('atomic_index_end')}`",
+            f"Deterministic labels: {rendered_counts}",
+            "",
+            "Read order:",
+            f"1. Draft: `{metadata.get('scratch_draft_path') or '<missing>'}`",
+            f"2. Hint: `{metadata.get('hint_path') or '<missing>'}`",
+            "3. Open the raw `input_path` only if the draft or hint is insufficient.",
+            f"4. Finalize to: `{metadata.get('result_path') or '<missing>'}`",
+            "",
+            "`assigned_tasks.json` is queue/progress context only.",
+        ]
+    ) + "\n"
+
+
 def render_line_role_worker_script() -> str:
     allowed_labels_json = json.dumps(list(LINE_ROLE_ALLOWED_LABELS), sort_keys=True)
     label_by_code_json = json.dumps(LINE_ROLE_LABEL_BY_CODE, sort_keys=True)
@@ -340,10 +426,19 @@ def coerce_metadata(task_row):
     return {{}}
 
 
-def coerce_input_rows(task_row):
+def coerce_input_rows(workspace_root: Path, task_row):
     input_payload = task_row.get("input_payload")
     if not isinstance(input_payload, dict):
-        return []
+        metadata = coerce_metadata(task_row)
+        input_path = str(metadata.get("input_path") or "").strip()
+        if not input_path:
+            return []
+        candidate_path = (workspace_root / input_path).resolve()
+        if not candidate_path.exists():
+            return []
+        input_payload = load_json(candidate_path)
+        if not isinstance(input_payload, dict):
+            return []
     rows = input_payload.get("rows")
     if not isinstance(rows, list):
         return []
@@ -392,7 +487,7 @@ def resolve_task_row(workspace_root: Path, task_id: str | None):
 def build_seed_output(task_row):
     rows_payload = []
     unknown_codes = []
-    for row in coerce_input_rows(task_row):
+    for row in coerce_input_rows(Path.cwd(), task_row):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError):
@@ -411,7 +506,7 @@ def build_seed_output(task_row):
 
 def validate_payload(task_row, payload):
     errors = []
-    expected_rows = coerce_input_rows(task_row)
+    expected_rows = coerce_input_rows(Path.cwd(), task_row)
     expected_atomic_indices = []
     for row in expected_rows:
         try:

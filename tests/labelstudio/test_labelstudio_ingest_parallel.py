@@ -2222,6 +2222,45 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
     assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
 
 
+def test_nonrecipe_authority_projection_ignores_unreviewed_review_eligible_seed_guess() -> None:
+    predictions = [
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:10",
+            block_index=10,
+            atomic_index=10,
+            text="Balancing Fat",
+            within_recipe_span=False,
+            label="KNOWLEDGE",
+            decided_by="codex",
+            reason_tags=["knowledge_heading"],
+        )
+    ]
+    nonrecipe_stage_result = NonRecipeStageResult(
+        nonrecipe_spans=[],
+        knowledge_spans=[],
+        other_spans=[],
+        block_category_by_index={10: "other"},
+        review_eligible_block_indices=[10],
+        final_authority_block_indices=[],
+        unreviewed_review_eligible_block_indices=[10],
+        refinement_report={
+            "authority_mode": "deterministic_seed_only",
+            "scored_effect": "seed_only",
+            "changed_blocks": [],
+        },
+    )
+
+    adjusted, summary = _apply_nonrecipe_authority_to_predictions(
+        predictions=predictions,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    assert summary["authority_mode"] == "deterministic_seed_only"
+    assert adjusted[0].label == "KNOWLEDGE"
+    assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
+
+
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(
     monkeypatch, tmp_path: Path
 ) -> None:

@@ -135,6 +135,7 @@ Current interactive contracts:
 - single-book `upload_bundle_v1` is now a curated first-pass packet by default, capped to about 30 MB via the existing high-level bundle mode instead of embedding the full lossless payload dump; deeper evidence is expected to move through `cf-debug` follow-up packets when needed
 - upload-bundle recipe-correction accounting must parse both legacy single-recipe outputs and compact shard outputs (`payload.r[].cr` / `payload.r[].m`); `empty_output_signal` now means the parsed correction payload was actually empty, not just that the mapping object was empty
 - upload-bundle warning summaries now keep empty-mapping counts separate from actual empty-output counts, and recipe-correction status rollups prefer output-aware labels such as `nonempty_output_without_manifest_status` when manifest/runtime status is missing but parsed outputs exist
+- upload-bundle recipe-stage observability now reads recipe manifest diagnostics from `processed_output_run_dir` / `stage_run_dir` (and explicit `recipe_manifest_json`) when no `pred_run_dir` exists, so final mapping / structural statuses are not silently downgraded to generic projection gaps
 - benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log volume only
 - benchmark status panels now treat generic `task X/Y | running N` progress strings as worker activity, so shard-backed line-role and similar phases do not collapse back to one stale status line
 - recipe, knowledge, and line-role benchmark progress now all share the same story shape: visible work-unit counter, separate worker-session summary, separate repo follow-up/finalization summary, and worker rows that represent real worker sessions rather than repo cleanup
@@ -156,6 +157,7 @@ Active use cases:
 - audit knowledge-stage evidence
 - build additive `followup_dataN/` packets
 - when requested regression ids are missing and no negative-delta recipes remain, the base bundle casebook now falls back to high-signal recipes (outside-span density / changed-line / error pressure) instead of mislabeling zero-delta rows as top negative deltas
+- `analysis.explicit_escalation_changed_lines_packet` now joins changed canonical lines against line-role predictions by `line_index` first and falls back to `atomic_index` when canonical runs emit atomic-only prediction rows
 
 Knowledge extraction is now a first-class follow-up seam:
 
@@ -249,7 +251,7 @@ Current line-role and knowledge behavior:
   - `extracted_archive.json` carries the matching atomic line coordinates and `line_role_projection` metadata
   - outside-recipe `KNOWLEDGE` versus `OTHER` labels in that projection must come from the final non-recipe authority, not the pre-knowledge seed
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
-- `08_nonrecipe_spans.json` is the authoritative scored outside-span contract; it contains both the deterministic seed and the final post-knowledge authority
+- `08_nonrecipe_spans.json` is the authoritative scored outside-span contract; it contains Stage 7 routing, explicit final-authority indices/categories, and unreviewed seed-kept metadata
 - `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge refinement plus snippet outputs
 - prompt preview and live knowledge harvest both rebuild from the same compact `build_knowledge_jobs(...)` inputs
 - knowledge worker manifests and per-shard status files may now end with explicit knowledge-runtime reason codes such as `workspace_outputs_stabilized`, `watchdog_malformed_final_output`, or `watchdog_retry_oversized_skipped`; these mean the worker stopped after stabilized owned outputs, a strict retry emitted malformed pseudo-final JSON, or a multi-chunk oversized watchdog retry was intentionally skipped
@@ -458,11 +460,11 @@ Primary benchmark modules:
 ## 10. Recent Durable Notes
 
 - In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
-- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. Stage 7 deterministic labels now own outside-recipe `KNOWLEDGE` vs `OTHER`, so optional knowledge harvest no longer relabels benchmark truth.
+- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. Stage 7 now only routes outside-recipe review, while the knowledge stage owns review-eligible `KNOWLEDGE` vs `OTHER` for benchmark truth.
 - Single-book benchmark folder naming is about Codex participation, not every deterministic helper. A run with recipe Codex off and only deterministic line-role still belongs under `vanilla/`; only actual Codex-backed line-role belongs in the Codex/hybrid branch.
 - High Codex recipe task counts in single-book runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
 - Tiny line-role token spend in a Codex single-book run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.
-- Canonical benchmark scoring should project final non-recipe authority, not just deterministic seed labels. The current contract is seed deterministic authority plus optional knowledge-stage refinement merged into final scored `KNOWLEDGE` / `OTHER`.
+- Canonical benchmark scoring should project explicit final non-recipe authority, not raw deterministic seed labels. The current contract is Stage 7 routing plus optional knowledge-stage review merged into final scored `KNOWLEDGE` / `OTHER`.
 - Benchmark prompt export should include every CodexFarm interaction the reviewer cares about:
   - recipe correction
   - line-role prompt artifacts copied from `line-role-pipeline/prompts`

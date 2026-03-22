@@ -122,6 +122,13 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class _KnowledgeWorkspaceStageCommandViolation:
+    policy: str
+    reason_code: str
+    reason: str
+
+
 def _build_knowledge_task_manifest_entry(
     shard: ShardManifestEntryV1,
 ) -> TaskManifestEntryV1:
@@ -1246,8 +1253,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
         ) = _collect_block_category_updates(
             outputs=outputs,
             allowed_block_indices=(
-                nonrecipe_stage_result.seed_block_category_by_index
-                or nonrecipe_stage_result.block_category_by_index
+                nonrecipe_stage_result.review_eligible_seed_block_category_by_index()
             ),
         )
         refined_stage_result = refine_nonrecipe_stage_result(
@@ -3144,17 +3150,17 @@ def _build_knowledge_workspace_worker_prompt(
         "",
         "Required local loop:",
         "1. Open `worker_manifest.json`, then `CURRENT_BATCH.md`, then `current_batch.json`, then `CURRENT_BATCH_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
-        "2. Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative current-batch surface. `assigned_tasks.json` is only the ordered queue/progress reference. Single-task `CURRENT_TASK*` files are fallback recovery surfaces for the first active task.",
+        "2. Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative current-batch surface. `assigned_tasks.json` is background queue/progress context only and should not be dumped directly during the main loop. Single-task `CURRENT_TASK*` files are fallback recovery surfaces for the first active task, not the normal batch path.",
         "3. Open the raw hint/input files named by the current batch only when the batch packet is insufficient: `tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path` in `current_batch.json`.",
         "4. Use the paved road: run `python3 tools/knowledge_worker.py complete-batch`, edit the prewritten drafts under `scratch/current_batch/`, run `python3 tools/knowledge_worker.py check-batch`, and run `python3 tools/knowledge_worker.py install-batch` after the checker says OK or when you want the repo to install the longest valid prefix you already repaired.",
         "5. A task is not finished until its batch draft validates. Direct writes to `out/<task_id>.json` without a passing repo-written checker are incomplete work.",
         "6. After each validation failure, re-open `CURRENT_BATCH_FEEDBACK.md`. After each successful install, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`. If a new batch is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo owns batch advancement.",
         "7. If you need orientation, use `python3 tools/knowledge_worker.py current-batch`, `python3 tools/knowledge_worker.py next-batch`, `python3 tools/knowledge_worker.py explain-failure`, `python3 tools/knowledge_worker.py overview`, or `python3 tools/knowledge_worker.py show-batch` instead of dumping the queue back to yourself.",
-        "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, broad inline schedulers, or one-off validators.",
+        "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, helper-source spelunking, broad inline schedulers, or one-off validators.",
         "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "10. Write one completed semantic packet result file per listed batch task only. Do not work ahead on later tasks outside the current batch while the repo-owned batch still has unaccepted drafts.",
         "11. Do not invent extra packets, skip owned chunks, or write outside the listed `result_path` files.",
-        "12. Do not invent your own shell batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, or run extra shell checks against finished files in `out/` beyond the repo-written `check-batch` / `install-batch` loop.",
+        "12. Do not invent your own shell batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, read `tools/knowledge_worker.py` just to rediscover commands, switch back to `install-current`-style single-task helpers while a batch is active, or run extra shell checks against finished files in `out/` beyond the repo-written `check-batch` / `install-batch` loop. The main-worker watchdog treats those detours as off-contract behavior.",
         "",
         "Semantic packet result contract for each assigned result path:",
         "- Write exactly one JSON object.",
@@ -5893,6 +5899,7 @@ def _build_strict_json_watchdog_callback(
         nonlocal last_output_progress_command_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
+        last_command_stage_violation: _KnowledgeWorkspaceStageCommandViolation | None = None
         allowed_absolute_roots = (
             [execution_workspace_root]
             if execution_workspace_root is not None
@@ -5979,16 +5986,20 @@ def _build_strict_json_watchdog_callback(
             and workspace_output_stable_passes >= _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES
         ):
             decision = CodexExecSupervisionDecision.terminate(
-                reason_code="workspace_outputs_stabilized",
+                reason_code="workspace_validated_task_queue_incomplete",
                 reason_detail=(
-                    "knowledge workspace worker wrote every assigned output file and the "
-                    "files stabilized across consecutive supervision snapshots"
+                    "knowledge workspace worker wrote stable output files, but the "
+                    "repo-owned task queue controller is missing so queue completion "
+                    "cannot be proven"
                 ),
-                retryable=False,
-                supervision_state="completed",
+                retryable=True,
+                supervision_state="completed_with_failures",
             )
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
+                last_command_stage_violation = _detect_knowledge_workspace_stage_violation(
+                    snapshot.last_command
+                )
                 if (
                     forbid_inline_python_heredocs
                     and re.search(
@@ -6002,6 +6013,15 @@ def _build_strict_json_watchdog_callback(
                             "workspace worker used inline python heredoc execution instead "
                             "of the repo-written helper or a short local file"
                         ),
+                        retryable=True,
+                    )
+                if (
+                    decision is None
+                    and last_command_stage_violation is not None
+                ):
+                    decision = CodexExecSupervisionDecision.terminate(
+                        reason_code=last_command_stage_violation.reason_code,
+                        reason_detail=last_command_stage_violation.reason,
                         retryable=True,
                     )
                 if decision is None and last_command_boundary_violation is None:
@@ -6083,11 +6103,7 @@ def _build_strict_json_watchdog_callback(
             )
         status_payload = {
             "state": (
-                "completed"
-                if isinstance(decision, CodexExecSupervisionDecision)
-                and decision.action == "terminate"
-                and str(decision.supervision_state or "").strip() == "completed"
-                else "watchdog_killed"
+                str(decision.supervision_state or "watchdog_killed").strip()
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
                 else "running"
@@ -6115,6 +6131,19 @@ def _build_strict_json_watchdog_callback(
             "last_command_boundary_reason": (
                 last_command_boundary_violation.reason
                 if last_command_boundary_violation is not None
+                else None
+            ),
+            "last_command_stage_violation_detected": (
+                last_command_stage_violation is not None
+            ),
+            "last_command_stage_policy": (
+                last_command_stage_violation.policy
+                if last_command_stage_violation is not None
+                else None
+            ),
+            "last_command_stage_reason": (
+                last_command_stage_violation.reason
+                if last_command_stage_violation is not None
                 else None
             ),
             "reasoning_item_count": snapshot.reasoning_item_count,
@@ -6170,6 +6199,108 @@ def _build_strict_json_watchdog_callback(
         return decision
 
     return _callback
+
+
+def _detect_knowledge_workspace_stage_violation(
+    command_text: str | None,
+) -> _KnowledgeWorkspaceStageCommandViolation | None:
+    cleaned_command = str(command_text or "").strip()
+    if not cleaned_command:
+        return None
+    normalized_command = re.sub(r"\s+", " ", cleaned_command.lower())
+
+    if re.search(
+        r"\bpython3?\s+tools/knowledge_worker\.py\s+"
+        r"(?:complete-current|check-current|install-current|current|next)\b",
+        normalized_command,
+    ):
+        return _KnowledgeWorkspaceStageCommandViolation(
+            policy="knowledge_single_task_helper_during_batch",
+            reason_code="watchdog_batch_contract_bypass_single_task_helper",
+            reason=(
+                "knowledge batch workers must stay on the repo-owned batch loop; "
+                "single-task helpers such as `complete-current`, `check-current`, "
+                "`install-current`, `current`, and `next` are off-contract while a "
+                "batch is active"
+            ),
+        )
+
+    if "assigned_tasks.json" in normalized_command:
+        return _KnowledgeWorkspaceStageCommandViolation(
+            policy="knowledge_assigned_tasks_inventory_dump",
+            reason_code="watchdog_batch_contract_bypass_inventory_dump",
+            reason=(
+                "knowledge batch workers must not dump or script directly against "
+                "`assigned_tasks.json`; use `current-batch`, `next-batch`, "
+                "`show-batch`, or `overview` instead"
+            ),
+        )
+
+    if (
+        ("for " in normalized_command or "while " in normalized_command or "$(seq" in normalized_command)
+        and any(
+            marker in normalized_command
+            for marker in (
+                "out/",
+                "current_task.json",
+                "current_batch.json",
+                "assigned_tasks.json",
+            )
+        )
+    ):
+        return _KnowledgeWorkspaceStageCommandViolation(
+            policy="knowledge_shell_scheduler_bypass",
+            reason_code="watchdog_batch_contract_bypass_shell_scheduler",
+            reason=(
+                "knowledge batch workers must not invent shell schedulers or broad "
+                "validation loops over queue/output files; use the repo-written "
+                "`complete-batch`, `check-batch`, and `install-batch` loop instead"
+            ),
+        )
+
+    if any(
+        marker in normalized_command
+        for marker in (
+            "_build_current_batch_payload",
+            "_write_current_batch_sidecars",
+            "write_current_batch_sidecars",
+            "write_current_task_sidecars",
+        )
+    ) or (
+        "current_batch.json" in normalized_command
+        and any(
+            marker in normalized_command
+            for marker in ("write_text(", "> current_batch.json", ">> current_batch.json")
+        )
+    ):
+        return _KnowledgeWorkspaceStageCommandViolation(
+            policy="knowledge_runtime_control_rewrite",
+            reason_code="watchdog_batch_contract_bypass_runtime_control_rewrite",
+            reason=(
+                "knowledge batch workers must not rewrite repo-owned queue-control "
+                "files such as `current_batch.json`; the repo owns batch advancement"
+            ),
+        )
+
+    if "tools/knowledge_worker.py" in normalized_command:
+        allowed_helper_command = re.search(
+            r"\bpython3?\s+tools/knowledge_worker\.py\s+"
+            r"(?:complete-batch|check-batch|install-batch|current-batch|next-batch|"
+            r"show-batch|overview|explain-failure|show)\b",
+            normalized_command,
+        )
+        if allowed_helper_command is None:
+            return _KnowledgeWorkspaceStageCommandViolation(
+                policy="knowledge_helper_source_spelunking",
+                reason_code="watchdog_batch_contract_bypass_helper_source_read",
+                reason=(
+                    "knowledge batch workers must use the repo-written helper CLI as "
+                    "documented instead of reading helper source or probing ad hoc "
+                    "helper commands such as `--help` during the main loop"
+                ),
+            )
+
+    return None
 
 
 def _finalize_live_status(

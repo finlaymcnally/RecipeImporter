@@ -10,7 +10,9 @@ from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_WORKER_TOOL_FILENAME,
     build_line_role_scratch_draft_path,
     build_line_role_seed_output,
+    build_line_role_seed_output_for_workspace,
     build_line_role_workspace_task_metadata,
+    render_line_role_current_task_brief,
     render_line_role_worker_script,
     validate_line_role_output_payload,
 )
@@ -49,7 +51,6 @@ def _write_workspace_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
         "task_kind": "line_role_label_packet",
         "parent_shard_id": "line-role-canonical-0001-a000000-a000001",
         "owned_ids": ["0", "1"],
-        "input_payload": input_payload,
         "metadata": metadata,
     }
     (workspace_root / "assigned_tasks.json").write_text(
@@ -86,7 +87,12 @@ def _write_workspace_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
         encoding="utf-8",
     )
     (workspace_root / build_line_role_scratch_draft_path(task_id)).write_text(
-        json.dumps(build_line_role_seed_output(task_row), indent=2, sort_keys=True) + "\n",
+        json.dumps(
+            build_line_role_seed_output_for_workspace(workspace_root, task_row),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
         encoding="utf-8",
     )
     return workspace_root, task_row
@@ -129,6 +135,37 @@ def test_line_role_workspace_task_metadata_defaults_scratch_draft_path() -> None
     assert metadata["scratch_draft_path"] == (
         "scratch/line-role-canonical-0001-a000000-a000001.task-001.json"
     )
+
+
+def test_line_role_workspace_seed_output_can_load_rows_from_metadata_input_path(
+    tmp_path: Path,
+) -> None:
+    workspace_root, task_row = _write_workspace_fixture(tmp_path)
+
+    payload = build_line_role_seed_output_for_workspace(workspace_root, task_row)
+
+    assert payload == {
+        "rows": [
+            {"atomic_index": 0, "label": "INGREDIENT_LINE"},
+            {"atomic_index": 1, "label": "INSTRUCTION_LINE"},
+        ]
+    }
+
+
+def test_line_role_current_task_brief_stays_metadata_only(tmp_path: Path) -> None:
+    workspace_root, task_row = _write_workspace_fixture(tmp_path)
+
+    current_task_payload = json.loads(
+        (workspace_root / "current_task.json").read_text(encoding="utf-8")
+    )
+    assert "input_payload" not in current_task_payload
+
+    brief_text = render_line_role_current_task_brief(task_row)
+
+    assert "Current Line-Role Task" in brief_text
+    assert "Draft:" in brief_text
+    assert "assigned_tasks.json` is queue/progress context only." in brief_text
+    assert "1 cup flour" not in brief_text
 
 
 def test_line_role_workspace_helper_cli_prepare_all_check_and_finalize_all(

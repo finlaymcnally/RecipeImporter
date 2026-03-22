@@ -39,8 +39,8 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Applies staging safety normalization for ingredient lines.
   - Applies deterministic fallback instruction-step segmentation from run settings before section extraction/step parsing.
 - `cookimport/staging/nonrecipe_stage.py`
-  - Deterministic Stage 7 ownership for all outside-recipe blocks.
-  - Builds a deterministic seed non-recipe authority and preserves the final refined authority when the optional knowledge stage changes `knowledge` versus `other`.
+  - Deterministic Stage 7 review routing for all outside-recipe blocks.
+  - Builds the seed routing split between review-excluded final `other` and review-eligible blocks, keeps the practical fallback category map for artifact readability, and records explicit final-authority block indices separately from unreviewed seed-kept rows.
   - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
 - `cookimport/staging/writer.py`
   - Writes intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
@@ -149,9 +149,10 @@ Tags embedding note:
 - Those tags now come directly from recipe correction plus deterministic normalization.
 
 Stage-block `KNOWLEDGE` label contract:
-- `stage_block_predictions.json` now uses the final non-recipe authority recorded in `08_nonrecipe_spans.json`.
-- `08_nonrecipe_spans.json` carries both the deterministic seed and the final authority, plus a refinement report when Codex knowledge changes outside-recipe ownership.
+- `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `08_nonrecipe_spans.json`.
+- `08_nonrecipe_spans.json` carries the seed routing map, the practical fallback category map, the explicit `final_authority_block_indices`, the `authoritative_block_category_by_index` projection seam, and the refinement report that explains which review-eligible rows stayed unreviewed.
 - Optional knowledge snippets are reviewer-facing evidence; Codex `block_decisions` are what can refine final `KNOWLEDGE` versus `OTHER`.
+- Review-eligible rows that remain unreviewed may still appear as fallback `other` in Stage 7 artifacts, but they must not be treated as reviewed semantic authority by scoring or Label Studio projection.
 - Chunk-lane fallback remains only for paths that do not have Stage 7 ownership wired through.
 
 Stage-block label resolution contract:

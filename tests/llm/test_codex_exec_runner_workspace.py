@@ -320,6 +320,22 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_current_batch_files(
     assert "CURRENT_BATCH.md" in worker_manifest["entry_files"]
     assert "CURRENT_BATCH_FEEDBACK.md" in worker_manifest["entry_files"]
     assert (
+        "For knowledge batch workspaces, use only the repo-written batch helper commands during the main loop; direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours are off-contract."
+        in worker_manifest["notes"]
+    )
+    assert "python3 tools/knowledge_worker.py complete-current" not in worker_manifest[
+        "workspace_local_shell_examples"
+    ]
+    assert "python3 tools/knowledge_worker.py current-batch" in worker_manifest[
+        "workspace_local_shell_examples"
+    ]
+    assert "python3 tools/knowledge_worker.py next-batch" in worker_manifest[
+        "workspace_local_shell_examples"
+    ]
+    assert worker_manifest["workspace_commands_forbidden"][0] == (
+        "direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours while a knowledge batch is active"
+    )
+    assert (
         workspace.execution_working_dir / "current_batch.json"
     ).read_text(encoding="utf-8") == (
         source_root / "current_batch.json"
@@ -515,6 +531,100 @@ def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
     assert synced_output == {"rows": [{"atomic_index": 1, "label": "OTHER"}]}
 
 
+def test_subprocess_workspace_worker_parses_token_usage_from_text_stream(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    source_root.mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_tasks.json").write_text(
+        json.dumps([{"task_id": "task-001", "parent_shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "assigned_shards.json").write_text(
+        json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "out").mkdir(parents=True, exist_ok=True)
+
+    class _FakeStdin:
+        def __init__(self) -> None:
+            self.buffer: list[str] = []
+
+        def write(self, text: str) -> int:
+            self.buffer.append(text)
+            return len(text)
+
+        def close(self) -> None:
+            return None
+
+    class _Stream:
+        def __init__(self, lines: list[str]) -> None:
+            self._lines = list(lines)
+
+        def readline(self) -> str:
+            if self._lines:
+                return self._lines.pop(0)
+            return ""
+
+        def close(self) -> None:
+            return None
+
+    class _FakeProcess:
+        def __init__(self, command, _fake_stdin_cls=_FakeStdin, **kwargs):  # noqa: ANN001
+            self.stdin = _fake_stdin_cls()
+            self.stdout = _Stream(
+                [
+                    json.dumps({"type": "thread.started"}) + "\n",
+                    json.dumps(
+                        {
+                            "type": "item.completed",
+                            "item": {
+                                "type": "agent_message",
+                                "text": "Finished local task loop.",
+                            },
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = _Stream(
+                [
+                    "Token usage: total=130 input=100 (+ 10 cached) output=20 (reasoning 0)\n",
+                ]
+            )
+            self.returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner.subprocess.Popen",
+        _FakeProcess,
+    )
+
+    runner = SubprocessCodexExecRunner(cmd="codex exec")
+    result = runner.run_workspace_worker(
+        prompt_text="Process local task files and write outputs.",
+        working_dir=source_root,
+        env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
+        workspace_task_label="canonical line-role worker session",
+    )
+
+    assert result.usage == {
+        "input_tokens": 100,
+        "cached_input_tokens": 10,
+        "output_tokens": 20,
+        "reasoning_tokens": 0,
+    }
+
+
 def test_workspace_supervision_pushes_advanced_current_task_bundle_back_to_execution_root(
     tmp_path: Path,
 ) -> None:
@@ -668,11 +778,11 @@ def test_subprocess_runner_uses_sterile_execution_workspace(
             return None
 
     class _FakeProcess:
-        def __init__(self, command, **kwargs):  # noqa: ANN001
+        def __init__(self, command, _fake_stdin_cls=_FakeStdin, **kwargs):  # noqa: ANN001
             captured["command"] = list(command)
             captured["cwd"] = kwargs.get("cwd")
             captured["env"] = dict(kwargs.get("env") or {})
-            self.stdin = _FakeStdin()
+            self.stdin = _fake_stdin_cls()
             self.stdout = _Stream(
                 [
                     json.dumps({"type": "thread.started"}) + "\n",
@@ -788,8 +898,8 @@ def test_subprocess_runner_can_terminate_from_streamed_watchdog_snapshot(
             return None
 
     class _FakeProcess:
-        def __init__(self) -> None:
-            self.stdin = _FakeStdin()
+        def __init__(self, _fake_stdin_cls=_FakeStdin) -> None:
+            self.stdin = _fake_stdin_cls()
             self.returncode: int | None = None
             self.stdout = _BlockingStream(
                 self,
@@ -893,8 +1003,8 @@ def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
             return None
 
     class _FakeProcess:
-        def __init__(self, cwd: Path) -> None:
-            self.stdin = _FakeStdin()
+        def __init__(self, cwd: Path, _fake_stdin_cls=_FakeStdin) -> None:
+            self.stdin = _fake_stdin_cls()
             self.returncode: int | None = None
             self.stdout = _BlockingStream(
                 self,

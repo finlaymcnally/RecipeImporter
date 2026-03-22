@@ -84,6 +84,7 @@ from cookimport.parsing.line_role_workspace_tools import (
     build_line_role_scratch_draft_path,
     build_line_role_seed_output,
     build_line_role_workspace_task_metadata,
+    render_line_role_current_task_brief,
     render_line_role_worker_script,
 )
 
@@ -118,6 +119,7 @@ _STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
 _LINE_ROLE_COHORT_WATCHDOG_MIN_COMPLETED_SHARDS = 3
 _LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS = 1_000
 _LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR = 4.0
+_LINE_ROLE_CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
 _LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT = 16
 _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT = 4
@@ -2317,6 +2319,19 @@ def _build_line_role_task_manifest_entry(
     )
 
 
+def _build_line_role_worker_task_row(
+    task_plan: _LineRoleTaskPlan,
+) -> dict[str, Any]:
+    task_manifest = _build_line_role_task_manifest_entry(task_plan)
+    return {
+        "task_id": task_manifest.task_id,
+        "task_kind": task_manifest.task_kind,
+        "parent_shard_id": task_manifest.parent_shard_id,
+        "owned_ids": [str(value).strip() for value in task_manifest.owned_ids if str(value).strip()],
+        "metadata": _coerce_mapping_dict(task_manifest.metadata),
+    }
+
+
 def _validate_line_role_payload_semantics(
     *,
     payload: Mapping[str, Any],
@@ -2834,16 +2849,18 @@ def _run_line_role_workspace_worker_assignment_v1(
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
-    assigned_task_rows = [
-        _line_role_asdict(_build_line_role_task_manifest_entry(task))
-        for task in all_task_plans
-    ]
+    assigned_task_rows = [_build_line_role_worker_task_row(task) for task in all_task_plans]
     assigned_task_row_by_task_id = {
         str(task_row.get("task_id") or "").strip(): task_row
         for task_row in assigned_task_rows
         if str(task_row.get("task_id") or "").strip()
     }
     _write_runtime_json(worker_root / "assigned_tasks.json", assigned_task_rows)
+    if assigned_task_rows:
+        (worker_root / _LINE_ROLE_CURRENT_TASK_BRIEF_FILE_NAME).write_text(
+            render_line_role_current_task_brief(assigned_task_rows[0]),
+            encoding="utf-8",
+        )
     _write_line_role_worker_examples(worker_root=worker_root)
     _write_line_role_output_contract(worker_root=worker_root)
     _write_line_role_worker_tools(worker_root=worker_root)
@@ -2855,7 +2872,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             draft_path = worker_root / build_line_role_scratch_draft_path(task_id)
             _write_runtime_json(
                 draft_path,
-                build_line_role_seed_output(task_row),
+                build_line_role_seed_output({"input_payload": task_manifest.input_payload}),
             )
         _write_worker_debug_input(
             path=in_dir / f"{task_id}.json",
@@ -4339,17 +4356,17 @@ def _build_line_role_workspace_worker_prompt(
         "You are processing many canonical line-role task packets inside one local worker workspace.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
-        "- Start by opening `worker_manifest.json`, then `current_task.json`, then `OUTPUT_CONTRACT.md`.\n"
-        "- The normal path is repo-written already: open `hints/<task_id>.md`, `in/<task_id>.json`, and the `metadata.scratch_draft_path` named in `current_task.json`; edit that prewritten draft only where the deterministic seed is wrong; then run `python3 tools/line_role_worker.py finalize <draft_path>`.\n"
+        "- Start by opening `worker_manifest.json`, then `CURRENT_TASK.md`, then `OUTPUT_CONTRACT.md`. Open `current_task.json` when you need the exact metadata fields or file paths.\n"
+        "- The normal path is repo-written already: open the `metadata.scratch_draft_path` named in `current_task.json`, then `hints/<task_id>.md`; open `in/<task_id>.json` only when the draft or hint seems insufficient; edit that prewritten draft only where the deterministic seed is wrong; then run `python3 tools/line_role_worker.py finalize <draft_path>`.\n"
         "- If several prewritten drafts are ready, `python3 tools/line_role_worker.py finalize-all scratch/` is the preferred bulk completion path.\n"
         "- If `tools/line_role_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.\n"
         "- `python3 tools/line_role_worker.py overview`, `show <task_id>`, `check <json_path>`, `prepare-all --dest-dir scratch/`, and `scaffold <task_id> --dest scratch/<task_id>.json` are fallback/debug tools, not the default starting path.\n"
         "- Long handwritten `jq` transforms are unnecessary here because the helper can already expand the deterministic label codes into the correct output shape.\n"
         "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on the named local files only.\n"
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
-        "- Treat `current_task.json` as the cheapest repo-written next task row. Open its named files first.\n"
-        "- Use `assigned_tasks.json` for the ordered queue and `assigned_shards.json` only for shard ownership context.\n"
-        "- For each assigned task, open `hints/<task_id>.md` first, then open `in/<task_id>.json`.\n"
+        "- Treat `CURRENT_TASK.md` as the cheapest repo-written first read. Use `current_task.json` only for the exact metadata and named file paths.\n"
+        "- Use `assigned_tasks.json` only for ordered queue/progress context and `assigned_shards.json` only for shard ownership context.\n"
+        "- For each assigned task, start from the prewritten draft and hint before reopening the raw packet.\n"
         "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative task packet for that worker step.\n"
         "- Treat each packet's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
         "- If `OUTPUT_CONTRACT.md` or `examples/` exists, use those repo-written files as the authoritative output-shape reference.\n"
@@ -4553,9 +4570,13 @@ def _write_line_role_worker_hint(
     )
 
 
-def _distribute_line_role_session_value(total: int | None, parts: int) -> list[int]:
+def _distribute_line_role_session_value(
+    total: int | None, parts: int
+) -> list[int | None]:
     normalized_parts = max(1, int(parts))
-    normalized_total = max(0, int(total or 0))
+    if total is None:
+        return [None for _ in range(normalized_parts)]
+    normalized_total = max(0, int(total))
     base, remainder = divmod(normalized_total, normalized_parts)
     return [base + (1 if index < remainder else 0) for index in range(normalized_parts)]
 
@@ -4602,11 +4623,20 @@ def _build_line_role_workspace_task_runner_payload(
         for field_name in share_fields:
             shares = _distribute_line_role_session_value(row_payload.get(field_name), task_count)
             row_payload[field_name] = shares[task_index]
+        token_total_shares = _distribute_line_role_session_value(
+            _safe_int_value(row_payload.get("tokens_total")),
+            task_count,
+        )
+        token_components = (
+            _safe_int_value(row_payload.get("tokens_input")),
+            _safe_int_value(row_payload.get("tokens_cached_input")),
+            _safe_int_value(row_payload.get("tokens_output")),
+            _safe_int_value(row_payload.get("tokens_reasoning")),
+        )
         row_payload["tokens_total"] = (
-            int(row_payload.get("tokens_input") or 0)
-            + int(row_payload.get("tokens_cached_input") or 0)
-            + int(row_payload.get("tokens_output") or 0)
-            + int(row_payload.get("tokens_reasoning") or 0)
+            sum(int(value) for value in token_components)
+            if all(value is not None for value in token_components)
+            else token_total_shares[task_index]
         )
         row_payload["prompt_input_mode"] = "workspace_worker"
         row_payload["runtime_task_id"] = runtime_task_id
@@ -5946,6 +5976,8 @@ def _write_line_role_telemetry_summary(
                         "tokens_reasoning": _safe_int_value(first_row.get("tokens_reasoning")),
                         "tokens_total": _safe_int_value(first_row.get("tokens_total")),
                     }
+                    if not _line_role_usage_present(attempt_usage):
+                        attempt_usage = None
             batch_payloads.append(
                 {
                     "prompt_index": plan.prompt_index,
@@ -5955,7 +5987,7 @@ def _write_line_role_telemetry_summary(
                         int(candidate.atomic_index) for candidate in plan.candidates
                     ],
                     "attempt_count": len(matching_rows) or 1,
-                    "attempts_with_usage": 1 if attempt_usage is not None else 0,
+                    "attempts_with_usage": 1 if _line_role_usage_present(attempt_usage) else 0,
                     "attempts": [
                         {
                             "attempt_index": 1,
@@ -5980,17 +6012,12 @@ def _write_line_role_telemetry_summary(
                     "batch_count": len(phase_result.shard_plans),
                     "attempt_count": len(telemetry_rows) or len(phase_result.shard_plans),
                     "attempts_with_usage": sum(
-                        1
-                        for row in telemetry_rows
-                        if any(
-                            _safe_int_value(row.get(key)) is not None
-                            for key in (
-                                "tokens_input",
-                                "tokens_cached_input",
-                                "tokens_output",
-                                "tokens_reasoning",
-                            )
-                        )
+                        1 for row in telemetry_rows if _line_role_usage_present(row)
+                    ),
+                    "attempts_without_usage": max(
+                        0,
+                        (len(telemetry_rows) or len(phase_result.shard_plans))
+                        - sum(1 for row in telemetry_rows if _line_role_usage_present(row)),
                     ),
                     "tokens_input": phase_totals.get("tokens_input"),
                     "tokens_cached_input": phase_totals.get("tokens_cached_input"),
@@ -6080,17 +6107,7 @@ def _write_line_role_telemetry_summary(
                     "attempt_count": len(all_rows)
                     or sum(len(phase_result.shard_plans) for phase_result in runtime_result.phase_results),
                     "attempts_with_usage": sum(
-                        1
-                        for row in all_rows
-                        if any(
-                            _safe_int_value(row.get(key)) is not None
-                            for key in (
-                                "tokens_input",
-                                "tokens_cached_input",
-                                "tokens_output",
-                                "tokens_reasoning",
-                            )
-                        )
+                        1 for row in all_rows if _line_role_usage_present(row)
                     ),
                     "attempts_without_usage": max(
                         0,
@@ -6101,19 +6118,7 @@ def _write_line_role_telemetry_summary(
                                 for phase_result in runtime_result.phase_results
                             )
                         )
-                        - sum(
-                            1
-                            for row in all_rows
-                            if any(
-                                _safe_int_value(row.get(key)) is not None
-                                for key in (
-                                    "tokens_input",
-                                    "tokens_cached_input",
-                                    "tokens_output",
-                                    "tokens_reasoning",
-                                )
-                            )
-                        ),
+                        - sum(1 for row in all_rows if _line_role_usage_present(row)),
                     ),
                     "tokens_input": totals.get("tokens_input"),
                     "tokens_cached_input": totals.get("tokens_cached_input"),
@@ -6231,6 +6236,21 @@ def _sum_runtime_usage(rows: Sequence[dict[str, Any]]) -> dict[str, int | None]:
             current = totals.get(key)
             totals[key] = value if current is None else current + value
     return totals
+
+
+def _line_role_usage_present(payload: Mapping[str, Any] | None) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    return any(
+        _safe_int_value(payload.get(key)) is not None
+        for key in (
+            "tokens_input",
+            "tokens_cached_input",
+            "tokens_output",
+            "tokens_reasoning",
+            "tokens_total",
+        )
+    )
 
 
 def _safe_int_value(value: Any) -> int | None:
@@ -6972,6 +6992,8 @@ def _outside_span_has_neighboring_component_structure(
         tags = {str(tag) for tag in row.rule_tags}
         if {
             "ingredient_like",
+            "instruction_like",
+            "instruction_with_time",
             "yield_prefix",
             "howto_heading",
             "variant_heading",
@@ -6981,7 +7003,7 @@ def _outside_span_has_neighboring_component_structure(
             return True
         if _looks_recipe_start_boundary(row):
             return True
-        if _looks_direct_instruction_start(row):
+        if _looks_instructional_neighbor(row):
             return True
     return False
 

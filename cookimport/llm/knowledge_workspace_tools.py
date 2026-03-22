@@ -16,6 +16,7 @@ from .phase_worker_runtime import ShardManifestEntryV1
 
 _WORKER_SCRIPT_NAME = "knowledge_worker.py"
 _DEFAULT_SCAFFOLD_REASON_CODE = "review_not_completed"
+_STRONG_CUE_SCAFFOLD_REASON_CODE = "strong_cue_review_required"
 _CURRENT_BATCH_FILE_NAME = "current_batch.json"
 _CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
 _CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
@@ -249,16 +250,11 @@ def build_current_batch_payload(
     for offset, row in enumerate(batch_rows, start=1):
         metadata = _coerce_dict(row.get("metadata"))
         task_id = str(row.get("task_id") or "").strip() or "[unknown task]"
-        input_payload = load_task_input_payload(workspace_root=workspace_root, task_row=row)
         batch_tasks.append(
             {
                 "task_id": task_id,
-                "parent_shard_id": str(row.get("parent_shard_id") or task_id).strip() or task_id,
                 "queue_position": int(metadata.get("task_sequence") or current_index + offset),
                 "task_total": int(metadata.get("task_total") or total_task_count),
-                "remaining_after_task": (
-                    max(int(metadata.get("task_total") or total_task_count) - int(metadata.get("task_sequence") or current_index + offset), 0)
-                ),
                 "input_path": str(metadata.get("input_path") or "").strip() or None,
                 "hint_path": str(metadata.get("hint_path") or "").strip() or None,
                 "result_path": str(metadata.get("result_path") or "").strip() or None,
@@ -276,9 +272,7 @@ def build_current_batch_payload(
                     for value in (row.get("owned_ids") or [])
                     if str(value).strip()
                 ],
-                "owned_block_spans": _task_block_spans(input_payload=input_payload),
                 "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
-                "input_bytes": _task_input_bytes(workspace_root=workspace_root, task_row=row),
             }
         )
     batch_start_position = int(_coerce_dict(batch_rows[0].get("metadata")).get("task_sequence") or current_index + 1)
@@ -291,7 +285,6 @@ def build_current_batch_payload(
         "batch_end_position": batch_end_position,
         "task_total": total_task_count,
         "batch_remaining_after_batch": max(total_task_count - batch_end_position, 0),
-        "input_bytes_total": total_input_bytes,
         "draft_dir": str(
             _workspace_display_path(
                 workspace_root=workspace_root,
@@ -300,6 +293,29 @@ def build_current_batch_payload(
         ),
         "tasks": batch_tasks,
     }
+
+
+def _first_batch_task(
+    batch_payload: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(batch_payload, Mapping):
+        return None
+    for task in batch_payload.get("tasks") or []:
+        if isinstance(task, Mapping):
+            return dict(task)
+    return None
+
+
+def _strong_cue_task_ids(batch_payload: Mapping[str, Any] | None) -> list[str]:
+    if not isinstance(batch_payload, Mapping):
+        return []
+    return [
+        str(task.get("task_id") or "").strip()
+        for task in (batch_payload.get("tasks") or [])
+        if isinstance(task, Mapping)
+        and bool(task.get("strong_knowledge_cue"))
+        and str(task.get("task_id") or "").strip()
+    ]
 
 
 def render_current_task_brief_text(
@@ -368,6 +384,12 @@ def render_current_task_brief_text(
             if strong_knowledge_cue
             else "Strong cue: no. It is acceptable to keep everything `other` if the owned text is clearly non-knowledge."
         ),
+        (
+            "The prewritten scaffold is intentionally not install-ready here: it uses "
+            f"`reason_code: \"{_STRONG_CUE_SCAFFOLD_REASON_CODE}\"` until you make the real judgment."
+            if strong_knowledge_cue
+            else "The prewritten scaffold is only a starting point; replace `review_not_completed` before install."
+        ),
         "",
         "This assignment stays active until the repo removes `current_task.json` and rewrites the current-task sidecars to say the queue is complete.",
         "A successful `install-current` is only a handoff to the next repo-owned current task, not a stopping point.",
@@ -406,6 +428,8 @@ def render_current_batch_brief_text(
         for task in batch_tasks
         if str(task.get("task_id") or "").strip()
     ]
+    first_task = _first_batch_task(batch_payload)
+    strong_cue_task_ids = _strong_cue_task_ids(batch_payload)
     lines = [
         "# Current Knowledge Batch",
         "",
@@ -416,8 +440,13 @@ def render_current_batch_brief_text(
         f"Batch task ids: `{', '.join(batch_ids) or '[none]'}`",
         f"Batch task count: `{batch_payload.get('batch_task_count') or 0}`",
         f"Batch draft dir: `{batch_payload.get('draft_dir') or 'scratch/current_batch'}`",
-        f"Batch input bytes: `{batch_payload.get('input_bytes_total') or 0}`",
         f"Remaining tasks after this batch: `{batch_payload.get('batch_remaining_after_batch') or 0}`",
+        (
+            "Strong-cue tasks in this batch: "
+            + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
+            if strong_cue_task_ids
+            else "Strong-cue tasks in this batch: none."
+        ),
         "",
         "This assignment stays active until the repo removes `current_batch.json` and rewrites the batch sidecars to say the queue is complete.",
         "A successful `install-batch` is only a handoff to the next repo-owned current batch, not a stopping point.",
@@ -431,25 +460,26 @@ def render_current_batch_brief_text(
         "6. After `install-batch`, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`. If another batch becomes active, continue with it immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
         "",
         "Single-task `CURRENT_TASK*` files and `complete-current` helpers remain available only for narrow recovery/debugging on the first task in this batch.",
-        "",
-        "Current batch task details:",
     ]
-    for task in batch_tasks:
+    if first_task is not None:
         lines.extend(
             [
-                f"- `{task.get('task_id')}`",
+                "",
+                "First task to work now:",
+                f"- Task id: `{first_task.get('task_id') or '[unknown task]'}`",
                 (
-                    f"  Queue position `{task.get('queue_position')}` of `{task.get('task_total')}`; "
-                    f"draft `{task.get('draft_path') or '?'}`; result `{task.get('result_path') or '?'}`."
+                    f"- Queue position: `{first_task.get('queue_position')}` of "
+                    f"`{first_task.get('task_total')}`"
+                ),
+                f"- Draft path: `{first_task.get('draft_path') or '?'}`",
+                f"- Result path: `{first_task.get('result_path') or '?'}`",
+                (
+                    f"- Owned chunk ids: `{', '.join(first_task.get('owned_chunk_ids') or []) or '[none]'}`"
                 ),
                 (
-                    f"  Owned chunks `{', '.join(task.get('owned_chunk_ids') or []) or '[none]'}`; "
-                    f"block spans `{', '.join(task.get('owned_block_spans') or []) or '[none]'}`."
-                ),
-                (
-                    "  Strong cue: yes."
-                    if bool(task.get("strong_knowledge_cue"))
-                    else "  Strong cue: no."
+                    "- Strong cue: yes. Do not install the prewritten all-`other` scaffold as-is."
+                    if bool(first_task.get("strong_knowledge_cue"))
+                    else "- Strong cue: no."
                 ),
             ]
         )
@@ -605,6 +635,8 @@ def render_current_batch_feedback_text(
             0,
         )
         task_total = int(batch_payload.get("task_total") or len(batch_tasks))
+        first_task = _first_batch_task(batch_payload)
+        strong_cue_task_ids = _strong_cue_task_ids(batch_payload)
         lines = [
             "# Current Batch Feedback",
             "",
@@ -616,12 +648,23 @@ def render_current_batch_feedback_text(
                 f"`{max(task_total - validated_before_batch, 0)}` remain."
             ),
             _ACTIVE_BATCH_ASSIGNMENT_TEXT,
-            "Expected batch draft files:",
+            (
+                "Strong-cue tasks still needing a real judgment: "
+                + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
+                if strong_cue_task_ids
+                else "Strong-cue tasks still needing a real judgment: none."
+            ),
         ]
-        lines.extend(
-            f"- `{task_id}` -> `{task.get('draft_path') or '?'}`"
-            for task_id, task in zip(batch_task_ids, batch_tasks, strict=False)
-        )
+        if first_task is not None:
+            lines.extend(
+                [
+                    "Current first task:",
+                    f"- `{first_task.get('task_id') or '[unknown task]'}`",
+                    f"- Draft: `{first_task.get('draft_path') or '?'}`",
+                    f"- Hint: `{first_task.get('hint_path') or '?'}`",
+                    f"- Input: `{first_task.get('input_path') or '?'}`",
+                ]
+            )
         lines.append(_CHECK_BATCH_AFTER_EDIT_TEXT)
         return "\n".join(lines) + "\n"
     if batch_check_result.valid:
@@ -667,10 +710,19 @@ def render_current_batch_feedback_text(
             ),
             {"task_id": first_invalid_result.task_id},
         )
+        classification = _coerce_dict(first_invalid_result.metadata.get("failure_classification"))
+        classification_code = str(classification.get("reason_code") or "").strip()
+        classification_detail = str(classification.get("reason_detail") or "").strip()
         lines.extend(
             [
                 "",
                 f"First failing task: `{first_invalid_result.task_id}`",
+                *(
+                    [f"Failure class: `{classification_code}`"]
+                    if classification_code
+                    else []
+                ),
+                *([classification_detail] if classification_detail else []),
                 "Validator errors:",
                 *[f"- `{error}`" for error in first_invalid_result.errors],
                 "",
@@ -686,6 +738,8 @@ def render_current_batch_feedback_text(
                 ],
                 "",
                 f"Current failing draft: `{task_row.get('draft_path') or '?'}`",
+                f"Hint file: `{task_row.get('hint_path') or '?'}`",
+                f"Input file: `{task_row.get('input_path') or '?'}`",
             ]
         )
     validated_task_ids = {
@@ -735,6 +789,14 @@ def write_current_task_sidecars(
         render_current_task_brief_text(
             workspace_root=workspace_root,
             task_row=task_row,
+        ),
+        encoding="utf-8",
+    )
+    feedback_path.write_text(
+        render_current_task_feedback_text(
+            task_row=task_row,
+            check_result=check_result,
+            current_draft_path=current_draft_path,
         ),
         encoding="utf-8",
     )
@@ -811,14 +873,6 @@ def write_current_batch_and_task_sidecars(
         current_draft_path=current_draft_path,
     )
     return batch_payload
-    feedback_path.write_text(
-        render_current_task_feedback_text(
-            task_row=task_row,
-            check_result=check_result,
-            current_draft_path=current_draft_path,
-        ),
-        encoding="utf-8",
-    )
 
 
 def current_task_draft_path(*, workspace_root: Path) -> Path:
@@ -1043,6 +1097,7 @@ def render_task_text(*, workspace_root: Path, task_id: str) -> str:
 
 def scaffold_task_payload(*, task_row: Mapping[str, Any], input_payload: Mapping[str, Any]) -> dict[str, Any]:
     task_id = str(task_row.get("task_id") or "").strip()
+    strong_knowledge_cue = bool(_coerce_dict(task_row.get("metadata")).get("strong_knowledge_cue"))
     chunk_results = []
     for chunk in _chunk_rows(input_payload):
         chunk_id = str(chunk.get("cid") or "").strip()
@@ -1065,7 +1120,11 @@ def scaffold_task_payload(*, task_row: Mapping[str, Any], input_payload: Mapping
                 "is_useful": False,
                 "block_decisions": block_decisions,
                 "snippets": [],
-                "reason_code": _DEFAULT_SCAFFOLD_REASON_CODE,
+                "reason_code": (
+                    _STRONG_CUE_SCAFFOLD_REASON_CODE
+                    if strong_knowledge_cue
+                    else _DEFAULT_SCAFFOLD_REASON_CODE
+                ),
             }
         )
     return {
@@ -1471,6 +1530,42 @@ def _format_workspace_validation_failure(
     return "\n".join(lines)
 
 
+def _render_strong_cue_empty_shard_detail_lines(
+    *,
+    validation_metadata: Mapping[str, Any] | None,
+) -> list[str]:
+    metadata = _coerce_dict(validation_metadata)
+    cue_chunk_ids = [
+        str(chunk_id).strip()
+        for chunk_id in (
+            metadata.get("strong_cue_empty_chunk_ids")
+            or metadata.get("knowledge_cue_chunk_ids")
+            or []
+        )
+        if str(chunk_id).strip()
+    ]
+    knowledge_decision_count = int(metadata.get("knowledge_decision_count") or 0)
+    snippet_count = int(metadata.get("snippet_count") or 0)
+    useful_chunk_count = int(metadata.get("useful_chunk_count") or 0)
+    lines = [
+        "This packet has strong knowledge cues, but the current draft still returns "
+        f"`{knowledge_decision_count}` `knowledge` decisions, `{snippet_count}` snippets, "
+        f"and `{useful_chunk_count}` useful chunks."
+    ]
+    if cue_chunk_ids:
+        lines.append(
+            "Cue-bearing chunk ids: "
+            + ", ".join(f"`{chunk_id}`" for chunk_id in cue_chunk_ids)
+            + "."
+        )
+    lines.append(
+        "Re-open the hint and owned input for those chunk ids. Keep at least one "
+        "`knowledge` block plus one short grounded snippet unless the source is clearly "
+        "not reusable cooking knowledge."
+    )
+    return lines
+
+
 def _render_validation_error_help(
     *,
     validation_errors: Sequence[str],
@@ -1538,8 +1633,10 @@ def _render_validation_error_help(
             "`packet_id` must exactly match the current task row's `task_id`."
         )
     if "semantic_all_false_empty_shard" in error_set:
-        help_lines.append(
-            "This packet has strong knowledge cues. Keep at least one `knowledge` block and one grounded snippet unless the owned text is clearly non-knowledge."
+        help_lines.extend(
+            _render_strong_cue_empty_shard_detail_lines(
+                validation_metadata=metadata,
+            )
         )
     if not help_lines:
         help_lines.append(
@@ -1774,6 +1871,7 @@ def render_knowledge_worker_script() -> str:
             "heading": ("other", "decorative_heading"),
         }
         DEFAULT_SCAFFOLD_REASON_CODE = "review_not_completed"
+        STRONG_CUE_SCAFFOLD_REASON_CODE = "strong_cue_review_required"
         CURRENT_BATCH_FILE_NAME = "current_batch.json"
         CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
         CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
@@ -1968,7 +2066,6 @@ def render_knowledge_worker_script() -> str:
             for offset, row in enumerate(batch_rows, start=1):
                 metadata = _coerce_dict(row.get("metadata"))
                 task_id = str(row.get("task_id") or "").strip() or "[unknown task]"
-                input_payload = _task_input_payload(row)
                 batch_tasks.append(
                     {
                         "task_id": task_id,
@@ -1978,8 +2075,11 @@ def render_knowledge_worker_script() -> str:
                         "hint_path": str(metadata.get("hint_path") or "").strip() or None,
                         "result_path": str(metadata.get("result_path") or "").strip() or None,
                         "draft_path": str(_workspace_display_path(_current_batch_task_draft_path(task_id))),
-                        "owned_chunk_ids": _owned_chunk_ids(input_payload),
-                        "owned_block_spans": _task_block_spans(input_payload),
+                        "owned_chunk_ids": [
+                            str(value).strip()
+                            for value in (row.get("owned_ids") or [])
+                            if str(value).strip()
+                        ],
                         "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
                     }
                 )
@@ -1993,7 +2093,6 @@ def render_knowledge_worker_script() -> str:
                 "batch_end_position": batch_end_position,
                 "task_total": total_task_count,
                 "batch_remaining_after_batch": max(total_task_count - batch_end_position, 0),
-                "input_bytes_total": total_input_bytes,
                 "draft_dir": str(_workspace_display_path(_current_batch_draft_dir())),
                 "tasks": batch_tasks,
             }
@@ -2023,32 +2122,76 @@ def render_knowledge_worker_script() -> str:
                 for task in (batch_payload.get("tasks") or [])
                 if isinstance(task, dict) and str(task.get("task_id") or "").strip()
             ]
+            first_task = next(
+                (
+                    dict(task)
+                    for task in (batch_payload.get("tasks") or [])
+                    if isinstance(task, dict)
+                ),
+                None,
+            )
+            strong_cue_task_ids = [
+                str(task.get("task_id") or "").strip()
+                for task in (batch_payload.get("tasks") or [])
+                if isinstance(task, dict)
+                and bool(task.get("strong_knowledge_cue"))
+                and str(task.get("task_id") or "").strip()
+            ]
             brief_lines = [
                 "# Current Knowledge Batch",
                 "",
                 f"Batch queue span: `{batch_payload.get('batch_start_position')}` to `{batch_payload.get('batch_end_position')}` of `{batch_payload.get('task_total')}`",
                 f"Batch task ids: `{', '.join(batch_ids) or '[none]'}`",
+                f"Batch task count: `{batch_payload.get('batch_task_count') or 0}`",
                 f"Batch draft dir: `{batch_payload.get('draft_dir') or 'scratch/current_batch'}`",
                 f"Remaining tasks after this batch: `{batch_payload.get('batch_remaining_after_batch') or 0}`",
+                (
+                    "Strong-cue tasks in this batch: "
+                    + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
+                    if strong_cue_task_ids
+                    else "Strong-cue tasks in this batch: none."
+                ),
                 "",
                 "Use `complete-batch`, edit the drafts under `scratch/current_batch/`, then `check-batch` and `install-batch`.",
                 "Single-task `CURRENT_TASK*` files remain available only for narrow recovery on the first active task.",
             ]
+            if first_task is not None:
+                brief_lines.extend(
+                    [
+                        "",
+                        "First task to work now:",
+                        f"- Task id: `{first_task.get('task_id') or '[unknown task]'}`",
+                        f"- Draft path: `{first_task.get('draft_path') or '?'}`",
+                        f"- Result path: `{first_task.get('result_path') or '?'}`",
+                        f"- Owned chunk ids: `{', '.join(first_task.get('owned_chunk_ids') or []) or '[none]'}`",
+                        (
+                            "- Strong cue: yes. Do not install the prewritten all-`other` scaffold as-is."
+                            if bool(first_task.get('strong_knowledge_cue'))
+                            else "- Strong cue: no."
+                        ),
+                    ]
+                )
             brief_path.write_text("\\n".join(brief_lines) + "\\n", encoding="utf-8")
             if batch_feedback_lines is None:
+                first_task = first_task or {}
                 batch_feedback_lines = [
                     "# Current Batch Feedback",
                     "",
                     f"Batch task ids: `{', '.join(batch_ids) or '[none]'}`",
                     NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT,
                     ACTIVE_BATCH_ASSIGNMENT_TEXT,
-                    "Expected batch draft files:",
+                    (
+                        "Strong-cue tasks still needing a real judgment: "
+                        + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
+                        if strong_cue_task_ids
+                        else "Strong-cue tasks still needing a real judgment: none."
+                    ),
+                    "Current first task:",
+                    f"- `{first_task.get('task_id') or '[unknown task]'}`",
+                    f"- Draft: `{first_task.get('draft_path') or '?'}`",
+                    f"- Hint: `{first_task.get('hint_path') or '?'}`",
+                    f"- Input: `{first_task.get('input_path') or '?'}`",
                 ]
-                batch_feedback_lines.extend(
-                    f"- `{task.get('task_id')}` -> `{task.get('draft_path') or '?'}`"
-                    for task in (batch_payload.get("tasks") or [])
-                    if isinstance(task, dict)
-                )
                 batch_feedback_lines.append(CHECK_BATCH_AFTER_EDIT_TEXT)
             feedback_path.write_text("\\n".join(batch_feedback_lines) + "\\n", encoding="utf-8")
 
@@ -2186,6 +2329,7 @@ def render_knowledge_worker_script() -> str:
             }
 
         def _scaffold(task_row, input_payload):
+            strong_knowledge_cue = bool(_coerce_dict(task_row.get("metadata")).get("strong_knowledge_cue"))
             chunk_results = []
             for chunk in _chunk_rows(input_payload):
                 chunk_id = str(chunk.get("cid") or "").strip()
@@ -2208,7 +2352,11 @@ def render_knowledge_worker_script() -> str:
                         "is_useful": False,
                         "block_decisions": block_decisions,
                         "snippets": [],
-                        "reason_code": DEFAULT_SCAFFOLD_REASON_CODE,
+                        "reason_code": (
+                            STRONG_CUE_SCAFFOLD_REASON_CODE
+                            if strong_knowledge_cue
+                            else DEFAULT_SCAFFOLD_REASON_CODE
+                        ),
                     }
                 )
             return {
@@ -2471,6 +2619,31 @@ def render_knowledge_worker_script() -> str:
             if "block_decision_coverage_mismatch" in error_set:
                 help_lines.append(
                     "Cover every owned block exactly once in `block_decisions`, using the input order."
+                )
+            if "semantic_all_false_empty_shard" in error_set:
+                cue_chunk_ids = [
+                    str(chunk_id).strip()
+                    for chunk_id in (
+                        metadata.get("strong_cue_empty_chunk_ids")
+                        or metadata.get("knowledge_cue_chunk_ids")
+                        or []
+                    )
+                    if str(chunk_id).strip()
+                ]
+                knowledge_decision_count = int(metadata.get("knowledge_decision_count") or 0)
+                snippet_count = int(metadata.get("snippet_count") or 0)
+                help_lines.append(
+                    "This packet has strong knowledge cues but still returns "
+                    f"`{knowledge_decision_count}` `knowledge` decisions and `{snippet_count}` snippets."
+                )
+                if cue_chunk_ids:
+                    help_lines.append(
+                        "Cue-bearing chunk ids: "
+                        + ", ".join(f"`{chunk_id}`" for chunk_id in cue_chunk_ids)
+                        + "."
+                    )
+                help_lines.append(
+                    "Re-read the hint and owned input for those chunks. Keep at least one `knowledge` block plus one short grounded snippet unless the source is clearly non-knowledge."
                 )
             if not help_lines:
                 help_lines.append(

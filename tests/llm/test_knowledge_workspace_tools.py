@@ -82,6 +82,33 @@ def test_contract_examples_prefer_representative_knowledge_chunk() -> None:
     assert "milk sauces stay smooth" in invalid_quote_surface
 
 
+def test_scaffold_task_payload_marks_strong_cue_packets_as_review_required() -> None:
+    task_row = {
+        "task_id": "task-strong-cue",
+        "owned_ids": ["chunk-001"],
+        "metadata": {
+            "strong_knowledge_cue": True,
+        },
+    }
+    input_payload = {
+        "v": "2",
+        "bid": "task-strong-cue",
+        "c": [
+            {
+                "cid": "chunk-001",
+                "b": [{"i": 1, "t": "Use low heat and stir steadily."}],
+            }
+        ],
+    }
+
+    payload = knowledge_tools_module.scaffold_task_payload(
+        task_row=task_row,
+        input_payload=input_payload,
+    )
+
+    assert payload["chunk_results"][0]["reason_code"] == "strong_cue_review_required"
+
+
 def test_install_workspace_draft_reports_actionable_snippet_copy_guidance(
     tmp_path: Path,
 ) -> None:

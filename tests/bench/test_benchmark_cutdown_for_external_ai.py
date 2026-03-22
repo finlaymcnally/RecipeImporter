@@ -361,6 +361,29 @@ def _write_processed_output_knowledge_artifacts(
     _set_run_artifact(run_dir, "processed_output_run_dir", str(processed_output_root))
 
 
+def _write_processed_output_recipe_manifest(
+    run_dir: Path,
+    *,
+    processed_output_root: Path,
+    llm_manifest_recipes: dict[str, object],
+    workbook_slug: str = "fixture-slug",
+) -> Path:
+    llm_manifest_path = (
+        processed_output_root / "raw" / "llm" / workbook_slug / "recipe_manifest.json"
+    )
+    _write_json(
+        llm_manifest_path,
+        {
+            "enabled": True,
+            "recipes": llm_manifest_recipes,
+        },
+    )
+    _set_run_artifact(run_dir, "processed_output_run_dir", str(processed_output_root))
+    _set_run_artifact(run_dir, "stage_run_dir", str(processed_output_root))
+    _set_run_artifact(run_dir, "recipe_manifest_json", str(llm_manifest_path))
+    return llm_manifest_path
+
+
 def _write_replay_extracted_archive(run_dir: Path) -> None:
     replay_path = (
         run_dir / ".prediction-record-replay" / "pipelined" / "extracted_archive.from_records.json"
@@ -1228,6 +1251,71 @@ def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_rec
         ]
         == 2
     )
+
+
+def test_build_pair_diagnostics_reads_recipe_manifest_from_processed_output_run_dir(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    codex_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_12.00.00",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    baseline_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_11.59.00",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+    )
+
+    codex_run_dir = Path(str(codex_record.run_dir))
+    processed_output_root = codex_run_dir / "processed-output"
+    _write_processed_output_recipe_manifest(
+        codex_run_dir,
+        processed_output_root=processed_output_root,
+        llm_manifest_recipes={
+            "recipe:c0": _semantic_recipe_manifest_row(
+                build_intermediate_status="ok",
+                correction_status="ok",
+                build_final_status="ok",
+                mapping_status="not_needed",
+                mapping_reason="not_needed_single_step",
+                structural_status="ok",
+            )
+        },
+    )
+
+    diagnostics = module._build_pair_diagnostics(
+        source_key=str(codex_record.source_key),
+        source_file=str(codex_record.source_file),
+        codex_run=codex_record,
+        baseline_run=baseline_record,
+        excerpt_limit=module.DEFAULT_EXCERPT_LIMIT,
+        targeted_case_limit=module.DEFAULT_TARGETED_PROMPT_CASES,
+    )
+
+    triage_row = next(row for row in diagnostics.recipe_triage_rows if row["recipe_id"] == "recipe:c0")
+    assert triage_row["build_final_status"] == "ok"
+    assert triage_row["final_mapping_status"] == "not_needed"
+    assert triage_row["final_mapping_reason"] == "not_needed_single_step"
+    assert triage_row["structural_status"] == "ok"
+
+    failure_ledger = module._upload_bundle_build_failure_ledger(
+        recipe_triage_rows=diagnostics.recipe_triage_rows,
+        call_inventory_rows=diagnostics.call_inventory_rows,
+    )
+    final_row = next(
+        row
+        for row in failure_ledger["rows"]
+        if row["recipe_id"] == "recipe:c0" and row["stage_key"] == "build_final_recipe"
+    )
+    assert final_row["status"] == "ok"
+    assert final_row["status_semantics"] == "recorded_status_with_empty_output_signal"
 
 
 def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> None:
@@ -2238,6 +2326,78 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     ).issubset(self_check.keys())
     assert self_check["starter_pack_present"] is True
     assert self_check["starter_pack_physical_dir_present"] is False
+
+
+def test_build_upload_bundle_explicit_escalation_packet_matches_atomic_index_only_rows(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+    codex_run_id = "2026-03-22_16.52.22"
+    baseline_run_id = "2026-03-22_16.40.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "OTHER"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        line_role_prediction_rows=[
+            {
+                "atomic_index": 1,
+                "label": "OTHER",
+                "decided_by": "codex",
+                "escalation_reasons": ["knowledge_review_excluded"],
+                "text": "1 cup flour",
+                "within_recipe_span": True,
+                "page_type": "recipe_page",
+                "chapter_title": "Recipe Chapter",
+            }
+        ],
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+    _set_eval_report_metrics(
+        session_root / codex_run_id,
+        overall_line_accuracy=0.75,
+        macro_f1_excluding_other=0.70,
+        practical_f1=0.72,
+    )
+    _set_eval_report_metrics(
+        session_root / baseline_run_id,
+        overall_line_accuracy=0.70,
+        macro_f1_excluding_other=0.65,
+        practical_f1=0.67,
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    escalation_packet = index_payload["analysis"]["explicit_escalation_changed_lines_packet"]
+    assert escalation_packet["available"] is True
+    assert escalation_packet["row_count"] == 1
+    sample_row = escalation_packet["sample_rows"][0]
+    assert sample_row["line_index"] == 1
+    assert sample_row["atomic_index"] == 1
+    assert sample_row["escalation_reasons"] == ["knowledge_review_excluded"]
 
 
 def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:

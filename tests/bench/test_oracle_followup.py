@@ -301,6 +301,69 @@ def test_run_oracle_benchmark_followup_reuses_source_browser_profile_for_continu
     assert metadata_payload["browser_profile_dir"] == str(browser_profile_dir)
 
 
+def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from_oracle(
+    tmp_path: Path,
+) -> None:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-22_16.59.06"
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "session_id": "you-are-reviewing-a-benchmark-323",
+                "conversation_url": "https://chatgpt.com/c/source-323",
+                "conversation_id": "source-323",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                "Answer:",
+                "Top regressions",
+                "Recipe observability needs follow-up.",
+                "",
+                "Likely cause buckets",
+                "Projection gap.",
+                "",
+                "Immediate next checks",
+                "Inspect recipe-stage linkage.",
+                "",
+                "Requested follow-up data",
+                "Ask 1",
+                "ask_id: correction_projection_gap",
+                "question: Export the correction-stage and final-stage linkage evidence for the top signal recipes.",
+                "outputs: case_export, prompt_link_audit, uncertainty",
+                "stage_filters: recipe_llm_correct_and_link, build_final_recipe",
+                "include_recipe_ids: urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:label_span_4",
+                "hypothesis: A projection or mapping link is dropping correction outputs.",
+                "smallest_useful_packet: One recipe is enough.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    result, workspace = run_oracle_benchmark_followup(
+        target=target,
+        from_run="latest",
+        dry_run=True,
+    )
+
+    assert result.success is True
+    request_payload = json.loads(workspace.request_json_path.read_text(encoding="utf-8"))
+    stage_filters = request_payload["asks"][0]["selectors"]["stage_filters"]
+    assert stage_filters == ["recipe_llm_correct_and_link", "build_final_recipe"]
+    assert (workspace.followup_packet_dir / "asks" / "correction_projection_gap" / "index.json").is_file()
+
+
 def _run_completed_turn1_followup_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -695,6 +758,217 @@ def test_auto_followup_worker_appends_recovered_turn1_answer_before_turn2(
     launch_dir = fixture["launch_dir"]
     log_text = (launch_dir / "oracle_upload.log").read_text(encoding="utf-8")
     assert "Recovered answer after timeout." in log_text
+
+
+def _run_followup_dead_controller_recovery_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    source_run = "2026-03-22_16.59.06"
+    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    browser_profile_dir = tmp_path / "oracle-home" / "browser-profile"
+    sessions_dir = browser_profile_dir.parent / "sessions" / "you-are-reviewing-a-benchmark-323"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "bundle_dir": str(bundle_dir),
+                "session_id": "you-are-reviewing-a-benchmark-323",
+                "conversation_url": "https://chatgpt.com/c/source-323",
+                "conversation_id": "source-323",
+                "status": "running",
+                "status_reason": "Initial launch state.",
+                "pid": 0,
+                "prompt": "Benchmark turn 1 prompt.",
+                "launch_started_at_utc": "2026-03-22T20:59:06+00:00",
+                "browser_profile_dir": str(browser_profile_dir),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                "Session running in background.",
+                "Reattach later with: oracle session you-are-reviewing-a-benchmark-323",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (sessions_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "id": "you-are-reviewing-a-benchmark-323",
+                "status": "running",
+                "browser": {
+                    "conversationUrl": "https://chatgpt.com/c/source-323",
+                    "conversationId": "source-323",
+                    "runtime": {
+                        "tabUrl": "https://chatgpt.com/c/source-323",
+                        "conversationId": "source-323",
+                        "controllerPid": 1234,
+                    },
+                },
+                "response": {
+                    "status": "running",
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    runner_calls: list[list[str]] = []
+    captured: dict[str, object] = {}
+    real_pid_is_running = __import__("cookimport.bench.oracle_followup", fromlist=["_pid_is_running"])._pid_is_running
+
+    def fake_pid_is_running(pid: int) -> bool:
+        if pid == 1234:
+            return False
+        return real_pid_is_running(pid)
+
+    def fake_runner(command, **kwargs):
+        runner_calls.append([str(part) for part in command])
+        (sessions_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "id": "you-are-reviewing-a-benchmark-323",
+                    "status": "completed",
+                    "browser": {
+                        "conversationUrl": "https://chatgpt.com/c/source-323",
+                        "conversationId": "source-323",
+                        "runtime": {
+                            "tabUrl": "https://chatgpt.com/c/source-323",
+                            "conversationId": "source-323",
+                        },
+                    },
+                    "response": {
+                        "status": "completed",
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="\n".join(
+                [
+                    "Reattach succeeded; session marked completed.",
+                    "Answer:",
+                    "Top regressions",
+                    "Recovered answer after dead controller.",
+                    "",
+                    "Likely cause buckets",
+                    "Line-role repair dominates.",
+                    "",
+                    "Immediate next checks",
+                    "Inspect the worst cases.",
+                    "",
+                    "Requested follow-up data",
+                    "Ask 1",
+                    "ask_id: ask_001_line_role",
+                    "question: Show the line-role evidence for the worst negative cases.",
+                    "outputs: case_export, line_role_audit",
+                    "stage_filters: line_role",
+                    "hypothesis: The issue is in line-role repair.",
+                    "smallest_useful_packet: One bad case is enough.",
+                ]
+            )
+            + "\n",
+            stderr="",
+        )
+
+    def fake_run_followup(**kwargs):
+        captured.update(kwargs)
+        workspace = OracleFollowupWorkspace(
+            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00",
+            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload.json",
+            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload_status.json",
+            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "followup_data1",
+        )
+        return (
+            OracleUploadResult(
+                success=True,
+                mode="browser",
+                command=["oracle", "continue-session"],
+                bundle_dir=bundle_dir,
+                returncode=0,
+                stdout="Answer:\nUpdated assessment\n...",
+                stderr="",
+                status="succeeded",
+                status_reason="Follow-up answer captured from Oracle.",
+                session_id="you-are-reviewing-a-benchmark-323-turn-2",
+                reattach_command="oracle session you-are-reviewing-a-benchmark-323-turn-2",
+                conversation_url="https://chatgpt.com/c/source-323",
+            ),
+            workspace,
+        )
+
+    monkeypatch.setattr("cookimport.bench.oracle_followup._pid_is_running", fake_pid_is_running)
+    monkeypatch.setattr(
+        "cookimport.bench.oracle_followup.run_oracle_benchmark_followup",
+        fake_run_followup,
+    )
+
+    result = run_oracle_benchmark_followup_background_worker(
+        target=target,
+        from_run=source_run,
+        model="gpt-5.3",
+        runner=fake_runner,
+        poll_interval_seconds=0.01,
+        timeout_seconds=1.0,
+    )
+    source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
+    auto_status = json.loads((launch_dir / ORACLE_AUTO_FOLLOWUP_STATUS_NAME).read_text(encoding="utf-8"))
+    return {
+        "result": result,
+        "runner_calls": runner_calls,
+        "captured": captured,
+        "source_status": source_status,
+        "auto_status": auto_status,
+        "launch_dir": launch_dir,
+        "source_run": source_run,
+    }
+
+
+def test_auto_followup_worker_recovers_dead_controller_turn1_before_launching_turn2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_followup_dead_controller_recovery_fixture(tmp_path, monkeypatch)
+    assert fixture["runner_calls"]
+    assert fixture["captured"]["from_run"] == fixture["source_run"]
+    assert fixture["result"]["status"] == "succeeded"
+    assert fixture["result"]["followup_session_id"] == "you-are-reviewing-a-benchmark-323-turn-2"
+
+
+def test_auto_followup_worker_marks_dead_controller_recovery_source_status_succeeded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_followup_dead_controller_recovery_fixture(tmp_path, monkeypatch)
+    assert fixture["source_status"]["status"] == "succeeded"
+    assert fixture["auto_status"]["status"] == "succeeded"
 
 
 def test_audit_oracle_upload_log_prefers_recovered_answer_over_timeout_marker(tmp_path: Path) -> None:

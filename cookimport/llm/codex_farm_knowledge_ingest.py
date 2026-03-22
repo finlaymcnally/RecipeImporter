@@ -363,6 +363,9 @@ def validate_knowledge_shard_output(
 
     knowledge_cue_chunk_ids = sorted(_knowledge_cue_chunk_ids(shard))
     metadata["knowledge_cue_chunk_ids"] = knowledge_cue_chunk_ids
+    metadata["useful_chunk_count"] = useful_chunk_count
+    metadata["knowledge_decision_count"] = knowledge_decision_count
+    metadata["snippet_count"] = snippet_count
     if (
         parsed.chunk_results
         and useful_chunk_count == 0
@@ -372,6 +375,13 @@ def validate_knowledge_shard_output(
     ):
         errors.append("semantic_all_false_empty_shard")
         metadata["semantic_rejection_reason"] = "all_false_empty_strong_cue_shard"
+        metadata["strong_cue_empty_chunk_ids"] = knowledge_cue_chunk_ids
+        metadata["strong_cue_empty_summary"] = {
+            "knowledge_cue_chunk_ids": knowledge_cue_chunk_ids,
+            "useful_chunk_count": useful_chunk_count,
+            "knowledge_decision_count": knowledge_decision_count,
+            "snippet_count": snippet_count,
+        }
 
     metadata["reviewed_with_useful_chunks"] = useful_chunk_count > 0
     metadata["reviewed_all_other"] = (
@@ -414,10 +424,17 @@ def classify_knowledge_validation_failure(
     has_non_grounded_snippet = bool(metadata.get("non_grounded_snippet_chunk_ids"))
     repairable_near_miss = False
     classification = "other_invalid"
+    reason_code = "validation_failed"
+    reason_detail = ""
 
     if snippet_copy_only:
         classification = "snippet_copy_only"
         repairable_near_miss = True
+        reason_code = "snippet_copy_only"
+        reason_detail = (
+            "At least one snippet body copies the cited evidence or the full owned chunk "
+            "surface too closely."
+        )
     elif (
         error_set
         and len(error_set) <= 2
@@ -428,18 +445,50 @@ def classify_knowledge_validation_failure(
     ):
         classification = "repairable_near_miss"
         repairable_near_miss = True
+        reason_code = "repairable_near_miss"
+        reason_detail = (
+            "The output is close to valid but still misses one narrow contract or shape "
+            "requirement."
+        )
     elif has_schema_or_shape_error:
         classification = "schema_or_shape_invalid"
+        reason_code = "schema_or_shape_invalid"
+        reason_detail = "The output does not match the required JSON object shape."
     elif has_coverage_error:
         classification = "coverage_mismatch"
+        reason_code = "coverage_mismatch"
+        reason_detail = (
+            "The output does not cover exactly the owned chunks or owned block surface."
+        )
     elif has_snippet_copy_error or has_non_grounded_snippet or any(
         error.startswith("semantic_") for error in error_set
     ):
         classification = "semantic_invalid"
+        reason_code = "semantic_invalid"
+        reason_detail = "The output is structurally valid but semantically low trust."
+
+    if "semantic_all_false_empty_shard" in error_set:
+        cue_chunk_ids = [
+            str(chunk_id).strip()
+            for chunk_id in (metadata.get("knowledge_cue_chunk_ids") or [])
+            if str(chunk_id).strip()
+        ]
+        reason_code = "semantic_all_false_empty_shard"
+        reason_detail = (
+            "Strong-cue chunk(s) "
+            + ", ".join(f"`{chunk_id}`" for chunk_id in cue_chunk_ids)
+            + " cannot be returned as fully empty all-`other` review with zero "
+            "`knowledge` decisions and zero snippets."
+            if cue_chunk_ids
+            else "A strong-cue packet cannot be returned as fully empty all-`other` "
+            "review with zero `knowledge` decisions and zero snippets."
+        )
 
     return {
         "classification": classification,
         "errors": list(errors),
+        "reason_code": reason_code,
+        "reason_detail": reason_detail,
         "snippet_copy_only": snippet_copy_only,
         "has_snippet_copy_error": has_snippet_copy_error,
         "has_schema_or_shape_error": has_schema_or_shape_error,

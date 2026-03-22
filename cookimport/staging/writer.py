@@ -1185,8 +1185,12 @@ def write_nonrecipe_stage_outputs(
     seed_knowledge_spans = list(stage_result.seed_knowledge_spans or [])
     seed_other_spans = list(stage_result.seed_other_spans or [])
     seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
+    authoritative_block_category_by_index = (
+        stage_result.authoritative_block_category_by_index()
+    )
+    unreviewed_block_category_by_index = stage_result.unreviewed_block_category_by_index()
     payload = {
-        "schema_version": "nonrecipe_spans.v3",
+        "schema_version": "nonrecipe_spans.v4",
         "counts": {
             "nonrecipe_spans": len(stage_result.nonrecipe_spans),
             "knowledge_spans": len(stage_result.knowledge_spans),
@@ -1204,6 +1208,10 @@ def write_nonrecipe_stage_outputs(
             "review_excluded_other_spans": len(stage_result.review_excluded_other_spans),
             "review_eligible_blocks": len(stage_result.review_eligible_block_indices),
             "review_excluded_blocks": len(stage_result.review_excluded_block_indices),
+            "final_authority_blocks": len(stage_result.final_authority_block_indices),
+            "unreviewed_review_eligible_blocks": len(
+                stage_result.unreviewed_review_eligible_block_indices
+            ),
             "warnings": len(stage_result.warnings),
         },
         "seed_counts": {
@@ -1220,8 +1228,24 @@ def write_nonrecipe_stage_outputs(
             ),
         },
         "warnings": list(stage_result.warnings),
+        "authority_mode": str(
+            stage_result.refinement_report.get("authority_mode")
+            or "deterministic_seed_only"
+        ),
+        "scored_effect": str(
+            stage_result.refinement_report.get("scored_effect")
+            or "seed_only"
+        ),
+        "review_routing_by_block": {
+            str(index): route
+            for index, route in sorted(stage_result.review_routing_by_block.items())
+        },
         "review_eligible_block_indices": list(stage_result.review_eligible_block_indices),
         "review_excluded_block_indices": list(stage_result.review_excluded_block_indices),
+        "final_authority_block_indices": list(stage_result.final_authority_block_indices),
+        "unreviewed_review_eligible_block_indices": list(
+            stage_result.unreviewed_review_eligible_block_indices
+        ),
         "review_exclusion_reason_by_block": {
             str(index): reason
             for index, reason in sorted(stage_result.review_exclusion_reason_by_block.items())
@@ -1233,6 +1257,14 @@ def write_nonrecipe_stage_outputs(
         "seed_block_category_by_index": {
             str(index): category
             for index, category in sorted(seed_block_category_by_index.items())
+        },
+        "authoritative_block_category_by_index": {
+            str(index): category
+            for index, category in sorted(authoritative_block_category_by_index.items())
+        },
+        "unreviewed_block_category_by_index": {
+            str(index): category
+            for index, category in sorted(unreviewed_block_category_by_index.items())
         },
         "spans": [
             {
@@ -1347,8 +1379,12 @@ def write_knowledge_outputs_artifact(
     seed_knowledge_spans = list(stage_result.seed_knowledge_spans or [])
     seed_other_spans = list(stage_result.seed_other_spans or [])
     seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
+    authoritative_block_category_by_index = (
+        stage_result.authoritative_block_category_by_index()
+    )
+    unreviewed_block_category_by_index = stage_result.unreviewed_block_category_by_index()
     payload = {
-        "schema_version": "knowledge_outputs.v2",
+        "schema_version": "knowledge_outputs.v3",
         "input_mode": str(
             (llm_report or {}).get("input_mode")
             or "stage7_review_eligible_nonrecipe_spans"
@@ -1367,6 +1403,10 @@ def write_knowledge_outputs_artifact(
             ),
             "review_eligible_blocks": len(stage_result.review_eligible_block_indices),
             "review_excluded_blocks": len(stage_result.review_excluded_block_indices),
+            "final_authority_blocks": len(stage_result.final_authority_block_indices),
+            "unreviewed_review_eligible_blocks": len(
+                stage_result.unreviewed_review_eligible_block_indices
+            ),
             "shards_written": int(counts.get("shards_written") or 0),
             "outputs_parsed": int(counts.get("outputs_parsed") or 0),
             "chunks_missing": int(counts.get("chunks_missing") or 0),
@@ -1422,6 +1462,22 @@ def write_knowledge_outputs_artifact(
         ],
         "artifact_paths": dict((llm_report or {}).get("paths") or {}),
         "missing_chunk_ids": list((llm_report or {}).get("missing_chunk_ids") or []),
+        "review_routing_by_block": {
+            str(index): route
+            for index, route in sorted(stage_result.review_routing_by_block.items())
+        },
+        "final_authority_block_indices": list(stage_result.final_authority_block_indices),
+        "unreviewed_review_eligible_block_indices": list(
+            stage_result.unreviewed_review_eligible_block_indices
+        ),
+        "authoritative_block_category_by_index": {
+            str(index): category
+            for index, category in sorted(authoritative_block_category_by_index.items())
+        },
+        "unreviewed_block_category_by_index": {
+            str(index): category
+            for index, category in sorted(unreviewed_block_category_by_index.items())
+        },
         "warnings": list(stage_result.warnings),
         "refinement_report": dict(stage_result.refinement_report),
         "snippets": list(snippet_records or []),

@@ -107,14 +107,22 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     nonrecipe_payload = json.loads(nonrecipe_path.read_text(encoding="utf-8"))
     knowledge_payload = json.loads(knowledge_path.read_text(encoding="utf-8"))
 
-    assert nonrecipe_payload["schema_version"] == "nonrecipe_spans.v3"
+    assert nonrecipe_payload["schema_version"] == "nonrecipe_spans.v4"
     assert nonrecipe_payload["counts"]["knowledge_spans"] == 1
     assert nonrecipe_payload["seed_counts"]["knowledge_spans"] == 1
     assert nonrecipe_payload["counts"]["review_eligible_blocks"] == 2
     assert nonrecipe_payload["counts"]["review_excluded_blocks"] == 0
+    assert nonrecipe_payload["counts"]["final_authority_blocks"] == 0
+    assert nonrecipe_payload["counts"]["unreviewed_review_eligible_blocks"] == 2
+    assert nonrecipe_payload["authoritative_block_category_by_index"] == {}
+    assert nonrecipe_payload["unreviewed_block_category_by_index"] == {
+        "0": "other",
+        "1": "knowledge",
+    }
     assert knowledge_payload["pipeline"] == "off"
-    assert knowledge_payload["schema_version"] == "knowledge_outputs.v2"
+    assert knowledge_payload["schema_version"] == "knowledge_outputs.v3"
     assert knowledge_payload["counts"]["snippets_written"] == 0
+    assert knowledge_payload["counts"]["final_authority_blocks"] == 0
     assert knowledge_payload["knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"
     assert knowledge_payload["seed_knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"
 

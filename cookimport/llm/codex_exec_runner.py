@@ -575,6 +575,8 @@ class SubprocessCodexExecRunner:
         response_text = _extract_last_agent_message(events)
         turn_failed_message = _extract_turn_failed_message(events)
         usage = _normalize_usage(_extract_turn_completed_usage(events))
+        if _usage_missing_or_zero(usage):
+            usage = _extract_usage_from_text_streams(completed.stdout, completed.stderr)
         if completed.returncode != 0 and completed.termination_decision is None:
             detail = turn_failed_message or _summarize_failure_text(completed.stderr, completed.stdout)
             raise CodexFarmRunnerError(
@@ -1864,6 +1866,71 @@ def _normalize_usage(payload: Mapping[str, Any] | None) -> dict[str, int] | None
     }
 
 
+def _usage_missing_or_zero(payload: Mapping[str, Any] | None) -> bool:
+    if not isinstance(payload, Mapping):
+        return True
+    return all(
+        int(payload.get(field) or 0) <= 0
+        for field in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_tokens",
+        )
+    )
+
+
+def _extract_usage_from_text_streams(
+    stdout_text: str | None,
+    stderr_text: str | None,
+) -> dict[str, int] | None:
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+    total_pattern = re.compile(r"\btotal=\s*(\d[\d,]*)\b", re.IGNORECASE)
+    input_pattern = re.compile(r"\binput=\s*(\d[\d,]*)\b", re.IGNORECASE)
+    output_pattern = re.compile(r"\boutput=\s*(\d[\d,]*)\b", re.IGNORECASE)
+    reasoning_pattern = re.compile(r"\breasoning\s+(\d[\d,]*)\b", re.IGNORECASE)
+    cached_paren_pattern = re.compile(r"\(\+\s*(\d[\d,]*)\s+cached\)", re.IGNORECASE)
+    cached_named_pattern = re.compile(r"\bcached(?:_input)?=\s*(\d[\d,]*)\b", re.IGNORECASE)
+    for stream in (stdout_text or "", stderr_text or ""):
+        for raw_line in reversed(stream.splitlines()):
+            cleaned_line = ansi_escape.sub("", raw_line).strip()
+            if "Token usage:" not in cleaned_line:
+                continue
+            input_match = input_pattern.search(cleaned_line)
+            output_match = output_pattern.search(cleaned_line)
+            if input_match is None or output_match is None:
+                continue
+            cached_match = cached_paren_pattern.search(cleaned_line) or cached_named_pattern.search(
+                cleaned_line
+            )
+            reasoning_match = reasoning_pattern.search(cleaned_line)
+            usage = {
+                "input_tokens": int(input_match.group(1).replace(",", "")),
+                "cached_input_tokens": int(cached_match.group(1).replace(",", ""))
+                if cached_match is not None
+                else 0,
+                "output_tokens": int(output_match.group(1).replace(",", "")),
+                "reasoning_tokens": int(reasoning_match.group(1).replace(",", ""))
+                if reasoning_match is not None
+                else 0,
+            }
+            total_match = total_pattern.search(cleaned_line)
+            if total_match is not None:
+                observed_total = int(total_match.group(1).replace(",", ""))
+                component_total = (
+                    usage["input_tokens"]
+                    + usage["cached_input_tokens"]
+                    + usage["output_tokens"]
+                    + usage["reasoning_tokens"]
+                )
+                if observed_total <= 0 and component_total <= 0:
+                    continue
+            if _usage_missing_or_zero(usage):
+                continue
+            return usage
+    return None
+
+
 def _extract_turn_failed_message(
     events: tuple[dict[str, Any], ...] | list[dict[str, Any]]
 ) -> str | None:
@@ -2225,11 +2292,16 @@ def _write_direct_exec_worker_manifest(
                     "Treat the repo-written current-packet files as authoritative and use "
                     "`assigned_tasks.json` only as background inventory."
                     if has_packet_leasing
-                    else "Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative batch surface when present. Treat `CURRENT_TASK.md` / `current_task.json` only as fallback recovery for the first active task, and `assigned_tasks.json` as the ordered queue/progress reference."
+                    else "Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative batch surface when present. Treat `CURRENT_TASK.md` / `current_task.json` only as fallback recovery for the first active task, and treat `assigned_tasks.json` as background queue/progress context rather than a file to dump directly."
                     if has_current_batch
                     else "Treat `SHARD_PACKET.md`, `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative recipe/task surface when present, and `assigned_tasks.json` as the ordered queue/progress reference."
                     if has_current_task
                     else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
+                ),
+                (
+                    "For knowledge batch workspaces, use only the repo-written batch helper commands during the main loop; direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours are off-contract."
+                    if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
+                    else None
                 ),
                 "Use `scratch/` or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
             ]
@@ -2260,7 +2332,8 @@ def _write_direct_exec_worker_manifest(
                         "python3 tools/knowledge_worker.py complete-batch",
                         "python3 tools/knowledge_worker.py check-batch",
                         "python3 tools/knowledge_worker.py install-batch",
-                        "python3 tools/knowledge_worker.py complete-current",
+                        "python3 tools/knowledge_worker.py current-batch",
+                        "python3 tools/knowledge_worker.py next-batch",
                     ]
                     if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
                     else []
@@ -2308,6 +2381,13 @@ def _write_direct_exec_worker_manifest(
             )
         ),
         "workspace_commands_forbidden": [
+            *(
+                [
+                    "direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours while a knowledge batch is active"
+                ]
+                if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
+                else []
+            ),
             "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
             "non-temp absolute paths outside approved local temp roots",
             "parent-directory traversal",
