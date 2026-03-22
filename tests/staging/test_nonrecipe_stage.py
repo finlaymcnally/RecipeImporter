@@ -107,9 +107,11 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     nonrecipe_payload = json.loads(nonrecipe_path.read_text(encoding="utf-8"))
     knowledge_payload = json.loads(knowledge_path.read_text(encoding="utf-8"))
 
-    assert nonrecipe_payload["schema_version"] == "nonrecipe_spans.v2"
+    assert nonrecipe_payload["schema_version"] == "nonrecipe_spans.v3"
     assert nonrecipe_payload["counts"]["knowledge_spans"] == 1
     assert nonrecipe_payload["seed_counts"]["knowledge_spans"] == 1
+    assert nonrecipe_payload["counts"]["review_eligible_blocks"] == 2
+    assert nonrecipe_payload["counts"]["review_excluded_blocks"] == 0
     assert knowledge_payload["pipeline"] == "off"
     assert knowledge_payload["schema_version"] == "knowledge_outputs.v2"
     assert knowledge_payload["counts"]["snippets_written"] == 0
@@ -144,5 +146,52 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
             "final_category": "other",
             "reviewer_category": "chapter_taxonomy",
             "applied_chunk_ids": [],
+        }
+    ]
+
+
+def test_nonrecipe_stage_writes_review_exclusion_ledger(tmp_path: Path) -> None:
+    stage_result = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique text"},
+        ],
+        final_block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id="b0",
+                source_block_index=0,
+                supporting_atomic_indices=[],
+                deterministic_label="OTHER",
+                final_label="OTHER",
+                decided_by="rule",
+                reason_tags=[],
+                review_exclusion_reason="front_matter",
+            ),
+            _block_label(1, "OTHER"),
+        ],
+        recipe_spans=[],
+    )
+
+    write_nonrecipe_stage_outputs(stage_result, tmp_path)
+
+    payload = json.loads((tmp_path / "08_nonrecipe_spans.json").read_text(encoding="utf-8"))
+    ledger_rows = [
+        json.loads(line)
+        for line in (tmp_path / "08_nonrecipe_review_exclusions.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+
+    assert payload["counts"]["review_excluded_blocks"] == 1
+    assert payload["review_excluded_block_indices"] == [0]
+    assert ledger_rows == [
+        {
+            "block_id": "b0",
+            "block_index": 0,
+            "exclusion_source": "line_role",
+            "final_category": "other",
+            "preview": "Acknowledgments",
+            "review_exclusion_reason": "front_matter",
         }
     ]

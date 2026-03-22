@@ -1000,8 +1000,9 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.llm_report["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
     assert apply_result.llm_report["process_run"]["telemetry"]["summary"]["call_count"] > 0
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] > 0
-    assert apply_result.llm_report["input_mode"] == "stage7_seed_nonrecipe_spans"
+    assert apply_result.llm_report["input_mode"] == "stage7_review_eligible_nonrecipe_spans"
     assert apply_result.llm_report["review_summary"]["seed_nonrecipe_span_count"] == 2
+    assert apply_result.llm_report["review_summary"]["review_eligible_nonrecipe_span_count"] >= 1
     assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] >= 1
     assert apply_result.llm_report["review_summary"]["reviewed_shards_with_useful_chunks"] >= 1
     assert apply_result.llm_report["review_status"] == "complete"

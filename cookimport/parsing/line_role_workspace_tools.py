@@ -25,7 +25,11 @@ LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME = "valid_line_role_output.json"
 LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD = {
     "rows": [
         {"atomic_index": 123, "label": "INGREDIENT_LINE"},
-        {"atomic_index": 124, "label": "INSTRUCTION_LINE"},
+        {
+            "atomic_index": 124,
+            "label": "OTHER",
+            "review_exclusion_reason": "navigation",
+        },
     ]
 }
 LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN = """# Line-Role Output Contract
@@ -42,10 +46,13 @@ Rules:
 - `rows` must be a JSON array.
 - Return exactly one row for every owned input row from `in/<task_id>.json`.
 - Keep output order identical to the input `rows` order.
-- Each row object must use exactly two keys: `atomic_index` and `label`.
+- Each row object must use `atomic_index` and `label`, plus optional `review_exclusion_reason`.
 - `atomic_index` must match the owned input row at the same position.
 - `label` must be one of:
   `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`
+- `review_exclusion_reason`, when present, must be one of:
+  `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`
+- Only use `review_exclusion_reason` on rows labeled `OTHER`, and only for overwhelmingly obvious non-recipe junk that should skip knowledge review.
 - Do not emit context rows.
 - Do not add commentary, markdown, or extra JSON keys.
 
@@ -206,7 +213,7 @@ def validate_line_role_output_payload(
         extra_row_keys = sorted(
             key
             for key in row_payload.keys()
-            if str(key) not in {"atomic_index", "label"}
+            if str(key) not in {"atomic_index", "label", "review_exclusion_reason"}
         )
         if extra_row_keys:
             errors.append("extra_row_keys")
@@ -217,6 +224,21 @@ def validate_line_role_output_payload(
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in LINE_ROLE_ALLOWED_LABELS:
             errors.append("invalid_label")
+        review_exclusion_reason = str(
+            row_payload.get("review_exclusion_reason") or ""
+        ).strip()
+        if review_exclusion_reason:
+            if label != "OTHER":
+                errors.append("review_exclusion_reason_requires_other")
+            if review_exclusion_reason not in {
+                "navigation",
+                "front_matter",
+                "publishing_metadata",
+                "copyright_legal",
+                "endorsement",
+                "page_furniture",
+            }:
+                errors.append("invalid_review_exclusion_reason")
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):
             errors.append("row_order_mismatch")

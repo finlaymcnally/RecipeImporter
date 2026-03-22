@@ -40,9 +40,11 @@ _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS = 10
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
     seed_nonrecipe_span_count: int
+    review_eligible_nonrecipe_span_count: int
     chunk_count_before_pruning: int
     shards_written: int
     chunks_written: int
+    review_eligible_block_count: int
     chunk_ids: list[str]
     chunk_lane_by_id: dict[str, str | None]
     skipped_chunk_count: int
@@ -82,8 +84,8 @@ def build_knowledge_jobs(
     """Write knowledge-stage job bundles to out_dir and return a build report.
 
     Notes:
-    - Uses deterministic chunking over seed Stage 7 non-recipe spans.
-    - Chunk blocks come only from seed non-recipe spans; context may overlap recipes.
+    - Uses deterministic chunking over review-eligible Stage 7 non-recipe spans.
+    - Chunk blocks come only from review-eligible non-recipe spans; context may overlap recipes.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale_path in sorted(out_dir.glob("*.json")):
@@ -266,9 +268,17 @@ def build_knowledge_jobs(
 
     return KnowledgeJobBuildReport(
         seed_nonrecipe_span_count=len(candidate_spans),
+        review_eligible_nonrecipe_span_count=len(candidate_spans),
         chunk_count_before_pruning=chunk_count_before_pruning,
         shards_written=bundle_counter,
         chunks_written=len(chunk_ids),
+        review_eligible_block_count=len(
+            {
+                index
+                for chunk in all_prepared_chunks
+                for index in chunk.absolute_indices
+            }
+        ),
         chunk_ids=chunk_ids,
         chunk_lane_by_id=chunk_lane_by_id,
         skipped_chunk_count=skipped_chunk_count,

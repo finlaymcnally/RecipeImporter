@@ -44,6 +44,9 @@ Negative rules (must-not-do):
 - Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` stay `OTHER` until nearby rows prove one live recipe.
 - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
 - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
+- Use optional `review_exclusion_reason` only on outside-recipe rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
+- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`.
+- If outside-recipe prose seems genuinely useful but not recipe-local, still label it `OTHER` and leave `review_exclusion_reason` empty so the knowledge stage can decide.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -128,13 +131,13 @@ Few-shot examples:
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:
-[{"atomic_index": <int>, "label": "<LABEL>"}]
+[{"atomic_index": <int>, "label": "<LABEL>", "review_exclusion_reason": "<OPTIONAL_REASON>"}]
 
 Hard output rules:
 1) Return each requested `atomic_index` exactly once.
 2) Keep output order identical to input target order.
 3) Each `label` must be one of the allowed global labels listed above.
-4) No markdown, no commentary, no extra keys.
+4) The only allowed keys are `atomic_index`, `label`, and optional `review_exclusion_reason`.
 5) Final answer must be the JSON array only.
 
 Target row format:

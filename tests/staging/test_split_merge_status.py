@@ -94,6 +94,8 @@ def _output_stats_category_for_path(relative_path: Path) -> str | None:
         return None
     if relative_path.name == "08_nonrecipe_spans.json":
         return "nonRecipe"
+    if relative_path.name == "08_nonrecipe_review_exclusions.jsonl":
+        return "nonRecipe"
     if relative_path.name == "09_knowledge_outputs.json":
         return "knowledge"
     top = relative_path.parts[0]

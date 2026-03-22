@@ -26,8 +26,11 @@ After this change, running the normal stage path with optional knowledge review 
 - [x] (2026-03-22 13:39 EDT) Re-inspected `cookimport/parsing/canonical_line_roles.py`, `cookimport/parsing/label_source_of_truth.py`, `cookimport/staging/nonrecipe_stage.py`, `cookimport/staging/writer.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, and `cookimport/llm/codex_farm_knowledge_orchestrator.py` to confirm the current seams.
 - [x] (2026-03-22 13:39 EDT) Replaced the earlier over-broad plan with this narrower version: line-role performs only a fail-open obvious-junk veto, while semantic knowledge judgment stays in the optional knowledge stage.
 - [x] (2026-03-22 13:55 EDT) Re-read `docs/10-llm/10-llm_README.md`, `docs/05-staging/05-staging_readme.md`, `docs/07-bench/07-bench_README.md`, and the current touched tests to align this plan with the current packetized knowledge runtime, stage-summary artifacts, and benchmark projection rules.
-- [ ] Implementation has not started yet.
-- [ ] Tests, stage-path validation, and benchmark interpretation updates remain to be added and recorded here during implementation.
+- [x] (2026-03-22 15:46 EDT) Extended the line-role contract with optional `review_exclusion_reason`, taught prompt/worker validation about the allowed reason codes, and normalized outside-recipe `KNOWLEDGE` back to review-eligible `OTHER`.
+- [x] (2026-03-22 15:46 EDT) Propagated review-exclusion metadata through authoritative lines/blocks, added Stage 7 review-eligibility routing plus preview text, and wrote `08_nonrecipe_review_exclusions.jsonl`.
+- [x] (2026-03-22 15:46 EDT) Switched knowledge-job planning/manifests to the Stage 7 review-eligible span set, added excluded/review-eligible counts to summaries, and updated the current parsing/LLM docs.
+- [x] (2026-03-22 15:46 EDT) Validation run complete: focused parsing/staging/knowledge tests passed; `./scripts/test-suite.sh domain parsing` passed; `./scripts/test-suite.sh domain staging` passed after updating the fresh-directory-walk expectation for the new exclusion ledger.
+- [ ] `./scripts/test-suite.sh domain llm` still stops on `tests/llm/test_recipe_phase_workers.py::test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract`, which appears unrelated to this change and was not pursued under this plan.
 
 ## Surprises & Discoveries
 
@@ -48,6 +51,12 @@ After this change, running the normal stage path with optional knowledge review 
 
 - Observation: benchmark scoring already projects final outside-recipe authority rather than blindly trusting pre-knowledge line-role labels.
   Evidence: current staging and benchmark docs say canonical scoring must use the final non-recipe authority recorded in `08_nonrecipe_spans.json`, not just the deterministic seed.
+
+- Observation: several test fixtures construct `NonRecipeStageResult` directly rather than always going through `build_nonrecipe_stage_result(...)`.
+  Evidence: knowledge-orchestrator tests no-oped until `NonRecipeStageResult.__post_init__` backfilled review-eligible spans/indices for legacy fixture payloads.
+
+- Observation: adding the exclusion ledger changes run-output accounting even though it does not change the public `knowledge` / `other` taxonomy.
+  Evidence: `tests/staging/test_split_merge_status.py::test_merge_split_jobs_output_stats_match_fresh_directory_walk` needed the new `08_nonrecipe_review_exclusions.jsonl` path mapped into the `nonRecipe` output-stats category.
 
 ## Decision Log
 
@@ -75,15 +84,23 @@ After this change, running the normal stage path with optional knowledge review 
   Rationale: the operator requirement is explicit: deterministic logic cannot own useful-versus-useless semantic judgment. This plan uses line-role LLM output for the coarse veto and keeps deterministic logic as supporting evidence or diagnostics only.
   Date/Author: 2026-03-22 / Codex
 
+- Decision: the shipped line-role contract uses one optional string field `review_exclusion_reason` instead of a separate boolean plus reason pair.
+  Rationale: `label == "OTHER"` already means “not recipe structure / not final knowledge yet.” A single optional reason code is enough to distinguish review-eligible `OTHER` from obviously excluded `OTHER` without widening the payload shape further.
+  Date/Author: 2026-03-22 / Codex
+
+- Decision: outside-recipe lesson detection remains as a supporting heuristic seam, but final line-role output still demotes outside-recipe `KNOWLEDGE` back to review-eligible `OTHER`.
+  Rationale: the existing heuristics are still useful for prompt guidance, sanitization, and artifact interpretation, but this plan requires the optional knowledge stage to remain the only semantic outside-recipe `knowledge` authority.
+  Date/Author: 2026-03-22 / Codex
+
 ## Outcomes & Retrospective
 
-This plan has only been rewritten so far. No code or runtime docs outside this plan have changed yet.
+The code now matches the narrower design target. Line-role still owns recipe structure, but outside-recipe semantic `knowledge` authority has moved out of line-role output and into the optional knowledge stage. The only new upstream routing bit is optional `review_exclusion_reason` on outside-recipe `OTHER` rows, plus the Stage 7 review-eligible/excluded span split and the human-auditable `08_nonrecipe_review_exclusions.jsonl` ledger.
 
-The revised design target is narrower and more coherent than the earlier draft. The line-role stage keeps recipe-structure responsibility and adds only an obvious-junk exclusion bit for outside-recipe `OTHER` rows. The optional knowledge stage remains the sole semantic judge for the unsuppressed outside-recipe remainder. The major implementation risks are over-exclusion, mixed eligibility inside one Stage 7 span, and accidentally continuing to interpret line-role-only non-recipe accuracy as if it still measured final outside-recipe quality.
+The highest-value proof points were: parsing-domain green after updating outside-recipe expectations to review-eligible `OTHER`, staging-domain green with the new ledger counted in output stats, and focused knowledge-runtime tests proving the orchestrator now reads `review_eligible_nonrecipe_spans` and reports excluded-block counts in manifests/summaries. The remaining open item is one unrelated `domain llm` failure in the recipe worker contract surface, not in the knowledge/Stage 7 path changed here.
 
 ## Context and Orientation
 
-The current label-first path starts in `cookimport/parsing/label_source_of_truth.py`. That module atomizes full blocks into atomic lines, calls `cookimport/parsing/canonical_line_roles.py` to assign one final line-role label per atomic line, projects those labels back up to block labels, and then groups recipe spans. Outside-recipe `KNOWLEDGE` is still currently decided there.
+The current label-first path starts in `cookimport/parsing/label_source_of_truth.py`. That module atomizes full blocks into atomic lines, calls `cookimport/parsing/canonical_line_roles.py` to assign one final line-role label per atomic line, projects those labels back up to block labels, and then groups recipe spans. Outside-recipe semantic `knowledge` is no longer finalized there; line-role can now only mark obvious outside-recipe `OTHER` rows with `review_exclusion_reason`.
 
 Stage 7 non-recipe ownership lives in `cookimport/staging/nonrecipe_stage.py`. It consumes final block labels after recipe spans are accepted, keeps the blocks that are not owned by recipes, and assigns each non-recipe block a Stage 7 category of `knowledge` or `other`. `cookimport/staging/writer.py` writes that state to `08_nonrecipe_spans.json`, and `09_knowledge_outputs.json` later records the final post-review authority when the optional knowledge stage runs.
 
@@ -91,13 +108,13 @@ The optional non-recipe knowledge review stage lives in `cookimport/llm/codex_fa
 
 In this plan, “excluded from knowledge review” means: “the line-role pass has judged this outside-recipe material to be so obviously not reusable cooking knowledge that it should remain final `other` immediately and should not consume knowledge-review tokens.” It does not mean “the LLM has fully judged all outside-recipe semantics.” Examples include dotted table-of-contents rows, isolated page numbers, running headers and footers, copyright/legal boilerplate, ISBN or Library of Congress cataloging blocks, testimonial blurbs, and other publishing/navigation surfaces. Ambiguous essays, memoir fragments, explanatory headings, and prose with even a plausible chance of carrying reusable cooking advice must remain review-eligible.
 
-The important architectural choice is that line-role no longer needs to emit final outside-recipe `KNOWLEDGE` for this design to work. Recipe-local structure remains line-role-owned. Outside-recipe text becomes either `OTHER` plus “review eligible” or `OTHER` plus “exclude from review,” and the optional knowledge stage becomes the only place that can still promote the review-eligible remainder to final `knowledge`.
+The important architectural choice is now implemented: recipe-local structure remains line-role-owned, while outside-recipe text becomes either `OTHER` plus “review eligible” or `OTHER` plus `review_exclusion_reason`. The optional knowledge stage is now the only place that can still promote the review-eligible remainder to final `knowledge`.
 
 ## Plan of Work
 
 Start in `cookimport/parsing/canonical_line_roles.py` and `cookimport/llm/canonical_line_role_prompt.py`. Extend the line-role worker contract so a row may still return the ordinary label, but an outside-recipe `OTHER` row may also carry an optional review-exclusion annotation. The minimum contract should be a boolean plus a small reason code. A concrete shape is:
 
-    {"atomic_index": 123, "label": "OTHER", "exclude_from_knowledge_review": true, "knowledge_review_exclusion_reason": "toc_navigation"}
+    {"atomic_index": 123, "label": "OTHER", "review_exclusion_reason": "navigation"}
 
 The prompt must tell the worker exactly what this new bit means. The worker still does recipe-local labeling as before. It must not try to decide subtle outside-recipe usefulness. For outside-recipe text it should:
 
@@ -110,7 +127,7 @@ At the same time, update line-role sanitization so outside-recipe `KNOWLEDGE` is
 
 Define a deliberately tiny exclusion vocabulary owned by the repo. Good initial reason codes are `toc_navigation`, `page_number_only`, `running_header_footer`, `copyright_legal`, `isbn_cataloging`, `publisher_metadata`, `testimonial_blurb`, and `index_navigation`. Do not add fuzzy reasons such as `probably_not_knowledge`. The reason codes must describe only surfaces that are obvious to a human reviewer.
 
-Then propagate that metadata through `cookimport/parsing/label_source_of_truth.py`. Add fields such as `exclude_from_knowledge_review: bool = False` and `knowledge_review_exclusion_reason: str | None = None` to `AuthoritativeLabeledLine` and `AuthoritativeBlockLabel`. Block-level promotion must be conservative. A block should become excluded only when all of its relevant outside-recipe lines are excluded for compatible reasons or when a specific block-level normalization rule proves the entire block is the same obvious junk surface. If any line in the block remains plausibly reviewable, the block must remain review-eligible.
+Then propagate that metadata through `cookimport/parsing/label_source_of_truth.py`. The shipped field is `review_exclusion_reason: str | None = None` on both `AuthoritativeLabeledLine` and `AuthoritativeBlockLabel`. Block-level promotion must be conservative. A block should become excluded only when all of its relevant outside-recipe lines are excluded for compatible reasons or when a specific block-level normalization rule proves the entire block is the same obvious junk surface. If any line in the block remains plausibly reviewable, the block must remain review-eligible.
 
 Next, update `cookimport/staging/nonrecipe_stage.py`. Keep the public block categories `knowledge` and `other`, but split “other” into two internal routing views: review-eligible `other` blocks and review-excluded `other` blocks. The stage result should gain fields for exact excluded block indices, exact review-eligible block indices, exclusion reasons by block, and a second set of contiguous spans that represent only the review-eligible subset used to build knowledge jobs. This extra span list is necessary because a single broad Stage 7 `other` span may contain both excluded and reviewable blocks after the new routing logic is introduced.
 
@@ -259,13 +276,13 @@ The most important artifacts after implementation should be:
 The intended routing contract is:
 
     recipe-local rows -> ordinary line-role final recipe labels
-    obvious outside-recipe junk -> final OTHER + exclude_from_knowledge_review=true
+    obvious outside-recipe junk -> final OTHER + review_exclusion_reason set
     ambiguous outside-recipe prose -> provisional OTHER + review-eligible
     optional knowledge stage -> only this stage can promote review-eligible outside-recipe text to final knowledge
 
 One expected exclusion-ledger row should look conceptually like this:
 
-    {"atomic_index": 44, "source_block_index": 12, "final_label": "OTHER", "exclude_from_knowledge_review": true, "knowledge_review_exclusion_reason": "toc_navigation", "text_preview": "CHAPTER 3 ........ 87"}
+    {"atomic_index": 44, "source_block_index": 12, "final_label": "OTHER", "review_exclusion_reason": "navigation", "text_preview": "CHAPTER 3 ........ 87"}
 
 One expected acceptance check for knowledge input should be:
 
@@ -278,35 +295,32 @@ In `cookimport/parsing/canonical_line_roles.py`, extend:
 
     class CanonicalLineRolePrediction(BaseModel):
         ...
-        exclude_from_knowledge_review: bool = False
-        knowledge_review_exclusion_reason: str | None = None
+        review_exclusion_reason: str | None = None
 
 The parser and sanitizer must enforce:
 
-    - `exclude_from_knowledge_review=true` is only valid when `label == "OTHER"`
+    - `review_exclusion_reason` is only valid when `label == "OTHER"`
     - the candidate must be outside any accepted recipe span
-    - `knowledge_review_exclusion_reason` must be one of the repo-owned allowed codes
+    - `review_exclusion_reason` must be one of the repo-owned allowed codes
     - invalid exclusion metadata falls back safely to plain `OTHER`
 
 In `cookimport/parsing/label_source_of_truth.py`, extend:
 
     class AuthoritativeLabeledLine(BaseModel):
         ...
-        exclude_from_knowledge_review: bool = False
-        knowledge_review_exclusion_reason: str | None = None
+        review_exclusion_reason: str | None = None
 
     class AuthoritativeBlockLabel(BaseModel):
         ...
-        exclude_from_knowledge_review: bool = False
-        knowledge_review_exclusion_reason: str | None = None
+        review_exclusion_reason: str | None = None
 
 In `cookimport/staging/nonrecipe_stage.py`, extend `NonRecipeStageResult` with exact routing state needed by the knowledge-job builder, for example:
 
     review_eligible_block_indices: list[int]
     review_excluded_block_indices: list[int]
     review_exclusion_reason_by_block: dict[int, str]
-    knowledge_review_candidate_spans: list[NonRecipeSpan]
+    review_eligible_nonrecipe_spans: list[NonRecipeSpan]
 
-`cookimport/llm/codex_farm_knowledge_jobs.py` must then accept and use `knowledge_review_candidate_spans` as the sole source for `knowledge/in/*.json` bundle planning, while `cookimport/llm/codex_farm_knowledge_orchestrator.py` and the stage-observability helpers must surface the resulting filtered counts in `knowledge_manifest.json`, `stage_status.json`, and `knowledge_stage_summary.json`.
+`cookimport/llm/codex_farm_knowledge_jobs.py` must then accept and use `review_eligible_nonrecipe_spans` as the sole source for `knowledge/in/*.json` bundle planning, while `cookimport/llm/codex_farm_knowledge_orchestrator.py` and the stage-observability helpers must surface the resulting filtered counts in `knowledge_manifest.json`, `stage_status.json`, and `knowledge_stage_summary.json`.
 
-Revision note: Updated on 2026-03-22 after current codebase churn review. The plan still keeps the token-saving goal and the narrowed line-role role, but now reflects the current packetized knowledge runtime, stage-summary artifacts, benchmark projection rules, and the actual test files present in the repository.
+Revision note: Updated again on 2026-03-22 after implementation. The plan now records the shipped `review_exclusion_reason` contract, the Stage 7 review-eligible/excluded routing split, the new `08_nonrecipe_review_exclusions.jsonl` artifact, the knowledge-manifest/input-mode change, and the validation status including the unrelated remaining `domain llm` failure outside this feature path.

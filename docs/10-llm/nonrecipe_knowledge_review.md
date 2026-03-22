@@ -7,7 +7,7 @@ read_when:
 
 # Optional Non-Recipe Knowledge Review
 
-The knowledge stage is an **optional** shard-worker CodexFarm phase that reviews seed Stage 7 non-recipe spans, can refine final `knowledge` versus `other` ownership, and extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) from the spans that remain knowledge.
+The knowledge stage is an **optional** shard-worker CodexFarm phase that reviews Stage 7 review-eligible non-recipe spans, can refine final `knowledge` versus `other` ownership, and extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don't guidance) from the spans that remain knowledge.
 
 The deterministic classifier runs first and always writes:
 
@@ -33,7 +33,7 @@ Optional knobs:
 - `--table-extraction on` (recommended for table-heavy books; compact knowledge bundles then include `chunk.blocks[*].table_hint`)
 
 Chunking note:
-- knowledge-stage inputs now come from seed Stage 7 non-recipe spans, then apply the existing adjacent-chunk consolidation logic inside each seed span.
+- knowledge-stage inputs now come from the review-eligible subset of Stage 7 non-recipe spans. Obvious-junk `OTHER` blocks excluded by line-role stay visible in `08_nonrecipe_spans.json` / `08_nonrecipe_review_exclusions.jsonl`, but they are pruned before `knowledge/in/*.json` is written.
 - compact knowledge jobs now bundle surviving chunks across neighboring seed spans when they stay local, including small bridged gaps up to 10 blocks, so prompt count tracks broader outside-recipe regions instead of one chunk per prompt.
 - standalone heading fragments and tiny bridge chunks are collapsed before bundling so decorative section seams do not become their own Codex jobs.
 - table chunks are intentionally excluded from consolidation and remain isolated.
@@ -64,6 +64,7 @@ Per staged workbook (`<workbook_slug>`):
   - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
 - Canonical stage artifacts:
   - `data/output/<ts>/08_nonrecipe_spans.json`
+  - `data/output/<ts>/08_nonrecipe_review_exclusions.jsonl`
   - `data/output/<ts>/09_knowledge_outputs.json`
 - Reviewer-facing extraction artifacts:
   - `data/output/<ts>/knowledge/<workbook_slug>/snippets.jsonl`
@@ -74,8 +75,9 @@ Run-level index (if any knowledge artifacts were written):
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
 Manifest/runtime note:
-- `knowledge_manifest.json` now advertises `input_mode = "stage7_seed_nonrecipe_spans"` and reports whether the stage changed final authority.
+- `knowledge_manifest.json` now advertises `input_mode = "stage7_review_eligible_nonrecipe_spans"` and reports whether the stage changed final authority.
 - manifest `counts` now distinguish shard count (`shards_written`) from surviving chunk count (`chunks_written`).
+- manifest and `review_summary` now also report how many Stage 7 blocks stayed review-eligible versus how many were excluded upstream, so missing blocks in `knowledge/in/*.json` are explainable from repo artifacts alone.
 - If Stage 7 finds zero non-recipe spans, the manifest is still written as a successful no-op with zero shards.
 - Live execution and prompt/debug reconstruction both read immutable shard payloads from `knowledge/in/*.json` and validated proposal wrappers from `knowledge/proposals/*.json`; there is no `knowledge/out/*.json` compatibility copy anymore.
 - `stage_status.json` is the canonical machine-readable operator summary for stage wrap-up, interruption attribution, and normalized artifact state. It records `stage_state`, `termination_cause`, `finalization_completeness`, `pre_kill_failure_counts`, and normalized `artifact_states`.

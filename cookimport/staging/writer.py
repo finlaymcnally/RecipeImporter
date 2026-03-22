@@ -1180,12 +1180,13 @@ def write_nonrecipe_stage_outputs(
     output_stats: OutputStats | None = None,
 ) -> Path:
     path = output_dir / "08_nonrecipe_spans.json"
+    exclusion_ledger_path = output_dir / "08_nonrecipe_review_exclusions.jsonl"
     seed_nonrecipe_spans = list(stage_result.seed_nonrecipe_spans or [])
     seed_knowledge_spans = list(stage_result.seed_knowledge_spans or [])
     seed_other_spans = list(stage_result.seed_other_spans or [])
     seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
     payload = {
-        "schema_version": "nonrecipe_spans.v2",
+        "schema_version": "nonrecipe_spans.v3",
         "counts": {
             "nonrecipe_spans": len(stage_result.nonrecipe_spans),
             "knowledge_spans": len(stage_result.knowledge_spans),
@@ -1198,6 +1199,11 @@ def write_nonrecipe_stage_outputs(
                 1 for category in stage_result.block_category_by_index.values()
                 if category == "other"
             ),
+            "review_eligible_nonrecipe_spans": len(stage_result.review_eligible_nonrecipe_spans),
+            "review_eligible_other_spans": len(stage_result.review_eligible_other_spans),
+            "review_excluded_other_spans": len(stage_result.review_excluded_other_spans),
+            "review_eligible_blocks": len(stage_result.review_eligible_block_indices),
+            "review_excluded_blocks": len(stage_result.review_excluded_block_indices),
             "warnings": len(stage_result.warnings),
         },
         "seed_counts": {
@@ -1214,6 +1220,12 @@ def write_nonrecipe_stage_outputs(
             ),
         },
         "warnings": list(stage_result.warnings),
+        "review_eligible_block_indices": list(stage_result.review_eligible_block_indices),
+        "review_excluded_block_indices": list(stage_result.review_excluded_block_indices),
+        "review_exclusion_reason_by_block": {
+            str(index): reason
+            for index, reason in sorted(stage_result.review_exclusion_reason_by_block.items())
+        },
         "block_category_by_index": {
             str(index): category
             for index, category in sorted(stage_result.block_category_by_index.items())
@@ -1244,6 +1256,28 @@ def write_nonrecipe_stage_outputs(
             }
             for span in seed_nonrecipe_spans
         ],
+        "review_eligible_spans": [
+            {
+                "span_id": span.span_id,
+                "category": span.category,
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
+            for span in stage_result.review_eligible_nonrecipe_spans
+        ],
+        "review_excluded_other_spans": [
+            {
+                "span_id": span.span_id,
+                "category": span.category,
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
+            for span in stage_result.review_excluded_other_spans
+        ],
         "refinement_report": dict(stage_result.refinement_report),
     }
     _write_json_payload(
@@ -1252,7 +1286,44 @@ def write_nonrecipe_stage_outputs(
         output_stats=output_stats,
         category=_OUTPUT_CATEGORY_NONRECIPE,
     )
+    exclusion_rows = [
+        {
+            "block_index": int(block_index),
+            "block_id": _block_id_for_stage_result(stage_result, int(block_index)),
+            "final_category": "other",
+            "review_exclusion_reason": reason,
+            "preview": str(stage_result.block_preview_by_index.get(int(block_index)) or ""),
+            "exclusion_source": "line_role",
+        }
+        for block_index, reason in sorted(stage_result.review_exclusion_reason_by_block.items())
+    ]
+    exclusion_payload = "\n".join(
+        json.dumps(row, sort_keys=True) for row in exclusion_rows
+    )
+    if exclusion_payload:
+        exclusion_payload += "\n"
+    _write_text_payload(
+        exclusion_payload,
+        exclusion_ledger_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_NONRECIPE,
+    )
     return path
+
+
+def _block_id_for_stage_result(
+    stage_result: NonRecipeStageResult,
+    block_index: int,
+) -> str:
+    for span in (
+        list(stage_result.nonrecipe_spans)
+        + list(stage_result.review_eligible_nonrecipe_spans)
+        + list(stage_result.review_excluded_other_spans)
+    ):
+        for candidate_index, block_id in zip(span.block_indices, span.block_ids, strict=False):
+            if int(candidate_index) == int(block_index):
+                return str(block_id)
+    return f"b{int(block_index)}"
 
 
 def write_knowledge_outputs_artifact(
@@ -1278,7 +1349,10 @@ def write_knowledge_outputs_artifact(
     seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
     payload = {
         "schema_version": "knowledge_outputs.v2",
-        "input_mode": str((llm_report or {}).get("input_mode") or "stage7_seed_nonrecipe_spans"),
+        "input_mode": str(
+            (llm_report or {}).get("input_mode")
+            or "stage7_review_eligible_nonrecipe_spans"
+        ),
         "counts": {
             "nonrecipe_spans": len(stage_result.nonrecipe_spans),
             "knowledge_spans": len(stage_result.knowledge_spans),
@@ -1291,6 +1365,8 @@ def write_knowledge_outputs_artifact(
                 1 for category in stage_result.block_category_by_index.values()
                 if category == "other"
             ),
+            "review_eligible_blocks": len(stage_result.review_eligible_block_indices),
+            "review_excluded_blocks": len(stage_result.review_excluded_block_indices),
             "shards_written": int(counts.get("shards_written") or 0),
             "outputs_parsed": int(counts.get("outputs_parsed") or 0),
             "chunks_missing": int(counts.get("chunks_missing") or 0),

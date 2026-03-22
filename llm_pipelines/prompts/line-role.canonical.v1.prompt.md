@@ -14,7 +14,7 @@ Task boundary:
 - Never invent lines or labels.
 
 Return strict JSON as a JSON object with one `rows` array:
-{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}
+{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>","review_exclusion_reason":"<OPTIONAL_REASON>"}]}
 
 Task file shape:
 {"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later context"]]}
@@ -22,7 +22,7 @@ Task file shape:
 Rules:
 - Output only JSON.
 - Your final answer must be that JSON object and nothing else.
-- Use only the keys `rows`, `atomic_index`, and `label`.
+- Use only the keys `rows`, `atomic_index`, `label`, and optional `review_exclusion_reason`.
 - Return one result for every owned input row in `rows`.
 - Keep output order exactly as requested by the task file's `rows` array.
 - Treat the task file as one ordered contiguous slice of the book.
@@ -66,7 +66,10 @@ Rules:
   - Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` stay `OTHER` until nearby rows prove one live recipe.
   - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
   - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
-  - Dedications, front matter, and table-of-contents entries are usually `OTHER`.
+- Dedications, front matter, and table-of-contents entries are usually `OTHER`.
+- Use optional `review_exclusion_reason` only on rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
+- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`.
+- If outside-recipe prose seems useful but not recipe-local, keep it `OTHER` and leave `review_exclusion_reason` empty so the knowledge stage can review it.
 
 {{PACKET_CONTEXT_BLOCK}}
 

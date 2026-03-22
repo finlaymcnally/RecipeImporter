@@ -998,6 +998,11 @@ def run_codex_farm_nonrecipe_knowledge_review(
         nonrecipe_stage_result.seed_nonrecipe_spans
         or nonrecipe_stage_result.nonrecipe_spans
     )
+    review_candidate_spans = list(nonrecipe_stage_result.review_eligible_nonrecipe_spans)
+    seed_nonrecipe_span_count = len(seed_candidate_spans)
+    review_eligible_nonrecipe_span_count = len(review_candidate_spans)
+    review_eligible_block_count = len(nonrecipe_stage_result.review_eligible_block_indices)
+    review_excluded_block_count = len(nonrecipe_stage_result.review_excluded_block_indices)
     if not seed_candidate_spans:
         llm_report = _build_noop_knowledge_llm_report(
             run_settings=run_settings,
@@ -1008,6 +1013,33 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_in_dir=knowledge_in_dir,
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="no_nonrecipe_spans",
+            seed_nonrecipe_span_count=seed_nonrecipe_span_count,
+            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
+            review_eligible_block_count=review_eligible_block_count,
+            review_excluded_block_count=review_excluded_block_count,
+        )
+        _write_json(llm_report, manifest_path)
+        return CodexFarmNonrecipeKnowledgeReviewResult(
+            llm_report=llm_report,
+            llm_raw_dir=llm_raw_dir,
+            manifest_path=manifest_path,
+            refined_stage_result=nonrecipe_stage_result,
+            write_report=None,
+        )
+    if not review_candidate_spans:
+        llm_report = _build_noop_knowledge_llm_report(
+            run_settings=run_settings,
+            pipeline_id=pipeline_id,
+            output_schema_path=None,
+            manifest_path=manifest_path,
+            run_root=run_root,
+            knowledge_in_dir=knowledge_in_dir,
+            knowledge_stage_dir=knowledge_stage_dir,
+            stage_status="no_review_eligible_nonrecipe_spans",
+            seed_nonrecipe_span_count=seed_nonrecipe_span_count,
+            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
+            review_eligible_block_count=review_eligible_block_count,
+            review_excluded_block_count=review_excluded_block_count,
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeKnowledgeReviewResult(
@@ -1061,7 +1093,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
     started = time.perf_counter()
     build_report = build_knowledge_jobs(
         full_blocks=full_blocks_payload,
-        candidate_spans=seed_candidate_spans,
+        candidate_spans=review_candidate_spans,
         recipe_spans=recipe_spans,
         workbook_slug=workbook_slug,
         source_hash=_resolve_source_hash(conversion_result),
@@ -1084,8 +1116,11 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_in_dir=knowledge_in_dir,
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="all_chunks_skipped",
-            seed_nonrecipe_span_count=build_report.seed_nonrecipe_span_count,
+            seed_nonrecipe_span_count=seed_nonrecipe_span_count,
+            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
             chunk_count_before_pruning=build_report.chunk_count_before_pruning,
+            review_eligible_block_count=review_eligible_block_count,
+            review_excluded_block_count=review_excluded_block_count,
             skipped_chunk_count=build_report.skipped_chunk_count,
             skipped_lane_counts=dict(build_report.skipped_lane_counts),
         )
@@ -1132,7 +1167,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             },
             runtime_metadata={
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
-                "input_mode": "stage7_seed_nonrecipe_spans",
+                "input_mode": "stage7_review_eligible_nonrecipe_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
             },
             progress_worker_total=configured_worker_total,
@@ -1173,6 +1208,9 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_in_dir=knowledge_in_dir,
             knowledge_stage_dir=knowledge_stage_dir,
             build_report=build_report,
+            seed_nonrecipe_span_count=seed_nonrecipe_span_count,
+            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
+            review_excluded_block_count=review_excluded_block_count,
             elapsed_seconds=elapsed_seconds,
             error=str(exc),
         )
@@ -1236,6 +1274,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             promotion_report=promotion_report,
             build_report=build_report,
         )
+        review_rollup["review_excluded_block_count"] = review_excluded_block_count
         authority_mode = _derive_knowledge_authority_mode(
             refined_stage_result=refined_stage_result,
             review_rollup=review_rollup,
@@ -1277,7 +1316,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "enabled": True,
             "pipeline": run_settings.llm_knowledge_pipeline.value,
             "pipeline_id": pipeline_id,
-            "input_mode": "stage7_seed_nonrecipe_spans",
+            "input_mode": "stage7_review_eligible_nonrecipe_spans",
             "authority_mode": authority_mode,
             "scored_effect": str(
                 refined_stage_result.refinement_report.get("scored_effect")
@@ -1285,10 +1324,13 @@ def run_codex_farm_nonrecipe_knowledge_review(
             ),
             "output_schema_path": output_schema_path,
             "counts": {
-                "seed_nonrecipe_span_count": build_report.seed_nonrecipe_span_count,
+                "seed_nonrecipe_span_count": seed_nonrecipe_span_count,
+                "review_eligible_nonrecipe_span_count": review_eligible_nonrecipe_span_count,
                 "chunks_built_before_pruning": build_report.chunk_count_before_pruning,
                 "shards_written": build_report.shards_written,
                 "chunks_written": build_report.chunks_written,
+                "review_eligible_block_count": review_eligible_block_count,
+                "review_excluded_block_count": review_excluded_block_count,
                 "skipped_chunk_count": build_report.skipped_chunk_count,
                 "outputs_parsed": len(outputs),
                 "chunks_missing": len(missing_chunk_ids),
@@ -1442,28 +1484,36 @@ def _build_noop_knowledge_llm_report(
     knowledge_stage_dir: Path,
     stage_status: str,
     seed_nonrecipe_span_count: int = 0,
+    review_eligible_nonrecipe_span_count: int = 0,
     chunk_count_before_pruning: int = 0,
+    review_eligible_block_count: int = 0,
+    review_excluded_block_count: int = 0,
     skipped_chunk_count: int = 0,
     skipped_lane_counts: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     authority_mode = (
         "knowledge_not_run_no_nonrecipe_spans"
         if stage_status == "no_nonrecipe_spans"
+        else "knowledge_not_run_no_review_eligible_nonrecipe_spans"
+        if stage_status == "no_review_eligible_nonrecipe_spans"
         else "knowledge_not_run_all_chunks_skipped"
     )
     return {
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
-        "input_mode": "stage7_seed_nonrecipe_spans",
+        "input_mode": "stage7_review_eligible_nonrecipe_spans",
         "authority_mode": authority_mode,
         "scored_effect": "seed_only",
         "output_schema_path": output_schema_path,
         "counts": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
+            "review_eligible_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
             "chunks_built_before_pruning": int(chunk_count_before_pruning),
             "shards_written": 0,
             "chunks_written": 0,
+            "review_eligible_block_count": int(review_eligible_block_count),
+            "review_excluded_block_count": int(review_excluded_block_count),
             "skipped_chunk_count": int(skipped_chunk_count),
             "outputs_parsed": 0,
             "chunks_missing": 0,
@@ -1499,9 +1549,12 @@ def _build_noop_knowledge_llm_report(
         "skipped_lane_counts": dict(skipped_lane_counts or {}),
         "review_summary": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
+            "review_eligible_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
             "chunk_count_before_pruning": int(chunk_count_before_pruning),
             "planned_chunk_count": 0,
             "reviewed_chunk_count": 0,
+            "review_eligible_block_count": int(review_eligible_block_count),
+            "review_excluded_block_count": int(review_excluded_block_count),
             "skipped_chunk_count": int(skipped_chunk_count),
             "skipped_noise_chunk_count": int((skipped_lane_counts or {}).get("noise") or 0),
             "skipped_low_signal_chunk_count": int((skipped_lane_counts or {}).get("low_signal") or 0),
@@ -1545,6 +1598,9 @@ def _build_runtime_failed_knowledge_llm_report(
     knowledge_in_dir: Path,
     knowledge_stage_dir: Path,
     build_report: Any,
+    seed_nonrecipe_span_count: int,
+    review_eligible_nonrecipe_span_count: int,
+    review_excluded_block_count: int,
     elapsed_seconds: float,
     error: str,
 ) -> dict[str, Any]:
@@ -1552,15 +1608,22 @@ def _build_runtime_failed_knowledge_llm_report(
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
-        "input_mode": "stage7_seed_nonrecipe_spans",
+        "input_mode": "stage7_review_eligible_nonrecipe_spans",
         "authority_mode": "knowledge_not_run_runtime_failed",
         "scored_effect": "seed_only",
         "output_schema_path": output_schema_path,
         "counts": {
-            "seed_nonrecipe_span_count": int(build_report.seed_nonrecipe_span_count),
+            "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
+            "review_eligible_nonrecipe_span_count": int(
+                review_eligible_nonrecipe_span_count
+            ),
             "chunks_built_before_pruning": int(build_report.chunk_count_before_pruning),
             "shards_written": int(build_report.shards_written),
             "chunks_written": int(build_report.chunks_written),
+            "review_eligible_block_count": int(
+                getattr(build_report, "review_eligible_block_count", 0) or 0
+            ),
+            "review_excluded_block_count": int(review_excluded_block_count),
             "skipped_chunk_count": int(build_report.skipped_chunk_count),
             "outputs_parsed": 0,
             "chunks_missing": int(build_report.chunks_written),
@@ -1613,6 +1676,7 @@ def _build_runtime_failed_knowledge_llm_report(
                 "unreviewed_shard_count": int(build_report.shards_written),
                 "unreviewed_chunk_count": int(build_report.chunks_written),
                 "unreviewed_block_count": 0,
+                "review_excluded_block_count": 0,
             },
             promoted_useful_chunk_count=0,
             promoted_snippet_count=0,
@@ -1662,11 +1726,20 @@ def _build_review_summary(
         "seed_nonrecipe_span_count": int(
             getattr(build_report, "seed_nonrecipe_span_count", 0) or 0
         ),
+        "review_eligible_nonrecipe_span_count": int(
+            getattr(build_report, "review_eligible_nonrecipe_span_count", 0) or 0
+        ),
         "chunk_count_before_pruning": int(
             getattr(build_report, "chunk_count_before_pruning", 0) or 0
         ),
         "planned_chunk_count": planned_chunk_count,
         "reviewed_chunk_count": max(0, planned_chunk_count - unreviewed_chunk_count),
+        "review_eligible_block_count": int(
+            getattr(build_report, "review_eligible_block_count", 0) or 0
+        ),
+        "review_excluded_block_count": int(
+            counts.get("review_excluded_block_count") or 0
+        ),
         "skipped_chunk_count": int(getattr(build_report, "skipped_chunk_count", 0) or 0),
         "skipped_noise_chunk_count": int(skipped_lane_counts.get("noise") or 0),
         "skipped_low_signal_chunk_count": int(skipped_lane_counts.get("low_signal") or 0),

@@ -351,7 +351,7 @@ _YIELD_COUNT_HINT_RE = re.compile(
 )
 _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT = 4
 _LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
-_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v5"
+_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v6"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
@@ -360,6 +360,35 @@ _LINE_ROLE_DIRECT_RUNTIME_ARTIFACT_SCHEMA = "line_role.direct_worker_runtime.v1"
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
 LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT = 240
 _LINE_ROLE_MODEL_PAYLOAD_VERSION = 1
+_REVIEW_EXCLUSION_REASON_CODES = frozenset(
+    {
+        "navigation",
+        "front_matter",
+        "publishing_metadata",
+        "copyright_legal",
+        "endorsement",
+        "page_furniture",
+    }
+)
+_PAGE_FURNITURE_RE = re.compile(r"^\s*(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", re.IGNORECASE)
+_COPYRIGHT_LEGAL_RE = re.compile(
+    r"\b(?:copyright|all rights reserved|used by permission|no part of this)\b",
+    re.IGNORECASE,
+)
+_PUBLISHING_METADATA_RE = re.compile(
+    r"\b(?:isbn(?:-1[03])?|library of congress|cataloging-in-publication|published by|printed in)\b",
+    re.IGNORECASE,
+)
+_FRONT_MATTER_EXCLUSION_HEADINGS = {
+    "about the author",
+    "acknowledgments",
+    "acknowledgements",
+    "dedication",
+    "epigraph",
+    "foreword",
+    "introduction",
+    "preface",
+}
 
 class CanonicalLineRolePrediction(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -374,11 +403,15 @@ class CanonicalLineRolePrediction(BaseModel):
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
+    review_exclusion_reason: str | None = None
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "CanonicalLineRolePrediction":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
+        self.review_exclusion_reason = _normalize_review_exclusion_reason(
+            self.review_exclusion_reason
+        )
         return self
 
 
@@ -392,6 +425,15 @@ def _unique_string_list(values: Sequence[Any]) -> list[str]:
         seen.add(rendered)
         output.append(rendered)
     return output
+
+
+def _normalize_review_exclusion_reason(value: Any) -> str | None:
+    rendered = str(value or "").strip().lower()
+    if not rendered:
+        return None
+    if rendered not in _REVIEW_EXCLUSION_REASON_CODES:
+        raise ValueError(f"unknown review exclusion reason: {rendered}")
+    return rendered
 
 
 def _prediction_has_reason_tag(
@@ -438,6 +480,8 @@ def _apply_prediction_decision_metadata(
             reasons.append("codex_disagreed_with_rule")
     if _prediction_has_reason_tag(prediction, "sanitized_"):
         reasons.append("sanitized_label_adjustment")
+    if prediction.review_exclusion_reason is not None:
+        reasons.append("knowledge_review_excluded")
 
     payload = prediction.model_dump(mode="python")
     payload["escalation_reasons"] = _unique_string_list(reasons)
@@ -1293,6 +1337,105 @@ def _looks_navigation_title_list_entry(text: str) -> bool:
     return _looks_recipe_title(stripped) or _looks_compact_heading(stripped)
 
 
+def _looks_page_furniture(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    return _PAGE_FURNITURE_RE.match(stripped) is not None
+
+
+def _looks_publishing_metadata(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    return _PUBLISHING_METADATA_RE.search(stripped) is not None
+
+
+def _looks_copyright_legal(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    return _COPYRIGHT_LEGAL_RE.search(stripped) is not None
+
+
+def _looks_front_matter_exclusion_heading(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    lowered = stripped.lower()
+    if lowered in _FRONT_MATTER_EXCLUSION_HEADINGS:
+        return True
+    return lowered.startswith("how to use this book")
+
+
+def _looks_navigation_exclusion_candidate(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if _looks_table_of_contents_entry(text):
+        return True
+    if _looks_front_matter_navigation_heading(text) and not _looks_front_matter_exclusion_heading(
+        text
+    ):
+        return True
+    if by_atomic_index is None or not _looks_navigation_title_list_entry(text):
+        return False
+    navigation_like_neighbors = 0
+    lesson_like_neighbors = 0
+    for offset in (-2, -1, 1, 2):
+        neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
+        if neighbor is None or _is_within_recipe_span(neighbor):
+            continue
+        neighbor_text = str(neighbor.text or "").strip()
+        if (
+            _looks_table_of_contents_entry(neighbor_text)
+            or _looks_front_matter_navigation_heading(neighbor_text)
+            or _looks_navigation_title_list_entry(neighbor_text)
+        ):
+            navigation_like_neighbors += 1
+        if _looks_knowledge_heading_with_context(
+            neighbor,
+            by_atomic_index=by_atomic_index,
+        ) or _looks_knowledge_prose_with_context(
+            neighbor,
+            by_atomic_index=by_atomic_index,
+        ):
+            lesson_like_neighbors += 1
+    return navigation_like_neighbors >= 1 and lesson_like_neighbors == 0
+
+
+def _outside_recipe_review_exclusion_reason(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> str | None:
+    if _is_within_recipe_span(candidate):
+        return None
+    text = str(candidate.text or "").strip()
+    if not text:
+        return None
+    if _looks_page_furniture(text):
+        return "page_furniture"
+    if _looks_copyright_legal(text):
+        return "copyright_legal"
+    if _looks_publishing_metadata(text):
+        return "publishing_metadata"
+    if _looks_endorsement_credit(text):
+        return "endorsement"
+    if _looks_front_matter_exclusion_heading(text):
+        return "front_matter"
+    if _looks_navigation_exclusion_candidate(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "navigation"
+    return None
+
+
 def _build_line_role_book_context(
     *,
     candidates: Sequence[AtomicLineCandidate],
@@ -1630,6 +1773,7 @@ def _run_line_role_shard_runtime(
                 label=str(row["label"] or baseline_prediction.label or "OTHER"),
                 decided_by="codex",
                 reason_tags=["codex_line_role"],
+                review_exclusion_reason=row.get("review_exclusion_reason"),
             )
     return _LineRoleRuntimeResult(
         predictions_by_atomic_index=predictions_by_atomic_index,
@@ -1864,6 +2008,16 @@ def _validate_line_role_shard_proposal(
             errors.append(f"missing_label:{atomic_index}")
         elif label not in FREEFORM_ALLOWED_LABELS:
             errors.append(f"invalid_label:{atomic_index}:{label}")
+        review_exclusion_reason = row.get("review_exclusion_reason")
+        try:
+            normalized_review_exclusion_reason = _normalize_review_exclusion_reason(
+                review_exclusion_reason
+            )
+        except ValueError as exc:
+            errors.append(f"invalid_review_exclusion_reason:{atomic_index}:{exc}")
+            normalized_review_exclusion_reason = None
+        if normalized_review_exclusion_reason is not None and label != "OTHER":
+            errors.append(f"review_exclusion_reason_requires_other:{atomic_index}")
         if atomic_index not in expected_owned:
             errors.append(f"unowned_atomic_index:{atomic_index}")
             continue
@@ -6457,6 +6611,7 @@ def _sanitize_prediction(
     label = prediction.label if prediction.label in FREEFORM_ALLOWED_LABELS else "OTHER"
     reason_tags = list(prediction.reason_tags)
     decided_by = prediction.decided_by
+    review_exclusion_reason = prediction.review_exclusion_reason
     if (
         label == "KNOWLEDGE"
         and _is_within_recipe_span(candidate)
@@ -6468,17 +6623,10 @@ def _sanitize_prediction(
         label = "OTHER"
         decided_by = "fallback"
         reason_tags.append("sanitized_knowledge_inside_recipe")
-    if (
-        label == "KNOWLEDGE"
-        and not _is_within_recipe_span(candidate)
-        and not _outside_recipe_knowledge_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
+    if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
         label = "OTHER"
         decided_by = "fallback"
-        reason_tags.append("sanitized_outside_recipe_knowledge_without_evidence")
+        reason_tags.append("sanitized_outside_recipe_knowledge_to_reviewable_other")
     if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
         label = "OTHER" if _is_outside_recipe_span(candidate) else "INSTRUCTION_LINE"
         decided_by = "fallback"
@@ -6594,6 +6742,21 @@ def _sanitize_prediction(
         )
         decided_by = "fallback"
         reason_tags.append("sanitized_instruction_without_local_support")
+    if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
+        label = "OTHER"
+        decided_by = "fallback"
+        if "sanitized_outside_recipe_knowledge_to_reviewable_other" not in reason_tags:
+            reason_tags.append("sanitized_outside_recipe_knowledge_to_reviewable_other")
+    if label != "OTHER" or _is_within_recipe_span(candidate):
+        review_exclusion_reason = None
+    else:
+        review_exclusion_reason = (
+            review_exclusion_reason
+            or _outside_recipe_review_exclusion_reason(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        )
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -6604,6 +6767,7 @@ def _sanitize_prediction(
         label=label,
         decided_by=decided_by,
         reason_tags=reason_tags,
+        review_exclusion_reason=review_exclusion_reason,
     )
 
 def _should_escalate_candidate(
@@ -6718,7 +6882,9 @@ def _should_rescue_other_to_knowledge_label(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> bool:
-    if not _outside_recipe_knowledge_label_allowed(
+    if not _is_within_recipe_span(candidate):
+        return False
+    if not _knowledge_allowed_inside_recipe(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
@@ -8255,6 +8421,9 @@ def _parse_codex_line_role_response(
         return [], "payload_not_list"
 
     requested_indices = [int(candidate.atomic_index) for candidate in requested]
+    requested_by_index = {
+        int(candidate.atomic_index): candidate for candidate in requested
+    }
     seen: set[int] = set()
     parsed: list[dict[str, Any]] = []
     for row in payload:
@@ -8272,8 +8441,27 @@ def _parse_codex_line_role_response(
         normalized_label = normalize_freeform_label(str(row.get("label") or ""))
         if normalized_label not in FREEFORM_ALLOWED_LABELS:
             return [], f"unknown_label:{normalized_label}"
+        candidate = requested_by_index[atomic_index]
+        review_exclusion_reason = row.get("review_exclusion_reason")
+        try:
+            normalized_review_exclusion_reason = _normalize_review_exclusion_reason(
+                review_exclusion_reason
+            )
+        except ValueError as exc:
+            return [], str(exc)
+        if normalized_review_exclusion_reason is not None:
+            if normalized_label != "OTHER":
+                return [], "review_exclusion_reason_requires_other"
+            if _is_within_recipe_span(candidate):
+                return [], "review_exclusion_reason_requires_outside_recipe"
         seen.add(atomic_index)
-        parsed.append({"atomic_index": atomic_index, "label": normalized_label})
+        parsed.append(
+            {
+                "atomic_index": atomic_index,
+                "label": normalized_label,
+                "review_exclusion_reason": normalized_review_exclusion_reason,
+            }
+        )
 
     if seen != set(requested_indices):
         return [], "missing_atomic_index_rows"

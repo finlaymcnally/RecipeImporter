@@ -305,7 +305,7 @@ def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtim
     assert predictions[0].decided_by == "codex"
 
 
-def test_label_atomic_lines_outside_recipe_can_be_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:1",
@@ -323,11 +323,12 @@ def test_label_atomic_lines_outside_recipe_can_be_knowledge() -> None:
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].review_exclusion_reason is None
     assert predictions[0].within_recipe_span is False
 
 
-def test_label_atomic_lines_outside_recipe_science_prose_is_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_science_prose_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:science",
@@ -346,7 +347,8 @@ def test_label_atomic_lines_outside_recipe_science_prose_is_knowledge() -> None:
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].review_exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_context() -> None:
@@ -380,10 +382,11 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
+    assert by_text["SALT AND FLAVOR"].label == "OTHER"
+    assert by_text["SALT AND FLAVOR"].review_exclusion_reason is None
 
 
-def test_label_atomic_lines_outside_recipe_first_person_learning_prose_can_be_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:first-person",
@@ -416,8 +419,13 @@ def test_label_atomic_lines_outside_recipe_first_person_learning_prose_can_be_kn
             "food from great, understanding when pasta water needed more salt "
             "and when vinegar was needed to balance a rich stew."
         ].label
-        == "KNOWLEDGE"
+        == "OTHER"
     )
+    assert by_text[
+        "As I improved, I began to detect the nuances that distinguish good "
+        "food from great, understanding when pasta water needed more salt "
+        "and when vinegar was needed to balance a rich stew."
+    ].review_exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None:
@@ -506,7 +514,7 @@ def test_label_atomic_lines_unknown_pre_grouping_cluster_stays_structured() -> N
     assert predictions[1].label == "INSTRUCTION_LINE"
 
 
-def test_label_atomic_lines_unknown_pre_grouping_science_prose_is_knowledge() -> None:
+def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:science:unknown",
@@ -526,7 +534,8 @@ def test_label_atomic_lines_unknown_pre_grouping_science_prose_is_knowledge() ->
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].within_recipe_span is None
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].review_exclusion_reason is None
 
 
 def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor_context() -> None:
@@ -560,9 +569,10 @@ def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
-    assert by_text["Salt affects texture and flavor because it changes how food absorbs moisture during cooking."].label == "KNOWLEDGE"
-    assert by_text["The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."].label == "KNOWLEDGE"
+    assert by_text["SALT AND FLAVOR"].label == "OTHER"
+    assert by_text["SALT AND FLAVOR"].review_exclusion_reason is None
+    assert by_text["Salt affects texture and flavor because it changes how food absorbs moisture during cooking."].label == "OTHER"
+    assert by_text["The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."].label == "OTHER"
 
 
 def test_label_atomic_lines_outside_recipe_isolated_howto_heading_defaults_away_from_structure() -> None:
@@ -1329,10 +1339,11 @@ def test_label_atomic_lines_exact_lesson_prose_recover_knowledge_rows() -> None:
 
     assert [prediction.label for prediction in predictions] == [
         "OTHER",
-        "KNOWLEDGE",
-        "KNOWLEDGE",
+        "OTHER",
+        "OTHER",
         "OTHER",
     ]
+    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_front_matter_heading_and_title_list_stay_other() -> None:
@@ -1904,11 +1915,12 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
 
     predictions = label_atomic_lines(candidates, _settings())
     assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
-        "KNOWLEDGE",
-        "KNOWLEDGE",
-        "KNOWLEDGE",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
     ]
+    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_requires_high_evidence_for_knowledge() -> None:
@@ -1950,7 +1962,7 @@ def test_label_atomic_lines_outside_recipe_requires_high_evidence_for_knowledge(
 
     predictions = label_atomic_lines(candidates, _settings())
     assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
+        "OTHER",
         "OTHER",
         "OTHER",
     ]
@@ -2009,7 +2021,7 @@ def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_knowledge(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "fallback_decision" in predictions[0].escalation_reasons
     assert "sanitized_label_adjustment" in predictions[0].escalation_reasons
@@ -2070,7 +2082,8 @@ def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_outside_recipe_knowledge_without_evidence" in predictions[0].reason_tags
+    assert "sanitized_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
+    assert predictions[0].review_exclusion_reason == "endorsement"
 
 
 def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_stay_structured(
@@ -2301,12 +2314,12 @@ def test_codex_exact_lesson_prose_other_rows_rescue_to_knowledge(tmp_path) -> No
     )
 
     assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
-        "KNOWLEDGE",
+        "OTHER",
+        "OTHER",
         "OTHER",
     ]
-    assert "rescued_other_to_knowledge" in predictions[0].reason_tags
-    assert "rescued_other_to_knowledge" in predictions[1].reason_tags
+    assert "rescued_other_to_knowledge" not in predictions[0].reason_tags
+    assert "rescued_other_to_knowledge" not in predictions[1].reason_tags
 
 
 def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) -> None:
@@ -2417,7 +2430,7 @@ def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
 
