@@ -89,11 +89,24 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
     index_payload["source_dir"] = str(copied_root)
     analysis = index_payload.setdefault("analysis", {})
     knowledge_summary = dict(analysis.get("knowledge", {}) or {})
+    run_diagnostics = index_payload.get("run_diagnostics")
+    if isinstance(run_diagnostics, list) and run_diagnostics:
+        updated_runs: list[dict[str, object]] = []
+        for raw_row in run_diagnostics:
+            if not isinstance(raw_row, dict):
+                continue
+            row = dict(raw_row)
+            row["output_subdir"] = "line_role_only"
+            row["run_id"] = "line_role_only"
+            row["source_key"] = KNOWLEDGE_SOURCE_KEY
+            updated_runs.append(row)
+        index_payload["run_diagnostics"] = updated_runs
     if isinstance(knowledge_summary, dict):
         knowledge_summary["schema_version"] = "upload_bundle_knowledge.v1"
         rows = knowledge_summary.get("rows")
         if isinstance(rows, list) and rows:
             row = dict(rows[0])
+            row["output_subdir"] = "line_role_only"
             row["enabled"] = enabled
             row["pipeline"] = "codex-knowledge-shard-v1"
             row["pipeline_id"] = "recipe.knowledge.compact.v1"
@@ -122,6 +135,8 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
         for row in knowledge_rows:
             if not isinstance(row, dict):
                 continue
+            row["output_subdir"] = "line_role_only"
+            row["source_key"] = KNOWLEDGE_SOURCE_KEY
             row["prompt_samples_md"] = {
                 "path": "line_role_only/prompts/prompt_type_samples_from_full_prompt_log.md",
                 "payload_row": 999001,

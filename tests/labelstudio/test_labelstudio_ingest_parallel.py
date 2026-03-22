@@ -217,6 +217,73 @@ def _make_label_first_result(
     )
 
 
+def _make_empty_conversion_result(source: Path) -> ConversionResult:
+    return ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+
+def _install_basic_generate_pred_run_artifacts_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fake_result: ConversionResult,
+    archive_blocks: list[ArchiveBlock],
+    source_hash: str = "hash-123",
+    coverage_payload: dict[str, object] | None = None,
+    patch_parsing_archive: bool = False,
+) -> None:
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: archive_blocks,
+    )
+    if patch_parsing_archive:
+        monkeypatch.setattr(
+            "cookimport.parsing.label_source_of_truth.build_extracted_archive",
+            lambda *_args, **_kwargs: archive_blocks,
+        )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: source_hash,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: coverage_payload
+        or {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+
+
 def test_llm_recipe_pipeline_normalizer_rejects_legacy_codex_farm_ids() -> None:
     with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
         _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
@@ -2405,14 +2472,6 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
         "location": {"start_block": 0, "end_block": 0}
     }
 
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return initial_result.model_copy(deep=True)
-
     def _fake_run_codex_farm_recipe_pipeline(**_kwargs):
         return SimpleNamespace(
             updated_conversion_result=updated_result.model_copy(deep=True),
@@ -2423,13 +2482,10 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
 
     authoritative_calls: list[int] = []
 
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
+    _install_basic_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        fake_result=initial_result.model_copy(deep=True),
+        archive_blocks=[
             ArchiveBlock(
                 index=0,
                 text="Toast the bread.",
@@ -2446,28 +2502,8 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
         ),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
-        lambda _path: "hash-123",
-    )
-    monkeypatch.setattr(
         "cookimport.labelstudio.ingest.run_codex_farm_recipe_pipeline",
         _fake_run_codex_farm_recipe_pipeline,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
-            "extracted_chars": 100,
-            "chunked_chars": 90,
-            "warnings": [],
-        },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest._write_authoritative_line_role_artifacts",
@@ -2508,25 +2544,7 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
     source.write_text("source", encoding="utf-8")
     output_dir = tmp_path / "golden"
 
-    fake_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path=str(source),
-    )
-
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return fake_result
+    fake_result = _make_empty_conversion_result(source)
 
     observed_live_llm_allowed: list[bool | None] = []
 
@@ -2547,13 +2565,10 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
         ]
         return predictions, predictions
 
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
+    _install_basic_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        fake_result=fake_result,
+        archive_blocks=[
             ArchiveBlock(
                 index=0,
                 text="Example line",
@@ -2561,21 +2576,7 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
                 source_kind="raw",
             )
         ],
-    )
-    monkeypatch.setattr(
-        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
-        lambda *_args, **_kwargs: [
-            ArchiveBlock(
-                index=0,
-                text="Example line",
-                location={"block_index": 0, "line_index": 0},
-                source_kind="raw",
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
-        lambda _path: "hash-123",
+        patch_parsing_archive=True,
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
@@ -2590,22 +2591,6 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
                 rule_tags=["recipe_span_fallback"],
             ),
         ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
-            "extracted_chars": 100,
-            "chunked_chars": 90,
-            "warnings": [],
-        },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
         "cookimport.parsing.label_source_of_truth.label_atomic_lines_with_baseline",
@@ -2633,33 +2618,11 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
     source.write_text("source", encoding="utf-8")
     output_dir = tmp_path / "golden"
 
-    fake_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path=str(source),
-    )
-
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return fake_result
-
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
+    fake_result = _make_empty_conversion_result(source)
+    _install_basic_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        fake_result=fake_result,
+        archive_blocks=[
             ArchiveBlock(
                 index=0,
                 text="hello",
@@ -2667,23 +2630,12 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
                 source_kind="raw",
             )
         ],
-    )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
+        source_hash="hash",
+        coverage_payload={
             "extracted_chars": 100,
             "segment_chars": 90,
             "warnings": [],
         },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks, **_kwargs: tasks,
     )
 
     captured: dict[str, object] = {}

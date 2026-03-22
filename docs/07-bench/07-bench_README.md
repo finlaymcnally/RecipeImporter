@@ -319,6 +319,10 @@ Current bundle rules:
   - knowledge manifests from either prediction-run raw LLM outputs or processed-output `raw/llm/*/knowledge_manifest.json`
   - when a required knowledge manifest lives outside the session root, the bundle should mirror it into a derived payload row so `navigation.row_locators.knowledge_by_run` still resolves bundle-locally
 - upload-bundle runtime snapshots should prefer row-level prompt telemetry when it is present, but they must fall back to aggregate prompt-budget stage totals when archived/full-prompt rows are missing token coverage or omit whole stages such as `line_role`
+- upload-bundle diagnostics must keep stage blame and trace parity semantically honest:
+  - `final_recipe_empty_mapping` only counts actual `build_final_recipe` empty-mapping output
+  - `analysis.recipe_pipeline_context.observed_recipe_stage_call_counts.build_final_recipe` counts only observed final-recipe calls, not correction-stage calls
+  - `16_baseline_trace_parity.json` should treat derived bundle-local trace rows as present when run diagnostics already mirrored those artifacts into the bundle
 - new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
@@ -336,7 +340,7 @@ Oracle upload contract:
 - the browser upload path now enters through the canonical local Oracle wrapper at `/home/mcnal/.local/bin/oracle`; the browser wrapper layer still uses one machine-wide auto Chromium launcher, `/home/mcnal/.local/bin/chromium-oracle-auto`, plus `ORACLE_BROWSER_REMOTE_DEBUG_HOST=127.0.0.1`
 - that launcher opens visible Chromium when a usable display exists and falls back to `chromium-nosandbox-xvfb` otherwise, so the same benchmark upload path works both from interactive shells and from the agent shell
 - browser uploads use the canonical Oracle browser profile at `~/.local/share/oracle/browser-profile`; the legacy `~/.oracle/browser-profile` path is now only a compatibility symlink to that same directory
-- browser uploads now pass `--browser-model-strategy ignore`, so Oracle stops failing on stale picker labels and leaves the current/manual ChatGPT model alone instead of trying to auto-switch it
+- browser uploads now pass `--browser-model-strategy select`, so benchmark review explicitly switches to the requested review model instead of inheriting a stale/manual ChatGPT mode
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
 - transport sharding is strictly upload-time glue for oversized text files such as `upload_bundle_payload.jsonl`; checked-in and local `upload_bundle_v1` artifacts should stay unmodified on disk
 - benchmark status rendering treats generic `task X/Y | running N` updates as first-class worker-row signals, and plain legacy `run=... queued=... running=...` stderr snapshots are compatibility noise when structured progress is already present

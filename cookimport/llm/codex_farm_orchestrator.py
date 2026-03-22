@@ -984,6 +984,7 @@ def _build_recipe_watchdog_callback(
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
     stage_label: str = "strict JSON stage",
     allow_workspace_commands: bool = False,
+    execution_workspace_root: Path | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
     if live_status_path is not None:
@@ -994,9 +995,18 @@ def _build_recipe_watchdog_callback(
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
-        last_command_verdict = classify_workspace_worker_command(snapshot.last_command)
+        allowed_absolute_roots = (
+            [execution_workspace_root]
+            if execution_workspace_root is not None
+            else None
+        )
+        last_command_verdict = classify_workspace_worker_command(
+            snapshot.last_command,
+            allowed_absolute_roots=allowed_absolute_roots,
+        )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,
+            allowed_absolute_roots=allowed_absolute_roots,
         )
         if snapshot.command_execution_count > 0:
             if allow_workspace_commands:
@@ -1009,7 +1019,7 @@ def _build_recipe_watchdog_callback(
                             stage_label=stage_label,
                             last_command=snapshot.last_command,
                         ),
-                        retryable=False,
+                        retryable=True,
                     )
                 if decision is None and should_terminate_workspace_command_loop(snapshot=snapshot):
                     decision = CodexExecSupervisionDecision.terminate(
@@ -1018,7 +1028,7 @@ def _build_recipe_watchdog_callback(
                             stage_label=stage_label,
                             snapshot=snapshot,
                         ),
-                        retryable=False,
+                        retryable=True,
                     )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1033,7 +1043,7 @@ def _build_recipe_watchdog_callback(
             decision = CodexExecSupervisionDecision.terminate(
                 reason_code="watchdog_reasoning_without_output",
                 reason_detail=f"{stage_label} emitted repeated reasoning without a final answer",
-                retryable=False,
+                retryable=allow_workspace_commands,
             )
         status_payload = {
             "state": (
@@ -1150,6 +1160,21 @@ def _should_attempt_recipe_repair(
     return False
 
 
+def _should_attempt_recipe_watchdog_retry(
+    *,
+    run_result: CodexExecRunResult,
+) -> bool:
+    if str(run_result.supervision_state or "").strip() != "watchdog_killed":
+        return False
+    if not run_result.supervision_retryable:
+        return False
+    return str(run_result.supervision_reason_code or "").strip() in {
+        "watchdog_command_execution_forbidden",
+        "watchdog_command_loop_without_output",
+        "watchdog_reasoning_without_output",
+    }
+
+
 def _format_utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -1205,6 +1230,132 @@ def _run_recipe_repair_attempt(
     )
 
 
+def _run_recipe_watchdog_retry_attempt(
+    *,
+    runner: CodexExecRunner,
+    worker_root: Path,
+    shard: ShardManifestEntryV1,
+    env: Mapping[str, str],
+    output_schema_path: Path | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    pipeline_id: str,
+    worker_id: str,
+    reason_code: str,
+    reason_detail: str,
+    previous_response_text: str,
+    live_status_path: Path,
+) -> CodexExecRunResult:
+    prompt_text = _build_recipe_watchdog_retry_prompt(
+        shard=shard,
+        reason_code=reason_code,
+        reason_detail=reason_detail,
+        previous_response_text=previous_response_text,
+    )
+    retry_root = worker_root / "shards" / shard.shard_id / "watchdog_retry"
+    retry_root.mkdir(parents=True, exist_ok=True)
+    (retry_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
+    return runner.run_structured_prompt(
+        prompt_text=prompt_text,
+        input_payload={
+            "retry_mode": "recipe_watchdog",
+            "pipeline_id": pipeline_id,
+            "worker_id": worker_id,
+            "sid": shard.shard_id,
+            "shard_id": shard.shard_id,
+            "owned_ids": list(shard.owned_ids),
+            "retry_reason": {
+                "code": reason_code,
+                "detail": reason_detail,
+            },
+            "authoritative_input": dict(shard.input_payload or {}),
+            "previous_output": _truncate_recipe_repair_text(previous_response_text),
+        },
+        working_dir=worker_root,
+        env=env,
+        output_schema_path=output_schema_path,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        workspace_task_label="recipe watchdog retry shard",
+        supervision_callback=_build_recipe_watchdog_callback(
+            live_status_path=live_status_path,
+            shard_id=shard.shard_id,
+        ),
+    )
+
+
+def _build_recipe_watchdog_retry_prompt(
+    *,
+    shard: ShardManifestEntryV1,
+    reason_code: str,
+    reason_detail: str,
+    previous_response_text: str,
+) -> str:
+    owned_recipe_ids = ", ".join(str(recipe_id) for recipe_id in shard.owned_ids)
+    authoritative_input = json.dumps(
+        dict(shard.input_payload or {}),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return (
+        "Retry the recipe correction task after the previous workspace attempt was stopped.\n\n"
+        "Rules:\n"
+        "- Return strict JSON only.\n"
+        "- Do not run shell commands, Python, or any other tools.\n"
+        "- The first emitted character must be `{`.\n"
+        f"- `sid` must be `{shard.shard_id}`.\n"
+        f"- Return exactly one recipe result for each owned recipe id: {owned_recipe_ids}\n"
+        "- Use only owned recipe ids and do not invent extra recipes.\n"
+        "- Preserve `fragmentary` or `not_a_recipe` when the authoritative input is not safely repairable.\n\n"
+        f"Previous stop reason: {reason_code or '[unknown]'}\n"
+        f"Reason detail: {reason_detail or '[none recorded]'}\n\n"
+        "Authoritative task input:\n"
+        "<BEGIN_INPUT_JSON>\n"
+        f"{authoritative_input}\n"
+        "<END_INPUT_JSON>\n\n"
+        "Previous partial output, if any:\n"
+        "<BEGIN_PREVIOUS_OUTPUT>\n"
+        f"{_truncate_recipe_repair_text(previous_response_text)}\n"
+        "<END_PREVIOUS_OUTPUT>\n"
+    )
+
+
+def _build_recipe_inline_attempt_runner_payload(
+    *,
+    pipeline_id: str,
+    worker_id: str,
+    shard_id: str,
+    run_result: CodexExecRunResult,
+    model: str | None,
+    reasoning_effort: str | None,
+    prompt_input_mode: str,
+) -> dict[str, Any]:
+    payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
+    payload["pipeline_id"] = pipeline_id
+    telemetry = payload.get("telemetry")
+    row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+    if isinstance(row_payloads, list):
+        for row_payload in row_payloads:
+            if not isinstance(row_payload, dict):
+                continue
+            row_payload["prompt_input_mode"] = prompt_input_mode
+            row_payload["request_input_file"] = None
+            row_payload["request_input_file_bytes"] = None
+    summary_payload = telemetry.get("summary") if isinstance(telemetry, dict) else None
+    if isinstance(summary_payload, dict):
+        summary_payload["prompt_input_mode"] = prompt_input_mode
+        summary_payload["request_input_file_bytes_total"] = None
+    payload["process_payload"] = {
+        "pipeline_id": pipeline_id,
+        "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
+        "codex_model": model,
+        "codex_reasoning_effort": reasoning_effort,
+        "prompt_input_mode": prompt_input_mode,
+    }
+    return payload
+
+
 def _build_recipe_repair_prompt(
     *,
     shard: ShardManifestEntryV1,
@@ -1255,29 +1406,35 @@ def _build_recipe_repair_runner_payload(
     model: str | None,
     reasoning_effort: str | None,
 ) -> dict[str, Any]:
-    payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
-    payload["pipeline_id"] = pipeline_id
-    telemetry = payload.get("telemetry")
-    row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
-    if isinstance(row_payloads, list):
-        for row_payload in row_payloads:
-            if not isinstance(row_payload, dict):
-                continue
-            row_payload["prompt_input_mode"] = "inline_repair"
-            row_payload["request_input_file"] = None
-            row_payload["request_input_file_bytes"] = None
-    summary_payload = telemetry.get("summary") if isinstance(telemetry, dict) else None
-    if isinstance(summary_payload, dict):
-        summary_payload["prompt_input_mode"] = "inline_repair"
-        summary_payload["request_input_file_bytes_total"] = None
-    payload["process_payload"] = {
-        "pipeline_id": pipeline_id,
-        "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
-        "codex_model": model,
-        "codex_reasoning_effort": reasoning_effort,
-        "prompt_input_mode": "inline_repair",
-    }
-    return payload
+    return _build_recipe_inline_attempt_runner_payload(
+        pipeline_id=pipeline_id,
+        worker_id=worker_id,
+        shard_id=shard_id,
+        run_result=run_result,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        prompt_input_mode="inline_repair",
+    )
+
+
+def _build_recipe_watchdog_retry_runner_payload(
+    *,
+    pipeline_id: str,
+    worker_id: str,
+    shard_id: str,
+    run_result: CodexExecRunResult,
+    model: str | None,
+    reasoning_effort: str | None,
+) -> dict[str, Any]:
+    return _build_recipe_inline_attempt_runner_payload(
+        pipeline_id=pipeline_id,
+        worker_id=worker_id,
+        shard_id=shard_id,
+        run_result=run_result,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        prompt_input_mode="inline_watchdog_retry",
+    )
 
 
 def _truncate_recipe_repair_text(text: str, *, max_chars: int = 20_000) -> str:
@@ -1285,6 +1442,45 @@ def _truncate_recipe_repair_text(text: str, *, max_chars: int = 20_000) -> str:
     if len(cleaned) <= max_chars:
         return cleaned
     return cleaned[: max_chars - 15].rstrip() + "\n...[truncated]"
+
+
+def _final_recipe_supervision_fields(
+    *,
+    run_result: CodexExecRunResult,
+    proposal_status: str,
+    watchdog_retry_status: str = "not_attempted",
+    repair_status: str = "not_attempted",
+) -> dict[str, Any]:
+    raw_state = str(run_result.supervision_state or "completed").strip() or "completed"
+    raw_reason_code = str(run_result.supervision_reason_code or "").strip() or None
+    raw_reason_detail = str(run_result.supervision_reason_detail or "").strip() or None
+    final_state = raw_state
+    final_reason_code = raw_reason_code
+    final_reason_detail = raw_reason_detail
+    finalization_path = "raw_supervision"
+    if raw_state == "watchdog_killed" and proposal_status == "validated":
+        final_state = "completed"
+        if watchdog_retry_status == "recovered":
+            final_reason_code = "watchdog_retry_recovered"
+            final_reason_detail = "recipe shard validated after task-level watchdog retry"
+            finalization_path = "watchdog_retry_recovered"
+        elif repair_status == "repaired":
+            final_reason_code = "recipe_repair_recovered"
+            final_reason_detail = "recipe shard validated after follow-up repair"
+            finalization_path = "repair_recovered"
+        else:
+            final_reason_code = "workspace_outputs_recovered"
+            final_reason_detail = "recipe shard validated despite the raw workspace session stop"
+            finalization_path = "validated_after_watchdog"
+    return {
+        "raw_supervision_state": raw_state,
+        "raw_supervision_reason_code": raw_reason_code,
+        "raw_supervision_reason_detail": raw_reason_detail,
+        "final_supervision_state": final_state,
+        "final_supervision_reason_code": final_reason_code,
+        "final_supervision_reason_detail": final_reason_detail,
+        "finalization_path": finalization_path,
+    }
 
 
 def _aggregate_recipe_phase_process_run(
@@ -1544,10 +1740,11 @@ def _build_recipe_workspace_worker_prompt(
         "1. Open `worker_manifest.json`, then `current_task.json`, then `OUTPUT_CONTRACT.md`.",
         "2. If you need queue context, run `python3 tools/recipe_worker.py overview` or `python3 tools/recipe_worker.py show <task_id>` instead of dumping whole manifests by hand.",
         "3. For the current task, open `hints/<task_id>.md` first, then `in/<task_id>.json`.",
-        "4. The cheapest paved road is batch-first: run `python3 tools/recipe_worker.py prepare-all --dest-dir scratch/` once, edit the needed `scratch/<task_id>.json` drafts, then run `python3 tools/recipe_worker.py finalize-all scratch/` once.",
-        "5. Single-task fallback is still available: `python3 tools/recipe_worker.py show <task_id>`, then `check scratch/<task_id>.json`, then `finalize scratch/<task_id>.json`.",
-        "6. Continue through the remaining `assigned_tasks.json` rows in order until every assigned task has an output file or you cannot proceed.",
-        "7. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local or in approved temp roots, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
+        "4. The cheapest paved road is batch-first: run `python3 tools/recipe_worker.py prepare-all --dest-dir scratch/` once. That writes the drafts plus `scratch/_prepared_drafts.json` so you can verify the exact draft paths immediately.",
+        '5. For bulk terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary "<reason>" scratch/*.json` or the same command with `not_a_recipe` instead of writing repetitive JSON by hand. Otherwise edit the needed `scratch/<task_id>.json` drafts directly.',
+        "6. Finish with `python3 tools/recipe_worker.py finalize-all scratch/` once. Single-task fallback is still available: `python3 tools/recipe_worker.py show <task_id>`, then `check scratch/<task_id>.json`, then `finalize scratch/<task_id>.json`.",
+        "7. Continue through the remaining `assigned_tasks.json` rows in order until every assigned task has an output file or you cannot proceed.",
+        "8. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local or in approved temp roots, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Output contract for each `out/<task_id>.json`:",
         "- Write exactly one JSON object.",
@@ -2297,6 +2494,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                 watchdog_policy="workspace_worker_v1",
                 stage_label="workspace worker stage",
                 allow_workspace_commands=True,
+                execution_workspace_root=worker_root,
             ),
         )
         _finalize_live_status(
@@ -2321,6 +2519,7 @@ def _run_recipe_workspace_worker_assignment_v1(
         task_count = len(runnable_tasks)
         task_payloads_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
         task_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+        task_watchdog_retry_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
         for task_index, task in enumerate(runnable_tasks):
@@ -2362,6 +2561,106 @@ def _run_recipe_workspace_worker_assignment_v1(
             )
             initial_proposal_status = proposal_status
             stage_row = stage_rows[-1]
+            active_response_text = response_text
+            watchdog_retry_attempted = False
+            watchdog_retry_status = "not_attempted"
+            if (
+                proposal_status != "validated"
+                and _should_attempt_recipe_watchdog_retry(run_result=run_result)
+            ):
+                watchdog_retry_attempted = True
+                watchdog_retry_run_result = _run_recipe_watchdog_retry_attempt(
+                    runner=runner,
+                    worker_root=worker_root,
+                    shard=task_manifest,
+                    env=env,
+                    output_schema_path=output_schema_path,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    reason_code=str(run_result.supervision_reason_code or ""),
+                    reason_detail=str(run_result.supervision_reason_detail or ""),
+                    previous_response_text=str(response_text or ""),
+                    live_status_path=task_root / "watchdog_retry" / "live_status.json",
+                )
+                retry_root = task_root / "watchdog_retry"
+                _finalize_live_status(
+                    retry_root / "live_status.json",
+                    run_result=watchdog_retry_run_result,
+                )
+                retry_payload = _build_recipe_watchdog_retry_runner_payload(
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    shard_id=parent_shard_id,
+                    run_result=watchdog_retry_run_result,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                )
+                retry_payload["process_payload"]["runtime_task_id"] = task_manifest.shard_id
+                retry_payload["process_payload"]["runtime_parent_shard_id"] = parent_shard_id
+                worker_runner_results.append(dict(retry_payload))
+                retry_rows = (
+                    retry_payload.get("telemetry", {}).get("rows")
+                    if isinstance(retry_payload.get("telemetry"), dict)
+                    else None
+                )
+                if isinstance(retry_rows, list):
+                    for row_payload in retry_rows:
+                        if isinstance(row_payload, dict):
+                            row_payload["watchdog_retry_attempted"] = True
+                            row_payload["runtime_task_id"] = task_manifest.shard_id
+                            row_payload["runtime_parent_shard_id"] = parent_shard_id
+                            stage_rows.append(dict(row_payload))
+                (retry_root / "events.jsonl").write_text(
+                    _render_events_jsonl(watchdog_retry_run_result.events),
+                    encoding="utf-8",
+                )
+                _write_json(
+                    {"text": watchdog_retry_run_result.response_text},
+                    retry_root / "last_message.json",
+                )
+                _write_json(
+                    dict(watchdog_retry_run_result.usage or {}),
+                    retry_root / "usage.json",
+                )
+                _write_json(
+                    watchdog_retry_run_result.workspace_manifest(),
+                    retry_root / "workspace_manifest.json",
+                )
+                payload, validation_errors, validation_metadata, proposal_status = (
+                    _evaluate_recipe_response(
+                        shard=task_manifest,
+                        response_text=watchdog_retry_run_result.response_text,
+                    )
+                )
+                watchdog_retry_status = (
+                    "recovered" if proposal_status == "validated" else "failed"
+                )
+                if isinstance(retry_rows, list) and retry_rows:
+                    retry_runner_row = retry_rows[0]
+                    if isinstance(retry_runner_row, dict):
+                        retry_runner_row["proposal_status"] = proposal_status
+                        retry_runner_row["watchdog_retry_attempted"] = True
+                        retry_runner_row["watchdog_retry_status"] = watchdog_retry_status
+                _write_json(
+                    {
+                        "status": proposal_status,
+                        "watchdog_retry_reason_code": run_result.supervision_reason_code,
+                        "watchdog_retry_reason_detail": run_result.supervision_reason_detail,
+                        "validation_errors": list(validation_errors),
+                        "validation_metadata": dict(validation_metadata or {}),
+                        "state": watchdog_retry_run_result.supervision_state or "completed",
+                        "reason_code": watchdog_retry_run_result.supervision_reason_code,
+                        "reason_detail": watchdog_retry_run_result.supervision_reason_detail,
+                        "retryable": watchdog_retry_run_result.supervision_retryable,
+                    },
+                    retry_root / "status.json",
+                )
+                active_response_text = watchdog_retry_run_result.response_text
+                task_watchdog_retry_status_by_shard_id.setdefault(parent_shard_id, {})[
+                    task_manifest.shard_id
+                ] = watchdog_retry_status
             repair_attempted = False
             repair_status = "not_attempted"
             if _should_attempt_recipe_repair(
@@ -2379,7 +2678,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     reasoning_effort=reasoning_effort,
                     pipeline_id=pipeline_id,
                     worker_id=assignment.worker_id,
-                    original_response_text=str(response_text or ""),
+                    original_response_text=str(active_response_text or ""),
                     validation_errors=validation_errors,
                     validation_metadata=validation_metadata,
                     live_status_path=task_root / "repair_live_status.json",
@@ -2478,11 +2777,23 @@ def _run_recipe_workspace_worker_assignment_v1(
                     repair_errors if repair_status == "failed" else ()
                 )
             stage_row["proposal_status"] = (
-                initial_proposal_status if repair_attempted else proposal_status
+                initial_proposal_status
+                if (watchdog_retry_attempted or repair_attempted)
+                else proposal_status
             )
             stage_row["final_proposal_status"] = proposal_status
+            stage_row["watchdog_retry_attempted"] = watchdog_retry_attempted
+            stage_row["watchdog_retry_status"] = watchdog_retry_status
             stage_row["repair_attempted"] = repair_attempted
             stage_row["repair_status"] = repair_status
+            stage_row.update(
+                _final_recipe_supervision_fields(
+                    run_result=run_result,
+                    proposal_status=proposal_status,
+                    watchdog_retry_status=watchdog_retry_status,
+                    repair_status=repair_status,
+                )
+            )
             task_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
                 task_manifest.shard_id
             ] = tuple(validation_errors)
@@ -2495,6 +2806,9 @@ def _run_recipe_workspace_worker_assignment_v1(
             shard_root = shard_dir / shard.shard_id
             task_payloads = task_payloads_by_shard_id.get(shard.shard_id, {})
             task_errors = task_validation_errors_by_shard_id.get(shard.shard_id, {})
+            task_watchdog_statuses = task_watchdog_retry_status_by_shard_id.get(
+                shard.shard_id, {}
+            )
             task_repair_statuses = task_repair_status_by_shard_id.get(shard.shard_id, {})
             task_repair_errors = task_repair_validation_errors_by_shard_id.get(
                 shard.shard_id, {}
@@ -2510,6 +2824,12 @@ def _run_recipe_workspace_worker_assignment_v1(
                     response_text=json.dumps(payload, sort_keys=True),
                 )
             )
+            watchdog_retry_attempted = bool(task_watchdog_statuses)
+            watchdog_retry_status = (
+                "recovered"
+                if any(status == "recovered" for status in task_watchdog_statuses.values())
+                else ("failed" if watchdog_retry_attempted else "not_attempted")
+            )
             repair_attempted = any(
                 str(status).strip() != "not_attempted"
                 for status in task_repair_statuses.values()
@@ -2523,6 +2843,11 @@ def _run_recipe_workspace_worker_assignment_v1(
                 "task_aggregation": aggregation_metadata,
                 **dict(validation_metadata or {}),
             }
+            if task_watchdog_statuses:
+                validation_metadata["task_watchdog_retry_status_by_task_id"] = {
+                    task_id: status
+                    for task_id, status in sorted(task_watchdog_statuses.items())
+                }
             repair_validation_errors = sorted(
                 {
                     str(error).strip()
@@ -2539,6 +2864,12 @@ def _run_recipe_workspace_worker_assignment_v1(
             if repair_validation_errors:
                 validation_metadata["repair_validation_errors"] = repair_validation_errors
             final_payload = payload_candidate if proposal_status == "validated" else None
+            supervision_fields = _final_recipe_supervision_fields(
+                run_result=run_result,
+                proposal_status=proposal_status,
+                watchdog_retry_status=watchdog_retry_status,
+                repair_status=repair_status,
+            )
             proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
             _write_json(
                 {
@@ -2547,12 +2878,15 @@ def _run_recipe_workspace_worker_assignment_v1(
                     "payload": final_payload,
                     "validation_errors": list(validation_errors),
                     "validation_metadata": dict(validation_metadata or {}),
+                    "watchdog_retry_attempted": watchdog_retry_attempted,
+                    "watchdog_retry_status": watchdog_retry_status,
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
-                    "state": run_result.supervision_state or "completed",
-                    "reason_code": run_result.supervision_reason_code,
-                    "reason_detail": run_result.supervision_reason_detail,
+                    "state": supervision_fields["final_supervision_state"],
+                    "reason_code": supervision_fields["final_supervision_reason_code"],
+                    "reason_detail": supervision_fields["final_supervision_reason_detail"],
                     "retryable": run_result.supervision_retryable,
+                    **supervision_fields,
                 },
                 proposal_path,
             )
@@ -2562,20 +2896,26 @@ def _run_recipe_workspace_worker_assignment_v1(
                     "validation_errors": list(validation_errors),
                     "validation_metadata": dict(validation_metadata or {}),
                     "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                    "watchdog_retry_attempted": watchdog_retry_attempted,
+                    "watchdog_retry_status": watchdog_retry_status,
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
-                    "state": run_result.supervision_state or "completed",
-                    "reason_code": run_result.supervision_reason_code,
-                    "reason_detail": run_result.supervision_reason_detail,
+                    "state": supervision_fields["final_supervision_state"],
+                    "reason_code": supervision_fields["final_supervision_reason_code"],
+                    "reason_detail": supervision_fields["final_supervision_reason_detail"],
                     "retryable": run_result.supervision_retryable,
+                    **supervision_fields,
                 },
                 shard_root / "status.json",
             )
             if proposal_status != "validated":
                 worker_failure_count += 1
-                reason = _failure_reason_from_run_result(
-                    run_result=run_result,
-                    proposal_status=proposal_status,
+                reason = str(
+                    supervision_fields["final_supervision_reason_code"]
+                    or _failure_reason_from_run_result(
+                        run_result=run_result,
+                        proposal_status=proposal_status,
+                    )
                 )
                 worker_failures.append(
                     {
@@ -2583,8 +2923,8 @@ def _run_recipe_workspace_worker_assignment_v1(
                         "shard_id": shard.shard_id,
                         "reason": reason,
                         "validation_errors": list(validation_errors),
-                        "state": run_result.supervision_state or "completed",
-                        "reason_code": run_result.supervision_reason_code,
+                        "state": supervision_fields["final_supervision_state"],
+                        "reason_code": supervision_fields["final_supervision_reason_code"],
                     }
                 )
             else:
@@ -2599,12 +2939,15 @@ def _run_recipe_workspace_worker_assignment_v1(
                     validation_errors=validation_errors,
                     metadata={
                         **dict(validation_metadata or {}),
+                        "watchdog_retry_attempted": watchdog_retry_attempted,
+                        "watchdog_retry_status": watchdog_retry_status,
                         "repair_attempted": repair_attempted,
                         "repair_status": repair_status,
-                        "state": run_result.supervision_state or "completed",
-                        "reason_code": run_result.supervision_reason_code,
-                        "reason_detail": run_result.supervision_reason_detail,
+                        "state": supervision_fields["final_supervision_state"],
+                        "reason_code": supervision_fields["final_supervision_reason_code"],
+                        "reason_detail": supervision_fields["final_supervision_reason_detail"],
                         "retryable": run_result.supervision_retryable,
+                        **supervision_fields,
                     },
                 )
             )

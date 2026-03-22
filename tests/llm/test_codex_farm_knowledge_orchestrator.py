@@ -874,6 +874,47 @@ def test_knowledge_recovery_governor_does_not_poison_snippet_copy_only_failures(
 
 
 def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) -> None:
+    fixture = _build_knowledge_orchestrator_artifact_fixture(tmp_path)
+    apply_result = fixture["apply_result"]
+    manifest = fixture["manifest"]
+    knowledge_dir = fixture["knowledge_dir"]
+    assert isinstance(manifest, dict)
+    assert isinstance(knowledge_dir, Path)
+
+    assert apply_result.llm_report["enabled"] is True
+    assert "output_schema_path" in apply_result.llm_report
+    assert "process_run" in apply_result.llm_report
+    assert apply_result.llm_report["process_run"]["pipeline_id"] == "recipe.knowledge.compact.v1"
+    assert apply_result.llm_report["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
+    assert apply_result.llm_report["process_run"]["telemetry"]["summary"]["call_count"] > 0
+    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] > 0
+    assert apply_result.llm_report["input_mode"] == "stage7_seed_nonrecipe_spans"
+    assert apply_result.llm_report["review_summary"]["seed_nonrecipe_span_count"] == 2
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] >= 1
+    assert apply_result.llm_report["review_summary"]["reviewed_shards_with_useful_chunks"] >= 1
+    assert apply_result.llm_report["review_status"] == "complete"
+    assert apply_result.llm_report["review_summary"]["promoted_snippet_count"] >= 1
+    assert apply_result.refined_stage_result.block_category_by_index[4] == "knowledge"
+    assert apply_result.manifest_path.exists()
+    assert manifest["paths"]["seed_nonrecipe_spans_path"].endswith("08_nonrecipe_spans.json")
+    assert manifest["paths"]["final_knowledge_outputs_path"].endswith("09_knowledge_outputs.json")
+    assert manifest["counts"]["shards_written"] > 0
+    assert manifest["counts"]["seed_nonrecipe_span_count"] == 2
+    assert manifest["counts"]["chunks_built_before_pruning"] >= manifest["counts"]["chunks_written"]
+    assert manifest["counts"]["chunks_written"] >= manifest["counts"]["shards_written"]
+    assert manifest["stage_status"] == "completed"
+    assert manifest["review_summary"]["promoted_snippet_count"] >= 1
+    assert (knowledge_dir / "snippets.jsonl").exists()
+    assert (knowledge_dir / "knowledge.md").exists()
+    assert "Fake knowledge snippet." in (knowledge_dir / "snippets.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert "Fake knowledge snippet." in (knowledge_dir / "knowledge.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def _build_knowledge_orchestrator_artifact_fixture(tmp_path: Path) -> dict[str, object]:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -991,53 +1032,45 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
         runner=runner,
     )
 
-    assert apply_result.llm_report["enabled"] is True
-    assert "output_schema_path" in apply_result.llm_report
-    assert "process_run" in apply_result.llm_report
-    assert apply_result.llm_report["process_run"]["pipeline_id"] == "recipe.knowledge.compact.v1"
-    assert apply_result.llm_report["process_run"]["runtime_mode"] == "direct_codex_exec_v1"
-    assert apply_result.llm_report["process_run"]["telemetry"]["summary"]["call_count"] > 0
-    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] > 0
-    assert apply_result.llm_report["input_mode"] == "stage7_seed_nonrecipe_spans"
-    assert apply_result.llm_report["review_summary"]["seed_nonrecipe_span_count"] == 2
-    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] >= 1
-    assert apply_result.llm_report["review_summary"]["reviewed_shards_with_useful_chunks"] >= 1
-    assert apply_result.llm_report["review_status"] == "complete"
-    assert apply_result.llm_report["review_summary"]["promoted_snippet_count"] >= 1
-    assert apply_result.refined_stage_result.block_category_by_index[4] == "knowledge"
-    assert apply_result.manifest_path.exists()
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["paths"]["seed_nonrecipe_spans_path"].endswith("08_nonrecipe_spans.json")
-    assert manifest["paths"]["final_knowledge_outputs_path"].endswith("09_knowledge_outputs.json")
-    assert manifest["counts"]["shards_written"] > 0
-    assert manifest["counts"]["seed_nonrecipe_span_count"] == 2
-    assert manifest["counts"]["chunks_built_before_pruning"] >= manifest["counts"]["chunks_written"]
-    assert manifest["counts"]["chunks_written"] >= manifest["counts"]["shards_written"]
-    assert manifest["stage_status"] == "completed"
-    assert manifest["review_summary"]["promoted_snippet_count"] >= 1
-
     knowledge_dir = run_root / "knowledge" / "book"
-    assert (knowledge_dir / "snippets.jsonl").exists()
-    assert (knowledge_dir / "knowledge.md").exists()
-    assert "Fake knowledge snippet." in (knowledge_dir / "snippets.jsonl").read_text(
-        encoding="utf-8"
-    )
-    assert "Fake knowledge snippet." in (knowledge_dir / "knowledge.md").read_text(
-        encoding="utf-8"
-    )
     phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
-    assert (phase_dir / "phase_manifest.json").exists()
-    assert (phase_dir / "shard_manifest.jsonl").exists()
-    assert (phase_dir / "task_manifest.jsonl").exists()
-    assert (phase_dir / "worker_assignments.json").exists()
     task_manifest = [
         json.loads(line)
         for line in (phase_dir / "task_manifest.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+    worker_root = phase_dir / "workers" / "worker-001"
+    assigned_tasks = json.loads((worker_root / "assigned_tasks.json").read_text(encoding="utf-8"))
+
+    return {
+        "apply_result": apply_result,
+        "assigned_tasks": assigned_tasks,
+        "knowledge_dir": knowledge_dir,
+        "manifest": manifest,
+        "phase_dir": phase_dir,
+        "task_manifest": task_manifest,
+        "worker_root": worker_root,
+    }
+
+
+def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_orchestrator_artifact_fixture(tmp_path)
+    phase_dir = fixture["phase_dir"]
+    worker_root = fixture["worker_root"]
+    task_manifest = fixture["task_manifest"]
+    assert isinstance(phase_dir, Path)
+    assert isinstance(worker_root, Path)
+    assert isinstance(task_manifest, list)
+
+    assert (phase_dir / "phase_manifest.json").exists()
+    assert (phase_dir / "shard_manifest.jsonl").exists()
+    assert (phase_dir / "task_manifest.jsonl").exists()
+    assert (phase_dir / "worker_assignments.json").exists()
     assert task_manifest
     assert all(row["task_id"] == row["parent_shard_id"] for row in task_manifest)
-    worker_root = phase_dir / "workers" / "worker-001"
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
     assert "`CURRENT_TASK.md`" in worker_prompt
@@ -1050,8 +1083,11 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert "tools/knowledge_worker.py explain-failure" in worker_prompt
     assert "`assigned_tasks.json`" in worker_prompt
     assert "authoritative current-task surface" in worker_prompt
+    assert "ordered queue/progress reference" in worker_prompt
     assert "`metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`" in worker_prompt
     assert "A task is not finished until `check-current` prints `OK ...`." in worker_prompt
+    assert "After each successful install, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`." in worker_prompt
+    assert "If a new current task is active, continue with it." in worker_prompt
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "repo-written helper under `tools/`" in worker_prompt
@@ -1111,6 +1147,17 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert "Good snippet" in output_contract
     assert "Intentionally invalid echo example" in output_contract
     assert "A task is not finished until `check` passes." in output_contract
+
+
+def test_knowledge_orchestrator_materializes_task_metadata_and_examples(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_orchestrator_artifact_fixture(tmp_path)
+    worker_root = fixture["worker_root"]
+    assigned_tasks = fixture["assigned_tasks"]
+    assert isinstance(worker_root, Path)
+    assert isinstance(assigned_tasks, list)
+
     assert (worker_root / "examples" / "valid_semantic_packet.json").exists()
     assert (worker_root / "examples" / "invalid_echo_packet.json").exists()
     assert (worker_root / "tools" / "knowledge_worker.py").exists()
@@ -1118,7 +1165,6 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert (worker_root / "scratch").exists()
     assert (worker_root / "CURRENT_TASK.md").exists()
     assert (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
-    assigned_tasks = json.loads((worker_root / "assigned_tasks.json").read_text(encoding="utf-8"))
     assert assigned_tasks
     assert "input_payload" not in assigned_tasks[0]
     assert not (worker_root / "current_task.json").exists()
@@ -1393,6 +1439,10 @@ def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Pa
     assert "Validation status: OK." in (
         worker_root / "CURRENT_TASK_FEEDBACK.md"
     ).read_text(encoding="utf-8")
+    feedback_text = (worker_root / "CURRENT_TASK_FEEDBACK.md").read_text(encoding="utf-8")
+    assert "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`." in feedback_text
+    assert "If another task becomes active, continue with that task." in feedback_text
+    assert "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`" in install.stdout
 
 
 def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(

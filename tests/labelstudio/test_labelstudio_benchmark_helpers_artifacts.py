@@ -75,9 +75,8 @@ def test_source_debug_artifact_status_reads_recipe_phase_runtime_paths(
     assert "recipe_phase_input_json" in status["required_checks"]
     assert "recipe_phase_proposal_json" in status["required_checks"]
 
-def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
-    tmp_path: Path,
-) -> None:
+
+def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
     recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
@@ -300,6 +299,25 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         repo_root=tmp_path,
     )
 
+    return {
+        "attached": attached,
+        "correction_trace": correction_trace,
+        "eval_output_dir": eval_output_dir,
+        "log_path": log_path,
+    }
+
+
+def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_codex_farm_prompt_log_fixture(tmp_path)
+    eval_output_dir = fixture["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
+    log_path = fixture["log_path"]
+    assert isinstance(log_path, Path)
+    attached = fixture["attached"]
+    assert isinstance(attached, Path)
+
     assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
     assert log_path is not None and log_path.exists()
     combined = log_path.read_text(encoding="utf-8")
@@ -321,6 +339,16 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         str(recipe_path),
         str(knowledge_path),
     ]
+
+
+def test_build_codex_farm_prompt_response_log_backfills_full_prompt_rows_from_telemetry(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_codex_farm_prompt_log_fixture(tmp_path)
+    eval_output_dir = fixture["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
+    correction_trace = fixture["correction_trace"]
+    assert isinstance(correction_trace, Path)
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     assert full_prompt_log_path.exists()
@@ -372,6 +400,14 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert correction_row["parsed_response"] == {"result": "recipe correction response"}
     assert correction_row["raw_response"]["output_file"].endswith("r0000.json")
 
+
+def test_build_codex_farm_prompt_response_log_exports_prompt_type_samples(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_codex_farm_prompt_log_fixture(tmp_path)
+    eval_output_dir = fixture["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
+
     prompt_samples_path = (
         eval_output_dir
         / "prompts"
@@ -385,6 +421,14 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert "Telemetry prompt body" in prompt_samples
     assert "Thinking Trace:" in prompt_samples
     assert "candidate span tightened" in prompt_samples
+
+
+def test_build_codex_farm_prompt_response_log_writes_thinking_trace_summary(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_codex_farm_prompt_log_fixture(tmp_path)
+    eval_output_dir = fixture["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
 
     thinking_trace_summary_jsonl_path = (
         eval_output_dir / "prompts" / "thinking_trace_summary.jsonl"

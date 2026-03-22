@@ -270,6 +270,8 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     assert "OUTPUT_CONTRACT.md" in worker_prompt
     assert "python3 tools/recipe_worker.py overview" in worker_prompt
     assert "python3 tools/recipe_worker.py prepare-all --dest-dir scratch/" in worker_prompt
+    assert "scratch/_prepared_drafts.json" in worker_prompt
+    assert "python3 tools/recipe_worker.py stamp-status fragmentary" in worker_prompt
     assert "python3 tools/recipe_worker.py finalize-all scratch/" in worker_prompt
     assert "finalize scratch/<task_id>.json" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import queue
@@ -1177,9 +1178,9 @@ def _build_direct_exec_agents_text(
             "Start by reading `worker_manifest.json`, then open the prompt-named local files directly.\n"
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
-            "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`, treat that current-task surface as authoritative and open it before touching the broader queue.\n"
+            "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`, treat that repo-written current-task surface as authoritative and open it before touching the broader queue.\n"
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
-            "If `assigned_tasks.json` exists, use it as a lightweight ordered queue/progress view after the current task surface unless the prompt says otherwise.\n"
+            "If `assigned_tasks.json` exists, use it as a lightweight ordered queue/progress reference after the current task surface unless the prompt says otherwise.\n"
             "Read the local task manifests and input files directly.\n"
             "Use `scratch/` or short-lived local temp files such as `/tmp` or `/var/tmp` for bounded helper files. Write completed results only to the local path named by `current_result_path.txt` or the prompt.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
@@ -1228,6 +1229,34 @@ def _sync_direct_exec_workspace_paths(
         elif execution_path.is_file():
             source_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(execution_path, source_path)
+
+
+def _sync_direct_exec_runtime_control_paths_to_execution(
+    *,
+    source_working_dir: Path,
+    execution_working_dir: Path,
+    relative_paths: Sequence[str],
+) -> None:
+    source_root = Path(source_working_dir).resolve()
+    execution_root = Path(execution_working_dir).resolve()
+    for relative_path in relative_paths:
+        cleaned = str(relative_path or "").strip()
+        if not cleaned:
+            continue
+        source_path = source_root / cleaned
+        execution_path = execution_root / cleaned
+        if source_path.is_dir():
+            execution_path.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source_path, execution_path, dirs_exist_ok=True)
+            continue
+        if source_path.is_file():
+            execution_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, execution_path)
+            continue
+        if execution_path.is_dir():
+            shutil.rmtree(execution_path)
+        elif execution_path.exists():
+            execution_path.unlink()
 
 
 def _build_codex_exec_command(
@@ -1295,12 +1324,14 @@ def _wrap_workspace_supervision_callback(
             execution_working_dir=execution_working_dir,
             relative_paths=sync_output_paths,
         )
-        _sync_direct_exec_workspace_paths(
-            source_working_dir=source_working_dir,
-            execution_working_dir=execution_working_dir,
-            relative_paths=sync_source_paths,
-        )
-        return supervision_callback(snapshot)
+        decision = supervision_callback(snapshot)
+        if sync_source_paths:
+            _sync_direct_exec_runtime_control_paths_to_execution(
+                source_working_dir=source_working_dir,
+                execution_working_dir=execution_working_dir,
+                relative_paths=sync_source_paths,
+            )
+        return decision
 
     return _wrapped
 
@@ -2094,7 +2125,7 @@ def _write_direct_exec_worker_manifest(
                 "Treat the repo-written current-packet files as authoritative and use "
                 "`assigned_tasks.json` only as background inventory."
                 if has_packet_leasing
-                else "Treat `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative current-task surface, and `assigned_tasks.json` as the ordered queue/progress view."
+                else "Treat `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative current-task surface, and `assigned_tasks.json` as the ordered queue/progress reference."
                 if has_current_task
                 else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
             ),
@@ -2549,11 +2580,21 @@ def _detect_workspace_worker_boundary_violation_in_text(
     for executable in _workspace_shell_executables(stripped_text):
         if executable in _WORKSPACE_FORBIDDEN_BOUNDARY_EXECUTABLES:
             return WorkspaceCommandClassification(
-                command_text=command_text,
-                allowed=False,
-                policy="forbidden_non_helper_executable",
-                reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
-            )
+            command_text=command_text,
+            allowed=False,
+            policy="forbidden_non_helper_executable",
+            reason=f"`{executable}` is outside the relaxed workspace-worker command policy",
+        )
+    python_heredoc_handled, python_heredoc_verdict = (
+        _detect_workspace_worker_boundary_violation_in_python_heredoc(
+            shell_text,
+            command_text=command_text,
+            allow_output_paths=allow_output_paths,
+            allowed_absolute_roots=allowed_absolute_roots,
+        )
+    )
+    if python_heredoc_handled:
+        return python_heredoc_verdict
     if "../" in stripped_text:
         return WorkspaceCommandClassification(
             command_text=command_text,
@@ -2604,6 +2645,101 @@ def _detect_workspace_worker_boundary_violation_in_text(
             reason="this workspace policy does not allow helper commands against `out/`",
         )
     return None
+
+
+def _detect_workspace_worker_boundary_violation_in_python_heredoc(
+    shell_text: str,
+    *,
+    command_text: str | None,
+    allow_output_paths: bool,
+    allowed_absolute_roots: Sequence[str | Path] | None = None,
+) -> tuple[bool, WorkspaceCommandClassification | None]:
+    python_body = _extract_workspace_python_heredoc_body(shell_text)
+    if python_body is None:
+        return False, None
+    try:
+        syntax_tree = ast.parse(python_body)
+    except SyntaxError:
+        return (
+            True,
+            WorkspaceCommandClassification(
+                command_text=command_text,
+                allowed=False,
+                policy="forbidden_unparseable_python_heredoc",
+                reason=(
+                    "inline python heredoc could not be parsed, so workspace path "
+                    "safety could not be proven"
+                ),
+            ),
+        )
+    for literal in _workspace_python_string_literals(syntax_tree):
+        if not _python_literal_looks_like_workspace_path(literal):
+            continue
+        path_verdict = _classify_workspace_path_argument(
+            literal,
+            allow_output_paths=allow_output_paths,
+            allowed_absolute_roots=allowed_absolute_roots,
+        )
+        if not path_verdict.allowed:
+            return (
+                True,
+                WorkspaceCommandClassification(
+                    command_text=command_text,
+                    allowed=False,
+                    policy=path_verdict.policy,
+                    reason=path_verdict.reason,
+                ),
+            )
+    return True, None
+
+
+def _extract_workspace_python_heredoc_body(shell_text: str) -> str | None:
+    match = re.match(
+        r"^\s*(?:env\s+)?python3?\s+-\s*<<(?P<quote>['\"]?)(?P<marker>[A-Za-z_][A-Za-z0-9_]*)"
+        r"(?P=quote)\s*\n(?P<body>.*)\n(?P=marker)\s*$",
+        str(shell_text or "").strip(),
+        re.DOTALL,
+    )
+    if match is None:
+        return None
+    return str(match.group("body") or "")
+
+
+def _workspace_python_string_literals(syntax_tree: ast.AST) -> tuple[str, ...]:
+    literals: list[str] = []
+    for node in ast.walk(syntax_tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            literal = str(node.value or "").strip()
+            if literal:
+                literals.append(literal)
+    return tuple(literals)
+
+
+def _python_literal_looks_like_workspace_path(value: str) -> bool:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return False
+    if cleaned in _WORKSPACE_ALLOWED_NULL_SINKS or cleaned in _WORKSPACE_ALLOWED_PATH_ROOTS:
+        return True
+    if cleaned.startswith(("~", "/", "./", "../")):
+        return True
+    if any(character.isspace() for character in cleaned):
+        return False
+    if "/" in cleaned:
+        return True
+    return cleaned.endswith(
+        (
+            ".json",
+            ".jsonl",
+            ".md",
+            ".txt",
+            ".csv",
+            ".tsv",
+            ".yaml",
+            ".yml",
+            ".py",
+        )
+    )
 
 
 def _workspace_watchdog_executable(inner_tokens: Sequence[str]) -> str | None:

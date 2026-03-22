@@ -492,3 +492,50 @@ What stuck:
 
 Still true:
 - if line-role output seems clever but wrong, inspect which file or prompt surface the model was actually treating as authoritative before changing labels, retry policy, or watchdog rules
+
+## 2026-03-21 immutable packet authority, packet posture, and boundary context became the stable line-role contract
+
+Problem:
+- line-role quality was still being damaged before per-row judgment even started: packet inputs could drift, early front-matter/title-list packets could be framed as `recipe_body`, and split task packets were blind at boundaries
+
+What stuck:
+- line-role now writes one immutable `canonical_line_table.jsonl`, per-packet `task_status.jsonl`, and packet-first `workers/*/{in,debug,out}/` artifacts; valid packet outputs are authoritative and fallback is row-owned only
+- worker guidance is now repo-written and packet-local:
+  - `packet_summary`
+  - `default_posture`
+  - `flip_policy`
+  - `example_files`
+  - richer `hints/*.md`
+- packet-mode classification must fail closed when all rows are span-unknown; front matter and contents-style title lists now become conservative `front_matter_navigation` packets instead of high-confidence `recipe_body`
+- neighboring context is task-local and reference-only: `context_before_rows` / `context_after_rows` exist to help boundary judgment, but only `rows` is label-authoritative
+
+Evidence worth keeping:
+- the preserved March 21 worker-001 front-matter and contents packets were the clearest proof: endorsement blurbs, `CONTENTS`, `Foreword`, and recipe-name lists were being handed to workers as confident recipe-body packets until the packet-mode fix landed
+- the same preserved run also showed why the packet system itself should stay: later lesson packets already benefited from `lesson_prose` posture once the packet story matched the text
+
+Anti-loop note:
+- if early-book packets start reading like recipe bodies again, debug packet classification, packet posture, and owned-vs-context boundaries before touching recipe-span grouping or scorer code
+
+## 2026-03-21 to 2026-03-22 over-structuring fixes converged on high-evidence labels plus cross-book canaries
+
+Problem:
+- once the big packet-shape issues were fixed, the remaining line-role regressions moved between three label boundaries:
+  - `HOWTO_SECTION`
+  - outside-recipe `KNOWLEDGE`
+  - `RECIPE_VARIANT`
+- the easy wrong fix was to overfit to `saltfatacidheatcutdown`
+
+What stuck:
+- `HOWTO_SECTION` is book-optional and high-evidence; zero predictions for a book are acceptable, and policy changes should be checked against a real-subsection contrast such as `seaandsmokecutdown`
+- outside-recipe `KNOWLEDGE` is also high-evidence/low-default; parser-owned `_outside_recipe_knowledge_label_allowed(...)` now gates both deterministic promotion and Codex sanitizer fallback, and `thefoodlabcutdown` is the positive contrast for knowledge-heavy explanatory prose
+- `RECIPE_VARIANT` propagation is intentionally narrow: generic `Variations` headings and long named `To make ...` leads can anchor a short alternate-version run, but generic `To make the ...` method steps and trailing recommendation/storage notes must end that run instead of inheriting variant context
+
+Evidence worth keeping:
+- `saltfatacidheatcutdown` exposed the negative cases cleanly:
+  - zero-gold `HOWTO_SECTION`
+  - memoir/editorial `OTHER` vs `KNOWLEDGE`
+  - variant runs that initially collapsed after the HOWTO fix
+- `seaandsmokecutdown` and `thefoodlabcutdown` are the deterministic contrast books that keep those fixes from turning into global label suppression
+
+Anti-loop note:
+- if a new line-role change “wins” on Salt Fat by globally suppressing `HOWTO_SECTION`, flattening `KNOWLEDGE` to `OTHER`, or widening `RECIPE_VARIANT` through ordinary method/note rows, it is the wrong fix; re-check the contrast-book expectations first

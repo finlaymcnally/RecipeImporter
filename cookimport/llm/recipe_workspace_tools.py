@@ -12,6 +12,7 @@ _MAPPING_KEYS = frozenset({"i", "s"})
 _TAG_KEYS = frozenset({"c", "l", "f"})
 _VALID_STATUSES = frozenset({"repaired", "fragmentary", "not_a_recipe"})
 _PLACEHOLDER_MARKER = "__EDIT_ME__"
+_PREPARED_DRAFT_MANIFEST_NAME = "_prepared_drafts.json"
 _LEGACY_KEY_SUGGESTIONS = {
     "bundle_version": "v",
     "shard_id": "sid",
@@ -368,6 +369,44 @@ def _workspace_relative_path(*, workspace_root: Path, path: Path) -> str:
         return str(path)
 
 
+def _status_mapping_reason(status: str) -> str:
+    normalized_status = _sanitize_text(status)
+    if normalized_status == "fragmentary":
+        return "not_applicable_fragmentary"
+    if normalized_status == "not_a_recipe":
+        return "not_applicable_not_a_recipe"
+    raise ValueError(f"unsupported bulk status `{status}`")
+
+
+def _write_prepared_recipe_worker_manifest(
+    *,
+    workspace_root: Path,
+    dest_dir: Path,
+    written_paths: Sequence[Path],
+) -> Path:
+    manifest_path = workspace_root / dest_dir / _PREPARED_DRAFT_MANIFEST_NAME
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "draft_dir": _workspace_relative_path(
+                    workspace_root=workspace_root,
+                    path=workspace_root / dest_dir,
+                ),
+                "draft_paths": [
+                    _workspace_relative_path(workspace_root=workspace_root, path=path)
+                    for path in written_paths
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
 def _validated_recipe_worker_draft(
     *,
     workspace_root: Path,
@@ -410,7 +449,79 @@ def prepare_recipe_worker_drafts(
             encoding="utf-8",
         )
         written_paths.append(draft_path)
+    _write_prepared_recipe_worker_manifest(
+        workspace_root=workspace_root,
+        dest_dir=dest_dir,
+        written_paths=written_paths,
+    )
     return written_paths
+
+
+def stamp_recipe_worker_drafts(
+    *,
+    workspace_root: Path,
+    draft_paths: Sequence[Path],
+    status: str,
+    status_reason: str,
+    warnings: Sequence[str] | None = None,
+) -> list[Path]:
+    normalized_status = _sanitize_text(status)
+    if normalized_status not in {"fragmentary", "not_a_recipe"}:
+        raise ValueError("status must be `fragmentary` or `not_a_recipe`")
+    normalized_reason = _sanitize_text(status_reason)
+    if not normalized_reason:
+        raise ValueError("status_reason must be a non-empty string")
+    normalized_warnings = _sanitize_text_list(list(warnings or ()))
+    task_rows = load_recipe_worker_task_rows(workspace_root=workspace_root)
+    rows_by_task_id = {_task_id(row): _coerce_mapping(row) for row in task_rows if _task_id(row)}
+    errors: list[str] = []
+    stamped_paths: list[Path] = []
+    for draft_path in draft_paths:
+        try:
+            payload = json.loads(draft_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(
+                f"{_workspace_relative_path(workspace_root=workspace_root, path=draft_path)}: {exc}"
+            )
+            continue
+        if not isinstance(payload, Mapping):
+            errors.append(
+                f"{_workspace_relative_path(workspace_root=workspace_root, path=draft_path)}: draft payload must be a JSON object"
+            )
+            continue
+        task_id = _sanitize_text(payload.get("sid")) or draft_path.stem
+        task_row = rows_by_task_id.get(task_id)
+        if task_row is None:
+            errors.append(
+                f"{_workspace_relative_path(workspace_root=workspace_root, path=draft_path)}: unknown task id `{task_id}`"
+            )
+            continue
+        stamped_payload = {
+            "v": "1",
+            "sid": task_id,
+            "r": [
+                {
+                    "v": "1",
+                    "rid": recipe_id,
+                    "st": normalized_status,
+                    "sr": normalized_reason,
+                    "cr": None,
+                    "m": [],
+                    "mr": _status_mapping_reason(normalized_status),
+                    "g": [],
+                    "w": list(normalized_warnings),
+                }
+                for recipe_id in _owned_recipe_ids(task_row)
+            ],
+        }
+        draft_path.write_text(
+            json.dumps(stamped_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        stamped_paths.append(draft_path)
+    if errors:
+        raise ValueError("\n".join(errors))
+    return stamped_paths
 
 
 def finalize_recipe_worker_drafts(
@@ -802,6 +913,30 @@ def render_recipe_worker_cli_script() -> str:
             except ValueError:
                 return str(path)
 
+        def status_mapping_reason(status: str) -> str:
+            normalized_status = sanitize_text(status)
+            if normalized_status == "fragmentary":
+                return "not_applicable_fragmentary"
+            if normalized_status == "not_a_recipe":
+                return "not_applicable_not_a_recipe"
+            raise ValueError(f"unsupported bulk status `{status}`")
+
+        def write_prepared_manifest(workspace_root: Path, dest_dir: Path, written_paths: list[Path]) -> Path:
+            manifest_path = workspace_root / dest_dir / "_prepared_drafts.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "draft_dir": workspace_relative_path(workspace_root, workspace_root / dest_dir),
+                        "draft_paths": [workspace_relative_path(workspace_root, path) for path in written_paths],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ) + "\\n",
+                encoding="utf-8",
+            )
+            return manifest_path
+
         def prepare_drafts(workspace_root: Path, dest_dir: Path, task_rows: list[dict[str, Any]] | None = None) -> list[Path]:
             if dest_dir.is_absolute():
                 raise ValueError("dest_dir must stay relative to the workspace root")
@@ -818,7 +953,72 @@ def render_recipe_worker_cli_script() -> str:
                     encoding="utf-8",
                 )
                 written_paths.append(draft_path)
+            write_prepared_manifest(workspace_root, dest_dir, written_paths)
             return written_paths
+
+        def stamp_drafts(
+            workspace_root: Path,
+            draft_paths: list[Path],
+            *,
+            status: str,
+            status_reason: str,
+            warnings: list[str] | None = None,
+        ) -> list[Path]:
+            normalized_status = sanitize_text(status)
+            if normalized_status not in {"fragmentary", "not_a_recipe"}:
+                raise ValueError("status must be `fragmentary` or `not_a_recipe`")
+            normalized_reason = sanitize_text(status_reason)
+            if not normalized_reason:
+                raise ValueError("status_reason must be a non-empty string")
+            normalized_warnings = sanitize_text_list(list(warnings or []))
+            task_rows = load_task_rows(workspace_root)
+            rows_by_task_id = {task_id(row): row for row in task_rows if task_id(row)}
+            errors = []
+            stamped_paths = []
+            for draft_path in draft_paths:
+                try:
+                    payload = json.loads(draft_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    errors.append(f"{workspace_relative_path(workspace_root, draft_path)}: {exc}")
+                    continue
+                if not isinstance(payload, dict):
+                    errors.append(
+                        f"{workspace_relative_path(workspace_root, draft_path)}: draft payload must be a JSON object"
+                    )
+                    continue
+                row_task_id = sanitize_text(payload.get("sid")) or draft_path.stem
+                row = rows_by_task_id.get(row_task_id)
+                if row is None:
+                    errors.append(
+                        f"{workspace_relative_path(workspace_root, draft_path)}: unknown task id `{row_task_id}`"
+                    )
+                    continue
+                stamped_payload = {
+                    "v": "1",
+                    "sid": row_task_id,
+                    "r": [
+                        {
+                            "v": "1",
+                            "rid": recipe_id_value,
+                            "st": normalized_status,
+                            "sr": normalized_reason,
+                            "cr": None,
+                            "m": [],
+                            "mr": status_mapping_reason(normalized_status),
+                            "g": [],
+                            "w": list(normalized_warnings),
+                        }
+                        for recipe_id_value in owned_recipe_ids(row)
+                    ],
+                }
+                draft_path.write_text(
+                    json.dumps(stamped_payload, indent=2, sort_keys=True) + "\\n",
+                    encoding="utf-8",
+                )
+                stamped_paths.append(draft_path)
+            if errors:
+                raise ValueError("\\n".join(errors))
+            return stamped_paths
 
         def install_drafts(workspace_root: Path, draft_paths: list[Path]) -> list[Path]:
             task_rows = load_task_rows(workspace_root)
@@ -885,6 +1085,11 @@ def render_recipe_worker_cli_script() -> str:
             prepare_all_parser = subparsers.add_parser("prepare-all")
             prepare_all_parser.add_argument("--dest-dir", default="scratch")
 
+            stamp_parser = subparsers.add_parser("stamp-status")
+            stamp_parser.add_argument("status", choices=["fragmentary", "not_a_recipe"])
+            stamp_parser.add_argument("reason")
+            stamp_parser.add_argument("draft_paths", nargs="+")
+
             check_parser = subparsers.add_parser("check")
             check_parser.add_argument("json_path")
             check_parser.add_argument("--verbose", action="store_true")
@@ -942,10 +1147,22 @@ def render_recipe_worker_cli_script() -> str:
                         task_rows=task_rows,
                     )
                     task_word = "draft" if len(written_paths) == 1 else "drafts"
+                    manifest_path = workspace_root / Path(args.dest_dir) / "_prepared_drafts.json"
                     print(
                         f"prepared {len(written_paths)} {task_word} under "
-                        f"{workspace_relative_path(workspace_root, (workspace_root / Path(args.dest_dir)).resolve())}"
+                        f"{workspace_relative_path(workspace_root, (workspace_root / Path(args.dest_dir)).resolve())} "
+                        f"(manifest {workspace_relative_path(workspace_root, manifest_path)})"
                     )
+                    return 0
+                if args.command == "stamp-status":
+                    stamped_paths = stamp_drafts(
+                        workspace_root,
+                        [Path(value) for value in args.draft_paths],
+                        status=args.status,
+                        status_reason=args.reason,
+                    )
+                    draft_word = "draft" if len(stamped_paths) == 1 else "drafts"
+                    print(f"updated {len(stamped_paths)} {draft_word} to {args.status}")
                     return 0
                 if args.command == "check":
                     payload = json.loads(Path(args.json_path).read_text(encoding="utf-8"))

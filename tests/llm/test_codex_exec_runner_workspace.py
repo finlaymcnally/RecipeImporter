@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cookimport.llm.codex_exec_runner as exec_runner_module
 import tests.llm.test_codex_exec_runner as _base
 
 # Reuse shared imports/helpers from the base direct-exec runner test module.
@@ -343,6 +344,100 @@ def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
         (source_root / "out" / "shard-001.json").read_text(encoding="utf-8")
     )
     assert synced_output == {"rows": [{"atomic_index": 1, "label": "OTHER"}]}
+
+
+def test_workspace_supervision_pushes_advanced_current_task_bundle_back_to_execution_root(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    execution_root = tmp_path / ".codex-recipe" / "runtime" / "worker-001"
+    source_root.mkdir(parents=True, exist_ok=True)
+    execution_root.mkdir(parents=True, exist_ok=True)
+    for root in (source_root, execution_root):
+        (root / "out").mkdir(parents=True, exist_ok=True)
+        (root / "current_task.json").write_text(
+            json.dumps({"task_id": "task-001", "metadata": {"result_path": "out/task-001.json"}}),
+            encoding="utf-8",
+        )
+        (root / "CURRENT_TASK.md").write_text(
+            "# Current Knowledge Task\n\nTask id: `task-001`\n",
+            encoding="utf-8",
+        )
+        (root / "CURRENT_TASK_FEEDBACK.md").write_text(
+            "# Current Task Feedback\n\nTask id: `task-001`\nValidation status: OK.\n",
+            encoding="utf-8",
+        )
+    (execution_root / "out" / "task-001.json").write_text(
+        json.dumps({"packet_id": "task-001", "chunk_results": []}),
+        encoding="utf-8",
+    )
+
+    callback_calls: list[int] = []
+
+    def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:  # noqa: ARG001
+        callback_calls.append(len(callback_calls) + 1)
+        if len(callback_calls) == 1:
+            (source_root / "current_task.json").write_text(
+                json.dumps(
+                    {"task_id": "task-002", "metadata": {"result_path": "out/task-002.json"}}
+                ),
+                encoding="utf-8",
+            )
+            (source_root / "CURRENT_TASK.md").write_text(
+                "# Current Knowledge Task\n\nTask id: `task-002`\n",
+                encoding="utf-8",
+            )
+            (source_root / "CURRENT_TASK_FEEDBACK.md").write_text(
+                (
+                    "# Current Task Feedback\n\n"
+                    "Task id: `task-002`\n"
+                    "No repo-written validation feedback exists yet for this task.\n"
+                ),
+                encoding="utf-8",
+            )
+        return None
+
+    wrapped = exec_runner_module._wrap_workspace_supervision_callback(  # noqa: SLF001
+        supervision_callback=_callback,
+        workspace_mode="workspace_worker",
+        source_working_dir=source_root,
+        execution_working_dir=execution_root,
+        sync_output_paths=("out",),
+        sync_source_paths=(
+            "current_task.json",
+            "CURRENT_TASK.md",
+            "CURRENT_TASK_FEEDBACK.md",
+        ),
+    )
+
+    assert wrapped is not None
+    snapshot = CodexExecLiveSnapshot(
+        elapsed_seconds=0.1,
+        last_event_seconds_ago=0.0,
+        event_count=1,
+        command_execution_count=1,
+        reasoning_item_count=0,
+        last_command="/bin/bash -lc python3 tools/knowledge_worker.py install-current",
+        last_command_repeat_count=1,
+        has_final_agent_message=False,
+        timeout_seconds=30,
+    )
+
+    wrapped(snapshot)
+    wrapped(snapshot)
+
+    assert callback_calls == [1, 2]
+    assert json.loads((source_root / "current_task.json").read_text(encoding="utf-8"))["task_id"] == (
+        "task-002"
+    )
+    assert json.loads((execution_root / "current_task.json").read_text(encoding="utf-8"))[
+        "task_id"
+    ] == "task-002"
+    assert "task-002" in (source_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
+    assert "task-002" in (execution_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
+    assert "task-002" in (
+        execution_root / "CURRENT_TASK_FEEDBACK.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_rewrite_direct_exec_prompt_paths_retargets_worker_root(tmp_path: Path) -> None:

@@ -11,8 +11,9 @@ globals().update({
 })
 
 
-def test_knowledge_orchestrator_emits_structured_progress_snapshots(
+def _configure_runtime_codex_home(
     monkeypatch: pytest.MonkeyPatch,
+    *,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr("cookimport.llm.codex_exec_runner.Path.home", lambda: tmp_path)
@@ -21,33 +22,46 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
         lambda explicit_env=None: str(tmp_path / ".codex-recipe"),
     )
 
+
+def _make_runtime_pack_and_run_dirs(tmp_path: Path) -> tuple[Path, Path]:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
+    return pack_root, run_root
 
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 2,
-            "knowledge_worker_count": 4,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-            "codex_farm_knowledge_context_blocks": 1,
-        }
-    )
 
-    result = ConversionResult(
+def _make_runtime_settings(
+    *,
+    pack_root: Path,
+    target_count: int,
+    worker_count: int,
+    context_blocks: int | None = None,
+) -> RunSettings:
+    payload: dict[str, object] = {
+        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "knowledge_prompt_target_count": target_count,
+        "knowledge_worker_count": worker_count,
+        "codex_farm_cmd": "codex-farm",
+        "codex_farm_root": str(pack_root),
+        "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+    }
+    if context_blocks is not None:
+        payload["codex_farm_knowledge_context_blocks"] = context_blocks
+    return RunSettings.model_validate(payload)
+
+
+def _make_runtime_conversion_result(block_texts: list[str]) -> ConversionResult:
+    return ConversionResult(
         recipes=[],
         tips=[],
         tipCandidates=[],
         topicCandidates=[],
         nonRecipeBlocks=[
-            {"index": 0, "text": "Preface"},
-            {"index": 4, "text": "Technique: Whisk constantly."},
+            {"index": index, "text": text}
+            for index, text in enumerate(block_texts)
         ],
         rawArtifacts=[
             RawArtifact(
@@ -57,11 +71,8 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
                 extension="json",
                 content={
                     "blocks": [
-                        {"index": 0, "text": "Preface"},
-                        {"index": 1, "text": "Toast"},
-                        {"index": 2, "text": "1 slice bread"},
-                        {"index": 3, "text": "Toast the bread."},
-                        {"index": 4, "text": "Technique: Whisk constantly."},
+                        {"index": index, "text": text}
+                        for index, text in enumerate(block_texts)
                     ]
                 },
                 metadata={},
@@ -70,6 +81,50 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
         report=ConversionReport(),
         workbook="book",
         workbookPath="book.txt",
+    )
+
+
+def _make_runtime_nonrecipe_stage_result(
+    *,
+    block_indices: list[int],
+    span_id: str,
+) -> NonRecipeStageResult:
+    span = NonRecipeSpan(
+        span_id=span_id,
+        category="knowledge",
+        block_start_index=min(block_indices),
+        block_end_index=max(block_indices) + 1,
+        block_indices=block_indices,
+        block_ids=[f"b{index}" for index in block_indices],
+    )
+    return NonRecipeStageResult(
+        nonrecipe_spans=[span],
+        knowledge_spans=[span],
+        other_spans=[],
+        block_category_by_index={index: "knowledge" for index in block_indices},
+    )
+
+
+def test_knowledge_orchestrator_emits_structured_progress_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
+    settings = _make_runtime_settings(
+        pack_root=pack_root,
+        target_count=2,
+        worker_count=4,
+        context_blocks=1,
+    )
+    result = _make_runtime_conversion_result(
+        [
+            "Preface",
+            "Toast",
+            "1 slice bread",
+            "Toast the bread.",
+            "Technique: Whisk constantly.",
+        ]
     )
 
     progress_messages: list[str] = []
@@ -160,11 +215,7 @@ def test_knowledge_orchestrator_reports_live_task_packet_progress(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr("cookimport.llm.codex_exec_runner.Path.home", lambda: tmp_path)
-    monkeypatch.setattr(
-        "cookimport.llm.codex_exec_runner._resolve_recipeimport_codex_home",
-        lambda explicit_env=None: str(tmp_path / ".codex-recipe"),
-    )
+    _configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
 
     def _fake_chunks(_sequence, overrides=None):
         del overrides
@@ -278,77 +329,27 @@ def test_knowledge_orchestrator_reports_live_task_packet_progress(
                 supervision_state="completed",
             )
 
-    pack_root = tmp_path / "pack"
-    for name in ("pipelines", "prompts", "schemas"):
-        (pack_root / name).mkdir(parents=True, exist_ok=True)
-
-    run_root = tmp_path / "run"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
-            "knowledge_worker_count": 1,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-        }
+    pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
+    settings = _make_runtime_settings(
+        pack_root=pack_root,
+        target_count=1,
+        worker_count=1,
     )
-
-    result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
-        rawArtifacts=[
-            RawArtifact(
-                importer="text",
-                sourceHash="hash123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Always whisk constantly when adding butter."},
-                        {"index": 1, "text": "Salt in layers for better control."},
-                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
-                        {"index": 3, "text": "Control the pan temperature carefully."},
-                    ]
-                },
-                metadata={},
-            )
-        ],
-        report=ConversionReport(),
-        workbook="book",
-        workbookPath="book.txt",
+    result = _make_runtime_conversion_result(
+        [
+            "Always whisk constantly when adding butter.",
+            "Salt in layers for better control.",
+            "Cool leftovers quickly before refrigeration.",
+            "Control the pan temperature carefully.",
+        ]
     )
 
     progress_messages: list[str] = []
     run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            other_spans=[],
-            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge", 3: "knowledge"},
+        nonrecipe_stage_result=_make_runtime_nonrecipe_stage_result(
+            block_indices=[0, 1, 2, 3],
+            span_id="nr.knowledge.0.4",
         ),
         recipe_spans=[],
         run_settings=settings,
@@ -396,11 +397,7 @@ def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr("cookimport.llm.codex_exec_runner.Path.home", lambda: tmp_path)
-    monkeypatch.setattr(
-        "cookimport.llm.codex_exec_runner._resolve_recipeimport_codex_home",
-        lambda explicit_env=None: str(tmp_path / ".codex-recipe"),
-    )
+    _configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
 
     def _fake_chunks(_sequence, overrides=None):
         del overrides
@@ -457,75 +454,26 @@ def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
                 with lock:
                     state["current"] -= 1
 
-    pack_root = tmp_path / "pack"
-    for name in ("pipelines", "prompts", "schemas"):
-        (pack_root / name).mkdir(parents=True, exist_ok=True)
-
-    run_root = tmp_path / "run"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 2,
-            "knowledge_worker_count": 2,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-        }
+    pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
+    settings = _make_runtime_settings(
+        pack_root=pack_root,
+        target_count=2,
+        worker_count=2,
     )
-    result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
-        rawArtifacts=[
-            RawArtifact(
-                importer="text",
-                sourceHash="hash123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Always whisk constantly when adding butter."},
-                        {"index": 1, "text": "Salt in layers for better control."},
-                        {"index": 2, "text": "Cool leftovers quickly before refrigeration."},
-                        {"index": 3, "text": "Control the pan temperature carefully."},
-                    ]
-                },
-                metadata={},
-            )
-        ],
-        report=ConversionReport(),
-        workbook="book",
-        workbookPath="book.txt",
+    result = _make_runtime_conversion_result(
+        [
+            "Always whisk constantly when adding butter.",
+            "Salt in layers for better control.",
+            "Cool leftovers quickly before refrigeration.",
+            "Control the pan temperature carefully.",
+        ]
     )
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.4",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=4,
-                    block_indices=[0, 1, 2, 3],
-                    block_ids=["b0", "b1", "b2", "b3"],
-                )
-            ],
-            other_spans=[],
-            block_category_by_index={0: "knowledge", 1: "knowledge", 2: "knowledge", 3: "knowledge"},
+        nonrecipe_stage_result=_make_runtime_nonrecipe_stage_result(
+            block_indices=[0, 1, 2, 3],
+            span_id="nr.knowledge.0.4",
         ),
         recipe_spans=[],
         run_settings=settings,
@@ -552,11 +500,7 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr("cookimport.llm.codex_exec_runner.Path.home", lambda: tmp_path)
-    monkeypatch.setattr(
-        "cookimport.llm.codex_exec_runner._resolve_recipeimport_codex_home",
-        lambda explicit_env=None: str(tmp_path / ".codex-recipe"),
-    )
+    _configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
 
     def _fake_chunks(_sequence, overrides=None):
         del overrides
@@ -680,74 +624,25 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
                 supervision_state="completed",
             )
 
-    pack_root = tmp_path / "pack"
-    for name in ("pipelines", "prompts", "schemas"):
-        (pack_root / name).mkdir(parents=True, exist_ok=True)
-
-    run_root = tmp_path / "run"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    settings = RunSettings.model_validate(
-        {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
-            "knowledge_worker_count": 1,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
-        }
+    pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
+    settings = _make_runtime_settings(
+        pack_root=pack_root,
+        target_count=1,
+        worker_count=1,
     )
-    result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
-        rawArtifacts=[
-            RawArtifact(
-                importer="text",
-                sourceHash="hash123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Always whisk constantly when adding butter."},
-                        {"index": 1, "text": "Salt in layers for better control."},
-                    ]
-                },
-                metadata={},
-            )
-        ],
-        report=ConversionReport(),
-        workbook="book",
-        workbookPath="book.txt",
+    result = _make_runtime_conversion_result(
+        [
+            "Always whisk constantly when adding butter.",
+            "Salt in layers for better control.",
+        ]
     )
     runner = LeasingRunner()
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.2",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=2,
-                    block_indices=[0, 1],
-                    block_ids=["b0", "b1"],
-                )
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.0.2",
-                    category="knowledge",
-                    block_start_index=0,
-                    block_end_index=2,
-                    block_indices=[0, 1],
-                    block_ids=["b0", "b1"],
-                )
-            ],
-            other_spans=[],
-            block_category_by_index={0: "knowledge", 1: "knowledge"},
+        nonrecipe_stage_result=_make_runtime_nonrecipe_stage_result(
+            block_indices=[0, 1],
+            span_id="nr.knowledge.0.2",
         ),
         recipe_spans=[],
         run_settings=settings,

@@ -746,3 +746,69 @@ Durable decisions:
 
 Anti-loop note:
 - if a paired benchmark comparison moves because one side silently switched representation, inspect `atomic_block_splitter` in the planned run payload before blaming Codex surfaces or scorer drift
+
+### 2026-03-21 single-book benchmark naming converged across runtime, internals, and artifacts
+
+Problem captured:
+- the interactive mode rename had landed only halfway: operators were seeing `single_book`, but helper names, split-cache keys, analytics paths, scope values, fixture roots, and some docs still carried the older contract
+
+Durable decisions:
+- the active benchmark contract is now aligned end to end:
+  - interactive mode id: `single_book`
+  - scope string: `single_book`
+  - artifact root: `single-book-benchmark`
+  - top-level summary filename: `single_book_summary.md`
+- split-cache helpers, analytics field paths, helper/test module names, and related runtime strings should use `single_book` too
+- older mode ids are compatibility inputs only; they are not the preferred names for new code, docs, or fixtures
+
+Evidence worth keeping:
+- the useful lesson from the rename was that product-surface cleanup is not enough; Oracle/upload scope detection, analytics, and checked-in fixtures were all still relying on the stale internal naming until the full convergence pass landed
+
+Anti-loop note:
+- if a new benchmark surface or helper works only after mentally translating between `single_book` and an older internal name, the contract is drifting again
+
+### 2026-03-22 Oracle browser upload moved from temporary ignore-mode workarounds to explicit review-model selection
+
+Problem captured:
+- earlier Oracle browser reliability work had left the benchmark docs with stale guidance:
+  - one section still said to ignore model selection and trust the current browser mode
+  - default fallback guidance could still be read as version-pinned
+  - one benchmark path was passing an unsupported negated keep-browser flag
+
+Durable decisions:
+- the current benchmark Oracle browser contract is:
+  - `--browser-model-strategy select`
+  - stable Pro-lane fallback via `gpt-5-pro`
+  - no negated `--no-browser-keep-browser` flag on turn 1 or turn 2
+- env overrides remain the real override seam:
+  - `ORACLE_GENUINE_MODEL`
+  - `ORACLE_PRO_MODEL`
+  - `ORACLE_REVIEW_MODEL`
+  - `ORACLE_DEEP_REVIEW_MODEL`
+- the earlier `ignore` model-strategy guidance is historical only; it was a temporary workaround during browser-wrapper instability, not the active benchmark contract
+
+Evidence worth keeping:
+- the saved 2026-03-22 Oracle failure made the contract bug undeniable: the run could still show a stale version-pinned Pro id plus the unsupported negated keep-browser flag before ChatGPT ever saw the upload
+
+Anti-loop note:
+- if Oracle browser review lands on the wrong lane again, debug the active benchmark command contract first; do not assume the old `ignore` strategy is still the right answer
+
+### 2026-03-22 upload_bundle diagnostics were narrowed so blame, call counts, and trace parity agree
+
+Problem captured:
+- `upload_bundle_v1` diagnostics were still contradicting themselves:
+  - correction-stage empty mappings could be blamed on `build_final_recipe`
+  - observed final-recipe call counts could be inflated from correction calls
+  - baseline-trace parity could claim codex-only trace artifacts were missing even when bundle-local derived rows and run diagnostics said they existed
+
+Durable decisions:
+- `final_recipe_empty_mapping` must mean actual `build_final_recipe` empty-mapping output only
+- `analysis.recipe_pipeline_context.observed_recipe_stage_call_counts.build_final_recipe` counts only observed final-recipe calls
+- `16_baseline_trace_parity.json` should honor derived bundle-local trace artifacts when run diagnostics already mirrored them into the bundle
+- keep this narrowly in the bundle existing-output/model/render seams; it is not a scoring change and not an Oracle transport change
+
+Evidence worth keeping:
+- the regression mattered because it looked like recipe-stage topology disagreement when the real bug was diagnostic attribution: bundle rows, run diagnostics, and parity output were disagreeing about the same run
+
+Anti-loop note:
+- if upload-bundle diagnostics disagree again, inspect the normalized bundle model and derived bundle-local rows before blaming scorer logic or the underlying benchmark run

@@ -143,6 +143,7 @@ def render_current_task_brief_text(
         "3. Edit the draft until the snippet bodies are short grounded claims, not copied evidence surfaces.",
         "4. Run `python3 tools/knowledge_worker.py check-current`.",
         "5. Run `python3 tools/knowledge_worker.py install-current` only after `check-current` says OK.",
+        "6. After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If another task becomes active, continue with that task.",
         "",
         "Do not process later tasks before this task passes the repo-owned checker.",
     ]
@@ -199,6 +200,8 @@ def render_current_task_feedback_text(
                 ),
                 "The repo-owned validator accepted this task packet.",
                 "You may run `python3 tools/knowledge_worker.py install-current` to write the final result path.",
+                "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`.",
+                "If another task becomes active, continue with that task. If not, the queue is complete.",
             ]
         ) + "\n"
     explanation_lines = _render_validation_error_help(
@@ -1548,6 +1551,8 @@ def render_knowledge_worker_script() -> str:
                         f"Draft path: `{draft_path}`",
                         "The helper validator accepted this task packet.",
                         "You may run `python3 tools/knowledge_worker.py install-current` to write the final result path.",
+                        "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`.",
+                        "If another task becomes active, continue with that task. If not, the queue is complete.",
                     ]
                 )
             else:
@@ -1770,6 +1775,9 @@ def render_knowledge_worker_script() -> str:
             _write_current_feedback(row, draft_path=display_path, valid=True)
             sys.stdout.write(
                 f"installed {draft_path.name} -> {result_path.relative_to(_workspace_root())}\\n"
+            )
+            sys.stdout.write(
+                "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`; if another task becomes active, continue with that task.\\n"
             )
             return 0
 

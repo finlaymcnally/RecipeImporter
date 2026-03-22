@@ -11,6 +11,7 @@ from cookimport.llm.recipe_workspace_tools import (
     install_recipe_worker_draft,
     prepare_recipe_worker_drafts,
     render_recipe_worker_cli_script,
+    stamp_recipe_worker_drafts,
     validate_recipe_worker_draft,
 )
 
@@ -146,6 +147,12 @@ def test_prepare_and_finalize_recipe_worker_drafts_batch(tmp_path: Path) -> None
     assert written_paths == [
         workspace_root / "scratch" / "recipe-shard-0000-r0000-r0001.task-001.json"
     ]
+    manifest_path = workspace_root / "scratch" / "_prepared_drafts.json"
+    assert manifest_path.exists()
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_payload["draft_paths"] == [
+        "scratch/recipe-shard-0000-r0000-r0001.task-001.json"
+    ]
 
     installed_paths = finalize_recipe_worker_drafts(
         workspace_root=workspace_root,
@@ -155,6 +162,49 @@ def test_prepare_and_finalize_recipe_worker_drafts_batch(tmp_path: Path) -> None
     assert installed_paths == [
         workspace_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json"
     ]
+
+
+def test_stamp_recipe_worker_drafts_rewrites_fragmentary_payloads(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "worker-001"
+    task_row = _build_task_row()
+    (workspace_root / "scratch").mkdir(parents=True, exist_ok=True)
+    (workspace_root / "assigned_tasks.json").write_text(
+        json.dumps([task_row], indent=2),
+        encoding="utf-8",
+    )
+    draft_path = workspace_root / "scratch" / "recipe-shard-0000-r0000-r0001.task-001.json"
+    draft_path.write_text(
+        json.dumps(build_recipe_worker_scaffold(task_row=task_row), indent=2),
+        encoding="utf-8",
+    )
+
+    stamped_paths = stamp_recipe_worker_drafts(
+        workspace_root=workspace_root,
+        draft_paths=[draft_path],
+        status="fragmentary",
+        status_reason="insufficient source detail",
+        warnings=["incomplete_recipe_source"],
+    )
+
+    assert stamped_paths == [draft_path]
+    payload = json.loads(draft_path.read_text(encoding="utf-8"))
+    assert payload == {
+        "v": "1",
+        "sid": "recipe-shard-0000-r0000-r0001.task-001",
+        "r": [
+            {
+                "v": "1",
+                "rid": "urn:recipe:test:toast",
+                "st": "fragmentary",
+                "sr": "insufficient source detail",
+                "cr": None,
+                "m": [],
+                "mr": "not_applicable_fragmentary",
+                "g": [],
+                "w": ["incomplete_recipe_source"],
+            }
+        ],
+    }
 
 
 def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) -> None:
@@ -201,6 +251,23 @@ def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) ->
     draft_path = workspace_root / "scratch" / "recipe-shard-0000-r0000-r0001.task-001.json"
     assert draft_path.exists()
     assert "prepared 1 draft under scratch" in prepare_result.stdout
+    assert "manifest scratch/_prepared_drafts.json" in prepare_result.stdout
+
+    stamp_result = subprocess.run(
+        [
+            sys.executable,
+            "tools/recipe_worker.py",
+            "stamp-status",
+            "fragmentary",
+            "insufficient source detail",
+            str(draft_path),
+        ],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "updated 1 draft to fragmentary" in stamp_result.stdout
 
     check_result = subprocess.run(
         [sys.executable, "tools/recipe_worker.py", "check", str(draft_path)],
@@ -223,3 +290,9 @@ def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) ->
     assert (
         workspace_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json"
     ).exists()
+    installed_payload = json.loads(
+        (
+            workspace_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert installed_payload["r"][0]["st"] == "fragmentary"

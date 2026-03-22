@@ -6708,39 +6708,53 @@ def _classify_non_heading_howto_prose(
         return None, []
     lowered = text.lower()
     if lowered.startswith("to make "):
+        is_named_variant = _looks_named_variant_recipe_name_prefix(text)
+        is_generic_make_step = _looks_generic_to_make_step(text)
+        has_variant_cue = _looks_explicit_variant_prose(text)
+        has_neighboring_variant_heading = (
+            by_atomic_index is not None
+            and _has_neighboring_variant_heading(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        )
         if _is_within_recipe_span(candidate):
-            if _looks_named_variant_recipe_name_prefix(text) or (
-                by_atomic_index is not None
-                and _has_neighboring_variant_heading(
-                    candidate,
-                    by_atomic_index=by_atomic_index,
-                )
-            ):
+            if is_named_variant or has_neighboring_variant_heading or has_variant_cue:
                 return "RECIPE_VARIANT", [
                     "howto_prefix_prose",
                     "recipe_local_variant_prose",
                 ]
-            return "INSTRUCTION_LINE", ["howto_prefix_prose", "recipe_local_make_step"]
-        if (
-            _looks_named_variant_recipe_name_prefix(text)
-            or (
-                by_atomic_index is not None
-                and (
-                    _outside_span_has_neighboring_component_structure(
-                        candidate,
-                        by_atomic_index=by_atomic_index,
-                    )
-                    or _has_neighboring_variant_heading(
-                        candidate,
-                        by_atomic_index=by_atomic_index,
-                    )
-                )
+            reason_tags = ["howto_prefix_prose", "recipe_local_make_step"]
+            if is_generic_make_step:
+                reason_tags.append("generic_to_make_step")
+            return "INSTRUCTION_LINE", reason_tags
+        has_neighboring_component_structure = (
+            by_atomic_index is not None
+            and _outside_span_has_neighboring_component_structure(
+                candidate,
+                by_atomic_index=by_atomic_index,
             )
+        )
+        if (
+            is_named_variant
+            or has_neighboring_variant_heading
+            or (has_variant_cue and has_neighboring_component_structure)
         ):
             return "RECIPE_VARIANT", [
                 "howto_prefix_prose",
                 "outside_recipe_variant_prose",
             ]
+        if (
+            by_atomic_index is not None
+            and _instruction_line_label_allowed(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            reason_tags = ["howto_prefix_prose", "outside_recipe_make_step"]
+            if is_generic_make_step:
+                reason_tags.append("generic_to_make_step")
+            return "INSTRUCTION_LINE", reason_tags
         if (
             by_atomic_index is not None
             and _outside_recipe_knowledge_label_allowed(
@@ -7493,6 +7507,42 @@ def _looks_named_variant_recipe_name_prefix(text: str) -> bool:
     return capitalized_word_count >= 2
 
 
+def _looks_generic_to_make_step(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not (
+        stripped.lower().startswith("to make ")
+        and _looks_non_heading_howto_prose(stripped)
+    ):
+        return False
+    if _looks_named_variant_recipe_name_prefix(stripped):
+        return False
+    remainder = stripped[8:].strip()
+    words = _PROSE_WORD_RE.findall(remainder)
+    if not words:
+        return False
+    first_word = words[0]
+    if first_word.lower() in {"the", "this", "these", "those", "your"}:
+        return True
+    return first_word[:1].islower()
+
+
+def _looks_explicit_variant_prose(text: str) -> bool:
+    lowered = f" {str(text or '').strip().lower()} "
+    return any(
+        cue in lowered
+        for cue in (
+            " substitute ",
+            " instead",
+            " variation",
+            " variations",
+            " version",
+            " omit ",
+            " skip ",
+            " swap ",
+        )
+    )
+
+
 def _has_neighboring_variant_heading(
     candidate: AtomicLineCandidate,
     *,
@@ -7521,12 +7571,14 @@ def _looks_variant_run_body_line(
         return False
     if _looks_obvious_ingredient(candidate):
         return True
+    if lowered.startswith("to make ") and _looks_non_heading_howto_prose(text):
+        if _looks_named_variant_recipe_name_prefix(text):
+            return True
+        return _looks_explicit_variant_prose(text)
     if _looks_direct_instruction_start(candidate) or _looks_instructional_neighbor(
         candidate
     ):
-        return True
-    if lowered.startswith("to make ") and _looks_non_heading_howto_prose(text):
-        return True
+        return _looks_explicit_variant_prose(text)
     if not _looks_prose(text):
         return False
     if (
@@ -7545,17 +7597,7 @@ def _looks_variant_run_body_line(
         return True
     if lowered.startswith("for ") and "," in text:
         return True
-    return any(
-        cue in lowered
-        for cue in (
-            " substitute ",
-            " instead",
-            " variation",
-            " variations",
-            " version",
-            " skip ",
-        )
-    )
+    return _looks_explicit_variant_prose(text)
 
 
 def _variant_heading_label_allowed(

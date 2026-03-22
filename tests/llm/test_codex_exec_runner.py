@@ -430,6 +430,41 @@ def test_codex_exec_runner_detects_boundary_violations_separately_from_telemetry
     assert forbidden_path.policy == "forbidden_absolute_path"
 
 
+def test_codex_exec_runner_allows_workspace_local_python_heredoc_edits() -> None:
+    command = (
+        "/bin/bash -lc \"python3 - <<'PY'\n"
+        "from pathlib import Path\n"
+        "import json\n"
+        "base = Path('scratch')\n"
+        "doc = json.loads((base / 'task-001.json').read_text())\n"
+        "doc['r'][0]['sr'] = 'insufficient source detail'\n"
+        "doc['r'][0]['cr'] = None\n"
+        "doc['r'][0]['mr'] = 'not_applicable_fragmentary'\n"
+        "doc['r'][0]['st'] = 'fragmentary'\n"
+        "(base / 'task-001.json').write_text(json.dumps(doc) + '\\n')\n"
+        "yield_text = '1 1/4 cups'\n"
+        "PY\""
+    )
+
+    assert detect_workspace_worker_boundary_violation(command) is None
+    classification = classify_workspace_worker_command(command)
+    assert classification.allowed is True
+    assert classification.policy == "shell_script_workspace_local"
+
+
+def test_codex_exec_runner_rejects_python_heredoc_outside_workspace() -> None:
+    command = (
+        "/bin/bash -lc \"python3 - <<'PY'\n"
+        "from pathlib import Path\n"
+        "Path('/etc/passwd').read_text()\n"
+        "PY\""
+    )
+
+    verdict = detect_workspace_worker_boundary_violation(command)
+    assert verdict is not None
+    assert verdict.policy == "forbidden_absolute_path"
+
+
 def test_codex_exec_runner_allows_absolute_paths_inside_explicit_execution_root() -> None:
     execution_root = Path(
         "/home/mcnal/.codex-recipe/recipeimport-direct-exec-workspaces/worker-004"

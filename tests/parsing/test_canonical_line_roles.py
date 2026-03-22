@@ -1070,7 +1070,7 @@ def test_label_atomic_lines_variations_heading_can_anchor_outside_recipe_variant
     ]
 
 
-def test_label_atomic_lines_lead_variant_paragraph_keeps_following_rows_in_variant_run() -> None:
+def test_label_atomic_lines_lead_variant_paragraph_keeps_explicit_following_rows_in_variant_run() -> None:
     blocks = [
         {
             "block_id": "block:variant:run:1",
@@ -1089,7 +1089,7 @@ def test_label_atomic_lines_lead_variant_paragraph_keeps_following_rows_in_varia
         {
             "block_id": "block:variant:run:3",
             "block_index": 3,
-            "text": "Mound the cherry tomatoes over the tomato slices and serve.",
+            "text": "Instead, mound the cherry tomatoes over the tomato slices and serve.",
         },
     ]
     candidates = atomize_blocks(
@@ -1104,6 +1104,43 @@ def test_label_atomic_lines_lead_variant_paragraph_keeps_following_rows_in_varia
         "RECIPE_VARIANT",
         "RECIPE_VARIANT",
         "RECIPE_VARIANT",
+    ]
+
+
+def test_label_atomic_lines_variant_run_plain_instruction_needs_variant_cues() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:run:plain:1",
+            "block_index": 1,
+            "text": (
+                "To make Caprese Salad, alternate heirloom tomato slices with 1/2-inch "
+                "slices of fresh mozzarella or burrata cheese before seasoning and "
+                "dressing."
+            ),
+        },
+        {
+            "block_id": "block:variant:run:plain:2",
+            "block_index": 2,
+            "text": "12 torn basil leaves",
+        },
+        {
+            "block_id": "block:variant:run:plain:3",
+            "block_index": 3,
+            "text": "Mound the cherry tomatoes over the tomato slices and serve.",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:variant",
+        within_recipe_span=True,
+    )
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+        "INSTRUCTION_LINE",
     ]
 
 
@@ -1128,6 +1165,88 @@ def test_label_atomic_lines_generic_to_make_step_stays_instruction_not_variant()
     predictions = label_atomic_lines(candidates, _settings())
 
     assert predictions[0].label == "INSTRUCTION_LINE"
+
+
+def test_label_atomic_lines_exact_caesar_outside_span_make_step_stays_instruction() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1397",
+            block_index=1397,
+            atomic_index=1397,
+            text=(
+                "Coarsely chop the anchovies and then pound them into a fine paste "
+                "in a mortar and pestle. The more you break them down, the better "
+                "the dressing will be."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1398",
+            block_index=1398,
+            atomic_index=1398,
+            text=(
+                "In a medium bowl, stir together the anchovies, mayonnaise, garlic, "
+                "lemon juice, vinegar, Parmesan, Worcestershire sauce, and pepper. "
+                "Taste with a leaf of lettuce, then add salt and adjust acid as "
+                "needed. Or, practicing what you learned about Layering Salt , add "
+                "a little bit of each salty ingredient to the mayonnaise, bit by "
+                "bit. Adjust the acid, then taste and adjust the salty ingredients "
+                "until you reach the ideal balance of Salt, Fat, and Acid. Has "
+                "putting a lesson you read in a book into practice ever been this "
+                "delicious? I doubt it."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1399",
+            block_index=1399,
+            atomic_index=1399,
+            text=(
+                "To make the salad, use your hands to toss the greens and Torn "
+                "Croutons with an abundant amount of dressing in a large bowl to "
+                "coat evenly. Garnish with Parmesan and freshly ground black pepper "
+                "and serve immediately."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1400",
+            block_index=1400,
+            atomic_index=1400,
+            text="Refrigerate leftover dressing, covered, for up to 3 days.",
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1401",
+            block_index=1401,
+            atomic_index=1401,
+            text=(
+                "Ideal for romaine and Little Gem lettuce, chicories, raw or "
+                "blanched Kale, shaved Brussels sprouts, Belgian endive."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "INSTRUCTION_LINE",
+        "RECIPE_NOTES",
+        "RECIPE_NOTES",
+    ]
 
 
 def test_label_atomic_lines_variant_run_does_not_pull_following_notes_into_variant() -> None:
@@ -1790,6 +1909,98 @@ def test_codex_long_to_make_variant_paragraph_demotes_howto_to_recipe_variant(
     assert predictions[0].label == "RECIPE_VARIANT"
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
+
+
+def test_codex_exact_caesar_make_step_demotes_variant_to_instruction(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1397",
+            block_index=1397,
+            atomic_index=1397,
+            text=(
+                "Coarsely chop the anchovies and then pound them into a fine paste "
+                "in a mortar and pestle. The more you break them down, the better "
+                "the dressing will be."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1398",
+            block_index=1398,
+            atomic_index=1398,
+            text=(
+                "In a medium bowl, stir together the anchovies, mayonnaise, garlic, "
+                "lemon juice, vinegar, Parmesan, Worcestershire sauce, and pepper. "
+                "Taste with a leaf of lettuce, then add salt and adjust acid as "
+                "needed. Or, practicing what you learned about Layering Salt , add "
+                "a little bit of each salty ingredient to the mayonnaise, bit by "
+                "bit. Adjust the acid, then taste and adjust the salty ingredients "
+                "until you reach the ideal balance of Salt, Fat, and Acid. Has "
+                "putting a lesson you read in a book into practice ever been this "
+                "delicious? I doubt it."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1399",
+            block_index=1399,
+            atomic_index=1399,
+            text=(
+                "To make the salad, use your hands to toss the greens and Torn "
+                "Croutons with an abundant amount of dressing in a large bowl to "
+                "coat evenly. Garnish with Parmesan and freshly ground black pepper "
+                "and serve immediately."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1400",
+            block_index=1400,
+            atomic_index=1400,
+            text="Refrigerate leftover dressing, covered, for up to 3 days.",
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1401",
+            block_index=1401,
+            atomic_index=1401,
+            text=(
+                "Ideal for romaine and Little Gem lettuce, chicories, raw or "
+                "blanched Kale, shaved Brussels sprouts, Belgian endive."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner(
+            {
+                1397: "OTHER",
+                1398: "OTHER",
+                1399: "RECIPE_VARIANT",
+                1400: "RECIPE_NOTES",
+                1401: "RECIPE_NOTES",
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[2].label == "INSTRUCTION_LINE"
+    assert predictions[2].decided_by == "fallback"
+    assert "sanitized_variant_without_local_support" in predictions[2].reason_tags
 
 
 def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:

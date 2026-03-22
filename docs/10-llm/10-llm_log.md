@@ -10,6 +10,70 @@ read_when:
 
 Use this file for LLM debugging history that still applies to the current codebase. Retired rollout notes, removed UI paths, and old gating experiments were intentionally pruned.
 
+## 2026-03-22 workspace-worker paved-road contract converged across recipe, line-role, and knowledge
+
+Problem captured:
+- the first worker-runtime cutover fixed the big transport problems, but the day-to-day worker contract still had too many sharp edges:
+  - recipe main workers could still speak legacy verbose keys
+  - final assistant messages were easy to misread as authority
+  - helpers existed, but the default loop still spent too many subprocess turns
+  - watchdog behavior was still being reasoned about in shell-shape terms instead of clear workspace boundaries
+
+Durable decisions:
+- main workspace-worker success is file-authoritative:
+  - validated `workers/*/out/*.json` files win
+  - prose or absent final chat messages are telemetry only
+- the shared worker contract starts from repo-written local files, not broad queue spelunking:
+  - `worker_manifest.json`
+  - `current_task.json`
+  - named `hints/*.md`
+  - named `in/*.json`
+  - mirrored `tools/`
+  - `OUTPUT_CONTRACT.md`
+  - `examples/`
+- boundary-based watchdog policy is the stable main-worker rule:
+  - tolerate bounded local shell work
+  - tolerate temp roots such as `/tmp`
+  - tolerate surfacing the assigned execution root itself
+  - keep structured retry/repair on the stricter one-shot policy
+- recipe rejects legacy verbose output keys on the live seam, and the cheap helper path for recipe/line-role is now batch `prepare* -> edit -> finalize*` rather than repeated `scaffold -> check -> install`
+
+Evidence worth keeping:
+- the March 21 and March 22 Salt Fat runs showed the exact progression:
+  - wrong contract or stale final-message assumptions wasted spend
+  - repo-owned helper/tool surfaces removed brittle shell improvisation
+  - broader boundary-based watchdog rules then kept those helper paths alive without deleting repo-owned validation
+
+Anti-loop note:
+- if a future fix proposal starts from final assistant message formatting, stale verbose keys, or prompt wording alone, re-check the worker file/manifest/helper contract first
+
+## 2026-03-22 knowledge runtime moved from “helper available” to true single-task authority plus snippet-copy recovery
+
+Problem captured:
+- knowledge workers still had two expensive failure families after the initial runtime cutover:
+  - they could behave like local queue schedulers instead of one-task-at-a-time workers
+  - snippet-copy outputs could go straight from “worker wrote a file” to poisoned-worker skip without a narrow repair chance
+
+Durable decisions:
+- the repo now owns the live knowledge loop one task at a time:
+  - skinny `assigned_tasks.json`
+  - authoritative `current_task.json`
+  - `CURRENT_TASK.md`
+  - `CURRENT_TASK_FEEDBACK.md`
+  - repo advancement only after validation
+- worker-local `check` / `install` and orchestrator recovery now reuse the same validation classification instead of drifting
+- snippet-copy-only failures are their own near-miss family:
+  - full-chunk echoes
+  - copied evidence-quote snippets
+- those snippet-copy-only failures now get one narrow `inline_snippet_repair` before the broad repair ladder or poisoned-worker skip logic can win
+- worker poisoning still exists, but it is for repeated broader low-trust, boundary, or zero-output behavior rather than the first repairable snippet-copy miss
+
+Evidence worth keeping:
+- the March 22 benchmark evidence mattered because it showed both failure families mechanically: exploratory queue scripting was still happening, and task rows with `semantic_snippet_echoes_full_chunk` could end as `repair_skipped_poisoned_worker` even when the rest of the packet shape was coherent
+
+Anti-loop note:
+- if snippet-copy failures return, do not weaken the validator and do not skip straight to poisoned-worker logic; inspect the shared failure classifier and the narrow repair rung first
+
 ## 2026-03-21 shared stage-progress contract and summary parity
 
 Problem captured:

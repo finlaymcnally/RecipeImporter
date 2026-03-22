@@ -1973,6 +1973,58 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
 
 
 def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Path) -> None:
+    fixture = _build_existing_upload_bundle_fixture(tmp_path)
+    module = fixture["module"]
+    session_root = fixture["session_root"]
+    bundle_dir = fixture["bundle_dir"]
+    index_payload = fixture["index_payload"]
+    artifact_paths = fixture["artifact_paths"]
+    codex_run_id = fixture["codex_run_id"]
+    baseline_run_id = fixture["baseline_run_id"]
+    assert isinstance(session_root, Path)
+    assert isinstance(bundle_dir, Path)
+    assert isinstance(index_payload, dict)
+    assert isinstance(artifact_paths, set)
+    assert isinstance(codex_run_id, str)
+    assert isinstance(baseline_run_id, str)
+
+    assert fixture["metadata"]["source_dir"] == str(session_root.resolve())
+    assert fixture["metadata"]["output_dir"] == str(bundle_dir.resolve())
+    assert {
+        path.name
+        for path in bundle_dir.iterdir()
+        if path.is_file()
+    } == set(module.UPLOAD_BUNDLE_FILE_NAMES)
+    assert f"{codex_run_id}/run_manifest.json" in artifact_paths
+    assert f"{baseline_run_id}/run_manifest.json" in artifact_paths
+    assert int(index_payload["topline"]["run_count"]) == 2
+    assert int(index_payload["topline"]["pair_count"]) == 1
+    assert int(index_payload["topline"]["changed_lines_total"]) >= 1
+    assert int(index_payload["topline"]["additional_pairs_needed_for_generalization"]) == 1
+    assert index_payload["topline"]["full_prompt_log_status"] == "complete"
+    assert index_payload["topline"]["full_prompt_log_status_source"] in {
+        "process_manifest",
+        "derived_from_run_diagnostics",
+    }
+    assert index_payload["topline"]["worst_pair_delta_overall_line_accuracy"] is not None
+    assert index_payload["topline"]["worst_pair_delta_macro_f1_excluding_other"] is not None
+    assert isinstance(index_payload["topline"].get("active_recipe_span_breakout"), dict)
+    self_check = index_payload.get("self_check")
+    assert isinstance(self_check, dict)
+    assert set(
+        [
+            "starter_pack_present",
+            "starter_pack_physical_dir_present",
+            "pair_count_verified",
+            "changed_lines_verified",
+            "topline_consistent",
+        ]
+    ).issubset(self_check.keys())
+    assert self_check["starter_pack_present"] is True
+    assert self_check["starter_pack_physical_dir_present"] is False
+
+
+def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-book-benchmark"
     codex_run_id = "2026-03-03_10.18.00"
@@ -2035,47 +2087,34 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         prune_output_dir=False,
     )
 
-    assert metadata["source_dir"] == str(session_root.resolve())
-    assert metadata["output_dir"] == str(bundle_dir.resolve())
-    assert {
-        path.name
-        for path in bundle_dir.iterdir()
-        if path.is_file()
-    } == set(module.UPLOAD_BUNDLE_FILE_NAMES)
-
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
     artifact_paths = {
         str(row.get("path") or "")
         for row in index_payload["artifact_index"]
         if isinstance(row, dict)
     }
-    assert f"{codex_run_id}/run_manifest.json" in artifact_paths
-    assert f"{baseline_run_id}/run_manifest.json" in artifact_paths
-    assert int(index_payload["topline"]["run_count"]) == 2
-    assert int(index_payload["topline"]["pair_count"]) == 1
-    assert int(index_payload["topline"]["changed_lines_total"]) >= 1
-    assert int(index_payload["topline"]["additional_pairs_needed_for_generalization"]) == 1
-    assert index_payload["topline"]["full_prompt_log_status"] == "complete"
-    assert index_payload["topline"]["full_prompt_log_status_source"] in {
-        "process_manifest",
-        "derived_from_run_diagnostics",
+
+    return {
+        "artifact_paths": artifact_paths,
+        "baseline_run_id": baseline_run_id,
+        "bundle_dir": bundle_dir,
+        "codex_run_id": codex_run_id,
+        "index_payload": index_payload,
+        "metadata": metadata,
+        "module": module,
+        "session_root": session_root,
     }
-    assert index_payload["topline"]["worst_pair_delta_overall_line_accuracy"] is not None
-    assert index_payload["topline"]["worst_pair_delta_macro_f1_excluding_other"] is not None
-    assert isinstance(index_payload["topline"].get("active_recipe_span_breakout"), dict)
-    self_check = index_payload.get("self_check")
-    assert isinstance(self_check, dict)
-    assert set(
-        [
-            "starter_pack_present",
-            "starter_pack_physical_dir_present",
-            "pair_count_verified",
-            "changed_lines_verified",
-            "topline_consistent",
-        ]
-    ).issubset(self_check.keys())
-    assert self_check["starter_pack_present"] is True
-    assert self_check["starter_pack_physical_dir_present"] is False
+
+
+def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_existing_upload_bundle_fixture(tmp_path)
+    index_payload = fixture["index_payload"]
+    codex_run_id = fixture["codex_run_id"]
+    assert isinstance(index_payload, dict)
+    assert isinstance(codex_run_id, str)
+
     assert isinstance(index_payload.get("analysis"), dict)
     assert isinstance(index_payload["analysis"].get("triage_packet"), dict)
     turn1_summary = index_payload["analysis"].get("turn1_summary")
@@ -2211,6 +2250,18 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert isinstance(stage_observability.get("by_stage"), dict)
     correction_stage = stage_observability["by_stage"]["recipe_llm_correct_and_link"]
     assert isinstance(correction_stage.get("status_semantics_counts"), dict)
+
+
+def test_build_upload_bundle_for_existing_output_includes_navigation_and_locators(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_existing_upload_bundle_fixture(tmp_path)
+    module = fixture["module"]
+    index_payload = fixture["index_payload"]
+    artifact_paths = fixture["artifact_paths"]
+    assert isinstance(index_payload, dict)
+    assert isinstance(artifact_paths, set)
+
     navigation_payload = index_payload.get("navigation")
     assert isinstance(navigation_payload, dict)
     default_views = navigation_payload.get("default_initial_views")
@@ -2271,7 +2322,25 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/run_index.json"
     )
     assert derived_root_run_index in artifact_paths
+    self_check = index_payload.get("self_check")
+    assert isinstance(self_check, dict)
     assert float(self_check.get("critical_row_locators_coverage_ratio") or 0.0) >= 0.9
+
+
+def test_build_upload_bundle_for_existing_output_surfaces_run_diagnostics_and_overview(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_existing_upload_bundle_fixture(tmp_path)
+    module = fixture["module"]
+    bundle_dir = fixture["bundle_dir"]
+    index_payload = fixture["index_payload"]
+    codex_run_id = fixture["codex_run_id"]
+    baseline_run_id = fixture["baseline_run_id"]
+    assert isinstance(bundle_dir, Path)
+    assert isinstance(index_payload, dict)
+    assert isinstance(codex_run_id, str)
+    assert isinstance(baseline_run_id, str)
+
     run_diagnostics = index_payload.get("run_diagnostics")
     assert isinstance(run_diagnostics, list)
     codex_diag = next(

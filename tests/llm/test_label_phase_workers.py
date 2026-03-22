@@ -182,10 +182,39 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
             / "parse_errors.json"
         ).read_text(encoding="utf-8")
     )
+    proposal = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    task_status_rows = [
+        json.loads(line)
+        for line in (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "task_status.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
-    assert failures[0]["reason"] == "proposal_validation_failed"
-    assert "unowned_atomic_index:999" in failures[0]["validation_errors"]
-    assert parse_errors["parse_error_count"] == 1
+    assert failures == []
+    assert parse_errors["parse_error_count"] == 0
+    assert proposal["validation_errors"] == []
+    assert proposal["validation_metadata"]["task_aggregation"]["fallback_task_count"] == 1
+    assert (
+        proposal["validation_metadata"]["task_aggregation"]["task_validation_errors_by_task_id"][
+            "line-role-canonical-0001-a000000-a000000"
+        ]
+        == ["unowned_atomic_index:999", "missing_owned_atomic_indices:0"]
+    )
+    assert [row["state"] for row in task_status_rows] == ["repair_failed"]
 
 
 def test_line_role_phase_workers_emit_runtime_telemetry_summary(
