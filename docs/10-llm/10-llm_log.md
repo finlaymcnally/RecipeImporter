@@ -47,6 +47,65 @@ Evidence worth keeping:
 Anti-loop note:
 - if a future fix proposal starts from final assistant message formatting, stale verbose keys, or prompt wording alone, re-check the worker file/manifest/helper contract first
 
+## 2026-03-22 recipe workspace-worker cost cuts only stuck after the repo prewrote more trustworthy state
+
+Problem captured:
+- removing the false-positive startup kill was necessary but not sufficient: recipe runs were reliable again, yet workers still spent too many session turns rereading manifests, contracts, examples, helper source, hints, and raw inputs before editing the prepared drafts
+- early whole-shard deaths were also recovering through one follow-up per task even when the worker had produced nothing usable yet
+
+Durable decisions:
+- recipe startup/watchdog classification has to understand the real sterile execution root under `~/.codex-recipe/...`, not only the mirrored source worker root
+- early whole-shard deaths recover through one shard-packed retry; mixed-output failures still recover per task
+- the repo now prewrites the state workers were repeatedly rediscovering:
+  - `SHARD_PACKET.md`
+  - `scratch/<task_id>.json`
+  - `scratch/_prepared_drafts.json`
+  - `CURRENT_TASK.md`
+  - `CURRENT_TASK_FEEDBACK.md`
+- the cheap recipe path is now "read `SHARD_PACKET.md`, trust the prepared drafts, edit them, then `finalize-all`"; contract/example/tool-source reads are fallback-only
+- the current-task helper loop is still real and useful, but it is now a recovery/debug seam:
+  - `check-current` writes repo-readable validation feedback
+  - `install-current` advances `current_task.json` plus `CURRENT_TASK*.md`
+  - prepared-draft metadata refreshes after accepted installs
+- recipe telemetry now separates two waste families:
+  - `recipe_contract_lookup_command`
+  - `recipe_task_bundle_read_command`
+
+Evidence worth keeping:
+- the March 22 sequence mattered because it showed three distinct states in order:
+  - a false-positive startup kill under the sterile execution root
+  - a reliable but still chatty batch flow at `47` commands and high session-token overhead
+  - the later shard-packet/current-task flow that finally made the low-readback path explicit in repo-owned files
+
+Anti-loop note:
+- if recipe token spend rises again, inspect readback loops and repo-written worker surfaces first; do not jump straight to more prompt prose or another watchdog rollback
+
+## 2026-03-22 main workspace-worker watchdog rollback converged on executable-only enforcement
+
+Problem captured:
+- the first March 22 false-kill fix was too narrow: relaxing one knowledge-stage override did not remove the shared detector paths that were still killing workers for absolute paths, heredoc parseability, slash-heavy helper payloads, and other ordinary local shell shapes
+
+Durable decisions:
+- main `workspace_worker` sessions now die on command policy only for explicit off-contract executables plus the separate liveness guards
+- path- and shell-shape heuristics are telemetry only on the main worker path:
+  - absolute paths
+  - parent-traversal-looking strings
+  - heredocs
+  - `jq //`
+  - bounded inline Python helpers
+  - read-only `git` inspection
+- structured retry/repair attempts stay on the stricter one-shot policy; the rollback applies to the main long-lived worker path only
+- the right debugging split is now:
+  - `classify_workspace_worker_command(...)` for reviewer-facing telemetry
+  - `detect_workspace_worker_boundary_violation(...)` for the actual kill/no-kill seam
+
+Evidence worth keeping:
+- the false-kill run family recorded `forbidden_absolute_path` and `forbidden_unparseable_python_heredoc`, which proved the problem was shared detector policy rather than a stage-local helper bug
+- the narrow knowledge-only rollback was a real failed path worth remembering: it removed one override but did not touch the shared enforcement seam that still killed workers
+
+Anti-loop note:
+- if false kills return, inspect the forbidden executable list and live reason codes before reintroducing path policing or helper-specific exceptions
+
 ## 2026-03-22 knowledge runtime moved from “helper available” to true single-task authority plus snippet-copy recovery
 
 Problem captured:
@@ -61,6 +120,12 @@ Durable decisions:
   - `CURRENT_TASK.md`
   - `CURRENT_TASK_FEEDBACK.md`
   - repo advancement only after validation
+- the current-task bundle must stay authoritative in both places the runtime uses:
+  - the durable worker root
+  - the sterile execution workspace after each validation callback
+- `assigned_tasks.json` stays a queue/progress surface, not the worker's primary source of truth for "what do I do now?"
+- prompt, sidecars, helper stdout, and the generated helper script all have to frame `install-current` as a reopen-and-continue handoff rather than a stopping point
+- clean mid-queue exits after visible queue advancement are deterministic runtime failures, not acceptable conversational pauses; the repo now auto-resumes the remaining queue up to a small cap and persists that rescue history
 - worker-local `check` / `install` and orchestrator recovery now reuse the same validation classification instead of drifting
 - snippet-copy-only failures are their own near-miss family:
   - full-chunk echoes
@@ -69,9 +134,14 @@ Durable decisions:
 - worker poisoning still exists, but it is for repeated broader low-trust, boundary, or zero-output behavior rather than the first repairable snippet-copy miss
 
 Evidence worth keeping:
-- the March 22 benchmark evidence mattered because it showed both failure families mechanically: exploratory queue scripting was still happening, and task rows with `semantic_snippet_echoes_full_chunk` could end as `repair_skipped_poisoned_worker` even when the rest of the packet shape was coherent
+- the March 22 benchmark evidence mattered because it showed all three failure families mechanically:
+  - queue scripting was still happening
+  - one run advanced `live_status.json` to task 2 while the worker-visible current-task sidecars stayed on task 1 until source-to-execution mirroring was fixed
+  - later runs advanced the sidecars correctly but still ended with "If you want, I can continue..." mid-queue
+- the same task family also showed why helper/sidecar wording must be shared: patching prose in one renderer but not in the generated helper script immediately reintroduced drift between `CURRENT_TASK_FEEDBACK.md` and `install-current` output
 
 Anti-loop note:
+- if knowledge workers stop after one or a few valid tasks, do not restore queue spelunking or accept a permission-seeking final message as success; inspect current-task authority/sync first, then the capped auto-resume seam
 - if snippet-copy failures return, do not weaken the validator and do not skip straight to poisoned-worker logic; inspect the shared failure classifier and the narrow repair rung first
 
 ## 2026-03-21 shared stage-progress contract and summary parity

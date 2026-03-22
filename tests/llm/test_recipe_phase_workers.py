@@ -101,7 +101,16 @@ def _build_recipe_workspace_output(
             else None
         )
         status_reason = None
-        mapping_reason = "not_needed_single_step"
+        ingredient_count = len(
+            [item for item in recipe_hint.get("i", []) if str(item or "").strip()]
+        )
+        step_count = len([item for item in recipe_hint.get("s", []) if str(item or "").strip()])
+        if step_count <= 1:
+            mapping_reason = "not_needed_single_step"
+        elif ingredient_count <= 1:
+            mapping_reason = "not_needed_single_ingredient"
+        else:
+            mapping_reason = "unclear_alignment"
         warnings: list[str] = []
         if repair_status == "fragmentary":
             status_reason = "recipe evidence exists but the owned text is too incomplete"
@@ -318,16 +327,23 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert "CURRENT_TASK.md" in worker_prompt
     assert "current_task.json" in worker_prompt
     assert "CURRENT_TASK_FEEDBACK.md" in worker_prompt
+    assert "scratch/_prepared_drafts.json" in worker_prompt
     assert "python3 tools/recipe_worker.py current" in worker_prompt
-    assert "python3 tools/recipe_worker.py next" in worker_prompt
+    assert "`next`" in worker_prompt
     assert "python3 tools/recipe_worker.py check-current" in worker_prompt
-    assert "python3 tools/recipe_worker.py install-current" in worker_prompt
+    assert "`install-current`" in worker_prompt
     assert "python3 tools/recipe_worker.py stamp-status fragmentary" in worker_prompt
     assert "python3 tools/recipe_worker.py finalize-all scratch/" in worker_prompt
+    assert "one batch finish" in worker_prompt
+    assert "single-task validation or recovery" in worker_prompt
     assert "OUTPUT_CONTRACT.md" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "Open `hints/<task_id>.md` only if" in worker_prompt
     assert "Legacy keys are invalid here" in worker_prompt
+    assert "After each successful `install-current`" not in worker_prompt
+    shard_packet = (worker_root / "SHARD_PACKET.md").read_text(encoding="utf-8")
+    assert "2+ non-empty ingredients" in shard_packet
+    assert "unclear_alignment" in shard_packet
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
         "SHARD_PACKET.md",

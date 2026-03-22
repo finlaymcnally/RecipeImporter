@@ -182,6 +182,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "Start by reading `worker_manifest.json`" in agents_text
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
     assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
+    assert "When the workspace includes `current_batch.json`, `CURRENT_BATCH.md`, or `CURRENT_BATCH_FEEDBACK.md`" in agents_text
     assert "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`" in agents_text
     assert "`assigned_tasks.json`" in agents_text
     assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
@@ -191,7 +192,7 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "`/tmp` or `/var/tmp` for bounded helper files" in agents_text
     assert "dumping whole manifests just to orient yourself" in agents_text
     assert "prefer a short local `python3` helper" in agents_text
-    assert "repo-written `complete-current` or `check-current` helper" in agents_text
+    assert "repo-written `complete-batch`, `check-batch`, `install-batch`, `complete-current`, or `check-current` helper" in agents_text
     current_task = json.loads(
         (workspace.execution_working_dir / "current_task.json").read_text(encoding="utf-8")
     )
@@ -259,6 +260,72 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
     assert (workspace.execution_working_dir / "packet_lease_status.json").exists()
     assert not (workspace.execution_working_dir / "current_task.json").exists()
     assert (workspace.execution_working_dir / "scratch").exists()
+
+
+def test_prepare_direct_exec_workspace_worker_mode_mirrors_current_batch_files(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "scratch" / "current_batch").mkdir(parents=True, exist_ok=True)
+    (source_root / "current_batch.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "tasks": [
+                    {
+                        "task_id": "task-001",
+                        "draft_path": "scratch/current_batch/task-001.json",
+                        "input_path": "in/task-001.json",
+                        "hint_path": "hints/task-001.md",
+                        "result_path": "out/task-001.json",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source_root / "CURRENT_BATCH.md").write_text("# Current Knowledge Batch\n", encoding="utf-8")
+    (source_root / "CURRENT_BATCH_FEEDBACK.md").write_text(
+        "# Current Batch Feedback\n",
+        encoding="utf-8",
+    )
+    (source_root / "current_task.json").write_text(
+        json.dumps({"task_id": "task-001"}),
+        encoding="utf-8",
+    )
+    (source_root / "CURRENT_TASK.md").write_text("# Current Knowledge Task\n", encoding="utf-8")
+    (source_root / "CURRENT_TASK_FEEDBACK.md").write_text(
+        "# Current Task Feedback\n",
+        encoding="utf-8",
+    )
+    (source_root / "tools").mkdir(parents=True, exist_ok=True)
+    (source_root / "tools" / "knowledge_worker.py").write_text("print('helper')\n", encoding="utf-8")
+
+    workspace = prepare_direct_exec_workspace(
+        source_working_dir=source_root,
+        env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
+        task_label="knowledge worker session",
+        mode="workspace_worker",
+    )
+
+    worker_manifest = json.loads(
+        (workspace.execution_working_dir / "worker_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert worker_manifest["current_batch_file"] == "current_batch.json"
+    assert worker_manifest["current_batch_brief_file"] == "CURRENT_BATCH.md"
+    assert worker_manifest["current_batch_feedback_file"] == "CURRENT_BATCH_FEEDBACK.md"
+    assert "current_batch.json" in worker_manifest["entry_files"]
+    assert "CURRENT_BATCH.md" in worker_manifest["entry_files"]
+    assert "CURRENT_BATCH_FEEDBACK.md" in worker_manifest["entry_files"]
+    assert (
+        workspace.execution_working_dir / "current_batch.json"
+    ).read_text(encoding="utf-8") == (
+        source_root / "current_batch.json"
+    ).read_text(encoding="utf-8")
+    assert (workspace.execution_working_dir / "CURRENT_BATCH.md").exists()
+    assert (workspace.execution_working_dir / "CURRENT_BATCH_FEEDBACK.md").exists()
 
 
 def test_workspace_boundary_detector_allows_jq_fallback_operator_with_output_redirection() -> None:

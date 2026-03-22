@@ -11,9 +11,12 @@ import cookimport.llm.knowledge_workspace_tools as knowledge_tools_module
 from cookimport.llm.knowledge_workspace_tools import (
     build_knowledge_workspace_contract_examples,
     check_workspace_draft,
+    current_batch_task_draft_path,
+    install_current_batch_drafts,
     render_knowledge_worker_script,
     install_workspace_draft,
     render_current_task_feedback_text,
+    write_current_batch_and_task_sidecars,
     write_current_task_sidecars,
 )
 
@@ -297,3 +300,103 @@ def test_generated_knowledge_worker_cli_stays_in_sync_with_repo_feedback_contrac
         text=True,
     )
     assert knowledge_tools_module._INSTALL_CURRENT_SUCCESS_NOTICE in install_result.stdout  # noqa: SLF001
+
+
+def test_install_current_batch_drafts_accepts_valid_prefix_and_advances_sidecars(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "worker"
+    for dirname in ("in", "out", "scratch"):
+        (workspace_root / dirname).mkdir(parents=True, exist_ok=True)
+
+    task_rows = []
+    for index, task_id in enumerate(("task-001", "task-002"), start=1):
+        task_rows.append(
+            {
+                "task_id": task_id,
+                "parent_shard_id": "parent-001",
+                "owned_ids": [f"chunk-{index:03d}"],
+                "metadata": {
+                    "task_sequence": index,
+                    "task_total": 2,
+                    "input_path": f"in/{task_id}.json",
+                    "hint_path": f"hints/{task_id}.md",
+                    "result_path": f"out/{task_id}.json",
+                },
+            }
+        )
+        (workspace_root / "in" / f"{task_id}.json").write_text(
+            json.dumps(
+                {
+                    "v": "2",
+                    "bid": task_id,
+                    "c": [
+                        {
+                            "cid": f"chunk-{index:03d}",
+                            "b": [{"i": index, "t": f"Tip {index}."}],
+                        }
+                    ],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    (workspace_root / "assigned_tasks.json").write_text(
+        json.dumps(task_rows, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    write_current_batch_and_task_sidecars(
+        workspace_root=workspace_root,
+        task_rows=task_rows,
+        current_index=0,
+        current_draft_path=Path("scratch/current_task.json"),
+    )
+
+    valid_payload = {
+        "packet_id": "task-001",
+        "chunk_results": [
+            {
+                "chunk_id": "chunk-001",
+                "is_useful": False,
+                "block_decisions": [
+                    {
+                        "block_index": 1,
+                        "category": "other",
+                        "reviewer_category": "other",
+                    }
+                ],
+                "snippets": [],
+                "reason_code": "all_other",
+            }
+        ],
+    }
+    invalid_payload = {
+        "packet_id": "task-002",
+        "chunk_results": [],
+    }
+    current_batch_task_draft_path(workspace_root=workspace_root, task_id="task-001").parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    current_batch_task_draft_path(workspace_root=workspace_root, task_id="task-001").write_text(
+        json.dumps(valid_payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    current_batch_task_draft_path(workspace_root=workspace_root, task_id="task-002").write_text(
+        json.dumps(invalid_payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    batch_result, installed_task_ids = install_current_batch_drafts(
+        workspace_root=workspace_root,
+    )
+
+    assert batch_result.valid is False
+    assert installed_task_ids == ("task-001",)
+    assert json.loads((workspace_root / "out" / "task-001.json").read_text(encoding="utf-8")) == valid_payload
+    assert not (workspace_root / "out" / "task-002.json").exists()
+    assert json.loads((workspace_root / "current_task.json").read_text(encoding="utf-8"))["task_id"] == "task-002"
+    current_batch = json.loads((workspace_root / "current_batch.json").read_text(encoding="utf-8"))
+    assert [task["task_id"] for task in current_batch["tasks"]] == ["task-002"]

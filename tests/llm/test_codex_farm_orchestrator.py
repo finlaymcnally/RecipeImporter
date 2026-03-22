@@ -688,6 +688,172 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     assert audit["deterministic_final_assembly"]["status"] == "skipped"
 
 
+def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_promotion(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+
+    def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
+        assert payload is not None
+        recipe_row = (
+            payload["authoritative_input"]["r"][0]
+            if payload.get("repair_mode") == "recipe"
+            else payload["r"][0]
+        )
+        return {
+            "v": "1",
+            "sid": (
+                payload["authoritative_input"]["sid"]
+                if payload.get("repair_mode") == "recipe"
+                else payload.get("sid")
+            ),
+            "r": [
+                {
+                    "v": "1",
+                    "rid": recipe_row["rid"],
+                    "st": "repaired",
+                    "sr": None,
+                    "cr": {
+                        "t": "Toast",
+                        "i": ["1 slice bread", "1 tablespoon butter"],
+                        "s": [
+                            "Toast the bread until golden.",
+                            "Spread with butter and serve hot.",
+                        ],
+                        "d": None,
+                        "y": None,
+                    },
+                    "m": [],
+                    "mr": None,
+                    "g": [],
+                    "w": [],
+                }
+            ],
+        }
+
+    runner = FakeCodexExecRunner(output_builder=_output_builder)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
+    )
+    proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0000-r0000-r0000.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
+    assert apply_result.intermediate_overrides_by_recipe_id == {}
+    assert apply_result.final_overrides_by_recipe_id == {}
+    assert proposal["payload"] is None
+    assert proposal["repair_attempted"] is True
+    assert manifest["counts"]["recipe_correction_ok"] == 0
+    assert manifest["counts"]["recipe_correction_error"] == 1
+    assert manifest["counts"]["build_final_recipe_ok"] == 0
+    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_llm_correct_and_link"] == "error"
+    assert manifest["recipes"]["urn:recipe:test:toast"]["build_final_recipe"] == "error"
+
+
+def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without_reason(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+
+    def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
+        assert payload is not None
+        recipe_row = (
+            payload["authoritative_input"]["r"][0]
+            if payload.get("repair_mode") == "recipe"
+            else payload["r"][0]
+        )
+        return {
+            "v": "1",
+            "sid": (
+                payload["authoritative_input"]["sid"]
+                if payload.get("repair_mode") == "recipe"
+                else payload.get("sid")
+            ),
+            "r": [
+                {
+                    "v": "1",
+                    "rid": recipe_row["rid"],
+                    "st": "repaired",
+                    "sr": None,
+                    "cr": {
+                        "t": "Blue Cheese Dressing",
+                        "i": [
+                            "5 ounces blue cheese",
+                            "1/2 cup creme fraiche",
+                            "1 tablespoon vinegar",
+                        ],
+                        "s": [
+                            "Whisk everything together. Taste and adjust. Chill before serving."
+                        ],
+                        "d": None,
+                        "y": None,
+                    },
+                    "m": [],
+                    "mr": None,
+                    "g": [],
+                    "w": [],
+                }
+            ],
+        }
+
+    runner = FakeCodexExecRunner(output_builder=_output_builder)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
+    )
+    proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0000-r0000-r0000.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
+    assert proposal["payload"] is None
+    assert proposal["repair_attempted"] is True
+    assert manifest["counts"]["recipe_correction_error"] == 1
+    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_llm_correct_and_link"] == "error"
+    assert manifest["recipes"]["urn:recipe:test:toast"]["build_final_recipe"] == "error"
+    assert apply_result.final_overrides_by_recipe_id == {}
+
+
 def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
     tmp_path: Path,
 ) -> None:

@@ -229,6 +229,7 @@ New eval manifests should record the prediction-run root under `artifacts.artifa
 - when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_det`, `label_llm_correct`, `group_recipe_spans`) and mirror the resulting `stage_block_predictions.json` into the prediction run root
 - prediction generation no longer runs a second post-stage diagnostic `label_atomic_lines(...)` pass; freeform span projection reuses the authoritative labeled-line bundle from stage or builds the same bundle once in-memory for offline-only runs
 - canonical benchmark scoring follows the prediction manifest pointer pair; when authoritative line labels are projected, outside-recipe `KNOWLEDGE` versus `OTHER` still comes from the final non-recipe authority after knowledge refinement, and telemetry reports `mode=final_authority_projection`
+- canonical-text benchmark eval reports now also serialize structural segmentation metrics beside the older overlap-style `boundary` counts, so paired benchmark comparisons can tell whether a gain came from line classification, boundary structure, or both
 
 Execution modes:
 

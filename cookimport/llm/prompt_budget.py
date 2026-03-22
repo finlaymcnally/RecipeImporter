@@ -171,6 +171,8 @@ def build_prediction_run_prompt_budget_summary(
     }
     total_prompt_input_mode_counts: dict[str, int] = {}
     total_pathological_flags: set[str] = set()
+    total_token_usage_available_call_count = 0
+    total_token_usage_missing_call_count = 0
     for payload in by_stage.values():
         totals["call_count"] = _sum_optional_ints(
             totals.get("call_count"),
@@ -220,6 +222,26 @@ def build_prediction_run_prompt_budget_summary(
             total_pathological_flags.update(
                 str(flag).strip() for flag in flags if str(flag).strip()
             )
+        total_token_usage_available_call_count += int(
+            _nonnegative_int(payload.get("token_usage_available_call_count")) or 0
+        )
+        total_token_usage_missing_call_count += int(
+            _nonnegative_int(payload.get("token_usage_missing_call_count")) or 0
+        )
+    if total_token_usage_available_call_count or total_token_usage_missing_call_count:
+        totals["token_usage_available_call_count"] = total_token_usage_available_call_count
+        totals["token_usage_missing_call_count"] = total_token_usage_missing_call_count
+        if total_token_usage_missing_call_count > 0:
+            totals["token_usage_status"] = (
+                "partial" if total_token_usage_available_call_count > 0 else "unavailable"
+            )
+            for key in _TOKEN_KEYS:
+                totals[key] = None
+            for key in _BREAKDOWN_KEYS:
+                totals[key] = None
+            total_pathological_flags.add("token_usage_incomplete")
+        elif total_token_usage_available_call_count > 0:
+            totals["token_usage_status"] = "complete"
     totals["cost_breakdown"] = {
         "visible_input_tokens": totals.get("visible_input_tokens"),
         "cached_input_tokens": totals.get("tokens_cached_input"),
@@ -514,6 +536,7 @@ def _build_codex_farm_stage_summary(
     stage_payload: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     telemetry_rows = _extract_telemetry_rows(stage_payload=stage_payload)
+    atomic_summaries = _collect_atomic_summary_payloads(stage_payload)
     pathology_summary = (
         summarize_direct_telemetry_rows(telemetry_rows)
         if isinstance(telemetry_rows, list)
@@ -538,6 +561,9 @@ def _build_codex_farm_stage_summary(
                     breakdown_totals.get(key),
                     _nonnegative_int(row.get(key)),
                 )
+    if atomic_summaries:
+        token_totals = _aggregate_token_totals_from_summaries(atomic_summaries)
+        breakdown_totals = _aggregate_breakdown_totals_from_summaries(atomic_summaries)
 
     summary_payload = _extract_summary_payload(stage_payload=stage_payload)
     if isinstance(summary_payload, Mapping):
@@ -550,12 +576,30 @@ def _build_codex_farm_stage_summary(
         for key in _BREAKDOWN_KEYS:
             if breakdown_totals.get(key) is None:
                 breakdown_totals[key] = _nonnegative_int(summary_payload.get(key))
+    token_usage_available_call_count = sum(
+        1 for summary in atomic_summaries if _summary_has_any_token_usage(summary)
+    )
+    token_usage_missing_call_count = sum(
+        1 for summary in atomic_summaries if _summary_looks_like_missing_token_usage(summary)
+    )
+    token_usage_status: str | None = None
+    if atomic_summaries:
+        if token_usage_missing_call_count > 0:
+            token_usage_status = (
+                "partial" if token_usage_available_call_count > 0 else "unavailable"
+            )
+            token_totals = {key: None for key in _TOKEN_KEYS}
+            breakdown_totals = {key: None for key in _BREAKDOWN_KEYS}
+        elif token_usage_available_call_count > 0:
+            token_usage_status = "complete"
 
     call_count = (
         _extract_call_count(summary_payload)
         if isinstance(summary_payload, Mapping)
         else None
     )
+    if atomic_summaries:
+        call_count = _aggregate_call_count_from_summaries(atomic_summaries)
     if row_count > 0:
         call_count = row_count
     duration_total_ms = (
@@ -563,6 +607,8 @@ def _build_codex_farm_stage_summary(
         if isinstance(summary_payload, Mapping)
         else None
     )
+    if atomic_summaries:
+        duration_total_ms = _aggregate_duration_total_ms_from_summaries(atomic_summaries)
     if isinstance(telemetry_rows, list):
         duration_total_ms = _extract_duration_total_ms_from_rows(telemetry_rows)
 
@@ -646,6 +692,18 @@ def _build_codex_farm_stage_summary(
             "billed_total_tokens": token_totals.get("tokens_total"),
         },
     }
+    if token_usage_status is not None:
+        stage_summary["token_usage_status"] = token_usage_status
+        stage_summary["token_usage_available_call_count"] = token_usage_available_call_count
+        stage_summary["token_usage_missing_call_count"] = token_usage_missing_call_count
+        if (
+            token_usage_status != "complete"
+            and "token_usage_incomplete" not in stage_summary["pathological_flags"]
+        ):
+            stage_summary["pathological_flags"] = [
+                *stage_summary["pathological_flags"],
+                "token_usage_incomplete",
+            ]
     if stage_name in {"knowledge", "nonrecipe_knowledge_review"}:
         _attach_knowledge_stage_observability(
             stage_summary=stage_summary,
@@ -1377,6 +1435,26 @@ def _extract_summary_payload(*, stage_payload: Mapping[str, Any]) -> Mapping[str
     return max(candidates, key=_summary_payload_score)
 
 
+def _collect_atomic_summary_payloads(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    worker_runs = payload.get("worker_runs")
+    if isinstance(worker_runs, list) and worker_runs:
+        summaries: list[Mapping[str, Any]] = []
+        for worker_run in worker_runs:
+            if not isinstance(worker_run, Mapping):
+                continue
+            summaries.extend(_collect_atomic_summary_payloads(worker_run))
+        return summaries
+    for nested_key in ("process_run", "process_payload", "phase_runtime", "phase_worker_runtime"):
+        nested = payload.get(nested_key)
+        if not isinstance(nested, Mapping):
+            continue
+        summaries = _collect_atomic_summary_payloads(nested)
+        if summaries:
+            return summaries
+    summary_payload = _extract_summary_payload(stage_payload=payload)
+    return [summary_payload] if isinstance(summary_payload, Mapping) else []
+
+
 def _extract_call_count(summary: Mapping[str, Any]) -> int | None:
     call_count = _nonnegative_int(summary.get("call_count"))
     if call_count is not None:
@@ -1665,6 +1743,19 @@ def _aggregate_token_totals_from_summaries(
     return totals
 
 
+def _aggregate_breakdown_totals_from_summaries(
+    summaries: list[Mapping[str, Any]],
+) -> dict[str, int | None]:
+    totals: dict[str, int | None] = {key: None for key in _BREAKDOWN_KEYS}
+    for summary in summaries:
+        for key in _BREAKDOWN_KEYS:
+            value = _nonnegative_int(summary.get(key))
+            if value is None:
+                continue
+            totals[key] = _sum_optional_ints(totals.get(key), value)
+    return totals
+
+
 def _aggregate_call_count_from_summaries(
     summaries: list[Mapping[str, Any]],
 ) -> int | None:
@@ -1685,6 +1776,43 @@ def _aggregate_duration_total_ms_from_summaries(
             _extract_duration_total_ms(summary, call_count=summary_call_count),
         )
     return duration_total_ms
+
+
+def _summary_has_any_token_usage(summary: Mapping[str, Any]) -> bool:
+    for key in _TOKEN_KEYS:
+        raw_value = summary.get(key)
+        if key == "tokens_reasoning" and raw_value is None:
+            raw_value = summary.get("tokens_reasoning_total")
+        value = _nonnegative_int(raw_value)
+        if value is not None and value > 0:
+            return True
+    return False
+
+
+def _summary_looks_like_missing_token_usage(summary: Mapping[str, Any]) -> bool:
+    if _summary_has_any_token_usage(summary):
+        return False
+    call_count = _extract_call_count(summary)
+    duration_total_ms = _extract_duration_total_ms(summary, call_count=call_count)
+    visible_input_tokens = _nonnegative_int(summary.get("visible_input_tokens"))
+    visible_output_tokens = _nonnegative_int(summary.get("visible_output_tokens"))
+    command_execution_count_total = _nonnegative_int(summary.get("command_execution_count_total"))
+    prompt_input_mode_counts = summary.get("prompt_input_mode_counts")
+    workspace_worker_calls = (
+        _nonnegative_int(prompt_input_mode_counts.get("workspace_worker"))
+        if isinstance(prompt_input_mode_counts, Mapping)
+        else None
+    )
+    return any(
+        value and value > 0
+        for value in (
+            duration_total_ms,
+            visible_input_tokens,
+            visible_output_tokens,
+            command_execution_count_total,
+            workspace_worker_calls,
+        )
+    )
 
 
 def _nonnegative_int(value: Any) -> int | None:

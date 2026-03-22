@@ -113,6 +113,8 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:
 - Token usage fields: `tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`
   - benchmark token backfill/enrichment now treats those as whole-run actuals when the manifest carries recipe, knowledge, and line-role telemetry rather than only one `process_runs` slice
   - line-role totals may need recovery from nested telemetry summaries when the top-level benchmark copy only carries lightweight phase metadata; `prompt_budget_summary.json` is the preferred whole-run artifact when present
+  - when a Codex workspace-worker stage has partial or missing usage for some worker runs, `prompt_budget_summary.json` now marks token usage as `complete`, `partial`, or `unavailable` and leaves the affected token totals blank instead of reporting a misleading literal spend
+  - those prompt-budget summaries should also carry the status context needed to explain the blank totals: how many worker calls had usable usage and how many were missing it
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 

@@ -52,6 +52,34 @@ def _build_task_row() -> dict[str, object]:
     }
 
 
+def _build_complex_task_row() -> dict[str, object]:
+    task_row = json.loads(json.dumps(_build_task_row()))
+    task_row["owned_ids"] = ["urn:recipe:test:tea"]
+    task_row["input_payload"]["ids"] = ["urn:recipe:test:tea"]
+    task_row["input_payload"]["r"][0]["rid"] = "urn:recipe:test:tea"
+    task_row["input_payload"]["r"][0]["h"]["n"] = "Tea"
+    task_row["input_payload"]["r"][0]["h"]["i"] = ["1 cup water", "1 tea bag"]
+    task_row["input_payload"]["r"][0]["h"]["s"] = ["Boil water.", "Steep the tea bag."]
+    return task_row
+
+
+def _build_multi_ingredient_single_step_task_row() -> dict[str, object]:
+    task_row = json.loads(json.dumps(_build_task_row()))
+    task_row["owned_ids"] = ["urn:recipe:test:dressing"]
+    task_row["input_payload"]["ids"] = ["urn:recipe:test:dressing"]
+    task_row["input_payload"]["r"][0]["rid"] = "urn:recipe:test:dressing"
+    task_row["input_payload"]["r"][0]["h"]["n"] = "Blue Cheese Dressing"
+    task_row["input_payload"]["r"][0]["h"]["i"] = [
+        "5 ounces blue cheese",
+        "1/2 cup creme fraiche",
+        "1 tablespoon vinegar",
+    ]
+    task_row["input_payload"]["r"][0]["h"]["s"] = [
+        "Whisk everything together. Taste and adjust. Chill before serving."
+    ]
+    return task_row
+
+
 def test_render_recipe_worker_briefs_include_prewritten_draft_paths() -> None:
     task_row = _build_task_row()
 
@@ -65,11 +93,13 @@ def test_render_recipe_worker_briefs_include_prewritten_draft_paths() -> None:
     )
 
     assert "scratch_draft_path: scratch/recipe-shard-0000-r0000-r0001.task-001.json" in current_brief
-    assert "python3 tools/recipe_worker.py check-current" in current_brief
-    assert "python3 tools/recipe_worker.py install-current" in current_brief
+    assert "python3 tools/recipe_worker.py finalize-all scratch/" in current_brief
+    assert "python3 tools/recipe_worker.py check-current` and `install-current` only for single-task validation or recovery" in current_brief
     assert "repo already prewrote `scratch/` drafts" in feedback_brief
+    assert "SHARD_PACKET.md" in feedback_brief
+    assert "python3 tools/recipe_worker.py finalize-all scratch/" in feedback_brief
     assert "draft: `scratch/recipe-shard-0000-r0000-r0001.task-001.json`" in feedback_brief
-    assert "CURRENT_TASK.md" in feedback_brief
+    assert "current-task sidecars" in feedback_brief
 
 
 def test_render_recipe_worker_shard_packet_packs_queue_contract_and_draft_paths() -> None:
@@ -82,6 +112,8 @@ def test_render_recipe_worker_shard_packet_packs_queue_contract_and_draft_paths(
 
     assert "# Recipe Shard Packet" in packet
     assert "Read this file first." in packet
+    assert "finalize-all scratch/` once after the batch is ready" in packet
+    assert "scratch/_prepared_drafts.json" in packet
     assert "draft: `scratch/recipe-shard-0000-r0000-r0001.task-001.json`" in packet
     assert "hint fallback: `hints/recipe-shard-0000-r0000-r0001.task-001.md`" in packet
     assert "Open raw `hints/*.md`, `in/*.json`, `OUTPUT_CONTRACT.md`, `examples/*.json`, or `tools/recipe_worker.py` only if" in packet
@@ -144,6 +176,28 @@ def test_validate_recipe_worker_draft_rejects_legacy_keys_and_wrong_owned_ids() 
     assert any("legacy key `recipe_id`" in error for error in errors)
     assert any("missing owned recipe ids: urn:recipe:test:toast" in error for error in errors)
     assert any("unexpected recipe ids:" in error for error in errors)
+
+
+def test_validate_recipe_worker_draft_rejects_complex_empty_mapping_without_reason() -> None:
+    task_row = _build_complex_task_row()
+    payload = build_recipe_worker_scaffold(task_row=task_row)
+
+    errors = validate_recipe_worker_draft(task_row=task_row, payload=payload)
+
+    assert any(
+        ".mr must explain an empty mapping when st=repaired" in error for error in errors
+    )
+
+
+def test_validate_recipe_worker_draft_rejects_multi_ingredient_single_step_empty_mapping_without_reason() -> None:
+    task_row = _build_multi_ingredient_single_step_task_row()
+    payload = build_recipe_worker_scaffold(task_row=task_row)
+
+    errors = validate_recipe_worker_draft(task_row=task_row, payload=payload)
+
+    assert any(
+        ".mr must explain an empty mapping when st=repaired" in error for error in errors
+    )
 
 
 def test_install_recipe_worker_draft_writes_declared_result_path(tmp_path: Path) -> None:
@@ -352,7 +406,7 @@ def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) ->
         check=True,
     )
     assert "Current Recipe Task" in current_result.stdout
-    assert "check-current" in current_result.stdout
+    assert "finalize-all scratch/" in current_result.stdout
 
     next_result = subprocess.run(
         [sys.executable, "tools/recipe_worker.py", "next"],
@@ -428,8 +482,7 @@ def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) ->
     assert "out/recipe-shard-0000-r0000-r0001.task-001.json" in install_current_result.stdout
     assert (
         "Queue complete. No current task is active." in install_current_result.stdout
-        or "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`"
-        in install_current_result.stdout
+        or "The cheap happy path is to edit the prewritten `scratch/*.json` drafts" in install_current_result.stdout
     )
 
     finalize_result = subprocess.run(
@@ -496,7 +549,9 @@ def test_recipe_worker_cli_install_current_advances_queue(tmp_path: Path) -> Non
     )
 
     assert "installed scratch/recipe-shard-0000-r0000-r0001.task-001.json -> out/recipe-shard-0000-r0000-r0001.task-001.json" in install_current_result.stdout
+    assert "The cheap happy path is to edit the prewritten `scratch/*.json` drafts" in install_current_result.stdout
     assert "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`" in install_current_result.stdout
+    assert "continue with that task immediately" not in install_current_result.stdout
     current_task_payload = json.loads(
         (workspace_root / "current_task.json").read_text(encoding="utf-8")
     )

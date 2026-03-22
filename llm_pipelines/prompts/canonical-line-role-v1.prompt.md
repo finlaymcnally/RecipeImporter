@@ -29,6 +29,7 @@ Negative rules (must-not-do):
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
 - Brief first-person lesson prose can still be `KNOWLEDGE` when it states a reusable cooking rule or explanation, not just memoir.
+- Short declarative teaching lines can stay `KNOWLEDGE` when they clearly state a reusable cooking correction or rule in the same lesson cluster.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
 - If `span_code` is `N` (outside recipe), default to `OTHER` unless the line clearly teaches reusable cooking explanation/reference prose; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
@@ -41,6 +42,7 @@ Negative rules (must-not-do):
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
 - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
+- A lone question-style topic heading such as `What is Heat?` should stay `OTHER` unless nearby rows clearly teach that concept.
 - Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` stay `OTHER` until nearby rows prove one live recipe.
 - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
 - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
@@ -113,19 +115,27 @@ Few-shot examples:
     Line: `Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what.`
     Label: `KNOWLEDGE`
 
-17) Context: front matter or contents heading, not a live recipe
+17) Context: outside recipe, short declarative lesson line in a knowledge cluster
+    Line: `Foods that are too dry can be corrected with a bit more fat.`
+    Label: `KNOWLEDGE`
+
+18) Context: outside recipe, lone question heading without explanatory support
+    Line: `What is Heat?`
+    Label: `OTHER`
+
+19) Context: front matter or contents heading, not a live recipe
     Line: `The Four Elements of Good Cooking`
     Label: `OTHER`
 
-18) Context: contents-style seasonal title list
+20) Context: contents-style seasonal title list
     Line: `Winter: Roasted Radicchio and Roquefort`
     Label: `OTHER`
 
-19) Context: outside recipe, obvious imperative prep step with nearby recipe structure
+21) Context: outside recipe, obvious imperative prep step with nearby recipe structure
     Line: `Quarter the cabbage through the core. Use a sharp knife to cut the core out at an angle.`
     Label: `INSTRUCTION_LINE`
 
-20) Context: short variation follow-up line after `Variations`
+22) Context: short variation follow-up line after `Variations`
     Line: `To add a little heat, add 1 teaspoon minced jalapeño.`
     Label: `RECIPE_VARIANT`
 

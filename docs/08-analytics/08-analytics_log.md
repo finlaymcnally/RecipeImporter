@@ -172,6 +172,16 @@ Still-relevant outcomes:
 Anti-loop note:
 - if a dashboard token cell looks too small, inspect manifest plus `prompt_budget_summary.json` before assuming the live run used fewer tokens
 
+### 2026-03-22 partial workspace-worker token usage must blank totals instead of faking completeness
+
+Still-relevant outcomes:
+- if a workspace-worker stage shows real command/duration activity but one or more worker calls wrote no usage, stage totals are partial or unavailable rather than literal spend
+- `prompt_budget_summary.json` should carry explicit token-usage status plus available/missing call counts so downstream readers can tell why totals are blank
+- this is a durable benchmark-analytics contract, not a one-off Label Studio helper quirk
+
+Anti-loop note:
+- if prompt-budget totals suddenly go blank after a run, inspect missing worker usage before adding fallback token math
+
 ## 2) Current anti-loop notes
 
 - Main dashboard scope is only `Diagnostics (Latest Benchmark)` plus `Previous Runs`.

@@ -132,7 +132,9 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "01-lesson-prose-vs-howto.md",
         "# Lesson prose vs recipe how-to\n\n"
         "- Keep lesson headings such as `Balancing Fat` or `WHAT IS ACID?` as `KNOWLEDGE` when nearby rows are explanatory prose.\n"
+        "- Short declarative teaching lines such as `Foods that are too dry can be corrected with a bit more fat.` can stay `KNOWLEDGE` when they belong to the same lesson cluster.\n"
         "- Declarative lesson prose about reusable cooking rules, such as `Salt, Fat, Acid, and Heat were the four elements ...`, should stay `KNOWLEDGE` even when the narration uses `I` or `we`.\n"
+        "- A lone question-style topic heading such as `What is Heat?` should stay `OTHER` unless nearby rows clearly teach that concept.\n"
         "- Upgrade a heading to `HOWTO_SECTION` only when immediate neighboring rows are recipe-local ingredients or method subsections.\n"
         "- A heading by itself is weak evidence.\n",
     ),
@@ -1154,7 +1156,7 @@ def _line_role_default_posture(*, packet_mode: str) -> str:
             "Keep recipe-body rows structured, but treat surrounding prose conservatively."
         ),
         "lesson_prose": (
-            "Default to `OTHER`; upgrade to `KNOWLEDGE` when a row teaches reusable cooking explanation/reference prose, even if it uses brief first-person framing. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+            "Default to `OTHER`; upgrade to `KNOWLEDGE` when a row teaches reusable cooking explanation/reference prose, including short lesson headings or short declarative teaching lines in a lesson cluster, even if it uses brief first-person framing. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
         ),
         "memoir_front_matter": (
             "Default to `OTHER`; upgrade only if a row clearly teaches reusable cooking knowledge."
@@ -1237,6 +1239,12 @@ def _line_role_flip_policy(
     if packet_mode == "lesson_prose":
         policy.append(
             "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose."
+        )
+        policy.append(
+            "Short declarative lesson lines can stay `KNOWLEDGE` when they clearly state a reusable cooking correction or rule in the same lesson cluster."
+        )
+        policy.append(
+            "A lone question-style topic heading such as `What is Heat?` should stay `OTHER` unless nearby rows clearly teach that concept."
         )
         policy.append(
             "Do not flatten reusable cooking lesson prose to `OTHER` just because it includes brief first-person framing around a general rule."
@@ -6623,10 +6631,6 @@ def _sanitize_prediction(
         label = "OTHER"
         decided_by = "fallback"
         reason_tags.append("sanitized_knowledge_inside_recipe")
-    if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
-        label = "OTHER"
-        decided_by = "fallback"
-        reason_tags.append("sanitized_outside_recipe_knowledge_to_reviewable_other")
     if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
         label = "OTHER" if _is_outside_recipe_span(candidate) else "INSTRUCTION_LINE"
         decided_by = "fallback"
@@ -6690,6 +6694,13 @@ def _sanitize_prediction(
             label = "RECIPE_VARIANT"
             decided_by = "fallback"
             reason_tags.append("rescued_other_to_variant")
+        elif not _is_within_recipe_span(candidate) and _outside_recipe_knowledge_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            label = "KNOWLEDGE"
+            decided_by = "fallback"
+            reason_tags.append("rescued_other_to_knowledge")
         elif _should_rescue_other_to_knowledge_label(
             candidate,
             by_atomic_index=by_atomic_index,
@@ -6743,10 +6754,14 @@ def _sanitize_prediction(
         decided_by = "fallback"
         reason_tags.append("sanitized_instruction_without_local_support")
     if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
-        label = "OTHER"
-        decided_by = "fallback"
-        if "sanitized_outside_recipe_knowledge_to_reviewable_other" not in reason_tags:
-            reason_tags.append("sanitized_outside_recipe_knowledge_to_reviewable_other")
+        if not _outside_recipe_knowledge_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            label = "OTHER"
+            decided_by = "fallback"
+            if "sanitized_outside_recipe_knowledge_without_support" not in reason_tags:
+                reason_tags.append("sanitized_outside_recipe_knowledge_without_support")
     if label != "OTHER" or _is_within_recipe_span(candidate):
         review_exclusion_reason = None
     else:
@@ -8170,8 +8185,28 @@ def _looks_domain_knowledge_prose(text: str) -> bool:
     domain_cues = _knowledge_domain_cue_count(stripped)
     if domain_cues <= 0:
         return False
+    lowered = stripped.lower()
     if _looks_prose(stripped) and _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped):
         return True
+    if _looks_prose(stripped) and not _INSTRUCTION_VERB_RE.match(stripped):
+        if any(
+            cue in lowered
+            for cue in (
+                " is to ",
+                " can be ",
+                " corrected ",
+                " correct ",
+                " rebalance ",
+                " well suited ",
+                " preferred ",
+                " keeps ",
+                " protects ",
+                " doesn't offer ",
+                " does not offer ",
+                " tastes bitter",
+            )
+        ):
+            return True
     words = _PROSE_WORD_RE.findall(stripped)
     if (
         3 <= len(words) <= 10
@@ -8321,7 +8356,7 @@ def _looks_knowledge_prose_with_context(
     if by_atomic_index is None:
         return False
     words = _PROSE_WORD_RE.findall(text)
-    if _looks_prose(text) and len(words) > 8 and not _looks_knowledge_heading_shape(text):
+    if _looks_prose(text) and len(words) > 18 and not _looks_knowledge_heading_shape(text):
         return False
     for offset in (-1, 1):
         neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)

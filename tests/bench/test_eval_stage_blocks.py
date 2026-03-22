@@ -1324,6 +1324,16 @@ def test_evaluate_canonical_text_scores_lines_across_different_blockization(
     assert report["eval_mode"] == "canonical_text"
     assert report["overall_line_accuracy"] == pytest.approx(1.0)
     assert report["macro_f1_excluding_other"] == pytest.approx(1.0)
+    segmentation = report.get("segmentation")
+    assert isinstance(segmentation, dict)
+    assert segmentation["label_projection"] == "core_structural_v1"
+    assert segmentation["boundary_tolerance_blocks"] == 0
+    assert segmentation["metrics_requested"] == ["boundary_f1"]
+    assert segmentation["boundaries"]["overall_micro"]["tp"] == 2
+    assert segmentation["boundaries"]["overall_micro"]["fp"] == 0
+    assert segmentation["boundaries"]["overall_micro"]["fn"] == 0
+    assert segmentation["boundaries"]["overall_micro"]["f1"] == pytest.approx(1.0)
+    assert segmentation["error_taxonomy"]["total_count"] == 0
     assert report["boundary"] == {
         "correct": 1,
         "over": 2,
@@ -1344,7 +1354,17 @@ def test_evaluate_canonical_text_scores_lines_across_different_blockization(
     ]
     assert telemetry["alignment_sequence_matcher_requested_mode"] == "dmp"
     assert telemetry["work_units"]["prediction_block_count"] == pytest.approx(2.0)
+    assert telemetry["work_units"]["segmentation_gold_boundary_count"] == pytest.approx(2.0)
+    assert telemetry["work_units"]["segmentation_pred_boundary_count"] == pytest.approx(2.0)
+    assert telemetry["work_units"]["segmentation_false_positive_boundary_count"] == pytest.approx(0.0)
+    assert telemetry["work_units"]["segmentation_missed_boundary_count"] == pytest.approx(0.0)
     assert (out_dir / "unmatched_pred_blocks.jsonl").read_text(encoding="utf-8").strip() == ""
+    assert (out_dir / "missed_gold_boundaries.jsonl").exists()
+    assert (out_dir / "false_positive_boundaries.jsonl").exists()
+    assert (out_dir / "missed_gold_boundaries.jsonl").read_text(encoding="utf-8").strip() == ""
+    assert (
+        out_dir / "false_positive_boundaries.jsonl"
+    ).read_text(encoding="utf-8").strip() == ""
 
 
 def _write_minimal_canonical_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:

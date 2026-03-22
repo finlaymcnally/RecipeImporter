@@ -882,6 +882,19 @@ def _sorted_recipe_delta_rows(context: FollowupBundleContext) -> list[dict[str, 
     )
 
 
+def _sorted_recipe_signal_rows(context: FollowupBundleContext) -> list[dict[str, Any]]:
+    return sorted(
+        context._per_recipe_rows.values(),
+        key=lambda row: (
+            -int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0),
+            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
+            -int(_coerce_int(row.get("recipe_error_count")) or 0),
+            -int(_coerce_int(row.get("recipe_warning_count")) or 0),
+            str(row.get("recipe_id") or ""),
+        ),
+    )
+
+
 def _sorted_outside_span_candidates(
     context: FollowupBundleContext,
 ) -> list[dict[str, Any]]:
@@ -913,8 +926,11 @@ def _default_line_role_followup_ask(
     question = "Show provenance and nearby context for the most relevant line-role issue."
 
     recipe_rows = _sorted_recipe_delta_rows(context)
-    if recipe_rows:
-        row = recipe_rows[0]
+    negative_recipe_rows = [
+        row for row in recipe_rows if (_coerce_float(row.get("delta_codex_minus_baseline")) or 0.0) < 0.0
+    ]
+    if negative_recipe_rows:
+        row = negative_recipe_rows[0]
         case_id = _recipe_case_id(
             str(row.get("recipe_id") or ""),
             _coerce_float(row.get("delta_codex_minus_baseline")),
@@ -936,10 +952,23 @@ def _default_line_role_followup_ask(
                     "outside-span issue."
                 )
         else:
-            question = (
-                "This bundle has no precomputed recipe or outside-span cases. "
-                "Fill in selectors for the follow-up you want."
-            )
+            signal_rows = _sorted_recipe_signal_rows(context)
+            if signal_rows:
+                row = signal_rows[0]
+                case_id = _recipe_case_id(
+                    str(row.get("recipe_id") or ""),
+                    _coerce_float(row.get("delta_codex_minus_baseline")),
+                )
+                selectors["include_case_ids"] = [case_id]
+                question = (
+                    f"Why does {case_id} look like the highest-signal line-role issue? "
+                    "Show provenance and nearby context."
+                )
+            else:
+                question = (
+                    "This bundle has no precomputed recipe or outside-span cases. "
+                    "Fill in selectors for the follow-up you want."
+                )
 
     return {
         "ask_id": "ask_001",

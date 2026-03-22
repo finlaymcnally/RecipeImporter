@@ -38,6 +38,26 @@ Current contract confirmation:
 - Domain folders remain the primary layout, with one intentional root-level cross-domain module: `tests/test_eval_freeform_practical_metrics.py`.
 - Support data surfaces under `tests/fixtures/*`, `tests/tagging_gold/*`, and `tests/paths.py` remain active.
 
+### 2026-03-22 hotspot cleanup switched from "big files" to "big mixed-concern tests"
+
+Still-active outcomes:
+
+- the highest-value refactors were long single tests that combined broad synthetic setup, one command/helper call, and several unrelated assertion families in the same function
+- the durable cleanup style is:
+  - local fixture builders
+  - local helper extraction
+  - narrow assertion groups with one dominant reason to fail
+- shared support should stay small and domain-local when possible, for example `tests/labelstudio/benchmark_helper_support.py`; do not turn this into a repo-wide mega-fixture framework
+- rerunning the full touched domain after each split is part of the contract now, because these refactors kept flushing out real shared bugs and stale expectations:
+  - fake structured-retry snapshot/runtime bugs
+  - generated helper-template drift
+  - stale worker/runtime expectations after runtime contract changes
+- once the biggest monoliths are split, the hotspot frontier moves quickly; use fresh measurements instead of assuming yesterday's largest file is still the best target
+
+Anti-loop note:
+
+- if a test is miserable to read or extend because it proves bundle creation, transport/runtime behavior, and five output surfaces at once, split the test by contract before adding more assertions
+
 ### 2026-03-20 split LLM runtime tests by seam and tighten assertions
 
 Still-active outcomes:

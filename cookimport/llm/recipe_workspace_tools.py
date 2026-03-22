@@ -29,12 +29,21 @@ _INSTALL_CURRENT_READY_TEXT = (
     "You may run `python3 tools/recipe_worker.py install-current` to write the final result path."
 )
 _REOPEN_AFTER_INSTALL_TEXT = (
-    "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and "
-    "`CURRENT_TASK_FEEDBACK.md`."
+    "If you use `install-current` as a single-task recovery step and another task remains, "
+    "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` to locate "
+    "the next draft."
 )
-_CONTINUE_IMMEDIATELY_TEXT = (
-    "If another task becomes active, continue with that task immediately. Do not ask "
-    "for permission to continue while later tasks remain."
+_BATCH_FINALIZE_DEFAULT_TEXT = (
+    "The cheap happy path is to edit the prewritten `scratch/*.json` drafts and run "
+    "`python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready."
+)
+_CHECK_INSTALL_FALLBACK_TEXT = (
+    "Use `python3 tools/recipe_worker.py check-current` and `install-current` only for "
+    "single-task validation or recovery, not as the default loop."
+)
+_POST_INSTALL_LOCATOR_TEXT = (
+    "If another task becomes active, the refreshed sidecars are only a locator for the next "
+    "draft; return to batch editing after that."
 )
 _LEGACY_KEY_SUGGESTIONS = {
     "bundle_version": "v",
@@ -228,6 +237,7 @@ def _current_task_contract_quick_reference() -> list[str]:
         "- Top level keys: `v`, `sid`, `r`.",
         "- Per-recipe keys: `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.",
         "- `st=repaired`: `cr` must be a canonical recipe object.",
+        "- `st=repaired`: if `cr.i` has 2+ non-empty ingredients or `cr.s` has 2+ non-empty steps, `m=[]` requires a non-empty `mr` such as `unclear_alignment`.",
         "- `st=fragmentary`: set `cr` to null and use `mr=not_applicable_fragmentary`.",
         "- `st=not_a_recipe`: set `cr` to null and use `mr=not_applicable_not_a_recipe`.",
         "- Tiny examples: repaired -> `{\"st\":\"repaired\",\"cr\":{...},\"m\":[],\"mr\":\"not_needed_single_step\"}`; fragmentary -> `{\"st\":\"fragmentary\",\"cr\":null,\"mr\":\"not_applicable_fragmentary\"}`; not_a_recipe -> `{\"st\":\"not_a_recipe\",\"cr\":null,\"mr\":\"not_applicable_not_a_recipe\"}`.",
@@ -267,8 +277,9 @@ def render_recipe_worker_shard_packet(
         "# Recipe Shard Packet",
         "",
         "Read this file first. It is the authoritative packed shard summary for the normal recipe worker path.",
-        "The default loop is: read this packet, edit the current draft, run `check-current`, run `install-current`, then re-open the current-task sidecars if another task becomes active.",
-        "Open raw `hints/*.md`, `in/*.json`, `OUTPUT_CONTRACT.md`, `examples/*.json`, or `tools/recipe_worker.py` only if this packet and the current-task sidecars are still insufficient.",
+        "The default loop is: read this packet, edit the prewritten drafts under `scratch/`, and run `python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready.",
+        "Use `scratch/_prepared_drafts.json` as the draft inventory. Treat the current-task sidecars as active-draft locators or failure context, not the core loop.",
+        "Open raw `hints/*.md`, `in/*.json`, `OUTPUT_CONTRACT.md`, `examples/*.json`, or `tools/recipe_worker.py` only if this packet, the prepared-drafts manifest, and the current-task sidecars are still insufficient.",
         "",
         (
             f"current_task_id: {_task_id(current_task_row)}"
@@ -346,19 +357,20 @@ def render_recipe_worker_current_task_brief(
         _ACTIVE_ASSIGNMENT_TEXT,
         "",
         "Recommended loop:",
-        f"- Edit the prewritten draft at `{paths['scratch_draft_path']}` first.",
+        f"- Start with the active draft `{paths['scratch_draft_path']}`, then continue editing the prepared drafts directly under `scratch/`.",
+        "- Use `SHARD_PACKET.md` and `scratch/_prepared_drafts.json` as the normal batch view.",
         f"- Open `{paths['hint_path']}` only if the brief or draft is still unclear.",
         f"- Open `{paths['input_path']}` only if the draft and hint still leave something unresolved.",
-        "- Run `python3 tools/recipe_worker.py check-current` after editing the current draft.",
-        "- Run `python3 tools/recipe_worker.py install-current` only after `check-current` says OK.",
+        f"- {_BATCH_FINALIZE_DEFAULT_TEXT}",
+        f"- {_CHECK_INSTALL_FALLBACK_TEXT}",
         f"- For obvious terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary \"<reason>\" {paths['scratch_draft_path']}` or the same command with `not_a_recipe`.",
-        "- After `install-current`, re-open the current-task sidecars and keep going if another task is active.",
+        f"- {_REOPEN_AFTER_INSTALL_TEXT}",
         "",
         *_current_task_contract_quick_reference(),
         "",
         "Fallback only:",
         "- `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug references, not the normal first read.",
-        "- `python3 tools/recipe_worker.py prepare-all --dest-dir scratch/` and `finalize-all scratch/` stay available for recovery or bulk cleanup, not as the default queue loop.",
+        "- `python3 tools/recipe_worker.py prepare-all --dest-dir scratch/` is a regeneration fallback, not the normal first move.",
     ]
     return "\n".join(lines)
 
@@ -406,9 +418,11 @@ def render_recipe_worker_feedback_brief(
                 _VALIDATION_STATUS_OK_TEXT,
                 f"Draft path: `{display_draft_path}`",
                 f"Install target: `{current_paths.get('result_path') or '[unknown]'}`",
+                _BATCH_FINALIZE_DEFAULT_TEXT,
                 _INSTALL_CURRENT_READY_TEXT,
+                _CHECK_INSTALL_FALLBACK_TEXT,
                 _REOPEN_AFTER_INSTALL_TEXT,
-                _CONTINUE_IMMEDIATELY_TEXT,
+                _POST_INSTALL_LOCATOR_TEXT,
             ]
         )
     elif normalized_state == "failed":
@@ -438,9 +452,11 @@ def render_recipe_worker_feedback_brief(
                 f"Current draft path: `{display_draft_path}`",
                 "Default local loop:",
                 "- The repo already prewrote `scratch/` drafts and `scratch/_prepared_drafts.json`.",
-                "- Start with `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` instead of dumping `assigned_tasks.json`.",
-                "- Edit only the current draft, then run `python3 tools/recipe_worker.py check-current` and `install-current`.",
-                "- `prepare-all`, `finalize-all`, `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug surfaces, not the default first move.",
+                "- Start with `SHARD_PACKET.md`, then use the current-task sidecars only to locate the active draft or inspect validator feedback.",
+                "- Edit the relevant drafts directly under `scratch/`.",
+                f"- {_BATCH_FINALIZE_DEFAULT_TEXT}",
+                f"- {_CHECK_INSTALL_FALLBACK_TEXT}",
+                "- `prepare-all`, `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug surfaces, not the default first move.",
             ]
         )
     if current_paths:
@@ -715,10 +731,24 @@ def validate_recipe_worker_draft(
                 title = _sanitize_text(canonical_dict.get("t"))
                 if not title:
                     errors.append(f"r[{index}].cr.t must be a non-empty string")
-                if not _sanitize_text_list(canonical_dict.get("i")):
+                ingredients = _sanitize_text_list(canonical_dict.get("i"))
+                if not ingredients:
                     errors.append(f"r[{index}].cr.i must contain at least one non-empty ingredient")
-                if not _sanitize_text_list(canonical_dict.get("s")):
+                steps = _sanitize_text_list(canonical_dict.get("s"))
+                if not steps:
                     errors.append(f"r[{index}].cr.s must contain at least one non-empty step")
+                mapping_reason = _sanitize_text(row_dict.get("mr"))
+                mapping_rows = row_dict.get("m")
+                if (
+                    isinstance(mapping_rows, list)
+                    and not mapping_rows
+                    and not mapping_reason
+                    and (len(ingredients) >= 2 or len(steps) >= 2)
+                ):
+                    errors.append(
+                        f"r[{index}].mr must explain an empty mapping when st=repaired "
+                        "and cr has 2+ non-empty ingredients or 2+ non-empty steps"
+                    )
         elif canonical_recipe is not None:
             errors.append(f"r[{index}].cr must be null when st={status}")
         if status in {"fragmentary", "not_a_recipe"} and not _sanitize_text(row_dict.get("sr")):
@@ -1098,12 +1128,21 @@ def render_recipe_worker_cli_script() -> str:
             "You may run `python3 tools/recipe_worker.py install-current` to write the final result path."
         )
         REOPEN_AFTER_INSTALL_TEXT = (
-            "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and "
-            "`CURRENT_TASK_FEEDBACK.md`."
+            "If you use `install-current` as a single-task recovery step and another task remains, "
+            "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` to locate "
+            "the next draft."
         )
-        CONTINUE_IMMEDIATELY_TEXT = (
-            "If another task becomes active, continue with that task immediately. Do not ask "
-            "for permission to continue while later tasks remain."
+        BATCH_FINALIZE_DEFAULT_TEXT = (
+            "The cheap happy path is to edit the prewritten `scratch/*.json` drafts and run "
+            "`python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready."
+        )
+        CHECK_INSTALL_FALLBACK_TEXT = (
+            "Use `python3 tools/recipe_worker.py check-current` and `install-current` only for "
+            "single-task validation or recovery, not as the default loop."
+        )
+        POST_INSTALL_LOCATOR_TEXT = (
+            "If another task becomes active, the refreshed sidecars are only a locator for the next "
+            "draft; return to batch editing after that."
         )
         LEGACY_KEY_SUGGESTIONS = {
             "bundle_version": "v",
@@ -1218,6 +1257,7 @@ def render_recipe_worker_cli_script() -> str:
                 "- Top level keys: `v`, `sid`, `r`.",
                 "- Per-recipe keys: `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.",
                 "- `st=repaired`: `cr` must be a canonical recipe object.",
+                "- `st=repaired`: if `cr.i` has 2+ non-empty ingredients or `cr.s` has 2+ non-empty steps, `m=[]` requires a non-empty `mr` such as `unclear_alignment`.",
                 "- `st=fragmentary`: set `cr` to null and use `mr=not_applicable_fragmentary`.",
                 "- `st=not_a_recipe`: set `cr` to null and use `mr=not_applicable_not_a_recipe`.",
                 "- Tiny examples: repaired -> `{\\\"st\\\":\\\"repaired\\\",\\\"cr\\\":{...},\\\"m\\\":[],\\\"mr\\\":\\\"not_needed_single_step\\\"}`; fragmentary -> `{\\\"st\\\":\\\"fragmentary\\\",\\\"cr\\\":null,\\\"mr\\\":\\\"not_applicable_fragmentary\\\"}`; not_a_recipe -> `{\\\"st\\\":\\\"not_a_recipe\\\",\\\"cr\\\":null,\\\"mr\\\":\\\"not_applicable_not_a_recipe\\\"}`.",
@@ -1331,19 +1371,20 @@ def render_recipe_worker_cli_script() -> str:
                     ACTIVE_ASSIGNMENT_TEXT,
                     "",
                     "Recommended loop:",
-                    f"- Edit the prewritten draft at `{paths['scratch_draft_path']}` first.",
+                    f"- Start with the active draft `{paths['scratch_draft_path']}`, then continue editing the prepared drafts directly under `scratch/`.",
+                    "- Use `SHARD_PACKET.md` and `scratch/_prepared_drafts.json` as the normal batch view.",
                     f"- Open `{paths['hint_path']}` only if the brief or draft is still unclear.",
                     f"- Open `{paths['input_path']}` only if the draft and hint still leave something unresolved.",
-                    "- Run `python3 tools/recipe_worker.py check-current` after editing the current draft.",
-                    "- Run `python3 tools/recipe_worker.py install-current` only after `check-current` says OK.",
+                    f"- {BATCH_FINALIZE_DEFAULT_TEXT}",
+                    f"- {CHECK_INSTALL_FALLBACK_TEXT}",
                     f"- For obvious terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary \\\"<reason>\\\" {paths['scratch_draft_path']}` or the same command with `not_a_recipe`.",
-                    "- After `install-current`, re-open the current-task sidecars and keep going if another task is active.",
+                    f"- {REOPEN_AFTER_INSTALL_TEXT}",
                     "",
                     *render_contract_quick_reference(),
                     "",
                     "Fallback only:",
                     "- `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug references, not the normal first read.",
-                    "- `prepare-all --dest-dir scratch/` and `finalize-all scratch/` stay available for recovery or bulk cleanup, not as the default queue loop.",
+                    "- `prepare-all --dest-dir scratch/` is a regeneration fallback, not the normal first move.",
                 ]
             )
             return "\\n".join(lines)
@@ -1387,9 +1428,11 @@ def render_recipe_worker_cli_script() -> str:
                         VALIDATION_STATUS_OK_TEXT,
                         f"Draft path: `{display_draft_path}`",
                         f"Install target: `{paths['result_path']}`",
+                        BATCH_FINALIZE_DEFAULT_TEXT,
                         INSTALL_CURRENT_READY_TEXT,
+                        CHECK_INSTALL_FALLBACK_TEXT,
                         REOPEN_AFTER_INSTALL_TEXT,
-                        CONTINUE_IMMEDIATELY_TEXT,
+                        POST_INSTALL_LOCATOR_TEXT,
                     ]
                 )
             elif normalized_state == "failed":
@@ -1419,9 +1462,11 @@ def render_recipe_worker_cli_script() -> str:
                         f"Current draft path: `{display_draft_path}`",
                         "Default local loop:",
                         "- The repo already prewrote `scratch/` drafts and `scratch/_prepared_drafts.json`.",
-                        "- Start with `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` instead of dumping `assigned_tasks.json`.",
-                        "- Edit only the current draft, then run `python3 tools/recipe_worker.py check-current` and `install-current`.",
-                        "- `prepare-all`, `finalize-all`, `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug surfaces, not the default first move.",
+                        "- Start with `SHARD_PACKET.md`, then use the current-task sidecars only to locate the active draft or inspect validator feedback.",
+                        "- Edit the relevant drafts directly under `scratch/`.",
+                        f"- {BATCH_FINALIZE_DEFAULT_TEXT}",
+                        f"- {CHECK_INSTALL_FALLBACK_TEXT}",
+                        "- `prepare-all`, `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug surfaces, not the default first move.",
                     ]
                 )
             lines.extend(
@@ -1598,10 +1643,24 @@ def render_recipe_worker_cli_script() -> str:
                             errors.append(f"r[{index}].cr missing required key `{key}`")
                         if not sanitize_text(canonical_recipe.get("t")):
                             errors.append(f"r[{index}].cr.t must be a non-empty string")
-                        if not sanitize_text_list(canonical_recipe.get("i")):
+                        ingredients = sanitize_text_list(canonical_recipe.get("i"))
+                        if not ingredients:
                             errors.append(f"r[{index}].cr.i must contain at least one non-empty ingredient")
-                        if not sanitize_text_list(canonical_recipe.get("s")):
+                        steps = sanitize_text_list(canonical_recipe.get("s"))
+                        if not steps:
                             errors.append(f"r[{index}].cr.s must contain at least one non-empty step")
+                        mapping_reason = sanitize_text(row.get("mr"))
+                        mapping_rows = row.get("m")
+                        if (
+                            isinstance(mapping_rows, list)
+                            and not mapping_rows
+                            and not mapping_reason
+                            and (len(ingredients) >= 2 or len(steps) >= 2)
+                        ):
+                            errors.append(
+                                f"r[{index}].mr must explain an empty mapping when st=repaired "
+                                "and cr has 2+ non-empty ingredients or 2+ non-empty steps"
+                            )
                 elif canonical_recipe is not None:
                     errors.append(f"r[{index}].cr must be null when st={status}")
                 if status in {"fragmentary", "not_a_recipe"} and not sanitize_text(row.get("sr")):
@@ -2080,8 +2139,9 @@ def render_recipe_worker_cli_script() -> str:
                     if next_row is None:
                         print("Queue complete. No current task is active.")
                     else:
+                        print(BATCH_FINALIZE_DEFAULT_TEXT)
                         print(REOPEN_AFTER_INSTALL_TEXT)
-                        print(CONTINUE_IMMEDIATELY_TEXT)
+                        print(POST_INSTALL_LOCATOR_TEXT)
                     return 0
                 if args.command == "finalize":
                     output_path = install_draft(workspace_root, Path(args.json_path))

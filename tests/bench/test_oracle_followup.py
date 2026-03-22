@@ -17,6 +17,7 @@ from cookimport.bench.oracle_followup import (
 from cookimport.bench.oracle_followup import OracleFollowupWorkspace
 from cookimport.bench.oracle_upload import (
     OracleUploadResult,
+    audit_oracle_upload_log,
     resolve_oracle_benchmark_bundle,
 )
 
@@ -221,6 +222,83 @@ def test_run_oracle_benchmark_followup_uses_request_file_when_source_run_is_olde
     assert workspace.request_json_path.is_file()
     request_payload = json.loads(workspace.request_json_path.read_text(encoding="utf-8"))
     assert request_payload["request_id"] == "manual_request_01"
+
+
+def test_run_oracle_benchmark_followup_reuses_source_browser_profile_for_continue_session(
+    tmp_path: Path,
+) -> None:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    browser_profile_dir = tmp_path / "oracle-home" / "browser-profile"
+    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.40.00"
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "session_id": "you-are-reviewing-a-benchmark-303",
+                "conversation_url": "https://chatgpt.com/c/followup-source-303",
+                "conversation_id": "followup-source-303",
+                "browser_profile_dir": str(browser_profile_dir),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                "Answer:",
+                "Top regressions",
+                "The main regression is line-role collapse.",
+                "",
+                "Likely cause buckets",
+                "Line-role repair dominates.",
+                "",
+                "Immediate next checks",
+                "Inspect the worst cases.",
+                "",
+                "Requested follow-up data",
+                "Ask 1",
+                "ask_id: ask_001_line_role",
+                "question: Show the line-role evidence for the worst negative cases.",
+                "outputs: case_export",
+                "stage_filters: line_role",
+                "hypothesis: The issue is in line-role repair.",
+                "smallest_useful_packet: One bad case is enough.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    captured: dict[str, object] = {}
+
+    def fake_runner(command, **kwargs):
+        captured["command"] = [str(part) for part in command]
+        captured["env"] = dict(kwargs.get("env") or {})
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Answer:\nUpdated assessment\nFollow-up answer.\n",
+            stderr="",
+        )
+
+    result, workspace = run_oracle_benchmark_followup(
+        target=target,
+        from_run="latest",
+        runner=fake_runner,
+    )
+
+    env = captured["env"]
+    assert result.success is True
+    assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(browser_profile_dir)
+    assert env["ORACLE_HOME_DIR"] == str(browser_profile_dir.parent)
+    metadata_payload = json.loads(workspace.metadata_path.read_text(encoding="utf-8"))
+    assert metadata_payload["browser_profile_dir"] == str(browser_profile_dir)
 
 
 def _run_completed_turn1_followup_fixture(
@@ -617,6 +695,44 @@ def test_auto_followup_worker_appends_recovered_turn1_answer_before_turn2(
     launch_dir = fixture["launch_dir"]
     log_text = (launch_dir / "oracle_upload.log").read_text(encoding="utf-8")
     assert "Recovered answer after timeout." in log_text
+
+
+def test_audit_oracle_upload_log_prefers_recovered_answer_over_timeout_marker(tmp_path: Path) -> None:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+
+    log_text = "\n".join(
+        [
+            "Oracle command: oracle ...",
+            "ERROR: Assistant response timed out before completion; reattach later to capture the answer.",
+            "Assistant response timed out; keeping session running for reattach.",
+            "Reattach later with: oracle session you-are-reviewing-a-benchmark-392",
+            "[reattach] captured assistant response from existing Chrome tab",
+            "Answer:",
+            "Top regressions",
+            "Recovered answer after timeout.",
+            "",
+            "Likely cause buckets",
+            "Line-role repair dominates.",
+            "",
+            "Immediate next checks",
+            "Inspect the worst cases.",
+            "",
+            "Requested follow-up data",
+            "Ask 1",
+            "ask_id: ask_001_line_role",
+            "question: Show the line-role evidence for the worst negative cases.",
+            "outputs: case_export, line_role_audit",
+            "stage_filters: line_role",
+            "hypothesis: The issue is in line-role repair.",
+            "smallest_useful_packet: One bad case is enough.",
+        ]
+    )
+    audit = audit_oracle_upload_log(target=target, log_text=log_text)
+
+    assert audit.status == "succeeded"
+    assert audit.reattach_command == "oracle session you-are-reviewing-a-benchmark-392"
 
 
 def _run_invalid_grounding_followup_fixture(

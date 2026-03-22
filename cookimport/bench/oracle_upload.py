@@ -816,33 +816,6 @@ def audit_oracle_upload_log(
     lower_text = log_text.lower()
     answer_block = _extract_answer_block(log_text)
 
-    if (
-        "chrome disconnected before completion" in lower_text
-        or "assistant response timed out; keeping session running for reattach" in lower_text
-    ):
-        if reattach_command:
-            return OracleUploadAudit(
-                status="reattachable",
-                status_reason="Oracle reported a recoverable browser/session interruption.",
-                session_id=session_id,
-                reattach_command=reattach_command,
-            )
-        return OracleUploadAudit(
-            status="failed",
-            status_reason="Oracle reported a browser/session interruption without a reattach command.",
-        )
-
-    if reattach_command and (
-        "a session with the same prompt is already running" in lower_text
-        or "rerun with --force to start another run" in lower_text
-    ):
-        return OracleUploadAudit(
-            status="reattachable",
-            status_reason="Oracle found an already-running matching session; reattach instead of launching a duplicate.",
-            session_id=session_id,
-            reattach_command=reattach_command,
-        )
-
     if answer_block:
         expected_counts = _read_oracle_upload_bundle_topline(target)
         expected_root_aliases = _expected_root_aliases(target.source_root)
@@ -887,6 +860,33 @@ def audit_oracle_upload_log(
         return OracleUploadAudit(
             status="succeeded",
             status_reason="Answer block present and grounded in the local bundle.",
+            session_id=session_id,
+            reattach_command=reattach_command,
+        )
+
+    if (
+        "chrome disconnected before completion" in lower_text
+        or "assistant response timed out; keeping session running for reattach" in lower_text
+    ):
+        if reattach_command:
+            return OracleUploadAudit(
+                status="reattachable",
+                status_reason="Oracle reported a recoverable browser/session interruption.",
+                session_id=session_id,
+                reattach_command=reattach_command,
+            )
+        return OracleUploadAudit(
+            status="failed",
+            status_reason="Oracle reported a browser/session interruption without a reattach command.",
+        )
+
+    if reattach_command and (
+        "a session with the same prompt is already running" in lower_text
+        or "rerun with --force to start another run" in lower_text
+    ):
+        return OracleUploadAudit(
+            status="reattachable",
+            status_reason="Oracle found an already-running matching session; reattach instead of launching a duplicate.",
             session_id=session_id,
             reattach_command=reattach_command,
         )

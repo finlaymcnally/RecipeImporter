@@ -141,6 +141,7 @@ Output:
 
 Use this when you want to fill in one or more precise asks but do not want to hand-author the whole manifest schema.
 It now pre-seeds one line-role-oriented ask and, when the bundle exposes knowledge evidence, one knowledge-oriented ask.
+The default line-role ask prefers a negative-delta recipe regression when one exists, otherwise it falls back to an `outside_span_window_*` case, then to the strongest remaining recipe-signal case.
 
 ### `cf-debug select-cases`
 

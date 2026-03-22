@@ -84,6 +84,7 @@ Current layout exceptions and intentional split seams:
 - tests that assert exact line-role shard ids, proposal filenames, or worker assignments must opt out of the default `line_role_prompt_target_count=5`; `codex_batch_size=1` alone no longer means one line per shard
 - Small live Codex env/import helpers should keep one direct non-slow regression test even when broader slow integration coverage already exists.
 - CLI path-resolution tests should prefer synthesizing the minimal artifact contract they need under `tmp_path` instead of depending on repo-local sample benchmark roots.
+- When one test starts mixing giant fixture setup, one command/helper invocation, and several unrelated output families, split it into file-local builders plus narrower tests before adding more assertions. Prefer domain-local support modules and helper functions over a new repo-wide fixture framework.
 
 Support assets and test-runtime files:
 
@@ -163,6 +164,7 @@ Design intent:
 - 2026-03-15: benchmark-helper tests that only need local artifact wiring should stub the offline execute path directly, and mixed `RunSettings` payloads must be projected to live model fields before `RunSettings.from_dict(...)`.
 - 2026-03-16: direct helper seams on live Codex paths need their own fast regression anchors; relying only on slow benchmark coverage leaves routine `fast` runs blind to simple import/env crashes.
 - 2026-03-16: CLI tests like `tests/bench/test_benchmark_oracle_upload.py` should build a minimal `upload_bundle_v1` fixture under `tmp_path` rather than pinning to one checked-in benchmark directory.
+- 2026-03-22: the next maintainability wins came from splitting long mixed-concern tests into local builders plus narrower assertion families; keep those seams local unless several files truly share the same support contract.
 - LLM pack/schema tests now carry two important anti-drift contracts:
   - strict nested JSON-schema validity has to be checked recursively, not only at the top level
   - prompt-pack tests must assert per-pipeline transport reality (`inline` versus `path`) instead of freezing one legacy `{{INPUT_PATH}}` expectation across every pipeline

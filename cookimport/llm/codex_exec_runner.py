@@ -36,6 +36,9 @@ _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
 _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME = "assigned_tasks.json"
 _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
+_DIRECT_EXEC_CURRENT_BATCH_FILE_NAME = "current_batch.json"
+_DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
+_DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
 _DIRECT_EXEC_CURRENT_TASK_FILE_NAME = "current_task.json"
 _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
 _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
@@ -56,6 +59,9 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
@@ -85,6 +91,9 @@ _WORKSPACE_ALLOWED_TEMP_ROOTS = (
 )
 _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
@@ -555,6 +564,12 @@ class SubprocessCodexExecRunner:
             execution_working_dir=execution_working_dir,
             relative_paths=sync_output_paths,
         )
+        if workspace_mode == "workspace_worker":
+            _sync_direct_exec_workspace_paths(
+                source_working_dir=working_dir,
+                execution_working_dir=execution_working_dir,
+                relative_paths=_DIRECT_EXEC_RUNTIME_CONTROL_PATHS,
+            )
 
         events = tuple(completed.events)
         response_text = _extract_last_agent_message(events)
@@ -915,6 +930,9 @@ def build_direct_exec_workspace_manifest(
         "assigned_shards_path": None,
         "assigned_tasks_path": None,
         "worker_manifest_path": None,
+        "current_batch_path": None,
+        "current_batch_brief_path": None,
+        "current_batch_feedback_path": None,
         "current_task_path": None,
         "current_task_brief_path": None,
         "current_task_feedback_path": None,
@@ -950,6 +968,15 @@ def build_direct_exec_workspace_manifest(
     worker_manifest_path = execution_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME
     if worker_manifest_path.exists():
         payload["worker_manifest_path"] = str(worker_manifest_path)
+    current_batch_path = execution_root / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME
+    if current_batch_path.exists():
+        payload["current_batch_path"] = str(current_batch_path)
+    current_batch_brief_path = execution_root / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME
+    if current_batch_brief_path.exists():
+        payload["current_batch_brief_path"] = str(current_batch_brief_path)
+    current_batch_feedback_path = execution_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME
+    if current_batch_feedback_path.exists():
+        payload["current_batch_feedback_path"] = str(current_batch_feedback_path)
     current_task_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME
     if current_task_path.exists():
         payload["current_task_path"] = str(current_task_path)
@@ -1080,6 +1107,18 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     )
     _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
+    )
+    _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
+    )
+    _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
+    )
+    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     )
@@ -1199,6 +1238,7 @@ def _build_direct_exec_agents_text(
             "Start by reading `worker_manifest.json`, then open the prompt-named local files directly.\n"
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
+            "When the workspace includes `current_batch.json`, `CURRENT_BATCH.md`, or `CURRENT_BATCH_FEEDBACK.md`, treat that repo-written batch surface as authoritative and open it before the single-task surface or the broader queue.\n"
             "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`, treat that repo-written current-task surface as authoritative and open it before touching the broader queue.\n"
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
             "If `assigned_tasks.json` exists, use it as a lightweight ordered queue/progress reference after the current task surface unless the prompt says otherwise.\n"
@@ -1213,7 +1253,7 @@ def _build_direct_exec_agents_text(
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
             "When the prompt gives you a leased-packet loop, finish the current packet, then re-open the current-packet files instead of inventing your own batch scheduler.\n"
-            "When the workspace offers a repo-written `complete-current` or `check-current` helper, use that paved road instead of scripting your own queue processor.\n"
+            "When the workspace offers a repo-written `complete-batch`, `check-batch`, `install-batch`, `complete-current`, or `check-current` helper, use that paved road instead of scripting your own queue processor.\n"
         )
     return (
         "# RecipeImport Direct Codex Worker\n\n"
@@ -2060,6 +2100,10 @@ def _write_direct_exec_worker_manifest(
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
     has_packet_leasing = (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists()
+    has_current_batch = (
+        not has_packet_leasing
+        and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME).exists()
+    )
     has_current_task = (
         not has_packet_leasing
         and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME).exists()
@@ -2070,6 +2114,12 @@ def _write_direct_exec_worker_manifest(
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
     if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists():
         entry_files.append(_DIRECT_EXEC_SHARD_PACKET_FILE_NAME)
+    if has_current_batch:
+        entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_FILE_NAME)
+        if (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME).exists():
+            entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME)
+        if (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME).exists():
+            entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME)
     if has_current_task:
         entry_files.append(_DIRECT_EXEC_CURRENT_TASK_FILE_NAME)
         if (workspace_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME).exists():
@@ -2099,6 +2149,21 @@ def _write_direct_exec_worker_manifest(
         "entry_files": entry_files,
         "assigned_shards_file": _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
         "assigned_tasks_file": _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+        "current_batch_file": (
+            _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME if has_current_batch else None
+        ),
+        "current_batch_brief_file": (
+            _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME
+            if has_current_batch
+            and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME).exists()
+            else None
+        ),
+        "current_batch_feedback_file": (
+            _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME
+            if has_current_batch
+            and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME).exists()
+            else None
+        ),
         "current_task_file": (
             _DIRECT_EXEC_CURRENT_TASK_FILE_NAME if has_current_task else None
         ),
@@ -2152,17 +2217,23 @@ def _write_direct_exec_worker_manifest(
         "output_dir": _DIRECT_EXEC_OUTPUT_DIR_NAME,
         "scratch_dir": _DIRECT_EXEC_SCRATCH_DIR_NAME,
         "notes": [
-            "The current working directory is already the workspace root.",
-            "Open named task files directly; do not dump whole task inventories just to orient yourself.",
-            (
-                "Treat the repo-written current-packet files as authoritative and use "
-                "`assigned_tasks.json` only as background inventory."
-                if has_packet_leasing
-                else "Treat `SHARD_PACKET.md`, `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative recipe/task surface when present, and `assigned_tasks.json` as the ordered queue/progress reference."
-                if has_current_task
-                else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
-            ),
-            "Use `scratch/` or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
+            note
+            for note in [
+                "The current working directory is already the workspace root.",
+                "Open named task files directly; do not dump whole task inventories just to orient yourself.",
+                (
+                    "Treat the repo-written current-packet files as authoritative and use "
+                    "`assigned_tasks.json` only as background inventory."
+                    if has_packet_leasing
+                    else "Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative batch surface when present. Treat `CURRENT_TASK.md` / `current_task.json` only as fallback recovery for the first active task, and `assigned_tasks.json` as the ordered queue/progress reference."
+                    if has_current_batch
+                    else "Treat `SHARD_PACKET.md`, `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative recipe/task surface when present, and `assigned_tasks.json` as the ordered queue/progress reference."
+                    if has_current_task
+                    else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
+                ),
+                "Use `scratch/` or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
+            ]
+            if note is not None
         ],
         "workspace_shell_policy": (
             "Allow ordinary local shell use inside this workspace, including bounded "
@@ -2180,19 +2251,41 @@ def _write_direct_exec_worker_manifest(
             ]
             if has_packet_leasing
             else (
-                [
-                    "sed -n '1,120p' SHARD_PACKET.md",
-                    "sed -n '1,80p' hints/<task>.md",
-                    "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\"",
-                    "jq '.metadata' current_task.json",
-                ]
+                (
+                    [
+                        "sed -n '1,120p' CURRENT_BATCH.md",
+                        "jq '.tasks[].task_id' current_batch.json",
+                        "sed -n '1,80p' hints/<task>.md",
+                        "python3 tools/knowledge_worker.py overview",
+                        "python3 tools/knowledge_worker.py complete-batch",
+                        "python3 tools/knowledge_worker.py check-batch",
+                        "python3 tools/knowledge_worker.py install-batch",
+                        "python3 tools/knowledge_worker.py complete-current",
+                    ]
+                    if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
+                    else []
+                )
                 + (
                     [
-                        "python3 tools/knowledge_worker.py overview",
-                        "python3 tools/knowledge_worker.py scaffold <task_id> --dest scratch/<task_id>.json",
-                        "python3 tools/knowledge_worker.py install scratch/<task_id>.json",
+                        "sed -n '1,120p' SHARD_PACKET.md",
                     ]
-                    if "knowledge_worker.py" in mirrored_tool_files
+                    if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists()
+                    else []
+                )
+                + (
+                    [
+                        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\"",
+                        "jq '.metadata' current_task.json",
+                    ]
+                    if has_current_task
+                    else []
+                )
+                + [
+                    "sed -n '1,80p' hints/<task>.md",
+                ]
+                + (
+                    []
+                    if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
                     else [
                         "python3 tools/recipe_worker.py current",
                         "python3 tools/recipe_worker.py check-current",

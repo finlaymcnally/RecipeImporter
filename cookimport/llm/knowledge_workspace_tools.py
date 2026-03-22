@@ -16,18 +16,48 @@ from .phase_worker_runtime import ShardManifestEntryV1
 
 _WORKER_SCRIPT_NAME = "knowledge_worker.py"
 _DEFAULT_SCAFFOLD_REASON_CODE = "review_not_completed"
+_CURRENT_BATCH_FILE_NAME = "current_batch.json"
+_CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
+_CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
 _CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
 _CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
+_KNOWLEDGE_MICRO_BATCH_MAX_TASKS = 4
+_KNOWLEDGE_MICRO_BATCH_MAX_INPUT_BYTES = 24_000
+_NO_CURRENT_BATCH_ACTIVE_TEXT = "No current batch is active. The queue is complete."
 _NO_CURRENT_TASK_ACTIVE_TEXT = "No current task is active. The queue is complete."
+_ACTIVE_BATCH_ASSIGNMENT_TEXT = (
+    "This worker assignment is still active until the repo removes `current_batch.json` "
+    "and says the queue is complete."
+)
 _ACTIVE_ASSIGNMENT_TEXT = (
     "This worker assignment is still active until the repo removes `current_task.json` "
     "and says the queue is complete."
 )
+_CHECK_BATCH_AFTER_EDIT_TEXT = (
+    "Run `python3 tools/knowledge_worker.py check-batch` after editing the current batch drafts."
+)
 _NO_REPO_WRITTEN_FEEDBACK_TEXT = "No repo-written validation feedback exists yet for this task."
+_NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT = (
+    "No repo-written validation feedback exists yet for this batch."
+)
 _CHECK_CURRENT_AFTER_EDIT_TEXT = (
     "Run `python3 tools/knowledge_worker.py check-current` after editing the current draft."
 )
+_BATCH_VALIDATION_STATUS_OK_TEXT = "Batch validation status: OK."
 _VALIDATION_STATUS_OK_TEXT = "Validation status: OK."
+_BATCH_VALIDATOR_ACCEPTED_TEXT = "The validator accepted every task packet in this batch."
+_INSTALL_BATCH_READY_TEXT = (
+    "You may run `python3 tools/knowledge_worker.py install-batch` to install the longest "
+    "valid prefix of this batch."
+)
+_REOPEN_BATCH_AFTER_INSTALL_TEXT = (
+    "After `install-batch`, re-open `CURRENT_BATCH.md`, `current_batch.json`, and "
+    "`CURRENT_BATCH_FEEDBACK.md`."
+)
+_CONTINUE_BATCH_IMMEDIATELY_TEXT = (
+    "If another batch becomes active, continue with it immediately. Do not ask for "
+    "permission to continue or stop at this checkpoint while later tasks remain."
+)
 _VALIDATOR_ACCEPTED_TEXT = "The validator accepted this task packet."
 _INSTALL_CURRENT_READY_TEXT = (
     "You may run `python3 tools/knowledge_worker.py install-current` to write the final result path."
@@ -41,6 +71,11 @@ _CONTINUE_IMMEDIATELY_TEXT = (
     "permission to continue or stop at this checkpoint while later tasks remain."
 )
 _QUEUE_COMPLETE_TEXT = "If not, the queue is complete."
+_INSTALL_BATCH_SUCCESS_NOTICE = (
+    "re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`; "
+    "if another batch becomes active, continue with it immediately. Do not ask for "
+    "permission to continue while later tasks remain."
+)
 _INSTALL_CURRENT_SUCCESS_NOTICE = (
     "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`; if "
     "another task becomes active, continue with that task immediately. Do not ask for "
@@ -59,6 +94,29 @@ class KnowledgeWorkspaceCheckResult:
     valid: bool
     errors: tuple[str, ...]
     metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class KnowledgeWorkspaceBatchCheckResult:
+    batch_payload: dict[str, Any]
+    task_results: tuple[KnowledgeWorkspaceCheckResult, ...]
+    missing_task_ids: tuple[str, ...]
+    valid: bool
+
+    @property
+    def task_ids(self) -> tuple[str, ...]:
+        return tuple(
+            str(task.get("task_id") or "").strip()
+            for task in (self.batch_payload.get("tasks") or [])
+            if isinstance(task, Mapping) and str(task.get("task_id") or "").strip()
+        )
+
+    @property
+    def first_invalid_result(self) -> KnowledgeWorkspaceCheckResult | None:
+        for task_result in self.task_results:
+            if not task_result.valid:
+                return task_result
+        return None
 
 
 def build_workspace_inventory_task_row(
@@ -106,6 +164,142 @@ def load_current_task_row(*, workspace_root: Path) -> dict[str, Any] | None:
         return None
     payload = _load_json(current_task_path)
     return dict(payload) if isinstance(payload, Mapping) else None
+
+
+def load_current_batch_payload(*, workspace_root: Path) -> dict[str, Any] | None:
+    current_batch_path = Path(workspace_root) / _CURRENT_BATCH_FILE_NAME
+    if not current_batch_path.exists():
+        return None
+    payload = _load_json(current_batch_path)
+    return dict(payload) if isinstance(payload, Mapping) else None
+
+
+def current_batch_draft_dir(*, workspace_root: Path) -> Path:
+    return Path(workspace_root) / "scratch" / "current_batch"
+
+
+def current_batch_task_draft_path(*, workspace_root: Path, task_id: str) -> Path:
+    cleaned_task_id = str(task_id or "").strip()
+    if not cleaned_task_id:
+        raise ValueError("task_id is required for a batch draft path")
+    return current_batch_draft_dir(workspace_root=workspace_root) / f"{cleaned_task_id}.json"
+
+
+def _task_block_spans(*, input_payload: Mapping[str, Any]) -> list[str]:
+    block_spans: list[str] = []
+    for chunk in _chunk_rows(input_payload):
+        chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
+        block_indices = [
+            int(block.get("i"))
+            for block in chunk.get("b") or []
+            if isinstance(block, Mapping) and block.get("i") is not None
+        ]
+        if not block_indices:
+            block_spans.append(f"{chunk_id}:[no blocks]")
+            continue
+        block_spans.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
+    return block_spans
+
+
+def _task_input_bytes(*, workspace_root: Path, task_row: Mapping[str, Any]) -> int:
+    metadata = _coerce_dict(task_row.get("metadata"))
+    input_path = str(metadata.get("input_path") or "").strip()
+    if not input_path:
+        return 0
+    resolved_path = Path(workspace_root) / input_path
+    if resolved_path.exists():
+        return resolved_path.stat().st_size
+    try:
+        payload = load_task_input_payload(workspace_root=workspace_root, task_row=task_row)
+    except Exception:  # noqa: BLE001
+        return 0
+    return len(json.dumps(payload, sort_keys=True))
+
+
+def build_current_batch_payload(
+    *,
+    workspace_root: Path,
+    task_rows: Sequence[Mapping[str, Any]],
+    current_index: int = 0,
+) -> dict[str, Any] | None:
+    rows = [dict(row) for row in task_rows if isinstance(row, Mapping)]
+    if current_index < 0 or current_index >= len(rows):
+        return None
+    batch_rows: list[dict[str, Any]] = []
+    total_input_bytes = 0
+    for row in rows[current_index:]:
+        row_input_bytes = _task_input_bytes(workspace_root=workspace_root, task_row=row)
+        would_exceed_count = len(batch_rows) >= _KNOWLEDGE_MICRO_BATCH_MAX_TASKS
+        would_exceed_bytes = (
+            batch_rows
+            and total_input_bytes + row_input_bytes > _KNOWLEDGE_MICRO_BATCH_MAX_INPUT_BYTES
+        )
+        if would_exceed_count or would_exceed_bytes:
+            break
+        batch_rows.append(row)
+        total_input_bytes += row_input_bytes
+    if not batch_rows:
+        batch_rows.append(rows[current_index])
+        total_input_bytes = _task_input_bytes(
+            workspace_root=workspace_root,
+            task_row=batch_rows[0],
+        )
+    total_task_count = len(rows)
+    batch_tasks: list[dict[str, Any]] = []
+    for offset, row in enumerate(batch_rows, start=1):
+        metadata = _coerce_dict(row.get("metadata"))
+        task_id = str(row.get("task_id") or "").strip() or "[unknown task]"
+        input_payload = load_task_input_payload(workspace_root=workspace_root, task_row=row)
+        batch_tasks.append(
+            {
+                "task_id": task_id,
+                "parent_shard_id": str(row.get("parent_shard_id") or task_id).strip() or task_id,
+                "queue_position": int(metadata.get("task_sequence") or current_index + offset),
+                "task_total": int(metadata.get("task_total") or total_task_count),
+                "remaining_after_task": (
+                    max(int(metadata.get("task_total") or total_task_count) - int(metadata.get("task_sequence") or current_index + offset), 0)
+                ),
+                "input_path": str(metadata.get("input_path") or "").strip() or None,
+                "hint_path": str(metadata.get("hint_path") or "").strip() or None,
+                "result_path": str(metadata.get("result_path") or "").strip() or None,
+                "draft_path": str(
+                    _workspace_display_path(
+                        workspace_root=workspace_root,
+                        path=current_batch_task_draft_path(
+                            workspace_root=workspace_root,
+                            task_id=task_id,
+                        ),
+                    )
+                ),
+                "owned_chunk_ids": [
+                    str(value).strip()
+                    for value in (row.get("owned_ids") or [])
+                    if str(value).strip()
+                ],
+                "owned_block_spans": _task_block_spans(input_payload=input_payload),
+                "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
+                "input_bytes": _task_input_bytes(workspace_root=workspace_root, task_row=row),
+            }
+        )
+    batch_start_position = int(_coerce_dict(batch_rows[0].get("metadata")).get("task_sequence") or current_index + 1)
+    batch_end_position = int(_coerce_dict(batch_rows[-1].get("metadata")).get("task_sequence") or current_index + len(batch_rows))
+    return {
+        "version": 1,
+        "batch_contract": "knowledge_micro_batch_v1",
+        "batch_task_count": len(batch_tasks),
+        "batch_start_position": batch_start_position,
+        "batch_end_position": batch_end_position,
+        "task_total": total_task_count,
+        "batch_remaining_after_batch": max(total_task_count - batch_end_position, 0),
+        "input_bytes_total": total_input_bytes,
+        "draft_dir": str(
+            _workspace_display_path(
+                workspace_root=workspace_root,
+                path=current_batch_draft_dir(workspace_root=workspace_root),
+            )
+        ),
+        "tasks": batch_tasks,
+    }
 
 
 def render_current_task_brief_text(
@@ -177,6 +371,7 @@ def render_current_task_brief_text(
         "",
         "This assignment stays active until the repo removes `current_task.json` and rewrites the current-task sidecars to say the queue is complete.",
         "A successful `install-current` is only a handoff to the next repo-owned current task, not a stopping point.",
+        "When `CURRENT_BATCH.md` / `current_batch.json` are present, treat the batch files as the normal path and use this single-task surface only for narrow recovery/debugging.",
         "",
         "Recommended loop:",
         "1. Read the hint and input files named above.",
@@ -188,6 +383,76 @@ def render_current_task_brief_text(
         "",
         "Do not process later tasks before this task passes the repo-owned checker.",
     ]
+    return "\n".join(lines) + "\n"
+
+
+def render_current_batch_brief_text(
+    *,
+    batch_payload: Mapping[str, Any] | None,
+) -> str:
+    if batch_payload is None:
+        return (
+            "# Current Knowledge Batch\n\n"
+            "No current batch is active in this workspace.\n"
+            "Every assigned task packet that the repo accepted has already been validated.\n"
+        )
+    batch_tasks = [
+        dict(task)
+        for task in (batch_payload.get("tasks") or [])
+        if isinstance(task, Mapping)
+    ]
+    batch_ids = [
+        str(task.get("task_id") or "").strip()
+        for task in batch_tasks
+        if str(task.get("task_id") or "").strip()
+    ]
+    lines = [
+        "# Current Knowledge Batch",
+        "",
+        (
+            f"Batch queue span: `{batch_payload.get('batch_start_position')}` to "
+            f"`{batch_payload.get('batch_end_position')}` of `{batch_payload.get('task_total')}`"
+        ),
+        f"Batch task ids: `{', '.join(batch_ids) or '[none]'}`",
+        f"Batch task count: `{batch_payload.get('batch_task_count') or 0}`",
+        f"Batch draft dir: `{batch_payload.get('draft_dir') or 'scratch/current_batch'}`",
+        f"Batch input bytes: `{batch_payload.get('input_bytes_total') or 0}`",
+        f"Remaining tasks after this batch: `{batch_payload.get('batch_remaining_after_batch') or 0}`",
+        "",
+        "This assignment stays active until the repo removes `current_batch.json` and rewrites the batch sidecars to say the queue is complete.",
+        "A successful `install-batch` is only a handoff to the next repo-owned current batch, not a stopping point.",
+        "",
+        "Recommended loop:",
+        "1. Read `current_batch.json` and `CURRENT_BATCH_FEEDBACK.md` first; open the named hint and input files only when the batch packet is insufficient.",
+        "2. Run `python3 tools/knowledge_worker.py complete-batch` to prewrite the default drafts under `scratch/current_batch/`.",
+        "3. Edit the batch drafts until the snippet bodies are short grounded claims, not copied evidence surfaces.",
+        "4. Run `python3 tools/knowledge_worker.py check-batch`.",
+        "5. Run `python3 tools/knowledge_worker.py install-batch` after the batch checker says OK, or to install the longest valid prefix if an already-edited later draft still needs repair.",
+        "6. After `install-batch`, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`. If another batch becomes active, continue with it immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
+        "",
+        "Single-task `CURRENT_TASK*` files and `complete-current` helpers remain available only for narrow recovery/debugging on the first task in this batch.",
+        "",
+        "Current batch task details:",
+    ]
+    for task in batch_tasks:
+        lines.extend(
+            [
+                f"- `{task.get('task_id')}`",
+                (
+                    f"  Queue position `{task.get('queue_position')}` of `{task.get('task_total')}`; "
+                    f"draft `{task.get('draft_path') or '?'}`; result `{task.get('result_path') or '?'}`."
+                ),
+                (
+                    f"  Owned chunks `{', '.join(task.get('owned_chunk_ids') or []) or '[none]'}`; "
+                    f"block spans `{', '.join(task.get('owned_block_spans') or []) or '[none]'}`."
+                ),
+                (
+                    "  Strong cue: yes."
+                    if bool(task.get("strong_knowledge_cue"))
+                    else "  Strong cue: no."
+                ),
+            ]
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -317,6 +582,128 @@ def render_current_task_feedback_text(
     return "\n".join(lines) + "\n"
 
 
+def render_current_batch_feedback_text(
+    *,
+    batch_payload: Mapping[str, Any] | None,
+    batch_check_result: KnowledgeWorkspaceBatchCheckResult | None = None,
+) -> str:
+    if batch_payload is None:
+        return "# Current Batch Feedback\n\n" + _NO_CURRENT_BATCH_ACTIVE_TEXT + "\n"
+    batch_tasks = [
+        dict(task)
+        for task in (batch_payload.get("tasks") or [])
+        if isinstance(task, Mapping)
+    ]
+    batch_task_ids = [
+        str(task.get("task_id") or "").strip()
+        for task in batch_tasks
+        if str(task.get("task_id") or "").strip()
+    ]
+    if batch_check_result is None:
+        validated_before_batch = max(
+            int(batch_payload.get("batch_start_position") or 1) - 1,
+            0,
+        )
+        task_total = int(batch_payload.get("task_total") or len(batch_tasks))
+        lines = [
+            "# Current Batch Feedback",
+            "",
+            f"Batch task ids: `{', '.join(batch_task_ids) or '[none]'}`",
+            _NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT,
+            (
+                "Assignment progress: "
+                f"`{validated_before_batch}` of `{task_total}` validated; "
+                f"`{max(task_total - validated_before_batch, 0)}` remain."
+            ),
+            _ACTIVE_BATCH_ASSIGNMENT_TEXT,
+            "Expected batch draft files:",
+        ]
+        lines.extend(
+            f"- `{task_id}` -> `{task.get('draft_path') or '?'}`"
+            for task_id, task in zip(batch_task_ids, batch_tasks, strict=False)
+        )
+        lines.append(_CHECK_BATCH_AFTER_EDIT_TEXT)
+        return "\n".join(lines) + "\n"
+    if batch_check_result.valid:
+        lines = [
+            "# Current Batch Feedback",
+            "",
+            f"Batch task ids: `{', '.join(batch_task_ids) or '[none]'}`",
+            _BATCH_VALIDATION_STATUS_OK_TEXT,
+            _BATCH_VALIDATOR_ACCEPTED_TEXT,
+            _INSTALL_BATCH_READY_TEXT,
+            _REOPEN_BATCH_AFTER_INSTALL_TEXT,
+            _CONTINUE_BATCH_IMMEDIATELY_TEXT,
+            _QUEUE_COMPLETE_TEXT,
+            "",
+            "Validated draft files:",
+        ]
+        lines.extend(
+            f"- `{task_result.task_id}` -> `{task_result.draft_path}`"
+            for task_result in batch_check_result.task_results
+        )
+        return "\n".join(lines) + "\n"
+    first_invalid_result = batch_check_result.first_invalid_result
+    lines = [
+        "# Current Batch Feedback",
+        "",
+        f"Batch task ids: `{', '.join(batch_task_ids) or '[none]'}`",
+        "Batch validation status: FAILED.",
+    ]
+    if batch_check_result.missing_task_ids:
+        lines.extend(
+            [
+                "",
+                "Missing batch drafts:",
+                *[f"- `{task_id}`" for task_id in batch_check_result.missing_task_ids],
+            ]
+        )
+    if first_invalid_result is not None:
+        task_row = next(
+            (
+                task
+                for task in batch_tasks
+                if str(task.get("task_id") or "").strip() == first_invalid_result.task_id
+            ),
+            {"task_id": first_invalid_result.task_id},
+        )
+        lines.extend(
+            [
+                "",
+                f"First failing task: `{first_invalid_result.task_id}`",
+                "Validator errors:",
+                *[f"- `{error}`" for error in first_invalid_result.errors],
+                "",
+                "How to fix it:",
+                *[
+                    f"- {line}"
+                    for line in _render_validation_error_help(
+                        validation_errors=first_invalid_result.errors,
+                        validation_metadata=first_invalid_result.metadata,
+                        input_payload=first_invalid_result.input_payload,
+                        payload=first_invalid_result.payload,
+                    )
+                ],
+                "",
+                f"Current failing draft: `{task_row.get('draft_path') or '?'}`",
+            ]
+        )
+    validated_task_ids = {
+        task_result.task_id
+        for task_result in batch_check_result.task_results
+        if task_result.valid
+    }
+    if validated_task_ids:
+        lines.extend(
+            [
+                "",
+                "Already-valid drafts in this batch:",
+                *[f"- `{task_id}`" for task_id in sorted(validated_task_ids)],
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
 def write_current_task_sidecars(
     *,
     workspace_root: Path,
@@ -351,6 +738,79 @@ def write_current_task_sidecars(
         ),
         encoding="utf-8",
     )
+
+
+def write_current_batch_sidecars(
+    *,
+    workspace_root: Path,
+    batch_payload: Mapping[str, Any] | None,
+    batch_check_result: KnowledgeWorkspaceBatchCheckResult | None = None,
+) -> None:
+    workspace_root = Path(workspace_root)
+    current_batch_path = workspace_root / _CURRENT_BATCH_FILE_NAME
+    brief_path = workspace_root / _CURRENT_BATCH_BRIEF_FILE_NAME
+    feedback_path = workspace_root / _CURRENT_BATCH_FEEDBACK_FILE_NAME
+    if batch_payload is None:
+        if current_batch_path.exists():
+            current_batch_path.unlink()
+        brief_path.write_text(
+            render_current_batch_brief_text(batch_payload=None),
+            encoding="utf-8",
+        )
+        feedback_path.write_text(
+            render_current_batch_feedback_text(batch_payload=None),
+            encoding="utf-8",
+        )
+        return
+    current_batch_path.write_text(
+        json.dumps(dict(batch_payload), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    brief_path.write_text(
+        render_current_batch_brief_text(batch_payload=batch_payload),
+        encoding="utf-8",
+    )
+    feedback_path.write_text(
+        render_current_batch_feedback_text(
+            batch_payload=batch_payload,
+            batch_check_result=batch_check_result,
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_current_batch_and_task_sidecars(
+    *,
+    workspace_root: Path,
+    task_rows: Sequence[Mapping[str, Any]],
+    current_index: int,
+    batch_check_result: KnowledgeWorkspaceBatchCheckResult | None = None,
+    current_check_result: KnowledgeWorkspaceCheckResult | None = None,
+    current_draft_path: Path | None = None,
+) -> dict[str, Any] | None:
+    workspace_root = Path(workspace_root)
+    batch_payload = build_current_batch_payload(
+        workspace_root=workspace_root,
+        task_rows=task_rows,
+        current_index=current_index,
+    )
+    write_current_batch_sidecars(
+        workspace_root=workspace_root,
+        batch_payload=batch_payload,
+        batch_check_result=batch_check_result,
+    )
+    current_task_row = (
+        dict(task_rows[current_index])
+        if 0 <= current_index < len(task_rows)
+        else None
+    )
+    write_current_task_sidecars(
+        workspace_root=workspace_root,
+        task_row=current_task_row,
+        check_result=current_check_result,
+        current_draft_path=current_draft_path,
+    )
+    return batch_payload
     feedback_path.write_text(
         render_current_task_feedback_text(
             task_row=task_row,
@@ -410,6 +870,122 @@ def write_current_task_scaffold(*, workspace_root: Path, dest_path: Path | None 
         ),
     )
     return resolved_dest
+
+
+def write_current_batch_scaffolds(*, workspace_root: Path) -> list[Path]:
+    workspace_root = Path(workspace_root)
+    batch_payload = load_current_batch_payload(workspace_root=workspace_root)
+    if batch_payload is None:
+        raise ValueError("no current batch is active in this workspace")
+    task_rows_by_id = {
+        str(row.get("task_id") or "").strip(): dict(row)
+        for row in load_workspace_task_rows(workspace_root=workspace_root)
+        if str(row.get("task_id") or "").strip()
+    }
+    written_paths: list[Path] = []
+    for task in batch_payload.get("tasks") or []:
+        if not isinstance(task, Mapping):
+            continue
+        task_id = str(task.get("task_id") or "").strip()
+        if not task_id:
+            continue
+        task_row = task_rows_by_id.get(task_id)
+        if task_row is None:
+            raise ValueError(f"unknown batch task {task_id!r}")
+        draft_path = current_batch_task_draft_path(
+            workspace_root=workspace_root,
+            task_id=task_id,
+        )
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = scaffold_task_payload(
+            task_row=task_row,
+            input_payload=load_task_input_payload(
+                workspace_root=workspace_root,
+                task_row=task_row,
+            ),
+        )
+        draft_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        written_paths.append(draft_path)
+    write_current_batch_sidecars(
+        workspace_root=workspace_root,
+        batch_payload=batch_payload,
+    )
+    return written_paths
+
+
+def check_current_batch_drafts(
+    *,
+    workspace_root: Path,
+) -> KnowledgeWorkspaceBatchCheckResult:
+    workspace_root = Path(workspace_root)
+    batch_payload = load_current_batch_payload(workspace_root=workspace_root)
+    if batch_payload is None:
+        raise ValueError("no current batch is active in this workspace")
+    task_rows_by_id = {
+        str(row.get("task_id") or "").strip(): dict(row)
+        for row in load_workspace_task_rows(workspace_root=workspace_root)
+        if str(row.get("task_id") or "").strip()
+    }
+    task_results: list[KnowledgeWorkspaceCheckResult] = []
+    missing_task_ids: list[str] = []
+    for task in batch_payload.get("tasks") or []:
+        if not isinstance(task, Mapping):
+            continue
+        task_id = str(task.get("task_id") or "").strip()
+        if not task_id:
+            continue
+        task_row = task_rows_by_id.get(task_id)
+        if task_row is None:
+            missing_task_ids.append(task_id)
+            continue
+        draft_path = current_batch_task_draft_path(
+            workspace_root=workspace_root,
+            task_id=task_id,
+        )
+        if not draft_path.exists():
+            missing_task_ids.append(task_id)
+            continue
+        task_results.append(
+            check_workspace_draft(
+                workspace_root=workspace_root,
+                draft_path=draft_path,
+            )
+        )
+    batch_check_result = KnowledgeWorkspaceBatchCheckResult(
+        batch_payload=dict(batch_payload),
+        task_results=tuple(task_results),
+        missing_task_ids=tuple(missing_task_ids),
+        valid=(not missing_task_ids and all(task_result.valid for task_result in task_results)),
+    )
+    write_current_batch_sidecars(
+        workspace_root=workspace_root,
+        batch_payload=batch_payload,
+        batch_check_result=batch_check_result,
+    )
+    return batch_check_result
+
+
+def install_current_batch_drafts(
+    *,
+    workspace_root: Path,
+) -> tuple[KnowledgeWorkspaceBatchCheckResult, tuple[str, ...]]:
+    workspace_root = Path(workspace_root)
+    batch_check_result = check_current_batch_drafts(workspace_root=workspace_root)
+    installed_task_ids: list[str] = []
+    for task_result in batch_check_result.task_results:
+        if not task_result.valid:
+            break
+        task_result.result_path.parent.mkdir(parents=True, exist_ok=True)
+        task_result.result_path.write_text(
+            json.dumps(task_result.payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        installed_task_ids.append(task_result.task_id)
+    advance_workspace_sidecars_from_outputs(workspace_root=workspace_root)
+    return batch_check_result, tuple(installed_task_ids)
 
 
 def render_overview_text(*, workspace_root: Path) -> str:
@@ -656,11 +1232,11 @@ def build_knowledge_workspace_contract_markdown(
             "- Bad snippet: a whole-block dump, a full-chunk echo, or a long stitched quote list copied from the evidence surface.",
             "",
             "Workflow:",
-            "- Start from `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`.",
-            "- Use `python3 tools/knowledge_worker.py scaffold <task_id> --dest scratch/<task_id>.json` if you want a prefilled envelope.",
-            "- Run `python3 tools/knowledge_worker.py check <json_path>` before every final install step; copied evidence text in `snippets[].body` is invalid.",
-            "- A task is not finished until `check` passes. Direct writes to `out/<task_id>.json` without a passing `check` are incomplete work.",
-            "- Run `python3 tools/knowledge_worker.py install <json_path>` only after `check` says OK.",
+            "- Start from `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`.",
+            "- Use `python3 tools/knowledge_worker.py complete-batch` to prewrite the current batch drafts under `scratch/current_batch/`.",
+            "- Run `python3 tools/knowledge_worker.py check-batch` before every final batch install step; copied evidence text in `snippets[].body` is invalid.",
+            "- The normal path is `install-batch`, which writes the longest valid prefix of the current batch to the declared `out/<task_id>.json` files.",
+            "- The single-task `CURRENT_TASK*` files plus `complete-current|check-current|install-current` remain available only for targeted recovery/debugging on the first active task.",
             "- The lower-level `scaffold`, `check`, and `install` verbs remain available for targeted debugging.",
             "",
             "Valid example:",
@@ -838,7 +1414,44 @@ def install_current_task_draft(
             path=resolved_draft_path,
         ),
     )
+    advance_workspace_sidecars_from_outputs(workspace_root=workspace_root)
     return check_result
+
+
+def advance_workspace_sidecars_from_outputs(*, workspace_root: Path) -> int:
+    workspace_root = Path(workspace_root)
+    task_rows = load_workspace_task_rows(workspace_root=workspace_root)
+    current_index = 0
+    current_check_result: KnowledgeWorkspaceCheckResult | None = None
+    while current_index < len(task_rows):
+        task_row = dict(task_rows[current_index])
+        metadata = _coerce_dict(task_row.get("metadata"))
+        result_path = str(metadata.get("result_path") or "").strip()
+        if not result_path:
+            break
+        resolved_result_path = workspace_root / result_path
+        if not resolved_result_path.exists():
+            break
+        try:
+            check_result = check_workspace_draft(
+                workspace_root=workspace_root,
+                draft_path=resolved_result_path,
+            )
+        except Exception:  # noqa: BLE001
+            break
+        if not check_result.valid:
+            current_check_result = check_result
+            break
+        current_index += 1
+        current_check_result = None
+    write_current_batch_and_task_sidecars(
+        workspace_root=workspace_root,
+        task_rows=task_rows,
+        current_index=current_index,
+        current_check_result=current_check_result,
+        current_draft_path=current_task_draft_path(workspace_root=workspace_root),
+    )
+    return current_index
 
 
 def _format_workspace_validation_failure(
@@ -1110,6 +1723,16 @@ def build_workspace_task_shard(
 
 
 def render_knowledge_worker_script() -> str:
+    no_current_batch_active_text = json.dumps(_NO_CURRENT_BATCH_ACTIVE_TEXT)
+    active_batch_assignment_text = json.dumps(_ACTIVE_BATCH_ASSIGNMENT_TEXT)
+    no_repo_written_batch_feedback_text = json.dumps(_NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT)
+    check_batch_after_edit_text = json.dumps(_CHECK_BATCH_AFTER_EDIT_TEXT)
+    batch_validation_status_ok_text = json.dumps(_BATCH_VALIDATION_STATUS_OK_TEXT)
+    batch_validator_accepted_text = json.dumps(_BATCH_VALIDATOR_ACCEPTED_TEXT)
+    install_batch_ready_text = json.dumps(_INSTALL_BATCH_READY_TEXT)
+    reopen_batch_after_install_text = json.dumps(_REOPEN_BATCH_AFTER_INSTALL_TEXT)
+    continue_batch_immediately_text = json.dumps(_CONTINUE_BATCH_IMMEDIATELY_TEXT)
+    install_batch_success_notice = json.dumps(_INSTALL_BATCH_SUCCESS_NOTICE)
     no_current_task_active_text = json.dumps(_NO_CURRENT_TASK_ACTIVE_TEXT)
     active_assignment_text = json.dumps(_ACTIVE_ASSIGNMENT_TEXT)
     no_repo_written_feedback_text = json.dumps(_NO_REPO_WRITTEN_FEEDBACK_TEXT)
@@ -1151,8 +1774,23 @@ def render_knowledge_worker_script() -> str:
             "heading": ("other", "decorative_heading"),
         }
         DEFAULT_SCAFFOLD_REASON_CODE = "review_not_completed"
+        CURRENT_BATCH_FILE_NAME = "current_batch.json"
+        CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
+        CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
         CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
         CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
+        KNOWLEDGE_MICRO_BATCH_MAX_TASKS = 4
+        KNOWLEDGE_MICRO_BATCH_MAX_INPUT_BYTES = 24000
+        NO_CURRENT_BATCH_ACTIVE_TEXT = {no_current_batch_active_text}
+        ACTIVE_BATCH_ASSIGNMENT_TEXT = {active_batch_assignment_text}
+        NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT = {no_repo_written_batch_feedback_text}
+        CHECK_BATCH_AFTER_EDIT_TEXT = {check_batch_after_edit_text}
+        BATCH_VALIDATION_STATUS_OK_TEXT = {batch_validation_status_ok_text}
+        BATCH_VALIDATOR_ACCEPTED_TEXT = {batch_validator_accepted_text}
+        INSTALL_BATCH_READY_TEXT = {install_batch_ready_text}
+        REOPEN_BATCH_AFTER_INSTALL_TEXT = {reopen_batch_after_install_text}
+        CONTINUE_BATCH_IMMEDIATELY_TEXT = {continue_batch_immediately_text}
+        INSTALL_BATCH_SUCCESS_NOTICE = {install_batch_success_notice}
         NO_CURRENT_TASK_ACTIVE_TEXT = {no_current_task_active_text}
         ACTIVE_ASSIGNMENT_TEXT = {active_assignment_text}
         NO_REPO_WRITTEN_FEEDBACK_TEXT = {no_repo_written_feedback_text}
@@ -1190,14 +1828,42 @@ def render_knowledge_worker_script() -> str:
             payload = _load_json(path)
             return dict(payload) if isinstance(payload, dict) else None
 
+        def _current_batch():
+            path = _workspace_root() / CURRENT_BATCH_FILE_NAME
+            if not path.exists():
+                return None
+            payload = _load_json(path)
+            return dict(payload) if isinstance(payload, dict) else None
+
+        def _current_batch_required():
+            payload = _current_batch()
+            if payload is None:
+                raise ValueError("no current batch is active in this workspace")
+            return payload
+
         def _current_task_required():
             payload = _current_task()
             if payload is None:
                 raise ValueError("no current task is active in this workspace")
             return payload
 
+        def _current_batch_draft_dir():
+            return _workspace_root() / "scratch" / "current_batch"
+
+        def _current_batch_task_draft_path(task_id: str):
+            cleaned_task_id = str(task_id or "").strip()
+            if not cleaned_task_id:
+                raise ValueError("task_id is required for a batch draft path")
+            return _current_batch_draft_dir() / f"{cleaned_task_id}.json"
+
         def _current_task_draft_path():
             return _workspace_root() / "scratch" / "current_task.json"
+
+        def _current_batch_brief_path():
+            return _workspace_root() / CURRENT_BATCH_BRIEF_FILE_NAME
+
+        def _current_batch_feedback_path():
+            return _workspace_root() / CURRENT_BATCH_FEEDBACK_FILE_NAME
 
         def _current_brief_path():
             return _workspace_root() / CURRENT_TASK_BRIEF_FILE_NAME
@@ -1240,6 +1906,168 @@ def render_knowledge_worker_script() -> str:
             if not result_path:
                 raise ValueError(f"task {task_row.get('task_id')!r} is missing metadata.result_path")
             return _workspace_root() / result_path
+
+        def _workspace_display_path(path: Path | None):
+            if path is None:
+                return None
+            try:
+                return path.relative_to(_workspace_root())
+            except ValueError:
+                return path
+
+        def _task_input_bytes(task_row):
+            metadata = _coerce_dict(task_row.get("metadata"))
+            input_path = str(metadata.get("input_path") or "").strip()
+            if not input_path:
+                return 0
+            resolved_path = _workspace_root() / input_path
+            if resolved_path.exists():
+                return resolved_path.stat().st_size
+            try:
+                return len(json.dumps(_task_input_payload(task_row), sort_keys=True))
+            except Exception:
+                return 0
+
+        def _task_block_spans(input_payload):
+            block_spans = []
+            for chunk in _chunk_rows(input_payload):
+                chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
+                block_indices = [
+                    int(block.get("i"))
+                    for block in chunk.get("b") or []
+                    if isinstance(block, dict) and block.get("i") is not None
+                ]
+                if not block_indices:
+                    block_spans.append(f"{chunk_id}:[no blocks]")
+                    continue
+                block_spans.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
+            return block_spans
+
+        def _build_current_batch_payload(start_index=0):
+            rows = _task_rows()
+            if start_index < 0 or start_index >= len(rows):
+                return None
+            batch_rows = []
+            total_input_bytes = 0
+            for row in rows[start_index:]:
+                row_input_bytes = _task_input_bytes(row)
+                would_exceed_count = len(batch_rows) >= KNOWLEDGE_MICRO_BATCH_MAX_TASKS
+                would_exceed_bytes = (
+                    batch_rows
+                    and total_input_bytes + row_input_bytes > KNOWLEDGE_MICRO_BATCH_MAX_INPUT_BYTES
+                )
+                if would_exceed_count or would_exceed_bytes:
+                    break
+                batch_rows.append(row)
+                total_input_bytes += row_input_bytes
+            if not batch_rows:
+                batch_rows.append(rows[start_index])
+                total_input_bytes = _task_input_bytes(batch_rows[0])
+            total_task_count = len(rows)
+            batch_tasks = []
+            for offset, row in enumerate(batch_rows, start=1):
+                metadata = _coerce_dict(row.get("metadata"))
+                task_id = str(row.get("task_id") or "").strip() or "[unknown task]"
+                input_payload = _task_input_payload(row)
+                batch_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "queue_position": int(metadata.get("task_sequence") or start_index + offset),
+                        "task_total": int(metadata.get("task_total") or total_task_count),
+                        "input_path": str(metadata.get("input_path") or "").strip() or None,
+                        "hint_path": str(metadata.get("hint_path") or "").strip() or None,
+                        "result_path": str(metadata.get("result_path") or "").strip() or None,
+                        "draft_path": str(_workspace_display_path(_current_batch_task_draft_path(task_id))),
+                        "owned_chunk_ids": _owned_chunk_ids(input_payload),
+                        "owned_block_spans": _task_block_spans(input_payload),
+                        "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
+                    }
+                )
+            batch_start_position = int(_coerce_dict(batch_rows[0].get("metadata")).get("task_sequence") or start_index + 1)
+            batch_end_position = int(_coerce_dict(batch_rows[-1].get("metadata")).get("task_sequence") or start_index + len(batch_rows))
+            return {
+                "version": 1,
+                "batch_contract": "knowledge_micro_batch_v1",
+                "batch_task_count": len(batch_tasks),
+                "batch_start_position": batch_start_position,
+                "batch_end_position": batch_end_position,
+                "task_total": total_task_count,
+                "batch_remaining_after_batch": max(total_task_count - batch_end_position, 0),
+                "input_bytes_total": total_input_bytes,
+                "draft_dir": str(_workspace_display_path(_current_batch_draft_dir())),
+                "tasks": batch_tasks,
+            }
+
+        def _write_current_batch_sidecars(batch_payload, batch_feedback_lines=None):
+            current_batch_path = _workspace_root() / CURRENT_BATCH_FILE_NAME
+            brief_path = _current_batch_brief_path()
+            feedback_path = _current_batch_feedback_path()
+            if batch_payload is None:
+                if current_batch_path.exists():
+                    current_batch_path.unlink()
+                brief_path.write_text(
+                    "# Current Knowledge Batch\\n\\nNo current batch is active in this workspace.\\nEvery assigned task packet that the repo accepted has already been validated.\\n",
+                    encoding="utf-8",
+                )
+                feedback_path.write_text(
+                    "# Current Batch Feedback\\n\\n" + NO_CURRENT_BATCH_ACTIVE_TEXT + "\\n",
+                    encoding="utf-8",
+                )
+                return
+            current_batch_path.write_text(
+                json.dumps(batch_payload, indent=2, sort_keys=True) + "\\n",
+                encoding="utf-8",
+            )
+            batch_ids = [
+                str(task.get("task_id") or "").strip()
+                for task in (batch_payload.get("tasks") or [])
+                if isinstance(task, dict) and str(task.get("task_id") or "").strip()
+            ]
+            brief_lines = [
+                "# Current Knowledge Batch",
+                "",
+                f"Batch queue span: `{batch_payload.get('batch_start_position')}` to `{batch_payload.get('batch_end_position')}` of `{batch_payload.get('task_total')}`",
+                f"Batch task ids: `{', '.join(batch_ids) or '[none]'}`",
+                f"Batch draft dir: `{batch_payload.get('draft_dir') or 'scratch/current_batch'}`",
+                f"Remaining tasks after this batch: `{batch_payload.get('batch_remaining_after_batch') or 0}`",
+                "",
+                "Use `complete-batch`, edit the drafts under `scratch/current_batch/`, then `check-batch` and `install-batch`.",
+                "Single-task `CURRENT_TASK*` files remain available only for narrow recovery on the first active task.",
+            ]
+            brief_path.write_text("\\n".join(brief_lines) + "\\n", encoding="utf-8")
+            if batch_feedback_lines is None:
+                batch_feedback_lines = [
+                    "# Current Batch Feedback",
+                    "",
+                    f"Batch task ids: `{', '.join(batch_ids) or '[none]'}`",
+                    NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT,
+                    ACTIVE_BATCH_ASSIGNMENT_TEXT,
+                    "Expected batch draft files:",
+                ]
+                batch_feedback_lines.extend(
+                    f"- `{task.get('task_id')}` -> `{task.get('draft_path') or '?'}`"
+                    for task in (batch_payload.get("tasks") or [])
+                    if isinstance(task, dict)
+                )
+                batch_feedback_lines.append(CHECK_BATCH_AFTER_EDIT_TEXT)
+            feedback_path.write_text("\\n".join(batch_feedback_lines) + "\\n", encoding="utf-8")
+
+        def _advance_sidecars_from_outputs():
+            rows = _task_rows()
+            current_index = 0
+            while current_index < len(rows):
+                row = rows[current_index]
+                output_path = _resolve_result_path(row)
+                if not output_path.exists():
+                    break
+                payload = _load_json(output_path)
+                if not isinstance(payload, dict):
+                    break
+                errors, _metadata = _validate(row, _task_input_payload(row), payload)
+                if errors:
+                    break
+                current_index += 1
+            _write_current_batch_sidecars(_build_current_batch_payload(current_index))
 
         def _infer_task_id(payload):
             if not isinstance(payload, dict):
@@ -1801,12 +2629,57 @@ def render_knowledge_worker_script() -> str:
             sys.stdout.write(f"task_id: {row.get('task_id')}\\n")
             return 0
 
+        def _command_current_batch(_args):
+            brief_path = _current_batch_brief_path()
+            if brief_path.exists():
+                sys.stdout.write(brief_path.read_text(encoding="utf-8"))
+                return 0
+            payload = _current_batch_required()
+            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\\n")
+            return 0
+
         def _command_next(_args):
             row = _next_task_row()
             if row is None:
                 sys.stdout.write("No later task is queued after the current task.\\n")
                 return 0
             sys.stdout.write(f"{row.get('task_id')}\\n")
+            return 0
+
+        def _command_next_batch(_args):
+            batch_payload = _current_batch()
+            rows = _task_rows()
+            if not batch_payload or not rows:
+                sys.stdout.write("No later batch is queued after the current batch.\\n")
+                return 0
+            current_ids = [
+                str(task.get("task_id") or "").strip()
+                for task in (batch_payload.get("tasks") or [])
+                if isinstance(task, dict) and str(task.get("task_id") or "").strip()
+            ]
+            if not current_ids:
+                sys.stdout.write("No later batch is queued after the current batch.\\n")
+                return 0
+            last_index = 0
+            for index, row in enumerate(rows):
+                if str(row.get("task_id") or "").strip() == current_ids[-1]:
+                    last_index = index + 1
+                    break
+            next_batch = _build_current_batch_payload(last_index)
+            if next_batch is None:
+                sys.stdout.write("No later batch is queued after the current batch.\\n")
+                return 0
+            next_ids = [
+                str(task.get("task_id") or "").strip()
+                for task in (next_batch.get("tasks") or [])
+                if isinstance(task, dict) and str(task.get("task_id") or "").strip()
+            ]
+            sys.stdout.write("\\n".join(next_ids) + "\\n")
+            return 0
+
+        def _command_show_batch(_args):
+            payload = _current_batch_required()
+            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\\n")
             return 0
 
         def _command_scaffold(args):
@@ -1833,6 +2706,25 @@ def render_knowledge_worker_script() -> str:
             _write_current_feedback(row, draft_path=dest.relative_to(_workspace_root()) if dest.is_relative_to(_workspace_root()) else dest)
             sys.stdout.write(
                 f"wrote current scaffold to {dest.relative_to(_workspace_root()) if dest.is_relative_to(_workspace_root()) else dest}\\n"
+            )
+            return 0
+
+        def _command_complete_batch(_args):
+            batch_payload = _current_batch_required()
+            written_paths = []
+            for task in batch_payload.get("tasks") or []:
+                if not isinstance(task, dict):
+                    continue
+                task_id = str(task.get("task_id") or "").strip()
+                if not task_id:
+                    continue
+                row = _task_row(task_id)
+                dest = _current_batch_task_draft_path(task_id)
+                _write_payload(_scaffold(row, _task_input_payload(row)), dest)
+                written_paths.append(str(_workspace_display_path(dest)))
+            _write_current_batch_sidecars(batch_payload)
+            sys.stdout.write(
+                f"wrote {len(written_paths)} batch scaffold(s) under {batch_payload.get('draft_dir') or 'scratch/current_batch'}\\n"
             )
             return 0
 
@@ -1895,6 +2787,83 @@ def render_knowledge_worker_script() -> str:
             sys.stdout.write(f"OK {row.get('task_id')} ({draft_path.name})\\n")
             return 0
 
+        def _command_check_batch(_args):
+            batch_payload = _current_batch_required()
+            missing_task_ids = []
+            invalid_rows = []
+            validated_rows = []
+            for task in batch_payload.get("tasks") or []:
+                if not isinstance(task, dict):
+                    continue
+                task_id = str(task.get("task_id") or "").strip()
+                if not task_id:
+                    continue
+                draft_path = _current_batch_task_draft_path(task_id)
+                if not draft_path.exists():
+                    missing_task_ids.append(task_id)
+                    continue
+                payload = _load_json(draft_path)
+                row = _task_row(task_id)
+                errors, metadata = _validate(row, _task_input_payload(row), payload)
+                if errors:
+                    invalid_rows.append((task_id, draft_path, payload, errors, metadata))
+                else:
+                    validated_rows.append((task_id, draft_path))
+            if not missing_task_ids and not invalid_rows:
+                _write_current_batch_sidecars(
+                    batch_payload,
+                    batch_feedback_lines=[
+                        "# Current Batch Feedback",
+                        "",
+                        f"Batch task ids: `{', '.join(task_id for task_id, _draft_path in validated_rows)}`",
+                        BATCH_VALIDATION_STATUS_OK_TEXT,
+                        BATCH_VALIDATOR_ACCEPTED_TEXT,
+                        INSTALL_BATCH_READY_TEXT,
+                        REOPEN_BATCH_AFTER_INSTALL_TEXT,
+                        CONTINUE_BATCH_IMMEDIATELY_TEXT,
+                        QUEUE_COMPLETE_TEXT,
+                    ],
+                )
+                sys.stdout.write(
+                    f"OK batch ({', '.join(task_id for task_id, _draft_path in validated_rows)})\\n"
+                )
+                return 0
+            feedback_lines = [
+                "# Current Batch Feedback",
+                "",
+                f"Batch task ids: `{', '.join(str(task.get('task_id') or '').strip() for task in (batch_payload.get('tasks') or []) if isinstance(task, dict) and str(task.get('task_id') or '').strip())}`",
+                "Batch validation status: FAILED.",
+            ]
+            if missing_task_ids:
+                feedback_lines.extend(["", "Missing batch drafts:"])
+                feedback_lines.extend(f"- `{task_id}`" for task_id in missing_task_ids)
+            if invalid_rows:
+                task_id, draft_path, _payload, errors, metadata = invalid_rows[0]
+                feedback_lines.extend(
+                    [
+                        "",
+                        f"First failing task: `{task_id}`",
+                        "Validator errors:",
+                        *[f"- `{error}`" for error in errors],
+                        "",
+                        "How to fix it:",
+                        *[f"- {line}" for line in _render_error_help(errors, metadata)],
+                        "",
+                        f"Current failing draft: `{_workspace_display_path(draft_path)}`",
+                    ]
+                )
+            _write_current_batch_sidecars(batch_payload, batch_feedback_lines=feedback_lines)
+            if invalid_rows:
+                task_id, draft_path, _payload, errors, metadata = invalid_rows[0]
+                sys.stderr.write(_format_invalid_message(task_id, draft_path.name, errors, metadata))
+            else:
+                sys.stderr.write(
+                    "batch drafts are incomplete: "
+                    + ", ".join(missing_task_ids)
+                    + "\\n"
+                )
+            return 1
+
         def _command_install(args):
             draft_path, row, payload, errors, metadata = _checked_result(args)
             if errors:
@@ -1933,6 +2902,56 @@ def render_knowledge_worker_script() -> str:
             sys.stdout.write(
                 INSTALL_CURRENT_SUCCESS_NOTICE + "\\n"
             )
+            _advance_sidecars_from_outputs()
+            return 0
+
+        def _command_install_batch(_args):
+            batch_payload = _current_batch_required()
+            installed_task_ids = []
+            for task in batch_payload.get("tasks") or []:
+                if not isinstance(task, dict):
+                    continue
+                task_id = str(task.get("task_id") or "").strip()
+                if not task_id:
+                    continue
+                draft_path = _current_batch_task_draft_path(task_id)
+                if not draft_path.exists():
+                    break
+                payload = _load_json(draft_path)
+                row = _task_row(task_id)
+                errors, metadata = _validate(row, _task_input_payload(row), payload)
+                if errors:
+                    _write_current_batch_sidecars(
+                        batch_payload,
+                        batch_feedback_lines=[
+                            "# Current Batch Feedback",
+                            "",
+                            f"First failing task: `{task_id}`",
+                            "Batch validation status: FAILED.",
+                            "Validator errors:",
+                            *[f"- `{error}`" for error in errors],
+                            "",
+                            "How to fix it:",
+                            *[f"- {line}" for line in _render_error_help(errors, metadata)],
+                        ],
+                    )
+                    if installed_task_ids:
+                        _advance_sidecars_from_outputs()
+                        sys.stdout.write(
+                            f"installed {len(installed_task_ids)} batch task(s) before stopping at {task_id}\\n"
+                        )
+                        sys.stdout.write(INSTALL_BATCH_SUCCESS_NOTICE + "\\n")
+                        return 0
+                    sys.stderr.write(_format_invalid_message(task_id, draft_path.name, errors, metadata))
+                    return 1
+                result_path = _resolve_result_path(row)
+                _write_payload(payload, result_path)
+                installed_task_ids.append(task_id)
+            _advance_sidecars_from_outputs()
+            sys.stdout.write(
+                f"installed {len(installed_task_ids)} batch task(s)\\n"
+            )
+            sys.stdout.write(INSTALL_BATCH_SUCCESS_NOTICE + "\\n")
             return 0
 
         def _command_explain_failure(_args):
@@ -1953,11 +2972,20 @@ def render_knowledge_worker_script() -> str:
             overview = subparsers.add_parser("overview", help="Show the ordered task queue")
             overview.set_defaults(func=_command_overview)
 
+            current_batch = subparsers.add_parser("current-batch", help="Show the repo-written current batch brief")
+            current_batch.set_defaults(func=_command_current_batch)
+
             current = subparsers.add_parser("current", help="Show the repo-written current task brief")
             current.set_defaults(func=_command_current)
 
+            next_batch = subparsers.add_parser("next-batch", help="Show the next queued batch task ids")
+            next_batch.set_defaults(func=_command_next_batch)
+
             next_task = subparsers.add_parser("next", help="Show the next queued task id after the current task")
             next_task.set_defaults(func=_command_next)
+
+            show_batch = subparsers.add_parser("show-batch", help="Show the current batch payload")
+            show_batch.set_defaults(func=_command_show_batch)
 
             show = subparsers.add_parser("show", help="Show one task row")
             show.add_argument("task_id")
@@ -1972,6 +3000,9 @@ def render_knowledge_worker_script() -> str:
             complete_current.add_argument("--dest")
             complete_current.set_defaults(func=_command_complete_current)
 
+            complete_batch = subparsers.add_parser("complete-batch", help="Write the default scaffolds for the current batch")
+            complete_batch.set_defaults(func=_command_complete_batch)
+
             check = subparsers.add_parser("check", help="Validate a draft packet")
             check.add_argument("json_path")
             check.set_defaults(func=_command_check)
@@ -1980,6 +3011,9 @@ def render_knowledge_worker_script() -> str:
             check_current.add_argument("json_path", nargs="?")
             check_current.set_defaults(func=_command_check_current)
 
+            check_batch = subparsers.add_parser("check-batch", help="Validate the current batch drafts")
+            check_batch.set_defaults(func=_command_check_batch)
+
             install = subparsers.add_parser("install", help="Validate and install a draft packet")
             install.add_argument("json_path")
             install.set_defaults(func=_command_install)
@@ -1987,6 +3021,9 @@ def render_knowledge_worker_script() -> str:
             install_current = subparsers.add_parser("install-current", help="Validate and install the current task draft")
             install_current.add_argument("json_path", nargs="?")
             install_current.set_defaults(func=_command_install_current)
+
+            install_batch = subparsers.add_parser("install-batch", help="Validate and install the current batch drafts")
+            install_batch.set_defaults(func=_command_install_batch)
 
             explain_failure = subparsers.add_parser("explain-failure", help="Show the current task feedback sidecar")
             explain_failure.set_defaults(func=_command_explain_failure)
@@ -2006,6 +3043,16 @@ def render_knowledge_worker_script() -> str:
         """
         )
         .lstrip()
+        .replace("{no_current_batch_active_text}", no_current_batch_active_text)
+        .replace("{active_batch_assignment_text}", active_batch_assignment_text)
+        .replace("{no_repo_written_batch_feedback_text}", no_repo_written_batch_feedback_text)
+        .replace("{check_batch_after_edit_text}", check_batch_after_edit_text)
+        .replace("{batch_validation_status_ok_text}", batch_validation_status_ok_text)
+        .replace("{batch_validator_accepted_text}", batch_validator_accepted_text)
+        .replace("{install_batch_ready_text}", install_batch_ready_text)
+        .replace("{reopen_batch_after_install_text}", reopen_batch_after_install_text)
+        .replace("{continue_batch_immediately_text}", continue_batch_immediately_text)
+        .replace("{install_batch_success_notice}", install_batch_success_notice)
         .replace("{no_current_task_active_text}", no_current_task_active_text)
         .replace("{active_assignment_text}", active_assignment_text)
         .replace("{no_repo_written_feedback_text}", no_repo_written_feedback_text)

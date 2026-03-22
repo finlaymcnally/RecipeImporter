@@ -305,7 +305,7 @@ def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtim
     assert predictions[0].decided_by == "codex"
 
 
-def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_reviewable_other() -> None:
+def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_knowledge() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:1",
@@ -323,20 +323,22 @@ def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_reviewable
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "KNOWLEDGE"
     assert predictions[0].review_exclusion_reason is None
     assert predictions[0].within_recipe_span is False
 
 
-def test_label_atomic_lines_outside_recipe_science_prose_stays_reviewable_other() -> None:
+def test_label_atomic_lines_outside_recipe_saltfat_science_prose_stays_knowledge() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:science",
             "block_index": 1,
             "text": (
-                "The primary role that salt plays in cooking is to amplify flavor. "
-                "Though salt also affects texture, nearly every decision you make "
-                "about salt will involve enhancing and deepening flavor."
+                "Salt also reduces our perception of bitterness, with the secondary "
+                "effect of emphasizing other flavors present in bitter dishes. Salt "
+                "enhances sweetness while reducing bitterness in foods that are both "
+                "bitter and sweet, such as bittersweet chocolate, coffee ice cream, "
+                "or burnt caramels."
             ),
         }
     ]
@@ -347,7 +349,7 @@ def test_label_atomic_lines_outside_recipe_science_prose_stays_reviewable_other(
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "KNOWLEDGE"
     assert predictions[0].review_exclusion_reason is None
 
 
@@ -357,21 +359,20 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
             "block_id": "block:knowledge:prev",
             "block_index": 1,
             "text": (
-                "Salt affects texture and flavor because it changes how food "
-                "absorbs moisture during cooking."
+                "As with salt, the best way to correct overly fatty food is to "
+                "rebalance the dish."
             ),
         },
         {
             "block_id": "block:knowledge:heading",
             "block_index": 2,
-            "text": "SALT AND FLAVOR",
+            "text": "Balancing Fat",
         },
         {
             "block_id": "block:knowledge:next",
             "block_index": 3,
             "text": (
-                "The relationship between salt and flavor is multidimensional, "
-                "and even small changes can improve aroma and balance bitterness."
+                "Foods that are too dry can be corrected with a bit more fat."
             ),
         },
     ]
@@ -382,8 +383,18 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["SALT AND FLAVOR"].label == "OTHER"
-    assert by_text["SALT AND FLAVOR"].review_exclusion_reason is None
+    assert by_text["Balancing Fat"].label == "KNOWLEDGE"
+    assert by_text["Balancing Fat"].review_exclusion_reason is None
+    assert (
+        by_text[
+            "As with salt, the best way to correct overly fatty food is to rebalance the dish."
+        ].label
+        == "KNOWLEDGE"
+    )
+    assert (
+        by_text["Foods that are too dry can be corrected with a bit more fat."].label
+        == "KNOWLEDGE"
+    )
 
 
 def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_reviewable_other() -> None:
@@ -426,6 +437,57 @@ def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_rev
         "food from great, understanding when pasta water needed more salt "
         "and when vinegar was needed to balance a rich stew."
     ].review_exclusion_reason is None
+
+
+def test_label_atomic_lines_outside_recipe_saltfat_question_heading_stays_other() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:question-heading",
+            "block_index": 1,
+            "text": "What is Heat?",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].review_exclusion_reason is None
+
+
+def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_knowledge() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:citrus",
+            "block_index": 1,
+            "text": (
+                "When it comes to citrus, lemon trees are well suited to the "
+                "coastal climates in Mediterranean countries, so choose lemon to "
+                "squeeze into tabbouleh and hummus, and over grilled octopus, "
+                "Nicoise salad, or Sicilian fennel and orange salad. Lime trees, "
+                "on the other hand, grow more readily in tropical climates, so "
+                "limes are the preferred citrus everywhere from Mexico and Cuba to "
+                "India, Vietnam, and Thailand. Use limes in guacamole, pho ga, "
+                "green papaya salad, and kachumbar, the Indian answer to pico de "
+                "gallo. One form of citrus you should never use, though, is "
+                "bottled citrus juice. Made from concentrate and doctored with "
+                "preservatives and citrus oils, it tastes bitter and doesn't offer "
+                "any of the clean, bright flavor of fresh-squeezed juice."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].review_exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None:
@@ -514,7 +576,7 @@ def test_label_atomic_lines_unknown_pre_grouping_cluster_stays_structured() -> N
     assert predictions[1].label == "INSTRUCTION_LINE"
 
 
-def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_reviewable_other() -> None:
+def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_knowledge() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:science:unknown",
@@ -534,7 +596,7 @@ def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_reviewable_
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].within_recipe_span is None
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "KNOWLEDGE"
     assert predictions[0].review_exclusion_reason is None
 
 
@@ -569,10 +631,100 @@ def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["SALT AND FLAVOR"].label == "OTHER"
+    assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
     assert by_text["SALT AND FLAVOR"].review_exclusion_reason is None
-    assert by_text["Salt affects texture and flavor because it changes how food absorbs moisture during cooking."].label == "OTHER"
-    assert by_text["The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."].label == "OTHER"
+    assert (
+        by_text[
+            "Salt affects texture and flavor because it changes how food absorbs moisture during cooking."
+        ].label
+        == "KNOWLEDGE"
+    )
+    assert (
+        by_text[
+            "The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."
+        ].label
+        == "KNOWLEDGE"
+    )
+
+
+def test_label_atomic_lines_outside_recipe_saltfat_heading_stays_reviewable_for_knowledge() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:coddling:0",
+            block_index=0,
+            atomic_index=0,
+            text="Coddling and Poaching",
+            within_recipe_span=False,
+            rule_tags=["title_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:coddling:1",
+            block_index=1,
+            atomic_index=1,
+            text=(
+                "Gentle cooking in water just below a simmer keeps delicate "
+                "proteins tender and protects them from overcooking."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+    ]
+    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
+
+
+def test_label_atomic_lines_outside_recipe_saltfat_crouton_storage_step_stays_instruction_line() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:croutons",
+            block_id="block:croutons:title",
+            block_index=0,
+            atomic_index=0,
+            text="Torn Croutons",
+            within_recipe_span=False,
+            rule_tags=["title_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:croutons",
+            block_id="block:croutons:ingredient",
+            block_index=1,
+            atomic_index=1,
+            text="1 loaf country bread",
+            within_recipe_span=False,
+            rule_tags=["ingredient_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:croutons",
+            block_id="block:croutons:instruction",
+            block_index=2,
+            atomic_index=2,
+            text=(
+                "When done, let the croutons cool in a single layer on the baking "
+                "sheet. Use immediately or keep in an airtight container for up to "
+                "2 days. To refresh stale croutons, bake for 3 to 4 minutes at "
+                "400°F."
+            ),
+            within_recipe_span=False,
+            rule_tags=["instruction_like"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_TITLE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+    ]
+    assert predictions[2].review_exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_isolated_howto_heading_defaults_away_from_structure() -> None:
@@ -1339,8 +1491,8 @@ def test_label_atomic_lines_exact_lesson_prose_recover_knowledge_rows() -> None:
 
     assert [prediction.label for prediction in predictions] == [
         "OTHER",
-        "OTHER",
-        "OTHER",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
         "OTHER",
     ]
     assert all(prediction.review_exclusion_reason is None for prediction in predictions)
@@ -1915,10 +2067,10 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
 
     predictions = label_atomic_lines(candidates, _settings())
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
     ]
     assert all(prediction.review_exclusion_reason is None for prediction in predictions)
 
@@ -1962,7 +2114,7 @@ def test_label_atomic_lines_outside_recipe_requires_high_evidence_for_knowledge(
 
     predictions = label_atomic_lines(candidates, _settings())
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
+        "KNOWLEDGE",
         "OTHER",
         "OTHER",
     ]
@@ -2021,7 +2173,7 @@ def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_knowledge(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "KNOWLEDGE"
     assert predictions[0].decided_by == "fallback"
     assert "fallback_decision" in predictions[0].escalation_reasons
     assert "sanitized_label_adjustment" in predictions[0].escalation_reasons
@@ -2082,8 +2234,76 @@ def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
+    assert "sanitized_outside_recipe_knowledge_without_support" in predictions[0].reason_tags
     assert predictions[0].review_exclusion_reason == "endorsement"
+
+
+def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:heat:1",
+            block_index=1,
+            atomic_index=0,
+            text="What is Heat?",
+            within_recipe_span=False,
+            rule_tags=[],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "KNOWLEDGE"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_outside_recipe_knowledge_without_support" in predictions[0].reason_tags
+    assert predictions[0].review_exclusion_reason is None
+
+
+def test_codex_outside_recipe_knowledge_heading_with_context_can_stay_knowledge(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:poaching:1",
+            block_index=1,
+            atomic_index=0,
+            text="Coddling and Poaching",
+            within_recipe_span=False,
+            rule_tags=["title_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:poaching:2",
+            block_index=2,
+            atomic_index=1,
+            text=(
+                "Gentle cooking in water just below a simmer keeps delicate "
+                "proteins tender and protects them from overcooking."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "KNOWLEDGE", 1: "KNOWLEDGE"}),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+    ]
+    assert all(prediction.decided_by == "codex" for prediction in predictions)
+    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
 
 
 def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_stay_structured(
@@ -2314,12 +2534,12 @@ def test_codex_exact_lesson_prose_other_rows_rescue_to_knowledge(tmp_path) -> No
     )
 
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
         "OTHER",
     ]
-    assert "rescued_other_to_knowledge" not in predictions[0].reason_tags
-    assert "rescued_other_to_knowledge" not in predictions[1].reason_tags
+    assert "rescued_other_to_knowledge" in predictions[0].reason_tags
+    assert "rescued_other_to_knowledge" in predictions[1].reason_tags
 
 
 def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) -> None:
@@ -2430,7 +2650,7 @@ def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "KNOWLEDGE"
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
 
@@ -2981,7 +3201,10 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         },
     )
 
-    assert '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>"}]}' in prompt
+    assert (
+        '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>","review_exclusion_reason":"<OPTIONAL_REASON>"}]}'
+        in prompt
+    )
     assert (
         '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later context"]]}'
         in prompt
@@ -3008,10 +3231,12 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
     assert "default to `OTHER` unless the row clearly teaches reusable cooking explanation/reference prose" in prompt
     assert "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`" in prompt
+    assert "Short declarative teaching lines can stay `KNOWLEDGE`" in prompt
     assert "HOWTO_SECTION availability: absent_or_unproven (evidence rows: 0)" in prompt
     assert "HOWTO_SECTION policy: This book may legitimately use zero `HOWTO_SECTION` labels." in prompt
     assert "Balancing Fat" in prompt
     assert "WHAT IS ACID?" in prompt
+    assert "What is Heat?" in prompt
     assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Salt and Pepper" in prompt

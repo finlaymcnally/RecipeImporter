@@ -812,3 +812,42 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if upload-bundle diagnostics disagree again, inspect the normalized bundle model and derived bundle-local rows before blaming scorer logic or the underlying benchmark run
+
+## 20. 2026-03-22 Oracle follow-up recovery must trust recovered grounded answers and reuse the same session home
+
+Problem captured:
+- detached Oracle uploads could recover a timed-out turn 1 into `oracle_upload.log`, but the follow-up audit still saw the old timeout text first and left the run stuck in `recovering_turn_1`
+- even after that audit bug, turn 2 could still miss the saved browser session when Oracle fell back to ambient home/profile settings instead of the source run's Oracle environment
+
+Durable decisions:
+- a later grounded `Answer:` block with parsed follow-up data beats earlier timeout markers in the same saved log
+- turn-2 `continue-session` must inherit the source run's Oracle browser home/profile so it targets the same saved chat/session
+- keep this fix narrow:
+  - log-audit precedence
+  - env/home inheritance
+  It is not a packet-builder redesign and not a broader Oracle recovery rewrite
+
+Evidence worth keeping:
+- the March 22 stalled follow-up proved both seams in one chain: one saved run already contained a recovered grounded answer but still remained in `recovering_turn_1`, and the next post-fix attempt reached turn 2 but failed with `No session found ...` after Oracle stopped using the original session home
+
+Anti-loop note:
+- if Oracle follow-up stalls after a visible recovered answer, debug audit precedence and session-home reuse before changing request parsing or bundle selection
+
+## 21. 2026-03-22 upload_bundle recipe-correction debug views had to count compact outputs and honest fallbacks
+
+Problem captured:
+- `upload_bundle_v1` recipe-correction debug views were still lying in two ways:
+  - compact correction outputs looked empty because readers only trusted older wide shapes
+  - `regression_casebook` could still claim `top_negative_delta_recipes` even when there were no negative-delta fallback candidates
+
+Durable decisions:
+- compact `recipe_llm_correct_and_link` outputs with `payload.r[].cr.i` / `payload.r[].cr.s` count as non-empty correction outputs
+- `empty_output_signal` now means truly empty correction output, not just an empty ingredient-step mapping
+- casebook fallback source/reason becomes signal-based when there is no negative-delta recipe to point at
+- bundle generation should fail loudly if parsed correction outputs are visibly non-empty while stage observability still says every correction output is empty
+
+Evidence worth keeping:
+- the regression looked like stage-topology disagreement at first, but the real bug was derived debug-view attribution: compact shard payloads, observability summaries, and fallback labels were disagreeing about the same run
+
+Anti-loop note:
+- if recipe-correction debug views drift again, inspect compact existing-output parsing and fallback-source selection before changing benchmark scoring or recipe topology metadata

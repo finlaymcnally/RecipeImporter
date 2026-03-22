@@ -539,3 +539,31 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if a new line-role change “wins” on Salt Fat by globally suppressing `HOWTO_SECTION`, flattening `KNOWLEDGE` to `OTHER`, or widening `RECIPE_VARIANT` through ordinary method/note rows, it is the wrong fix; re-check the contrast-book expectations first
+
+## 2026-03-22 Salt Fat follow-up recovery stayed narrow: rescue exact miss families without reopening old leaks
+
+Problem:
+- after the Caesar-style generic `To make the ...` leak was fixed, the next Salt Fat rerun still underperformed on four concrete families:
+  - `KNOWLEDGE -> OTHER`
+  - `OTHER -> RECIPE_TITLE`
+  - `INSTRUCTION_LINE -> OTHER`
+  - short `RECIPE_VARIANT` rows falling to `OTHER` or ordinary instructions
+- the tempting wrong fix was a broad relabeling pass that would have reopened the older over-structuring mistakes
+
+What stuck:
+- treat this as worker-posture plus narrow rescue/demotion work, not as a broad deterministic relabel rewrite
+- lesson-prose packets now explicitly contrast reusable cooking knowledge with memoir/front matter and contents/title lists
+- unsupported outside-span Codex `RECIPE_TITLE` labels now demote unless strong local recipe evidence exists
+- Codex `OTHER` can recover to `KNOWLEDGE` or `INSTRUCTION_LINE` only on exact-evidence seams:
+  - explanatory cooking-science prose with real knowledge cues or lesson-cluster context
+  - clearly imperative recipe-local steps
+- short `Variation` / `Variations` headings and immediate modification lines can survive as `RECIPE_VARIANT`, but generic `To make the ...` method steps still break that run
+- contrast-book checks remain mandatory:
+  - `thefoodlabcutdown` for positive outside-recipe `KNOWLEDGE`
+  - `seaandsmokecutdown` for positive `HOWTO_SECTION`
+
+Evidence worth keeping:
+- the saved `2026-03-22_12.08.53` Salt Fat run made the true frontier obvious: most misses were direct Codex outputs rather than deterministic parser seeds, and the one parser-owned regression was the over-tight short-variant sanitizer
+
+Anti-loop note:
+- if a future "quality recovery" fix helps Salt Fat by globally widening knowledge, title, instruction, or variant labels, it is probably recreating the pre-canary problems; use the exact miss families and contrast books instead

@@ -73,6 +73,7 @@ D) Each `r[*].m` mapping entry:
 - Keep entries ordered by `i`.
 - If the mapping is unnecessary or unclear, return `[]`.
 - Always include `mr`.
+- For repaired recipes with 2+ non-empty ingredients or 2+ non-empty steps, `m=[]` with blank or null `mr` is invalid output. Either provide real mappings or provide an explicit reason token such as `unclear_alignment`.
 - When returning `[]`, set `mr` to a short machine-readable reason such as `not_needed_single_step`, `not_needed_single_ingredient`, or `unclear_alignment`.
 - When `m` is non-empty, set `mr` to `null`.
 

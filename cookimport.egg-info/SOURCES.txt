@@ -112,12 +112,16 @@ cookimport/llm/codex_farm_orchestrator.py
 cookimport/llm/codex_farm_runner.py
 cookimport/llm/fake_codex_farm_runner.py
 cookimport/llm/knowledge_prompt_builder.py
+cookimport/llm/knowledge_runtime_replay.py
+cookimport/llm/knowledge_runtime_state.py
+cookimport/llm/knowledge_workspace_tools.py
 cookimport/llm/non_recipe_spans.py
 cookimport/llm/phase_worker_runtime.py
 cookimport/llm/prompt_artifacts.py
 cookimport/llm/prompt_budget.py
 cookimport/llm/prompt_preview.py
 cookimport/llm/recipe_tagging_guide.py
+cookimport/llm/recipe_workspace_tools.py
 cookimport/llm/shard_prompt_targets.py
 cookimport/llm/worker_hint_sidecars.py
 cookimport/ocr/__init__.py
@@ -140,6 +144,7 @@ cookimport/parsing/ingredients.py
 cookimport/parsing/instruction_parser.py
 cookimport/parsing/label_first_conversion.py
 cookimport/parsing/label_source_of_truth.py
+cookimport/parsing/line_role_workspace_tools.py
 cookimport/parsing/markdown_blocks.py
 cookimport/parsing/markitdown_adapter.py
 cookimport/parsing/multi_recipe_splitter.py

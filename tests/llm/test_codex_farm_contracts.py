@@ -122,6 +122,80 @@ def test_merged_repair_output_accepts_mapping_entry_arrays() -> None:
     assert output.ingredient_step_mapping == {"0": [0], "1": [0, 1]}
 
 
+def test_merged_repair_output_rejects_complex_empty_mapping_without_reason() -> None:
+    with pytest.raises(ValidationError, match="ingredient_step_mapping_reason is required"):
+        MergedRecipeRepairOutput.model_validate(
+            {
+                "bundle_version": "1",
+                "recipe_id": "urn:recipe:test",
+                "repair_status": "repaired",
+                "canonical_recipe": {
+                    "title": "Toast",
+                    "ingredients": ["1 slice bread", "1 tablespoon butter"],
+                    "steps": ["Toast the bread.", "Spread with butter."],
+                    "description": None,
+                    "recipeYield": None,
+                },
+                "ingredient_step_mapping": [],
+                "ingredient_step_mapping_reason": None,
+                "selected_tags": [],
+                "warnings": [],
+            }
+        )
+
+
+def test_merged_repair_output_accepts_single_step_empty_mapping_with_reason() -> None:
+    output = MergedRecipeRepairOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "repair_status": "repaired",
+            "canonical_recipe": {
+                "title": "Toast",
+                "ingredients": ["1 slice bread", "1 tablespoon butter"],
+                "steps": ["Toast the bread and spread with butter."],
+                "description": None,
+                "recipeYield": None,
+            },
+            "ingredient_step_mapping": [],
+            "ingredient_step_mapping_reason": "not_needed_single_step",
+            "selected_tags": [],
+            "warnings": [],
+        }
+    )
+
+    assert output.ingredient_step_mapping == {}
+    assert output.ingredient_step_mapping_reason == "not_needed_single_step"
+
+
+def test_merged_repair_output_rejects_multi_ingredient_single_step_empty_mapping_without_reason() -> None:
+    with pytest.raises(ValidationError, match="ingredient_step_mapping_reason is required"):
+        MergedRecipeRepairOutput.model_validate(
+            {
+                "bundle_version": "1",
+                "recipe_id": "urn:recipe:test",
+                "repair_status": "repaired",
+                "canonical_recipe": {
+                    "title": "Blue Cheese Dressing",
+                    "ingredients": [
+                        "5 ounces blue cheese",
+                        "1/2 cup creme fraiche",
+                        "1 tablespoon vinegar",
+                    ],
+                    "steps": [
+                        "Whisk everything together. Taste and adjust. Chill before serving."
+                    ],
+                    "description": None,
+                    "recipeYield": None,
+                },
+                "ingredient_step_mapping": [],
+                "ingredient_step_mapping_reason": None,
+                "selected_tags": [],
+                "warnings": [],
+            }
+        )
+
+
 def test_merged_repair_output_rejects_missing_required_fields() -> None:
     with pytest.raises(ValidationError):
         MergedRecipeRepairOutput.model_validate(

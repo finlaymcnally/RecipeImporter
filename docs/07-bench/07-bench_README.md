@@ -133,6 +133,8 @@ Current interactive contracts:
   - `single_book_summary.md`
   - `upload_bundle_v1/`
 - single-book `upload_bundle_v1` is now a curated first-pass packet by default, capped to about 30 MB via the existing high-level bundle mode instead of embedding the full lossless payload dump; deeper evidence is expected to move through `cf-debug` follow-up packets when needed
+- upload-bundle recipe-correction accounting must parse both legacy single-recipe outputs and compact shard outputs (`payload.r[].cr` / `payload.r[].m`); `empty_output_signal` now means the parsed correction payload was actually empty, not just that the mapping object was empty
+- upload-bundle warning summaries now keep empty-mapping counts separate from actual empty-output counts, and recipe-correction status rollups prefer output-aware labels such as `nonempty_output_without_manifest_status` when manifest/runtime status is missing but parsed outputs exist
 - benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log volume only
 - benchmark status panels now treat generic `task X/Y | running N` progress strings as worker activity, so shard-backed line-role and similar phases do not collapse back to one stale status line
 - recipe, knowledge, and line-role benchmark progress now all share the same story shape: visible work-unit counter, separate worker-session summary, separate repo follow-up/finalization summary, and worker rows that represent real worker sessions rather than repo cleanup
@@ -153,6 +155,7 @@ Active use cases:
 - audit line-role joins and prompt links
 - audit knowledge-stage evidence
 - build additive `followup_dataN/` packets
+- when requested regression ids are missing and no negative-delta recipes remain, the base bundle casebook now falls back to high-signal recipes (outside-span density / changed-line / error pressure) instead of mislabeling zero-delta rows as top negative deltas
 
 Knowledge extraction is now a first-class follow-up seam:
 
@@ -234,6 +237,7 @@ Current rules:
 - canonical scoring uses the enforced global SequenceMatcher alignment path for safety
 - the sequence matcher is fixed to `dmp`; non-`dmp` modes are not an active benchmark surface
 - canonical-text benchmark runs score the same canonical pointer pair used by all benchmark modes
+- canonical-text `eval_report.json` now carries both overlap-style `boundary` counts and structural `segmentation` metrics (`label_projection=core_structural_v1`, `boundaries.overall_micro`, error taxonomy), so single-book codex-vs-vanilla comparisons can attribute quality deltas across both label semantics and boundary structure
 - line-role regression tuning should keep one no-subsection source and one real-subsection source in the deterministic proof story. The current repo-local contrast pair is `saltfatacidheatcutdown` (`HOWTO_SECTION=0` in gold) versus `seaandsmokecutdown` (`HOWTO_SECTION=111` in gold).
 
 Current line-role and knowledge behavior:
@@ -323,12 +327,15 @@ Current bundle rules:
   - `final_recipe_empty_mapping` only counts actual `build_final_recipe` empty-mapping output
   - `analysis.recipe_pipeline_context.observed_recipe_stage_call_counts.build_final_recipe` counts only observed final-recipe calls, not correction-stage calls
   - `16_baseline_trace_parity.json` should treat derived bundle-local trace rows as present when run diagnostics already mirrored those artifacts into the bundle
+- compact recipe-correction outputs are still real outputs. When existing-output readers inspect `recipe_llm_correct_and_link`, compact `payload.r[].cr.i` / `payload.r[].cr.s` rows count as non-empty correction output even when the compact mapping itself is empty. `empty_output_signal` should mean "no correction output at all," not merely "empty mapping."
+- `regression_casebook` fallback selection must stay honest when there are no negative-delta recipes. In that case the fallback source/reason should be signal-based instead of pretending `top_negative_delta_recipes` existed, and bundle generation should fail loudly if parsed correction outputs are visibly non-empty while stage observability still claims every correction output is empty.
 - new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
 - follow-up tooling may still accept historical local filenames when auditing archived bundles, but those are archived-reader inputs only and should not be reintroduced into new reviewer-facing bundle fields
 - sparse bundles are valid first-class inputs:
   - request-template generation should choose a real bundle-local case when one exists
+    It now prefers a negative-delta recipe case, otherwise an outside-span window, otherwise the strongest remaining recipe-signal case.
   - otherwise it should emit empty-selector asks that still let `cf-debug build-followup` succeed
   - `--include-knowledge-source-key` should resolve through bundle-local knowledge rows even when the bundle has no Codex-enabled paired run
 - checked-in old-format bundle fixtures should be normalized in tests before running current `cf-debug` paths; production readers should not grow new reader branches just to satisfy stale fixtures
@@ -341,9 +348,11 @@ Oracle upload contract:
 - that launcher opens visible Chromium when a usable display exists and falls back to `chromium-nosandbox-xvfb` otherwise, so the same benchmark upload path works both from interactive shells and from the agent shell
 - browser uploads use the canonical Oracle browser profile at `~/.local/share/oracle/browser-profile`; the legacy `~/.oracle/browser-profile` path is now only a compatibility symlink to that same directory
 - browser uploads now pass `--browser-model-strategy select`, so benchmark review explicitly switches to the requested review model instead of inheriting a stale/manual ChatGPT mode
+- the local editable Oracle package also has to keep its own genuine-model defaults aligned with the benchmark wrapper. If browser review drifts back to `gpt-5.4` even though the repo launches `--model gpt-5-pro`, inspect Oracle's local default genuine/browser model aliases as well as the benchmark command.
 - `--mode dry-run` uses Oracle dry-run when possible and falls back to a local preview when the payload file is too large
 - transport sharding is strictly upload-time glue for oversized text files such as `upload_bundle_payload.jsonl`; checked-in and local `upload_bundle_v1` artifacts should stay unmodified on disk
 - benchmark status rendering treats generic `task X/Y | running N` updates as first-class worker-row signals, and plain legacy `run=... queued=... running=...` stderr snapshots are compatibility noise when structured progress is already present
+- detached Oracle follow-up has one more active contract: if `oracle_upload.log` contains an earlier timeout marker and a later grounded `Answer:` block, the recovered answer wins. Turn 2 must also inherit the source run's Oracle home/profile so `continue-session` targets the same saved chat instead of falling back to ambient shell state.
 
 ## 5. Speed And Quality Suite Notes
 
@@ -464,4 +473,9 @@ Primary benchmark modules:
   - empty-composer or launch failures should fail fast
   - in-flight runs should persist `oracle_upload_status.json`, session id, reattach command, and conversation URL as early as possible
   - completed answers that contradict the local bundle root or topline counts should be treated as `invalid_grounding`, not silent success
+- Recovered Oracle turn-1 answers are authoritative even when the saved log still contains older timeout text. If a follow-up worker gets stuck in `recovering_turn_1`, inspect log-audit precedence and source Oracle home/profile inheritance before changing follow-up packet logic.
+- Upload-bundle recipe-correction diagnostics are now deliberately split:
+  - "empty correction output" is different from "correction output exists but the compact mapping is empty"
+  - casebook fallback can be signal-based when no negative-delta recipe exists
+  If those surfaces disagree again, inspect the normalized bundle model before blaming scorer math or the underlying benchmark run.
 - When validating Codex benchmark regressions, do not over-trust a stale run root after runtime/prompt changes land. The March 18 Salt Fat Acid Heat work established that some fixes were code-complete locally while live benchmark proof was still pending explicit approval for a fresh rerun.

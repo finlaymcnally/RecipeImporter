@@ -615,7 +615,7 @@ def test_knowledge_workspace_watchdog_completes_only_after_live_task_validation(
                         "result_path": f"out/{task_id}.json",
                         "task_sequence": 1,
                         "task_total": 1,
-                        "workspace_processing_contract": "ordered_task_queue_v1",
+                        "workspace_processing_contract": "ordered_task_micro_batch_v1",
                     },
                 }
             ]
@@ -649,7 +649,7 @@ def test_knowledge_workspace_watchdog_completes_only_after_live_task_validation(
                     "result_path": f"out/{task_id}.json",
                     "task_sequence": 1,
                     "task_total": 1,
-                    "workspace_processing_contract": "ordered_task_queue_v1",
+                    "workspace_processing_contract": "ordered_task_micro_batch_v1",
                 },
             ),
         ),
@@ -684,6 +684,7 @@ def test_knowledge_workspace_watchdog_completes_only_after_live_task_validation(
     assert live_status["queue_complete"] is True
     assert live_status["queue_validated_task_count"] == 1
     assert live_status["current_task_id"] is None
+    assert not (tmp_path / "current_batch.json").exists()
     assert not (tmp_path / "current_task.json").exists()
 
 
@@ -875,7 +876,7 @@ def test_knowledge_workspace_task_runtime_entries_add_ordered_queue_metadata() -
     assert first_metadata["result_path"] == "out/book.ks0000.nr.task-001.json"
     assert first_metadata["lease_sequence"] == 1
     assert first_metadata["lease_total"] == 2
-    assert first_metadata["workspace_processing_contract"] == "ordered_task_queue_v1"
+    assert first_metadata["workspace_processing_contract"] == "ordered_task_micro_batch_v1"
     assert second_metadata["input_path"] == "in/book.ks0000.nr.task-002.json"
     assert second_metadata["task_sequence"] == 2
     assert second_metadata["task_total"] == 2
@@ -1186,22 +1187,28 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert all(row["task_id"] == row["parent_shard_id"] for row in task_manifest)
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
+    assert "`CURRENT_BATCH.md`" in worker_prompt
+    assert "`current_batch.json`" in worker_prompt
+    assert "`CURRENT_BATCH_FEEDBACK.md`" in worker_prompt
     assert "`CURRENT_TASK.md`" in worker_prompt
     assert "`current_task.json`" in worker_prompt
     assert "`CURRENT_TASK_FEEDBACK.md`" in worker_prompt
     assert "OUTPUT_CONTRACT.md" in worker_prompt
+    assert "tools/knowledge_worker.py complete-batch" in worker_prompt
+    assert "tools/knowledge_worker.py check-batch" in worker_prompt
+    assert "tools/knowledge_worker.py install-batch" in worker_prompt
     assert "tools/knowledge_worker.py complete-current" in worker_prompt
-    assert "tools/knowledge_worker.py check-current" in worker_prompt
-    assert "tools/knowledge_worker.py install-current" in worker_prompt
+    assert "tools/knowledge_worker.py current-batch" in worker_prompt
+    assert "tools/knowledge_worker.py next-batch" in worker_prompt
+    assert "tools/knowledge_worker.py show-batch" in worker_prompt
     assert "tools/knowledge_worker.py explain-failure" in worker_prompt
     assert "`assigned_tasks.json`" in worker_prompt
-    assert "authoritative current-task surface" in worker_prompt
+    assert "authoritative current-batch surface" in worker_prompt
     assert "ordered queue/progress reference" in worker_prompt
-    assert "`metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`" in worker_prompt
-    assert "A task is not finished until `check-current` prints `OK ...`." in worker_prompt
-    assert "The assignment is complete only when the repo removes `current_task.json`" in worker_prompt
-    assert "After each successful install, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`." in worker_prompt
-    assert "If a new current task is active, continue with it immediately." in worker_prompt
+    assert "`tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path`" in worker_prompt
+    assert "The assignment is complete only when the repo removes `current_batch.json`" in worker_prompt
+    assert "After each successful install, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`." in worker_prompt
+    assert "If a new batch is active, continue with it immediately." in worker_prompt
     assert "Do not ask for permission to continue" in worker_prompt
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
@@ -1228,14 +1235,17 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "Bad snippet pattern: a body that restates nearly every sentence" in worker_prompt
     assert "The repo will write the final canonical `v` / `bid` / `r` packet artifact" in worker_prompt
     assert "Do not work ahead on later tasks" in worker_prompt
-    assert "Do not invent your own batch scheduler" in worker_prompt
-    assert "repo-written `check-current` loop" in worker_prompt
+    assert "Do not invent your own shell batch scheduler" in worker_prompt
+    assert "repo-written `check-batch` / `install-batch` loop" in worker_prompt
     assert "Assigned packet ids in required processing order:" not in worker_prompt
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
+        "current_batch.json",
+        "CURRENT_BATCH.md",
+        "CURRENT_BATCH_FEEDBACK.md",
         "current_task.json",
         "CURRENT_TASK.md",
         "CURRENT_TASK_FEEDBACK.md",
@@ -1243,6 +1253,9 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
         "assigned_tasks.json",
     ]
     assert worker_manifest["hints_dir"] == "hints"
+    assert worker_manifest["current_batch_file"] == "current_batch.json"
+    assert worker_manifest["current_batch_brief_file"] == "CURRENT_BATCH.md"
+    assert worker_manifest["current_batch_feedback_file"] == "CURRENT_BATCH_FEEDBACK.md"
     assert worker_manifest["current_task_file"] == "current_task.json"
     assert worker_manifest["current_task_brief_file"] == "CURRENT_TASK.md"
     assert worker_manifest["current_task_feedback_file"] == "CURRENT_TASK_FEEDBACK.md"
@@ -1278,16 +1291,19 @@ def test_knowledge_orchestrator_materializes_task_metadata_and_examples(
     assert (worker_root / "tools" / "knowledge_worker.py").exists()
     assert (worker_root / "hints").exists()
     assert (worker_root / "scratch").exists()
+    assert (worker_root / "CURRENT_BATCH.md").exists()
+    assert (worker_root / "CURRENT_BATCH_FEEDBACK.md").exists()
     assert (worker_root / "CURRENT_TASK.md").exists()
     assert (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
     assert assigned_tasks
     assert "input_payload" not in assigned_tasks[0]
+    assert not (worker_root / "current_batch.json").exists()
     assert not (worker_root / "current_task.json").exists()
     first_task_metadata = dict(assigned_tasks[0]["metadata"])
     assert first_task_metadata["input_path"].startswith("in/")
     assert first_task_metadata["hint_path"].startswith("hints/")
     assert first_task_metadata["result_path"].startswith("out/")
-    assert first_task_metadata["workspace_processing_contract"] == "ordered_task_queue_v1"
+    assert first_task_metadata["workspace_processing_contract"] == "ordered_task_micro_batch_v1"
     hint_text = (
         worker_root / first_task_metadata["hint_path"]
     ).read_text(encoding="utf-8")
@@ -1307,6 +1323,10 @@ def test_knowledge_orchestrator_materializes_task_metadata_and_examples(
         evidence["quote"] for evidence in invalid_example_row["snippets"][0]["evidence"]
     )
     assert invalid_example_row["snippets"][0]["body"] == invalid_surface
+    assert "No current batch is active" in (worker_root / "CURRENT_BATCH.md").read_text(encoding="utf-8")
+    assert "queue is complete" in (
+        worker_root / "CURRENT_BATCH_FEEDBACK.md"
+    ).read_text(encoding="utf-8").lower()
     assert "No current task is active" in (worker_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
     assert "queue is complete" in (
         worker_root / "CURRENT_TASK_FEEDBACK.md"
@@ -1420,15 +1440,17 @@ def _build_knowledge_worker_cli_fixture(tmp_path: Path) -> dict[str, object]:
     assigned_tasks = json.loads((worker_root / "assigned_tasks.json").read_text(encoding="utf-8"))
     task_id = assigned_tasks[0]["task_id"]
     result_path = worker_root / assigned_tasks[0]["metadata"]["result_path"]
-    knowledge_module.write_current_task_sidecars(  # noqa: SLF001
+    knowledge_module.write_current_batch_and_task_sidecars(  # noqa: SLF001
         workspace_root=worker_root,
-        task_row=assigned_tasks[0],
+        task_rows=assigned_tasks,
+        current_index=0,
         current_draft_path=worker_root / "scratch" / "current_task.json",
     )
     if result_path.exists():
         result_path.unlink()
 
     return {
+        "batch_scaffold_path": worker_root / "scratch" / "current_batch" / f"{task_id}.json",
         "result_path": result_path,
         "run_root": run_root,
         "scaffold_path": worker_root / "scratch" / "current_task.json",
@@ -1468,6 +1490,16 @@ def test_knowledge_workspace_helper_cli_shows_current_task_views(tmp_path: Path)
     assert f"Task id: `{task_id}`" in current.stdout
     assert "assignment stays active until the repo removes `current_task.json`" in current.stdout
 
+    current_batch = subprocess.run(
+        [sys.executable, str(tool_path), "current-batch"],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "# Current Knowledge Batch" in current_batch.stdout
+    assert f"Batch task ids: `{task_id}`" in current_batch.stdout
+
     explain_failure = subprocess.run(
         [sys.executable, str(tool_path), "explain-failure"],
         cwd=worker_root,
@@ -1486,6 +1518,15 @@ def test_knowledge_workspace_helper_cli_shows_current_task_views(tmp_path: Path)
     )
     assert f"task_id: {task_id}" in show.stdout
     assert "input_path:" in show.stdout
+
+    show_batch = subprocess.run(
+        [sys.executable, str(tool_path), "show-batch"],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert task_id in show_batch.stdout
 
 
 def test_knowledge_workspace_helper_cli_scaffolds_and_checks_current_packets(
@@ -1551,6 +1592,53 @@ def test_knowledge_workspace_helper_cli_scaffolds_and_checks_current_packets(
     assert "Validation status: FAILED." in (
         worker_root / "CURRENT_TASK_FEEDBACK.md"
     ).read_text(encoding="utf-8")
+
+
+def test_knowledge_workspace_helper_cli_scaffolds_and_checks_current_batch(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_worker_cli_fixture(tmp_path)
+    worker_root = fixture["worker_root"]
+    tool_path = fixture["tool_path"]
+    task_id = fixture["task_id"]
+    batch_scaffold_path = fixture["batch_scaffold_path"]
+    assert isinstance(worker_root, Path)
+    assert isinstance(tool_path, Path)
+    assert isinstance(task_id, str)
+    assert isinstance(batch_scaffold_path, Path)
+
+    if batch_scaffold_path.exists():
+        batch_scaffold_path.unlink()
+    scaffold = subprocess.run(
+        [
+            sys.executable,
+            str(tool_path),
+            "complete-batch",
+        ],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "wrote 1 batch scaffold" in scaffold.stdout
+    scaffold_payload = json.loads(batch_scaffold_path.read_text(encoding="utf-8"))
+    assert scaffold_payload["packet_id"] == task_id
+
+    valid_check = subprocess.run(
+        [
+            sys.executable,
+            str(tool_path),
+            "check-batch",
+        ],
+        cwd=worker_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "OK batch" in valid_check.stdout
+    feedback_text = (worker_root / "CURRENT_BATCH_FEEDBACK.md").read_text(encoding="utf-8")
+    assert "Batch validation status: OK." in feedback_text
+    assert "install-batch" in feedback_text
 
 
 def test_knowledge_workspace_helper_cli_installs_valid_packets_only(
@@ -2029,7 +2117,8 @@ def test_run_direct_knowledge_workers_marks_clean_exit_relaunch_cap_reached(
     worker_root = run_root / worker_reports[0].workspace_root
     live_status = json.loads((worker_root / "live_status.json").read_text(encoding="utf-8"))
     current_task = json.loads((worker_root / "current_task.json").read_text(encoding="utf-8"))
-    current_feedback = (worker_root / "CURRENT_TASK_FEEDBACK.md").read_text(encoding="utf-8")
+    current_batch = json.loads((worker_root / "current_batch.json").read_text(encoding="utf-8"))
+    current_batch_feedback = (worker_root / "CURRENT_BATCH_FEEDBACK.md").read_text(encoding="utf-8")
     last_message = json.loads((worker_root / "last_message.json").read_text(encoding="utf-8"))
     worker_report = worker_reports[0]
     process_summary = process_run_payload["telemetry"]["summary"]
@@ -2047,7 +2136,8 @@ def test_run_direct_knowledge_workers_marks_clean_exit_relaunch_cap_reached(
     assert len(live_status["workspace_relaunch_history"]) == relaunch_max
     assert "automatic relaunch cap" in str(live_status["reason_detail"])
     assert current_task["task_id"] == "book.ks0000.nr.task-004"
-    assert "No repo-written validation feedback exists yet for this task." in current_feedback
+    assert current_batch["tasks"][0]["task_id"] == "book.ks0000.nr.task-004"
+    assert "No repo-written validation feedback exists yet for this batch." in current_batch_feedback
     assert last_message["text"].startswith("Validated book.ks0000.nr.task-003.")
     assert worker_report.metadata["workspace_relaunch_count"] == relaunch_max
     assert worker_report.metadata["workspace_relaunch_cap_reached"] is True

@@ -8,6 +8,8 @@ import shutil
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def _load_cutdown_module():
     script_path = (
@@ -617,6 +619,77 @@ def _prompt_rows_for_sharded_recipe_fixture() -> list[dict[str, object]]:
     ]
 
 
+def _prompt_rows_for_compact_recipe_correction_fixture() -> list[dict[str, object]]:
+    return [
+        {
+            "stage_key": "recipe_llm_correct_and_link",
+            "call_id": "recipe-shard-0000-r0000-r0001",
+            "recipe_id": "recipe-shard-0000-r0000-r0001",
+            "timestamp_utc": "2026-03-03T10:00:05Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "final_supervision_state": "completed",
+                "finalization_path": "raw_supervision",
+                "payload": {
+                    "sid": "recipe-shard-0000-r0000-r0001",
+                    "v": "1",
+                    "r": [
+                        {
+                            "rid": "recipe:a0",
+                            "st": "repaired",
+                            "sr": None,
+                            "cr": {
+                                "t": "Dish A",
+                                "i": ["1 cup flour"],
+                                "s": ["Mix gently"],
+                                "d": None,
+                                "y": None,
+                            },
+                            "m": {"0": [0]},
+                            "mr": None,
+                            "g": [],
+                            "w": [],
+                            "v": "1",
+                        },
+                        {
+                            "rid": "recipe:b0",
+                            "st": "repaired",
+                            "sr": None,
+                            "cr": {
+                                "t": "Dish B",
+                                "i": ["2 eggs"],
+                                "s": ["Whisk well"],
+                                "d": None,
+                                "y": None,
+                            },
+                            "m": {},
+                            "mr": "unclear_alignment",
+                            "g": [],
+                            "w": [],
+                            "v": "1",
+                        },
+                    ],
+                },
+            },
+            "request_input_payload": {
+                "ids": ["recipe:a0", "recipe:b0"],
+                "r": [
+                    {
+                        "rid": "recipe:a0",
+                        "ev": [[0, "Dish A"], [1, "1 cup flour"], [2, "Mix gently"]],
+                        "h": {"n": "Dish A"},
+                    },
+                    {
+                        "rid": "recipe:b0",
+                        "ev": [[3, "Dish B"], [4, "2 eggs"], [5, "Whisk well"]],
+                        "h": {"n": "Dish B"},
+                    },
+                ],
+            },
+        }
+    ]
+
+
 def _build_eval_artifacts(module, run_dir: Path) -> tuple[Path, Path]:
     canonical_text = "Dish Title\n1 cup flour\nMix gently\nChef note\n"
     canonical_text_path = run_dir / "canonical_text.txt"
@@ -1049,6 +1122,112 @@ def test_build_pair_diagnostics_keeps_correction_empty_mapping_out_of_final_reci
     assert triage_row["correction_empty_mapping"] is True
     assert triage_row["final_recipe_empty_mapping"] is False
     assert triage_row["build_final_call_id"] == ""
+
+
+def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_recipe(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    codex_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_12.06.00",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        wrong_label_rows=[
+            {"line_index": 1, "pred_label": "RECIPE_NOTES"},
+            {"line_index": 4, "pred_label": "KNOWLEDGE"},
+        ],
+        full_prompt_rows=_prompt_rows_for_compact_recipe_correction_fixture(),
+    )
+    baseline_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_12.05.00",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[
+            {"line_index": 1, "pred_label": "YIELD_LINE"},
+            {"line_index": 4, "pred_label": "OTHER"},
+        ],
+    )
+
+    diagnostics = module._build_pair_diagnostics(
+        source_key="source-hash",
+        source_file="book.epub",
+        codex_run=codex_record,
+        baseline_run=baseline_record,
+        excerpt_limit=120,
+        targeted_case_limit=10,
+    )
+
+    triage_by_id = {
+        str(row["recipe_id"]): row for row in diagnostics.recipe_triage_rows
+    }
+    assert triage_by_id["recipe:a0"]["correction_input_block_count"] == 3
+    assert triage_by_id["recipe:a0"]["correction_ingredient_count"] == 1
+    assert triage_by_id["recipe:a0"]["correction_step_count"] == 1
+    assert triage_by_id["recipe:a0"]["correction_mapping_count"] == 1
+    assert triage_by_id["recipe:a0"]["correction_empty_mapping"] is False
+    assert triage_by_id["recipe:a0"]["correction_empty_output"] is False
+
+    assert triage_by_id["recipe:b0"]["correction_input_block_count"] == 3
+    assert triage_by_id["recipe:b0"]["correction_ingredient_count"] == 1
+    assert triage_by_id["recipe:b0"]["correction_step_count"] == 1
+    assert triage_by_id["recipe:b0"]["correction_mapping_count"] == 0
+    assert triage_by_id["recipe:b0"]["correction_empty_mapping"] is True
+    assert triage_by_id["recipe:b0"]["correction_empty_output"] is False
+
+    call_row = next(
+        row
+        for row in diagnostics.call_inventory_rows
+        if row["stage_key"] == "recipe_llm_correct_and_link"
+    )
+    assert call_row["input_block_count"] == 6
+    assert call_row["extracted_ingredient_count"] == 2
+    assert call_row["step_count"] == 2
+    assert call_row["mapping_count"] == 1
+
+    failure_ledger = module._upload_bundle_build_failure_ledger(
+        recipe_triage_rows=diagnostics.recipe_triage_rows,
+        call_inventory_rows=diagnostics.call_inventory_rows,
+    )
+    correction_rows = [
+        row
+        for row in failure_ledger["rows"]
+        if row["stage_key"] == "recipe_llm_correct_and_link"
+    ]
+    assert len(correction_rows) == 2
+    assert all(row["output_signal"] is True for row in correction_rows)
+    assert all(row["empty_output_signal"] is False for row in correction_rows)
+    assert all(
+        row["status_semantics"] == "nonempty_output_without_manifest_status"
+        for row in correction_rows
+    )
+
+    stage_observability = module._upload_bundle_build_stage_observability_summary(
+        failure_ledger
+    )
+    correction_stage = stage_observability["by_stage"]["recipe_llm_correct_and_link"]
+    assert correction_stage["recipe_count"] == 2
+    assert correction_stage["output_signal_count"] == 2
+    assert correction_stage["empty_output_signal_count"] == 0
+    assert correction_stage["status_semantics_counts"] == {
+        "nonempty_output_without_manifest_status": 2
+    }
+
+    warning_summary = module._build_warning_and_trace_summary(
+        call_inventory_rows=diagnostics.call_inventory_rows,
+        recipe_triage_rows=diagnostics.recipe_triage_rows,
+        outside_span_trace_rows=diagnostics.outside_span_trace_rows,
+    )
+    assert warning_summary["correction_empty_mapping_count"] == 1
+    assert warning_summary["correction_empty_output_count"] == 0
+    assert warning_summary["correction_empty_mapping_with_nonempty_output_count"] == 1
+    assert (
+        warning_summary["recipe_stage_status_counts"]["recipe_llm_correct_and_link"][
+            "nonempty_output_without_manifest_status"
+        ]
+        == 2
+    )
 
 
 def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> None:
@@ -2362,6 +2541,65 @@ def test_build_upload_bundle_for_existing_output_includes_navigation_and_locator
     self_check = index_payload.get("self_check")
     assert isinstance(self_check, dict)
     assert float(self_check.get("critical_row_locators_coverage_ratio") or 0.0) >= 0.9
+
+
+def test_regression_casebook_uses_signal_fallback_when_no_negative_delta() -> None:
+    module = _load_cutdown_module()
+
+    casebook = module._upload_bundle_build_regression_casebook(
+        recipe_triage_rows=[
+            {
+                "recipe_id": "recipe:quiet",
+                "delta_codex_minus_baseline": 0.0,
+                "changed_lines_codex_vs_baseline": 0,
+                "outside_span_wrong_line_count": 0,
+                "recipe_error_count": 0,
+                "recipe_warning_count": 0,
+            },
+            {
+                "recipe_id": "recipe:span-heavy",
+                "delta_codex_minus_baseline": 0.0,
+                "changed_lines_codex_vs_baseline": 1,
+                "outside_span_wrong_line_count": 12,
+                "recipe_error_count": 1,
+                "recipe_warning_count": 0,
+            },
+            {
+                "recipe_id": "recipe:changed-lines",
+                "delta_codex_minus_baseline": 0.0,
+                "changed_lines_codex_vs_baseline": 5,
+                "outside_span_wrong_line_count": 3,
+                "recipe_error_count": 0,
+                "recipe_warning_count": 1,
+            },
+        ],
+        changed_line_rows=[],
+    )
+
+    assert casebook["suggested_target_source"] == "top_signal_recipes"
+    assert casebook["suggested_targets"][:2] == [
+        "recipe:span-heavy",
+        "recipe:changed-lines",
+    ]
+    assert casebook["packets"][0]["selection_reason"] == "top_signal_fill"
+
+
+def test_recipe_correction_output_accounting_check_rejects_nonempty_compact_outputs_marked_empty() -> None:
+    module = _load_cutdown_module()
+
+    with pytest.raises(ValueError, match="recipe correction output accounting mismatch"):
+        module._upload_bundle_assert_recipe_correction_output_accounting(
+            correction_prompt_rows=_prompt_rows_for_compact_recipe_correction_fixture(),
+            stage_observability_summary={
+                "by_stage": {
+                    "recipe_llm_correct_and_link": {
+                        "recipe_count": 2,
+                        "output_signal_count": 0,
+                        "empty_output_signal_count": 2,
+                    }
+                }
+            },
+        )
 
 
 def test_build_upload_bundle_for_existing_output_surfaces_run_diagnostics_and_overview(

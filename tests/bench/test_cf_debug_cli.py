@@ -7,6 +7,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from cookimport.cf_debug_cli import app
+from cookimport.bench import followup_bundle
 
 
 runner = CliRunner()
@@ -44,6 +45,36 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
             continue
         rows.append(json.loads(text))
     return rows
+
+
+class _FakeFollowupContext:
+    def __init__(
+        self,
+        *,
+        per_recipe_rows: list[dict[str, object]],
+        changed_lines: list[dict[str, object]] | None = None,
+    ) -> None:
+        self._per_recipe_rows = {
+            (
+                str(row.get("source_key") or ""),
+                str(row.get("recipe_id") or ""),
+            ): row
+            for row in per_recipe_rows
+        }
+        self._changed_lines = list(changed_lines or [])
+
+    def changed_lines_for_range(
+        self,
+        source_key: str,
+        start: int,
+        end: int,
+    ) -> list[dict[str, object]]:
+        return [
+            row
+            for row in self._changed_lines
+            if str(row.get("source_key") or "") == source_key
+            and start <= int(row.get("line_index") or -1) <= end
+        ]
 
 
 def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> Path:
@@ -205,6 +236,93 @@ def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> P
         encoding="utf-8",
     )
     return bundle_dir
+
+
+def test_default_line_role_followup_ask_prefers_negative_recipe_regression() -> None:
+    ask = followup_bundle._default_line_role_followup_ask(
+        _FakeFollowupContext(
+            per_recipe_rows=[
+                {
+                    "source_key": "book",
+                    "recipe_id": "urn:test:c6",
+                    "delta_codex_minus_baseline": -0.2,
+                    "changed_lines_codex_vs_baseline": 1,
+                },
+                {
+                    "source_key": "book",
+                    "recipe_id": "urn:test:c7",
+                    "delta_codex_minus_baseline": 0.4,
+                    "changed_lines_codex_vs_baseline": 9,
+                    "outside_span_wrong_line_count": 12,
+                },
+            ]
+        )
+    )
+
+    assert ask["selectors"]["include_case_ids"] == ["regression_c6"]
+    assert "regression_c6" in ask["question"]
+
+
+def test_default_line_role_followup_ask_prefers_outside_span_window_when_no_negative_recipe_exists() -> None:
+    ask = followup_bundle._default_line_role_followup_ask(
+        _FakeFollowupContext(
+            per_recipe_rows=[
+                {
+                    "source_key": "book",
+                    "recipe_id": "urn:test:c7",
+                    "delta_codex_minus_baseline": 0.01,
+                    "changed_lines_codex_vs_baseline": 1,
+                }
+            ],
+            changed_lines=[
+                {
+                    "source_key": "book",
+                    "line_index": 628,
+                    "span_region": "outside_active_recipe_span",
+                    "_payload_locator": {"path": "changed.jsonl", "payload_row": 1, "jsonl_index": 0},
+                },
+                {
+                    "source_key": "book",
+                    "line_index": 629,
+                    "span_region": "outside_active_recipe_span",
+                    "_payload_locator": {"path": "changed.jsonl", "payload_row": 1, "jsonl_index": 1},
+                },
+            ],
+        )
+    )
+
+    assert ask["selectors"]["include_case_ids"] == ["outside_span_window_628_629"]
+    assert "outside_span_window_628_629" in ask["question"]
+
+
+def test_default_line_role_followup_ask_falls_back_to_highest_signal_recipe_when_needed() -> None:
+    ask = followup_bundle._default_line_role_followup_ask(
+        _FakeFollowupContext(
+            per_recipe_rows=[
+                {
+                    "source_key": "book",
+                    "recipe_id": "urn:test:weak",
+                    "delta_codex_minus_baseline": 0.01,
+                    "changed_lines_codex_vs_baseline": 1,
+                    "outside_span_wrong_line_count": 0,
+                    "recipe_error_count": 0,
+                    "recipe_warning_count": 0,
+                },
+                {
+                    "source_key": "book",
+                    "recipe_id": "urn:test:strong",
+                    "delta_codex_minus_baseline": 0.5,
+                    "changed_lines_codex_vs_baseline": 5,
+                    "outside_span_wrong_line_count": 9,
+                    "recipe_error_count": 1,
+                    "recipe_warning_count": 1,
+                },
+            ]
+        )
+    )
+
+    assert ask["selectors"]["include_case_ids"] == ["win_strong"]
+    assert "highest-signal line-role issue" in ask["question"]
 
 
 def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> None:

@@ -256,6 +256,21 @@ def _sanitize_text_list_field(value: Any, field_name: str) -> list[str]:
     return rows
 
 
+def _repaired_recipe_requires_empty_mapping_reason(
+    *,
+    canonical_recipe: "MergedCanonicalRecipe" | None,
+    ingredient_step_mapping: Mapping[str, Any] | None,
+    ingredient_step_mapping_reason: str | None,
+) -> bool:
+    if canonical_recipe is None:
+        return False
+    if ingredient_step_mapping:
+        return False
+    if str(ingredient_step_mapping_reason or "").strip():
+        return False
+    return len(canonical_recipe.ingredients) >= 2 or len(canonical_recipe.steps) >= 2
+
+
 class MergedCanonicalRecipe(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -444,7 +459,12 @@ class MergedRecipeRepairOutput(BaseModel):
     selected_tags: list["RecipeSelectedTag"] = Field(default_factory=list, alias="g")
     warnings: list[str] = Field(default_factory=list, alias="w")
 
-    @field_validator("recipe_id", "status_reason", mode="before")
+    @field_validator(
+        "recipe_id",
+        "status_reason",
+        "ingredient_step_mapping_reason",
+        mode="before",
+    )
     @classmethod
     def _normalize_recipe_output_text_fields(cls, value: Any) -> Any:
         if value is None:
@@ -472,6 +492,15 @@ class MergedRecipeRepairOutput(BaseModel):
     def _validate_status_shape(self) -> "MergedRecipeRepairOutput":
         if self.repair_status == "repaired" and self.canonical_recipe is None:
             raise ValueError("canonical_recipe is required when repair_status is repaired")
+        if self.repair_status == "repaired" and _repaired_recipe_requires_empty_mapping_reason(
+            canonical_recipe=self.canonical_recipe,
+            ingredient_step_mapping=self.ingredient_step_mapping,
+            ingredient_step_mapping_reason=self.ingredient_step_mapping_reason,
+        ):
+            raise ValueError(
+                "ingredient_step_mapping_reason is required when repaired recipes with 2+ "
+                "ingredients or 2+ steps return an empty ingredient_step_mapping"
+            )
         return self
 
 

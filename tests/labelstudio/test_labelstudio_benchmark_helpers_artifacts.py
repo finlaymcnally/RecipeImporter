@@ -2080,6 +2080,80 @@ def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker
     assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
 
 
+def test_prompt_budget_summary_marks_partial_workspace_worker_token_usage_unavailable(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    pred_manifest = {
+        "llm_codex_farm": {
+            "knowledge": {
+                "process_run": {
+                    "worker_runs": [
+                        {
+                            "telemetry": {
+                                "summary": {
+                                    "call_count": 1,
+                                    "duration_total_ms": 900,
+                                    "tokens_input": 200,
+                                    "tokens_cached_input": 20,
+                                    "tokens_output": 30,
+                                    "tokens_reasoning": 0,
+                                    "tokens_total": 250,
+                                    "visible_input_tokens": 40,
+                                    "visible_output_tokens": 8,
+                                    "wrapper_overhead_tokens": 2,
+                                    "prompt_input_mode_counts": {"workspace_worker": 1},
+                                }
+                            }
+                        },
+                        {
+                            "telemetry": {
+                                "summary": {
+                                    "call_count": 1,
+                                    "duration_total_ms": 1200,
+                                    "tokens_input": 0,
+                                    "tokens_cached_input": 0,
+                                    "tokens_output": 0,
+                                    "tokens_reasoning": 0,
+                                    "tokens_total": 0,
+                                    "visible_input_tokens": 55,
+                                    "visible_output_tokens": 5,
+                                    "wrapper_overhead_tokens": 0,
+                                    "command_execution_count_total": 12,
+                                    "prompt_input_mode_counts": {"workspace_worker": 1},
+                                }
+                            }
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    knowledge = summary["by_stage"]["knowledge"]
+    assert knowledge["call_count"] == 2
+    assert knowledge["token_usage_status"] == "partial"
+    assert knowledge["token_usage_available_call_count"] == 1
+    assert knowledge["token_usage_missing_call_count"] == 1
+    assert knowledge["tokens_input"] is None
+    assert knowledge["tokens_cached_input"] is None
+    assert knowledge["tokens_output"] is None
+    assert knowledge["tokens_total"] is None
+    assert knowledge["cost_breakdown"]["billed_total_tokens"] is None
+    assert "token_usage_incomplete" in knowledge["pathological_flags"]
+
+    assert summary["totals"]["token_usage_status"] == "partial"
+    assert summary["totals"]["token_usage_available_call_count"] == 1
+    assert summary["totals"]["token_usage_missing_call_count"] == 1
+    assert summary["totals"]["tokens_total"] is None
+    assert summary["totals"]["cost_breakdown"]["billed_total_tokens"] is None
+    assert "token_usage_incomplete" in summary["totals"]["pathological_flags"]
+
+
 def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, object]:
     pred_run = tmp_path / "prediction-run"
     pred_run.mkdir(parents=True, exist_ok=True)

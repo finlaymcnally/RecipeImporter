@@ -1537,6 +1537,162 @@ def _is_empty_mapping_value(value: Any) -> bool:
     return value is None
 
 
+def _upload_bundle_recipe_correction_output_rows(value: Any) -> list[dict[str, Any]]:
+    parsed = _parse_json_like(value)
+    if not isinstance(parsed, dict):
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    payload = parsed.get("payload")
+    if isinstance(payload, dict):
+        candidates.append(payload)
+    candidates.append(parsed)
+
+    for candidate in candidates:
+        recipe_rows = candidate.get("r")
+        if not isinstance(recipe_rows, list):
+            continue
+        normalized_rows: list[dict[str, Any]] = []
+        for recipe_row in recipe_rows:
+            if not isinstance(recipe_row, dict):
+                continue
+            compact_recipe = recipe_row.get("cr")
+            compact_recipe = compact_recipe if isinstance(compact_recipe, dict) else {}
+            normalized_rows.append(
+                {
+                    "recipe_id": str(recipe_row.get("rid") or "").strip(),
+                    "repair_status": str(recipe_row.get("st") or "").strip(),
+                    "status_reason": str(recipe_row.get("sr") or "").strip(),
+                    "warnings": _coerce_str_list(recipe_row.get("w")),
+                    "has_mapping_field": "m" in recipe_row,
+                    "canonical_recipe": {
+                        "title": str(compact_recipe.get("t") or "").strip(),
+                        "ingredients": _coerce_str_list(compact_recipe.get("i")),
+                        "steps": _coerce_str_list(compact_recipe.get("s")),
+                        "description": str(compact_recipe.get("d") or "").strip(),
+                        "recipe_yield": str(compact_recipe.get("y") or "").strip(),
+                    },
+                    "ingredient_step_mapping": recipe_row.get("m"),
+                    "ingredient_step_mapping_reason": str(recipe_row.get("mr") or "").strip(),
+                }
+            )
+        if normalized_rows:
+            return normalized_rows
+
+    if any(
+        key in parsed
+        for key in (
+            "canonical_recipe",
+            "ingredient_step_mapping",
+            "ingredient_step_mapping_reason",
+            "warnings",
+        )
+    ):
+        canonical_recipe = (
+            parsed.get("canonical_recipe") if isinstance(parsed.get("canonical_recipe"), dict) else {}
+        )
+        return [
+            {
+                "recipe_id": str(parsed.get("recipe_id") or "").strip(),
+                "repair_status": str(parsed.get("repair_status") or "").strip(),
+                "status_reason": str(parsed.get("status_reason") or "").strip(),
+                "warnings": _coerce_str_list(parsed.get("warnings")),
+                "has_mapping_field": "ingredient_step_mapping" in parsed,
+                "canonical_recipe": {
+                    "title": str(canonical_recipe.get("title") or "").strip(),
+                    "ingredients": _coerce_str_list(canonical_recipe.get("ingredients")),
+                    "steps": _coerce_str_list(canonical_recipe.get("steps")),
+                    "description": str(canonical_recipe.get("description") or "").strip(),
+                    "recipe_yield": str(canonical_recipe.get("recipe_yield") or "").strip(),
+                },
+                "ingredient_step_mapping": parsed.get("ingredient_step_mapping"),
+                "ingredient_step_mapping_reason": str(
+                    parsed.get("ingredient_step_mapping_reason") or ""
+                ).strip(),
+            }
+        ]
+    return []
+
+
+def _upload_bundle_recipe_correction_output_for_recipe(
+    value: Any,
+    *,
+    recipe_id: str,
+) -> dict[str, Any]:
+    normalized_recipe_id = str(recipe_id or "").strip()
+    rows = _upload_bundle_recipe_correction_output_rows(value)
+    if normalized_recipe_id:
+        for row in rows:
+            if str(row.get("recipe_id") or "").strip() == normalized_recipe_id:
+                return row
+    return rows[0] if len(rows) == 1 else {}
+
+
+def _upload_bundle_recipe_correction_input_block_count(
+    value: Any,
+    *,
+    recipe_id: str | None = None,
+) -> int:
+    parsed = _parse_json_like(value)
+    if not isinstance(parsed, dict):
+        return 0
+    normalized_recipe_id = str(recipe_id or "").strip()
+    if normalized_recipe_id:
+        shard_recipe_rows = parsed.get("r")
+        if isinstance(shard_recipe_rows, list):
+            for recipe_row in shard_recipe_rows:
+                if not isinstance(recipe_row, dict):
+                    continue
+                if str(recipe_row.get("rid") or "").strip() != normalized_recipe_id:
+                    continue
+                evidence_rows = recipe_row.get("ev")
+                return len(evidence_rows) if isinstance(evidence_rows, list) else 0
+    evidence_rows = parsed.get("evidence_rows")
+    if isinstance(evidence_rows, list):
+        return len(evidence_rows)
+    shard_recipe_rows = parsed.get("r")
+    if isinstance(shard_recipe_rows, list):
+        return sum(
+            len(recipe_row.get("ev") or [])
+            for recipe_row in shard_recipe_rows
+            if isinstance(recipe_row, dict) and isinstance(recipe_row.get("ev"), list)
+        )
+    return 0
+
+
+def _upload_bundle_recipe_correction_metrics(output_row: dict[str, Any]) -> dict[str, Any]:
+    canonical_recipe = (
+        output_row.get("canonical_recipe")
+        if isinstance(output_row.get("canonical_recipe"), dict)
+        else {}
+    )
+    ingredients = _coerce_str_list(canonical_recipe.get("ingredients"))
+    steps = _coerce_str_list(canonical_recipe.get("steps"))
+    warnings = _coerce_str_list(output_row.get("warnings"))
+    mapping_value = output_row.get("ingredient_step_mapping")
+    mapping_count = _mapping_count(mapping_value)
+    has_signal = bool(
+        str(canonical_recipe.get("title") or "").strip()
+        or str(canonical_recipe.get("description") or "").strip()
+        or str(canonical_recipe.get("recipe_yield") or "").strip()
+        or ingredients
+        or steps
+        or mapping_count > 0
+        or warnings
+        or str(output_row.get("repair_status") or "").strip()
+        or str(output_row.get("status_reason") or "").strip()
+    )
+    return {
+        "ingredient_count": len(ingredients),
+        "step_count": len(steps),
+        "mapping_count": mapping_count,
+        "warnings": warnings,
+        "empty_mapping": bool(output_row.get("has_mapping_field"))
+        and _is_empty_mapping_value(mapping_value),
+        "empty_output": not has_signal,
+    }
+
+
 def _normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -1598,6 +1754,15 @@ def _summarize_prompt_warning_aggregate(full_prompt_log_path: Path) -> dict[str,
         parsed_response = _parse_json_like(row.get("parsed_response"))
         parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
         warnings = _coerce_str_list(parsed_response.get("warnings"))
+        correction_outputs = (
+            _upload_bundle_recipe_correction_output_rows(parsed_response)
+            if stage_key == "recipe_llm_correct_and_link"
+            else []
+        )
+        if correction_outputs:
+            warnings = []
+            for output_row in correction_outputs:
+                warnings.extend(_upload_bundle_recipe_correction_metrics(output_row)["warnings"])
         if warnings:
             calls_with_warnings += 1
             by_stage_calls_with_warnings[stage_key] += 1
@@ -1607,7 +1772,20 @@ def _summarize_prompt_warning_aggregate(full_prompt_log_path: Path) -> dict[str,
             warning_bucket_counts[_prompt_warning_bucket(normalized)] += 1
             warning_total += 1
 
-        if "ingredient_step_mapping" in parsed_response and _is_empty_mapping_value(
+        if correction_outputs:
+            empty_mapping_recipe_ids: list[str] = []
+            for output_row in correction_outputs:
+                metrics = _upload_bundle_recipe_correction_metrics(output_row)
+                if not metrics["empty_mapping"]:
+                    continue
+                recipe_id = str(output_row.get("recipe_id") or row.get("recipe_id") or "").strip()
+                if recipe_id:
+                    empty_mapping_recipe_ids.append(recipe_id)
+            if empty_mapping_recipe_ids:
+                correction_empty_mapping_calls += 1
+                for recipe_id in empty_mapping_recipe_ids:
+                    correction_empty_mapping_recipe_ids[recipe_id] += 1
+        elif "ingredient_step_mapping" in parsed_response and _is_empty_mapping_value(
             parsed_response.get("ingredient_step_mapping")
         ):
             correction_empty_mapping_calls += 1
@@ -3048,10 +3226,32 @@ def _build_projection_trace(
         parsed_response = _parse_json_like(row.get("parsed_response"))
         parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
         warnings = _coerce_str_list(parsed_response.get("warnings"))
+        correction_outputs = (
+            _upload_bundle_recipe_correction_output_rows(parsed_response)
+            if stage_key == "recipe_llm_correct_and_link"
+            else []
+        )
+        if correction_outputs:
+            warnings = []
+            for output_row in correction_outputs:
+                warnings.extend(_upload_bundle_recipe_correction_metrics(output_row)["warnings"])
         if warnings:
             stage_warning_counts[stage_key] += len(warnings)
 
-        if "ingredient_step_mapping" in parsed_response and _is_empty_mapping_value(
+        if correction_outputs:
+            empty_mapping_recipe_ids: list[str] = []
+            for output_row in correction_outputs:
+                metrics = _upload_bundle_recipe_correction_metrics(output_row)
+                if not metrics["empty_mapping"]:
+                    continue
+                output_recipe_id = str(output_row.get("recipe_id") or "").strip()
+                if output_recipe_id:
+                    empty_mapping_recipe_ids.append(output_recipe_id)
+            if empty_mapping_recipe_ids:
+                correction_empty_mapping_calls += 1
+                for output_recipe_id in empty_mapping_recipe_ids:
+                    correction_empty_mapping_recipe_ids[output_recipe_id] += 1
+        elif "ingredient_step_mapping" in parsed_response and _is_empty_mapping_value(
             parsed_response.get("ingredient_step_mapping")
         ):
             correction_empty_mapping_calls += 1
@@ -4156,10 +4356,26 @@ def _build_pair_diagnostics(
         parsed_response = _parse_json_like(row.get("parsed_response"))
         parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
         warnings = _coerce_str_list(parsed_response.get("warnings"))
-        empty_mapping = (
-            "ingredient_step_mapping" in parsed_response
-            and _is_empty_mapping_value(parsed_response.get("ingredient_step_mapping"))
-        )
+        empty_mapping = False
+        if stage_key == "recipe_llm_correct_and_link":
+            correction_outputs = _upload_bundle_recipe_correction_output_rows(parsed_response)
+            if correction_outputs:
+                warnings = []
+                empty_mapping = False
+                for output_row in correction_outputs:
+                    metrics = _upload_bundle_recipe_correction_metrics(output_row)
+                    warnings.extend(metrics["warnings"])
+                    empty_mapping = empty_mapping or bool(metrics["empty_mapping"])
+            else:
+                empty_mapping = (
+                    "ingredient_step_mapping" in parsed_response
+                    and _is_empty_mapping_value(parsed_response.get("ingredient_step_mapping"))
+                )
+        else:
+            empty_mapping = (
+                "ingredient_step_mapping" in parsed_response
+                and _is_empty_mapping_value(parsed_response.get("ingredient_step_mapping"))
+            )
         recipe_id = str(row.get("recipe_id") or "").strip()
         changed_lines_for_recipe = int(recipe_flip_counts.get(recipe_id, 0))
         if not warnings and not empty_mapping and changed_lines_for_recipe <= 0:
@@ -4330,14 +4546,6 @@ def _build_pair_diagnostics(
         correction_call_id = (
             str(correction_row.get("call_id") or "") if isinstance(correction_row, dict) else ""
         )
-        parsed_correction = (
-            _parse_json_like(correction_row.get("parsed_response"))
-            if isinstance(correction_row, dict)
-            else None
-        )
-        parsed_correction = (
-            parsed_correction if isinstance(parsed_correction, dict) else {}
-        )
         correction_input_payload = (
             _parse_json_like(correction_row.get("request_input_payload"))
             if isinstance(correction_row, dict)
@@ -4348,15 +4556,23 @@ def _build_pair_diagnostics(
             if isinstance(correction_input_payload, dict)
             else {}
         )
-        correction_evidence_rows = correction_input_payload.get("evidence_rows")
-        correction_evidence_rows = (
-            correction_evidence_rows if isinstance(correction_evidence_rows, list) else []
+        parsed_correction = (
+            _upload_bundle_recipe_correction_output_for_recipe(
+                correction_row.get("parsed_response"),
+                recipe_id=recipe_id,
+            )
+            if isinstance(correction_row, dict)
+            else {}
         )
         correction_input_block_count = int(
             _coerce_int(manifest_diagnostics.get("correction_input_block_count"))
-            or len(correction_evidence_rows)
+            or _upload_bundle_recipe_correction_input_block_count(
+                correction_input_payload,
+                recipe_id=recipe_id,
+            )
         )
-        correction_warnings = _coerce_str_list(parsed_correction.get("warnings"))
+        correction_metrics = _upload_bundle_recipe_correction_metrics(parsed_correction)
+        correction_warnings = list(correction_metrics["warnings"])
         correction_warning_count = int(
             _coerce_int(manifest_diagnostics.get("correction_warning_count"))
             or len(correction_warnings)
@@ -4369,21 +4585,24 @@ def _build_pair_diagnostics(
         )
         correction_ingredient_count = int(
             _coerce_int(manifest_diagnostics.get("correction_ingredient_count"))
-            or len(canonical_recipe.get("ingredients") or [])
+            or int(correction_metrics["ingredient_count"])
         )
         correction_step_count = int(
             _coerce_int(manifest_diagnostics.get("correction_step_count"))
-            or len(canonical_recipe.get("steps") or [])
+            or int(correction_metrics["step_count"])
         )
         correction_mapping_value = parsed_correction.get("ingredient_step_mapping")
         correction_mapping_count = int(
             _coerce_int(manifest_diagnostics.get("correction_mapping_count"))
-            or _mapping_count(correction_mapping_value)
+            or int(correction_metrics["mapping_count"])
             or 0
         )
         correction_empty_mapping = bool(
             manifest_diagnostics.get("correction_empty_mapping")
         ) or _is_empty_mapping_value(correction_mapping_value)
+        correction_empty_output = bool(
+            manifest_diagnostics.get("correction_empty_output")
+        ) or bool(correction_metrics["empty_output"])
         build_final_parsed = (
             _parse_json_like(build_final_row.get("parsed_response"))
             if isinstance(build_final_row, dict)
@@ -4476,6 +4695,7 @@ def _build_pair_diagnostics(
                 "correction_step_count": correction_step_count,
                 "correction_mapping_count": correction_mapping_count,
                 "correction_empty_mapping": correction_empty_mapping,
+                "correction_empty_output": correction_empty_output,
                 "build_intermediate_status": build_intermediate_status,
                 "correction_status": correction_status,
                 "build_final_status": build_final_status,
@@ -4562,17 +4782,31 @@ def _build_pair_diagnostics(
             request_input_payload = (
                 request_input_payload if isinstance(request_input_payload, dict) else {}
             )
-            evidence_rows = request_input_payload.get("evidence_rows")
-            evidence_rows = evidence_rows if isinstance(evidence_rows, list) else []
-            input_block_count = len(evidence_rows)
-            canonical_recipe = (
-                parsed_response.get("canonical_recipe")
-                if isinstance(parsed_response.get("canonical_recipe"), dict)
-                else {}
+            correction_outputs = _upload_bundle_recipe_correction_output_rows(parsed_response)
+            input_block_count = _upload_bundle_recipe_correction_input_block_count(
+                request_input_payload
             )
-            extracted_ingredient_count = len(canonical_recipe.get("ingredients") or [])
-            step_count = len(canonical_recipe.get("steps") or [])
-            mapping_count = _mapping_count(parsed_response.get("ingredient_step_mapping"))
+            if correction_outputs:
+                warnings = []
+                extracted_ingredient_count = 0
+                step_count = 0
+                mapping_count = 0
+                for output_row in correction_outputs:
+                    metrics = _upload_bundle_recipe_correction_metrics(output_row)
+                    warnings.extend(metrics["warnings"])
+                    extracted_ingredient_count += int(metrics["ingredient_count"])
+                    step_count += int(metrics["step_count"])
+                    mapping_count += int(metrics["mapping_count"])
+                warning_buckets = _warning_buckets(warnings)
+            else:
+                canonical_recipe = (
+                    parsed_response.get("canonical_recipe")
+                    if isinstance(parsed_response.get("canonical_recipe"), dict)
+                    else {}
+                )
+                extracted_ingredient_count = len(canonical_recipe.get("ingredients") or [])
+                step_count = len(canonical_recipe.get("steps") or [])
+                mapping_count = _mapping_count(parsed_response.get("ingredient_step_mapping"))
         elif stage_key == "build_final_recipe":
             draft_payload = _parse_json_like(parsed_response.get("draft_v1"))
             draft_payload = draft_payload if isinstance(draft_payload, dict) else {}
@@ -4981,6 +5215,14 @@ def _build_warning_and_trace_summary(
     correction_empty_mapping_count = sum(
         1 for row in recipe_triage_rows if bool(row.get("correction_empty_mapping"))
     )
+    correction_empty_output_count = sum(
+        1 for row in recipe_triage_rows if bool(row.get("correction_empty_output"))
+    )
+    correction_empty_mapping_with_nonempty_output_count = sum(
+        1
+        for row in recipe_triage_rows
+        if bool(row.get("correction_empty_mapping")) and not bool(row.get("correction_empty_output"))
+    )
     final_recipe_empty_mapping_count = sum(
         1 for row in recipe_triage_rows if bool(row.get("final_recipe_empty_mapping"))
     )
@@ -5028,10 +5270,24 @@ def _build_warning_and_trace_summary(
             str(row.get("build_intermediate_status") or "").strip()
             or "missing"
         )
-        correction_status = (
-            str(row.get("correction_status") or "").strip()
-            or "missing"
-        )
+        raw_correction_status = str(row.get("correction_status") or "").strip()
+        if raw_correction_status:
+            correction_status = raw_correction_status
+        elif bool(row.get("correction_empty_output")) and (
+            bool(row.get("correction_call_id"))
+            or int(_coerce_int(row.get("correction_input_block_count")) or 0) > 0
+        ):
+            correction_status = "empty_output_without_manifest_status"
+        elif (
+            bool(row.get("correction_call_id"))
+            or int(_coerce_int(row.get("correction_input_block_count")) or 0) > 0
+            or int(_coerce_int(row.get("correction_ingredient_count")) or 0) > 0
+            or int(_coerce_int(row.get("correction_step_count")) or 0) > 0
+            or int(_coerce_int(row.get("correction_mapping_count")) or 0) > 0
+        ):
+            correction_status = "nonempty_output_without_manifest_status"
+        else:
+            correction_status = "missing"
         build_final_status = (
             str(row.get("build_final_status") or "").strip()
             or "missing"
@@ -5059,6 +5315,14 @@ def _build_warning_and_trace_summary(
         "warnings_by_stage": _counter_to_sorted_dict(warnings_by_stage),
         "warning_buckets": _counter_to_sorted_dict(warning_buckets),
         "correction_empty_mapping_count": correction_empty_mapping_count,
+        "correction_empty_mapping_note": (
+            "Counts recipes where the correction mapping object was empty. "
+            "This does not imply the correction payload itself was empty."
+        ),
+        "correction_empty_output_count": correction_empty_output_count,
+        "correction_empty_mapping_with_nonempty_output_count": (
+            correction_empty_mapping_with_nonempty_output_count
+        ),
         "final_recipe_empty_mapping_count": final_recipe_empty_mapping_count,
         "recipe_warning_recipe_count": recipe_warning_recipe_count,
         "structural_problem_recipe_count": structural_problem_recipe_count,
@@ -5970,6 +6234,14 @@ def _write_starter_pack_v1(
         (
             "- correction_empty_mapping_count: "
             f"{warning_trace_summary.get('correction_empty_mapping_count')}"
+        ),
+        (
+            "- correction_empty_output_count: "
+            f"{warning_trace_summary.get('correction_empty_output_count')}"
+        ),
+        (
+            "- correction_empty_mapping_with_nonempty_output_count: "
+            f"{warning_trace_summary.get('correction_empty_mapping_with_nonempty_output_count')}"
         ),
         (
             "- recipe_warning_recipe_count: "
@@ -8224,7 +8496,7 @@ def _upload_bundle_build_failure_ledger(
                     or int(_coerce_int(triage_row.get("correction_step_count")) or 0) > 0
                     or int(_coerce_int(triage_row.get("correction_mapping_count")) or 0) > 0
                 ),
-                "empty_output_signal": bool(triage_row.get("correction_empty_mapping")),
+                "empty_output_signal": bool(triage_row.get("correction_empty_output")),
             },
             {
                 "stage_key": "build_final_recipe",
@@ -8264,7 +8536,7 @@ def _upload_bundle_build_failure_ledger(
                 ),
                 "empty_output_signal": bool(
                     triage_row.get("final_recipe_empty_mapping")
-                    or triage_row.get("correction_empty_mapping")
+                    or triage_row.get("correction_empty_output")
                 ),
             },
         ]
@@ -8309,17 +8581,30 @@ def _upload_bundle_build_failure_ledger(
                 if bool(stage_row["empty_output_signal"]) and (
                     bool(stage_row["call_observed"]) or bool(stage_row["output_signal"])
                 ):
-                    stage_semantics = "empty_output_signal"
-                    stage_semantics_explanation = (
-                        "Stage execution was observed, but the available output signal is empty "
-                        "(for example an empty ingredient-step mapping)."
-                    )
+                    if stage_key == "recipe_llm_correct_and_link":
+                        stage_semantics = "empty_output_without_manifest_status"
+                        stage_semantics_explanation = (
+                            "Recipe correction execution was observed, but the parsed correction "
+                            "payload was empty and no manifest/runtime status was recorded."
+                        )
+                    else:
+                        stage_semantics = "empty_output_signal"
+                        stage_semantics_explanation = (
+                            "Stage execution was observed, but the available output signal is empty."
+                        )
                 elif bool(stage_row["call_observed"]) or bool(stage_row["output_signal"]):
-                    stage_semantics = "projection_or_scoring_gap"
-                    stage_semantics_explanation = (
-                        "Stage execution was observed, but the bundle could not project/score "
-                        "that stage into a concrete status."
-                    )
+                    if stage_key == "recipe_llm_correct_and_link":
+                        stage_semantics = "nonempty_output_without_manifest_status"
+                        stage_semantics_explanation = (
+                            "Recipe correction execution was observed and the parsed correction "
+                            "payload was non-empty, but no manifest/runtime status was recorded."
+                        )
+                    else:
+                        stage_semantics = "projection_or_scoring_gap"
+                        stage_semantics_explanation = (
+                            "Stage execution was observed, but the bundle could not project/score "
+                            "that stage into a concrete status."
+                        )
                 else:
                     stage_semantics = "runtime_missing_or_unobserved"
                     stage_semantics_explanation = (
@@ -9746,6 +10031,16 @@ def _upload_bundle_matches_recipe_target(recipe_id: str, target: str) -> bool:
     return recipe_text.endswith(target_text)
 
 
+def _upload_bundle_regression_casebook_signal_key(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
+    return (
+        -int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0),
+        -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
+        -int(_coerce_int(row.get("recipe_error_count")) or 0),
+        -int(_coerce_int(row.get("recipe_warning_count")) or 0),
+        str(row.get("recipe_id") or ""),
+    )
+
+
 def _upload_bundle_build_regression_casebook(
     *,
     recipe_triage_rows: list[dict[str, Any]],
@@ -9763,6 +10058,12 @@ def _upload_bundle_build_regression_casebook(
             str(row.get("recipe_id") or ""),
         ),
     )
+    negative_delta_rows = [
+        row
+        for row in sorted_worst
+        if (_coerce_float(row.get("delta_codex_minus_baseline")) or 0.0) < 0.0
+    ]
+    signal_rows = sorted(recipe_triage_rows, key=_upload_bundle_regression_casebook_signal_key)
 
     for target in requested_targets:
         for row in sorted_worst:
@@ -9778,16 +10079,35 @@ def _upload_bundle_build_regression_casebook(
             selected_keys.add(key)
             break
 
-    for row in sorted_worst:
+    fill_source = negative_delta_rows
+    fill_reason = "top_negative_delta_fill"
+    suggested_target_source = "top_negative_delta_recipes"
+    if not fill_source:
+        fill_source = signal_rows
+        fill_reason = "top_signal_fill"
+        suggested_target_source = "top_signal_recipes"
+
+    for row in fill_source:
         key = _recipe_row_key(row)
         if key in selected_keys:
             continue
         row_copy = dict(row)
-        row_copy["selection_reason"] = "top_negative_delta_fill"
+        row_copy["selection_reason"] = fill_reason
         selected_rows.append(row_copy)
         selected_keys.add(key)
         if len(selected_rows) >= 10:
             break
+    if len(selected_rows) < 10 and fill_reason != "top_signal_fill":
+        for row in signal_rows:
+            key = _recipe_row_key(row)
+            if key in selected_keys:
+                continue
+            row_copy = dict(row)
+            row_copy["selection_reason"] = "top_signal_fill"
+            selected_rows.append(row_copy)
+            selected_keys.add(key)
+            if len(selected_rows) >= 10:
+                break
     selected_rows = selected_rows[:10]
 
     packets = _build_selected_recipe_packets(
@@ -9815,7 +10135,11 @@ def _upload_bundle_build_regression_casebook(
         )
     ]
     suggested_targets: list[str] = []
-    for row in sorted_worst:
+    suggested_rows = fill_source if fill_reason == "top_signal_fill" else negative_delta_rows
+    if not suggested_rows:
+        suggested_rows = signal_rows
+        suggested_target_source = "top_signal_recipes"
+    for row in suggested_rows:
         recipe_id = str(row.get("recipe_id") or "").strip()
         if not recipe_id or recipe_id in suggested_targets:
             continue
@@ -9832,7 +10156,7 @@ def _upload_bundle_build_regression_casebook(
             else ("partial" if found_targets else "none_found")
         ),
         "suggested_targets": suggested_targets,
-        "suggested_target_source": "top_negative_delta_recipes",
+        "suggested_target_source": suggested_target_source,
         "packet_count": len(packets),
         "packets": packets,
     }
@@ -10528,6 +10852,92 @@ def _upload_bundle_build_stage_observability_summary(
     }
 
 
+def _upload_bundle_assert_recipe_correction_output_accounting(
+    *,
+    stage_observability_summary: dict[str, Any],
+    correction_prompt_rows: list[dict[str, Any]] | None = None,
+    call_inventory_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    stage_rows = (
+        stage_observability_summary.get("by_stage")
+        if isinstance(stage_observability_summary.get("by_stage"), dict)
+        else {}
+    )
+    stage_payload = (
+        stage_rows.get("recipe_llm_correct_and_link")
+        if isinstance(stage_rows, dict)
+        else {}
+    )
+    stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
+    derived_recipe_count = int(_coerce_int(stage_payload.get("recipe_count")) or 0)
+    derived_output_signal_count = int(_coerce_int(stage_payload.get("output_signal_count")) or 0)
+    derived_empty_output_signal_count = int(
+        _coerce_int(stage_payload.get("empty_output_signal_count")) or 0
+    )
+
+    prompt_rows = correction_prompt_rows if isinstance(correction_prompt_rows, list) else []
+    observed_nonempty_recipe_output_count = 0
+    observed_recipe_output_count = 0
+    for prompt_row in prompt_rows:
+        parsed_response = _parse_json_like(prompt_row.get("parsed_response"))
+        for output_row in _upload_bundle_recipe_correction_output_rows(parsed_response):
+            observed_recipe_output_count += 1
+            metrics = _upload_bundle_recipe_correction_metrics(output_row)
+            if not metrics["empty_output"]:
+                observed_nonempty_recipe_output_count += 1
+
+    correction_call_rows = [
+        row
+        for row in (call_inventory_rows or [])
+        if isinstance(row, dict)
+        and str(row.get("stage_key") or "").strip() == "recipe_llm_correct_and_link"
+    ]
+    compact_nonempty_excerpt_re = re.compile(
+        r'"cr"\s*:\s*\{.*?"(?:i|s)"\s*:\s*\[\s*"',
+        re.DOTALL,
+    )
+    call_rows_with_nonempty_output = sum(
+        1
+        for row in correction_call_rows
+        if (
+            int(_coerce_int(row.get("extracted_ingredient_count")) or 0) > 0
+            or int(_coerce_int(row.get("step_count")) or 0) > 0
+            or int(_coerce_int(row.get("mapping_count")) or 0) > 0
+        )
+    )
+    excerpt_rows_with_nonempty_compact_output = sum(
+        1
+        for row in correction_call_rows
+        if compact_nonempty_excerpt_re.search(str(row.get("output_excerpt") or ""))
+    )
+
+    all_derived_empty = (
+        derived_recipe_count > 0
+        and derived_output_signal_count == 0
+        and derived_empty_output_signal_count >= derived_recipe_count
+    )
+    contradiction = all_derived_empty and (
+        observed_nonempty_recipe_output_count > 0
+        or call_rows_with_nonempty_output > 0
+        or excerpt_rows_with_nonempty_compact_output > 0
+    )
+    details = {
+        "derived_recipe_count": derived_recipe_count,
+        "derived_output_signal_count": derived_output_signal_count,
+        "derived_empty_output_signal_count": derived_empty_output_signal_count,
+        "observed_recipe_output_count": observed_recipe_output_count,
+        "observed_nonempty_recipe_output_count": observed_nonempty_recipe_output_count,
+        "call_rows_with_nonempty_output": call_rows_with_nonempty_output,
+        "excerpt_rows_with_nonempty_compact_output": excerpt_rows_with_nonempty_compact_output,
+    }
+    if contradiction:
+        raise ValueError(
+            "recipe correction output accounting mismatch: non-empty correction outputs "
+            "were observed while stage observability marked every correction output empty"
+        )
+    return details
+
+
 def _upload_bundle_bundle_prompt_log_summary(
     *,
     process_manifest_payload: dict[str, Any],
@@ -10633,7 +11043,9 @@ def _upload_bundle_build_turn1_summary(
         payload = payload if isinstance(payload, dict) else {}
         semantics = payload.get("status_semantics_counts")
         semantics = semantics if isinstance(semantics, dict) else {}
-        return int(_coerce_int(semantics.get("projection_or_scoring_gap")) or 0)
+        return int(_coerce_int(semantics.get("projection_or_scoring_gap")) or 0) + int(
+            _coerce_int(semantics.get("nonempty_output_without_manifest_status")) or 0
+        )
 
     diagnosis_flags: list[str] = []
     if bool(active_recipe_span_breakout.get("all_scored_lines_outside_active_recipe_spans")):
@@ -13534,6 +13946,17 @@ def _write_upload_bundle_three_files(
     stage_observability_summary = _upload_bundle_build_stage_observability_summary(
         failure_ledger
     )
+    recipe_correction_output_accounting = _upload_bundle_assert_recipe_correction_output_accounting(
+        stage_observability_summary=stage_observability_summary,
+        call_inventory_rows=call_inventory_rows,
+    )
+    self_check["recipe_correction_output_accounting_consistent"] = True
+    verification_details = self_check.get("verification_details")
+    verification_details = verification_details if isinstance(verification_details, dict) else {}
+    verification_details["recipe_correction_output_accounting"] = (
+        recipe_correction_output_accounting
+    )
+    self_check["verification_details"] = verification_details
     top_confusion_deltas = _aggregate_confusion_deltas(
         {"pairs": comparison_pairs},
         top_k=20,

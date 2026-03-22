@@ -15,7 +15,15 @@ from cookimport.bench.canonical_alignment_cache import (
     make_cache_entry,
     sha256_text,
 )
-from cookimport.bench.eval_stage_blocks import compute_block_metrics, load_stage_block_labels
+from cookimport.bench.eval_stage_blocks import (
+    _SEGMENTATION_LABEL_PROJECTION_CORE,
+    _build_boundary_mismatch_rows,
+    _build_projected_structural_sequences,
+    _compute_error_taxonomy,
+    compute_block_metrics,
+    load_stage_block_labels,
+)
+from cookimport.bench.segmentation_metrics import compute_segmentation_boundaries
 from cookimport.bench.sequence_matcher_select import (
     SequenceMatcher as SelectedSequenceMatcher,
     get_sequence_matcher_selection,
@@ -56,6 +64,8 @@ _AUTO_MIN_NONEMPTY_BLOCK_MATCH_RATIO = 0.98
 _AUTO_MIN_PREDICTION_CHAR_COVERAGE = 0.96
 _AUTO_LOCAL_CONFIDENCE_MIN_RATIO = 0.93
 _CANONICAL_BOUNDARY_OVERLAP_THRESHOLD = 0.5
+_CANONICAL_SEGMENTATION_BOUNDARY_TOLERANCE_BLOCKS = 0
+_CANONICAL_SEGMENTATION_METRICS_REQUESTED: tuple[str, ...] = ("boundary_f1",)
 
 try:  # pragma: no cover - non-Unix runtimes may not expose resource.
     import resource
@@ -1388,6 +1398,15 @@ def _rows_from_line_mismatches(
 def format_canonical_eval_report_md(report: dict[str, Any]) -> str:
     counts = report.get("counts") or {}
     alignment = report.get("alignment") or {}
+    segmentation = report.get("segmentation") or {}
+    segmentation_boundaries = (
+        segmentation.get("boundaries") if isinstance(segmentation, dict) else {}
+    )
+    segmentation_overall_micro = (
+        segmentation_boundaries.get("overall_micro")
+        if isinstance(segmentation_boundaries, dict)
+        else {}
+    )
     lines = [
         "# Canonical Text Evaluation",
         "",
@@ -1421,6 +1440,26 @@ def format_canonical_eval_report_md(report: dict[str, Any]) -> str:
             "- Prediction blocks matched: "
             f"{int(alignment.get('prediction_blocks_matched') or 0)}/"
             f"{int(alignment.get('prediction_block_count') or 0)}"
+        ),
+        "",
+        "## Structural Segmentation",
+        "",
+        (
+            "- Label projection: "
+            f"{str(segmentation.get('label_projection') or _SEGMENTATION_LABEL_PROJECTION_CORE)}"
+        ),
+        (
+            "- Boundary tolerance (lines): "
+            f"{int(segmentation.get('boundary_tolerance_blocks') or 0)}"
+        ),
+        (
+            "- Overall micro boundary F1: "
+            f"{float(segmentation_overall_micro.get('f1') or 0.0):.3f}"
+        ),
+        (
+            "- Boundary misses / false positives: "
+            f"{int(segmentation_overall_micro.get('fn') or 0)}/"
+            f"{int(segmentation_overall_micro.get('fp') or 0)}"
         ),
         "",
         "## Counts",
@@ -1460,6 +1499,10 @@ def evaluate_canonical_text(
     canonical_text = canonical_text_path.read_text(encoding="utf-8")
     canonical_lines = _build_canonical_lines(canonical_text)
     lines_by_index = {int(line["line_index"]): line for line in canonical_lines}
+    canonical_line_texts = {
+        int(line["line_index"]): str(line.get("text") or "")
+        for line in canonical_lines
+    }
     gold_spans = _load_canonical_gold_spans(canonical_spans_path)
     subphase_seconds["load_gold_seconds"] = max(0.0, time.monotonic() - load_gold_started)
 
@@ -1538,6 +1581,37 @@ def evaluate_canonical_text(
         "source_file": str(stage_payload.get("source_file") or ""),
         "source_hash": stage_payload.get("source_hash"),
     }
+    segmentation_started = time.monotonic()
+    (
+        projected_gold_labels,
+        projected_pred_labels,
+        projected_gold_by_index,
+        projected_pred_by_index,
+    ) = _build_projected_structural_sequences(
+        gold=gold_line_labels,
+        pred=pred_line_labels,
+        label_projection=_SEGMENTATION_LABEL_PROJECTION_CORE,
+    )
+    segmentation = compute_segmentation_boundaries(
+        labels_gold=projected_gold_labels,
+        labels_pred=projected_pred_labels,
+        tolerance_blocks=_CANONICAL_SEGMENTATION_BOUNDARY_TOLERANCE_BLOCKS,
+    )
+    report["segmentation"] = {
+        "label_projection": _SEGMENTATION_LABEL_PROJECTION_CORE,
+        "boundary_tolerance_blocks": _CANONICAL_SEGMENTATION_BOUNDARY_TOLERANCE_BLOCKS,
+        "metrics_requested": list(_CANONICAL_SEGMENTATION_METRICS_REQUESTED),
+        "boundaries": segmentation.get("boundaries", {}),
+        "error_taxonomy": _compute_error_taxonomy(
+            gold_projected=projected_gold_by_index,
+            pred_projected=projected_pred_by_index,
+            segmentation_boundaries=segmentation,
+        ),
+    }
+    subphase_seconds["segmentation_seconds"] = max(
+        0.0,
+        time.monotonic() - segmentation_started,
+    )
     boundary_started = time.monotonic()
     report["boundary"] = _compute_canonical_boundary_counts(
         canonical_lines=canonical_lines,
@@ -1564,6 +1638,12 @@ def evaluate_canonical_text(
         lines=canonical_lines,
         aligned_prediction_blocks=aligned_blocks,
     )
+    missed_boundary_rows, false_positive_boundary_rows = _build_boundary_mismatch_rows(
+        segmentation_boundaries=segmentation,
+        block_texts=canonical_line_texts,
+        workbook_slug=str(stage_payload.get("workbook_slug") or ""),
+        source_file=str(stage_payload.get("source_file") or ""),
+    )
     subphase_seconds["diagnostics_build_seconds"] = max(
         0.0,
         time.monotonic() - diagnostics_started,
@@ -1575,11 +1655,15 @@ def evaluate_canonical_text(
     aligned_blocks_path = out_dir / "aligned_prediction_blocks.jsonl"
     unmatched_blocks_path = out_dir / "unmatched_pred_blocks.jsonl"
     alignment_gaps_path = out_dir / "alignment_gaps.jsonl"
+    missed_boundaries_path = out_dir / "missed_gold_boundaries.jsonl"
+    false_positive_boundaries_path = out_dir / "false_positive_boundaries.jsonl"
     _write_jsonl(missed_lines_path, missed_rows)
     _write_jsonl(wrong_lines_path, wrong_rows)
     _write_jsonl(aligned_blocks_path, aligned_blocks)
     _write_jsonl(unmatched_blocks_path, unmatched_blocks)
     _write_jsonl(alignment_gaps_path, alignment_gaps)
+    _write_jsonl(missed_boundaries_path, missed_boundary_rows)
+    _write_jsonl(false_positive_boundaries_path, false_positive_boundary_rows)
 
     _write_jsonl(out_dir / "missed_gold_blocks.jsonl", missed_rows)
     _write_jsonl(out_dir / "wrong_label_blocks.jsonl", wrong_rows)
@@ -1594,12 +1678,19 @@ def evaluate_canonical_text(
         "alignment_gaps_jsonl": str(alignment_gaps_path),
         "missed_gold_blocks_jsonl": str(out_dir / "missed_gold_blocks.jsonl"),
         "wrong_label_blocks_jsonl": str(out_dir / "wrong_label_blocks.jsonl"),
+        "missed_gold_boundaries_jsonl": str(missed_boundaries_path),
+        "false_positive_boundaries_jsonl": str(false_positive_boundaries_path),
     }
 
     subphase_seconds["artifact_write_seconds"] = max(
         0.0,
         time.monotonic() - artifact_write_started,
     )
+    overall_boundary_metrics = (
+        report.get("segmentation", {}).get("boundaries", {}).get("overall_micro", {})
+    )
+    if not isinstance(overall_boundary_metrics, dict):
+        overall_boundary_metrics = {}
 
     evaluation_total_seconds = max(0.0, time.monotonic() - evaluation_started)
     resource_end = _capture_eval_resource_snapshot()
@@ -1650,6 +1741,18 @@ def evaluate_canonical_text(
             "alignment_nonempty_prediction_blocks_matched": float(
                 _coerce_int(alignment.get("nonempty_prediction_blocks_matched")) or 0
             ),
+            "segmentation_gold_boundary_count": float(
+                int(overall_boundary_metrics.get("gold_count") or 0)
+            ),
+            "segmentation_pred_boundary_count": float(
+                int(overall_boundary_metrics.get("pred_count") or 0)
+            ),
+            "segmentation_false_positive_boundary_count": float(
+                int(overall_boundary_metrics.get("fp") or 0)
+            ),
+            "segmentation_missed_boundary_count": float(
+                int(overall_boundary_metrics.get("fn") or 0)
+            ),
         },
     }
     extra_matcher_telemetry = matcher_telemetry.get("extra")
@@ -1672,4 +1775,6 @@ def evaluate_canonical_text(
         "report": report,
         "missed_gold_blocks": missed_rows,
         "wrong_label_blocks": wrong_rows,
+        "missed_gold_boundaries": missed_boundary_rows,
+        "false_positive_boundaries": false_positive_boundary_rows,
     }

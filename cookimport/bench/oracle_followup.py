@@ -21,6 +21,7 @@ from cookimport.bench.oracle_upload import (
     OracleBenchmarkBundleTarget,
     OracleUploadAudit,
     OracleUploadResult,
+    _oracle_browser_env,
     _detect_oracle_version,
     _find_matching_oracle_session_snapshot,
     _oracle_background_launch_dir,
@@ -770,6 +771,16 @@ def _build_continue_session_command(
     ]
 
 
+def _oracle_followup_browser_env(source_metadata: dict[str, Any]) -> dict[str, str]:
+    env = _oracle_browser_env()
+    browser_profile_text = str(source_metadata.get("browser_profile_dir") or "").strip()
+    if browser_profile_text:
+        browser_profile_dir = Path(browser_profile_text).expanduser()
+        env["ORACLE_BROWSER_PROFILE_DIR"] = str(browser_profile_dir)
+        env["ORACLE_HOME_DIR"] = str(browser_profile_dir.parent)
+    return env
+
+
 def _classify_continue_session_result(
     *,
     completed: subprocess.CompletedProcess[str],
@@ -854,6 +865,7 @@ def run_oracle_benchmark_followup(
         from_run=from_run,
         allow_missing_requested_section=request_file is not None,
     )
+    source_metadata = _read_json_file(source.metadata_path)
     if request_file is not None:
         request_manifest = _read_json_file(request_file)
         parsed = parse_requested_followup_text(source.requested_followup_text)
@@ -876,12 +888,14 @@ def run_oracle_benchmark_followup(
         prompt=prompt_text,
         followup_packet_dir=workspace.followup_packet_dir,
     )
+    browser_env = _oracle_followup_browser_env(source_metadata)
     metadata_payload = {
         "bundle_dir": str(target.bundle_dir),
         "source_root": str(target.source_root),
         "scope": target.scope,
         "mode": "browser",
         "model": resolved_model,
+        "browser_profile_dir": str(browser_env.get("ORACLE_BROWSER_PROFILE_DIR") or ""),
         "command": command,
         "log_path": str(workspace.log_path),
         "metadata_path": str(workspace.metadata_path),
@@ -956,6 +970,7 @@ def run_oracle_benchmark_followup(
         check=False,
         capture_output=True,
         text=True,
+        env=browser_env,
     )
     combined = "\n".join(part for part in [completed.stdout or "", completed.stderr or ""] if part).strip()
     workspace.log_path.write_text(

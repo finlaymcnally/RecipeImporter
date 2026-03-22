@@ -62,10 +62,12 @@ from .codex_farm_runner import (
     resolve_codex_farm_output_schema_path,
 )
 from .knowledge_workspace_tools import (
+    build_current_batch_payload,
     build_workspace_inventory_task_row,
     check_workspace_draft,
     current_task_draft_path,
     resolve_current_task_row,
+    write_current_batch_and_task_sidecars,
     write_current_task_sidecars,
     write_current_task_scaffold,
     write_knowledge_workspace_sidecars,
@@ -261,7 +263,7 @@ def _decorate_knowledge_workspace_task_runtime_entry(
             "task_total": int(task_total),
             "lease_sequence": int(task_sequence),
             "lease_total": int(task_total),
-            "workspace_processing_contract": "ordered_task_queue_v1",
+            "workspace_processing_contract": "ordered_task_micro_batch_v1",
         }
     )
     return replace(task_entry, metadata=metadata)
@@ -2584,121 +2586,119 @@ class _KnowledgeWorkspaceTaskQueueController:
         }
 
     def observe_current_output(self) -> dict[str, Any]:
-        entry = self.current_task_entry()
-        if entry is None:
-            self.current_validation_errors = ()
-            self._write_current_sidecars()
-            return {
-                "current_task_id": None,
-                "current_output_present": False,
-                "advanced": False,
-                "valid": True,
-                "validation_errors": (),
-                "queue_complete": True,
-            }
-        task_row = build_workspace_inventory_task_row(asdict(entry))
-        output_path = self._output_path(entry)
-        if not output_path.exists():
-            self.current_validation_errors = ()
-            return {
-                "current_task_id": str(entry.task_id),
-                "current_output_present": False,
-                "advanced": False,
-                "valid": False,
-                "validation_errors": (),
-                "queue_complete": False,
-            }
-        try:
-            check_result = check_workspace_draft(
-                workspace_root=self.worker_root,
-                draft_path=output_path,
-            )
-        except Exception as exc:  # noqa: BLE001
-            self.current_validation_errors = ("draft_validation_exception",)
-            write_current_task_sidecars(
-                workspace_root=self.worker_root,
-                task_row=task_row,
-                current_draft_path=output_path,
-            )
-            feedback_path = self.worker_root / "CURRENT_TASK_FEEDBACK.md"
-            feedback_path.write_text(
-                "\n".join(
-                    [
-                        "# Current Task Feedback",
-                        "",
-                        f"Task id: `{task_row.get('task_id')}`",
-                        "Validation status: FAILED.",
-                        "",
-                        "Validator errors:",
-                        f"- `draft_validation_exception`",
-                        "",
-                        "How to fix it:",
-                        f"- {str(exc).strip() or 'Fix the JSON shape and re-run check-current.'}",
-                    ]
+        advanced = False
+        saw_output = False
+        last_validation_errors: tuple[str, ...] = ()
+        while True:
+            entry = self.current_task_entry()
+            if entry is None:
+                self.current_validation_errors = ()
+                self._write_current_sidecars()
+                return {
+                    "current_task_id": None,
+                    "current_output_present": saw_output,
+                    "advanced": advanced,
+                    "valid": True,
+                    "validation_errors": (),
+                    "queue_complete": True,
+                }
+            task_row = build_workspace_inventory_task_row(asdict(entry))
+            output_path = self._output_path(entry)
+            if not output_path.exists():
+                self.current_validation_errors = ()
+                return {
+                    "current_task_id": str(entry.task_id),
+                    "current_output_present": saw_output,
+                    "advanced": advanced,
+                    "valid": False,
+                    "validation_errors": last_validation_errors,
+                    "queue_complete": False,
+                }
+            saw_output = True
+            try:
+                check_result = check_workspace_draft(
+                    workspace_root=self.worker_root,
+                    draft_path=output_path,
                 )
-                + "\n",
-                encoding="utf-8",
-            )
-            return {
-                "current_task_id": str(entry.task_id),
-                "current_output_present": True,
-                "advanced": False,
-                "valid": False,
-                "validation_errors": ("draft_validation_exception",),
-                "queue_complete": False,
-            }
-        self.current_validation_errors = tuple(check_result.errors)
-        if not check_result.valid:
-            write_current_task_sidecars(
-                workspace_root=self.worker_root,
-                task_row=task_row,
-                check_result=check_result,
-                current_draft_path=output_path,
-            )
-            return {
-                "current_task_id": str(entry.task_id),
-                "current_output_present": True,
-                "advanced": False,
-                "valid": False,
-                "validation_errors": tuple(check_result.errors),
-                "queue_complete": False,
-            }
-        task_id = str(entry.task_id).strip()
-        if task_id:
-            self.validated_task_ids.add(task_id)
-        if self.task_status_tracker is not None and task_id:
-            self.task_status_tracker.mark_main_output_written(
-                task_id=task_id,
-                metadata={
-                    "leased_packet_result_path": str(
-                        (entry.metadata or {}).get("result_path") or ""
-                    ).strip()
-                    or None,
-                    "live_validated": True,
-                },
-            )
-        self.current_index += 1
-        self.current_validation_errors = ()
-        self._write_current_sidecars()
-        return {
-            "current_task_id": task_id or None,
-            "current_output_present": True,
-            "advanced": True,
-            "valid": True,
-            "validation_errors": (),
-            "queue_complete": self.is_complete(),
-        }
+            except Exception as exc:  # noqa: BLE001
+                self.current_validation_errors = ("draft_validation_exception",)
+                write_current_task_sidecars(
+                    workspace_root=self.worker_root,
+                    task_row=task_row,
+                    current_draft_path=output_path,
+                )
+                feedback_path = self.worker_root / "CURRENT_TASK_FEEDBACK.md"
+                feedback_path.write_text(
+                    "\n".join(
+                        [
+                            "# Current Task Feedback",
+                            "",
+                            f"Task id: `{task_row.get('task_id')}`",
+                            "Validation status: FAILED.",
+                            "",
+                            "Validator errors:",
+                            f"- `draft_validation_exception`",
+                            "",
+                            "How to fix it:",
+                            f"- {str(exc).strip() or 'Fix the JSON shape and re-run check-current.'}",
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return {
+                    "current_task_id": str(entry.task_id),
+                    "current_output_present": True,
+                    "advanced": advanced,
+                    "valid": False,
+                    "validation_errors": ("draft_validation_exception",),
+                    "queue_complete": False,
+                }
+            self.current_validation_errors = tuple(check_result.errors)
+            if not check_result.valid:
+                write_current_task_sidecars(
+                    workspace_root=self.worker_root,
+                    task_row=task_row,
+                    check_result=check_result,
+                    current_draft_path=output_path,
+                )
+                return {
+                    "current_task_id": str(entry.task_id),
+                    "current_output_present": True,
+                    "advanced": advanced,
+                    "valid": False,
+                    "validation_errors": tuple(check_result.errors),
+                    "queue_complete": False,
+                }
+            task_id = str(entry.task_id).strip()
+            if task_id:
+                self.validated_task_ids.add(task_id)
+            if self.task_status_tracker is not None and task_id:
+                self.task_status_tracker.mark_main_output_written(
+                    task_id=task_id,
+                    metadata={
+                        "leased_packet_result_path": str(
+                            (entry.metadata or {}).get("result_path") or ""
+                        ).strip()
+                        or None,
+                        "live_validated": True,
+                    },
+                )
+            self.current_index += 1
+            self.current_validation_errors = ()
+            advanced = True
+            last_validation_errors = ()
+            self._write_current_sidecars()
 
     def _write_current_sidecars(self) -> None:
-        entry = self.current_task_entry()
-        task_row = (
+        task_rows = [
             build_workspace_inventory_task_row(asdict(entry))
-            if entry is not None
-            else None
-        )
-        write_current_task_sidecars(
+            for entry in self.task_entries
+        ]
+        write_current_batch_and_task_sidecars(
             workspace_root=self.worker_root,
-            task_row=task_row,
+            task_rows=task_rows,
+            current_index=self.current_index,
             current_draft_path=current_task_draft_path(workspace_root=self.worker_root),
         )
 
@@ -3138,23 +3138,23 @@ def _build_knowledge_workspace_worker_prompt(
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "",
-        "Process the repo-written ordered packet queue in this workspace one current task at a time. The current working directory is already the workspace root.",
-        "The assignment is complete only when the repo removes `current_task.json` and the current-task sidecars say no current task is active / the queue is complete.",
+        "Process the repo-written ordered packet queue in this workspace as small repo-owned consecutive batches. The current working directory is already the workspace root.",
+        "The assignment is complete only when the repo removes `current_batch.json` and the batch sidecars say no current batch is active / the queue is complete.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then `CURRENT_TASK.md`, then `current_task.json`, then `CURRENT_TASK_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
-        "2. Treat `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative current-task surface. `assigned_tasks.json` is the ordered queue/progress reference.",
-        "3. Open only the files named by the current task row: `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`.",
-        "4. Use the paved road: run `python3 tools/knowledge_worker.py complete-current`, edit `scratch/current_task.json`, run `python3 tools/knowledge_worker.py check-current`, and run `python3 tools/knowledge_worker.py install-current` only after `check-current` says OK.",
-        "5. A task is not finished until `check-current` prints `OK ...`. Direct writes to `out/<task_id>.json` without a passing `check-current` are incomplete work.",
-        "6. After each validation failure, re-open `CURRENT_TASK_FEEDBACK.md`. After each successful install, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If a new current task is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo will mutate the current-task files when the validator accepts the packet.",
-        "7. If you need orientation, use `python3 tools/knowledge_worker.py current`, `python3 tools/knowledge_worker.py explain-failure`, `python3 tools/knowledge_worker.py overview`, or `python3 tools/knowledge_worker.py show <task_id>` instead of dumping the queue back to yourself.",
+        "1. Open `worker_manifest.json`, then `CURRENT_BATCH.md`, then `current_batch.json`, then `CURRENT_BATCH_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
+        "2. Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative current-batch surface. `assigned_tasks.json` is only the ordered queue/progress reference. Single-task `CURRENT_TASK*` files are fallback recovery surfaces for the first active task.",
+        "3. Open the raw hint/input files named by the current batch only when the batch packet is insufficient: `tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path` in `current_batch.json`.",
+        "4. Use the paved road: run `python3 tools/knowledge_worker.py complete-batch`, edit the prewritten drafts under `scratch/current_batch/`, run `python3 tools/knowledge_worker.py check-batch`, and run `python3 tools/knowledge_worker.py install-batch` after the checker says OK or when you want the repo to install the longest valid prefix you already repaired.",
+        "5. A task is not finished until its batch draft validates. Direct writes to `out/<task_id>.json` without a passing repo-written checker are incomplete work.",
+        "6. After each validation failure, re-open `CURRENT_BATCH_FEEDBACK.md`. After each successful install, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`. If a new batch is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo owns batch advancement.",
+        "7. If you need orientation, use `python3 tools/knowledge_worker.py current-batch`, `python3 tools/knowledge_worker.py next-batch`, `python3 tools/knowledge_worker.py explain-failure`, `python3 tools/knowledge_worker.py overview`, or `python3 tools/knowledge_worker.py show-batch` instead of dumping the queue back to yourself.",
         "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, broad inline schedulers, or one-off validators.",
         "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
-        "10. Write one completed semantic packet result file for the current task only. Do not work ahead on later tasks while the current task is still failing validation or awaiting repo advancement through the repo-owned current-task bundle.",
-        "11. Do not invent extra packets, skip owned chunks, or write outside the listed `metadata.result_path` file.",
-        "12. Do not invent your own batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, or run extra shell checks against finished files in `out/` beyond the repo-written `check-current` loop.",
+        "10. Write one completed semantic packet result file per listed batch task only. Do not work ahead on later tasks outside the current batch while the repo-owned batch still has unaccepted drafts.",
+        "11. Do not invent extra packets, skip owned chunks, or write outside the listed `result_path` files.",
+        "12. Do not invent your own shell batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, or run extra shell checks against finished files in `out/` beyond the repo-written `check-batch` / `install-batch` loop.",
         "",
         "Semantic packet result contract for each assigned result path:",
         "- Write exactly one JSON object.",
