@@ -304,6 +304,48 @@ def test_workspace_boundary_detector_allows_bounded_python_and_node_transforms()
         }
 
 
+def test_workspace_boundary_detector_allows_execution_root_cd_and_manifest_reads(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    execution_root = tmp_path / ".codex-recipe" / "runtime" / "worker-001"
+    command = (
+        f'/bin/bash -lc "cd {execution_root} && '
+        'cat worker_manifest.json current_task.json OUTPUT_CONTRACT.md >/dev/null"'
+    )
+
+    assert (
+        detect_workspace_worker_boundary_violation(
+            command,
+            allowed_absolute_roots=[source_root, execution_root],
+        )
+        is None
+    )
+    verdict = classify_workspace_worker_command(
+        command,
+        allowed_absolute_roots=[source_root, execution_root],
+    )
+    assert verdict.allowed is True
+    assert verdict.policy in {
+        "shell_script_workspace_local",
+        "tolerated_workspace_shell_command",
+    }
+
+
+def test_workspace_boundary_detector_allows_local_cp_and_mv_between_scratch_and_out() -> None:
+    for command in (
+        '/bin/bash -lc "cp scratch/task-001.json out/task-001.json"',
+        '/bin/bash -lc "mv scratch/task-001.json out/task-001.json"',
+    ):
+        assert detect_workspace_worker_boundary_violation(command) is None
+        verdict = classify_workspace_worker_command(command)
+        assert verdict.allowed is True
+        assert verdict.policy in {
+            "shell_script_workspace_local",
+            "tolerated_workspace_shell_command",
+        }
+
+
 def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
     tmp_path: Path,
 ) -> None:
@@ -374,8 +416,10 @@ def test_workspace_supervision_pushes_advanced_current_task_bundle_back_to_execu
 
     callback_calls: list[int] = []
 
-    def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:  # noqa: ARG001
+    def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         callback_calls.append(len(callback_calls) + 1)
+        assert snapshot.source_working_dir == str(source_root)
+        assert snapshot.execution_working_dir == str(execution_root)
         if len(callback_calls) == 1:
             (source_root / "current_task.json").write_text(
                 json.dumps(

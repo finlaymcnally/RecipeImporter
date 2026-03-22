@@ -9,9 +9,9 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_labelstudio_benchmark_prunes_transient_artifacts_only_after_csv_append(
+def _run_prune_after_csv_fixture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
@@ -160,14 +160,36 @@ def test_labelstudio_benchmark_prunes_transient_artifacts_only_after_csv_append(
         eval_output_dir=eval_root,
         no_upload=True,
     )
+    csv_path = cli.history_csv_for_output(tmp_path / "output")
+    return {
+        "call_order": call_order,
+        "eval_root": eval_root,
+        "processed_run_root": processed_run_root,
+        "csv_path": csv_path,
+    }
+
+
+def test_labelstudio_benchmark_prunes_transient_artifacts_only_after_csv_append(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_prune_after_csv_fixture(monkeypatch, tmp_path)
+    call_order = fixture["call_order"]
 
     assert call_order.count("append_csv") == 1
     assert call_order.count("prune") >= 1
     assert call_order.index("append_csv") < call_order.index("prune")
+
+
+def test_labelstudio_benchmark_prune_preserves_history_csv_before_removing_roots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_prune_after_csv_fixture(monkeypatch, tmp_path)
+    eval_root = fixture["eval_root"]
+    processed_run_root = fixture["processed_run_root"]
+    csv_path = fixture["csv_path"]
+
     assert not eval_root.exists()
     assert not processed_run_root.exists()
-
-    csv_path = cli.history_csv_for_output(tmp_path / "output")
     assert csv_path.exists()
     with csv_path.open("r", newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -177,9 +199,9 @@ def test_labelstudio_benchmark_prunes_transient_artifacts_only_after_csv_append(
     assert float(matching_row["precision"]) == pytest.approx(1.0)
     assert float(matching_row["recall"]) == pytest.approx(1.0)
 
-def test_labelstudio_benchmark_disables_prune_when_interactive_cli_active(
+def _run_interactive_prune_fixture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
@@ -325,9 +347,30 @@ def test_labelstudio_benchmark_disables_prune_when_interactive_cli_active(
         )
     finally:
         cli._INTERACTIVE_CLI_ACTIVE.reset(interactive_token)
+    return {
+        "prune_calls": prune_calls,
+        "eval_root": eval_root,
+        "processed_run_root": processed_run_root,
+    }
 
+
+def test_labelstudio_benchmark_disables_prune_when_interactive_cli_active(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_interactive_prune_fixture(monkeypatch, tmp_path)
+    prune_calls = fixture["prune_calls"]
     assert prune_calls
     assert all(bool(call["suppress_output_prune"]) for call in prune_calls)
+
+
+def test_labelstudio_benchmark_keeps_artifacts_when_interactive_cli_active(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_interactive_prune_fixture(monkeypatch, tmp_path)
+    eval_root = fixture["eval_root"]
+    processed_run_root = fixture["processed_run_root"]
+    assert eval_root.exists()
+    assert processed_run_root.exists()
 
 def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

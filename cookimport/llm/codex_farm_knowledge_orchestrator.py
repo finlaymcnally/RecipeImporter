@@ -99,6 +99,7 @@ _KNOWLEDGE_WATCHDOG_RETRY_SILENCE_TIMEOUT_SECONDS = 90
 _KNOWLEDGE_WATCHDOG_RETRY_TIMEOUT_SECONDS = 300
 _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
 _KNOWLEDGE_WORKSPACE_PROGRESS_GRACE_COMMANDS = 24
+_KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES = 2
 _KNOWLEDGE_TASK_STATUS_FILE_NAME = "task_status.jsonl"
 _KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 _KNOWLEDGE_TASK_STATUS_SCHEMA_VERSION = "knowledge_task_status.v1"
@@ -2008,6 +2009,11 @@ def _run_direct_knowledge_workers_v1(
         ],
         stage_rows=stage_rows,
     )
+    process_run_summary = process_run_payload.get("telemetry", {}).get("summary")
+    if isinstance(process_run_summary, dict):
+        process_run_summary.update(
+            _summarize_knowledge_workspace_relaunches(worker_reports)
+        )
     return manifest, worker_reports, process_run_payload
 
 
@@ -2217,6 +2223,8 @@ def _write_knowledge_runtime_summary_artifacts(
             for row in proposal_promotion_rows
         ),
     }
+    telemetry_summary = _summarize_direct_rows(stage_rows)
+    telemetry_summary.update(_summarize_knowledge_workspace_relaunches(worker_reports))
     telemetry = {
         "schema_version": "phase_worker_runtime.telemetry.v1",
         "phase_key": phase_key,
@@ -2228,7 +2236,7 @@ def _write_knowledge_runtime_summary_artifacts(
         "failure_count": len(failures),
         "fresh_agent_count": len(assignments),
         "rows": [dict(row) for row in stage_rows],
-        "summary": _summarize_direct_rows(stage_rows),
+        "summary": telemetry_summary,
     }
     _write_json(promotion_report, run_root / artifacts["promotion_report"])
     _write_json(telemetry, run_root / artifacts["telemetry"])
@@ -2629,6 +2637,176 @@ class _KnowledgeWorkspaceTaskQueueController:
         return self.worker_root / result_path
 
 
+def _detect_knowledge_workspace_premature_clean_exit(
+    *,
+    run_result: CodexExecRunResult,
+    task_queue_controller: _KnowledgeWorkspaceTaskQueueController,
+    current_task_id_before_run: str | None,
+    validated_task_count_before_run: int,
+) -> dict[str, Any] | None:
+    if str(run_result.supervision_state or "completed").strip() != "completed":
+        return None
+    if task_queue_controller.is_complete():
+        return None
+    current_task_id_after_run = task_queue_controller.current_task_id()
+    validated_task_count_after_run = task_queue_controller.validated_task_count
+    if validated_task_count_after_run <= validated_task_count_before_run:
+        return None
+    if (
+        not current_task_id_before_run
+        or not current_task_id_after_run
+        or current_task_id_before_run == current_task_id_after_run
+    ):
+        return None
+    final_agent_message = assess_final_agent_message(
+        run_result.response_text,
+        workspace_mode="workspace_worker",
+    )
+    reason_detail = (
+        "knowledge workspace worker validated repo-owned output, advanced the "
+        f"current task from {current_task_id_before_run} to {current_task_id_after_run}, "
+        "then exited cleanly before the queue completed; relaunching the remaining queue"
+    )
+    if final_agent_message.text:
+        reason_detail = (
+            f"{reason_detail}; final message: {final_agent_message.text}"
+        )
+    return {
+        "state": "retrying",
+        "reason_code": "workspace_validated_task_queue_premature_clean_exit",
+        "reason_detail": reason_detail,
+        "retryable": True,
+        "watchdog_policy": "workspace_worker_v1",
+        **task_queue_controller.status_payload(),
+    }
+
+
+def _knowledge_workspace_relaunch_history_entry(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "reason_code": str(payload.get("reason_code") or "").strip() or None,
+        "reason_detail": str(payload.get("reason_detail") or "").strip() or None,
+        "state": str(payload.get("state") or "").strip() or None,
+    }
+
+
+def _knowledge_workspace_relaunch_metadata(
+    relaunch_history: Sequence[Mapping[str, Any]],
+    *,
+    cap_reached: bool = False,
+) -> dict[str, Any]:
+    history = [dict(row) for row in relaunch_history if isinstance(row, Mapping)]
+    reason_codes = [
+        str(row.get("reason_code") or "").strip()
+        for row in history
+        if str(row.get("reason_code") or "").strip()
+    ]
+    return {
+        "workspace_relaunch_count": len(history),
+        "workspace_relaunch_max": _KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES,
+        "workspace_relaunch_cap_reached": bool(cap_reached),
+        "workspace_relaunch_reason_codes": reason_codes,
+        "workspace_premature_clean_exit_count": sum(
+            1
+            for code in reason_codes
+            if code == "workspace_validated_task_queue_premature_clean_exit"
+        ),
+        "workspace_relaunch_history": history,
+    }
+
+
+def _build_knowledge_workspace_relaunch_cap_reached_payload(
+    *,
+    premature_clean_exit_payload: Mapping[str, Any],
+    task_queue_controller: _KnowledgeWorkspaceTaskQueueController,
+) -> dict[str, Any]:
+    reason_detail = str(premature_clean_exit_payload.get("reason_detail") or "").strip()
+    if reason_detail:
+        reason_detail = (
+            f"{reason_detail}; automatic relaunch cap "
+            f"({_KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES}) reached"
+        )
+    else:
+        reason_detail = (
+            "knowledge workspace worker kept exiting cleanly after visible queue "
+            "advancement, and the automatic relaunch cap was reached"
+        )
+    return {
+        "state": "completed_with_failures",
+        "reason_code": (
+            "workspace_validated_task_queue_premature_clean_exit_cap_reached"
+        ),
+        "reason_detail": reason_detail,
+        "retryable": False,
+        "watchdog_policy": "workspace_worker_v1",
+        **task_queue_controller.status_payload(),
+    }
+
+
+def _merge_live_status_metadata(path: Path, *, payload: Mapping[str, Any]) -> None:
+    if not path.exists():
+        return
+    current_payload = _load_json_dict(path)
+    if not current_payload:
+        return
+    merged = {
+        **dict(current_payload),
+        **dict(payload),
+    }
+    _write_live_status(path, merged)
+
+
+def _combine_workspace_worker_run_results(
+    run_results: Sequence[CodexExecRunResult],
+) -> CodexExecRunResult:
+    if len(run_results) == 1:
+        return run_results[0]
+    first = run_results[0]
+    last = run_results[-1]
+    usage = {
+        "input_tokens": sum(int((result.usage or {}).get("input_tokens") or 0) for result in run_results),
+        "cached_input_tokens": sum(
+            int((result.usage or {}).get("cached_input_tokens") or 0)
+            for result in run_results
+        ),
+        "output_tokens": sum(int((result.usage or {}).get("output_tokens") or 0) for result in run_results),
+        "reasoning_tokens": sum(
+            int((result.usage or {}).get("reasoning_tokens") or 0)
+            for result in run_results
+        ),
+    }
+    stdout_parts = [str(result.stdout_text or "").strip() for result in run_results if str(result.stdout_text or "").strip()]
+    stderr_parts = [str(result.stderr_text or "").strip() for result in run_results if str(result.stderr_text or "").strip()]
+    return CodexExecRunResult(
+        command=list(last.command or first.command),
+        subprocess_exit_code=last.subprocess_exit_code,
+        output_schema_path=last.output_schema_path or first.output_schema_path,
+        prompt_text=last.prompt_text or first.prompt_text,
+        response_text=last.response_text,
+        turn_failed_message=last.turn_failed_message,
+        events=tuple(
+            event
+            for result in run_results
+            for event in result.events
+        ),
+        usage=usage,
+        stderr_text="\n".join(stderr_parts) if stderr_parts else None,
+        stdout_text="\n".join(stdout_parts) if stdout_parts else None,
+        source_working_dir=last.source_working_dir or first.source_working_dir,
+        execution_working_dir=last.execution_working_dir or first.execution_working_dir,
+        execution_agents_path=last.execution_agents_path or first.execution_agents_path,
+        duration_ms=sum(int(result.duration_ms or 0) for result in run_results),
+        started_at_utc=first.started_at_utc,
+        finished_at_utc=last.finished_at_utc,
+        workspace_mode=last.workspace_mode,
+        supervision_state=last.supervision_state,
+        supervision_reason_code=last.supervision_reason_code,
+        supervision_reason_detail=last.supervision_reason_detail,
+        supervision_retryable=last.supervision_retryable,
+    )
+
+
 def _load_task_status_state_counts(path: Path) -> dict[str, int]:
     if not path.exists() or not path.is_file():
         return {}
@@ -2657,6 +2835,7 @@ def _knowledge_artifact_dir_has_files(path: Path) -> bool:
 def _collect_knowledge_pre_kill_failure_counts(stage_root: Path) -> dict[str, Any]:
     worker_terminal_states: dict[str, int] = {}
     worker_reason_codes: dict[str, int] = {}
+    worker_relaunch_reason_codes: dict[str, int] = {}
     for live_status_path in stage_root.rglob("*live_status.json"):
         payload = _load_json_dict(live_status_path)
         if not payload:
@@ -2667,10 +2846,18 @@ def _collect_knowledge_pre_kill_failure_counts(stage_root: Path) -> dict[str, An
             worker_terminal_states[state] = worker_terminal_states.get(state, 0) + 1
         if reason_code:
             worker_reason_codes[reason_code] = worker_reason_codes.get(reason_code, 0) + 1
+        for code in payload.get("workspace_relaunch_reason_codes") or []:
+            cleaned = str(code or "").strip()
+            if not cleaned:
+                continue
+            worker_relaunch_reason_codes[cleaned] = (
+                worker_relaunch_reason_codes.get(cleaned, 0) + 1
+            )
     task_state_counts = _load_task_status_state_counts(stage_root / _KNOWLEDGE_TASK_STATUS_FILE_NAME)
     return {
         "worker_terminal_states": worker_terminal_states,
         "worker_reason_codes": worker_reason_codes,
+        "worker_relaunch_reason_codes": worker_relaunch_reason_codes,
         "task_terminal_states": task_state_counts,
     }
 
@@ -2879,6 +3066,7 @@ def _build_knowledge_workspace_worker_prompt(
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "",
         "Process the repo-written ordered packet queue in this workspace one current task at a time. The current working directory is already the workspace root.",
+        "The assignment is complete only when the repo removes `current_task.json` and the current-task sidecars say no current task is active / the queue is complete.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
@@ -2887,7 +3075,7 @@ def _build_knowledge_workspace_worker_prompt(
         "3. Open only the files named by the current task row: `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`.",
         "4. Use the paved road: run `python3 tools/knowledge_worker.py complete-current`, edit `scratch/current_task.json`, run `python3 tools/knowledge_worker.py check-current`, and run `python3 tools/knowledge_worker.py install-current` only after `check-current` says OK.",
         "5. A task is not finished until `check-current` prints `OK ...`. Direct writes to `out/<task_id>.json` without a passing `check-current` are incomplete work.",
-        "6. After each validation failure, re-open `CURRENT_TASK_FEEDBACK.md`. After each successful install, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If a new current task is active, continue with it. Do not invent your own queue advancement; the repo will mutate the current-task files when the validator accepts the packet.",
+        "6. After each validation failure, re-open `CURRENT_TASK_FEEDBACK.md`. After each successful install, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If a new current task is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo will mutate the current-task files when the validator accepts the packet.",
         "7. If you need orientation, use `python3 tools/knowledge_worker.py current`, `python3 tools/knowledge_worker.py explain-failure`, `python3 tools/knowledge_worker.py overview`, or `python3 tools/knowledge_worker.py show <task_id>` instead of dumping the queue back to yourself.",
         "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, broad inline schedulers, or one-off validators.",
         "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
@@ -3373,7 +3561,7 @@ def _run_knowledge_workspace_worker_assignment_v1(
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
                 execution_workspace_root=worker_root,
-                forbid_inline_python_heredocs=True,
+                forbid_inline_python_heredocs=False,
                 expected_workspace_output_paths=[
                     out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
                 ],
@@ -4495,13 +4683,20 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                         ),
                     },
                 )
-        run_result = runner.run_workspace_worker(
-            prompt_text=worker_prompt_text,
-            working_dir=worker_root,
-            env=env,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            workspace_task_label="knowledge worker session",
+        workspace_session_results: list[CodexExecRunResult] = []
+        workspace_relaunch_count = 0
+        workspace_relaunch_history: list[dict[str, Any]] = []
+        cap_reached_payload: dict[str, Any] | None = None
+        while True:
+            current_task_id_before_run = task_queue_controller.current_task_id()
+            validated_task_count_before_run = task_queue_controller.validated_task_count
+            session_result = runner.run_workspace_worker(
+                prompt_text=worker_prompt_text,
+                working_dir=worker_root,
+                env=env,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                workspace_task_label="knowledge worker session",
             supervision_callback=_build_strict_json_watchdog_callback(
                 live_status_path=worker_live_status_path,
                 live_status_paths=shard_live_status_paths,
@@ -4509,24 +4704,62 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
                 execution_workspace_root=worker_root,
-                forbid_inline_python_heredocs=True,
+                forbid_inline_python_heredocs=False,
                 expected_workspace_output_paths=[
                     out_dir / f"{task.task_id}.json" for task in runnable_tasks
                 ],
                 task_queue_controller=task_queue_controller,
                 workspace_output_observer=(
-                    None
-                    if progress_state is None
-                    else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
-                        progress_state.observe_workspace_outputs(
-                            worker_id=_worker_id,
-                            present_count=present_count,
-                            expected_count=expected_count,
+                        None
+                        if progress_state is None
+                        else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
+                            progress_state.observe_workspace_outputs(
+                                worker_id=_worker_id,
+                                present_count=present_count,
+                                expected_count=expected_count,
+                            )
                         )
-                    )
+                    ),
                 ),
-            ),
-        )
+            )
+            workspace_session_results.append(session_result)
+            relaunch_payload = _detect_knowledge_workspace_premature_clean_exit(
+                run_result=session_result,
+                task_queue_controller=task_queue_controller,
+                current_task_id_before_run=current_task_id_before_run,
+                validated_task_count_before_run=validated_task_count_before_run,
+            )
+            if relaunch_payload is None:
+                break
+            if workspace_relaunch_count >= _KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES:
+                cap_reached_payload = _build_knowledge_workspace_relaunch_cap_reached_payload(
+                    premature_clean_exit_payload=relaunch_payload,
+                    task_queue_controller=task_queue_controller,
+                )
+                break
+            workspace_relaunch_count += 1
+            workspace_relaunch_history.append(
+                _knowledge_workspace_relaunch_history_entry(relaunch_payload)
+            )
+            relaunch_status_metadata = _knowledge_workspace_relaunch_metadata(
+                workspace_relaunch_history,
+            )
+            _write_live_status(
+                worker_live_status_path,
+                {
+                    **relaunch_payload,
+                    **relaunch_status_metadata,
+                },
+            )
+            for live_status_path in shard_live_status_paths:
+                _write_live_status(
+                    live_status_path,
+                    {
+                        **relaunch_payload,
+                        **relaunch_status_metadata,
+                    },
+                )
+        run_result = _combine_workspace_worker_run_results(workspace_session_results)
         _finalize_live_status(
             worker_live_status_path,
             run_result=run_result,
@@ -4538,6 +4771,20 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 run_result=run_result,
                 watchdog_policy="workspace_worker_v1",
             )
+        relaunch_status_metadata = _knowledge_workspace_relaunch_metadata(
+            workspace_relaunch_history,
+            cap_reached=cap_reached_payload is not None,
+        )
+        if relaunch_status_metadata["workspace_relaunch_count"] > 0:
+            _merge_live_status_metadata(
+                worker_live_status_path,
+                payload=relaunch_status_metadata,
+            )
+            for live_status_path in shard_live_status_paths:
+                _merge_live_status_metadata(
+                    live_status_path,
+                    payload=relaunch_status_metadata,
+                )
         if str(run_result.supervision_state or "completed").strip() == "completed" and task_queue_controller.is_complete():
             completed_payload = {
                 "state": "completed",
@@ -4548,11 +4795,25 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 ),
                 "retryable": False,
                 "watchdog_policy": "workspace_worker_v1",
+                "workspace_relaunch_count": workspace_relaunch_count,
+                **relaunch_status_metadata,
                 **task_queue_controller.status_payload(),
             }
             _write_live_status(worker_live_status_path, completed_payload)
             for live_status_path in shard_live_status_paths:
                 _write_live_status(live_status_path, completed_payload)
+        elif (
+            str(run_result.supervision_state or "completed").strip() == "completed"
+            and cap_reached_payload is not None
+        ):
+            capped_payload = {
+                **cap_reached_payload,
+                **relaunch_status_metadata,
+                **task_queue_controller.status_payload(),
+            }
+            _write_live_status(worker_live_status_path, capped_payload)
+            for live_status_path in shard_live_status_paths:
+                _write_live_status(live_status_path, capped_payload)
         elif str(run_result.supervision_state or "completed").strip() == "completed":
             incomplete_reason_detail = (
                 "knowledge workspace worker exited before every current-task packet "
@@ -4564,6 +4825,8 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 "reason_detail": incomplete_reason_detail,
                 "retryable": True,
                 "watchdog_policy": "workspace_worker_v1",
+                "workspace_relaunch_count": workspace_relaunch_count,
+                **relaunch_status_metadata,
                 **task_queue_controller.status_payload(),
             }
             _write_live_status(worker_live_status_path, incomplete_payload)
@@ -5298,6 +5561,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 "out_dir": _relative_path(run_root, out_dir),
                 "shards_dir": _relative_path(run_root, shard_dir),
                 "log_dir": _relative_path(run_root, logs_dir),
+                **relaunch_status_metadata,
             },
         ),
         proposals=tuple(worker_proposals),
@@ -5841,7 +6105,10 @@ def _finalize_live_status(
     run_result: CodexExecRunResult,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
 ) -> None:
-    final_agent_message = assess_final_agent_message(run_result.response_text)
+    final_agent_message = assess_final_agent_message(
+        run_result.response_text,
+        workspace_mode=run_result.workspace_mode,
+    )
     state = str(run_result.supervision_state or "completed").strip() or "completed"
     reason_code = run_result.supervision_reason_code
     reason_detail = run_result.supervision_reason_detail
@@ -6748,6 +7015,64 @@ def _aggregate_worker_runner_payload(
             "tool_affordances_requested": uses_workspace_worker,
         },
     }
+
+
+def _summarize_knowledge_workspace_relaunches(
+    worker_reports: Sequence[WorkerExecutionReportV1],
+) -> dict[str, Any]:
+    reason_code_counts: dict[str, int] = {}
+    workspace_relaunch_count_total = 0
+    workspace_premature_clean_exit_count = 0
+    workspace_premature_clean_exit_session_count = 0
+    workspace_relaunch_cap_reached_session_count = 0
+    for report in worker_reports:
+        metadata = dict(report.metadata or {})
+        history = [
+            dict(row)
+            for row in (metadata.get("workspace_relaunch_history") or [])
+            if isinstance(row, Mapping)
+        ]
+        reason_codes = [
+            str(row.get("reason_code") or "").strip()
+            for row in history
+            if str(row.get("reason_code") or "").strip()
+        ]
+        if not reason_codes:
+            reason_codes = [
+                str(code or "").strip()
+                for code in (metadata.get("workspace_relaunch_reason_codes") or [])
+                if str(code or "").strip()
+            ]
+        workspace_relaunch_count = (
+            int(metadata.get("workspace_relaunch_count") or 0)
+            if metadata.get("workspace_relaunch_count") is not None
+            else len(reason_codes)
+        )
+        workspace_relaunch_count_total += max(workspace_relaunch_count, len(reason_codes))
+        premature_clean_exit_count = sum(
+            1
+            for code in reason_codes
+            if code == "workspace_validated_task_queue_premature_clean_exit"
+        )
+        workspace_premature_clean_exit_count += premature_clean_exit_count
+        if premature_clean_exit_count > 0:
+            workspace_premature_clean_exit_session_count += 1
+        if bool(metadata.get("workspace_relaunch_cap_reached")):
+            workspace_relaunch_cap_reached_session_count += 1
+        for code in reason_codes:
+            reason_code_counts[code] = reason_code_counts.get(code, 0) + 1
+    return {
+        "workspace_relaunch_count_total": workspace_relaunch_count_total,
+        "workspace_relaunch_reason_code_counts": dict(sorted(reason_code_counts.items())),
+        "workspace_premature_clean_exit_count": workspace_premature_clean_exit_count,
+        "workspace_premature_clean_exit_session_count": (
+            workspace_premature_clean_exit_session_count
+        ),
+        "workspace_relaunch_cap_reached_session_count": (
+            workspace_relaunch_cap_reached_session_count
+        ),
+    }
+
 
 def _extract_full_blocks(result: ConversionResult) -> list[dict[str, Any]]:
     by_index: dict[int, dict[str, Any]] = {}

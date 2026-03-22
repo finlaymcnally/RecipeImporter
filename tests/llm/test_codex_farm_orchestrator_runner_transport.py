@@ -21,6 +21,47 @@ globals().update({
 })
 
 
+def _write_minimal_process_pack(tmp_path: Path) -> dict[str, Path]:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.correction.compact.v1",
+                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "in_dir": in_dir,
+        "out_dir": out_dir,
+        "root_dir": root_dir,
+        "schema_path": schema_path,
+        "pipeline_path": pipeline_path,
+    }
+
+
 def test_subprocess_runner_reports_missing_binary(tmp_path: Path) -> None:
     in_dir = tmp_path / "in"
     out_dir = tmp_path / "out"
@@ -592,41 +633,15 @@ def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
     assert len(process_calls) == 1
 
 
-def test_subprocess_runner_emits_progress_callback_from_progress_events(
+def _run_progress_events_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
-    in_dir = tmp_path / "in"
-    out_dir = tmp_path / "out"
-    root_dir = tmp_path / "pack"
-    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
-    in_dir.mkdir(parents=True, exist_ok=True)
-    schema_path.parent.mkdir(parents=True, exist_ok=True)
-    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
-    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
-    schema_path.write_text(
-        json.dumps(
-            {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "type": "object",
-                "additionalProperties": False,
-                "required": [],
-                "properties": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-    pipeline_path.write_text(
-        json.dumps(
-            {
-                "pipeline_id": "recipe.correction.compact.v1",
-                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
-            }
-        ),
-        encoding="utf-8",
-    )
+) -> dict[str, object]:
+    paths = _write_minimal_process_pack(tmp_path)
+    in_dir = paths["in_dir"]
+    out_dir = paths["out_dir"]
+    root_dir = paths["root_dir"]
+    schema_path = paths["schema_path"]
 
     popen_command: list[str] | None = None
 
@@ -764,10 +779,32 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
         {},
         root_dir=root_dir,
     )
+    return {
+        "run_result": run_result,
+        "popen_command": popen_command,
+        "progress_messages": progress_messages,
+    }
 
+
+def test_subprocess_runner_enables_progress_events_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_progress_events_fixture(monkeypatch, tmp_path)
+    run_result = fixture["run_result"]
+    popen_command = fixture["popen_command"]
     assert run_result.run_id == "run-progress-events"
     assert popen_command is not None
     assert "--progress-events" in popen_command
+
+
+def test_subprocess_runner_emits_progress_callback_from_progress_events(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_progress_events_fixture(monkeypatch, tmp_path)
+    progress_messages = fixture["progress_messages"]
+
     assert any("task 0/2" in message for message in progress_messages)
     assert any("task 1/2" in message for message in progress_messages)
     assert any("task 2/2" in message for message in progress_messages)
@@ -878,44 +915,18 @@ def test_extract_non_progress_stderr_lines_ignores_legacy_run_progress() -> None
     assert _extract_non_progress_stderr_lines(stderr_text) == ["real stderr line"]
 
 
-def test_subprocess_runner_collects_codex_exec_activity_telemetry(
+def _run_codex_exec_activity_fixture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    in_dir = tmp_path / "in"
-    out_dir = tmp_path / "out"
-    root_dir = tmp_path / "pack"
+) -> dict[str, object]:
+    paths = _write_minimal_process_pack(tmp_path)
+    in_dir = paths["in_dir"]
+    out_dir = paths["out_dir"]
+    root_dir = paths["root_dir"]
     data_dir = tmp_path / "farm-data"
-    schema_path = root_dir / "schemas" / "recipe.correction.v1.output.schema.json"
-    pipeline_path = root_dir / "pipelines" / "recipe.correction.compact.v1.json"
+    schema_path = paths["schema_path"]
     telemetry_csv = data_dir / "codex_exec_activity.csv"
 
-    in_dir.mkdir(parents=True, exist_ok=True)
-    schema_path.parent.mkdir(parents=True, exist_ok=True)
-    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
-    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
-    schema_path.write_text(
-        json.dumps(
-            {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "type": "object",
-                "additionalProperties": False,
-                "required": [],
-                "properties": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-    pipeline_path.write_text(
-        json.dumps(
-            {
-                "pipeline_id": "recipe.correction.compact.v1",
-                "prompt_template_path": "prompts/recipe.correction.compact.v1.prompt.md",
-                "output_schema_path": "schemas/recipe.correction.v1.output.schema.json",
-            }
-        ),
-        encoding="utf-8",
-    )
 
     fieldnames = [
         "logged_at_utc",
@@ -1075,14 +1086,22 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
         {},
         root_dir=root_dir,
     )
+    return {
+        "run_result": run_result,
+        "calls": calls,
+        "data_dir": data_dir,
+    }
 
+
+def test_subprocess_runner_collects_codex_exec_activity_telemetry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_codex_exec_activity_fixture(monkeypatch, tmp_path)
+    run_result = fixture["run_result"]
     assert run_result.run_id == "run-123"
     assert run_result.telemetry_report is not None
     assert run_result.telemetry_report["schema_version"] == 2
     assert run_result.telemetry_report["matched_rows"] == 1
-    assert run_result.autotune_report is not None
-    assert run_result.autotune_report["schema_version"] == 1
-    assert run_result.autotune_report["flag_overrides"][0]["flag"] == "--workers"
     assert run_result.telemetry is not None
     assert run_result.telemetry["row_count"] == 1
     assert run_result.telemetry["summary"]["attempt_index_counts"] == {"2": 1}
@@ -1095,6 +1114,18 @@ def test_subprocess_runner_collects_codex_exec_activity_telemetry(
     assert rows[0]["retry_context_applied"] is True
     assert rows[0]["output_sha256"] == "abc123"
     assert rows[0]["codex_event_types"] == ["thread.started", "turn.completed"]
+
+
+def test_subprocess_runner_requests_autotune_after_loading_codex_exec_activity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_codex_exec_activity_fixture(monkeypatch, tmp_path)
+    run_result = fixture["run_result"]
+    calls = fixture["calls"]
+    data_dir = fixture["data_dir"]
+    assert run_result.autotune_report is not None
+    assert run_result.autotune_report["schema_version"] == 1
+    assert run_result.autotune_report["flag_overrides"][0]["flag"] == "--workers"
     assert calls[1] == [
         "codex-farm",
         "--data-dir",

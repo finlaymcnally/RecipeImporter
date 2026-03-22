@@ -379,10 +379,10 @@ def test_auto_followup_worker_marks_missing_requested_section_explicitly(tmp_pat
     assert source_status["status"] == "succeeded"
 
 
-def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_turn2(
+def _run_followup_timeout_recovery_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> dict[str, object]:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_21.18.04"
@@ -556,11 +556,37 @@ def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_
         poll_interval_seconds=0.01,
         timeout_seconds=1.0,
     )
+    return {
+        "result": result,
+        "runner_calls": runner_calls,
+        "captured": captured,
+        "launch_dir": launch_dir,
+        "source_run": source_run,
+    }
+
+
+def test_auto_followup_worker_recovers_assistant_timeout_turn1_before_launching_turn2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_followup_timeout_recovery_fixture(tmp_path, monkeypatch)
+    result = fixture["result"]
+    runner_calls = fixture["runner_calls"]
+    captured = fixture["captured"]
+    source_run = fixture["source_run"]
 
     assert runner_calls
     assert captured["from_run"] == source_run
     assert result["status"] == "succeeded"
     assert result["followup_session_id"] == "you-are-reviewing-a-benchmark-392-turn-2"
+
+
+def test_auto_followup_worker_appends_recovered_turn1_answer_before_turn2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_followup_timeout_recovery_fixture(tmp_path, monkeypatch)
+    launch_dir = fixture["launch_dir"]
     log_text = (launch_dir / "oracle_upload.log").read_text(encoding="utf-8")
     assert "Recovered answer after timeout." in log_text
 

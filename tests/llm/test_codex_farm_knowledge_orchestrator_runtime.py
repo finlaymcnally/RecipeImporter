@@ -211,10 +211,10 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
     assert payloads[-1]["task_total"] == apply_result.llm_report["review_summary"]["planned_chunk_count"]
 
 
-def test_knowledge_orchestrator_reports_live_task_packet_progress(
+def _run_live_task_packet_progress_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     _configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
 
     def _fake_chunks(_sequence, overrides=None):
@@ -370,7 +370,17 @@ def test_knowledge_orchestrator_reports_live_task_packet_progress(
         for payload in [parse_stage_progress(message)]
         if payload is not None
     ]
+    return {
+        "payloads": payloads,
+    }
 
+
+def test_knowledge_orchestrator_reports_live_task_packet_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_live_task_packet_progress_fixture(monkeypatch, tmp_path)
+    payloads = fixture["payloads"]
     assert payloads
     assert payloads[0]["task_current"] == 0
     assert payloads[0]["task_total"] == 4
@@ -381,6 +391,22 @@ def test_knowledge_orchestrator_reports_live_task_packet_progress(
     ]
     assert live_payloads
     assert {int(payload["task_current"]) for payload in live_payloads} == {1, 2, 3}
+    assert payloads[-1]["task_current"] == 4
+    assert payloads[-1]["task_total"] == 4
+
+
+def test_knowledge_orchestrator_progress_detail_lines_track_live_task_packets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_live_task_packet_progress_fixture(monkeypatch, tmp_path)
+    payloads = fixture["payloads"]
+    live_payloads = [
+        payload
+        for payload in payloads
+        if 0 < int(payload.get("task_current") or 0) < int(payload.get("task_total") or 0)
+    ]
+
     assert any(
         "book.ks0000.nr (1/4 task packets)" in (payload.get("active_tasks") or [])
         for payload in live_payloads
@@ -389,8 +415,6 @@ def test_knowledge_orchestrator_reports_live_task_packet_progress(
         "completed shards: 0/1" in (payload.get("detail_lines") or [])
         for payload in live_payloads
     )
-    assert payloads[-1]["task_current"] == 4
-    assert payloads[-1]["task_total"] == 4
 
 
 def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
@@ -496,10 +520,10 @@ def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
     assert state["max"] >= 2
 
 
-def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
+def _run_runtime_task_leasing_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     _configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
 
     def _fake_chunks(_sequence, overrides=None):
@@ -659,6 +683,25 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
         if line.strip()
     ]
     proposal = json.loads((phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8"))
+    return {
+        "runner": runner,
+        "worker_root": worker_root,
+        "task_status_rows": task_status_rows,
+        "proposal": proposal,
+        "apply_result": apply_result,
+    }
+
+
+def test_knowledge_orchestrator_leases_runtime_tasks_one_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_runtime_task_leasing_fixture(monkeypatch, tmp_path)
+    runner = fixture["runner"]
+    worker_root = fixture["worker_root"]
+    assert isinstance(runner, FakeCodexExecRunner)
+    assert isinstance(worker_root, Path)
+
     assert runner.seen_task_ids == [
         "book.ks0000.nr.task-001",
         "book.ks0000.nr.task-002",
@@ -675,8 +718,22 @@ def test_knowledge_orchestrator_leases_one_current_packet_at_a_time(
     assert "queue is complete" in (
         worker_root / "CURRENT_TASK_FEEDBACK.md"
     ).read_text(encoding="utf-8").lower()
+
+
+def test_knowledge_orchestrator_records_validated_runtime_task_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_runtime_task_leasing_fixture(monkeypatch, tmp_path)
+    task_status_rows = fixture["task_status_rows"]
+    proposal = fixture["proposal"]
+    apply_result = fixture["apply_result"]
+    assert isinstance(task_status_rows, list)
+    assert isinstance(proposal, dict)
+
     assert [row["state"] for row in task_status_rows] == ["validated", "validated"]
-    assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == (
-        runner.seen_task_ids
-    )
+    assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
+        "book.ks0000.nr.task-001",
+        "book.ks0000.nr.task-002",
+    ]
     assert apply_result.llm_report["counts"]["validated_shards"] == 1

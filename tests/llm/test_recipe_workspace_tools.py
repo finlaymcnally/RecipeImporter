@@ -10,6 +10,8 @@ from cookimport.llm.recipe_workspace_tools import (
     finalize_recipe_worker_drafts,
     install_recipe_worker_draft,
     prepare_recipe_worker_drafts,
+    render_recipe_worker_current_task_brief,
+    render_recipe_worker_feedback_brief,
     render_recipe_worker_cli_script,
     stamp_recipe_worker_drafts,
     validate_recipe_worker_draft,
@@ -40,9 +42,24 @@ def _build_task_row() -> dict[str, object]:
         "metadata": {
             "input_path": "in/recipe-shard-0000-r0000-r0001.task-001.json",
             "hint_path": "hints/recipe-shard-0000-r0000-r0001.task-001.md",
+            "scratch_draft_path": "scratch/recipe-shard-0000-r0000-r0001.task-001.json",
             "result_path": "out/recipe-shard-0000-r0000-r0001.task-001.json",
         },
     }
+
+
+def test_render_recipe_worker_briefs_include_prewritten_draft_paths() -> None:
+    task_row = _build_task_row()
+
+    current_brief = render_recipe_worker_current_task_brief(task_row=task_row)
+    feedback_brief = render_recipe_worker_feedback_brief(
+        task_rows=[task_row],
+        current_task_id="recipe-shard-0000-r0000-r0001.task-001",
+    )
+
+    assert "scratch_draft_path: scratch/recipe-shard-0000-r0000-r0001.task-001.json" in current_brief
+    assert "repo already prewrote `scratch/` drafts" in feedback_brief
+    assert "draft: `scratch/recipe-shard-0000-r0000-r0001.task-001.json`" in feedback_brief
 
 
 def test_build_recipe_worker_scaffold_uses_exact_task_and_recipe_ids() -> None:

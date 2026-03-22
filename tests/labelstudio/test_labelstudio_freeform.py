@@ -510,7 +510,7 @@ def test_export_freeform_spans_with_yield_and_time_labels(tmp_path, monkeypatch)
     assert time_row["touched_block_indices"] == [1]
 
 
-def test_export_freeform_summary_counts_recipe_headers_deduped(tmp_path, monkeypatch) -> None:
+def _run_freeform_recipe_header_summary_fixture(tmp_path, monkeypatch):
     class FakeClient:
         def __init__(self, *_args, **_kwargs) -> None:
             return None
@@ -678,9 +678,19 @@ def test_export_freeform_summary_counts_recipe_headers_deduped(tmp_path, monkeyp
         label_studio_api_key="token",
         run_dir=None,
     )
-    summary = result["summary"]
+    return result["summary"]
+
+
+def test_export_freeform_summary_counts_recipe_headers_deduped(tmp_path, monkeypatch) -> None:
+    summary = _run_freeform_recipe_header_summary_fixture(tmp_path, monkeypatch)
     assert summary["counts"]["labeled"] == 3
     assert summary["counts"]["recipe_headers"] == 2
+
+
+def test_export_freeform_summary_tracks_raw_and_deduped_recipe_header_counts(
+    tmp_path, monkeypatch
+) -> None:
+    summary = _run_freeform_recipe_header_summary_fixture(tmp_path, monkeypatch)
     assert summary["recipe_counts"]["recipe_headers"] == 2
     assert summary["recipe_counts"]["recipe_headers_raw"] == 3
 

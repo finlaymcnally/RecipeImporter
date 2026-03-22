@@ -25,28 +25,9 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
     canonical_spans_path.write_text("{}\n", encoding="utf-8")
 
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
     )
 
     prewarm_started = threading.Event()
@@ -112,10 +93,7 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
 
     monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_evaluate_canonical_text)
     monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        "cookimport.analytics.perf_report.append_benchmark_csv",
-        lambda *_args, **_kwargs: None,
-    )
+    _install_noop_benchmark_eval_mocks(monkeypatch)
 
     eval_root = tmp_path / "eval-pipelined"
     cli.labelstudio_benchmark(
@@ -131,38 +109,19 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
     assert producer_observed_prewarm["value"] is True
     assert isinstance(captured_eval.get("canonical_paths"), dict)
 
-def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_finishes(
+def _run_pipelined_streaming_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
 
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
     )
     monkeypatch.setattr(
         cli,
@@ -257,12 +216,9 @@ def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_fi
             "false_positive_preds": [],
         }
 
+    _install_noop_benchmark_eval_mocks(monkeypatch)
     monkeypatch.setattr(cli, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
     monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        "cookimport.analytics.perf_report.append_benchmark_csv",
-        lambda *_args, **_kwargs: None,
-    )
 
     eval_root = tmp_path / "eval-pipelined-streaming"
     cli.labelstudio_benchmark(
@@ -273,10 +229,34 @@ def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_fi
         eval_output_dir=eval_root,
         no_upload=True,
     )
+    replay_dir = eval_root / ".prediction-record-replay" / "pipelined"
+    return {
+        "consumer_saw_first_record": consumer_saw_first_record,
+        "producer_finished": producer_finished,
+        "captured_eval": captured_eval,
+        "replay_dir": replay_dir,
+    }
 
+
+def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_pipelined_streaming_fixture(monkeypatch, tmp_path)
+    consumer_saw_first_record = fixture["consumer_saw_first_record"]
+    producer_finished = fixture["producer_finished"]
     assert consumer_saw_first_record.is_set()
     assert producer_finished.is_set()
-    replay_dir = eval_root / ".prediction-record-replay" / "pipelined"
+
+
+def test_labelstudio_benchmark_pipelined_mode_replays_streamed_records_for_eval(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_pipelined_streaming_fixture(monkeypatch, tmp_path)
+    replay_dir = fixture["replay_dir"]
+    captured_eval = fixture["captured_eval"]
+
     assert captured_eval["stage_predictions_json"] == (
         replay_dir / "stage_block_predictions.from_records.json"
     )
@@ -297,28 +277,9 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
     gold_spans.write_text("{}\n", encoding="utf-8")
 
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
     )
     monkeypatch.setattr(
         cli,
@@ -353,16 +314,13 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
         )
 
     monkeypatch.setattr(cli, "predict_stage", _invalid_streaming_predict_stage)
+    _install_noop_benchmark_eval_mocks(monkeypatch)
     monkeypatch.setattr(
         cli,
         "evaluate_stage_blocks",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Evaluation should not run when streaming consumer fails.")
         ),
-    )
-    monkeypatch.setattr(
-        "cookimport.analytics.perf_report.append_benchmark_csv",
-        lambda *_args, **_kwargs: None,
     )
 
     with pytest.raises(cli.typer.Exit):
@@ -375,9 +333,9 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
             no_upload=True,
         )
 
-def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
+def _run_canonical_text_pipelined_fixture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
@@ -385,48 +343,29 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     gold_spans.write_text("{}\n", encoding="utf-8")
 
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
     line_role_dir = prediction_run / "line-role-pipeline"
-    line_role_dir.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "RECIPE_TITLE"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    line_role_paths = _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        stage_subdir="line-role-pipeline",
+        block_labels={"0": "OTHER"},
+        manifest_payload={
+            "run_config": {"workers": 1, "line_role_pipeline": "deterministic-v1"},
+            "run_config_hash": "cfg-hash",
+            "run_config_summary": "workers=1",
+        },
     )
-    (line_role_dir / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "OTHER"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (line_role_dir / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-                "run_config": {"workers": 1, "line_role_pipeline": "deterministic-v1"},
-                "run_config_hash": "cfg-hash",
-                "run_config_summary": "workers=1",
-                "stage_block_predictions_path": str(
-                    line_role_dir / "stage_block_predictions.json"
-                ),
-                "extracted_archive_path": str(line_role_dir / "extracted_archive.json"),
-            }
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        block_labels={"0": "RECIPE_TITLE"},
+        manifest_payload={
+            "run_config": {"workers": 1, "line_role_pipeline": "deterministic-v1"},
+            "run_config_hash": "cfg-hash",
+            "run_config_summary": "workers=1",
+            "stage_block_predictions_path": str(line_role_paths["stage_predictions_path"]),
+            "extracted_archive_path": str(line_role_paths["extracted_archive_path"]),
+        },
     )
     monkeypatch.setattr(
         cli,
@@ -435,8 +374,8 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": line_role_dir / "stage_block_predictions.json",
-            "extracted_archive_path": line_role_dir / "extracted_archive.json",
+            "stage_block_predictions_path": line_role_paths["stage_predictions_path"],
+            "extracted_archive_path": line_role_paths["extracted_archive_path"],
         },
     )
     monkeypatch.setattr(
@@ -534,8 +473,24 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             line_role_pipeline="off",
             sequence_matcher="dmp",
         )
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    return {
+        "captured_eval": captured_eval,
+        "captured_csv": captured_csv,
+        "scheduler_events": scheduler_events,
+        "eval_root": eval_root,
+        "run_manifest": run_manifest,
+    }
 
-    assert captured_eval["gold_export_root"] == gold_spans.parent
+
+def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_canonical_text_pipelined_fixture(monkeypatch, tmp_path)
+    captured_eval = fixture["captured_eval"]
+    eval_root = fixture["eval_root"]
+
+    assert captured_eval["gold_export_root"] == (tmp_path / "gold" / "exports")
     assert captured_eval["stage_predictions_json"] == (
         eval_root
         / ".prediction-record-replay"
@@ -547,6 +502,16 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     )
     assert replay_payload["block_labels"] == {"0": "OTHER"}
     assert captured_eval["sequence_matcher_env"] == "dmp"
+
+
+def test_labelstudio_benchmark_canonical_text_mode_records_timing_and_scheduler_artifacts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_canonical_text_pipelined_fixture(monkeypatch, tmp_path)
+    captured_csv = fixture["captured_csv"]
+    scheduler_events = fixture["scheduler_events"]
+    run_manifest = fixture["run_manifest"]
+
     assert captured_csv["eval_scope"] == "canonical-text"
     timing = captured_csv.get("timing")
     assert isinstance(timing, dict)
@@ -568,7 +533,6 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     assert evaluate_finished_events
     assert evaluate_finished_events[-1]["prediction_load_seconds"] == pytest.approx(0.12)
     assert evaluate_finished_events[-1]["gold_load_seconds"] == pytest.approx(0.34)
-    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["run_config"]["eval_mode"] == "canonical-text"
     assert run_manifest["run_config"]["sequence_matcher"] == "dmp"
 
@@ -582,28 +546,9 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
     gold_spans.write_text("{}\n", encoding="utf-8")
 
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
     )
 
     monkeypatch.setenv("COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS", "0.001")
@@ -711,31 +656,15 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-                "run_config": {"workers": 1},
-                "run_config_hash": "cfg-hash",
-                "run_config_summary": "workers=1",
-            }
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        include_label_studio_tasks=True,
+        manifest_payload={
+            "run_config": {"workers": 1},
+            "run_config_hash": "cfg-hash",
+            "run_config_summary": "workers=1",
+        },
     )
     monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
     monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])

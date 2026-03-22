@@ -57,6 +57,11 @@ from .phase_worker_runtime import (
     resolve_phase_worker_count,
 )
 from .recipe_workspace_tools import render_recipe_worker_cli_script
+from .recipe_workspace_tools import (
+    prepare_recipe_worker_drafts,
+    render_recipe_worker_current_task_brief,
+    render_recipe_worker_feedback_brief,
+)
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
 from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
@@ -995,11 +1000,15 @@ def _build_recipe_watchdog_callback(
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
-        allowed_absolute_roots = (
-            [execution_workspace_root]
-            if execution_workspace_root is not None
-            else None
-        )
+        allowed_absolute_roots = [
+            path
+            for path in (
+                execution_workspace_root,
+                snapshot.source_working_dir,
+                snapshot.execution_working_dir,
+            )
+            if path is not None and str(path).strip()
+        ] or None
         last_command_verdict = classify_workspace_worker_command(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
@@ -1082,6 +1091,8 @@ def _build_recipe_watchdog_callback(
             "last_command_repeat_count": snapshot.last_command_repeat_count,
             "has_final_agent_message": snapshot.has_final_agent_message,
             "timeout_seconds": snapshot.timeout_seconds,
+            "source_working_dir": snapshot.source_working_dir,
+            "execution_working_dir": snapshot.execution_working_dir,
             "watchdog_policy": watchdog_policy,
             "shard_id": shard_id,
             "reason_code": decision.reason_code if decision is not None else None,
@@ -1449,6 +1460,7 @@ def _final_recipe_supervision_fields(
     run_result: CodexExecRunResult,
     proposal_status: str,
     watchdog_retry_status: str = "not_attempted",
+    watchdog_retry_mode: str = "not_attempted",
     repair_status: str = "not_attempted",
 ) -> dict[str, Any]:
     raw_state = str(run_result.supervision_state or "completed").strip() or "completed"
@@ -1462,7 +1474,10 @@ def _final_recipe_supervision_fields(
         final_state = "completed"
         if watchdog_retry_status == "recovered":
             final_reason_code = "watchdog_retry_recovered"
-            final_reason_detail = "recipe shard validated after task-level watchdog retry"
+            if watchdog_retry_mode == "shard_packed":
+                final_reason_detail = "recipe shard validated after shard-packed watchdog retry"
+            else:
+                final_reason_detail = "recipe shard validated after task-level watchdog retry"
             finalization_path = "watchdog_retry_recovered"
         elif repair_status == "repaired":
             final_reason_code = "recipe_repair_recovered"
@@ -1737,13 +1752,13 @@ def _build_recipe_workspace_worker_prompt(
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then `current_task.json`, then `OUTPUT_CONTRACT.md`.",
-        "2. If you need queue context, run `python3 tools/recipe_worker.py overview` or `python3 tools/recipe_worker.py show <task_id>` instead of dumping whole manifests by hand.",
-        "3. For the current task, open `hints/<task_id>.md` first, then `in/<task_id>.json`.",
-        "4. The cheapest paved road is batch-first: run `python3 tools/recipe_worker.py prepare-all --dest-dir scratch/` once. That writes the drafts plus `scratch/_prepared_drafts.json` so you can verify the exact draft paths immediately.",
-        '5. For bulk terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary "<reason>" scratch/*.json` or the same command with `not_a_recipe` instead of writing repetitive JSON by hand. Otherwise edit the needed `scratch/<task_id>.json` drafts directly.',
-        "6. Finish with `python3 tools/recipe_worker.py finalize-all scratch/` once. Single-task fallback is still available: `python3 tools/recipe_worker.py show <task_id>`, then `check scratch/<task_id>.json`, then `finalize scratch/<task_id>.json`.",
-        "7. Continue through the remaining `assigned_tasks.json` rows in order until every assigned task has an output file or you cannot proceed.",
+        "1. Open `worker_manifest.json`, then `CURRENT_TASK.md`, then `current_task.json`, then `CURRENT_TASK_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
+        "2. Treat `CURRENT_TASK.md` and `current_task.json` as the authoritative cheapest first task surface. Use `CURRENT_TASK_FEEDBACK.md` and `assigned_tasks.json` only for queue context after that.",
+        "3. The repo already prewrote the batch drafts under `scratch/` and listed them in `scratch/_prepared_drafts.json`. For the current task, open `hints/<task_id>.md` first, then `in/<task_id>.json`, then edit the `metadata.scratch_draft_path` named in `current_task.json`.",
+        '4. For bulk terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary "<reason>" scratch/*.json` or the same command with `not_a_recipe` instead of writing repetitive JSON by hand.',
+        "5. Finish with `python3 tools/recipe_worker.py finalize-all scratch/` once after the drafts are ready. Single-task fallback is still available: `python3 tools/recipe_worker.py check scratch/<task_id>.json`, then `python3 tools/recipe_worker.py finalize scratch/<task_id>.json`.",
+        "6. `python3 tools/recipe_worker.py overview`, `show <task_id>`, and `prepare-all --dest-dir scratch/` are fallback/debug tools if the repo-written draft surface is missing or you need to regenerate it, not the default first move.",
+        "7. Continue through the remaining queue rows in order until every assigned task has an output file or you cannot proceed.",
         "8. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local or in approved temp roots, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Output contract for each `out/<task_id>.json`:",
@@ -1754,7 +1769,7 @@ def _build_recipe_workspace_worker_prompt(
         "- Return exactly one recipe result for each owned recipe id in the task input and no extras.",
         "- Legacy keys are invalid here, including `results`, `recipes`, `recipe_id`, `repair_status`, `canonical_recipe`, `not_a_recipe`, `fragmentary`, and `notes`.",
         "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative owned input.",
-        "- Large batch heredocs are unnecessary here because `tools/recipe_worker.py finalize` and `finalize-all` are the approved write paths.",
+        "- Large batch heredocs are unnecessary here because the repo already prewrote the drafts and `tools/recipe_worker.py finalize` / `finalize-all` are the approved write paths.",
         "",
         "Your final message is optional telemetry only. Do not paste shard outputs there. The authoritative result is the set of valid files written under `out/`.",
     ]
@@ -2231,6 +2246,7 @@ def _build_recipe_task_runtime_manifest_entry(
     metadata = dict(task_manifest.metadata or {})
     metadata.setdefault("input_path", f"in/{task_plan.task_id}.json")
     metadata.setdefault("hint_path", f"hints/{task_plan.task_id}.md")
+    metadata.setdefault("scratch_draft_path", f"scratch/{task_plan.task_id}.json")
     metadata.setdefault("result_path", f"out/{task_plan.task_id}.json")
     return TaskManifestEntryV1(
         task_id=task_plan.task_id,
@@ -2240,6 +2256,29 @@ def _build_recipe_task_runtime_manifest_entry(
         input_payload=task_manifest.input_payload,
         input_text=task_manifest.input_text,
         metadata=metadata,
+    )
+
+
+def _write_recipe_workspace_current_task_sidecars(
+    *,
+    worker_root: Path,
+    task_rows: Sequence[Mapping[str, Any]],
+) -> None:
+    if not task_rows:
+        return
+    current_task_row = dict(task_rows[0])
+    current_task_id = str(current_task_row.get("task_id") or "").strip() or None
+    (worker_root / "CURRENT_TASK.md").write_text(
+        render_recipe_worker_current_task_brief(task_row=current_task_row) + "\n",
+        encoding="utf-8",
+    )
+    (worker_root / "CURRENT_TASK_FEEDBACK.md").write_text(
+        render_recipe_worker_feedback_brief(
+            task_rows=task_rows,
+            current_task_id=current_task_id,
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
 
@@ -2311,6 +2350,59 @@ def _aggregate_recipe_task_payloads(
         "sid": shard.shard_id,
         "r": output_rows,
     }, metadata
+
+
+def _recipe_task_result_path(task_plan: _RecipeTaskPlan) -> Path:
+    metadata = _coerce_dict(task_plan.manifest_entry.metadata)
+    result_path = str(metadata.get("result_path") or f"out/{task_plan.task_id}.json").strip()
+    return Path(result_path)
+
+
+def _all_recipe_task_outputs_missing(
+    *,
+    worker_root: Path,
+    task_plans: Sequence[_RecipeTaskPlan],
+) -> bool:
+    if not task_plans:
+        return False
+    for task_plan in task_plans:
+        if (worker_root / _recipe_task_result_path(task_plan)).exists():
+            return False
+    return True
+
+
+def _split_recipe_shard_payload_into_task_payloads(
+    *,
+    task_plans: Sequence[_RecipeTaskPlan],
+    shard_payload: Mapping[str, Any],
+) -> tuple[dict[str, dict[str, Any]], tuple[str, ...]]:
+    recipe_rows = [
+        dict(row)
+        for row in (shard_payload.get("r") or [])
+        if isinstance(row, Mapping)
+    ]
+    row_by_recipe_id = {
+        str(row.get("rid") or "").strip(): dict(row)
+        for row in recipe_rows
+        if str(row.get("rid") or "").strip()
+    }
+    task_payloads: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+    for task_plan in task_plans:
+        owned_ids = [str(value).strip() for value in task_plan.manifest_entry.owned_ids if str(value).strip()]
+        task_rows = [dict(row_by_recipe_id[recipe_id]) for recipe_id in owned_ids if recipe_id in row_by_recipe_id]
+        if len(task_rows) != len(owned_ids):
+            missing_ids = [recipe_id for recipe_id in owned_ids if recipe_id not in row_by_recipe_id]
+            errors.append(
+                f"{task_plan.task_id}: packed shard retry output missing recipe ids {', '.join(missing_ids)}"
+            )
+            continue
+        task_payloads[task_plan.task_id] = {
+            "v": "1",
+            "sid": task_plan.task_id,
+            "r": task_rows,
+        }
+    return task_payloads, tuple(errors)
 
 
 def _run_recipe_workspace_worker_assignment_v1(
@@ -2444,8 +2536,12 @@ def _run_recipe_workspace_worker_assignment_v1(
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
+    task_rows_for_workspace = [
+        asdict(_build_recipe_task_runtime_manifest_entry(task))
+        for task in runnable_tasks
+    ]
     _write_json(
-        [asdict(_build_recipe_task_runtime_manifest_entry(task)) for task in runnable_tasks],
+        task_rows_for_workspace,
         worker_root / "assigned_tasks.json",
     )
     if runnable_tasks:
@@ -2454,6 +2550,15 @@ def _run_recipe_workspace_worker_assignment_v1(
             tasks=runnable_tasks,
         )
         _write_recipe_workspace_helper_tools(worker_root=worker_root)
+        _write_recipe_workspace_current_task_sidecars(
+            worker_root=worker_root,
+            task_rows=task_rows_for_workspace,
+        )
+        prepare_recipe_worker_drafts(
+            workspace_root=worker_root,
+            dest_dir=Path("scratch"),
+            task_rows=task_rows_for_workspace,
+        )
     for task in runnable_tasks:
         task_manifest = task.manifest_entry
         input_path = in_dir / f"{task_manifest.shard_id}.json"
@@ -2522,6 +2627,135 @@ def _run_recipe_workspace_worker_assignment_v1(
         task_watchdog_retry_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+        shard_packed_watchdog_retry_status_by_shard_id: dict[str, str] = {}
+        if _should_attempt_recipe_watchdog_retry(run_result=run_result):
+            for shard in runnable_shards:
+                task_plans = runnable_tasks_by_shard_id.get(shard.shard_id, ())
+                if not _all_recipe_task_outputs_missing(
+                    worker_root=worker_root,
+                    task_plans=task_plans,
+                ):
+                    continue
+                retry_root = shard_dir / shard.shard_id / "watchdog_retry"
+                retry_root.mkdir(parents=True, exist_ok=True)
+                watchdog_retry_run_result = _run_recipe_watchdog_retry_attempt(
+                    runner=runner,
+                    worker_root=worker_root,
+                    shard=shard,
+                    env=env,
+                    output_schema_path=output_schema_path,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    reason_code=str(run_result.supervision_reason_code or ""),
+                    reason_detail=str(run_result.supervision_reason_detail or ""),
+                    previous_response_text="",
+                    live_status_path=retry_root / "live_status.json",
+                )
+                _finalize_live_status(
+                    retry_root / "live_status.json",
+                    run_result=watchdog_retry_run_result,
+                )
+                retry_payload = _build_recipe_watchdog_retry_runner_payload(
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    shard_id=shard.shard_id,
+                    run_result=watchdog_retry_run_result,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                )
+                retry_payload["process_payload"]["runtime_parent_shard_id"] = shard.shard_id
+                retry_payload["process_payload"]["watchdog_retry_mode"] = "shard_packed"
+                worker_runner_results.append(dict(retry_payload))
+                retry_rows = (
+                    retry_payload.get("telemetry", {}).get("rows")
+                    if isinstance(retry_payload.get("telemetry"), dict)
+                    else None
+                )
+                if isinstance(retry_rows, list):
+                    for row_payload in retry_rows:
+                        if isinstance(row_payload, dict):
+                            row_payload["watchdog_retry_attempted"] = True
+                            row_payload["watchdog_retry_mode"] = "shard_packed"
+                            row_payload["runtime_parent_shard_id"] = shard.shard_id
+                            stage_rows.append(dict(row_payload))
+                (retry_root / "events.jsonl").write_text(
+                    _render_events_jsonl(watchdog_retry_run_result.events),
+                    encoding="utf-8",
+                )
+                _write_json(
+                    {"text": watchdog_retry_run_result.response_text},
+                    retry_root / "last_message.json",
+                )
+                _write_json(
+                    dict(watchdog_retry_run_result.usage or {}),
+                    retry_root / "usage.json",
+                )
+                _write_json(
+                    watchdog_retry_run_result.workspace_manifest(),
+                    retry_root / "workspace_manifest.json",
+                )
+                (
+                    packed_payload,
+                    packed_validation_errors,
+                    packed_validation_metadata,
+                    packed_proposal_status,
+                ) = _evaluate_recipe_response(
+                    shard=shard,
+                    response_text=watchdog_retry_run_result.response_text,
+                )
+                packed_retry_status = (
+                    "recovered" if packed_proposal_status == "validated" else "failed"
+                )
+                split_errors: tuple[str, ...] = ()
+                if packed_payload is not None and packed_proposal_status == "validated":
+                    split_payloads, split_errors = _split_recipe_shard_payload_into_task_payloads(
+                        task_plans=task_plans,
+                        shard_payload=packed_payload,
+                    )
+                    if not split_errors:
+                        for task_id, task_payload in split_payloads.items():
+                            task_payloads_by_shard_id.setdefault(shard.shard_id, {})[
+                                task_id
+                            ] = task_payload
+                            task_validation_errors_by_shard_id.setdefault(
+                                shard.shard_id, {}
+                            )[task_id] = ()
+                            task_watchdog_retry_status_by_shard_id.setdefault(
+                                shard.shard_id, {}
+                            )[task_id] = "recovered"
+                    else:
+                        packed_retry_status = "failed"
+                        packed_validation_metadata = {
+                            **dict(packed_validation_metadata or {}),
+                            "task_split_errors": list(split_errors),
+                        }
+                shard_packed_watchdog_retry_status_by_shard_id[shard.shard_id] = (
+                    packed_retry_status
+                )
+                if isinstance(retry_rows, list) and retry_rows:
+                    retry_runner_row = retry_rows[0]
+                    if isinstance(retry_runner_row, dict):
+                        retry_runner_row["proposal_status"] = packed_proposal_status
+                        retry_runner_row["watchdog_retry_attempted"] = True
+                        retry_runner_row["watchdog_retry_status"] = packed_retry_status
+                        retry_runner_row["watchdog_retry_mode"] = "shard_packed"
+                _write_json(
+                    {
+                        "status": packed_proposal_status,
+                        "watchdog_retry_reason_code": run_result.supervision_reason_code,
+                        "watchdog_retry_reason_detail": run_result.supervision_reason_detail,
+                        "watchdog_retry_mode": "shard_packed",
+                        "validation_errors": list(packed_validation_errors),
+                        "validation_metadata": dict(packed_validation_metadata or {}),
+                        "state": watchdog_retry_run_result.supervision_state or "completed",
+                        "reason_code": watchdog_retry_run_result.supervision_reason_code,
+                        "reason_detail": watchdog_retry_run_result.supervision_reason_detail,
+                        "retryable": watchdog_retry_run_result.supervision_retryable,
+                    },
+                    retry_root / "status.json",
+                )
         for task_index, task in enumerate(runnable_tasks):
             task_manifest = task.manifest_entry
             parent_shard_id = task.parent_shard_id
@@ -2553,22 +2787,45 @@ def _run_recipe_workspace_worker_assignment_v1(
                 for row_payload in worker_rows:
                     if isinstance(row_payload, dict):
                         stage_rows.append(dict(row_payload))
-            payload, validation_errors, validation_metadata, proposal_status = (
-                _evaluate_recipe_response(
-                    shard=task_manifest,
-                    response_text=response_text,
-                )
-            )
-            initial_proposal_status = proposal_status
             stage_row = stage_rows[-1]
             active_response_text = response_text
             watchdog_retry_attempted = False
             watchdog_retry_status = "not_attempted"
+            watchdog_retry_mode = "not_attempted"
+            packed_retry_status = shard_packed_watchdog_retry_status_by_shard_id.get(
+                parent_shard_id
+            )
+            packed_task_payload = (
+                task_payloads_by_shard_id.get(parent_shard_id, {}).get(task_manifest.shard_id)
+            )
+            if packed_task_payload is not None and response_text is None:
+                payload = dict(packed_task_payload)
+                validation_errors = ()
+                validation_metadata = {
+                    "watchdog_retry_mode": "shard_packed",
+                    "watchdog_retry_parent_shard_id": parent_shard_id,
+                }
+                proposal_status = "validated"
+                initial_proposal_status = "missing_output"
+                active_response_text = json.dumps(payload, sort_keys=True)
+                watchdog_retry_attempted = True
+                watchdog_retry_status = "recovered"
+                watchdog_retry_mode = "shard_packed"
+            else:
+                payload, validation_errors, validation_metadata, proposal_status = (
+                    _evaluate_recipe_response(
+                        shard=task_manifest,
+                        response_text=response_text,
+                    )
+                )
+                initial_proposal_status = proposal_status
             if (
                 proposal_status != "validated"
                 and _should_attempt_recipe_watchdog_retry(run_result=run_result)
+                and packed_retry_status != "recovered"
             ):
                 watchdog_retry_attempted = True
+                watchdog_retry_mode = "per_task"
                 watchdog_retry_run_result = _run_recipe_watchdog_retry_attempt(
                     runner=runner,
                     worker_root=worker_root,
@@ -2609,6 +2866,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     for row_payload in retry_rows:
                         if isinstance(row_payload, dict):
                             row_payload["watchdog_retry_attempted"] = True
+                            row_payload["watchdog_retry_mode"] = "per_task"
                             row_payload["runtime_task_id"] = task_manifest.shard_id
                             row_payload["runtime_parent_shard_id"] = parent_shard_id
                             stage_rows.append(dict(row_payload))
@@ -2643,11 +2901,13 @@ def _run_recipe_workspace_worker_assignment_v1(
                         retry_runner_row["proposal_status"] = proposal_status
                         retry_runner_row["watchdog_retry_attempted"] = True
                         retry_runner_row["watchdog_retry_status"] = watchdog_retry_status
+                        retry_runner_row["watchdog_retry_mode"] = "per_task"
                 _write_json(
                     {
                         "status": proposal_status,
                         "watchdog_retry_reason_code": run_result.supervision_reason_code,
                         "watchdog_retry_reason_detail": run_result.supervision_reason_detail,
+                        "watchdog_retry_mode": "per_task",
                         "validation_errors": list(validation_errors),
                         "validation_metadata": dict(validation_metadata or {}),
                         "state": watchdog_retry_run_result.supervision_state or "completed",
@@ -2784,6 +3044,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             stage_row["final_proposal_status"] = proposal_status
             stage_row["watchdog_retry_attempted"] = watchdog_retry_attempted
             stage_row["watchdog_retry_status"] = watchdog_retry_status
+            stage_row["watchdog_retry_mode"] = watchdog_retry_mode
             stage_row["repair_attempted"] = repair_attempted
             stage_row["repair_status"] = repair_status
             stage_row.update(
@@ -2791,6 +3052,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     run_result=run_result,
                     proposal_status=proposal_status,
                     watchdog_retry_status=watchdog_retry_status,
+                    watchdog_retry_mode=watchdog_retry_mode,
                     repair_status=repair_status,
                 )
             )
@@ -2839,6 +3101,15 @@ def _run_recipe_workspace_worker_assignment_v1(
                 if any(str(status).strip() == "repaired" for status in task_repair_statuses.values())
                 else ("failed" if repair_attempted else "not_attempted")
             )
+            watchdog_retry_mode = (
+                "shard_packed"
+                if any(status == "recovered" for status in task_watchdog_statuses.values())
+                and shard_packed_watchdog_retry_status_by_shard_id.get(shard.shard_id)
+                == "recovered"
+                else "per_task"
+                if watchdog_retry_attempted
+                else "not_attempted"
+            )
             validation_metadata = {
                 "task_aggregation": aggregation_metadata,
                 **dict(validation_metadata or {}),
@@ -2848,6 +3119,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     task_id: status
                     for task_id, status in sorted(task_watchdog_statuses.items())
                 }
+                validation_metadata["watchdog_retry_mode"] = watchdog_retry_mode
             repair_validation_errors = sorted(
                 {
                     str(error).strip()
@@ -2868,6 +3140,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                 run_result=run_result,
                 proposal_status=proposal_status,
                 watchdog_retry_status=watchdog_retry_status,
+                watchdog_retry_mode=watchdog_retry_mode,
                 repair_status=repair_status,
             )
             proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
@@ -2880,6 +3153,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     "validation_metadata": dict(validation_metadata or {}),
                     "watchdog_retry_attempted": watchdog_retry_attempted,
                     "watchdog_retry_status": watchdog_retry_status,
+                    "watchdog_retry_mode": watchdog_retry_mode,
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
                     "state": supervision_fields["final_supervision_state"],
@@ -2898,6 +3172,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
                     "watchdog_retry_attempted": watchdog_retry_attempted,
                     "watchdog_retry_status": watchdog_retry_status,
+                    "watchdog_retry_mode": watchdog_retry_mode,
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
                     "state": supervision_fields["final_supervision_state"],

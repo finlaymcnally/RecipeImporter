@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -171,6 +171,8 @@ class CodexExecLiveSnapshot:
     timeout_seconds: int | None = None
     final_agent_message_state: FinalAgentMessageState = "absent"
     final_agent_message_reason: str | None = None
+    source_working_dir: str | None = None
+    execution_working_dir: str | None = None
 
 
 @dataclass(frozen=True)
@@ -669,6 +671,8 @@ class FakeCodexExecRunner:
                     timeout_seconds=timeout_seconds,
                     final_agent_message_state=final_agent_message.state,
                     final_agent_message_reason=final_agent_message.reason,
+                    source_working_dir=str(working_dir),
+                    execution_working_dir=str(working_dir),
                 )
             )
         return CodexExecRunResult(
@@ -1324,7 +1328,12 @@ def _wrap_workspace_supervision_callback(
             execution_working_dir=execution_working_dir,
             relative_paths=sync_output_paths,
         )
-        decision = supervision_callback(snapshot)
+        callback_snapshot = replace(
+            snapshot,
+            source_working_dir=str(source_working_dir),
+            execution_working_dir=str(execution_working_dir),
+        )
+        decision = supervision_callback(callback_snapshot)
         if sync_source_paths:
             _sync_direct_exec_runtime_control_paths_to_execution(
                 source_working_dir=source_working_dir,

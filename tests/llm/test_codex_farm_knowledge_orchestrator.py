@@ -105,6 +105,119 @@ class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
         )
 
 
+class _PrematureKnowledgeQueueStopRunner(FakeCodexExecRunner):
+    def __init__(
+        self,
+        *,
+        output_builder,
+        premature_stop_run_count: int = 1,
+    ) -> None:
+        super().__init__(output_builder=output_builder)
+        self.premature_stop_run_count = max(0, int(premature_stop_run_count))
+
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        working_dir = Path(kwargs.get("working_dir"))
+        prompt_text = str(kwargs.get("prompt_text") or "")
+        supervision_callback = kwargs.get("supervision_callback")
+        self.calls.append(
+            {
+                "mode": "workspace_worker",
+                "prompt_text": prompt_text,
+                "input_payload": None,
+                "working_dir": str(working_dir),
+                "execution_working_dir": str(working_dir),
+                "output_schema_path": None,
+            }
+        )
+
+        current_task = json.loads((working_dir / "current_task.json").read_text(encoding="utf-8"))
+        current_task_id = str(current_task.get("task_id") or "")
+        input_path = working_dir / str(current_task["metadata"]["input_path"])
+        result_path = working_dir / str(current_task["metadata"]["result_path"])
+        input_payload = json.loads(input_path.read_text(encoding="utf-8"))
+        chunk_row = input_payload["c"][0]
+        block_indices = [
+            int(block["i"])
+            for block in chunk_row.get("b") or []
+            if isinstance(block, dict) and block.get("i") is not None
+        ]
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(
+                _semantic_packet_output(
+                    packet_id=current_task_id,
+                    chunk_id=str(chunk_row["cid"]),
+                    block_indices=block_indices,
+                ),
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        if supervision_callback is not None:
+            supervision_callback(
+                CodexExecLiveSnapshot(
+                    elapsed_seconds=0.1,
+                    last_event_seconds_ago=0.0,
+                    event_count=1,
+                    command_execution_count=1,
+                    reasoning_item_count=0,
+                    last_command="/bin/bash -lc python3 tools/knowledge_worker.py install-current",
+                    last_command_repeat_count=1,
+                    has_final_agent_message=False,
+                    timeout_seconds=kwargs.get("timeout_seconds"),
+                )
+            )
+
+        response_text = (
+            f"Validated {current_task_id}. If you want, I can continue immediately with the next task."
+            if len(self.calls) <= self.premature_stop_run_count
+            else "Queue drained."
+        )
+        usage = {
+            "input_tokens": 7,
+            "cached_input_tokens": 0,
+            "output_tokens": max(1, len(response_text) // 4),
+            "reasoning_tokens": 0,
+        }
+        events = (
+            {"type": "thread.started"},
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": response_text},
+            },
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": usage["input_tokens"],
+                    "cached_input_tokens": usage["cached_input_tokens"],
+                    "output_tokens": usage["output_tokens"],
+                    "reasoning_tokens": usage["reasoning_tokens"],
+                },
+            },
+        )
+        return CodexExecRunResult(
+            command=["codex", "exec"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text=prompt_text,
+            response_text=response_text,
+            turn_failed_message=None,
+            events=events,
+            usage=usage,
+            stderr_text=None,
+            stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
+            source_working_dir=str(working_dir),
+            execution_working_dir=str(working_dir),
+            execution_agents_path=None,
+            duration_ms=1,
+            started_at_utc="2026-01-01T00:00:00Z",
+            finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="workspace_worker",
+            supervision_state="completed",
+        )
+
+
 def test_knowledge_workspace_watchdog_allows_shell_work_until_command_loop(
     tmp_path: Path,
 ) -> None:
@@ -1086,8 +1199,10 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "ordered queue/progress reference" in worker_prompt
     assert "`metadata.input_path`, `metadata.hint_path`, and `metadata.result_path`" in worker_prompt
     assert "A task is not finished until `check-current` prints `OK ...`." in worker_prompt
+    assert "The assignment is complete only when the repo removes `current_task.json`" in worker_prompt
     assert "After each successful install, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`." in worker_prompt
-    assert "If a new current task is active, continue with it." in worker_prompt
+    assert "If a new current task is active, continue with it immediately." in worker_prompt
+    assert "Do not ask for permission to continue" in worker_prompt
     assert "Workspace-local shell commands are allowed when they materially help" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "repo-written helper under `tools/`" in worker_prompt
@@ -1198,7 +1313,7 @@ def test_knowledge_orchestrator_materializes_task_metadata_and_examples(
     ).read_text(encoding="utf-8").lower()
 
 
-def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Path) -> None:
+def _build_knowledge_worker_cli_fixture(tmp_path: Path) -> dict[str, object]:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     run_root = tmp_path / "run"
@@ -1313,6 +1428,25 @@ def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Pa
     if result_path.exists():
         result_path.unlink()
 
+    return {
+        "result_path": result_path,
+        "run_root": run_root,
+        "scaffold_path": worker_root / "scratch" / "current_task.json",
+        "task_id": task_id,
+        "tool_path": tool_path,
+        "worker_root": worker_root,
+    }
+
+
+def test_knowledge_workspace_helper_cli_shows_current_task_views(tmp_path: Path) -> None:
+    fixture = _build_knowledge_worker_cli_fixture(tmp_path)
+    worker_root = fixture["worker_root"]
+    tool_path = fixture["tool_path"]
+    task_id = fixture["task_id"]
+    assert isinstance(worker_root, Path)
+    assert isinstance(tool_path, Path)
+    assert isinstance(task_id, str)
+
     overview = subprocess.run(
         [sys.executable, str(tool_path), "overview"],
         cwd=worker_root,
@@ -1332,6 +1466,7 @@ def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Pa
     )
     assert "# Current Knowledge Task" in current.stdout
     assert f"Task id: `{task_id}`" in current.stdout
+    assert "assignment stays active until the repo removes `current_task.json`" in current.stdout
 
     explain_failure = subprocess.run(
         [sys.executable, str(tool_path), "explain-failure"],
@@ -1352,7 +1487,20 @@ def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Pa
     assert f"task_id: {task_id}" in show.stdout
     assert "input_path:" in show.stdout
 
-    scaffold_path = worker_root / "scratch" / "current_task.json"
+
+def test_knowledge_workspace_helper_cli_scaffolds_and_checks_current_packets(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_worker_cli_fixture(tmp_path)
+    worker_root = fixture["worker_root"]
+    tool_path = fixture["tool_path"]
+    task_id = fixture["task_id"]
+    scaffold_path = fixture["scaffold_path"]
+    assert isinstance(worker_root, Path)
+    assert isinstance(tool_path, Path)
+    assert isinstance(task_id, str)
+    assert isinstance(scaffold_path, Path)
+
     if scaffold_path.exists():
         scaffold_path.unlink()
     scaffold = subprocess.run(
@@ -1404,6 +1552,18 @@ def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Pa
         worker_root / "CURRENT_TASK_FEEDBACK.md"
     ).read_text(encoding="utf-8")
 
+
+def test_knowledge_workspace_helper_cli_installs_valid_packets_only(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_worker_cli_fixture(tmp_path)
+    worker_root = fixture["worker_root"]
+    tool_path = fixture["tool_path"]
+    result_path = fixture["result_path"]
+    assert isinstance(worker_root, Path)
+    assert isinstance(tool_path, Path)
+    assert isinstance(result_path, Path)
+
     invalid_install = subprocess.run(
         [
             sys.executable,
@@ -1441,8 +1601,10 @@ def test_knowledge_workspace_helper_cli_behaves_like_the_paved_road(tmp_path: Pa
     ).read_text(encoding="utf-8")
     feedback_text = (worker_root / "CURRENT_TASK_FEEDBACK.md").read_text(encoding="utf-8")
     assert "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`." in feedback_text
-    assert "If another task becomes active, continue with that task." in feedback_text
+    assert "If another task becomes active, continue with that task immediately." in feedback_text
+    assert "Do not ask for permission to continue" in feedback_text
     assert "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`" in install.stdout
+    assert "Do not ask for permission to continue" in install.stdout
 
 
 def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
@@ -1702,6 +1864,201 @@ def test_run_direct_knowledge_workers_writes_partial_runtime_artifacts_before_in
     assert telemetry["worker_count"] == 1
     assert promotion_report["validated_shards"] == 0
     assert task_rows[0]["state"] == "cancelled_due_to_interrupt"
+
+
+def test_run_direct_knowledge_workers_relaunches_premature_clean_mid_queue_stop(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "knowledge"
+    shard = ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=("book.c0000.nr", "book.c0001.nr"),
+        input_payload={
+            "v": "2",
+            "bid": "book.ks0000.nr",
+            "c": [
+                {
+                    "cid": "book.c0000.nr",
+                    "b": [{"i": 4, "t": "Use low heat to prevent curdling."}],
+                },
+                {
+                    "cid": "book.c0001.nr",
+                    "b": [{"i": 5, "t": "Whisk constantly so the sauce stays smooth."}],
+                },
+            ],
+        },
+        metadata={
+            "ordered_chunk_ids": ["book.c0000.nr", "book.c0001.nr"],
+            "chunk_block_indices_by_id": {
+                "book.c0000.nr": [4],
+                "book.c0001.nr": [5],
+            },
+            "owned_block_indices": [4, 5],
+        },
+    )
+    runner = _PrematureKnowledgeQueueStopRunner(
+        output_builder=lambda payload: dict(payload or {})
+    )
+
+    _phase_manifest, worker_reports, process_run_payload = _run_direct_knowledge_workers_v1(
+        phase_key="nonrecipe_knowledge_review",
+        pipeline_id="recipe.knowledge.compact.v1",
+        run_root=run_root,
+        shards=[shard],
+        runner=runner,
+        worker_count=1,
+        env={},
+        model=None,
+        reasoning_effort=None,
+        output_schema_path=None,
+        settings={},
+        runtime_metadata={},
+    )
+
+    assert len(runner.calls) == 2
+    worker_root = run_root / worker_reports[0].workspace_root
+    live_status = json.loads((worker_root / "live_status.json").read_text(encoding="utf-8"))
+    current_feedback = (worker_root / "CURRENT_TASK_FEEDBACK.md").read_text(encoding="utf-8")
+    last_message = json.loads((worker_root / "last_message.json").read_text(encoding="utf-8"))
+    worker_report = worker_reports[0]
+    process_summary = process_run_payload["telemetry"]["summary"]
+    telemetry_summary = json.loads((run_root / "telemetry.json").read_text(encoding="utf-8"))["summary"]
+
+    assert live_status["reason_code"] == "workspace_validated_task_queue_completed"
+    assert live_status["queue_complete"] is True
+    assert live_status["queue_validated_task_count"] == 2
+    assert live_status["workspace_relaunch_count"] == 1
+    assert live_status["workspace_premature_clean_exit_count"] == 1
+    assert live_status["workspace_relaunch_reason_codes"] == [
+        "workspace_validated_task_queue_premature_clean_exit"
+    ]
+    assert live_status["workspace_relaunch_history"] == [
+        {
+            "reason_code": "workspace_validated_task_queue_premature_clean_exit",
+            "reason_detail": (
+                "knowledge workspace worker validated repo-owned output, advanced the "
+                "current task from book.ks0000.nr.task-001 to book.ks0000.nr.task-002, "
+                "then exited cleanly before the queue completed; relaunching the "
+                "remaining queue; final message: Validated book.ks0000.nr.task-001. "
+                "If you want, I can continue immediately with the next task."
+            ),
+            "state": "retrying",
+        }
+    ]
+    assert worker_report.metadata["workspace_relaunch_count"] == 1
+    assert worker_report.metadata["workspace_premature_clean_exit_count"] == 1
+    assert worker_report.metadata["workspace_relaunch_reason_codes"] == [
+        "workspace_validated_task_queue_premature_clean_exit"
+    ]
+    assert process_summary["workspace_relaunch_count_total"] == 1
+    assert process_summary["workspace_premature_clean_exit_count"] == 1
+    assert process_summary["workspace_premature_clean_exit_session_count"] == 1
+    assert process_summary["workspace_relaunch_reason_code_counts"] == {
+        "workspace_validated_task_queue_premature_clean_exit": 1
+    }
+    assert telemetry_summary["workspace_relaunch_count_total"] == 1
+    assert telemetry_summary["workspace_premature_clean_exit_count"] == 1
+    assert telemetry_summary["workspace_premature_clean_exit_session_count"] == 1
+    assert telemetry_summary["workspace_relaunch_reason_code_counts"] == {
+        "workspace_validated_task_queue_premature_clean_exit": 1
+    }
+    assert last_message["text"] == "Queue drained."
+    assert "No current task is active. The queue is complete." in current_feedback
+
+
+def test_run_direct_knowledge_workers_marks_clean_exit_relaunch_cap_reached(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "knowledge"
+    shard = ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=(
+            "book.c0000.nr",
+            "book.c0001.nr",
+            "book.c0002.nr",
+            "book.c0003.nr",
+        ),
+        input_payload={
+            "v": "2",
+            "bid": "book.ks0000.nr",
+            "c": [
+                {"cid": "book.c0000.nr", "b": [{"i": 4, "t": "Use low heat."}]},
+                {"cid": "book.c0001.nr", "b": [{"i": 5, "t": "Whisk constantly."}]},
+                {"cid": "book.c0002.nr", "b": [{"i": 6, "t": "Add stock slowly."}]},
+                {"cid": "book.c0003.nr", "b": [{"i": 7, "t": "Season at the end."}]},
+            ],
+        },
+        metadata={
+            "ordered_chunk_ids": [
+                "book.c0000.nr",
+                "book.c0001.nr",
+                "book.c0002.nr",
+                "book.c0003.nr",
+            ],
+            "chunk_block_indices_by_id": {
+                "book.c0000.nr": [4],
+                "book.c0001.nr": [5],
+                "book.c0002.nr": [6],
+                "book.c0003.nr": [7],
+            },
+            "owned_block_indices": [4, 5, 6, 7],
+        },
+    )
+    relaunch_max = knowledge_module._KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES  # noqa: SLF001
+    runner = _PrematureKnowledgeQueueStopRunner(
+        output_builder=lambda payload: dict(payload or {}),
+        premature_stop_run_count=relaunch_max + 1,
+    )
+
+    _phase_manifest, worker_reports, process_run_payload = _run_direct_knowledge_workers_v1(
+        phase_key="nonrecipe_knowledge_review",
+        pipeline_id="recipe.knowledge.compact.v1",
+        run_root=run_root,
+        shards=[shard],
+        runner=runner,
+        worker_count=1,
+        env={},
+        model=None,
+        reasoning_effort=None,
+        output_schema_path=None,
+        settings={},
+        runtime_metadata={},
+    )
+
+    assert len(runner.calls) == relaunch_max + 1
+    worker_root = run_root / worker_reports[0].workspace_root
+    live_status = json.loads((worker_root / "live_status.json").read_text(encoding="utf-8"))
+    current_task = json.loads((worker_root / "current_task.json").read_text(encoding="utf-8"))
+    current_feedback = (worker_root / "CURRENT_TASK_FEEDBACK.md").read_text(encoding="utf-8")
+    last_message = json.loads((worker_root / "last_message.json").read_text(encoding="utf-8"))
+    worker_report = worker_reports[0]
+    process_summary = process_run_payload["telemetry"]["summary"]
+    telemetry_summary = json.loads((run_root / "telemetry.json").read_text(encoding="utf-8"))["summary"]
+
+    assert live_status["reason_code"] == (
+        "workspace_validated_task_queue_premature_clean_exit_cap_reached"
+    )
+    assert live_status["queue_complete"] is False
+    assert live_status["queue_validated_task_count"] == relaunch_max + 1
+    assert live_status["workspace_relaunch_count"] == relaunch_max
+    assert live_status["workspace_relaunch_max"] == relaunch_max
+    assert live_status["workspace_relaunch_cap_reached"] is True
+    assert live_status["workspace_premature_clean_exit_count"] == relaunch_max
+    assert len(live_status["workspace_relaunch_history"]) == relaunch_max
+    assert "automatic relaunch cap" in str(live_status["reason_detail"])
+    assert current_task["task_id"] == "book.ks0000.nr.task-004"
+    assert "No repo-written validation feedback exists yet for this task." in current_feedback
+    assert last_message["text"].startswith("Validated book.ks0000.nr.task-003.")
+    assert worker_report.metadata["workspace_relaunch_count"] == relaunch_max
+    assert worker_report.metadata["workspace_relaunch_cap_reached"] is True
+    assert process_summary["workspace_relaunch_count_total"] == relaunch_max
+    assert process_summary["workspace_premature_clean_exit_count"] == relaunch_max
+    assert process_summary["workspace_premature_clean_exit_session_count"] == 1
+    assert process_summary["workspace_relaunch_cap_reached_session_count"] == 1
+    assert telemetry_summary["workspace_relaunch_count_total"] == relaunch_max
+    assert telemetry_summary["workspace_premature_clean_exit_count"] == relaunch_max
+    assert telemetry_summary["workspace_premature_clean_exit_session_count"] == 1
+    assert telemetry_summary["workspace_relaunch_cap_reached_session_count"] == 1
 
 
 def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
@@ -2205,9 +2562,7 @@ def test_knowledge_watchdog_retry_uses_bounded_timeout(tmp_path: Path) -> None:
     )
 
 
-def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
-    tmp_path: Path,
-) -> None:
+def _run_watchdog_killed_summary_fixture(tmp_path: Path) -> dict[str, object]:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -2415,6 +2770,18 @@ def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
         ),
     )
 
+    return {
+        "apply_result": apply_result,
+        "run_root": run_root,
+    }
+
+
+def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_watchdog_killed_summary_fixture(tmp_path)
+    apply_result = fixture["apply_result"]
+
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert process_summary["watchdog_killed_shard_count"] == 1
     assert process_summary["workspace_worker_session_count"] == 1
@@ -2425,6 +2792,19 @@ def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
     }
     assert "watchdog_kills_detected" in process_summary["pathological_flags"]
     assert "command_execution_detected" in process_summary["pathological_flags"]
+    assert apply_result.llm_report["review_status"] == "unreviewed"
+    assert apply_result.llm_report["counts"]["unreviewed_shard_count"] == 1
+    assert apply_result.llm_report["counts"]["invalid_shards"] == 1
+    assert apply_result.llm_report["counts"]["missing_output_shards"] == 0
+
+
+def test_knowledge_orchestrator_writes_watchdog_killed_shard_status_files(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_watchdog_killed_summary_fixture(tmp_path)
+    apply_result = fixture["apply_result"]
+    run_root = fixture["run_root"]
+    assert isinstance(run_root, Path)
 
     status_path = (
         run_root
@@ -2449,15 +2829,12 @@ def test_knowledge_orchestrator_marks_watchdog_killed_shards_in_summary(
     assert live_status_payload["reason_code"] == "watchdog_command_execution_forbidden"
     assert live_status_payload["retryable"] is True
     assert apply_result.llm_report["review_status"] == "unreviewed"
-    assert apply_result.llm_report["counts"]["unreviewed_shard_count"] == 1
-    assert apply_result.llm_report["counts"]["invalid_shards"] == 1
-    assert apply_result.llm_report["counts"]["missing_output_shards"] == 0
 
 
-def test_knowledge_orchestrator_retries_taskized_watchdog_failures_inside_large_parent_shards(
-    monkeypatch: pytest.MonkeyPatch,
+def _run_taskized_watchdog_failure_fixture(
     tmp_path: Path,
-) -> None:
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
     monkeypatch.setattr(
         "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
         lambda _sequence, overrides=None: [  # noqa: ARG005
@@ -2600,14 +2977,37 @@ def test_knowledge_orchestrator_retries_taskized_watchdog_failures_inside_large_
         ),
     )
 
+    proposal_path = (
+        run_root / "raw" / "llm" / "book" / "knowledge" / "proposals" / "book.ks0000.nr.json"
+    )
+    return {
+        "apply_result": apply_result,
+        "proposal": json.loads(proposal_path.read_text(encoding="utf-8")),
+    }
+
+
+def test_knowledge_orchestrator_counts_taskized_watchdog_failures_inside_large_parent_shards(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_taskized_watchdog_failure_fixture(tmp_path, monkeypatch)
+    apply_result = fixture["apply_result"]
+    assert hasattr(apply_result, "llm_report")
+
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert process_summary["workspace_worker_session_count"] == 1
     assert process_summary["structured_followup_call_count"] == 2
-    proposal = json.loads(
-        (
-            run_root / "raw" / "llm" / "book" / "knowledge" / "proposals" / "book.ks0000.nr.json"
-        ).read_text(encoding="utf-8")
-    )
+    assert apply_result.llm_report["review_status"] == "unreviewed"
+
+
+def test_knowledge_orchestrator_records_taskized_watchdog_retry_and_repair_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_taskized_watchdog_failure_fixture(tmp_path, monkeypatch)
+    proposal = fixture["proposal"]
+    assert isinstance(proposal, dict)
+
     assert proposal["watchdog_retry_attempted"] is True
     assert proposal["watchdog_retry_status"] == "failed"
     assert proposal["watchdog_retry_skip_reason_code"] == "retry_skipped_poisoned_worker"
@@ -2621,13 +3021,12 @@ def test_knowledge_orchestrator_retries_taskized_watchdog_failures_inside_large_
     assert proposal["validation_metadata"]["task_watchdog_retry_skip_reason_by_task_id"] == {
         "book.ks0000.nr.task-002": "retry_skipped_poisoned_worker"
     }
-    assert apply_result.llm_report["review_status"] == "unreviewed"
 
 
-def test_knowledge_orchestrator_retries_cohort_outlier_watchdog_once(
+def _run_cohort_outlier_watchdog_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> dict[str, object]:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -2894,24 +3293,6 @@ def test_knowledge_orchestrator_retries_cohort_outlier_watchdog_once(
         runner=runner,
     )
 
-    process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
-    assert process_summary["watchdog_killed_shard_count"] == 1
-    assert process_summary["call_count"] == 5
-    assert process_summary["workspace_worker_session_count"] == 4
-    assert process_summary["structured_followup_call_count"] == 1
-    assert process_summary["prompt_input_mode_counts"] == {
-        "inline_watchdog_retry": 1,
-        "workspace_worker": 4,
-    }
-
-    proposals_dir = run_root / "raw" / "llm" / "book" / "knowledge" / "proposals"
-    recovered_proposal = json.loads(
-        (proposals_dir / "book.ks0003.nr.json").read_text(encoding="utf-8")
-    )
-    assert recovered_proposal["watchdog_retry_attempted"] is True
-    assert recovered_proposal["watchdog_retry_status"] == "recovered"
-    assert recovered_proposal["validation_errors"] == []
-
     retry_status_path = (
         run_root
         / "raw"
@@ -2925,20 +3306,67 @@ def test_knowledge_orchestrator_retries_cohort_outlier_watchdog_once(
         / "watchdog_retry"
         / "status.json"
     )
-    retry_status = json.loads(retry_status_path.read_text(encoding="utf-8"))
-    assert retry_status["status"] == "validated"
-    assert retry_status["watchdog_retry_reason_code"] == "watchdog_cohort_runtime_outlier"
+    return {
+        "apply_result": apply_result,
+        "recovered_proposal": json.loads(
+            (
+                run_root
+                / "raw"
+                / "llm"
+                / "book"
+                / "knowledge"
+                / "proposals"
+                / "book.ks0003.nr.json"
+            ).read_text(encoding="utf-8")
+        ),
+        "retry_status": json.loads(retry_status_path.read_text(encoding="utf-8")),
+        "retry_prompt": (retry_status_path.parent / "prompt.txt").read_text(encoding="utf-8"),
+    }
 
-    retry_prompt = (
-        retry_status_path.parent / "prompt.txt"
-    ).read_text(encoding="utf-8")
-    assert "Successful sibling examples:" in retry_prompt
 
-
-def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_retry_case(
+def test_knowledge_orchestrator_counts_cohort_outlier_watchdog_retry_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    fixture = _run_cohort_outlier_watchdog_fixture(tmp_path, monkeypatch)
+    apply_result = fixture["apply_result"]
+    assert hasattr(apply_result, "llm_report")
+
+    process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
+    assert process_summary["watchdog_killed_shard_count"] == 1
+    assert process_summary["call_count"] == 5
+    assert process_summary["workspace_worker_session_count"] == 4
+    assert process_summary["structured_followup_call_count"] == 1
+    assert process_summary["prompt_input_mode_counts"] == {
+        "inline_watchdog_retry": 1,
+        "workspace_worker": 4,
+    }
+
+
+def test_knowledge_orchestrator_persists_recovered_cohort_outlier_retry_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_cohort_outlier_watchdog_fixture(tmp_path, monkeypatch)
+    recovered_proposal = fixture["recovered_proposal"]
+    retry_status = fixture["retry_status"]
+    retry_prompt = fixture["retry_prompt"]
+    assert isinstance(recovered_proposal, dict)
+    assert isinstance(retry_status, dict)
+    assert isinstance(retry_prompt, str)
+
+    assert recovered_proposal["watchdog_retry_attempted"] is True
+    assert recovered_proposal["watchdog_retry_status"] == "recovered"
+    assert recovered_proposal["validation_errors"] == []
+    assert retry_status["status"] == "validated"
+    assert retry_status["watchdog_retry_reason_code"] == "watchdog_cohort_runtime_outlier"
+    assert "Successful sibling examples:" in retry_prompt
+
+
+def _run_missing_rows_taskization_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
     pack_root = tmp_path / "pack"
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -3070,6 +3498,20 @@ def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_re
         runner=runner,
     )
 
+    proposals_dir = run_root / "raw" / "llm" / "book" / "knowledge" / "proposals"
+    proposal = json.loads((proposals_dir / "book.ks0000.nr.json").read_text(encoding="utf-8"))
+    return {
+        "apply_result": apply_result,
+        "proposal": proposal,
+    }
+
+
+def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_retry_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_missing_rows_taskization_fixture(tmp_path, monkeypatch)
+    apply_result = fixture["apply_result"]
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert process_summary["call_count"] == 2
     assert process_summary["invalid_output_shard_count"] == 0
@@ -3080,8 +3522,14 @@ def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_re
         "workspace_worker": 2,
     }
 
-    proposals_dir = run_root / "raw" / "llm" / "book" / "knowledge" / "proposals"
-    proposal = json.loads((proposals_dir / "book.ks0000.nr.json").read_text(encoding="utf-8"))
+
+def test_knowledge_orchestrator_taskization_persists_clean_taskized_proposal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_missing_rows_taskization_fixture(tmp_path, monkeypatch)
+    proposal = fixture["proposal"]
+
     assert proposal["validation_errors"] == []
     assert proposal["retry_attempted"] is False
     assert proposal["retry_status"] == "not_attempted"
@@ -3386,6 +3834,108 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
     assert apply_result.llm_report["skipped_lane_counts"] == {}
 
 
+def test_knowledge_orchestrator_workspace_workers_do_not_force_heredoc_kills(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed_watchdog_kwargs: list[dict[str, object]] = []
+    original_builder = knowledge_module._build_strict_json_watchdog_callback  # noqa: SLF001
+
+    def _recording_builder(*args, **kwargs):  # noqa: ANN002, ANN003
+        if kwargs.get("watchdog_policy") == "workspace_worker_v1":
+            observed_watchdog_kwargs.append(dict(kwargs))
+        return original_builder(*args, **kwargs)
+
+    monkeypatch.setattr(
+        knowledge_module,
+        "_build_strict_json_watchdog_callback",
+        _recording_builder,
+    )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 4, "text": "Advertisement copy."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: build_structural_pipeline_output(
+            "recipe.knowledge.compact.v1",
+            dict(payload or {}),
+        )
+    )
+
+    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={4: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert apply_result.llm_report["stage_status"] == "completed"
+    assert len(observed_watchdog_kwargs) == 1
+    assert observed_watchdog_kwargs[0].get("allow_workspace_commands") is True
+    assert observed_watchdog_kwargs[0].get("forbid_inline_python_heredocs", False) is False
+
+
 def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3638,8 +4188,8 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
     worker_root = knowledge_dir / "workers" / "worker-001"
     status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
 
-    assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert len(runner.calls) == 2
+    assert {call["mode"] for call in runner.calls} == {"workspace_worker"}
     assert (worker_root / "out" / "book.ks0000.nr.json").exists()
     assert (worker_root / "out" / "book.ks0001.nr.json").exists()
     assert apply_result.llm_report["stage_status"] == "completed"
@@ -3648,10 +4198,10 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
     assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
 
 
-def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_assignment(
+def _run_multi_chunk_workspace_taskization_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     def _fake_chunks(_sequence, overrides=None):
         del overrides
         return [
@@ -3758,11 +4308,30 @@ def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_ass
     )
 
     phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
-    task_manifest = [
-        json.loads(line)
-        for line in (phase_dir / "task_manifest.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return {
+        "apply_result": apply_result,
+        "proposal": json.loads(
+            (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+        ),
+        "task_manifest": [
+            json.loads(line)
+            for line in (phase_dir / "task_manifest.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ],
+        "worker_root": phase_dir / "workers" / "worker-001",
+    }
+
+
+def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_assignment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_multi_chunk_workspace_taskization_fixture(monkeypatch, tmp_path)
+    task_manifest = fixture["task_manifest"]
+    worker_root = fixture["worker_root"]
+    assert isinstance(task_manifest, list)
+    assert isinstance(worker_root, Path)
+
     assert [row["task_id"] for row in task_manifest] == [
         "book.ks0000.nr.task-001",
         "book.ks0000.nr.task-002",
@@ -3771,11 +4340,20 @@ def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_ass
         "book.ks0000.nr",
         "book.ks0000.nr",
     ]
-
-    worker_root = phase_dir / "workers" / "worker-001"
     assert (worker_root / "out" / "book.ks0000.nr.task-001.json").exists()
     assert (worker_root / "out" / "book.ks0000.nr.task-002.json").exists()
-    proposal = json.loads((phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8"))
+
+
+def test_knowledge_orchestrator_accepts_all_taskized_outputs_inside_workspace_assignment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_multi_chunk_workspace_taskization_fixture(monkeypatch, tmp_path)
+    proposal = fixture["proposal"]
+    apply_result = fixture["apply_result"]
+    assert isinstance(proposal, dict)
+    assert hasattr(apply_result, "llm_report")
+
     assert proposal["validation_errors"] == []
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
     assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
@@ -3785,10 +4363,10 @@ def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_ass
     assert apply_result.llm_report["counts"]["validated_shards"] == 1
 
 
-def test_knowledge_orchestrator_partially_promotes_accepted_task_packets_from_invalid_parent_shard(
+def _run_partial_task_promotion_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     def _fake_chunks(_sequence, overrides=None):
         del overrides
         return [
@@ -3950,25 +4528,32 @@ def test_knowledge_orchestrator_partially_promotes_accepted_task_packets_from_in
     )
 
     phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
-    proposal = json.loads((phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8"))
-    task_rows = [
-        json.loads(line)
-        for line in (phase_dir / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return {
+        "apply_result": apply_result,
+        "proposal": json.loads(
+            (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+        ),
+        "task_rows": [
+            json.loads(line)
+            for line in (phase_dir / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ],
+    }
+
+
+def test_knowledge_orchestrator_partially_promotes_accepted_task_packets_from_invalid_parent_shard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_partial_task_promotion_fixture(monkeypatch, tmp_path)
+    apply_result = fixture["apply_result"]
+    assert hasattr(apply_result, "llm_report")
 
     assert apply_result.refined_stage_result.block_category_by_index == {
         0: "knowledge",
         1: "knowledge",
         2: "knowledge",
     }
-    assert proposal["validation_errors"] == ["missing_owned_chunk_results"]
-    assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
-        "book.ks0000.nr.task-001",
-        "book.ks0000.nr.task-002",
-    ]
-    assert task_rows[1]["state"] == "validated"
-    assert task_rows[2]["validation_errors"] == ["semantic_snippet_body_not_grounded_text"]
     assert apply_result.llm_report["stage_status"] == "completed_with_failures"
     assert apply_result.llm_report["review_status"] == "partial"
     assert apply_result.llm_report["counts"]["validated_shards"] == 0
@@ -3985,6 +4570,25 @@ def test_knowledge_orchestrator_partially_promotes_accepted_task_packets_from_in
     assert apply_result.llm_report["review_summary"]["unreviewed_shard_count"] == 0
     assert apply_result.llm_report["review_summary"]["reviewed_chunk_count"] == 2
     assert apply_result.llm_report["missing_chunk_ids"] == ["book.c0002.nr"]
+
+
+def test_knowledge_orchestrator_records_partial_parent_shard_task_acceptance_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_partial_task_promotion_fixture(monkeypatch, tmp_path)
+    proposal = fixture["proposal"]
+    task_rows = fixture["task_rows"]
+    assert isinstance(proposal, dict)
+    assert isinstance(task_rows, list)
+
+    assert proposal["validation_errors"] == ["missing_owned_chunk_results"]
+    assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
+        "book.ks0000.nr.task-001",
+        "book.ks0000.nr.task-002",
+    ]
+    assert task_rows[1]["state"] == "validated"
+    assert task_rows[2]["validation_errors"] == ["semantic_snippet_body_not_grounded_text"]
 
 
 def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(

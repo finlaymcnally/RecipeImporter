@@ -806,9 +806,7 @@ def test_build_codex_farm_prompt_response_log_follows_benchmark_stage_run_pointe
     assert (eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt").exists()
 
 
-def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
-    tmp_path: Path,
-) -> None:
+def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
     processed_run = tmp_path / "processed" / "2026-03-16_18.11.25"
     prompt_dir = processed_run / "line-role-pipeline" / "prompts" / "line_role"
     prompt_dir.mkdir(parents=True, exist_ok=True)
@@ -915,8 +913,40 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
         repo_root=tmp_path,
     )
 
+    return {
+        "eval_output_dir": eval_output_dir,
+        "full_prompt_rows": [
+            json.loads(line)
+            for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if line.strip()
+        ],
+        "log_path": log_path,
+        "manifest_lines": (
+            eval_output_dir / "prompts" / "prompt_category_logs_manifest.txt"
+        ).read_text(encoding="utf-8").splitlines(),
+        "trace_rows": [
+            json.loads(line)
+            for line in (eval_output_dir / "prompts" / "thinking_trace_summary.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if line.strip()
+        ],
+    }
+
+
+def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_line_role_only_prompt_log_fixture(tmp_path)
+    eval_output_dir = fixture["eval_output_dir"]
+    log_path = fixture["log_path"]
+    assert isinstance(eval_output_dir, Path)
+    assert isinstance(log_path, Path)
+
     assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
-    assert log_path is not None and log_path.exists()
+    assert log_path.exists()
     assert (eval_output_dir / "prompts" / "prompt_line_role.txt").exists()
     assert (
         eval_output_dir
@@ -936,6 +966,20 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
         eval_output_dir / "prompts" / "line-role-pipeline" / "telemetry_summary.json"
     ).exists()
 
+
+def test_build_codex_farm_prompt_response_log_records_line_role_only_prompt_rows(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_line_role_only_prompt_log_fixture(tmp_path)
+    eval_output_dir = fixture["eval_output_dir"]
+    full_prompt_rows = fixture["full_prompt_rows"]
+    trace_rows = fixture["trace_rows"]
+    manifest_lines = fixture["manifest_lines"]
+    assert isinstance(eval_output_dir, Path)
+    assert isinstance(full_prompt_rows, list)
+    assert isinstance(trace_rows, list)
+    assert isinstance(manifest_lines, list)
+
     full_prompt_rows = [
         json.loads(line)
         for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
@@ -949,20 +993,10 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
     assert row["process_run_id"] == "line-role-run-1"
     assert row["request_telemetry"]["tokens_total"] == 16
     assert row["raw_response"]["output_text"].startswith("[{")
-    trace_rows = [
-        json.loads(line)
-        for line in (eval_output_dir / "prompts" / "thinking_trace_summary.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip()
-    ]
     assert len(trace_rows) == 1
     assert trace_rows[0]["stage_key"] == "line_role"
     assert trace_rows[0]["trace_exists"] is False
     assert trace_rows[0]["trace_path"] is None
-    manifest_lines = (
-        eval_output_dir / "prompts" / "prompt_category_logs_manifest.txt"
-    ).read_text(encoding="utf-8").splitlines()
     assert manifest_lines == [str(eval_output_dir / "prompts" / "prompt_line_role.txt")]
 
 
@@ -1746,9 +1780,7 @@ def test_prompt_budget_summary_surfaces_pathological_spend_metrics(
     assert summary["totals"]["invalid_output_tokens_total"] == 130
 
 
-def test_prompt_budget_summary_recovers_current_shard_runtime_recipe_and_processed_line_role(
-    tmp_path: Path,
-) -> None:
+def _build_current_shard_runtime_budget_summary_fixture(tmp_path: Path) -> dict[str, object]:
     pred_run = tmp_path / "benchmark-run"
     pred_run.mkdir(parents=True, exist_ok=True)
 
@@ -1865,6 +1897,15 @@ def test_prompt_budget_summary_recovers_current_shard_runtime_recipe_and_process
     }
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+    return {"summary": summary}
+
+
+def test_prompt_budget_summary_recovers_current_shard_runtime_recipe_and_knowledge(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_current_shard_runtime_budget_summary_fixture(tmp_path)
+    summary = fixture["summary"]
+    assert isinstance(summary, dict)
 
     assert summary["by_stage"]["recipe_correction"]["call_count"] == 2
     assert summary["by_stage"]["recipe_correction"]["duration_total_ms"] == 2200
@@ -1877,6 +1918,14 @@ def test_prompt_budget_summary_recovers_current_shard_runtime_recipe_and_process
     assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
     assert summary["by_stage"]["knowledge"]["authority_mode"] == "knowledge_refined_final"
     assert summary["by_stage"]["knowledge"]["scored_effect"] == "final_authority"
+
+
+def test_prompt_budget_summary_recovers_processed_line_role_and_totals(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_current_shard_runtime_budget_summary_fixture(tmp_path)
+    summary = fixture["summary"]
+    assert isinstance(summary, dict)
 
     assert summary["by_stage"]["line_role"]["call_count"] == 2
     assert summary["by_stage"]["line_role"]["attempt_count"] == 2
@@ -2031,9 +2080,7 @@ def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker
     assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
 
 
-def test_prompt_budget_summary_surfaces_knowledge_packet_worker_and_followup_summary(
-    tmp_path: Path,
-) -> None:
+def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, object]:
     pred_run = tmp_path / "prediction-run"
     pred_run.mkdir(parents=True, exist_ok=True)
     stage_root = pred_run / "raw" / "llm" / "book" / "knowledge"
@@ -2223,8 +2270,19 @@ def test_prompt_budget_summary_surfaces_knowledge_packet_worker_and_followup_sum
     }
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+    return {
+        "knowledge_stage": summary["by_stage"]["knowledge"],
+        "summary": summary,
+    }
 
-    knowledge_stage = summary["by_stage"]["knowledge"]
+
+def test_prompt_budget_summary_surfaces_knowledge_packet_and_followup_counts(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_prompt_budget_summary_fixture(tmp_path)
+    knowledge_stage = fixture["knowledge_stage"]
+    assert isinstance(knowledge_stage, dict)
+
     assert knowledge_stage["task_packet_total"] == 3
     assert knowledge_stage["packet_state_counts"] == {
         "repair_failed": 1,
@@ -2247,6 +2305,17 @@ def test_prompt_budget_summary_surfaces_knowledge_packet_worker_and_followup_sum
     assert knowledge_stage["stale_followup_count"] == 1
     assert knowledge_stage["circuit_breaker_activation_count"] == 1
     assert knowledge_stage["salvage_success_count"] == 1
+
+
+def test_prompt_budget_summary_surfaces_knowledge_execution_mode_rollups(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_knowledge_prompt_budget_summary_fixture(tmp_path)
+    knowledge_stage = fixture["knowledge_stage"]
+    summary = fixture["summary"]
+    assert isinstance(knowledge_stage, dict)
+    assert isinstance(summary, dict)
+
     assert knowledge_stage["execution_mode_summary"]["main_workspace_workers"]["call_count"] == 1
     assert knowledge_stage["execution_mode_summary"]["structured_followups"]["call_count"] == 1
     assert knowledge_stage["prompt_input_mode_counts"] == {

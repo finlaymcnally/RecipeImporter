@@ -284,6 +284,202 @@ def _install_basic_generate_pred_run_artifacts_mocks(
     )
 
 
+def _make_projection_conversion_result(
+    *,
+    source: Path,
+    block_texts: list[str],
+) -> ConversionResult:
+    return ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[
+            RawArtifact(
+                importer="fake",
+                sourceHash="hash-123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": index, "text": text}
+                        for index, text in enumerate(block_texts)
+                    ]
+                },
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+
+def _install_projection_generate_pred_run_artifacts_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    source: Path,
+    fake_result: ConversionResult,
+    label_first_result: LabelFirstStageResult,
+    archive_blocks: list[ArchiveBlock],
+    execute_stage_import_session_from_result: callable | None = None,
+    patch_parsing_archive: bool = False,
+) -> None:
+    _install_basic_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        fake_result=fake_result,
+        archive_blocks=archive_blocks,
+        patch_parsing_archive=patch_parsing_archive,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_label_first_stage_result",
+        lambda **_kwargs: label_first_result,
+    )
+    monkeypatch.setattr(
+        "cookimport.staging.import_session.build_label_first_stage_result",
+        lambda **_kwargs: label_first_result,
+    )
+    if execute_stage_import_session_from_result is not None:
+        monkeypatch.setattr(
+            "cookimport.labelstudio.ingest.execute_stage_import_session_from_result",
+            execute_stage_import_session_from_result,
+        )
+
+
+def _install_split_import_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fake_result: ConversionResult,
+    processed_root: Path,
+    task_count: int,
+    planned_jobs: list[dict[str, object]],
+    process_pool_executor: object | None = None,
+    thread_pool_executor: object | None = None,
+) -> None:
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    class FakeLabelStudioClient:
+        uploaded_batches: list[int] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            pass
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(
+            self, title: str, _label_config: str, description: str | None = None
+        ):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks):
+            self.uploaded_batches.append(len(tasks))
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
+        lambda *_args, **_kwargs: planned_jobs,
+    )
+    if process_pool_executor is not None:
+        monkeypatch.setattr(
+            "cookimport.core.executor_fallback.ProcessPoolExecutor",
+            process_pool_executor,
+        )
+    if thread_pool_executor is not None:
+        monkeypatch.setattr(
+            "cookimport.core.executor_fallback.ThreadPoolExecutor",
+            thread_pool_executor,
+        )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._parallel_convert_worker",
+        lambda *_args, **_kwargs: ("fake", fake_result),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._merge_parallel_results",
+        lambda *_args, **_kwargs: fake_result,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._write_processed_outputs",
+        lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [
+            {"data": {"segment_id": f"seg-{i}"}} for i in range(task_count)
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 1000,
+            "segment_chars": 950,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.LabelStudioClient",
+        FakeLabelStudioClient,
+    )
+
+
+def _run_split_labelstudio_import_case(
+    *,
+    source: Path,
+    output_dir: Path,
+    processed_root: Path,
+    progress_messages: list[str],
+) -> None:
+    run_labelstudio_import(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        project_name="benchmark project",
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=False,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="test",
+        limit=None,
+        sample=None,
+        progress_callback=progress_messages.append,
+        workers=2,
+        pdf_split_workers=1,
+        epub_split_workers=2,
+        pdf_pages_per_job=50,
+        epub_spine_items_per_job=10,
+        processed_output_root=processed_root,
+        allow_labelstudio_write=True,
+    )
+
+
 def test_llm_recipe_pipeline_normalizer_rejects_legacy_codex_farm_ids() -> None:
     with pytest.raises(ValueError, match="Invalid llm_recipe_pipeline"):
         _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
@@ -840,53 +1036,13 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
     output_dir = tmp_path / "golden"
     processed_root = tmp_path / "processed"
 
-    fake_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path=str(source),
-    )
-
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return fake_result
-
-    class FakeLabelStudioClient:
-        uploaded_batches: list[int] = []
-
-        def __init__(self, _url: str, _key: str) -> None:
-            pass
-
-        def list_projects(self):
-            return []
-
-        def find_project_by_title(self, _title: str):
-            return None
-
-        def create_project(
-            self, title: str, _label_config: str, description: str | None = None
-        ):
-            return {"id": 123, "title": title, "description": description}
-
-        def import_tasks(self, _project_id: int, tasks):
-            self.uploaded_batches.append(len(tasks))
-
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
-        lambda *_args, **_kwargs: [
+    fake_result = _make_empty_conversion_result(source)
+    _install_split_import_mocks(
+        monkeypatch,
+        fake_result=fake_result,
+        processed_root=processed_root,
+        task_count=5,
+        planned_jobs=[
             {
                 "job_index": 0,
                 "start_page": None,
@@ -909,78 +1065,15 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
                 "end_spine": 30,
             },
         ],
-    )
-    monkeypatch.setattr(
-        "cookimport.core.executor_fallback.ProcessPoolExecutor",
-        ThreadPoolExecutor,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._parallel_convert_worker",
-        lambda *_args, **_kwargs: ("fake", fake_result),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._merge_parallel_results",
-        lambda *_args, **_kwargs: fake_result,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
-            SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
-        lambda _path: "hash",
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_processed_outputs",
-        lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: [
-            {"data": {"segment_id": f"seg-{i}"}} for i in range(5)
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
-            "extracted_chars": 1000,
-            "segment_chars": 950,
-            "warnings": [],
-        },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks, **_kwargs: tasks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.LabelStudioClient",
-        FakeLabelStudioClient,
+        process_pool_executor=ThreadPoolExecutor,
     )
 
     progress_messages: list[str] = []
-    run_labelstudio_import(
-        path=source,
+    _run_split_labelstudio_import_case(
+        source=source,
         output_dir=output_dir,
-        pipeline="fake",
-        project_name="benchmark project",
-        segment_blocks=40,
-        segment_overlap=5,
-        overwrite=False,
-        resume=False,
-        label_studio_url="http://localhost:8080",
-        label_studio_api_key="test",
-        limit=None,
-        sample=None,
-        progress_callback=progress_messages.append,
-        workers=2,
-        pdf_split_workers=1,
-        epub_split_workers=2,
-        pdf_pages_per_job=50,
-        epub_spine_items_per_job=10,
-        processed_output_root=processed_root,
-        allow_labelstudio_write=True,
+        processed_root=processed_root,
+        progress_messages=progress_messages,
     )
 
     assert any(
@@ -1020,43 +1113,7 @@ def test_run_labelstudio_import_split_workers_fallback_to_thread_on_process_deni
     output_dir = tmp_path / "golden"
     processed_root = tmp_path / "processed"
 
-    fake_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path=str(source),
-    )
-
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return fake_result
-
-    class FakeLabelStudioClient:
-        def __init__(self, _url: str, _key: str) -> None:
-            pass
-
-        def list_projects(self):
-            return []
-
-        def find_project_by_title(self, _title: str):
-            return None
-
-        def create_project(
-            self, title: str, _label_config: str, description: str | None = None
-        ):
-            return {"id": 123, "title": title, "description": description}
-
-        def import_tasks(self, _project_id: int, _tasks):
-            return None
+    fake_result = _make_empty_conversion_result(source)
 
     class BrokenProcessPoolExecutor:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -1069,13 +1126,12 @@ def test_run_labelstudio_import_split_workers_fallback_to_thread_on_process_deni
             thread_pool_started["count"] += 1
             super().__init__(*args, **kwargs)
 
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
-        lambda *_args, **_kwargs: [
+    _install_split_import_mocks(
+        monkeypatch,
+        fake_result=fake_result,
+        processed_root=processed_root,
+        task_count=5,
+        planned_jobs=[
             {
                 "job_index": 0,
                 "start_page": None,
@@ -1098,82 +1154,16 @@ def test_run_labelstudio_import_split_workers_fallback_to_thread_on_process_deni
                 "end_spine": 30,
             },
         ],
-    )
-    monkeypatch.setattr(
-        "cookimport.core.executor_fallback.ProcessPoolExecutor",
-        BrokenProcessPoolExecutor,
-    )
-    monkeypatch.setattr(
-        "cookimport.core.executor_fallback.ThreadPoolExecutor",
-        TrackingThreadPoolExecutor,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._parallel_convert_worker",
-        lambda *_args, **_kwargs: ("fake", fake_result),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._merge_parallel_results",
-        lambda *_args, **_kwargs: fake_result,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
-            SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
-        lambda _path: "hash",
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_processed_outputs",
-        lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: [
-            {"data": {"segment_id": f"seg-{i}"}} for i in range(5)
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
-            "extracted_chars": 1000,
-            "segment_chars": 950,
-            "warnings": [],
-        },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks, **_kwargs: tasks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.LabelStudioClient",
-        FakeLabelStudioClient,
+        process_pool_executor=BrokenProcessPoolExecutor,
+        thread_pool_executor=TrackingThreadPoolExecutor,
     )
 
     progress_messages: list[str] = []
-    run_labelstudio_import(
-        path=source,
+    _run_split_labelstudio_import_case(
+        source=source,
         output_dir=output_dir,
-        pipeline="fake",
-        project_name="benchmark project",
-        segment_blocks=40,
-        segment_overlap=5,
-        overwrite=False,
-        resume=False,
-        label_studio_url="http://localhost:8080",
-        label_studio_api_key="test",
-        limit=None,
-        sample=None,
-        progress_callback=progress_messages.append,
-        workers=2,
-        pdf_split_workers=1,
-        epub_split_workers=2,
-        pdf_pages_per_job=50,
-        epub_spine_items_per_job=10,
-        processed_output_root=processed_root,
-        allow_labelstudio_write=True,
+        processed_root=processed_root,
+        progress_messages=progress_messages,
     )
 
     assert thread_pool_started["count"] >= 1
@@ -1194,45 +1184,17 @@ def test_run_labelstudio_import_split_workers_fallback_to_thread_on_process_deni
     )
 
 
-def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
-    monkeypatch, tmp_path: Path
-) -> None:
-    source = tmp_path / "book.epub"
-    source.write_text("source", encoding="utf-8")
-    output_dir = tmp_path / "golden"
-
-    fake_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path=str(source),
-    )
-
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return fake_result
-
-    tasks = [
-        {"data": {"segment_id": "seg-1"}},
-        {"data": {"segment_id": "seg-2"}},
-    ]
-
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
+def _run_prelabel_task_progress_fixture(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    source: Path,
+    output_dir: Path,
+) -> dict[str, object]:
+    fake_result = _make_empty_conversion_result(source)
+    _install_basic_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        fake_result=fake_result,
+        archive_blocks=[
             SimpleNamespace(
                 index=0,
                 text="hello",
@@ -1240,23 +1202,14 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
                 source_kind="raw",
             )
         ],
+        source_hash="hash",
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: tasks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
-            "extracted_chars": 100,
-            "chunked_chars": 90,
-            "warnings": [],
-        },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks_in, **_kwargs: tasks_in,
+        lambda **_kwargs: [
+            {"data": {"segment_id": "seg-1"}},
+            {"data": {"segment_id": "seg-2"}},
+        ],
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest._build_prelabel_provider",
@@ -1308,6 +1261,34 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
         prelabel_workers=2,
         progress_callback=progress_messages.append,
     )
+    prompt_log_path = result["prelabel_prompt_log_path"]
+    assert prompt_log_path is not None
+    return {
+        "progress_messages": progress_messages,
+        "seen_granularity": seen_granularity,
+        "result": result,
+        "prompt_log_path": prompt_log_path,
+        "prompt_log_content": prompt_log_path.read_text(encoding="utf-8"),
+    }
+
+
+def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    fixture = _run_prelabel_task_progress_fixture(
+        monkeypatch=monkeypatch,
+        source=source,
+        output_dir=output_dir,
+    )
+    progress_messages = fixture["progress_messages"]
+    seen_granularity = fixture["seen_granularity"]
+    result = fixture["result"]
+    assert isinstance(progress_messages, list)
+    assert isinstance(seen_granularity, list)
+    assert isinstance(result, dict)
 
     assert any(
         "Running freeform prelabeling... task 0/2" in msg
@@ -1338,11 +1319,28 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
     assert seen_granularity == ["span", "span"]
     assert result["prelabel"]["granularity"] == "span"
     assert result["prelabel"]["workers"] == 2
+
+
+def test_generate_pred_run_artifacts_writes_prelabel_prompt_log(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    fixture = _run_prelabel_task_progress_fixture(
+        monkeypatch=monkeypatch,
+        source=source,
+        output_dir=output_dir,
+    )
+    result = fixture["result"]
+    prompt_log_path = fixture["prompt_log_path"]
+    content = fixture["prompt_log_content"]
+    assert isinstance(result, dict)
+    assert isinstance(prompt_log_path, Path)
+    assert isinstance(content, str)
+
     assert result["prelabel"]["prompt_log_count"] == 2
-    prompt_log_path = result["prelabel_prompt_log_path"]
-    assert prompt_log_path is not None
     assert prompt_log_path.name == "prelabel_prompt_log.md"
-    content = prompt_log_path.read_text(encoding="utf-8")
     assert "# Prelabel Prompt Log" in content
     assert "## Task 1/2 - `seg-1`" in content
     assert "## Task 2/2 - `seg-2`" in content
@@ -1679,54 +1677,26 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
     output_dir = tmp_path / "golden"
     processed_root = tmp_path / "processed"
 
-    fake_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[
-            RawArtifact(
-                importer="fake",
-                sourceHash="hash-123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Pancakes"},
-                        {"index": 1, "text": "SERVES 2"},
-                        {"index": 2, "text": "1 cup flour"},
-                        {"index": 3, "text": "Whisk batter"},
-                        {"index": 4, "text": "NOTE: Keep warm"},
-                    ]
-                },
-                metadata={"artifact_type": "extracted_blocks"},
-            )
+    fake_result = _make_projection_conversion_result(
+        source=source,
+        block_texts=[
+            "Pancakes",
+            "SERVES 2",
+            "1 cup flour",
+            "Whisk batter",
+            "NOTE: Keep warm",
         ],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path=str(source),
     )
     label_first_result = _make_label_first_result(
         source=source,
         raw_artifacts=fake_result.raw_artifacts,
     )
-
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return fake_result
-
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
+    _install_projection_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        source=source,
+        fake_result=fake_result,
+        label_first_result=label_first_result,
+        archive_blocks=[
             ArchiveBlock(
                 index=0,
                 text="Pancakes SERVES 2 1 cup flour; Whisk batter NOTE: Keep warm",
@@ -1734,63 +1704,7 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
                 source_kind="raw",
             )
         ],
-    )
-    monkeypatch.setattr(
-        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
-        lambda *_args, **_kwargs: [
-            ArchiveBlock(
-                index=0,
-                text="Toast the bread.",
-                location={"block_index": 0, "line_index": 0},
-                source_kind="raw",
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.parsing.label_source_of_truth.build_extracted_archive",
-        lambda *_args, **_kwargs: [
-            ArchiveBlock(
-                index=0,
-                text="Example line",
-                location={"block_index": 0, "line_index": 0},
-                source_kind="raw",
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_label_first_stage_result",
-        lambda **_kwargs: _make_label_first_result(
-            source=source,
-            raw_artifacts=[],
-        ),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
-        lambda _path: "hash-123",
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
-            "extracted_chars": 100,
-            "chunked_chars": 90,
-            "warnings": [],
-        },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks, **_kwargs: tasks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_label_first_stage_result",
-        lambda **_kwargs: label_first_result,
-    )
-    monkeypatch.setattr(
-        "cookimport.staging.import_session.build_label_first_stage_result",
-        lambda **_kwargs: label_first_result,
+        patch_parsing_archive=True,
     )
 
     result = generate_pred_run_artifacts(
@@ -1868,9 +1782,7 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
     )
 
 
-def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
-    tmp_path: Path,
-) -> None:
+def _build_authoritative_atomic_projection_fixture(tmp_path: Path) -> dict[str, object]:
     source = tmp_path / "book.epub"
     source.write_text("source", encoding="utf-8")
     label_first_result = _make_label_first_result(source=source, raw_artifacts=[])
@@ -1959,12 +1871,25 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
         label_first_result=label_first_result,
     )
 
-    stage_payload = json.loads(
-        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
-    )
-    archive_payload = json.loads(
-        artifacts["extracted_archive_path"].read_text(encoding="utf-8")
-    )
+    return {
+        "archive_payload": json.loads(
+            artifacts["extracted_archive_path"].read_text(encoding="utf-8")
+        ),
+        "stage_payload": json.loads(
+            artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+        ),
+        "summary": summary,
+    }
+
+
+def test_authoritative_line_role_artifacts_project_atomic_stage_predictions(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_authoritative_atomic_projection_fixture(tmp_path)
+    stage_payload = fixture["stage_payload"]
+    summary = fixture["summary"]
+    assert isinstance(stage_payload, dict)
+    assert isinstance(summary, dict)
 
     assert stage_payload["block_count"] == 3
     assert stage_payload["block_labels"] == {
@@ -1972,46 +1897,38 @@ def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
         "1": "YIELD_LINE",
         "2": "INGREDIENT_LINE",
     }
-    assert len(archive_payload) == 3
-    assert archive_payload[1]["location"]["features"]["line_role_projection"] is True
-    assert archive_payload[1]["location"]["block_index"] == 0
     assert summary["span_count"] == 3
 
 
-def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_authority(
-    monkeypatch: pytest.MonkeyPatch,
+def test_authoritative_line_role_artifacts_preserve_atomic_projection_archive_semantics(
     tmp_path: Path,
 ) -> None:
+    fixture = _build_authoritative_atomic_projection_fixture(tmp_path)
+    archive_payload = fixture["archive_payload"]
+    assert isinstance(archive_payload, list)
+
+    assert len(archive_payload) == 3
+    assert archive_payload[1]["location"]["features"]["line_role_projection"] is True
+    assert archive_payload[1]["location"]["block_index"] == 0
+
+
+def _build_final_nonrecipe_authority_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    tmp_path: Path,
+) -> dict[str, object]:
     source = tmp_path / "book.epub"
     source.write_text("source", encoding="utf-8")
     output_dir = tmp_path / "golden"
     processed_root = tmp_path / "processed"
 
-    fake_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[
-            RawArtifact(
-                importer="fake",
-                sourceHash="hash-123",
-                locationId="full_text",
-                extension="json",
-                content={
-                    "blocks": [
-                        {"index": 0, "text": "Pancakes"},
-                        {"index": 1, "text": "1 cup flour"},
-                        {"index": 2, "text": "Salt strengthens flavor."},
-                    ]
-                },
-                metadata={"artifact_type": "extracted_blocks"},
-            )
+    fake_result = _make_projection_conversion_result(
+        source=source,
+        block_texts=[
+            "Pancakes",
+            "1 cup flour",
+            "Salt strengthens flavor.",
         ],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path=str(source),
     )
 
     label_first_result = _make_label_first_result(
@@ -2134,14 +2051,6 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
         },
     )
 
-    class FakeImporter:
-        name = "fake"
-
-        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
-            if progress_callback is not None:
-                progress_callback("fake convert complete")
-            return fake_result
-
     def _fake_execute_stage_import_session_from_result(**kwargs):
         run_root = kwargs["run_root"]
         run_root.mkdir(parents=True, exist_ok=True)
@@ -2188,17 +2097,12 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
             nonrecipe_stage_result=final_nonrecipe_stage_result,
         )
 
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
-        lambda _name: FakeImporter(),
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
-        lambda _path: "hash-123",
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
-        lambda *_args, **_kwargs: [
+    _install_projection_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        source=source,
+        fake_result=fake_result,
+        label_first_result=label_first_result,
+        archive_blocks=[
             ArchiveBlock(
                 index=0,
                 text="Pancakes",
@@ -2218,26 +2122,7 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
                 source_kind="raw",
             ),
         ],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
-        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
-        lambda *_args, **_kwargs: {
-            "extracted_chars": 100,
-            "chunked_chars": 90,
-            "warnings": [],
-        },
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
-        lambda tasks, **_kwargs: tasks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.execute_stage_import_session_from_result",
-        _fake_execute_stage_import_session_from_result,
+        execute_stage_import_session_from_result=_fake_execute_stage_import_session_from_result,
     )
 
     result = generate_pred_run_artifacts(
@@ -2250,10 +2135,39 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
         write_label_studio_tasks=False,
         write_markdown=False,
     )
+    return {
+        "result": result,
+    }
+
+
+def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _build_final_nonrecipe_authority_fixture(
+        monkeypatch,
+        tmp_path=tmp_path,
+    )
+    result = fixture["result"]
+    assert isinstance(result, dict)
 
     stage_payload = json.loads(
         Path(result["stage_block_predictions_path"]).read_text(encoding="utf-8")
     )
+    assert stage_payload["block_labels"]["2"] == "KNOWLEDGE"
+
+
+def test_generate_pred_run_artifacts_processed_output_reports_final_nonrecipe_authority_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _build_final_nonrecipe_authority_fixture(
+        monkeypatch,
+        tmp_path=tmp_path,
+    )
+    result = fixture["result"]
+    assert isinstance(result, dict)
+
     telemetry_payload = json.loads(
         (
             Path(result["line_role_pipeline_projected_spans_path"]).parent
@@ -2261,7 +2175,6 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
         ).read_text(encoding="utf-8")
     )
 
-    assert stage_payload["block_labels"]["2"] == "KNOWLEDGE"
     assert result["line_role_pipeline_recipe_projection"][
         "authoritative_stage_outputs_mutated"
     ] is True

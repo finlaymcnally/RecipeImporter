@@ -9,10 +9,10 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source(
+def _run_global_queue_interleaving_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     base_settings = _benchmark_test_run_settings()
     heavy_variants = [
         cli.AllMethodVariant(
@@ -196,18 +196,42 @@ def test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source(
         source_shard_min_variants=2,
         smart_scheduler=False,
     )
-
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
-    assert payload["scheduler_scope"] == "global_config_queue"
-    assert payload["source_job_count_planned"] == 3
-    assert payload["source_schedule_plan"][1]["source_file_name"] == light_source.name
-    assert len(call_order) == 5
-    assert call_order.index(light_source.name) < 4
+    return {
+        "payload": payload,
+        "call_order": call_order,
+        "light_source_name": light_source.name,
+    }
 
-def test_run_all_method_benchmark_global_queue_smart_eval_tail_admission(
+
+def test_run_all_method_benchmark_global_queue_interleaves_sharded_heavy_source(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    fixture = _run_global_queue_interleaving_fixture(monkeypatch, tmp_path)
+    payload = fixture["payload"]
+    light_source_name = fixture["light_source_name"]
+
+    assert payload["scheduler_scope"] == "global_config_queue"
+    assert payload["source_job_count_planned"] == 3
+    assert payload["source_schedule_plan"][1]["source_file_name"] == light_source_name
+
+
+def test_run_all_method_benchmark_global_queue_executes_light_source_before_heavy_tail_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_global_queue_interleaving_fixture(monkeypatch, tmp_path)
+    call_order = fixture["call_order"]
+    light_source_name = fixture["light_source_name"]
+
+    assert len(call_order) == 5
+    assert call_order.index(light_source_name) < 4
+
+def _run_global_queue_smart_tail_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> dict[str, object]:
     base_settings = _benchmark_test_run_settings()
     variants = [
         cli.AllMethodVariant(
@@ -395,12 +419,37 @@ def test_run_all_method_benchmark_global_queue_smart_eval_tail_admission(
         source_scheduling=cli.ALL_METHOD_SOURCE_SCHEDULING_DISCOVERY,
         smart_scheduler=True,
     )
-
     payload = json.loads(report_md_path.with_suffix(".json").read_text(encoding="utf-8"))
+    return {
+        "payload": payload,
+        "started_at": started_at,
+        "evaluate_started_at": evaluate_started_at,
+        "finished_at": finished_at,
+    }
+
+
+def test_run_all_method_benchmark_global_queue_smart_eval_tail_admission(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_global_queue_smart_tail_fixture(monkeypatch, tmp_path)
+    payload = fixture["payload"]
     scheduler = payload["scheduler_summary"]
+
     assert scheduler["configured_inflight_pipelines"] == 1
     assert scheduler["eval_tail_headroom_effective"] == 1
     assert scheduler["max_active_pipelines_observed"] >= 2
+
+
+def test_run_all_method_benchmark_global_queue_admits_smart_eval_tail_before_prior_finish(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_global_queue_smart_tail_fixture(monkeypatch, tmp_path)
+    started_at = fixture["started_at"]
+    evaluate_started_at = fixture["evaluate_started_at"]
+    finished_at = fixture["finished_at"]
+
     assert evaluate_started_at[1] <= started_at[2]
     assert started_at[2] < finished_at[1]
 

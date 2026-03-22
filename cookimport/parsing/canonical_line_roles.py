@@ -132,6 +132,7 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "01-lesson-prose-vs-howto.md",
         "# Lesson prose vs recipe how-to\n\n"
         "- Keep lesson headings such as `Balancing Fat` or `WHAT IS ACID?` as `KNOWLEDGE` when nearby rows are explanatory prose.\n"
+        "- Declarative lesson prose about reusable cooking rules, such as `Salt, Fat, Acid, and Heat were the four elements ...`, should stay `KNOWLEDGE` even when the narration uses `I` or `we`.\n"
         "- Upgrade a heading to `HOWTO_SECTION` only when immediate neighboring rows are recipe-local ingredients or method subsections.\n"
         "- A heading by itself is weak evidence.\n",
     ),
@@ -147,6 +148,7 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "# Recipe-internal section headings\n\n"
         "- `FOR THE SAUCE`, `FOR SERVING`, or similar headings become `HOWTO_SECTION` only when the packet is clearly inside one recipe.\n"
         "- A full sentence beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not a subsection heading.\n"
+        "- Front-matter or contents title lists such as `Winter: Roasted Radicchio and Roquefort` stay `OTHER` until nearby ingredient or instruction rows prove a live recipe.\n"
         "- Ingredient lines, yield lines, and imperative steps are strong recipe-local evidence.\n"
         "- Preserve structured recipe labels when those strong signals are present.\n",
     ),
@@ -185,8 +187,8 @@ _TIME_PREFIX_RE = re.compile(
 )
 _INSTRUCTION_VERB_RE = re.compile(
     r"^\s*(?:add|bake|beat|blend|boil|braise|bring|combine|cook|cool|cover|drain|"
-    r"fold|grill|heat|mix|place|pour|reduce|remove|roast|season|serve|simmer|stir|"
-    r"transfer|whisk)\b",
+    r"fold|grill|heat|mix|place|pour|quarter|reduce|remove|roast|season|serve|"
+    r"simmer|slice|stir|toss|transfer|whisk)\b",
     re.IGNORECASE,
 )
 _RECIPE_ACTION_CUE_RE = re.compile(
@@ -302,11 +304,11 @@ _KNOWLEDGE_DOMAIN_CUE_RE = re.compile(
 )
 _KNOWLEDGE_EXPLANATION_CUE_RE = re.compile(
     r"\b(?:affect|affects|balance|balances|because|control|controls|"
-    r"decrease|decreases|determine|determines|emphasize|emphasizes|"
-    r"enhance|enhances|explained by|explains|highlight|highlights|"
-    r"improve|improves|increase|increases|means|modify|modifies|"
-    r"reduce|reduces|relationship|role|secondary effect|this is why|"
-    r"without|why)\b",
+    r"decrease|decreases|determine|determines|distinguish|distinguishes|"
+    r"emphasize|emphasizes|enhance|enhances|explained by|explains|"
+    r"guide|guided|guides|highlight|highlights|improve|improves|increase|"
+    r"increases|means|modify|modifies|pattern|patterns|reduce|reduces|"
+    r"relationship|role|secondary effect|this is why|without|why)\b",
     re.IGNORECASE,
 )
 _PEDAGOGICAL_KNOWLEDGE_CUE_RE = re.compile(
@@ -1099,7 +1101,7 @@ def _line_role_packet_summary(*, packet_mode: str) -> str:
 def _line_role_default_posture(*, packet_mode: str) -> str:
     postures = {
         "front_matter_navigation": (
-            "Default to `OTHER` or `KNOWLEDGE`; only preserve recipe structure if multiple adjacent rows form one concrete recipe component."
+            "Default to `OTHER` or `KNOWLEDGE`; treat contents lists, seasonal menus, and part/chapter headings as navigation until multiple adjacent rows form one concrete recipe component."
         ),
         "recipe_body": (
             "Preserve recipe-structure labels unless a row clearly reads as note text or explanatory prose."
@@ -1108,7 +1110,7 @@ def _line_role_default_posture(*, packet_mode: str) -> str:
             "Keep recipe-body rows structured, but treat surrounding prose conservatively."
         ),
         "lesson_prose": (
-            "Default to `OTHER`; upgrade to `KNOWLEDGE` only when a row clearly teaches reusable cooking explanation/reference prose. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+            "Default to `OTHER`; upgrade to `KNOWLEDGE` when a row teaches reusable cooking explanation/reference prose, even if it uses brief first-person framing. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
         ),
         "memoir_front_matter": (
             "Default to `OTHER`; upgrade only if a row clearly teaches reusable cooking knowledge."
@@ -1125,6 +1127,7 @@ def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
         "front_matter_navigation": [
             "Contents/front-matter headings such as `CONTENTS`, `Foreword`, `Introduction`, or `PART ONE`.",
             "Dense lists of short title-like entries with little or no local ingredient/step flow.",
+            "Seasonal or menu-style title lists are stronger evidence for navigation than for live recipe titles.",
         ],
         "recipe_body": [
             "Immediate ingredient lines, yield/time metadata, or imperative recipe steps.",
@@ -1136,6 +1139,7 @@ def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
         ],
         "lesson_prose": [
             "A topic heading followed by explanatory prose about technique, science, or broad culinary guidance.",
+            "Declarative lesson prose about reusable cooking rules can still be `KNOWLEDGE` even if it briefly uses `I` or `we`.",
             "Repeated `KNOWLEDGE` rows are a stronger signal than title casing alone.",
         ],
         "memoir_front_matter": [
@@ -1153,6 +1157,7 @@ def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
 def _line_role_weak_signals() -> list[str]:
     return [
         "Title casing or all caps by itself is weak evidence.",
+        "A dish-like name inside a front-matter or contents list is weak evidence for `RECIPE_TITLE`.",
         "Generic verbs such as `use`, `choose`, `let`, or `remember` do not make prose an instruction line.",
         "Unknown recipe-span status is not permission to invent recipe structure.",
     ]
@@ -1190,11 +1195,17 @@ def _line_role_flip_policy(
             "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose."
         )
         policy.append(
+            "Do not flatten reusable cooking lesson prose to `OTHER` just because it includes brief first-person framing around a general rule."
+        )
+        policy.append(
             "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`."
         )
     elif packet_mode == "front_matter_navigation":
         policy.append(
             "Do not over-structure recipe-name lists, part/chapter headings, or front matter blurbs into live recipe labels."
+        )
+        policy.append(
+            "Contents-style runs like `Winter: ...`, `Spring: ...`, `Torn Croutons`, or `Red Wine Vinaigrette` stay `OTHER` until nearby rows prove one live recipe."
         )
     elif packet_mode == "memoir_front_matter":
         policy.append(
@@ -6497,8 +6508,22 @@ def _sanitize_prediction(
             reason_tags.append(
                 "sanitized_yield_to_instruction"
                 if label == "INSTRUCTION_LINE"
-            else "sanitized_yield_non_header"
+                else "sanitized_yield_non_header"
             )
+    if (
+        label == "RECIPE_TITLE"
+        and _is_outside_recipe_span(candidate)
+        and not _looks_recipe_title_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        label = _outside_span_nonstructured_fallback_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        decided_by = "fallback"
+        reason_tags.append("sanitized_title_without_local_support")
     if label == "RECIPE_VARIANT" and not _variant_label_allowed(
         candidate,
         by_atomic_index=by_atomic_index,
@@ -6509,6 +6534,28 @@ def _sanitize_prediction(
         )
         decided_by = "fallback"
         reason_tags.append("sanitized_variant_without_local_support")
+    if label == "OTHER":
+        if _variant_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            label = "RECIPE_VARIANT"
+            decided_by = "fallback"
+            reason_tags.append("rescued_other_to_variant")
+        elif _should_rescue_other_to_knowledge_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            label = "KNOWLEDGE"
+            decided_by = "fallback"
+            reason_tags.append("rescued_other_to_knowledge")
+        elif _should_rescue_other_to_instruction_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            label = "INSTRUCTION_LINE"
+            decided_by = "fallback"
+            reason_tags.append("rescued_other_to_instruction")
     if (
         _is_outside_recipe_span(candidate)
         and label in _RECIPEISH_OUTSIDE_SPAN_LABELS
@@ -6664,6 +6711,66 @@ def _outside_span_nonstructured_fallback_label(
     if _looks_recipe_note_prose(text) or _looks_editorial_note(text):
         return "RECIPE_NOTES"
     return "OTHER"
+
+
+def _should_rescue_other_to_knowledge_label(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    if not _outside_recipe_knowledge_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return False
+    if _looks_recipe_title_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return False
+    return not _variant_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+
+
+def _should_rescue_other_to_instruction_label(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    text = str(candidate.text or "").strip()
+    tags = {str(tag) for tag in candidate.rule_tags}
+    if not text:
+        return False
+    if not _instruction_line_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return False
+    if (
+        _looks_recipe_note_prose(text)
+        or _looks_storage_or_serving_note(text)
+        or _looks_recipe_title_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        or _outside_recipe_knowledge_label_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        return False
+    if _looks_direct_instruction_start(candidate) or _looks_non_heading_howto_prose(text):
+        return True
+    if _is_outside_recipe_span(candidate):
+        return bool(
+            {"instruction_like", "instruction_with_time"} & tags
+        ) and _outside_span_has_neighboring_component_structure(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    return bool({"instruction_like", "instruction_with_time"} & tags)
 
 
 def _outside_span_has_neighboring_component_structure(
@@ -7543,6 +7650,19 @@ def _looks_explicit_variant_prose(text: str) -> bool:
     )
 
 
+def _looks_variant_adjustment_leadin(text: str) -> bool:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    if lowered.startswith("to add ") and "," in lowered:
+        return True
+    if lowered.startswith("to evoke ") and "," in lowered:
+        return True
+    if lowered.startswith("to make it ") and "," in lowered:
+        return True
+    return False
+
+
 def _has_neighboring_variant_heading(
     candidate: AtomicLineCandidate,
     *,
@@ -7575,10 +7695,14 @@ def _looks_variant_run_body_line(
         if _looks_named_variant_recipe_name_prefix(text):
             return True
         return _looks_explicit_variant_prose(text)
+    if _looks_variant_adjustment_leadin(text):
+        return True
     if _looks_direct_instruction_start(candidate) or _looks_instructional_neighbor(
         candidate
     ):
-        return _looks_explicit_variant_prose(text)
+        return _looks_explicit_variant_prose(text) or _looks_variant_adjustment_leadin(
+            text
+        )
     if not _looks_prose(text):
         return False
     if (
@@ -7815,9 +7939,15 @@ def _looks_narrative_prose(text: str) -> bool:
     if any(lowered.startswith(prefix) for prefix in _NON_RECIPE_PROSE_PREFIXES):
         return True
     if _FIRST_PERSON_SINGULAR_RE.search(stripped):
-        return True
+        return not (
+            _looks_explicit_knowledge_cue(stripped)
+            or _looks_domain_knowledge_prose(stripped)
+            or _looks_pedagogical_knowledge_prose(stripped)
+        )
     if _FIRST_PERSON_RE.search(stripped) and not (
-        _looks_explicit_knowledge_cue(stripped) or _looks_domain_knowledge_prose(stripped)
+        _looks_explicit_knowledge_cue(stripped)
+        or _looks_domain_knowledge_prose(stripped)
+        or _looks_pedagogical_knowledge_prose(stripped)
     ):
         return True
     return False

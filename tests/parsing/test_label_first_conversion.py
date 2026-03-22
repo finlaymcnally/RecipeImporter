@@ -15,6 +15,23 @@ from cookimport.parsing.label_source_of_truth import (
 )
 
 
+def _make_empty_label_first_original_result(
+    *,
+    non_recipe_blocks: list[dict[str, object]] | None = None,
+) -> ConversionResult:
+    return ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=list(non_recipe_blocks or []),
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path="/tmp/book.txt",
+    )
+
+
 def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_blocks() -> None:
     archive_blocks = [
         {"index": 0, "block_id": "block:0", "text": "Pancakes", "location": {"block_index": 0}},
@@ -108,16 +125,8 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             title_atomic_index=0,
         )
     ]
-    original_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[{"index": 99, "text": "old leftover"}],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path="/tmp/book.txt",
+    original_result = _make_empty_label_first_original_result(
+        non_recipe_blocks=[{"index": 99, "text": "old leftover"}]
     )
 
     updated = build_conversion_result_from_label_spans(
@@ -156,8 +165,7 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
     assert updated.non_recipe_lines[0].final_label == "KNOWLEDGE"
     assert updated.span_decisions[0].decision == "accepted_recipe_span"
 
-
-def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans() -> None:
+def _run_title_only_span_rejection_fixture() -> dict[str, object]:
     archive_blocks = [
         {
             "index": 0,
@@ -282,17 +290,7 @@ def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans
             title_atomic_index=1,
         ),
     ]
-    original_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path="/tmp/book.txt",
-    )
+    original_result = _make_empty_label_first_original_result()
 
     updated = build_conversion_result_from_label_spans(
         source_file=Path("/tmp/book.txt"),
@@ -332,10 +330,21 @@ def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans
             ),
         ],
     )
+    return {"updated": updated}
 
+
+def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans() -> None:
+    fixture = _run_title_only_span_rejection_fixture()
+    updated = fixture["updated"]
     result = updated.updated_conversion_result
     assert [recipe.name for recipe in result.recipes] == ["Bright Cabbage Slaw"]
     assert updated.recipe_spans[0].span_id == "recipe_span_1"
+
+
+def test_build_conversion_result_from_label_spans_records_rejected_title_only_span() -> None:
+    fixture = _run_title_only_span_rejection_fixture()
+    updated = fixture["updated"]
+    result = updated.updated_conversion_result
     assert any(
         row.span_id == "recipe_span_0"
         and row.decision == "rejected_pseudo_recipe_span"
@@ -412,17 +421,7 @@ def test_build_conversion_result_from_label_spans_keeps_title_plus_yield_stub() 
             title_atomic_index=0,
         )
     ]
-    original_result = ConversionResult(
-        recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
-        non_recipe_blocks=[],
-        raw_artifacts=[],
-        report=ConversionReport(),
-        workbook="book",
-        workbook_path="/tmp/book.txt",
-    )
+    original_result = _make_empty_label_first_original_result()
 
     updated = build_conversion_result_from_label_spans(
         source_file=Path("/tmp/book.txt"),

@@ -70,6 +70,8 @@ def _task_paths(task_row: Mapping[str, Any]) -> dict[str, str]:
         "input_path": _sanitize_text(metadata.get("input_path")) or f"in/{task_id}.json",
         "hint_path": _sanitize_text(metadata.get("hint_path")) or f"hints/{task_id}.md",
         "result_path": _sanitize_text(metadata.get("result_path")) or f"out/{task_id}.json",
+        "scratch_draft_path": _sanitize_text(metadata.get("scratch_draft_path"))
+        or f"scratch/{task_id}.json",
     }
 
 
@@ -152,6 +154,7 @@ def render_recipe_worker_task_summary(*, task_row: Mapping[str, Any]) -> str:
         f"owned_recipe_ids: {', '.join(recipe_ids) if recipe_ids else '[none]'}",
         f"hint_path: {paths['hint_path']}",
         f"input_path: {paths['input_path']}",
+        f"scratch_draft_path: {paths['scratch_draft_path']}",
         f"result_path: {paths['result_path']}",
     ]
     if input_rows:
@@ -165,6 +168,65 @@ def render_recipe_worker_task_summary(*, task_row: Mapping[str, Any]) -> str:
                 f"- { _sanitize_text(row.get('rid')) or '[unknown]' }: "
                 f"title={title_hint!r} ingredients={ingredient_count} steps={step_count}"
             )
+    return "\n".join(lines)
+
+
+def render_recipe_worker_current_task_brief(*, task_row: Mapping[str, Any]) -> str:
+    paths = _task_paths(task_row)
+    return "\n".join(
+        [
+            "# Current Recipe Task",
+            "",
+            render_recipe_worker_task_summary(task_row=task_row),
+            "",
+            "Fast path:",
+            f"- Open `{paths['hint_path']}` first, then `{paths['input_path']}`.",
+            f"- Edit the prewritten draft at `{paths['scratch_draft_path']}`.",
+            "- Use `python3 tools/recipe_worker.py stamp-status ...` for bulk fragmentary/not_a_recipe cases.",
+            f"- Finish with `python3 tools/recipe_worker.py finalize {paths['scratch_draft_path']}` or `finalize-all scratch/`.",
+        ]
+    )
+
+
+def render_recipe_worker_feedback_brief(
+    *,
+    task_rows: Sequence[Mapping[str, Any]],
+    current_task_id: str | None = None,
+) -> str:
+    current_task_row = next(
+        (
+            row
+            for row in task_rows
+            if _task_id(row) and _task_id(row) == _sanitize_text(current_task_id)
+        ),
+        task_rows[0] if task_rows else None,
+    )
+    current_paths = _task_paths(current_task_row) if current_task_row is not None else {}
+    lines = [
+        "# Recipe Worker Queue",
+        "",
+        render_recipe_worker_overview(
+            task_rows=task_rows,
+            current_task_id=current_task_id,
+        ),
+        "",
+        "Default local loop:",
+        "- The repo already prewrote `scratch/` drafts and `scratch/_prepared_drafts.json`.",
+        "- Start with the current-task files instead of dumping `assigned_tasks.json` by hand.",
+        "- `prepare-all`, `overview`, and `show <task_id>` are fallback/debug tools if the prewritten draft surface is missing or unclear.",
+        "- Keep edits local to `scratch/`, then use `finalize` or `finalize-all` to write `out/`.",
+    ]
+    if current_paths:
+        lines.extend(
+            [
+                "",
+                "Current task files:",
+                f"- hint: `{current_paths['hint_path']}`",
+                f"- input: `{current_paths['input_path']}`",
+                f"- draft: `{current_paths['scratch_draft_path']}`",
+                f"- output: `{current_paths['result_path']}`",
+            ]
+        )
     return "\n".join(lines)
 
 

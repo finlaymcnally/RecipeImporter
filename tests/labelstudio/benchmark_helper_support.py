@@ -77,6 +77,139 @@ def _run_settings_model_payload(settings: cli.RunSettings) -> dict[str, object]:
     }
 
 
+def _write_benchmark_prediction_run_fixture(
+    *,
+    prediction_run: Path,
+    source_file: Path,
+    block_labels: dict[str, str] | None = None,
+    extracted_rows: list[dict[str, object]] | None = None,
+    include_label_studio_tasks: bool = False,
+    manifest_payload: dict[str, object] | None = None,
+    stage_subdir: str | None = None,
+) -> dict[str, Path]:
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    if include_label_studio_tasks:
+        (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+
+    stage_root = prediction_run / stage_subdir if stage_subdir else prediction_run
+    stage_root.mkdir(parents=True, exist_ok=True)
+    stage_predictions_path = stage_root / "stage_block_predictions.json"
+    extracted_archive_path = stage_root / "extracted_archive.json"
+    block_labels = dict(block_labels or {})
+    extracted_rows = list(extracted_rows or [])
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": len(block_labels),
+                "block_labels": block_labels,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_archive_path.write_text(
+        json.dumps(extracted_rows, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    payload = {
+        "source_file": str(source_file),
+        "source_hash": "hash-123",
+    }
+    if manifest_payload:
+        payload.update(manifest_payload)
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(payload, sort_keys=True),
+        encoding="utf-8",
+    )
+    return {
+        "prediction_run": prediction_run,
+        "stage_predictions_path": stage_predictions_path,
+        "extracted_archive_path": extracted_archive_path,
+    }
+
+
+def _empty_freeform_eval_result() -> dict[str, object]:
+    return {
+        "report": {
+            "counts": {
+                "gold_total": 0,
+                "pred_total": 0,
+                "gold_matched": 0,
+                "pred_matched": 0,
+                "gold_missed": 0,
+                "pred_false_positive": 0,
+            },
+            "recall": 0.0,
+            "precision": 0.0,
+            "boundary": {"correct": 0, "over": 0, "under": 0, "partial": 0},
+            "per_label": {},
+        },
+        "missed_gold": [],
+        "false_positive_preds": [],
+    }
+
+
+def _empty_stage_block_eval_result() -> dict[str, object]:
+    return {
+        "report": {
+            "counts": {
+                "gold_total": 0,
+                "pred_total": 0,
+                "gold_matched": 0,
+                "pred_matched": 0,
+                "gold_missed": 0,
+                "pred_false_positive": 0,
+            },
+            "overall_block_accuracy": 0.0,
+            "macro_f1_excluding_other": 0.0,
+            "worst_label_recall": {"label": None, "recall": 0.0},
+            "recall": 0.0,
+            "precision": 0.0,
+            "f1": 0.0,
+            "practical_recall": 0.0,
+            "practical_precision": 0.0,
+            "practical_f1": 0.0,
+            "per_label": {},
+        },
+        "missed_gold": [],
+        "false_positive_preds": [],
+    }
+
+
+def _install_noop_benchmark_eval_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    capture_csv: dict[str, object] | None = None,
+) -> None:
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: _empty_freeform_eval_result(),
+    )
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: _empty_stage_block_eval_result(),
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    if capture_csv is None:
+        monkeypatch.setattr(
+            "cookimport.analytics.perf_report.append_benchmark_csv",
+            lambda *_args, **_kwargs: None,
+        )
+    else:
+        monkeypatch.setattr(
+            "cookimport.analytics.perf_report.append_benchmark_csv",
+            lambda *_args, **kwargs: capture_csv.update(kwargs),
+        )
+
+
 def _write_fake_all_method_prediction_phase_artifacts(
     *,
     kwargs: dict[str, object],

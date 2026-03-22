@@ -383,7 +383,7 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
     assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
 
 
-def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_other() -> None:
+def test_label_atomic_lines_outside_recipe_first_person_learning_prose_can_be_knowledge() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:first-person",
@@ -416,7 +416,7 @@ def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_oth
             "food from great, understanding when pasta water needed more salt "
             "and when vinegar was needed to balance a rich stew."
         ].label
-        == "OTHER"
+        == "KNOWLEDGE"
     )
 
 
@@ -1240,12 +1240,244 @@ def test_label_atomic_lines_exact_caesar_outside_span_make_step_stays_instructio
 
     predictions = label_atomic_lines(candidates, _settings())
 
+    by_atomic_index = {prediction.atomic_index: prediction for prediction in predictions}
+
+    assert by_atomic_index[1399].label == "INSTRUCTION_LINE"
+    assert by_atomic_index[1400].label == "RECIPE_NOTES"
+    assert by_atomic_index[1401].label == "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_exact_lesson_prose_recover_knowledge_rows() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:230",
+            block_index=230,
+            atomic_index=230,
+            text=(
+                "I asked questions of everyone, every day. I read, cooked, tasted, "
+                "and also wrote about food, all in an effort to deepen my "
+                "understanding. I visited farms and farmers' markets and learned my "
+                "way around their wares. Gradually the chefs gave me more "
+                "responsibility, from frying tiny, gleaming anchovies for the first "
+                "course to folding perfect little ravioli for the second to "
+                "butchering beef for the third. These thrills sustained me as I "
+                "made innumerable mistakes-some small, such as being sent to "
+                "retrieve cilantro and returning with parsley because I couldn't "
+                "tell the difference, and some large, like the time I burned the "
+                "rich beef sauce for a dinner we hosted for the First Lady."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:231",
+            block_index=231,
+            atomic_index=231,
+            text=(
+                "As I improved, I began to detect the nuances that distinguish good "
+                "food from great. I started to discern individual components in a "
+                "dish, understanding when the pasta water and not the sauce needed "
+                "more salt, or when an herb salsa needed more vinegar to balance a "
+                "rich, sweet lamb stew. I started to see some basic patterns in the "
+                "seemingly impenetrable maze of daily-changing, seasonal menus. "
+                "Tough cuts of meat were salted the night before, while delicate "
+                "fish filets were seasoned at the time of cooking. Oil for frying "
+                "had to be hot-otherwise the food would end up soggy-while butter "
+                "for tart dough had to remain cold, so that the crust would crisp "
+                "up and become flaky. A squeeze of lemon or splash of vinegar could "
+                "improve almost every salad, soup, and braise. Certain cuts of meat "
+                "were always grilled, while others were always braised."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:232",
+            block_index=232,
+            atomic_index=232,
+            text=(
+                "Salt, Fat, Acid, and Heat were the four elements that guided basic "
+                "decision making in every single dish, no matter what. The rest was "
+                "just a combination of cultural, seasonal, or technical details, "
+                "for which we could consult cookbooks and experts, histories, and "
+                "maps. It was a revelation."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:233",
+            block_index=233,
+            atomic_index=233,
+            text=(
+                "The idea of making consistently great food had seemed like some "
+                "inscrutable mystery, but now I had a little mental checklist to "
+                "think about every time I set foot in a kitchen: Salt, Fat, Acid, "
+                "Heat. I mentioned the theory to one of the chefs. He smiled at me, "
+                "as if to say, \"Duh. Everyone knows that.\""
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
     assert [prediction.label for prediction in predictions] == [
         "OTHER",
+        "KNOWLEDGE",
+        "KNOWLEDGE",
         "OTHER",
-        "INSTRUCTION_LINE",
-        "RECIPE_NOTES",
-        "RECIPE_NOTES",
+    ]
+
+
+def test_label_atomic_lines_front_matter_heading_and_title_list_stay_other() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:16",
+            block_index=16,
+            atomic_index=16,
+            text="How to Use This Book",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:17",
+            block_index=17,
+            atomic_index=17,
+            text="PART ONE",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:18",
+            block_index=18,
+            atomic_index=18,
+            text="The Four Elements of Good Cooking",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:19",
+            block_index=19,
+            atomic_index=19,
+            text="SALT",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:20",
+            block_index=20,
+            atomic_index=20,
+            text="What is Salt?",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:58",
+            block_index=58,
+            atomic_index=58,
+            text="Summer: Tomato, Basil, and Cucumber",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:59",
+            block_index=59,
+            atomic_index=59,
+            text="Autumn: Roasted Squash, Sage, and Hazelnut",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:60",
+            block_index=60,
+            atomic_index=60,
+            text="Winter: Roasted Radicchio and Roquefort",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:61",
+            block_index=61,
+            atomic_index=61,
+            text="Spring: Asparagus and Feta with Mint",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:62",
+            block_index=62,
+            atomic_index=62,
+            text="Torn Croutons",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+    by_atomic_index = {prediction.atomic_index: prediction for prediction in predictions}
+
+    assert by_atomic_index[18].label == "OTHER"
+    assert by_atomic_index[60].label == "OTHER"
+    assert by_atomic_index[61].label == "OTHER"
+    assert by_atomic_index[62].label == "OTHER"
+
+
+def test_label_atomic_lines_exact_variations_block_stays_variant() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1378",
+            block_index=1378,
+            atomic_index=1378,
+            text="Variations",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1379",
+            block_index=1379,
+            atomic_index=1379,
+            text="To add a little heat, add 1 teaspoon minced jalapeño.",
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1380",
+            block_index=1380,
+            atomic_index=1380,
+            text=(
+                "To evoke the flavors of Korea or Japan, add a few drops of "
+                "toasted sesame oil."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
     ]
 
 
@@ -2003,6 +2235,155 @@ def test_codex_exact_caesar_make_step_demotes_variant_to_instruction(tmp_path) -
     assert "sanitized_variant_without_local_support" in predictions[2].reason_tags
 
 
+def test_codex_exact_lesson_prose_other_rows_rescue_to_knowledge(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:231",
+            block_index=231,
+            atomic_index=231,
+            text=(
+                "As I improved, I began to detect the nuances that distinguish good "
+                "food from great. I started to discern individual components in a "
+                "dish, understanding when the pasta water and not the sauce needed "
+                "more salt, or when an herb salsa needed more vinegar to balance a "
+                "rich, sweet lamb stew. I started to see some basic patterns in the "
+                "seemingly impenetrable maze of daily-changing, seasonal menus. "
+                "Tough cuts of meat were salted the night before, while delicate "
+                "fish filets were seasoned at the time of cooking. Oil for frying "
+                "had to be hot-otherwise the food would end up soggy-while butter "
+                "for tart dough had to remain cold, so that the crust would crisp "
+                "up and become flaky. A squeeze of lemon or splash of vinegar could "
+                "improve almost every salad, soup, and braise. Certain cuts of meat "
+                "were always grilled, while others were always braised."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:232",
+            block_index=232,
+            atomic_index=232,
+            text=(
+                "Salt, Fat, Acid, and Heat were the four elements that guided basic "
+                "decision making in every single dish, no matter what. The rest was "
+                "just a combination of cultural, seasonal, or technical details, "
+                "for which we could consult cookbooks and experts, histories, and "
+                "maps. It was a revelation."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:233",
+            block_index=233,
+            atomic_index=233,
+            text=(
+                "The idea of making consistently great food had seemed like some "
+                "inscrutable mystery, but now I had a little mental checklist to "
+                "think about every time I set foot in a kitchen: Salt, Fat, Acid, "
+                "Heat. I mentioned the theory to one of the chefs. He smiled at me, "
+                "as if to say, \"Duh. Everyone knows that.\""
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({231: "OTHER", 232: "OTHER", 233: "OTHER"}),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "KNOWLEDGE",
+        "KNOWLEDGE",
+        "OTHER",
+    ]
+    assert "rescued_other_to_knowledge" in predictions[0].reason_tags
+    assert "rescued_other_to_knowledge" in predictions[1].reason_tags
+
+
+def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:58",
+            block_index=58,
+            atomic_index=58,
+            text="Summer: Tomato, Basil, and Cucumber",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:59",
+            block_index=59,
+            atomic_index=59,
+            text="Autumn: Roasted Squash, Sage, and Hazelnut",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:60",
+            block_index=60,
+            atomic_index=60,
+            text="Winter: Roasted Radicchio and Roquefort",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:61",
+            block_index=61,
+            atomic_index=61,
+            text="Spring: Asparagus and Feta with Mint",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:62",
+            block_index=62,
+            atomic_index=62,
+            text="Torn Croutons",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner(
+            {
+                58: "OTHER",
+                59: "OTHER",
+                60: "RECIPE_TITLE",
+                61: "RECIPE_TITLE",
+                62: "RECIPE_TITLE",
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+    ]
+    assert "sanitized_title_without_local_support" in predictions[2].reason_tags
+
+
 def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -2069,6 +2450,117 @@ def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_instruction_without_local_support" in predictions[0].reason_tags
+
+
+def test_codex_exact_instruction_other_rows_rescue_to_instruction(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1122",
+            block_index=1122,
+            atomic_index=1122,
+            text="6 tablespoons extra-virgin olive oil",
+            within_recipe_span=False,
+            rule_tags=["ingredient_like", "outside_recipe_span"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1123",
+            block_index=1123,
+            atomic_index=1123,
+            text=(
+                "Quarter the cabbage through the core. Use a sharp knife to cut "
+                "the core out at an angle. Thinly slice the cabbage crosswise and "
+                "place in a colander set inside a large salad bowl. Season with two "
+                "generous pinches of salt to help draw out water, toss the slices, "
+                "and set aside."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1124",
+            block_index=1124,
+            atomic_index=1124,
+            text=(
+                "In a small bowl, toss the sliced onion with the lemon juice and "
+                "let it sit for 20 minutes to macerate (see page 118 ). Set aside."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner(
+            {1122: "INGREDIENT_LINE", 1123: "OTHER", 1124: "OTHER"}
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "INSTRUCTION_LINE",
+    ]
+    assert "rescued_other_to_instruction" in predictions[1].reason_tags
+    assert "rescued_other_to_instruction" in predictions[2].reason_tags
+
+
+def test_codex_exact_variations_other_rows_rescue_to_variant(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1378",
+            block_index=1378,
+            atomic_index=1378,
+            text="Variations",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1379",
+            block_index=1379,
+            atomic_index=1379,
+            text="To add a little heat, add 1 teaspoon minced jalapeño.",
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1380",
+            block_index=1380,
+            atomic_index=1380,
+            text=(
+                "To evoke the flavors of Korea or Japan, add a few drops of "
+                "toasted sesame oil."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({1378: "OTHER", 1379: "OTHER", 1380: "OTHER"}),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+        "RECIPE_VARIANT",
+    ]
+    assert "rescued_other_to_variant" in predictions[0].reason_tags
+    assert "rescued_other_to_variant" in predictions[1].reason_tags
+    assert "rescued_other_to_variant" in predictions[2].reason_tags
 
 
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
@@ -3445,6 +3937,37 @@ def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
+def test_label_atomic_lines_allows_line_role_workspace_cp_between_scratch_and_out(
+    tmp_path: Path,
+) -> None:
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.1,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command=(
+                '/bin/bash -lc "cp scratch/line-role-canonical-0001-a000000-a000294.task-001.json '
+                'out/line-role-canonical-0001-a000000-a000294.task-001.json"'
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+
+
 def test_label_atomic_lines_allows_line_role_node_transform(
     tmp_path: Path,
 ) -> None:
@@ -3478,10 +4001,10 @@ def test_label_atomic_lines_allows_line_role_node_transform(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
-def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
+def _run_line_role_cohort_outlier_retry_fixture(
     tmp_path,
     monkeypatch,
-) -> None:
+) -> dict[str, object]:
     monkeypatch.setattr(
         canonical_line_roles_module,
         "_LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS",
@@ -3662,21 +4185,11 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
-    ]
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
             encoding="utf-8"
         )
     )
-    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
-    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 1
-    assert telemetry_payload["summary"]["attempt_count"] == 5
-
     proposal_paths = list(
         (tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "proposals").glob("*.json")
     )
@@ -3685,9 +4198,6 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
         for path in proposal_paths
         if json.loads(path.read_text(encoding="utf-8")).get("watchdog_retry_attempted")
     )
-    assert recovered_proposal["watchdog_retry_status"] == "recovered"
-    assert recovered_proposal["validation_errors"] == []
-
     recovered_status_path = next(
         path
         for path in (tmp_path / "line-role-pipeline" / "runtime").rglob("status.json")
@@ -3696,12 +4206,6 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
         == "recovered"
     )
     recovered_status = json.loads(recovered_status_path.read_text(encoding="utf-8"))
-    assert recovered_status["status"] == "validated"
-    assert recovered_status["state"] == "completed"
-    assert recovered_status["reason_code"] == "watchdog_retry_recovered"
-    assert recovered_status["finalization_path"] == "watchdog_retry_recovered"
-    assert recovered_status["raw_supervision_state"] == "watchdog_killed"
-    assert recovered_status["raw_supervision_reason_code"] == "watchdog_cohort_runtime_outlier"
 
     failures = json.loads(
         (
@@ -3712,18 +4216,64 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
             / "failures.json"
         ).read_text(encoding="utf-8")
     )
-    assert failures == []
-
     retry_status_path = next(
         (tmp_path / "line-role-pipeline" / "runtime").rglob("watchdog_retry_status.json")
     )
     retry_status = json.loads(retry_status_path.read_text(encoding="utf-8"))
-    assert retry_status["status"] == "validated"
-    assert retry_status["watchdog_retry_reason_code"] == "watchdog_cohort_runtime_outlier"
-
     retry_prompt = (
         retry_status_path.parent / "watchdog_retry_prompt.txt"
     ).read_text(encoding="utf-8")
+    return {
+        "predictions": predictions,
+        "telemetry_payload": telemetry_payload,
+        "recovered_proposal": recovered_proposal,
+        "recovered_status": recovered_status,
+        "failures": failures,
+        "retry_status": retry_status,
+        "retry_prompt": retry_prompt,
+    }
+
+
+def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixture = _run_line_role_cohort_outlier_retry_fixture(tmp_path, monkeypatch)
+    predictions = fixture["predictions"]
+    telemetry_payload = fixture["telemetry_payload"]
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+    ]
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
+    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 1
+    assert telemetry_payload["summary"]["attempt_count"] == 5
+
+
+def test_label_atomic_lines_persists_recovered_cohort_outlier_retry_artifacts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixture = _run_line_role_cohort_outlier_retry_fixture(tmp_path, monkeypatch)
+    recovered_proposal = fixture["recovered_proposal"]
+    recovered_status = fixture["recovered_status"]
+    failures = fixture["failures"]
+    retry_status = fixture["retry_status"]
+    retry_prompt = fixture["retry_prompt"]
+
+    assert recovered_proposal["watchdog_retry_status"] == "recovered"
+    assert recovered_proposal["validation_errors"] == []
+    assert recovered_status["status"] == "validated"
+    assert recovered_status["state"] == "completed"
+    assert recovered_status["reason_code"] == "watchdog_retry_recovered"
+    assert recovered_status["finalization_path"] == "watchdog_retry_recovered"
+    assert recovered_status["raw_supervision_state"] == "watchdog_killed"
+    assert recovered_status["raw_supervision_reason_code"] == "watchdog_cohort_runtime_outlier"
+    assert failures == []
+    assert retry_status["status"] == "validated"
+    assert retry_status["watchdog_retry_reason_code"] == "watchdog_cohort_runtime_outlier"
     assert "Successful sibling examples:" in retry_prompt
     assert "Authoritative shard rows to relabel" in retry_prompt
     assert "Your first response must be the final JSON object." in retry_prompt
@@ -4258,10 +4808,10 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
     assert all("\tline_role_prompt_" in line for line in dedup_lines)
 
 
-def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
-    monkeypatch,
-    tmp_path,
-) -> None:
+def _run_compact_prompt_format_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> dict[str, object]:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -4284,11 +4834,24 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         codex_runner=_line_role_runner({0: "OTHER"}),
         live_llm_allowed=True,
     )
+    return {
+        "predictions": predictions,
+        "prompt_root": tmp_path / "line-role-pipeline",
+    }
+
+
+def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    fixture = _run_compact_prompt_format_fixture(monkeypatch, tmp_path)
+    predictions = fixture["predictions"]
+    prompt_root = fixture["prompt_root"]
+    assert isinstance(prompt_root, Path)
 
     assert predictions[0].label == "OTHER"
     prompt_text = (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "prompts"
         / "line_role"
         / "line_role_prompt_0001.txt"
@@ -4312,8 +4875,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "Balancing Fat" in prompt_text
     assert "Write exactly one JSON object to `out/<task_id>.json`." in prompt_text
     worker_prompt_text = (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "runtime"
         / "line_role"
         / "workers"
@@ -4325,10 +4887,19 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "You are processing many canonical line-role task packets inside one local worker workspace." in worker_prompt_text
     assert "worker_manifest.json" in worker_prompt_text
     assert "Assigned task files:" in worker_prompt_text
+
+
+def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_contract(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    fixture = _run_compact_prompt_format_fixture(monkeypatch, tmp_path)
+    prompt_root = fixture["prompt_root"]
+    assert isinstance(prompt_root, Path)
+
     worker_manifest_payload = json.loads(
         (
-            tmp_path
-            / "line-role-pipeline"
+            prompt_root
             / "runtime"
             / "line_role"
             / "workers"
@@ -4360,8 +4931,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     ]
     current_task_payload = json.loads(
         (
-            tmp_path
-            / "line-role-pipeline"
+            prompt_root
             / "runtime"
             / "line_role"
             / "workers"
@@ -4381,8 +4951,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     }
     scratch_draft_payload = json.loads(
         (
-            tmp_path
-            / "line-role-pipeline"
+            prompt_root
             / "runtime"
             / "line_role"
             / "workers"
@@ -4393,9 +4962,18 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert scratch_draft_payload == {
         "rows": [{"atomic_index": 0, "label": "OTHER"}]
     }
+
+
+def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_artifacts(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    fixture = _run_compact_prompt_format_fixture(monkeypatch, tmp_path)
+    prompt_root = fixture["prompt_root"]
+    assert isinstance(prompt_root, Path)
+
     worker_hint_text = (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "runtime"
         / "line_role"
         / "workers"
@@ -4410,8 +4988,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "Attention rows" in worker_hint_text
     assert "Make the smallest safe correction" in worker_hint_text
     worker_input_text = (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "runtime"
         / "line_role"
         / "workers"
@@ -4435,8 +5012,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert worker_input_payload["rows"] == [[0, "L9", "Ambiguous line 0"]]
     input_payload = json.loads(
         (
-            tmp_path
-            / "line-role-pipeline"
+            prompt_root
             / "runtime"
             / "line_role"
             / "workers"
@@ -4447,8 +5023,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     )
     debug_payload = json.loads(
         (
-            tmp_path
-            / "line-role-pipeline"
+            prompt_root
             / "runtime"
             / "line_role"
             / "workers"
@@ -4462,8 +5037,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "prev_text" not in debug_payload["rows"][0]
     assert "next_text" not in debug_payload["rows"][0]
     assert (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "runtime"
         / "line_role"
         / "workers"
@@ -4472,8 +5046,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "01-lesson-prose-vs-howto.md"
     ).exists()
     assert (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "runtime"
         / "line_role"
         / "workers"
@@ -4481,8 +5054,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "OUTPUT_CONTRACT.md"
     ).exists()
     assert (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "runtime"
         / "line_role"
         / "workers"
@@ -4491,8 +5063,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "valid_line_role_output.json"
     ).exists()
     assert (
-        tmp_path
-        / "line-role-pipeline"
+        prompt_root
         / "runtime"
         / "line_role"
         / "workers"

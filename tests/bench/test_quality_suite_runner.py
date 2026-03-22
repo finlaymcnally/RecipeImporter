@@ -75,10 +75,10 @@ def _build_suite(tmp_path: Path) -> QualitySuite:
     )
 
 
-def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
+def _run_quality_suite_failure_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     suite = _build_suite(tmp_path)
     experiments_file = tmp_path / "experiments.json"
     _write_json(
@@ -234,6 +234,24 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
         max_parallel_experiments=1,
         progress_callback=progress_messages.append,
     )
+    return {
+        "run_root": run_root,
+        "progress_messages": progress_messages,
+        "observed_cache_roots": observed_cache_roots,
+        "observed_prediction_reuse_roots": observed_prediction_reuse_roots,
+    }
+
+
+def test_run_quality_suite_writes_artifacts_and_cache_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_failure_fixture(monkeypatch, tmp_path)
+    run_root = fixture["run_root"]
+    progress_messages = fixture["progress_messages"]
+    observed_cache_roots = fixture["observed_cache_roots"]
+    observed_prediction_reuse_roots = fixture["observed_prediction_reuse_roots"]
+    assert isinstance(run_root, Path)
 
     assert progress_messages
     assert "task 1/2" in progress_messages[0]
@@ -249,6 +267,23 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
     assert Path(resolved["prediction_reuse_cache_root"]) == (
         tmp_path / ".cache" / "prediction_reuse"
     )
+    assert observed_cache_roots
+    assert observed_cache_roots[0] == (
+        tmp_path / ".cache" / "canonical_alignment"
+    )
+    assert observed_prediction_reuse_roots
+    assert observed_prediction_reuse_roots[0] == (
+        tmp_path / ".cache" / "prediction_reuse"
+    )
+
+
+def test_run_quality_suite_continues_after_failure_and_summarizes_results(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_quality_suite_failure_fixture(monkeypatch, tmp_path)
+    run_root = fixture["run_root"]
+    assert isinstance(run_root, Path)
 
     summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
     rows = {row["id"]: row for row in summary["experiments"]}
@@ -268,14 +303,6 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
     assert baseline["run_settings_hash"]
     assert baseline["report_json_path"].startswith(
         "experiments/baseline/all_method_benchmark_multi_source_report.json"
-    )
-    assert observed_cache_roots
-    assert observed_cache_roots[0] == (
-        tmp_path / ".cache" / "canonical_alignment"
-    )
-    assert observed_prediction_reuse_roots
-    assert observed_prediction_reuse_roots[0] == (
-        tmp_path / ".cache" / "prediction_reuse"
     )
     assert Path(summary["prediction_reuse_cache_root"]) == (
         tmp_path / ".cache" / "prediction_reuse"

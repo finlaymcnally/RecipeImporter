@@ -18,6 +18,34 @@ _WORKER_SCRIPT_NAME = "knowledge_worker.py"
 _DEFAULT_SCAFFOLD_REASON_CODE = "review_not_completed"
 _CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
 _CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
+_NO_CURRENT_TASK_ACTIVE_TEXT = "No current task is active. The queue is complete."
+_ACTIVE_ASSIGNMENT_TEXT = (
+    "This worker assignment is still active until the repo removes `current_task.json` "
+    "and says the queue is complete."
+)
+_NO_REPO_WRITTEN_FEEDBACK_TEXT = "No repo-written validation feedback exists yet for this task."
+_CHECK_CURRENT_AFTER_EDIT_TEXT = (
+    "Run `python3 tools/knowledge_worker.py check-current` after editing the current draft."
+)
+_VALIDATION_STATUS_OK_TEXT = "Validation status: OK."
+_VALIDATOR_ACCEPTED_TEXT = "The validator accepted this task packet."
+_INSTALL_CURRENT_READY_TEXT = (
+    "You may run `python3 tools/knowledge_worker.py install-current` to write the final result path."
+)
+_REOPEN_AFTER_INSTALL_TEXT = (
+    "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and "
+    "`CURRENT_TASK_FEEDBACK.md`."
+)
+_CONTINUE_IMMEDIATELY_TEXT = (
+    "If another task becomes active, continue with that task immediately. Do not ask for "
+    "permission to continue or stop at this checkpoint while later tasks remain."
+)
+_QUEUE_COMPLETE_TEXT = "If not, the queue is complete."
+_INSTALL_CURRENT_SUCCESS_NOTICE = (
+    "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`; if "
+    "another task becomes active, continue with that task immediately. Do not ask for "
+    "permission to continue while later tasks remain."
+)
 
 
 @dataclass(frozen=True)
@@ -116,6 +144,11 @@ def render_current_task_brief_text(
     strong_knowledge_cue = bool(metadata.get("strong_knowledge_cue"))
     task_sequence = int(metadata.get("task_sequence") or 0)
     task_total = int(metadata.get("task_total") or 0)
+    remaining_after_current = (
+        max(task_total - task_sequence, 0)
+        if task_sequence > 0 and task_total > 0
+        else None
+    )
     lines = [
         "# Current Knowledge Task",
         "",
@@ -132,10 +165,18 @@ def render_current_task_brief_text(
         f"Result file: `{metadata.get('result_path') or '?'}`",
         f"Owned block spans: `{', '.join(block_spans) or '[none]'}`",
         (
+            f"Remaining tasks after this one: `{remaining_after_current}`"
+            if remaining_after_current is not None
+            else "Remaining tasks after this one: unknown"
+        ),
+        (
             "Strong cue: yes. An all-`other` answer is high risk here unless the owned text is clearly not reusable knowledge."
             if strong_knowledge_cue
             else "Strong cue: no. It is acceptable to keep everything `other` if the owned text is clearly non-knowledge."
         ),
+        "",
+        "This assignment stays active until the repo removes `current_task.json` and rewrites the current-task sidecars to say the queue is complete.",
+        "A successful `install-current` is only a handoff to the next repo-owned current task, not a stopping point.",
         "",
         "Recommended loop:",
         "1. Read the hint and input files named above.",
@@ -143,11 +184,67 @@ def render_current_task_brief_text(
         "3. Edit the draft until the snippet bodies are short grounded claims, not copied evidence surfaces.",
         "4. Run `python3 tools/knowledge_worker.py check-current`.",
         "5. Run `python3 tools/knowledge_worker.py install-current` only after `check-current` says OK.",
-        "6. After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If another task becomes active, continue with that task.",
+        "6. After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If another task becomes active, continue with that task immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
         "",
         "Do not process later tasks before this task passes the repo-owned checker.",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _remaining_after_current_text(task_row: Mapping[str, Any]) -> str:
+    metadata = _coerce_dict(task_row.get("metadata"))
+    task_sequence = int(metadata.get("task_sequence") or 0)
+    task_total = int(metadata.get("task_total") or 0)
+    if task_sequence > 0 and task_total > 0:
+        return f"Remaining tasks after this one: `{max(task_total - task_sequence, 0)}`."
+    return "Remaining tasks after this one: unknown."
+
+
+def _render_pending_current_task_feedback_lines(
+    *,
+    task_row: Mapping[str, Any],
+    current_draft_path: Path | None = None,
+) -> list[str]:
+    task_id = str(task_row.get("task_id") or "").strip() or "[unknown task]"
+    draft_note = (
+        f"Expected draft path: `{current_draft_path}`."
+        if current_draft_path is not None
+        else "No draft path is configured."
+    )
+    return [
+        "# Current Task Feedback",
+        "",
+        f"Task id: `{task_id}`",
+        _NO_REPO_WRITTEN_FEEDBACK_TEXT,
+        _remaining_after_current_text(task_row),
+        _ACTIVE_ASSIGNMENT_TEXT,
+        draft_note,
+        _CHECK_CURRENT_AFTER_EDIT_TEXT,
+    ]
+
+
+def _render_valid_current_task_feedback_lines(
+    *,
+    task_row: Mapping[str, Any],
+    draft_path: Path | str | None,
+    result_path: Path | str | None,
+) -> list[str]:
+    task_id = str(task_row.get("task_id") or "").strip() or "[unknown task]"
+    draft_display = f"{draft_path}" if draft_path else "unknown."
+    result_display = f"{result_path}" if result_path else "unknown."
+    return [
+        "# Current Task Feedback",
+        "",
+        f"Task id: `{task_id}`",
+        _VALIDATION_STATUS_OK_TEXT,
+        f"Draft path: `{draft_display}`",
+        f"Install target: `{result_display}`",
+        _VALIDATOR_ACCEPTED_TEXT,
+        _INSTALL_CURRENT_READY_TEXT,
+        _REOPEN_AFTER_INSTALL_TEXT,
+        _CONTINUE_IMMEDIATELY_TEXT,
+        _QUEUE_COMPLETE_TEXT,
+    ]
 
 
 def render_current_task_feedback_text(
@@ -157,53 +254,41 @@ def render_current_task_feedback_text(
     current_draft_path: Path | None = None,
 ) -> str:
     if task_row is None:
-        return (
-            "# Current Task Feedback\n\n"
-            "No current task is active. The queue is complete.\n"
-        )
-    task_id = str(task_row.get("task_id") or "").strip() or "[unknown task]"
+        return "# Current Task Feedback\n\n" + _NO_CURRENT_TASK_ACTIVE_TEXT + "\n"
     if check_result is None:
-        draft_note = (
-            f"Expected draft path: `{current_draft_path}`."
-            if current_draft_path is not None
-            else "No draft path is configured."
+        return (
+            "\n".join(
+                _render_pending_current_task_feedback_lines(
+                    task_row=task_row,
+                    current_draft_path=current_draft_path,
+                )
+            )
+            + "\n"
         )
-        return "\n".join(
-            [
-                "# Current Task Feedback",
-                "",
-                f"Task id: `{task_id}`",
-                "No repo-written validation feedback exists yet for this task.",
-                draft_note,
-                "Run `python3 tools/knowledge_worker.py check-current` after editing the current draft.",
-            ]
-        ) + "\n"
     classification = _coerce_dict(check_result.metadata.get("failure_classification"))
     classification_code = str(classification.get("reason_code") or "").strip() or "validation_failed"
     classification_detail = str(classification.get("reason_detail") or "").strip()
     if check_result.valid:
-        return "\n".join(
-            [
-                "# Current Task Feedback",
-                "",
-                f"Task id: `{task_id}`",
-                "Validation status: OK.",
-                (
-                    f"Draft path: `{check_result.draft_path}`"
-                    if check_result.draft_path
-                    else "Draft path: unknown."
-                ),
-                (
-                    f"Install target: `{check_result.result_path}`"
-                    if check_result.result_path
-                    else "Install target: unknown."
-                ),
-                "The repo-owned validator accepted this task packet.",
-                "You may run `python3 tools/knowledge_worker.py install-current` to write the final result path.",
-                "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`.",
-                "If another task becomes active, continue with that task. If not, the queue is complete.",
-            ]
-        ) + "\n"
+        metadata_result_path = str(
+            _coerce_dict(task_row.get("metadata")).get("result_path") or ""
+        ).strip()
+        return (
+            "\n".join(
+                _render_valid_current_task_feedback_lines(
+                    task_row=task_row,
+                    draft_path=(
+                        current_draft_path
+                        if current_draft_path is not None
+                        else check_result.draft_path
+                        if check_result.draft_path
+                        else None
+                    ),
+                    result_path=metadata_result_path or check_result.result_path,
+                )
+            )
+            + "\n"
+        )
+    task_id = str(task_row.get("task_id") or "").strip() or "[unknown task]"
     explanation_lines = _render_validation_error_help(
         validation_errors=check_result.errors,
         validation_metadata=check_result.metadata,
@@ -280,6 +365,16 @@ def current_task_draft_path(*, workspace_root: Path) -> Path:
     return Path(workspace_root) / "scratch" / "current_task.json"
 
 
+def _workspace_display_path(*, workspace_root: Path, path: Path | None) -> Path | None:
+    if path is None:
+        return None
+    resolved_path = Path(path)
+    try:
+        return resolved_path.relative_to(workspace_root)
+    except ValueError:
+        return resolved_path
+
+
 def resolve_current_task_row(*, workspace_root: Path) -> dict[str, Any]:
     task_row = load_current_task_row(workspace_root=workspace_root)
     if task_row is None:
@@ -309,7 +404,10 @@ def write_current_task_scaffold(*, workspace_root: Path, dest_path: Path | None 
     write_current_task_sidecars(
         workspace_root=workspace_root,
         task_row=task_row,
-        current_draft_path=resolved_dest,
+        current_draft_path=_workspace_display_path(
+            workspace_root=workspace_root,
+            path=resolved_dest,
+        ),
     )
     return resolved_dest
 
@@ -707,7 +805,10 @@ def check_current_task_draft(
         workspace_root=workspace_root,
         task_row=task_row,
         check_result=check_result,
-        current_draft_path=resolved_draft_path,
+        current_draft_path=_workspace_display_path(
+            workspace_root=workspace_root,
+            path=resolved_draft_path,
+        ),
     )
     return check_result
 
@@ -732,7 +833,10 @@ def install_current_task_draft(
         workspace_root=workspace_root,
         task_row=task_row,
         check_result=check_result,
-        current_draft_path=resolved_draft_path,
+        current_draft_path=_workspace_display_path(
+            workspace_root=workspace_root,
+            path=resolved_draft_path,
+        ),
     )
     return check_result
 
@@ -1006,8 +1110,20 @@ def build_workspace_task_shard(
 
 
 def render_knowledge_worker_script() -> str:
-    return textwrap.dedent(
-        """
+    no_current_task_active_text = json.dumps(_NO_CURRENT_TASK_ACTIVE_TEXT)
+    active_assignment_text = json.dumps(_ACTIVE_ASSIGNMENT_TEXT)
+    no_repo_written_feedback_text = json.dumps(_NO_REPO_WRITTEN_FEEDBACK_TEXT)
+    check_current_after_edit_text = json.dumps(_CHECK_CURRENT_AFTER_EDIT_TEXT)
+    validation_status_ok_text = json.dumps(_VALIDATION_STATUS_OK_TEXT)
+    validator_accepted_text = json.dumps(_VALIDATOR_ACCEPTED_TEXT)
+    install_current_ready_text = json.dumps(_INSTALL_CURRENT_READY_TEXT)
+    reopen_after_install_text = json.dumps(_REOPEN_AFTER_INSTALL_TEXT)
+    continue_immediately_text = json.dumps(_CONTINUE_IMMEDIATELY_TEXT)
+    queue_complete_text = json.dumps(_QUEUE_COMPLETE_TEXT)
+    install_current_success_notice = json.dumps(_INSTALL_CURRENT_SUCCESS_NOTICE)
+    return (
+        textwrap.dedent(
+            """
         #!/usr/bin/env python3
         from __future__ import annotations
 
@@ -1037,6 +1153,17 @@ def render_knowledge_worker_script() -> str:
         DEFAULT_SCAFFOLD_REASON_CODE = "review_not_completed"
         CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
         CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
+        NO_CURRENT_TASK_ACTIVE_TEXT = {no_current_task_active_text}
+        ACTIVE_ASSIGNMENT_TEXT = {active_assignment_text}
+        NO_REPO_WRITTEN_FEEDBACK_TEXT = {no_repo_written_feedback_text}
+        CHECK_CURRENT_AFTER_EDIT_TEXT = {check_current_after_edit_text}
+        VALIDATION_STATUS_OK_TEXT = {validation_status_ok_text}
+        VALIDATOR_ACCEPTED_TEXT = {validator_accepted_text}
+        INSTALL_CURRENT_READY_TEXT = {install_current_ready_text}
+        REOPEN_AFTER_INSTALL_TEXT = {reopen_after_install_text}
+        CONTINUE_IMMEDIATELY_TEXT = {continue_immediately_text}
+        QUEUE_COMPLETE_TEXT = {queue_complete_text}
+        INSTALL_CURRENT_SUCCESS_NOTICE = {install_current_success_notice}
 
         def _workspace_root() -> Path:
             return Path(__file__).resolve().parent.parent
@@ -1529,33 +1656,60 @@ def render_knowledge_worker_script() -> str:
             lines.extend(f"- {line}" for line in _render_error_help(errors, metadata))
             return "\\n".join(lines) + "\\n"
 
-        def _write_current_feedback(task_row, *, draft_path, errors=None, validation_metadata=None, valid=None):
+        def _remaining_after_current_text(task_row):
+            metadata = _coerce_dict(task_row.get("metadata"))
+            task_sequence = int(metadata.get("task_sequence") or 0)
+            task_total = int(metadata.get("task_total") or 0)
+            if task_sequence > 0 and task_total > 0:
+                return f"Remaining tasks after this one: `{max(task_total - task_sequence, 0)}`."
+            return "Remaining tasks after this one: unknown."
+
+        def _pending_feedback_lines(task_row, draft_path):
             task_id = str((task_row or {}).get("task_id") or "").strip() or "[unknown task]"
-            lines = [
+            return [
                 "# Current Task Feedback",
                 "",
                 f"Task id: `{task_id}`",
+                NO_REPO_WRITTEN_FEEDBACK_TEXT,
+                _remaining_after_current_text(task_row),
+                ACTIVE_ASSIGNMENT_TEXT,
+                f"Expected draft path: `{draft_path}`.",
+                CHECK_CURRENT_AFTER_EDIT_TEXT,
             ]
+
+        def _valid_feedback_lines(task_row, *, draft_path, result_path):
+            task_id = str((task_row or {}).get("task_id") or "").strip() or "[unknown task]"
+            return [
+                "# Current Task Feedback",
+                "",
+                f"Task id: `{task_id}`",
+                VALIDATION_STATUS_OK_TEXT,
+                f"Draft path: `{draft_path}`",
+                f"Install target: `{result_path}`",
+                VALIDATOR_ACCEPTED_TEXT,
+                INSTALL_CURRENT_READY_TEXT,
+                REOPEN_AFTER_INSTALL_TEXT,
+                CONTINUE_IMMEDIATELY_TEXT,
+                QUEUE_COMPLETE_TEXT,
+            ]
+
+        def _write_current_feedback(task_row, *, draft_path, errors=None, validation_metadata=None, valid=None):
+            display_draft_path = str(draft_path)
             if valid is None:
-                lines.extend(
-                    [
-                        "No repo-written validation feedback exists yet for this task.",
-                        f"Expected draft path: `{draft_path}`.",
-                        "Run `python3 tools/knowledge_worker.py check-current` after editing the current draft.",
-                    ]
-                )
+                lines = _pending_feedback_lines(task_row, display_draft_path)
             elif valid:
-                lines.extend(
-                    [
-                        "Validation status: OK.",
-                        f"Draft path: `{draft_path}`",
-                        "The helper validator accepted this task packet.",
-                        "You may run `python3 tools/knowledge_worker.py install-current` to write the final result path.",
-                        "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`.",
-                        "If another task becomes active, continue with that task. If not, the queue is complete.",
-                    ]
+                lines = _valid_feedback_lines(
+                    task_row,
+                    draft_path=display_draft_path,
+                    result_path=_resolve_result_path(task_row).relative_to(_workspace_root()),
                 )
             else:
+                task_id = str((task_row or {}).get("task_id") or "").strip() or "[unknown task]"
+                lines = [
+                    "# Current Task Feedback",
+                    "",
+                    f"Task id: `{task_id}`",
+                ]
                 lines.extend(
                     [
                         "Validation status: FAILED.",
@@ -1777,7 +1931,7 @@ def render_knowledge_worker_script() -> str:
                 f"installed {draft_path.name} -> {result_path.relative_to(_workspace_root())}\\n"
             )
             sys.stdout.write(
-                "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`; if another task becomes active, continue with that task.\\n"
+                INSTALL_CURRENT_SUCCESS_NOTICE + "\\n"
             )
             return 0
 
@@ -1850,7 +2004,20 @@ def render_knowledge_worker_script() -> str:
         if __name__ == "__main__":
             raise SystemExit(main())
         """
-    ).lstrip()
+        )
+        .lstrip()
+        .replace("{no_current_task_active_text}", no_current_task_active_text)
+        .replace("{active_assignment_text}", active_assignment_text)
+        .replace("{no_repo_written_feedback_text}", no_repo_written_feedback_text)
+        .replace("{check_current_after_edit_text}", check_current_after_edit_text)
+        .replace("{validation_status_ok_text}", validation_status_ok_text)
+        .replace("{validator_accepted_text}", validator_accepted_text)
+        .replace("{install_current_ready_text}", install_current_ready_text)
+        .replace("{reopen_after_install_text}", reopen_after_install_text)
+        .replace("{continue_immediately_text}", continue_immediately_text)
+        .replace("{queue_complete_text}", queue_complete_text)
+        .replace("{install_current_success_notice}", install_current_success_notice)
+    )
 
 
 def _resolve_sample_task(

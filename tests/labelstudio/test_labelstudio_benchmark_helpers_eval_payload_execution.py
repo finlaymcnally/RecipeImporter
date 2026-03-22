@@ -17,176 +17,18 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
-    (prediction_run / "extracted_archive.json").write_text(
-        json.dumps(
-            [
-                {
-                    "index": 0,
-                    "text": "Sample title",
-                    "location": {"features": {"extraction_backend": "unstructured"}},
-                }
-            ],
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "RECIPE_TITLE"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "extracted_archive.json").write_text(
-        json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
-        encoding="utf-8",
-    )
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "RECIPE_TITLE"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        include_label_studio_tasks=True,
+        extracted_rows=[],
+        block_labels={},
     )
 
     monkeypatch.setattr(
         cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
     )
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
-        lambda *_args, **_kwargs: {
-            "report": {
-                "counts": {
-                    "gold_total": 0,
-                    "pred_total": 0,
-                    "gold_matched": 0,
-                    "pred_matched": 0,
-                    "gold_missed": 0,
-                    "pred_false_positive": 0,
-                },
-                "recall": 0.0,
-                "precision": 0.0,
-                "boundary": {"correct": 0, "over": 0, "under": 0, "partial": 0},
-                "per_label": {},
-            },
-            "missed_gold": [],
-            "false_positive_preds": [],
-        },
-    )
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
-        lambda **_kwargs: {
-            "report": {
-                "counts": {
-                    "gold_total": 0,
-                    "pred_total": 0,
-                    "gold_matched": 0,
-                    "pred_matched": 0,
-                    "gold_missed": 0,
-                    "pred_false_positive": 0,
-                },
-                "overall_block_accuracy": 0.0,
-                "macro_f1_excluding_other": 0.0,
-                "worst_label_recall": {"label": None, "recall": 0.0},
-                "recall": 0.0,
-                "precision": 0.0,
-                "f1": 0.0,
-                "practical_recall": 0.0,
-                "practical_precision": 0.0,
-                "practical_f1": 0.0,
-                "per_label": {},
-            },
-            "missed_gold": [],
-            "false_positive_preds": [],
-        },
-    )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
-        lambda **_kwargs: {
-            "report": {
-                "counts": {
-                    "gold_total": 0,
-                    "pred_total": 0,
-                    "gold_matched": 0,
-                    "pred_matched": 0,
-                    "gold_missed": 0,
-                    "pred_false_positive": 0,
-                },
-                "overall_block_accuracy": 0.0,
-                "macro_f1_excluding_other": 0.0,
-                "worst_label_recall": {"label": None, "recall": 0.0},
-                "recall": 0.0,
-                "precision": 0.0,
-                "f1": 0.0,
-                "practical_recall": 0.0,
-                "practical_precision": 0.0,
-                "practical_f1": 0.0,
-                "per_label": {},
-            },
-            "missed_gold": [],
-            "false_positive_preds": [],
-        },
-    )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
-        lambda **_kwargs: {
-            "report": {
-                "counts": {
-                    "gold_total": 0,
-                    "pred_total": 0,
-                    "gold_matched": 0,
-                    "pred_matched": 0,
-                    "gold_missed": 0,
-                    "pred_false_positive": 0,
-                },
-                "overall_block_accuracy": 0.0,
-                "macro_f1_excluding_other": 0.0,
-                "worst_label_recall": {"label": None, "recall": 0.0},
-                "recall": 0.0,
-                "precision": 0.0,
-                "f1": 0.0,
-                "practical_recall": 0.0,
-                "practical_precision": 0.0,
-                "practical_f1": 0.0,
-                "per_label": {},
-            },
-            "missed_gold": [],
-            "false_positive_preds": [],
-        },
-    )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    _install_noop_benchmark_eval_mocks(monkeypatch)
 
     captured: dict[str, object] = {}
 
@@ -219,39 +61,23 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     assert captured["processed_output_root"] == processed_root
     assert captured["auto_project_name_on_scope_mismatch"] is True
 
-def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
+def _run_eval_output_dir_prediction_fixture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
-    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-                "run_config": {"workers": 1},
-                "run_config_hash": "cfg-hash",
-                "run_config_summary": "workers=1",
-            }
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        include_label_studio_tasks=True,
+        manifest_payload={
+            "run_config": {"workers": 1},
+            "run_config_hash": "cfg-hash",
+            "run_config_summary": "workers=1",
+        },
     )
 
     monkeypatch.setattr(
@@ -268,65 +94,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
             AssertionError("No-upload mode must not call run_labelstudio_import.")
         ),
     )
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
-        lambda *_args, **_kwargs: {
-            "report": {
-                "counts": {
-                    "gold_total": 0,
-                    "pred_total": 0,
-                    "gold_matched": 0,
-                    "pred_matched": 0,
-                    "gold_missed": 0,
-                    "pred_false_positive": 0,
-                },
-                "recall": 0.0,
-                "precision": 0.0,
-                "boundary": {"correct": 0, "over": 0, "under": 0, "partial": 0},
-                "per_label": {},
-            },
-            "missed_gold": [],
-            "false_positive_preds": [],
-        },
-    )
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
-        lambda **_kwargs: {
-            "report": {
-                "counts": {
-                    "gold_total": 0,
-                    "pred_total": 0,
-                    "gold_matched": 0,
-                    "pred_matched": 0,
-                    "gold_missed": 0,
-                    "pred_false_positive": 0,
-                },
-                "overall_block_accuracy": 0.0,
-                "macro_f1_excluding_other": 0.0,
-                "worst_label_recall": {"label": None, "recall": 0.0},
-                "recall": 0.0,
-                "precision": 0.0,
-                "f1": 0.0,
-                "practical_recall": 0.0,
-                "practical_precision": 0.0,
-                "practical_f1": 0.0,
-                "per_label": {},
-            },
-            "missed_gold": [],
-            "false_positive_preds": [],
-        },
-    )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        "cookimport.analytics.perf_report.append_benchmark_csv",
-        lambda *_args, **_kwargs: None,
-    )
+    _install_noop_benchmark_eval_mocks(monkeypatch)
 
     captured_generate: dict[str, object] = {}
     llm_manifest_path = prediction_run / "raw" / "llm" / "book" / "llm_manifest.json"
@@ -405,6 +173,25 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
         pdf_ocr_policy="always",
         pdf_column_gap_ratio=0.21,
     )
+    run_manifest_path = eval_root / "run_manifest.json"
+    run_manifest = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+    return {
+        "captured_generate": captured_generate,
+        "eval_root": eval_root,
+        "source_file": source_file,
+        "run_manifest_path": run_manifest_path,
+        "run_manifest": run_manifest,
+    }
+
+
+def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_eval_output_dir_prediction_fixture(monkeypatch, tmp_path)
+    captured_generate = fixture["captured_generate"]
+    eval_root = fixture["eval_root"]
+    source_file = fixture["source_file"]
+    run_manifest_path = fixture["run_manifest_path"]
 
     assert captured_generate["path"] == source_file
     assert captured_generate["output_dir"] == eval_root
@@ -418,9 +205,18 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     assert captured_generate["codex_execution_policy"] == "execute"
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
-    run_manifest_path = eval_root / "run_manifest.json"
     assert run_manifest_path.exists()
-    run_manifest = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+
+
+def test_labelstudio_benchmark_prediction_run_manifest_records_eval_output_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _run_eval_output_dir_prediction_fixture(monkeypatch, tmp_path)
+    eval_root = fixture["eval_root"]
+    run_manifest_path = fixture["run_manifest_path"]
+    run_manifest = fixture["run_manifest"]
+
+    assert run_manifest_path.exists()
     assert run_manifest["run_kind"] == "labelstudio_benchmark"
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
@@ -467,43 +263,23 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text(
-        json.dumps(
-            [
-                {
-                    "index": 0,
-                    "text": "Sample title",
-                    "location": {"features": {"extraction_backend": "unstructured"}},
-                }
-            ],
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        extracted_rows=[
             {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "RECIPE_TITLE"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-                "run_config": {"workers": 1},
-                "run_config_hash": "cfg-hash",
-                "run_config_summary": "workers=1",
-                "recipe_count": 7,
+                "index": 0,
+                "text": "Sample title",
+                "location": {"features": {"extraction_backend": "unstructured"}},
             }
-        ),
-        encoding="utf-8",
+        ],
+        block_labels={"0": "RECIPE_TITLE"},
+        manifest_payload={
+            "run_config": {"workers": 1},
+            "run_config_hash": "cfg-hash",
+            "run_config_summary": "workers=1",
+            "recipe_count": 7,
+        },
     )
     monkeypatch.setattr(
         cli,
@@ -517,39 +293,7 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
             "timing": {"prediction_seconds": 1.5},
         },
     )
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
-        lambda **_kwargs: {
-            "report": {
-                "counts": {
-                    "gold_total": 0,
-                    "pred_total": 0,
-                    "gold_matched": 0,
-                    "pred_matched": 0,
-                    "gold_missed": 0,
-                    "pred_false_positive": 0,
-                },
-                "overall_block_accuracy": 0.0,
-                "macro_f1_excluding_other": 0.0,
-                "worst_label_recall": {"label": None, "recall": 0.0},
-                "precision": 0.0,
-                "recall": 0.0,
-                "f1": 0.0,
-                "practical_precision": 0.0,
-                "practical_recall": 0.0,
-                "practical_f1": 0.0,
-                "per_label": {},
-            },
-            "missed_gold": [],
-            "false_positive_preds": [],
-        },
-    )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        "cookimport.analytics.perf_report.append_benchmark_csv",
-        lambda *_args, **_kwargs: None,
-    )
+    _install_noop_benchmark_eval_mocks(monkeypatch)
 
     predictions_out = tmp_path / "prediction-records.jsonl"
     eval_root = tmp_path / "eval"
@@ -868,31 +612,11 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text(
-        json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
-        encoding="utf-8",
-    )
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "RECIPE_TITLE"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        extracted_rows=[{"index": 0, "text": "Sample title"}],
+        block_labels={"0": "RECIPE_TITLE"},
     )
     monkeypatch.setattr(
         cli,
@@ -906,11 +630,13 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
             "timing": {"prediction_seconds": 2.0},
         },
     )
+    _install_noop_benchmark_eval_mocks(monkeypatch)
     monkeypatch.setattr(
         cli,
         "evaluate_stage_blocks",
         lambda **_kwargs: {
             "report": {
+                **_empty_stage_block_eval_result()["report"],
                 "counts": {
                     "gold_total": 1,
                     "pred_total": 1,
@@ -928,16 +654,10 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
                 "practical_precision": 1.0,
                 "practical_recall": 1.0,
                 "practical_f1": 1.0,
-                "per_label": {},
             },
             "missed_gold": [],
             "false_positive_preds": [],
         },
-    )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        "cookimport.analytics.perf_report.append_benchmark_csv",
-        lambda *_args, **_kwargs: None,
     )
 
     eval_root = tmp_path / "eval-pipelined"
@@ -960,40 +680,20 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
     )
     assert "execution_mode" not in run_manifest["run_config"]
 
-def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only(
+def _run_offline_prediction_stage_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> None:
+) -> dict[str, object]:
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
     gold_spans = tmp_path / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
-    prediction_run.mkdir(parents=True, exist_ok=True)
-    (prediction_run / "extracted_archive.json").write_text(
-        json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
-        encoding="utf-8",
-    )
-    (prediction_run / "stage_block_predictions.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "RECIPE_TITLE"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    (prediction_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_file": str(source_file),
-                "source_hash": "hash-123",
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        extracted_rows=[{"index": 0, "text": "Sample title"}],
+        block_labels={"0": "RECIPE_TITLE"},
     )
     monkeypatch.setattr(
         cli,
@@ -1119,16 +819,40 @@ def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only
         eval_output_dir=eval_root,
         predictions_out_path=predictions_out,
     )
+    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    records = list(read_prediction_records(predictions_out))
+    return {
+        "result": result,
+        "eval_root": eval_root,
+        "run_manifest": run_manifest,
+        "records": records,
+    }
 
+
+def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_offline_prediction_stage_fixture(monkeypatch, tmp_path)
+    result = fixture["result"]
+    eval_root = fixture["eval_root"]
+    records = fixture["records"]
     assert not (eval_root / "eval_report.json").exists()
     assert result.prediction_records
-    run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
+    assert len(records) == 1
+
+
+def test_run_offline_benchmark_prediction_stage_manifest_omits_removed_mode_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_offline_prediction_stage_fixture(monkeypatch, tmp_path)
+    run_manifest = fixture["run_manifest"]
+
     assert run_manifest["run_kind"] == "labelstudio_benchmark_prediction_stage"
     assert "execution_mode" not in run_manifest["run_config"]
     assert "predict_only" not in run_manifest["run_config"]
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
-    records = list(read_prediction_records(predictions_out))
-    assert len(records) == 1
 
 
 def test_labelstudio_benchmark_interrupt_writes_partial_run_artifacts(

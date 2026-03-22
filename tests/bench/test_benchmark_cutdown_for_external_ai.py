@@ -1646,7 +1646,7 @@ def test_main_gzip_exports_are_byte_stable_across_repeated_runs(tmp_path: Path) 
     assert comparison_a["project_context"] == comparison_b["project_context"]
 
 
-def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
+def _build_starter_pack_v1_fixture(tmp_path: Path) -> dict[str, object]:
     module = _load_cutdown_module()
     run_root = tmp_path / "runs"
     codex_run_id = "2026-03-03_10.10.00"
@@ -1721,6 +1721,36 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         module._build_preprocess_trace_failure_rows = original_preprocess
 
     starter_dir = output_dir / "starter_pack_v1"
+    return {
+        "module": module,
+        "output_dir": output_dir,
+        "root_comparison": _read_json(output_dir / "comparison_summary.json"),
+        "root_manifest": _read_json(output_dir / "process_manifest.json"),
+        "starter_call_inventory_rows": _read_jsonl(starter_dir / "02_call_inventory.jsonl"),
+        "starter_comparison": _read_json(starter_dir / "11_comparison_summary.json"),
+        "starter_dir": starter_dir,
+        "starter_manifest": _read_json(starter_dir / "10_process_manifest.json"),
+        "starter_selected_packets": _read_jsonl(starter_dir / "06_selected_recipe_packets.jsonl"),
+        "starter_triage_rows": _read_jsonl(starter_dir / "01_recipe_triage.jsonl"),
+        "warning_summary": _read_json(starter_dir / "04_warning_and_trace_summary.json"),
+    }
+
+
+def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
+    fixture = _build_starter_pack_v1_fixture(tmp_path)
+    module = fixture["module"]
+    starter_dir = fixture["starter_dir"]
+    root_manifest = fixture["root_manifest"]
+    starter_manifest = fixture["starter_manifest"]
+    starter_comparison = fixture["starter_comparison"]
+    root_comparison = fixture["root_comparison"]
+    assert isinstance(module, object)
+    assert isinstance(starter_dir, Path)
+    assert isinstance(root_manifest, dict)
+    assert isinstance(starter_manifest, dict)
+    assert isinstance(starter_comparison, dict)
+    assert isinstance(root_comparison, dict)
+
     required_files = {
         "README.md",
         "00_run_overview.md",
@@ -1744,7 +1774,25 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     }
     assert required_files.issubset({path.name for path in starter_dir.iterdir() if path.is_file()})
 
-    triage_rows = _read_jsonl(starter_dir / "01_recipe_triage.jsonl")
+    assert starter_manifest["starter_pack_version"] == "v1"
+    assert "selection_policy" in starter_manifest
+    assert "outside_span_inclusion_policy" in starter_manifest
+    assert "heavy_artifacts_omitted_by_default" in starter_manifest
+    assert starter_manifest["outside_span_trace_sample"]["included"] is True
+
+    assert root_manifest["starter_pack_v1_path"] == "starter_pack_v1"
+    assert root_manifest["starter_pack_v1_manifest_file"] == "starter_pack_v1/10_process_manifest.json"
+    assert "starter_pack_v1/01_recipe_triage.jsonl" in set(root_manifest["included_files"])
+    assert starter_comparison == root_comparison
+
+
+def test_main_starter_pack_writes_recipe_triage_and_call_inventory(tmp_path: Path) -> None:
+    fixture = _build_starter_pack_v1_fixture(tmp_path)
+    triage_rows = fixture["starter_triage_rows"]
+    call_inventory_rows = fixture["starter_call_inventory_rows"]
+    assert isinstance(triage_rows, list)
+    assert isinstance(call_inventory_rows, list)
+
     assert triage_rows
     triage_row = triage_rows[0]
     assert triage_row["build_intermediate_status"] == "ok"
@@ -1757,7 +1805,6 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     assert triage_row["recipe_warning_count"] == 1
     assert triage_row["recipe_error_count"] == 0
 
-    call_inventory_rows = _read_jsonl(starter_dir / "02_call_inventory.jsonl")
     assert call_inventory_rows
     required_call_inventory_keys = {
         "run_id",
@@ -1780,14 +1827,20 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     }
     assert required_call_inventory_keys.issubset(call_inventory_rows[0].keys())
 
-    warning_summary = _read_json(starter_dir / "04_warning_and_trace_summary.json")
+
+def test_main_starter_pack_summarizes_warnings_and_selected_packets(tmp_path: Path) -> None:
+    fixture = _build_starter_pack_v1_fixture(tmp_path)
+    warning_summary = fixture["warning_summary"]
+    selected_packets = fixture["starter_selected_packets"]
+    assert isinstance(warning_summary, dict)
+    assert isinstance(selected_packets, list)
+
     assert warning_summary["recipe_stage_status_counts"]["build_intermediate_det"]["ok"] == 1
     assert warning_summary["recipe_stage_status_counts"]["recipe_llm_correct_and_link"]["degraded"] == 1
     assert warning_summary["recipe_stage_status_counts"]["build_final_recipe"]["fallback"] == 1
     assert warning_summary["final_mapping_status_counts"]["fallback"] == 1
     assert "recipe_stage_status_counts" in warning_summary
 
-    selected_packets = _read_jsonl(starter_dir / "06_selected_recipe_packets.jsonl")
     assert selected_packets
     first_packet = selected_packets[0]
     recipe_stage_summaries = {
@@ -1805,22 +1858,6 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     )
     assert recipe_stage_summaries["build_final_recipe"]["structural_status"] == "warning"
     assert first_packet["transport_summary"] == {}
-
-    starter_manifest = _read_json(starter_dir / "10_process_manifest.json")
-    assert starter_manifest["starter_pack_version"] == "v1"
-    assert "selection_policy" in starter_manifest
-    assert "outside_span_inclusion_policy" in starter_manifest
-    assert "heavy_artifacts_omitted_by_default" in starter_manifest
-    assert starter_manifest["outside_span_trace_sample"]["included"] is True
-
-    root_manifest = _read_json(output_dir / "process_manifest.json")
-    assert root_manifest["starter_pack_v1_path"] == "starter_pack_v1"
-    assert root_manifest["starter_pack_v1_manifest_file"] == "starter_pack_v1/10_process_manifest.json"
-    assert "starter_pack_v1/01_recipe_triage.jsonl" in set(root_manifest["included_files"])
-
-    root_comparison = _read_json(output_dir / "comparison_summary.json")
-    starter_comparison = _read_json(starter_dir / "11_comparison_summary.json")
-    assert starter_comparison == root_comparison
 
 
 def test_main_starter_pack_omits_outside_trace_when_threshold_not_met(tmp_path: Path) -> None:
@@ -3511,9 +3548,7 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
     assert not any(path.endswith("full_prompt_log.jsonl") for path in artifact_paths)
 
 
-def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
-    tmp_path: Path,
-) -> None:
+def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-profile-benchmark"
 
@@ -3649,8 +3684,19 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
         target_bundle_size_bytes=300_000,
     )
 
-    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    analysis = index_payload["analysis"]
+    return {
+        "analysis": _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)["analysis"],
+        "index_payload": _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME),
+    }
+
+
+def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_high_level_multi_book_upload_bundle_fixture(tmp_path)
+    analysis = fixture["analysis"]
+    assert isinstance(analysis, dict)
+
     assert analysis["group_high_level"]["enabled"] is True
 
     book_scorecard = analysis.get("book_scorecard")
@@ -3676,6 +3722,14 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
     assert chapter_page_breakdown.get("page_type_available") is True
     assert int(chapter_page_breakdown.get("book_count") or 0) == 2
 
+
+def test_build_upload_bundle_high_level_multi_book_aggregates_runtime_by_book(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_high_level_multi_book_upload_bundle_fixture(tmp_path)
+    analysis = fixture["analysis"]
+    assert isinstance(analysis, dict)
+
     runtime_by_book = analysis.get("runtime_by_book")
     assert isinstance(runtime_by_book, dict)
     runtime_rows = runtime_by_book.get("rows")
@@ -3690,6 +3744,16 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
     assert int(runtime_by_source["book-b-hash"]["total_duration_ms"] or 0) == 6000
     assert round(float(runtime_by_source["book-a-hash"]["total_cost_usd"] or 0.0), 2) == 0.66
     assert round(float(runtime_by_source["book-b-hash"]["total_cost_usd"] or 0.0), 2) == 3.66
+
+
+def test_build_upload_bundle_high_level_multi_book_exposes_trace_navigation(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_high_level_multi_book_upload_bundle_fixture(tmp_path)
+    analysis = fixture["analysis"]
+    index_payload = fixture["index_payload"]
+    assert isinstance(analysis, dict)
+    assert isinstance(index_payload, dict)
 
     top_regression_packets = analysis.get("top_regression_packets_full_trace")
     assert isinstance(top_regression_packets, dict)

@@ -99,7 +99,7 @@ def test_knowledge_packet_ledger_rollup_counts_packets_followups_and_artifacts()
     assert rollup.missing_benchmark_artifacts == ("eval_report.json",)
 
 
-def test_replay_knowledge_runtime_classifies_synthetic_artifacts(tmp_path: Path) -> None:
+def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
     knowledge_root = tmp_path / "knowledge"
     benchmark_root = tmp_path / "benchmark"
     _write_jsonl(
@@ -241,7 +241,11 @@ def test_replay_knowledge_runtime_classifies_synthetic_artifacts(tmp_path: Path)
         knowledge_root=knowledge_root,
         benchmark_root=benchmark_root,
     )
+    return summary
 
+
+def test_replay_knowledge_runtime_classifies_synthetic_artifacts(tmp_path: Path) -> None:
+    summary = _run_synthetic_knowledge_replay_fixture(tmp_path)
     assert summary.shard_total == 3
     assert summary.rollup.packet_total == 5
     assert summary.rollup.worker_output_count == 2
@@ -266,6 +270,10 @@ def test_replay_knowledge_runtime_classifies_synthetic_artifacts(tmp_path: Path)
         "repair_failed": 1,
         "retry_recovered": 1,
     }
+
+
+def test_replay_knowledge_runtime_reports_synthetic_artifact_presence(tmp_path: Path) -> None:
+    summary = _run_synthetic_knowledge_replay_fixture(tmp_path)
     assert summary.rollup.stage_artifact_states["phase_manifest.json"] == "missing"
     assert summary.rollup.stage_artifact_states["task_manifest.jsonl"] == "present"
     assert summary.rollup.benchmark_artifact_states == {

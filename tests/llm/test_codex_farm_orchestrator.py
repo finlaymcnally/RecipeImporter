@@ -27,6 +27,7 @@ from cookimport.llm.codex_farm_orchestrator import (
 )
 from cookimport.llm.codex_exec_runner import (
     CodexExecLiveSnapshot,
+    CodexExecRunResult,
     FakeCodexExecRunner,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
@@ -388,6 +389,44 @@ def test_recipe_workspace_watchdog_marks_forbidden_workspace_command_retryable(
     assert decision is not None
     assert decision.reason_code == "watchdog_command_execution_forbidden"
     assert decision.retryable is True
+
+
+def test_recipe_workspace_watchdog_allows_execution_root_startup_command(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "runtime" / "worker-001"
+    execution_root = tmp_path / ".codex-recipe" / "runtime" / "worker-001"
+    callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        stage_label="workspace worker stage",
+        allow_workspace_commands=True,
+        execution_workspace_root=source_root,
+    )
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command=(
+                f'/bin/bash -lc "cd {execution_root} && cat worker_manifest.json '
+                'current_task.json OUTPUT_CONTRACT.md >/dev/null"'
+            ),
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+            source_working_dir=str(source_root),
+            execution_working_dir=str(execution_root),
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["last_command_policy_allowed"] is True
+    assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["execution_working_dir"] == str(execution_root)
 
 
 def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -> None:
@@ -924,3 +963,147 @@ def test_orchestrator_recovers_retryable_watchdog_killed_recipe_shard(
     assert status_payload["final_supervision_state"] == "completed"
     assert proposal_payload["watchdog_retry_status"] == "recovered"
     assert retry_status["status"] == "validated"
+
+
+def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker_death(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    result.recipes.append(
+        RecipeCandidate(
+            name="Tea",
+            identifier="urn:recipe:test:tea",
+            recipeIngredient=["1 cup water", "1 tea bag"],
+            recipeInstructions=["Boil the water.", "Steep the tea bag."],
+            provenance={"location": {"start_block": 6, "end_block": 9}},
+        )
+    )
+    result.raw_artifacts[0].content["blocks"].extend(
+        [
+            {"index": 6, "text": "Tea"},
+            {"index": 7, "text": "1 cup water"},
+            {"index": 8, "text": "1 tea bag"},
+            {"index": 9, "text": "Boil the water. Steep the tea bag."},
+        ]
+    )
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    ).model_copy(update={"recipe_worker_count": 1, "recipe_shard_target_recipes": 2})
+
+    class _PackedRetryRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+            result = super().run_workspace_worker(**kwargs)
+            out_dir = Path(str(kwargs["working_dir"])) / "out"
+            for output_path in out_dir.glob("*.json"):
+                output_path.unlink()
+            return CodexExecRunResult(
+                command=list(result.command),
+                subprocess_exit_code=1,
+                output_schema_path=result.output_schema_path,
+                prompt_text=result.prompt_text,
+                response_text=None,
+                turn_failed_message="workspace worker attempted a forbidden command",
+                events=result.events
+                + (
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "cmd_startup",
+                            "type": "command_execution",
+                            "command": "/bin/bash -lc 'pip install nope'",
+                            "exit_code": 1,
+                        },
+                    },
+                ),
+                usage={
+                    "input_tokens": 7,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                },
+                stderr_text=result.stderr_text,
+                stdout_text=result.stdout_text,
+                source_working_dir=result.source_working_dir,
+                execution_working_dir=result.execution_working_dir,
+                execution_agents_path=result.execution_agents_path,
+                duration_ms=result.duration_ms,
+                started_at_utc=result.started_at_utc,
+                finished_at_utc=result.finished_at_utc,
+                workspace_mode=result.workspace_mode,
+                supervision_state="watchdog_killed",
+                supervision_reason_code="watchdog_command_execution_forbidden",
+                supervision_reason_detail="workspace worker attempted a forbidden command",
+                supervision_retryable=True,
+            )
+
+    runner = _PackedRetryRunner(
+        output_builder=lambda payload: {
+            "v": "1",
+            "sid": payload.get("sid") if payload is not None else None,
+            "r": [
+                {
+                    "v": "1",
+                    "rid": recipe_payload["rid"],
+                    "st": "repaired",
+                    "sr": None,
+                    "cr": {
+                        "t": recipe_payload.get("h", {}).get("n") or recipe_payload["rid"],
+                        "i": recipe_payload.get("h", {}).get("i", []),
+                        "s": recipe_payload.get("h", {}).get("s", []),
+                        "d": None,
+                        "y": None,
+                    },
+                    "m": [],
+                    "mr": "packed_retry_pass",
+                    "g": [],
+                    "w": [],
+                }
+                for recipe_payload in (
+                    payload["authoritative_input"]["r"]
+                    if payload and payload.get("retry_mode") == "recipe_watchdog"
+                    else payload.get("r", [])
+                )
+            ],
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "structured_prompt",
+    ]
+    process_summary = apply_result.llm_report["process_runs"]["recipe_correction"][
+        "telemetry_report"
+    ]["summary"]
+    assert process_summary["structured_followup_call_count"] == 1
+    assert process_summary["watchdog_killed_shard_count"] == 0
+    assert process_summary["watchdog_recovered_shard_count"] == 1
+
+    shard_root = (
+        apply_result.llm_raw_dir
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "recipe-shard-0000-r0000-r0001"
+    )
+    status_payload = json.loads((shard_root / "status.json").read_text(encoding="utf-8"))
+    retry_status = json.loads(
+        (shard_root / "watchdog_retry" / "status.json").read_text(encoding="utf-8")
+    )
+
+    assert status_payload["status"] == "validated"
+    assert status_payload["watchdog_retry_status"] == "recovered"
+    assert status_payload["watchdog_retry_mode"] == "shard_packed"
+    assert retry_status["status"] == "validated"
+    assert retry_status["watchdog_retry_mode"] == "shard_packed"
