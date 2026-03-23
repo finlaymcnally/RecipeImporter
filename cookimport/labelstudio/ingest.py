@@ -86,6 +86,7 @@ from cookimport.labelstudio.archive import (
     prepared_archive_text,
 )
 from cookimport.labelstudio.canonical_line_projection import (
+    FreeformSpanPrediction,
     build_line_role_extracted_archive_payload,
     build_line_role_stage_prediction_payload,
     project_line_roles_to_freeform_spans,
@@ -1079,14 +1080,23 @@ def _write_authoritative_line_role_artifacts(
         nonrecipe_stage_result=nonrecipe_stage_result,
     )
     projected_spans = project_line_roles_to_freeform_spans(predictions)
+    scored_projected_spans, scoring_projection_summary = (
+        _build_scored_line_role_projection_spans(
+            projected_spans=projected_spans,
+            nonrecipe_stage_result=nonrecipe_stage_result,
+        )
+    )
     stage_payload = build_line_role_stage_prediction_payload(
-        projected_spans,
+        scored_projected_spans,
         source_file=source_file,
         source_hash=source_hash,
         workbook_slug=workbook_slug,
         notes=[
             "Prediction-run projection reused authoritative Stage 2 labels for recipe-local lines.",
             "Outside-recipe KNOWLEDGE/OTHER labels were projected from final non-recipe authority.",
+            *([
+                "Unreviewed review-eligible outside-recipe KNOWLEDGE rows were forced to OTHER for scoring."
+            ] if scoring_projection_summary["suppressed_unreviewed_knowledge_line_count"] else []),
             *([
                 f"Knowledge refinement changed {nonrecipe_projection_summary['changed_block_count']} outside-recipe blocks before scoring."
             ] if nonrecipe_projection_summary["changed_block_count"] else []),
@@ -1132,6 +1142,7 @@ def _write_authoritative_line_role_artifacts(
                 "labeled_line_count": len(label_first_result.labeled_lines),
                 "recipe_span_count": len(label_first_result.recipe_spans),
                 **nonrecipe_projection_summary,
+                **scoring_projection_summary,
             },
             indent=2,
             sort_keys=True,
@@ -1154,8 +1165,54 @@ def _write_authoritative_line_role_artifacts(
             ),
             "mode": "final_authority_projection",
             **nonrecipe_projection_summary,
+            **scoring_projection_summary,
         },
     )
+
+
+def _build_scored_line_role_projection_spans(
+    *,
+    projected_spans: Iterable[FreeformSpanPrediction],
+    nonrecipe_stage_result: NonRecipeStageResult | None,
+) -> tuple[list[FreeformSpanPrediction], dict[str, Any]]:
+    spans = list(projected_spans)
+    if nonrecipe_stage_result is None:
+        return spans, {
+            "suppressed_unreviewed_knowledge_line_count": 0,
+            "suppressed_unreviewed_knowledge_block_indices": [],
+        }
+
+    authoritative_categories = (
+        nonrecipe_stage_result.authoritative_block_category_by_index()
+    )
+    unreviewed_block_index_set = {
+        int(index)
+        for index in nonrecipe_stage_result.unreviewed_review_eligible_block_indices
+    }
+    suppressed_block_indices: set[int] = set()
+    scored_spans: list[FreeformSpanPrediction] = []
+    for span in spans:
+        if span.within_recipe_span or span.label not in {"KNOWLEDGE", "OTHER"}:
+            scored_spans.append(span)
+            continue
+        block_index = int(span.block_index)
+        authoritative_category = authoritative_categories.get(block_index)
+        if authoritative_category in {"knowledge", "other"}:
+            target_label = (
+                "KNOWLEDGE" if authoritative_category == "knowledge" else "OTHER"
+            )
+            if span.label != target_label:
+                span = span.model_copy(update={"label": target_label})
+            scored_spans.append(span)
+            continue
+        if block_index in unreviewed_block_index_set and span.label == "KNOWLEDGE":
+            suppressed_block_indices.add(block_index)
+            span = span.model_copy(update={"label": "OTHER"})
+        scored_spans.append(span)
+    return scored_spans, {
+        "suppressed_unreviewed_knowledge_line_count": len(suppressed_block_indices),
+        "suppressed_unreviewed_knowledge_block_indices": sorted(suppressed_block_indices),
+    }
 
 
 def _apply_nonrecipe_authority_to_predictions(

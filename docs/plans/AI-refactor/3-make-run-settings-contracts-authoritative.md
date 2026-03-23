@@ -25,7 +25,8 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
 - [x] (2026-03-22 16:59 EDT) Inspected the current config seams in [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py), [cookimport/config/run_settings_adapters.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings_adapters.py), [cookimport/cli_ui/run_settings_flow.py](/home/mcnal/projects/recipeimport/cookimport/cli_ui/run_settings_flow.py), [cookimport/bench/speed_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/speed_runner.py), [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py), and [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py).
 - [x] (2026-03-22 17:00 EDT) Authored this standalone run-settings contracts ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 17:30 EDT) Tightened the extraction boundary after re-checking live imports, adapter usage, and the current tests that already lock adapter signatures.
-- [ ] Create `cookimport/config/run_settings_contracts.py` and move or re-export the contract names and projection helpers there.
+- [x] (2026-03-22 19:05 EDT) Reworked the plan into a cutover migration: new contracts owner, updated imports, and no lingering compatibility re-exports once the refactor is complete.
+- [ ] Create `cookimport/config/run_settings_contracts.py` and move the contract names and projection helpers there as the only import home.
 - [ ] Make runtime call adapters the default path for stage and benchmark kwargs.
 - [ ] Migrate major callers to use the authoritative contract helpers instead of ad hoc payload projection.
 - [ ] Add narrow tests proving product, operator, benchmark-lab, and internal boundaries.
@@ -58,8 +59,8 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
   Rationale: contract logic should be easy to find without opening the entire `RunSettings` field definition file.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: keep temporary re-export shims from `run_settings.py` during migration.
-  Rationale: multiple callers already import these helpers. Compatibility shims reduce risk while making the new module the default home.
+- Decision: complete the migration by updating call sites instead of keeping re-export shims in the final state.
+  Rationale: the new contracts module only becomes authoritative if callers actually import it directly and the old home stops pretending to own those helpers.
   Date/Author: 2026-03-22 / Codex
 
 - Decision: promote runtime call adapters to the ordinary path for building stage and benchmark kwargs.
@@ -96,19 +97,19 @@ The new target files for this plan are:
 
 The authoritative responsibilities should be:
 
-- `run_settings.py`: the full `RunSettings` model, field definitions, normalization, and compatibility shims.
+- `run_settings.py`: the full `RunSettings` model, field definitions, and validation logic.
 - `run_settings_contracts.py`: contract names, field-name groupings, summary ordering, contract normalization, and generic projection helpers that operate on explicit field-name sequences rather than importing `RunSettings`.
 - `run_settings_adapters.py`: runtime call builders that turn a `RunSettings` instance into stage or benchmark call kwargs.
 
 The desired effect is progressive disclosure. A contributor deciding “which settings matter for this runtime surface?” should open `run_settings_contracts.py` or `run_settings_adapters.py`, not scan two thousand lines of field definitions first.
 
-The key boundary rule is this: `run_settings_contracts.py` must not import `RunSettings`. Any helper that needs `RunSettings.model_fields` specifically should either stay in `run_settings.py` as a thin wrapper or accept the ordered field names as an explicit argument from the caller.
+The key boundary rule is this: `run_settings_contracts.py` must not import `RunSettings`. Any helper that needs `RunSettings.model_fields` specifically should accept the ordered field names as an explicit argument from the caller rather than surviving as a long-lived wrapper in `run_settings.py`.
 
 ## Milestones
 
 ### Milestone 1: Create the contracts module and move the contract helpers there
 
-At the end of this milestone, `cookimport/config/run_settings_contracts.py` will exist and own the contract constants, field-name grouping helpers, summary ordering, and generic projection helpers. `run_settings.py` may re-export thin model-aware wrappers temporarily, but the new module becomes the canonical home for contract semantics.
+At the end of this milestone, `cookimport/config/run_settings_contracts.py` will exist and own the contract constants, field-name grouping helpers, summary ordering, and generic projection helpers. The completed milestone state should update imports to this module rather than leaving re-export aliases in `run_settings.py`.
 
 Acceptance is that the code still behaves the same and the new module is the obvious place to look for contract logic.
 
@@ -120,7 +121,7 @@ Acceptance is that stage and benchmark runtime builders are explicit and callers
 
 ### Milestone 3: Migrate major callers onto the contract helpers
 
-At the end of this milestone, the remaining open-coded runtime callers such as CLI stage paths, Label Studio benchmark/import paths, quality runner, quality leaderboard, and interactive flows should use the authoritative contract helpers. `speed_runner.py` already demonstrates the desired adapter pattern and should be treated as a reference caller, not as migration debt. Temporary compatibility shims may remain, but new logic should not be built on ad hoc projection choices.
+At the end of this milestone, the remaining open-coded runtime callers such as CLI stage paths, Label Studio benchmark/import paths, quality runner, quality leaderboard, and interactive flows should use the authoritative contract helpers. `speed_runner.py` already demonstrates the desired adapter pattern and should be treated as a reference caller, not as migration debt.
 
 Acceptance is that the highest-traffic callers no longer need the full `RunSettings` surface to build runtime kwargs.
 
@@ -138,7 +139,7 @@ Acceptance is updated docs plus a clean `bin/docs-list` result for touched docs.
 
 ## Plan of Work
 
-Start by creating `cookimport/config/run_settings_contracts.py` and moving the contract constants and helpers there. The minimum set is `RUN_SETTING_CONTRACT_*`, `_normalize_run_setting_contract(...)`, the specific grouping functions such as `product_run_setting_names()`, and generic helpers that accept explicit ordered field-name inputs. Keep re-export shims in `run_settings.py` during migration so existing imports do not all have to change in one patch.
+Start by creating `cookimport/config/run_settings_contracts.py` and moving the contract constants and helpers there. The minimum set is `RUN_SETTING_CONTRACT_*`, `_normalize_run_setting_contract(...)`, the specific grouping functions such as `product_run_setting_names()`, and generic helpers that accept explicit ordered field-name inputs. Update imports in the same refactor so the new module becomes the direct home rather than a passive sibling.
 
 Once the contracts module exists, update `run_settings_adapters.py` to import contract-name groupings from it directly where that improves clarity. Then audit the main call sites. The highest-value ones are the CLI stage and benchmark paths, Label Studio paths, quality runner, quality leaderboard, and interactive settings flow. `speed_runner.py` is already a good example and should mostly need import cleanup at most. Move the remaining callers so they consistently use the contract and adapter helpers rather than assembling runtime payloads in their own local way.
 
@@ -227,9 +228,11 @@ The fourth acceptance criterion is local regression safety. The touched CLI, ben
 
 The fifth acceptance criterion is docs. The architecture and CLI docs, plus any relevant config-oriented notes, must describe the smaller config surfaces as the normal way to think about settings.
 
+The sixth acceptance criterion is deletion. `run_settings.py` must no longer re-export the moved contract helpers in the final state; the new module must be the only import home for them.
+
 ## Idempotence and Recovery
 
-This refactor is safe to do incrementally. Moving contract helpers into a new module with re-export shims is repeatable and low risk. If a caller breaks after migration, restore or keep the old import path temporarily, but do not abandon the new module as the intended home.
+This refactor is safe to do incrementally, but the completed end state must not keep re-export shims in `run_settings.py`. If a caller breaks after migration, fix that caller or postpone the cutover; do not preserve a dual-home import story.
 
 If introducing typed call-contract wrappers feels too heavy in practice, drop back to dict-returning helpers and document that decision. The plan’s real objective is authoritative contract assembly, not a particular wrapper style.
 
@@ -276,8 +279,8 @@ In `cookimport/config/run_settings_adapters.py`, keep authoritative runtime buil
 
 Optional typed wrappers are acceptable if they genuinely clarify use. They are not required if plain dict builders remain simpler.
 
-`run_settings.py` should remain the home of the full `RunSettings` model and validation logic, plus any thin wrappers that bind generic contract helpers to `RunSettings.model_fields`, plus temporary compatibility re-exports while migration proceeds.
+`run_settings.py` should remain the home of the full `RunSettings` model and validation logic only. The moved contract helpers should live in `run_settings_contracts.py`, and callers should import them from there directly.
 
 ## Revision note
 
-Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day to make the contracts-module boundary model-agnostic, to treat `speed_runner.py` as an existing good seam rather than migration debt, and to anchor validation on the current adapter/signature tests instead of a purely abstract module split.
+Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day to make the contracts-module boundary model-agnostic, to treat `speed_runner.py` as an existing good seam rather than migration debt, to anchor validation on the current adapter/signature tests, and then again to a burn-the-boats posture with no final-state re-export shims.

@@ -174,11 +174,11 @@ def _extract_line_role_artifacts(
     joined_path = line_role_dir / "joined_line_table.jsonl"
     flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
     slice_path = line_role_dir / "slice_metrics.json"
-    knowledge_path = line_role_dir / "knowledge_budget.json"
+    routing_path = line_role_dir / "routing_summary.json"
     gates_path = line_role_dir / "regression_gates.json"
 
     slice_payload = _load_json_object_or_none(slice_path) or {}
-    knowledge_payload = _load_json_object_or_none(knowledge_path) or {}
+    routing_payload = _load_json_object_or_none(routing_path) or {}
     gates_payload = _load_json_object_or_none(gates_path) or {}
 
     gates_verdict = str(
@@ -198,17 +198,24 @@ def _extract_line_role_artifacts(
                 "macro_f1_excluding_other": row.get("macro_f1_excluding_other"),
             }
 
-    knowledge_summary = {}
-    if knowledge_payload:
-        knowledge_summary = {
-            "knowledge_pred_total": knowledge_payload.get("knowledge_pred_total"),
-            "knowledge_pred_inside_recipe": knowledge_payload.get(
-                "knowledge_pred_inside_recipe"
+    routing_summary = {}
+    if routing_payload:
+        routing_summary = {
+            "inside_recipe_line_count": routing_payload.get("inside_recipe_line_count"),
+            "outside_recipe_line_count": routing_payload.get("outside_recipe_line_count"),
+            "unknown_recipe_status_line_count": routing_payload.get(
+                "unknown_recipe_status_line_count"
             ),
-            "knowledge_pred_outside_recipe": knowledge_payload.get(
-                "knowledge_pred_outside_recipe"
+            "recipe_local_label_count": routing_payload.get("recipe_local_label_count"),
+            "outside_recipe_structured_count": routing_payload.get(
+                "outside_recipe_structured_count"
             ),
-            "knowledge_inside_ratio": knowledge_payload.get("knowledge_inside_ratio"),
+            "outside_recipe_review_eligible_count": routing_payload.get(
+                "outside_recipe_review_eligible_count"
+            ),
+            "outside_recipe_review_excluded_count": routing_payload.get(
+                "outside_recipe_review_excluded_count"
+            ),
         }
 
     return {
@@ -224,15 +231,15 @@ def _extract_line_role_artifacts(
         "slice_metrics_json": _relative_to_root(slice_path, run_root)
         if slice_path.exists()
         else None,
-        "knowledge_budget_json": _relative_to_root(knowledge_path, run_root)
-        if knowledge_path.exists()
+        "routing_summary_json": _relative_to_root(routing_path, run_root)
+        if routing_path.exists()
         else None,
         "regression_gates_json": _relative_to_root(gates_path, run_root)
         if gates_path.exists()
         else None,
         "regression_gates_verdict": gates_verdict or None,
         "slice_metrics_summary": slice_summary,
-        "knowledge_budget_summary": knowledge_summary,
+        "routing_summary": routing_summary,
     }
 
 

@@ -87,6 +87,10 @@ _ASK_START_RE = re.compile(r"^\s*(?:[-*]\s*)?Ask(?:\s+\d+)?\s*:?\s*$", re.IGNORE
 _KEY_VALUE_RE = re.compile(r"^\s*(?:[-*]\s*)?(?P<key>[a-zA-Z0-9_ -]+?)\s*:\s*(?P<value>.*\S)?\s*$")
 _CONVERSATION_URL_RE = re.compile(r"https://chatgpt\.com/[^\s)]+")
 _ANSWER_MARKER = "Answer:"
+_GPT_BROWSER_MODEL_RE = re.compile(
+    r"^gpt-(?P<version>\d+(?:\.\d+)?)(?:-(?P<variant>pro|instant|thinking))?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -237,6 +241,24 @@ def _normalize_text_list(tokens: list[str]) -> list[str]:
 def _slugify(text: str, *, fallback: str) -> str:
     slug = "-".join(re.findall(r"[a-z0-9]+", text.lower())[:6]).strip("-")
     return slug or fallback
+
+
+def _browser_visible_followup_model_label(model: str | None) -> str:
+    cleaned = str(model or "").strip()
+    if not cleaned:
+        return ""
+    normalized = cleaned.lower()
+    if not normalized.startswith("gpt-") or "codex" in normalized:
+        return cleaned
+    if normalized in {"gpt-5", "gpt-5-pro", "gpt-5.1-pro"}:
+        return "GPT-5 Pro"
+    match = _GPT_BROWSER_MODEL_RE.fullmatch(normalized)
+    if match is None:
+        return cleaned
+    version = match.group("version")
+    variant = match.group("variant")
+    suffix = f" {variant.capitalize()}" if variant else ""
+    return f"GPT-{version}{suffix}"
 
 
 def parse_requested_followup_text(section_text: str) -> ParsedOracleFollowupRequest:
@@ -791,20 +813,21 @@ def _codex_handoff_markdown(
 def _build_continue_session_command(
     *,
     source_session_id: str,
-    model: str,
+    model: str | None,
     prompt: str,
     followup_packet_dir: Path,
 ) -> list[str]:
-    return [
+    command = [
         ORACLE_BROWSER_CMD,
         "continue-session",
         source_session_id,
         prompt,
-        "--model",
-        model,
-        "--file",
-        _oracle_file_argument(followup_packet_dir),
     ]
+    browser_model = _browser_visible_followup_model_label(model)
+    if browser_model:
+        command.extend(["--model", browser_model])
+    command.extend(["--file", _oracle_file_argument(followup_packet_dir)])
+    return command
 
 
 def _oracle_followup_browser_env(source_metadata: dict[str, Any]) -> dict[str, str]:
@@ -895,7 +918,8 @@ def run_oracle_benchmark_followup(
     dry_run: bool = False,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> tuple[OracleUploadResult, OracleFollowupWorkspace]:
-    resolved_model = resolve_oracle_benchmark_model(model)
+    explicit_model = str(model or "").strip() or None
+    resolved_model = resolve_oracle_benchmark_model(explicit_model)
     source = load_oracle_followup_source(
         target=target,
         from_run=from_run,
@@ -920,7 +944,7 @@ def run_oracle_benchmark_followup(
     prompt_text = workspace.prompt_path.read_text(encoding="utf-8")
     command = _build_continue_session_command(
         source_session_id=source.source_session_id,
-        model=resolved_model,
+        model=explicit_model,
         prompt=prompt_text,
         followup_packet_dir=workspace.followup_packet_dir,
     )
@@ -1189,7 +1213,7 @@ def run_oracle_benchmark_followup_background_worker(
         result, workspace = run_oracle_benchmark_followup(
             target=target,
             from_run=from_run,
-            model=resolved_model,
+            model=model,
             runner=runner,
         )
     except Exception as exc:

@@ -41,6 +41,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 review routing for all outside-recipe blocks.
   - Builds the seed routing split between review-excluded final `other` and review-eligible blocks, keeps the practical fallback category map for artifact readability, and records explicit final-authority block indices separately from unreviewed seed-kept rows.
+  - Assumes line-role is routing-only outside recipes: useful lesson prose arrives as review-eligible seed `other`, and only final non-recipe authority can emit scored outside-recipe `knowledge`.
   - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
 - `cookimport/staging/writer.py`
   - Writes intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.

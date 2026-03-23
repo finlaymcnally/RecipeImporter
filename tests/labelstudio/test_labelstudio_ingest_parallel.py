@@ -2261,6 +2261,117 @@ def test_nonrecipe_authority_projection_ignores_unreviewed_review_eligible_seed_
     assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
 
 
+def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_knowledge(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    fake_result = _make_projection_conversion_result(
+        source=source,
+        block_texts=[
+            "Pancakes",
+            "1 cup flour",
+            "Balancing Fat",
+        ],
+    )
+    label_first_result = _make_label_first_result(
+        source=source,
+        raw_artifacts=fake_result.raw_artifacts,
+    )
+    label_first_result.labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Pancakes",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="1 cup flour",
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:2",
+            source_block_index=2,
+            atomic_index=2,
+            text="Balancing Fat",
+            deterministic_label="KNOWLEDGE",
+            final_label="KNOWLEDGE",
+            decided_by="codex",
+            reason_tags=["codex_line_role"],
+        ),
+    ]
+    label_first_result.recipe_spans = [
+        RecipeSpan(
+            span_id="recipe_span_0",
+            start_block_index=0,
+            end_block_index=1,
+            block_indices=[0, 1],
+            source_block_ids=["block:0", "block:1"],
+            start_atomic_index=0,
+            end_atomic_index=1,
+            atomic_indices=[0, 1],
+            title_block_index=0,
+            title_atomic_index=0,
+        )
+    ]
+
+    nonrecipe_stage_result = NonRecipeStageResult(
+        nonrecipe_spans=[],
+        knowledge_spans=[],
+        other_spans=[],
+        block_category_by_index={2: "knowledge"},
+        review_eligible_block_indices=[2],
+        final_authority_block_indices=[],
+        unreviewed_review_eligible_block_indices=[2],
+        refinement_report={
+            "authority_mode": "deterministic_seed_only",
+            "scored_effect": "seed_only",
+            "changed_blocks": [],
+        },
+    )
+
+    artifacts, summary = _write_authoritative_line_role_artifacts(
+        run_root=tmp_path / "run",
+        source_file=str(source),
+        source_hash="hash",
+        workbook_slug="book",
+        label_first_result=label_first_result,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    line_role_rows = [
+        json.loads(line)
+        for line in artifacts["line_role_predictions_path"].read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    balancing_fat_row = next(row for row in line_role_rows if row["text"] == "Balancing Fat")
+    assert balancing_fat_row["label"] == "KNOWLEDGE"
+
+    stage_payload = json.loads(
+        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+    )
+    assert stage_payload["block_labels"]["2"] == "OTHER"
+    assert (
+        "Unreviewed review-eligible outside-recipe KNOWLEDGE rows were forced to OTHER for scoring."
+        in stage_payload["notes"]
+    )
+
+    telemetry_payload = json.loads(
+        artifacts["telemetry_summary_path"].read_text(encoding="utf-8")
+    )
+    assert telemetry_payload["suppressed_unreviewed_knowledge_line_count"] == 1
+    assert telemetry_payload["suppressed_unreviewed_knowledge_block_indices"] == [2]
+    assert summary["suppressed_unreviewed_knowledge_line_count"] == 1
+
+
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(
     monkeypatch, tmp_path: Path
 ) -> None:

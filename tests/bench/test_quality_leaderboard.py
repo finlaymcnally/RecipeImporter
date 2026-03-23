@@ -408,14 +408,17 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
         },
     )
     _write_json(
-        line_role_dir / "knowledge_budget.json",
+        line_role_dir / "routing_summary.json",
         {
-            "schema_version": "line_role_knowledge_budget.v1",
+            "schema_version": "line_role_routing_summary.v1",
             "line_count": 1,
-            "knowledge_pred_total": 0,
-            "knowledge_pred_inside_recipe": 0,
-            "knowledge_pred_outside_recipe": 0,
-            "knowledge_inside_ratio": 0.0,
+            "inside_recipe_line_count": 0,
+            "outside_recipe_line_count": 1,
+            "unknown_recipe_status_line_count": 0,
+            "recipe_local_label_count": 0,
+            "outside_recipe_structured_count": 0,
+            "outside_recipe_review_eligible_count": 1,
+            "outside_recipe_review_excluded_count": 0,
         },
     )
     _write_json(

@@ -73,6 +73,7 @@ def build_line_role_joined_line_rows(
                 "within_recipe_span": line_meta.get("within_recipe_span"),
                 "decided_by": line_meta.get("decided_by"),
                 "recipe_id": line_meta.get("recipe_id"),
+                "review_exclusion_reason": line_meta.get("review_exclusion_reason"),
                 "escalation_reasons": line_meta.get("escalation_reasons"),
                 "line_role_match_kind": str(line_meta.get("match_kind") or "unmatched"),
                 "line_role_prediction_atomic_index": line_meta.get(
@@ -163,7 +164,7 @@ def write_prompt_eval_alignment_doc(
         "- `line-role-pipeline/line_role_predictions.jsonl`: canonical line-role rows reused for reviewer diagnostics.",
         "- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`: inferred baseline-vs-candidate deltas.",
         "- `line-role-pipeline/slice_metrics.json`: slice-level quality signals.",
-        "- `line-role-pipeline/knowledge_budget.json`: `KNOWLEDGE` usage inside vs outside recipe spans.",
+        "- `line-role-pipeline/routing_summary.json`: review-excluded versus review-eligible outside-recipe routing plus recipe-local structure counts.",
         "- `line-role-pipeline/telemetry_summary.json`: the authoritative scoring-mode summary for projected line-role artifacts.",
         "- `manifest.json`: the authoritative source of `stage_block_predictions_path` and `extracted_archive_path` used by the evaluator.",
     ]
@@ -319,6 +320,8 @@ def _line_role_meta_payload(
         "decided_by": str(row.get("decided_by") or "").strip().lower() or None,
         "within_recipe_span": _coerce_bool(row.get("within_recipe_span")),
         "recipe_id": str(row.get("recipe_id") or "").strip() or None,
+        "review_exclusion_reason": str(row.get("review_exclusion_reason") or "").strip()
+        or None,
         "escalation_reasons": row.get("escalation_reasons") or [],
         "match_kind": str(match_kind),
         "prediction_atomic_index": _coerce_int(row.get("atomic_index")),

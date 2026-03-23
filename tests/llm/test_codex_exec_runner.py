@@ -192,6 +192,107 @@ def test_summarize_direct_telemetry_rows_prefers_final_proposal_status() -> None
     assert summary["repaired_shard_count"] == 1
 
 
+def test_summarize_direct_telemetry_rows_marks_missing_usage_unavailable() -> None:
+    summary = summarize_direct_telemetry_rows(
+        [
+            {
+                "task_id": "shard-001",
+                "duration_ms": 1200,
+                "prompt_input_mode": "workspace_worker",
+                "worker_session_primary_row": True,
+                "visible_input_tokens": 90,
+                "visible_output_tokens": 8,
+                "command_execution_count": 3,
+                "codex_event_count": 12,
+                "tokens_input": 0,
+                "tokens_cached_input": 0,
+                "tokens_output": 0,
+                "tokens_reasoning": 0,
+                "tokens_total": 0,
+            }
+        ]
+    )
+
+    assert summary["token_usage_status"] == "unavailable"
+    assert summary["token_usage_available_call_count"] == 0
+    assert summary["token_usage_missing_call_count"] == 1
+    assert summary["tokens_total"] is None
+    assert summary["command_execution_tokens_total"] is None
+    assert summary["cost_breakdown"]["billed_total_tokens"] is None
+
+
+def test_summarize_direct_telemetry_rows_marks_partial_usage_unavailable() -> None:
+    summary = summarize_direct_telemetry_rows(
+        [
+            {
+                "task_id": "shard-001",
+                "prompt_input_mode": "workspace_worker",
+                "worker_session_primary_row": True,
+                "tokens_input": 100,
+                "tokens_cached_input": 10,
+                "tokens_output": 20,
+                "tokens_reasoning": 0,
+                "tokens_total": 130,
+            },
+            {
+                "task_id": "shard-002",
+                "duration_ms": 900,
+                "prompt_input_mode": "workspace_worker",
+                "worker_session_primary_row": True,
+                "visible_input_tokens": 60,
+                "visible_output_tokens": 4,
+                "command_execution_count": 2,
+                "tokens_input": 0,
+                "tokens_cached_input": 0,
+                "tokens_output": 0,
+                "tokens_reasoning": 0,
+                "tokens_total": 0,
+            },
+        ]
+    )
+
+    assert summary["token_usage_status"] == "partial"
+    assert summary["token_usage_available_call_count"] == 1
+    assert summary["token_usage_missing_call_count"] == 1
+    assert summary["tokens_total"] is None
+    assert summary["cost_breakdown"]["billed_total_tokens"] is None
+
+
+def test_codex_exec_run_result_payload_marks_missing_usage_unavailable() -> None:
+    run_result = CodexExecRunResult(
+        command=["codex", "exec", "--model", "gpt-5"],
+        subprocess_exit_code=0,
+        output_schema_path=None,
+        prompt_text="Process the local worker queue.",
+        response_text="Finished local task loop.",
+        turn_failed_message=None,
+        duration_ms=1500,
+        started_at_utc="2026-03-22T23:00:00Z",
+        finished_at_utc="2026-03-22T23:00:02Z",
+        events=(
+            {"type": "thread.started"},
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_0",
+                    "type": "command_execution",
+                    "command": "/bin/bash -lc 'python3 tools/knowledge_worker.py install-batch'",
+                    "exit_code": 0,
+                },
+            },
+        ),
+        usage=None,
+        workspace_mode="workspace_worker",
+    )
+
+    payload = run_result.to_payload(worker_id="worker-001", shard_id="shard-001")
+    summary = payload["telemetry"]["summary"]
+
+    assert summary["token_usage_status"] == "unavailable"
+    assert summary["token_usage_missing_call_count"] == 1
+    assert summary["tokens_total"] is None
+
+
 def test_codex_exec_runner_classifies_final_agent_messages() -> None:
     assert assess_final_agent_message(None).state == "absent"
     malformed = assess_final_agent_message("thinking...\n{\"v\":\"2\"}")

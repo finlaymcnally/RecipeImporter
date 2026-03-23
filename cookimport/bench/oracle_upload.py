@@ -43,11 +43,6 @@ ORACLE_DEFAULT_MODEL = os.environ.get(
 )
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
 ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
-ORACLE_BROWSER_STARTER_PACKET_ROW_LOCATOR_SECTIONS = (
-    "root_files",
-    "starter_pack",
-    "per_run_summaries",
-)
 ORACLE_BROWSER_REUSE_WAIT = "5m"
 ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT = "30m"
 ORACLE_BROWSER_AUTO_REATTACH_DELAY = "30s"
@@ -82,20 +77,53 @@ ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH = (
     / "prompts"
     / "benchmark.oracle-upload.prompt.md"
 )
-ORACLE_BENCHMARK_PROMPT_TEMPLATE_FALLBACK = "\n".join(
+ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "llm_pipelines"
+    / "prompts"
+    / "benchmark.oracle-upload.token.prompt.md"
+)
+ORACLE_BENCHMARK_QUALITY_PROMPT_TEMPLATE_FALLBACK = "\n".join(
     [
         "{{HELPER_BANNER}}",
-        "You are reviewing a benchmark upload bundle for the local `cookimport` CLI.",
+        "You are the quality lane for a benchmark review of the local `cookimport` CLI.",
         "The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.",
         "Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.",
-        "Within that attachment, start with `upload_bundle_overview.md`, then use `upload_bundle_index.json` and `upload_bundle_payload.jsonl` only as needed to verify details.",
+        "Start with `{{LANE_BRIEF_FILE}}`, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and use `upload_bundle_payload.jsonl` only as needed.",
         "The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.",
-        "Your primary goal is to help improve Codex benchmark accuracy, not merely to judge whether the current packet is internally consistent.",
-        "Prioritize the remaining highest-leverage errors, regressions, and observability gaps that block the next concrete accuracy improvement.",
-        "Return a concise review with exactly three sections: `Top regressions`, `Likely cause buckets`, and `Immediate next checks`.",
-        "Keep the response factual and grounded in the attached bundle. Do not suggest rerunning the benchmark unless the bundle is clearly missing required evidence.",
+        "Your job is to identify the shortest concrete path from the current benchmark quality toward `>95%`.",
+        "Treat token spend as secondary unless it is directly blocking the best quality fix.",
+        "The current anchor metrics are already summarized in `{{LANE_BRIEF_FILE}}`; use them instead of re-deriving the topline from scratch.",
+        "Prioritize remaining label-choice, routing, and outside-span mistakes, especially `KNOWLEDGE` versus `OTHER`.",
+        "This is a solo local project. Do not spend time on organizational process or enterprise reporting suggestions.",
+        "Follow-up data is available locally. Ask for narrow follow-up artifacts whenever they would materially sharpen the next quality-improvement step.",
+        "Return exactly four sections: `Top blockers to 95%`, `Likely fix buckets`, `Immediate experiments`, and `Requested follow-up data`.",
+        "In `Requested follow-up data`, either write `None` or use the existing parse-friendly Ask format from the benchmark review contract.",
+        "Keep the response factual and grounded in the attached packet. Do not ask for a rerun unless the packet is missing evidence required to choose the next step.",
     ]
 )
+ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_FALLBACK = "\n".join(
+    [
+        "{{HELPER_BANNER}}",
+        "You are the token lane for a benchmark review of the local `cookimport` CLI.",
+        "The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.",
+        "Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.",
+        "Start with `{{LANE_BRIEF_FILE}}`, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and use `upload_bundle_payload.jsonl` only as needed.",
+        "The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.",
+        "Your job is to identify the sharpest token-spend reductions that preserve at least the current benchmark quality.",
+        "Treat proposals that are likely to undo the current quality gains as unacceptable unless the packet shows a compensating safer path.",
+        "The current anchor spend metrics are already summarized in `{{LANE_BRIEF_FILE}}`; use them instead of re-deriving the topline from scratch.",
+        "Prioritize recurring stage spend, wrapper overhead, prompt/readback waste, and review-packet waste.",
+        "Do not default to generic smaller-model advice unless the attached evidence shows that a stage is clearly overpowered for its job.",
+        "This is a solo local project. Prefer concrete prompt, packet, and worker-contract changes over enterprise observability suggestions.",
+        "Follow-up data is available locally. Ask for narrow follow-up artifacts only when the attached packet is insufficient to rank the best low-risk spend cuts.",
+        "Return exactly four sections: `Top spend sinks`, `Likely waste buckets`, `Lowest-risk cuts`, and `Requested follow-up data`.",
+        "In `Requested follow-up data`, either write `None` or use the existing parse-friendly Ask format from the benchmark review contract.",
+        "Keep the response factual and grounded in the attached packet. Do not ask for a rerun unless the packet is missing evidence required to choose the next step.",
+    ]
+)
+ORACLE_REVIEW_PROFILE_QUALITY = "quality"
+ORACLE_REVIEW_PROFILE_TOKEN = "token"
 _ORACLE_SESSION_RE = re.compile(r"oracle session (?P<session_id>[A-Za-z0-9._-]+)")
 _ORACLE_COUNT_RE = re.compile(
     r"\b(?P<name>run_count|pair_count|changed_lines_total)\s*[:=]\s*(?P<value>\d+)",
@@ -121,6 +149,16 @@ class OracleBenchmarkBundleTarget:
 
 
 @dataclass(frozen=True)
+class OracleBenchmarkReviewProfile:
+    profile_id: str
+    display_name: str
+    prompt_template_path: Path
+    prompt_template_fallback: str
+    lane_brief_file_name: str
+    payload_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class OracleUploadResult:
     success: bool
     mode: str
@@ -130,6 +168,8 @@ class OracleUploadResult:
     stdout: str
     stderr: str
     oracle_version: str = ""
+    review_profile: str = ""
+    review_profile_display_name: str = ""
     status: str = ""
     status_reason: str = ""
     session_id: str = ""
@@ -156,6 +196,8 @@ class OracleBackgroundUploadLaunch:
     metadata_path: Path
     pid: int
     note: str = ""
+    review_profile: str = ""
+    review_profile_display_name: str = ""
     browser_profile_dir: Path | None = None
     oracle_version: str = ""
     status: str = ""
@@ -189,6 +231,50 @@ class OracleSessionSnapshot:
     conversation_id: str = ""
 
 
+ORACLE_BENCHMARK_REVIEW_PROFILES: tuple[OracleBenchmarkReviewProfile, ...] = (
+    OracleBenchmarkReviewProfile(
+        profile_id=ORACLE_REVIEW_PROFILE_QUALITY,
+        display_name="Quality",
+        prompt_template_path=ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH,
+        prompt_template_fallback=ORACLE_BENCHMARK_QUALITY_PROMPT_TEMPLATE_FALLBACK,
+        lane_brief_file_name="oracle_quality_focus.md",
+        payload_paths=(
+            "codexfarm/run_manifest.json",
+            "codexfarm/eval_report.json",
+            "codexfarm/prompts/prompt_type_samples_from_full_prompt_log.md",
+            "vanilla/run_manifest.json",
+            "vanilla/eval_report.json",
+            "_upload_bundle_derived/root/comparison_summary.json",
+            "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+            "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+            "_upload_bundle_derived/root/net_error_blame_summary.json",
+            "_upload_bundle_derived/root/config_version_metadata.json",
+            "_upload_bundle_derived/root/explicit_escalation_changed_lines.packet.jsonl",
+            "_upload_bundle_derived/root/group_high_level_packet.json",
+        ),
+    ),
+    OracleBenchmarkReviewProfile(
+        profile_id=ORACLE_REVIEW_PROFILE_TOKEN,
+        display_name="Token",
+        prompt_template_path=ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_PATH,
+        prompt_template_fallback=ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_FALLBACK,
+        lane_brief_file_name="oracle_token_focus.md",
+        payload_paths=(
+            "codexfarm/run_manifest.json",
+            "codexfarm/prompt_budget_summary.json",
+            "codexfarm/prompts/prompt_type_samples_from_full_prompt_log.md",
+            "_upload_bundle_derived/root/comparison_summary.json",
+            "_upload_bundle_derived/root/net_error_blame_summary.json",
+            "_upload_bundle_derived/root/config_version_metadata.json",
+            "_upload_bundle_derived/root/group_high_level_packet.json",
+            "_upload_bundle_derived/root/process_manifest.json",
+            "_upload_bundle_derived/starter_pack_v1/02_call_inventory.jsonl",
+            "_upload_bundle_derived/starter_pack_v1/04_warning_and_trace_summary.json",
+        ),
+    ),
+)
+
+
 def _infer_bundle_scope(source_root: Path) -> str:
     name = source_root.name.strip().lower()
     parent_name = source_root.parent.name.strip().lower()
@@ -201,6 +287,49 @@ def _infer_bundle_scope(source_root: Path) -> str:
     if parent_name == "single-book-benchmark":
         return "single_book"
     return "benchmark_bundle"
+
+
+def _normalize_review_profile_name(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"", "default"}:
+        return ORACLE_REVIEW_PROFILE_QUALITY
+    return normalized
+
+
+def resolve_oracle_benchmark_review_profile(
+    review_profile: str | None = None,
+) -> OracleBenchmarkReviewProfile:
+    normalized = _normalize_review_profile_name(review_profile)
+    for profile in ORACLE_BENCHMARK_REVIEW_PROFILES:
+        if profile.profile_id == normalized:
+            return profile
+    valid = ", ".join(profile.profile_id for profile in ORACLE_BENCHMARK_REVIEW_PROFILES)
+    raise ValueError(f"Unsupported Oracle benchmark review profile: {review_profile!r} (expected one of: {valid}).")
+
+
+def resolve_oracle_benchmark_review_profiles(
+    review_profile: str | None = None,
+) -> list[OracleBenchmarkReviewProfile]:
+    normalized = _normalize_review_profile_name(review_profile)
+    if normalized == "all":
+        return list(ORACLE_BENCHMARK_REVIEW_PROFILES)
+    return [resolve_oracle_benchmark_review_profile(normalized)]
+
+
+def _current_profile_prompt_template(
+    profile: OracleBenchmarkReviewProfile,
+) -> tuple[Path, str]:
+    if profile.profile_id == ORACLE_REVIEW_PROFILE_QUALITY:
+        return (
+            ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH,
+            ORACLE_BENCHMARK_QUALITY_PROMPT_TEMPLATE_FALLBACK,
+        )
+    if profile.profile_id == ORACLE_REVIEW_PROFILE_TOKEN:
+        return (
+            ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_PATH,
+            ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_FALLBACK,
+        )
+    return profile.prompt_template_path, profile.prompt_template_fallback
 
 
 def _missing_bundle_files(bundle_dir: Path) -> list[str]:
@@ -235,14 +364,23 @@ def resolve_oracle_benchmark_bundle(path: Path) -> OracleBenchmarkBundleTarget:
     )
 
 
-def build_oracle_benchmark_prompt(*, target: OracleBenchmarkBundleTarget) -> str:
+def build_oracle_benchmark_prompt(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    review_profile: str | None = None,
+) -> str:
+    profile = resolve_oracle_benchmark_review_profile(review_profile)
+    template_path, template_fallback = _current_profile_prompt_template(profile)
     return _render_oracle_benchmark_prompt_template(
-        path=ORACLE_BENCHMARK_PROMPT_TEMPLATE_PATH,
-        fallback=ORACLE_BENCHMARK_PROMPT_TEMPLATE_FALLBACK,
+        path=template_path,
+        fallback=template_fallback,
         replacements={
             "{{HELPER_BANNER}}": _oracle_benchmark_helper_banner(),
             "{{BUNDLE_SCOPE}}": target.scope,
             "{{BENCHMARK_ROOT}}": str(target.source_root),
+            "{{REVIEW_PROFILE}}": profile.profile_id,
+            "{{REVIEW_PROFILE_DISPLAY_NAME}}": profile.display_name,
+            "{{LANE_BRIEF_FILE}}": profile.lane_brief_file_name,
         },
     )
 
@@ -345,17 +483,164 @@ def _oracle_file_arguments(file_paths: list[Path]) -> list[str]:
     return [_oracle_file_argument(path) for path in file_paths]
 
 
-def _oversized_bundle_files(bundle_dir: Path) -> list[tuple[str, int]]:
-    oversized: list[tuple[str, int]] = []
-    for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
-        path = bundle_dir / file_name
-        try:
-            size_bytes = path.stat().st_size
-        except OSError:
-            continue
-        if size_bytes > ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES:
-            oversized.append((file_name, size_bytes))
-    return oversized
+def _load_json_object_path(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number:
+        return None
+    return float(number)
+
+
+def _format_metric(value: Any, *, digits: int = 6) -> str:
+    number = _coerce_float(value)
+    if number is None:
+        return "unavailable"
+    return f"{number:.{digits}f}"
+
+
+def _format_int_metric(value: Any) -> str:
+    try:
+        if value is None:
+            return "unavailable"
+        return f"{int(value)}"
+    except (TypeError, ValueError):
+        return "unavailable"
+
+
+def _read_comparison_payload(target: OracleBenchmarkBundleTarget) -> dict[str, Any]:
+    return _load_json_object_path(target.source_root / "codex_vs_vanilla_comparison.json")
+
+
+def _read_prompt_budget_payload(target: OracleBenchmarkBundleTarget) -> dict[str, Any]:
+    return _load_json_object_path(target.source_root / "codexfarm" / "prompt_budget_summary.json")
+
+
+def _build_quality_lane_brief(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    profile: OracleBenchmarkReviewProfile,
+    missing_paths: list[str],
+) -> str:
+    index_payload = _read_oracle_upload_bundle_index_payload(target.bundle_dir) or {}
+    analysis_payload = index_payload.get("analysis") if isinstance(index_payload, dict) else {}
+    analysis_payload = analysis_payload if isinstance(analysis_payload, dict) else {}
+    comparison_payload = _read_comparison_payload(target)
+    metrics_payload = comparison_payload.get("metrics") if isinstance(comparison_payload, dict) else {}
+    codex_metrics = metrics_payload.get("codexfarm") if isinstance(metrics_payload, dict) else {}
+    codex_metrics = codex_metrics if isinstance(codex_metrics, dict) else {}
+    structure_report = analysis_payload.get("structure_label_report")
+    structure_report = structure_report if isinstance(structure_report, dict) else {}
+    slices_payload = structure_report.get("slices")
+    slices_payload = slices_payload if isinstance(slices_payload, dict) else {}
+    nonrecipe_slice = slices_payload.get("nonrecipe_core")
+    nonrecipe_slice = nonrecipe_slice if isinstance(nonrecipe_slice, dict) else {}
+    active_recipe_span = (index_payload.get("topline") or {}).get("active_recipe_span_breakout")
+    active_recipe_span = active_recipe_span if isinstance(active_recipe_span, dict) else {}
+    top_confusions = analysis_payload.get("top_confusion_deltas")
+    top_confusions = top_confusions if isinstance(top_confusions, list) else []
+    top_confusion_row = top_confusions[0] if top_confusions and isinstance(top_confusions[0], dict) else {}
+
+    lines = [
+        "# Oracle Quality Focus",
+        "",
+        f"- Review profile: `{profile.profile_id}`",
+        f"- Benchmark root: `{target.source_root}`",
+        f"- Current strict_accuracy: `{_format_metric(codex_metrics.get('strict_accuracy'))}`",
+        f"- Current macro_f1_excluding_other: `{_format_metric(codex_metrics.get('macro_f1_excluding_other'))}`",
+        f"- structure_core f1 avg: `{_format_metric(((slices_payload.get('structure_core') or {}) if isinstance(slices_payload.get('structure_core'), dict) else {}).get('codex_f1_avg'))}`",
+        f"- nonrecipe_core f1 avg: `{_format_metric(nonrecipe_slice.get('codex_f1_avg'))}`",
+        f"- boundary exact ratio: `{_format_metric((structure_report.get('boundary') or {}).get('codex_exact_ratio_avg'))}`",
+        f"- outside share of scored lines: `{_format_metric(active_recipe_span.get('outside_share_of_scored_lines'))}`",
+        (
+            f"- dominant confusion family: `{top_confusion_row.get('gold_label', 'unavailable')}` -> "
+            f"`{top_confusion_row.get('pred_label', 'unavailable')}`"
+        ),
+        "",
+        "This packet is intentionally quality-first. It includes eval summaries, prompt samples, triage, per-recipe breakdown, net-error blame, and explicit-escalation changed-line evidence.",
+        "It intentionally omits the heaviest raw wrong-line context and full changed-line dumps on turn 1. Request narrow follow-up data if the next concrete quality fix cannot be chosen from this packet.",
+    ]
+    if missing_paths:
+        lines.extend(
+            [
+                "",
+                "Missing requested payload paths in this bundle:",
+                *[f"- `{path}`" for path in missing_paths],
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_token_lane_brief(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    profile: OracleBenchmarkReviewProfile,
+    missing_paths: list[str],
+) -> str:
+    index_payload = _read_oracle_upload_bundle_index_payload(target.bundle_dir) or {}
+    analysis_payload = index_payload.get("analysis") if isinstance(index_payload, dict) else {}
+    analysis_payload = analysis_payload if isinstance(analysis_payload, dict) else {}
+    runtime_payload = analysis_payload.get("call_inventory_runtime")
+    runtime_payload = runtime_payload if isinstance(runtime_payload, dict) else {}
+    runtime_summary = runtime_payload.get("summary")
+    runtime_summary = runtime_summary if isinstance(runtime_summary, dict) else {}
+    prompt_budget = _read_prompt_budget_payload(target)
+    by_stage = prompt_budget.get("by_stage") if isinstance(prompt_budget, dict) else {}
+    by_stage = by_stage if isinstance(by_stage, dict) else {}
+    knowledge_stage = by_stage.get("knowledge")
+    knowledge_stage = knowledge_stage if isinstance(knowledge_stage, dict) else {}
+    line_role_stage = by_stage.get("line_role")
+    line_role_stage = line_role_stage if isinstance(line_role_stage, dict) else {}
+    recipe_stage = by_stage.get("recipe_correction")
+    recipe_stage = recipe_stage if isinstance(recipe_stage, dict) else {}
+
+    lines = [
+        "# Oracle Token Focus",
+        "",
+        f"- Review profile: `{profile.profile_id}`",
+        f"- Benchmark root: `{target.source_root}`",
+        f"- benchmark total tokens: `{_format_int_metric(runtime_summary.get('total_tokens'))}`",
+        f"- knowledge tokens: `{_format_int_metric(knowledge_stage.get('tokens_total'))}`",
+        f"- knowledge token share: `{_format_metric(runtime_summary.get('nonrecipe_knowledge_review_token_share'), digits=4)}`",
+        f"- knowledge wrapper overhead tokens: `{_format_int_metric(knowledge_stage.get('wrapper_overhead_tokens'))}`",
+        f"- line-role tokens: `{_format_int_metric(line_role_stage.get('tokens_total'))}`",
+        f"- recipe correction tokens: `{_format_int_metric(recipe_stage.get('tokens_total'))}`",
+        f"- current benchmark Oracle turn-1 estimate: `~443667` tokens on the inspected 2026-03-22 run",
+        "",
+        "This packet is intentionally spend-first. It includes prompt-budget, call-inventory, warning/trace summary, and the small amount of prompt-sample context needed to judge whether the spend is doing useful work.",
+        "It intentionally omits raw wrong-line case dumps. Request narrow follow-up data only if that extra evidence is required to rank low-risk spend cuts.",
+    ]
+    if missing_paths:
+        lines.extend(
+            [
+                "",
+                "Missing requested payload paths in this bundle:",
+                *[f"- `{path}`" for path in missing_paths],
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_review_lane_brief(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    profile: OracleBenchmarkReviewProfile,
+    missing_paths: list[str],
+) -> str:
+    if profile.profile_id == ORACLE_REVIEW_PROFILE_TOKEN:
+        return _build_token_lane_brief(target=target, profile=profile, missing_paths=missing_paths)
+    return _build_quality_lane_brief(target=target, profile=profile, missing_paths=missing_paths)
 
 
 def _split_text_to_byte_sized_chunks(text: str, *, max_bytes: int) -> list[str]:
@@ -463,114 +748,124 @@ def _read_oracle_upload_bundle_index_payload(bundle_dir: Path) -> dict[str, Any]
     return payload if isinstance(payload, dict) else None
 
 
-def _collect_payload_row_numbers(value: Any, selected_rows: set[int]) -> None:
-    if isinstance(value, dict):
-        payload_row = value.get("payload_row")
-        if isinstance(payload_row, int):
-            selected_rows.add(payload_row)
-        for nested_value in value.values():
-            _collect_payload_row_numbers(nested_value, selected_rows)
-        return
-    if isinstance(value, list):
-        for nested_value in value:
-            _collect_payload_row_numbers(nested_value, selected_rows)
+def _read_payload_row_map(payload_path: Path) -> dict[str, str]:
+    path_to_line: dict[str, str] = {}
+    try:
+        with payload_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    payload = json.loads(text)
+                except Exception:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                logical_path = str(payload.get("path") or "").strip()
+                if logical_path and logical_path not in path_to_line:
+                    path_to_line[logical_path] = line
+    except OSError:
+        return {}
+    return path_to_line
 
 
-def _collect_browser_safe_payload_rows(index_payload: Mapping[str, Any]) -> list[int]:
-    navigation_payload = index_payload.get("navigation")
-    if not isinstance(navigation_payload, dict):
-        return []
-    row_locators = navigation_payload.get("row_locators")
-    if not isinstance(row_locators, dict):
-        return []
-    selected_rows: set[int] = set()
-    for section_name in ORACLE_BROWSER_STARTER_PACKET_ROW_LOCATOR_SECTIONS:
-        _collect_payload_row_numbers(row_locators.get(section_name), selected_rows)
-    return sorted(row for row in selected_rows if row > 0)
-
-
-def _write_selected_payload_rows(
+def _write_selected_payload_paths(
     *,
-    source_path: Path,
+    payload_path: Path,
     output_path: Path,
-    selected_rows: list[int],
-) -> tuple[int, int]:
-    selected_row_set = set(selected_rows)
+    selected_paths: tuple[str, ...],
+) -> tuple[int, int, list[str]]:
+    path_to_line = _read_payload_row_map(payload_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     selected_count = 0
     selected_bytes = 0
-    with source_path.open("r", encoding="utf-8") as source_handle, output_path.open(
-        "w",
-        encoding="utf-8",
-    ) as output_handle:
-        for row_number, line in enumerate(source_handle, start=1):
-            if row_number not in selected_row_set:
+    missing_paths: list[str] = []
+    with output_path.open("w", encoding="utf-8") as output_handle:
+        for logical_path in selected_paths:
+            line = path_to_line.get(logical_path)
+            if line is None:
+                missing_paths.append(logical_path)
                 continue
             output_handle.write(line)
             selected_count += 1
             selected_bytes += len(line.encode("utf-8"))
-    return selected_count, selected_bytes
+    return selected_count, selected_bytes, missing_paths
 
 
-def _prepare_browser_safe_starter_upload_inputs(
+def _stage_oracle_review_packet(
     *,
     target: OracleBenchmarkBundleTarget,
     staging_dir: Path,
-    prompt: str,
-    oversized_files: list[tuple[str, int]],
-) -> PreparedOracleUploadInputs | None:
-    index_payload = _read_oracle_upload_bundle_index_payload(target.bundle_dir)
-    if index_payload is None:
-        return None
-    selected_rows = _collect_browser_safe_payload_rows(index_payload)
-    if not selected_rows:
-        return None
-
-    original_payload_path = target.bundle_dir / "upload_bundle_payload.jsonl"
-    subset_source_path = staging_dir / "upload_bundle_payload.browser-safe-subset.jsonl"
-    selected_count, selected_bytes = _write_selected_payload_rows(
-        source_path=original_payload_path,
+    profile: OracleBenchmarkReviewProfile,
+    allow_sharding: bool,
+) -> PreparedOracleUploadInputs:
+    prompt = build_oracle_benchmark_prompt(target=target, review_profile=profile.profile_id)
+    subset_source_path = staging_dir / "upload_bundle_payload.selected.jsonl"
+    selected_count, selected_bytes, missing_paths = _write_selected_payload_paths(
+        payload_path=target.bundle_dir / "upload_bundle_payload.jsonl",
         output_path=subset_source_path,
-        selected_rows=selected_rows,
+        selected_paths=profile.payload_paths,
     )
     if selected_count <= 0 or selected_bytes <= 0:
-        return None
+        raise ValueError(
+            f"Oracle {profile.profile_id} review packet could not select any payload rows from {target.bundle_dir / 'upload_bundle_payload.jsonl'}."
+        )
+
+    lane_brief_path = staging_dir / profile.lane_brief_file_name
+    lane_brief_path.write_text(
+        _build_review_lane_brief(
+            target=target,
+            profile=profile,
+            missing_paths=missing_paths,
+        ),
+        encoding="utf-8",
+    )
 
     staged_paths: list[Path] = []
     shard_notes: list[str] = []
-    for file_name in ("upload_bundle_overview.md", "upload_bundle_index.json"):
+    for file_name in (profile.lane_brief_file_name, "upload_bundle_overview.md", "upload_bundle_index.json"):
         file_staged_paths, shard_note = _stage_browser_upload_text_file(
-            source_path=target.bundle_dir / file_name,
+            source_path=(lane_brief_path if file_name == profile.lane_brief_file_name else target.bundle_dir / file_name),
             staging_dir=staging_dir,
             staged_name=file_name,
         )
         staged_paths.extend(file_staged_paths)
         if shard_note:
             shard_notes.append(shard_note)
-    payload_staged_paths, payload_shard_note = _stage_browser_upload_text_file(
-        source_path=subset_source_path,
-        staging_dir=staging_dir,
-        staged_name="upload_bundle_payload.jsonl",
-    )
+    if allow_sharding:
+        payload_staged_paths, payload_shard_note = _stage_browser_upload_text_file(
+            source_path=subset_source_path,
+            staging_dir=staging_dir,
+            staged_name="upload_bundle_payload.jsonl",
+        )
+    else:
+        staged_payload_path = staging_dir / "upload_bundle_payload.jsonl"
+        staged_payload_path.write_text(subset_source_path.read_text(encoding="utf-8"), encoding="utf-8")
+        payload_staged_paths = [staged_payload_path]
+        payload_shard_note = ""
     staged_paths.extend(payload_staged_paths)
     if payload_shard_note:
         shard_notes.append(payload_shard_note)
 
-    oversized_text = ", ".join(f"{name} ({size_bytes} bytes)" for name, size_bytes in oversized_files)
+    missing_text = (
+        f" Missing requested paths: {', '.join(missing_paths)}."
+        if missing_paths
+        else ""
+    )
     prompt_lines = [
         prompt,
         "",
         "Oracle transport note: browser upload may deliver the logical text files as one synthetic attachment such as `attachments-bundle.txt`.",
-        "Oracle transport note: the attached `upload_bundle_payload.jsonl` is a browser-safe starter-pack subset selected from the full local payload using `upload_bundle_index.json` row locators from `root_files`, `starter_pack`, and `per_run_summaries`.",
-        "Oracle transport note: artifact `path` values in that trimmed payload stay unchanged, but `payload_row` numbers in `upload_bundle_index.json` still refer to the full local bundle rather than this browser-safe subset.",
-        "If you need evidence outside the attached starter-pack subset, request narrow follow-up data instead of asking for the full bundle again.",
+        f"Oracle transport note: the attached `upload_bundle_payload.jsonl` is a `{profile.profile_id}` review subset selected by logical artifact path from the full local bundle.",
+        "Oracle transport note: artifact `path` values in that trimmed payload stay unchanged even though only a selected subset is attached here.",
+        f"If you need evidence outside the attached `{profile.profile_id}` subset, request narrow follow-up data instead of asking for the full bundle again.",
         *shard_notes,
-        "Read `upload_bundle_overview.md` first, then `upload_bundle_index.json`, and consult the attached starter-pack payload rows by `path` as needed.",
+        f"Read `{profile.lane_brief_file_name}` first, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and consult the attached payload rows by `path` as needed.",
     ]
     note = (
-        "Prepared browser-safe Oracle starter-pack upload for oversized bundle files: "
-        f"{oversized_text}. Trimmed `upload_bundle_payload.jsonl` to {selected_count} starter-pack rows "
-        f"({selected_bytes} bytes) before browser upload."
+        f"Prepared Oracle {profile.profile_id} review packet with {selected_count} payload rows "
+        f"({selected_bytes} bytes).{missing_text}"
     )
     return PreparedOracleUploadInputs(
         prompt="\n".join(prompt_lines),
@@ -579,50 +874,19 @@ def _prepare_browser_safe_starter_upload_inputs(
     )
 
 
-def _prepare_browser_upload_inputs(
+def _prepare_oracle_upload_inputs(
     *,
     target: OracleBenchmarkBundleTarget,
     staging_dir: Path,
+    profile: OracleBenchmarkReviewProfile,
+    mode: str,
 ) -> PreparedOracleUploadInputs:
-    prompt = build_oracle_benchmark_prompt(target=target)
-    oversized_files = _oversized_bundle_files(target.bundle_dir)
-    if not oversized_files:
-        return PreparedOracleUploadInputs(
-            prompt=prompt,
-            file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
-        )
-
-    starter_packet = _prepare_browser_safe_starter_upload_inputs(
+    normalized_mode = mode.strip().lower()
+    return _stage_oracle_review_packet(
         target=target,
         staging_dir=staging_dir,
-        prompt=prompt,
-        oversized_files=oversized_files,
-    )
-    if starter_packet is not None:
-        return starter_packet
-
-    staged_paths, shard_notes = _copy_or_shard_browser_upload_files(
-        bundle_dir=target.bundle_dir,
-        staging_dir=staging_dir,
-    )
-    oversized_text = ", ".join(f"{name} ({size_bytes} bytes)" for name, size_bytes in oversized_files)
-    prompt_lines = [
-        prompt,
-        "",
-        "Oracle transport note: browser upload may deliver the logical text files as one synthetic attachment such as `attachments-bundle.txt`.",
-        "Oracle transport note: some attached bundle files were split into ordered shards to satisfy Oracle's per-file input limit before browser upload.",
-        "Treat any `*.partNNN.*` attachments as the logical contents of the original file concatenated in lexical filename order.",
-        *shard_notes,
-        "Read `upload_bundle_overview.md` first, then `upload_bundle_index.json`, and consult payload shard rows only as needed.",
-    ]
-    note = (
-        "Prepared sharded Oracle browser upload for oversized bundle files: "
-        f"{oversized_text}."
-    )
-    return PreparedOracleUploadInputs(
-        prompt="\n".join(prompt_lines),
-        file_paths=staged_paths,
-        note=note,
+        profile=profile,
+        allow_sharding=normalized_mode == "browser",
     )
 
 
@@ -630,13 +894,15 @@ def _oracle_upload_timestamp() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d_%H.%M.%S")
 
 
-def _oracle_background_launch_dir(bundle_dir: Path) -> Path:
+def _oracle_background_launch_dir(bundle_dir: Path, *, suffix: str = "") -> Path:
     parent_dir = bundle_dir / ORACLE_UPLOAD_RUNS_DIR_NAME
     base_name = _oracle_upload_timestamp()
-    candidate = parent_dir / base_name
+    normalized_suffix = str(suffix or "").strip()
+    candidate_name = f"{base_name}-{normalized_suffix}" if normalized_suffix else base_name
+    candidate = parent_dir / candidate_name
     suffix = 1
     while candidate.exists():
-        candidate = parent_dir / f"{base_name}_{suffix:02d}"
+        candidate = parent_dir / f"{candidate_name}_{suffix:02d}"
         suffix += 1
     return candidate
 
@@ -935,6 +1201,10 @@ def _persist_oracle_upload_metadata(
     _oracle_upload_status_path(metadata_path).write_text(
         json.dumps(
             {
+                "review_profile": str(merged_payload.get("review_profile") or ""),
+                "review_profile_display_name": str(
+                    merged_payload.get("review_profile_display_name") or ""
+                ),
                 "status": audit.status,
                 "status_reason": audit.status_reason,
                 "session_id": audit.session_id,
@@ -1155,54 +1425,46 @@ def start_oracle_benchmark_upload_background(
     target: OracleBenchmarkBundleTarget,
     mode: str,
     model: str | None = None,
+    review_profile: str | None = None,
     popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
 ) -> OracleBackgroundUploadLaunch:
     normalized_mode = mode.strip().lower()
     resolved_model = resolve_oracle_benchmark_model(model)
+    profile = resolve_oracle_benchmark_review_profile(review_profile)
     launch_started_at = datetime.now(timezone.utc)
-    launch_dir = _oracle_background_launch_dir(target.bundle_dir)
+    launch_dir = _oracle_background_launch_dir(target.bundle_dir, suffix=profile.profile_id)
     launch_dir.mkdir(parents=True, exist_ok=True)
     log_path = launch_dir / ORACLE_UPLOAD_LOG_FILE_NAME
     metadata_path = launch_dir / ORACLE_UPLOAD_METADATA_FILE_NAME
 
     note = ""
-    session_prompt = build_oracle_benchmark_prompt(target=target)
+    session_prompt = build_oracle_benchmark_prompt(
+        target=target,
+        review_profile=profile.profile_id,
+    )
     if normalized_mode == "browser":
-        oversized_files = _oversized_bundle_files(target.bundle_dir)
-        if oversized_files:
-            staging_dir = launch_dir / "staging"
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            prepared = _prepare_browser_upload_inputs(
-                target=target,
-                staging_dir=staging_dir,
-            )
-            command = _oracle_command(
-                mode=normalized_mode,
-                model=resolved_model,
-                prompt=prepared.prompt,
-                file_paths=prepared.file_paths,
-            )
-            note = prepared.note
-            session_prompt = prepared.prompt
-        else:
-            command = _oracle_command(
-                mode=normalized_mode,
-                model=resolved_model,
-                prompt=session_prompt,
-                file_paths=[
-                    target.bundle_dir / file_name
-                    for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
-                ],
-            )
+        staging_dir = launch_dir / "staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        prepared = _prepare_oracle_upload_inputs(
+            target=target,
+            staging_dir=staging_dir,
+            profile=profile,
+            mode=normalized_mode,
+        )
+        command = _oracle_command(
+            mode=normalized_mode,
+            model=resolved_model,
+            prompt=prepared.prompt,
+            file_paths=prepared.file_paths,
+        )
+        note = prepared.note
+        session_prompt = prepared.prompt
     elif normalized_mode == "dry-run":
         command = _oracle_command(
             mode=normalized_mode,
             model=resolved_model,
             prompt=session_prompt,
-            file_paths=[
-                target.bundle_dir / file_name
-                for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
-            ],
+            file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
         )
     else:
         raise ValueError(f"Unsupported Oracle upload mode: {mode}")
@@ -1235,6 +1497,8 @@ def start_oracle_benchmark_upload_background(
         "bundle_dir": str(target.bundle_dir),
         "source_root": str(target.source_root),
         "scope": target.scope,
+        "review_profile": profile.profile_id,
+        "review_profile_display_name": profile.display_name,
         "mode": normalized_mode,
         "model": resolved_model,
         "prompt": session_prompt,
@@ -1313,6 +1577,8 @@ def start_oracle_benchmark_upload_background(
         metadata_path=metadata_path,
         pid=int(proc.pid),
         note=note,
+        review_profile=profile.profile_id,
+        review_profile_display_name=profile.display_name,
         browser_profile_dir=browser_profile_dir,
         oracle_version=oracle_version,
         status=audit.status,
@@ -1329,53 +1595,27 @@ def run_oracle_benchmark_upload(
     target: OracleBenchmarkBundleTarget,
     mode: str,
     model: str | None = None,
+    review_profile: str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> OracleUploadResult:
     normalized_mode = mode.strip().lower()
     resolved_model = resolve_oracle_benchmark_model(model)
-    oversized_files = (
-        _oversized_bundle_files(target.bundle_dir)
-        if normalized_mode == "dry-run"
-        else []
-    )
-    if oversized_files:
-        browser_command = _oracle_command(
-            mode="browser",
-            model=resolved_model,
-            prompt=build_oracle_benchmark_prompt(target=target),
-            file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
-        )
-        oversized_text = ", ".join(
-            f"{name} ({size_bytes} bytes)" for name, size_bytes in oversized_files
-        )
-        return OracleUploadResult(
-            success=True,
-            mode=normalized_mode,
-            command=browser_command,
-            bundle_dir=target.bundle_dir,
-            returncode=0,
-            stdout=(
-                "Local dry-run preview only. Oracle inline dry-run rejects files over "
-                f"{ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES} bytes, so no Oracle subprocess "
-                f"was started. Oversized files: {oversized_text}. Use browser mode for "
-                "the real upload."
-            ),
-            stderr="",
-            oracle_version=_detect_oracle_version(),
-        )
+    profile = resolve_oracle_benchmark_review_profile(review_profile)
 
     if normalized_mode == "browser":
         oracle_version = _detect_oracle_version()
         launch_started_at = datetime.now(timezone.utc)
-        launch_dir = _oracle_background_launch_dir(target.bundle_dir)
+        launch_dir = _oracle_background_launch_dir(target.bundle_dir, suffix=profile.profile_id)
         launch_dir.mkdir(parents=True, exist_ok=True)
         log_path = launch_dir / ORACLE_UPLOAD_LOG_FILE_NAME
         metadata_path = launch_dir / ORACLE_UPLOAD_METADATA_FILE_NAME
         staging_dir = launch_dir / "staging"
         staging_dir.mkdir(parents=True, exist_ok=True)
-        prepared = _prepare_browser_upload_inputs(
+        prepared = _prepare_oracle_upload_inputs(
             target=target,
             staging_dir=staging_dir,
+            profile=profile,
+            mode=normalized_mode,
         )
         command = _oracle_command(
             mode=normalized_mode,
@@ -1452,6 +1692,8 @@ def run_oracle_benchmark_upload(
             "bundle_dir": str(target.bundle_dir),
             "source_root": str(target.source_root),
             "scope": target.scope,
+            "review_profile": profile.profile_id,
+            "review_profile_display_name": profile.display_name,
             "mode": normalized_mode,
             "model": resolved_model,
             "prompt": prepared.prompt,
@@ -1482,6 +1724,8 @@ def run_oracle_benchmark_upload(
             stdout=stdout,
             stderr=completed.stderr or "",
             oracle_version=oracle_version,
+            review_profile=profile.profile_id,
+            review_profile_display_name=profile.display_name,
             status=audit.status,
             status_reason=audit.status_reason,
             session_id=audit.session_id,
@@ -1490,26 +1734,72 @@ def run_oracle_benchmark_upload(
             conversation_id=audit.conversation_id,
         )
 
-    command = _oracle_command(
-        mode=normalized_mode,
-        model=resolved_model,
-        prompt=build_oracle_benchmark_prompt(target=target),
-        file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
-    )
-    oracle_version = _detect_oracle_version()
-    completed = runner(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return OracleUploadResult(
-        success=completed.returncode == 0,
-        mode=normalized_mode,
-        command=command,
-        bundle_dir=target.bundle_dir,
-        returncode=int(completed.returncode),
-        stdout=completed.stdout or "",
-        stderr=completed.stderr or "",
-        oracle_version=oracle_version,
-    )
+    if normalized_mode == "dry-run":
+        with tempfile.TemporaryDirectory(prefix=f"oracle-upload-{profile.profile_id}-") as temp_dir:
+            staging_dir = Path(temp_dir)
+            prepared = _prepare_oracle_upload_inputs(
+                target=target,
+                staging_dir=staging_dir,
+                profile=profile,
+                mode=normalized_mode,
+            )
+            oversized_staged = [
+                path for path in prepared.file_paths if path.stat().st_size > ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES
+            ]
+            if oversized_staged:
+                browser_command = _oracle_command(
+                    mode="browser",
+                    model=resolved_model,
+                    prompt=prepared.prompt,
+                    file_paths=prepared.file_paths,
+                )
+                oversized_text = ", ".join(
+                    f"{path.name} ({path.stat().st_size} bytes)" for path in oversized_staged
+                )
+                return OracleUploadResult(
+                    success=True,
+                    mode=normalized_mode,
+                    command=browser_command,
+                    bundle_dir=target.bundle_dir,
+                    returncode=0,
+                    stdout=(
+                        "Local dry-run preview only. Oracle inline dry-run rejects files over "
+                        f"{ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES} bytes, so no Oracle subprocess "
+                        f"was started. Oversized staged files: {oversized_text}. Use browser mode for "
+                        "the real upload."
+                    ),
+                    stderr="",
+                    oracle_version=_detect_oracle_version(),
+                    review_profile=profile.profile_id,
+                    review_profile_display_name=profile.display_name,
+                )
+            command = _oracle_command(
+                mode=normalized_mode,
+                model=resolved_model,
+                prompt=prepared.prompt,
+                file_paths=prepared.file_paths,
+            )
+            oracle_version = _detect_oracle_version()
+            completed = runner(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            stdout = completed.stdout or ""
+            if prepared.note:
+                stdout = f"{prepared.note}\n{stdout}" if stdout else prepared.note
+            return OracleUploadResult(
+                success=completed.returncode == 0,
+                mode=normalized_mode,
+                command=command,
+                bundle_dir=target.bundle_dir,
+                returncode=int(completed.returncode),
+                stdout=stdout,
+                stderr=completed.stderr or "",
+                oracle_version=oracle_version,
+                review_profile=profile.profile_id,
+                review_profile_display_name=profile.display_name,
+            )
+
+    raise ValueError(f"Unsupported Oracle upload mode: {mode}")

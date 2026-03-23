@@ -24,11 +24,12 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 18:00 EDT) Re-ran `bin/docs-list` and read `docs/PLANS.md`, `docs/reports/AI-codebase.md`, `docs/reports/ai-readiness-improvement-report.md`, `docs/08-analytics/08-analytics_readme.md`, and `docs/12-testing/12-testing_README.md`.
 - [x] (2026-03-22 18:05 EDT) Audited the current renderer structure in [cookimport/analytics/dashboard_render.py](/home/mcnal/projects/recipeimport/cookimport/analytics/dashboard_render.py), including the top-level `render_dashboard(...)`, all-method grouping/data helpers, all-method page rendering, and asset/template write behavior.
 - [x] (2026-03-22 18:08 EDT) Authored this standalone dashboard-render decomposition ExecPlan in `docs/plans/`.
+- [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes moved helpers and renderers from `dashboard_render.py` instead of preserving a broad facade.
 - [ ] Create a `cookimport/analytics/dashboard_renderers/` package with clear page/section ownership.
 - [ ] Move asset and shell-writing concerns out of `dashboard_render.py`.
 - [ ] Move all-method grouping and page rendering into dedicated modules.
 - [ ] Move diagnostics and previous-runs section rendering into dedicated modules.
-- [ ] Reduce `dashboard_render.py` to a thin public facade that preserves `render_dashboard(...)`.
+- [ ] Cut `dashboard_render.py` down to the smallest product-facing entrypoint surface and delete moved helper exports and render bodies.
 - [ ] Add or update analytics-domain tests and docs for the new ownership map.
 
 ## Surprises & Discoveries
@@ -103,7 +104,7 @@ The intended ownership boundaries are:
 - `all_method_pages.py`: all-method run/detail page HTML rendering and page-file creation
 - `templates.py`: large static `_HTML`, `_CSS`, and `_JS` constants or their equivalents
 
-The public facade should remain in [cookimport/analytics/dashboard_render.py](/home/mcnal/projects/recipeimport/cookimport/analytics/dashboard_render.py). That file should become a thin module that delegates to the new renderer package.
+The final product-facing surface may remain in [cookimport/analytics/dashboard_render.py](/home/mcnal/projects/recipeimport/cookimport/analytics/dashboard_render.py) only for the genuinely public entrypoint `render_dashboard(...)`. Moved helper names and page-render implementations should not remain in that file in the completed end state.
 
 ## Milestones
 
@@ -121,7 +122,7 @@ Acceptance is that grouping and sort behavior stay unchanged and all-method test
 
 ### Milestone 3: Extract all-method page rendering
 
-At the end of this milestone, all-method run-page and detail-page rendering will live in `all_method_pages.py`. The public facade should no longer be the first place to inspect for that page family.
+At the end of this milestone, all-method run-page and detail-page rendering will live in `all_method_pages.py`. The old render bodies should be deleted from `dashboard_render.py`.
 
 Acceptance is that the generated all-method HTML files remain equivalent enough for current tests and artifact expectations to pass.
 
@@ -139,13 +140,13 @@ Acceptance is passing analytics-domain validation plus docs that no longer teach
 
 ## Plan of Work
 
-Start by carving out templates and assets. That is the lowest-risk move because it changes little behavior while immediately making the remaining logic easier to inspect. Keep `render_dashboard(...)` in the facade file and delegate asset writes to `assets.py`.
+Start by carving out templates and assets. That is the lowest-risk move because it changes little behavior while immediately making the remaining logic easier to inspect. Delete moved asset/template definitions from `dashboard_render.py` as soon as their new home is wired in.
 
 Next, move shared formatting helpers and all-method data preparation. These are high-value seams because they sit between raw analytics records and rendered pages. A contributor debugging all-method grouping should be able to stay inside one data module instead of opening the full renderer.
 
 Then move all-method run/detail HTML generation into `all_method_pages.py`. This is a strong page-family seam already present in the file and a good example of progressive disclosure: first understand all-method page rendering, then only if needed inspect lower-level formatting helpers.
 
-Finally, move the index-page composition into `index_page.py` and leave `dashboard_render.py` as a thin public facade. Avoid turning the new package into a shallow helper web; each module should own a coherent visible concern and expose one or a few clear functions.
+Finally, move the index-page composition into `index_page.py` and leave `dashboard_render.py` with only the minimal product-facing entrypoint. Avoid turning the new package into a shallow helper web; each module should own a coherent visible concern and expose one or a few clear functions.
 
 Throughout the migration, keep tests and artifact expectations close. The dashboard is a product surface. AI-friendliness improves only if the code becomes easier to navigate without making the render contract ambiguous or fragile.
 
@@ -175,7 +176,7 @@ Migration order:
 2. Move formatting and all-method data helpers.
 3. Move all-method page renderers.
 4. Move main index-page composition.
-5. Reduce `dashboard_render.py` to a thin facade.
+5. Delete moved helper/render bodies from `dashboard_render.py` and leave only the product-facing entrypoint that still matters.
 6. Update docs and tests.
 
 Prepare the environment if needed:
@@ -217,13 +218,15 @@ The second acceptance criterion is discoverability. A contributor looking for on
 
 The third acceptance criterion is regression safety. Analytics tests, CLI paths that touch dashboard rendering, and any all-method render-specific tests must continue to pass.
 
-The fourth acceptance criterion is stable imports. The public `render_dashboard(...)` import path from `cookimport.analytics.dashboard_render` must remain valid during and after the migration.
+The fourth acceptance criterion is stable imports for `render_dashboard(...)` only. Old helper import paths from `dashboard_render.py` should not survive as compatibility clutter.
 
 The fifth acceptance criterion is documentation. Analytics docs should point readers to the renderer package and explain the section/page ownership map clearly.
 
+The sixth acceptance criterion is deletion. Moved helper and render implementations must be gone from `dashboard_render.py`; the old file should no longer be a general-purpose renderer surface.
+
 ## Idempotence and Recovery
 
-This refactor is safe to do incrementally. If one renderer family becomes awkward to extract, keep it in the facade temporarily and continue moving templates, assets, and pure helpers first.
+This refactor is safe to do incrementally, but the completed end state must not keep old renderer families in `dashboard_render.py`. If one page family is awkward, finish that move or postpone the cutover rather than preserving a dual-home renderer.
 
 If artifact output drifts unexpectedly, preserve the existing output contract first and only then revisit module boundaries. The point is to narrow implementation ownership while keeping the dashboard product stable.
 
@@ -281,8 +284,8 @@ In `cookimport/analytics/dashboard_renderers/templates.py`:
     CSS_TEMPLATE = "..."
     JS_TEMPLATE = "..."
 
-Use these as ownership targets, not exact mandatory names. What matters is one obvious owner for assets, shared formatting, all-method data, all-method pages, and the index page.
+Use these as ownership targets, not exact mandatory names. What matters is one obvious owner for assets, shared formatting, all-method data, all-method pages, and the index page, with the old giant file stripped down to the smallest product-facing entrypoint surface.
 
 ## Revision note
 
-Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. This file owns only dashboard-render decomposition and is intentionally focused on page-family and template/asset boundaries rather than generic HTML cleanup.
+Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. Updated later the same day to a burn-the-boats posture. This file owns only dashboard-render decomposition and now requires deletion of moved helper/render bodies from `dashboard_render.py` rather than a long-lived compatibility facade.

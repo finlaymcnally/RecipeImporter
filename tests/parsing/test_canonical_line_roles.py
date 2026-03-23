@@ -305,7 +305,7 @@ def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtim
     assert predictions[0].decided_by == "codex"
 
 
-def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:1",
@@ -323,12 +323,12 @@ def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_knowledge(
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].review_exclusion_reason is None
     assert predictions[0].within_recipe_span is False
 
 
-def test_label_atomic_lines_outside_recipe_saltfat_science_prose_stays_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_saltfat_science_prose_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:science",
@@ -349,11 +349,11 @@ def test_label_atomic_lines_outside_recipe_saltfat_science_prose_stays_knowledge
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].review_exclusion_reason is None
 
 
-def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_context() -> None:
+def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:prev",
@@ -383,17 +383,17 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["Balancing Fat"].label == "KNOWLEDGE"
+    assert by_text["Balancing Fat"].label == "OTHER"
     assert by_text["Balancing Fat"].review_exclusion_reason is None
     assert (
         by_text[
             "As with salt, the best way to correct overly fatty food is to rebalance the dish."
         ].label
-        == "KNOWLEDGE"
+        == "OTHER"
     )
     assert (
         by_text["Foods that are too dry can be corrected with a bit more fat."].label
-        == "KNOWLEDGE"
+        == "OTHER"
     )
 
 
@@ -458,7 +458,7 @@ def test_label_atomic_lines_outside_recipe_saltfat_question_heading_stays_other(
     assert predictions[0].review_exclusion_reason is None
 
 
-def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:citrus",
@@ -486,7 +486,7 @@ def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_knowledge
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].review_exclusion_reason is None
 
 
@@ -576,7 +576,7 @@ def test_label_atomic_lines_unknown_pre_grouping_cluster_stays_structured() -> N
     assert predictions[1].label == "INSTRUCTION_LINE"
 
 
-def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_knowledge() -> None:
+def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:science:unknown",
@@ -596,11 +596,11 @@ def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_knowledge()
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].within_recipe_span is None
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].review_exclusion_reason is None
 
 
-def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor_context() -> None:
+def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
     blocks = [
         {
             "block_id": "block:knowledge:prev:unknown",
@@ -631,23 +631,23 @@ def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
+    assert by_text["SALT AND FLAVOR"].label == "OTHER"
     assert by_text["SALT AND FLAVOR"].review_exclusion_reason is None
     assert (
         by_text[
             "Salt affects texture and flavor because it changes how food absorbs moisture during cooking."
         ].label
-        == "KNOWLEDGE"
+        == "OTHER"
     )
     assert (
         by_text[
             "The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."
         ].label
-        == "KNOWLEDGE"
+        == "OTHER"
     )
 
 
-def test_label_atomic_lines_outside_recipe_saltfat_heading_stays_reviewable_for_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_saltfat_heading_stays_reviewable_other() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -674,10 +674,7 @@ def test_label_atomic_lines_outside_recipe_saltfat_heading_stays_reviewable_for_
 
     predictions = label_atomic_lines(candidates, _settings())
 
-    assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
-        "KNOWLEDGE",
-    ]
+    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
     assert all(prediction.review_exclusion_reason is None for prediction in predictions)
 
 
@@ -775,6 +772,59 @@ def test_label_atomic_lines_outside_recipe_tail_step_with_instruction_neighbor_s
         "RECIPE_NOTES",
     ]
     assert predictions[1].review_exclusion_reason is None
+
+
+def test_label_atomic_lines_outside_recipe_instruction_like_endorsement_cluster_stays_other() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:endorsement:1",
+            block_index=1,
+            atomic_index=0,
+            text=(
+                "\"Like the amazing meals that come out of Samin Nosrat's kitchen, "
+                "Salt, Fat, Acid, Heat is the perfect mixture of highest-quality "
+                "ingredients: beautiful storytelling, clear science, and "
+                "illustrations that make the book joyful to read.\""
+            ),
+            within_recipe_span=False,
+            rule_tags=["instruction_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:endorsement:2",
+            block_index=2,
+            atomic_index=1,
+            text=(
+                "\"Salt, Fat, Acid, Heat is a wildly informative culinary "
+                "resource whose prose and illustrations guide readers through "
+                "the science of cooking.\""
+            ),
+            within_recipe_span=False,
+            rule_tags=["instruction_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:endorsement:3",
+            block_index=3,
+            atomic_index=2,
+            text="-A chef who admires the book",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "OTHER",
+    ]
+    assert all(
+        "rescued_other_to_instruction" not in prediction.reason_tags
+        for prediction in predictions
+    )
 
 
 def test_label_atomic_lines_outside_recipe_isolated_howto_heading_defaults_away_from_structure() -> None:
@@ -1541,8 +1591,8 @@ def test_label_atomic_lines_exact_lesson_prose_recover_knowledge_rows() -> None:
 
     assert [prediction.label for prediction in predictions] == [
         "OTHER",
-        "KNOWLEDGE",
-        "KNOWLEDGE",
+        "OTHER",
+        "OTHER",
         "OTHER",
     ]
     assert all(prediction.review_exclusion_reason is None for prediction in predictions)
@@ -2075,7 +2125,7 @@ def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
     assert predictions[0].decided_by == "rule"
 
 
-def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragments() -> None:
+def test_label_atomic_lines_routes_outside_recipe_knowledge_headings_and_fragments_to_other() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2117,15 +2167,15 @@ def test_label_atomic_lines_recovers_outside_recipe_knowledge_headings_and_fragm
 
     predictions = label_atomic_lines(candidates, _settings())
     assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
-        "KNOWLEDGE",
-        "KNOWLEDGE",
-        "KNOWLEDGE",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
     ]
     assert all(prediction.review_exclusion_reason is None for prediction in predictions)
 
 
-def test_label_atomic_lines_outside_recipe_requires_high_evidence_for_knowledge() -> None:
+def test_label_atomic_lines_outside_recipe_useful_prose_stays_reviewable_other() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2163,11 +2213,7 @@ def test_label_atomic_lines_outside_recipe_requires_high_evidence_for_knowledge(
     ]
 
     predictions = label_atomic_lines(candidates, _settings())
-    assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
-        "OTHER",
-        "OTHER",
-    ]
+    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER", "OTHER"]
 
 
 def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None:
@@ -2188,7 +2234,7 @@ def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None
     assert predictions[0].label == "OTHER"
 
 
-def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_knowledge(
+def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_reviewable_other(
     tmp_path,
 ) -> None:
     candidates = [
@@ -2223,7 +2269,7 @@ def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_knowledge(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "fallback_decision" in predictions[0].escalation_reasons
     assert "sanitized_label_adjustment" in predictions[0].escalation_reasons
@@ -2284,7 +2330,7 @@ def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_outside_recipe_knowledge_without_support" in predictions[0].reason_tags
+    assert "coerced_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
     assert predictions[0].review_exclusion_reason == "endorsement"
 
 
@@ -2311,11 +2357,13 @@ def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_pa
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_outside_recipe_knowledge_without_support" in predictions[0].reason_tags
+    assert "coerced_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
     assert predictions[0].review_exclusion_reason is None
 
 
-def test_codex_outside_recipe_knowledge_heading_with_context_can_stay_knowledge(tmp_path) -> None:
+def test_codex_outside_recipe_knowledge_heading_with_context_stays_reviewable_other(
+    tmp_path,
+) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2348,11 +2396,8 @@ def test_codex_outside_recipe_knowledge_heading_with_context_can_stay_knowledge(
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
-        "KNOWLEDGE",
-    ]
-    assert all(prediction.decided_by == "codex" for prediction in predictions)
+    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
+    assert all(prediction.decided_by == "fallback" for prediction in predictions)
     assert all(prediction.review_exclusion_reason is None for prediction in predictions)
 
 
@@ -2518,7 +2563,7 @@ def test_codex_exact_caesar_make_step_demotes_variant_to_instruction(tmp_path) -
     assert "sanitized_variant_without_local_support" in predictions[2].reason_tags
 
 
-def test_codex_exact_lesson_prose_other_rows_rescue_to_knowledge(tmp_path) -> None:
+def test_codex_exact_lesson_prose_other_rows_stay_reviewable_other(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2583,13 +2628,7 @@ def test_codex_exact_lesson_prose_other_rows_rescue_to_knowledge(tmp_path) -> No
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == [
-        "KNOWLEDGE",
-        "KNOWLEDGE",
-        "OTHER",
-    ]
-    assert "rescued_other_to_knowledge" in predictions[0].reason_tags
-    assert "rescued_other_to_knowledge" in predictions[1].reason_tags
+    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER", "OTHER"]
 
 
 def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) -> None:
@@ -2700,7 +2739,7 @@ def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
 
@@ -3230,7 +3269,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
                 "This packet reads like cookbook lesson prose: explanatory teaching around a topic, not recipe-local structure."
             ),
             "default_posture": (
-                "Default to `OTHER`; upgrade to `KNOWLEDGE` only when a row clearly teaches reusable cooking explanation/reference prose. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+                "Default to review-eligible `OTHER`; useful outside-recipe lesson prose stays `OTHER` here and the knowledge stage decides semantic `KNOWLEDGE` versus `OTHER` later. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
             ),
             "howto_section_availability": "absent_or_unproven",
             "howto_section_evidence_count": 0,
@@ -3239,7 +3278,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
             ),
             "flip_policy": [
                 "Treat the deterministic label as a strong prior, not a neutral starting guess.",
-                "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay `KNOWLEDGE` when surrounding rows are explanatory prose.",
+                "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay review-eligible `OTHER` so the knowledge stage can make the semantic call later.",
             ],
             "example_files": [
                 "01-lesson-prose-vs-howto.md",
@@ -3279,9 +3318,9 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Recompute labels from the task file rows themselves" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
-    assert "default to `OTHER` unless the row clearly teaches reusable cooking explanation/reference prose" in prompt
+    assert "default to review-eligible `OTHER`" in prompt
     assert "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`" in prompt
-    assert "Short declarative teaching lines can stay `KNOWLEDGE`" in prompt
+    assert "Short declarative teaching lines about reusable cooking rules should still stay review-eligible `OTHER` in this stage." in prompt
     assert "HOWTO_SECTION availability: absent_or_unproven (evidence rows: 0)" in prompt
     assert "HOWTO_SECTION policy: This book may legitimately use zero `HOWTO_SECTION` labels." in prompt
     assert "Balancing Fat" in prompt
@@ -4242,16 +4281,36 @@ def test_line_role_workspace_watchdog_stops_after_outputs_stabilize(
             timeout_seconds=30,
         )
     )
+    second_live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    third = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.9,
+            last_event_seconds_ago=0.0,
+            event_count=6,
+            command_execution_count=2,
+            reasoning_item_count=0,
+            agent_message_count=1,
+            last_command="/bin/bash -lc cat out/line-role-canonical-0001-a000000-a000000.json",
+            last_command_repeat_count=2,
+            has_final_agent_message=True,
+            timeout_seconds=30,
+        )
+    )
 
     assert first is None
-    assert second is not None
-    assert second.reason_code == "workspace_outputs_stabilized"
-    assert second.supervision_state == "completed"
+    assert second is None
+    assert second_live_status["state"] == "running"
+    assert second_live_status["workspace_completion_waiting_for_exit"] is True
+    assert second_live_status["workspace_completion_post_signal_observed"] is False
+    assert third is not None
+    assert third.reason_code == "workspace_outputs_stabilized"
+    assert third.supervision_state == "completed"
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["state"] == "completed"
     assert live_status["reason_code"] == "workspace_outputs_stabilized"
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
+    assert live_status["workspace_completion_post_signal_observed"] is True
 
 
 def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command(
@@ -5213,6 +5272,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "metadata.scratch_draft_path" in prompt_text
     assert "python3 tools/line_role_worker.py finalize <draft_path>" in prompt_text
     assert "python3 tools/line_role_worker.py finalize-all scratch/" in prompt_text
+    assert "send one brief completion message naming the finished outputs and then stop" in prompt_text
     assert "`prepare-all --dest-dir scratch/`, and `scaffold <task_id> --dest scratch/<task_id>.json` are fallback/debug tools" in prompt_text
     assert "Long handwritten `jq` transforms are unnecessary here" in prompt_text
     assert "keep them narrow and grounded on the named local files only" in prompt_text

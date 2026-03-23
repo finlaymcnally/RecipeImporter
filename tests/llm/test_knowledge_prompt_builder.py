@@ -18,6 +18,9 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "The raw chunk text is authoritative. Only mechanically true structure is provided." in prompt
     assert "Usually `other`: `PREFACE`, `Contents`, `Recipes and Recommendations`" in prompt
+    assert "durable cooking leverage" in prompt
+    assert "materially improve a cook's future decisions, diagnosis, or technique" in prompt
+    assert "technically true but low-value" in prompt
     assert "per chunk: `cid` chunk id, `b` blocks" in prompt
     assert (
         "When `c` is non-empty, `r` must contain exactly one row per input chunk, in input order."
@@ -37,7 +40,7 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "return compact minified JSON on a single line" in prompt
     assert "Do not collapse a clearly useful technique/reference shard into blanket `u=false`." in prompt
     assert (
-        "If the shard contains reusable cooking knowledge, surface it positively with `u=true`, `knowledge` decisions, and grounded snippets."
+        "If the shard contains durable cooking leverage, surface it positively with `u=true`, `knowledge` decisions, and grounded snippets."
         in prompt
     )
     assert "suggested lane" not in prompt.lower()

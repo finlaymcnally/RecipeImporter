@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import cookimport.llm.codex_exec_runner as exec_runner_module
 import tests.llm.test_codex_exec_runner as _base
 
@@ -192,7 +194,8 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_task_loop(
     assert "`/tmp` or `/var/tmp` for bounded helper files" in agents_text
     assert "dumping whole manifests just to orient yourself" in agents_text
     assert "prefer a short local `python3` helper" in agents_text
-    assert "repo-written `complete-batch`, `check-batch`, `install-batch`, `complete-current`, or `check-current` helper" in agents_text
+    assert "bounded automation over only the active batch drafts is acceptable" in agents_text
+    assert "start with the smallest prompt-named helper surface first" in agents_text
     current_task = json.loads(
         (workspace.execution_working_dir / "current_task.json").read_text(encoding="utf-8")
     )
@@ -320,20 +323,20 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_current_batch_files(
     assert "CURRENT_BATCH.md" in worker_manifest["entry_files"]
     assert "CURRENT_BATCH_FEEDBACK.md" in worker_manifest["entry_files"]
     assert (
-        "For knowledge batch workspaces, use only the repo-written batch helper commands during the main loop; direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours are off-contract."
+        "For knowledge batch workspaces, use the repo-written batch helper commands during the main loop. `assigned_tasks.json` dumps and single-task helper detours are discouraged fallback moves, not ideal startup behavior, but only queue/output control scripting and queue-control rewrites are truly off-contract. If you automate, keep it bounded to the active batch drafts named in `current_batch.json`."
         in worker_manifest["notes"]
     )
     assert "python3 tools/knowledge_worker.py complete-current" not in worker_manifest[
         "workspace_local_shell_examples"
     ]
-    assert "python3 tools/knowledge_worker.py current-batch" in worker_manifest[
+    assert "sed -n '1,120p' CURRENT_BATCH.md" in worker_manifest[
         "workspace_local_shell_examples"
     ]
-    assert "python3 tools/knowledge_worker.py next-batch" in worker_manifest[
+    assert "sed -n '1,120p' CURRENT_BATCH_FEEDBACK.md" in worker_manifest[
         "workspace_local_shell_examples"
     ]
     assert worker_manifest["workspace_commands_forbidden"][0] == (
-        "direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours while a knowledge batch is active"
+        "queue/output control scripting or repo-owned queue-control rewrites while a knowledge batch is active"
     )
     assert (
         workspace.execution_working_dir / "current_batch.json"
@@ -968,6 +971,11 @@ def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(
+        exec_runner_module,
+        "_DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS",
+        0.05,
+    )
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     (source_root / "in").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
@@ -1073,4 +1081,140 @@ def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
     }
     assert result.supervision_state == "completed"
     assert result.supervision_reason_code == "workspace_outputs_stabilized"
+    assert result.completed_successfully() is True
+
+
+@pytest.mark.parametrize(
+    ("supervision_state", "reason_code"),
+    [
+        ("completed", "workspace_outputs_stabilized"),
+        ("completed_with_failures", "workspace_validated_task_queue_incomplete"),
+    ],
+)
+def test_workspace_worker_completed_supervision_allows_turn_completed_usage_to_arrive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    supervision_state: str,
+    reason_code: str,
+) -> None:
+    monkeypatch.setattr(
+        exec_runner_module,
+        "_DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS",
+        0.2,
+    )
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_shards.json").write_text(
+        json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "in" / "shard-001.json").write_text(
+        json.dumps({"shard_id": "shard-001"}),
+        encoding="utf-8",
+    )
+
+    class _FakeStdin:
+        def write(self, text: str) -> int:
+            return len(text)
+
+        def close(self) -> None:
+            return None
+
+    class _DynamicStream:
+        def __init__(self, owner: "_FakeProcess") -> None:
+            self._owner = owner
+            self._lines: list[str] = []
+
+        def push(self, payload: dict[str, Any]) -> None:
+            self._lines.append(json.dumps(payload) + "\n")
+
+        def readline(self) -> str:
+            while not self._lines:
+                if self._owner.returncode is not None:
+                    return ""
+                time.sleep(0.01)
+            return self._lines.pop(0)
+
+        def close(self) -> None:
+            return None
+
+    class _FakeProcess:
+        def __init__(self, cwd: Path, _fake_stdin_cls=_FakeStdin) -> None:
+            self.stdin = _fake_stdin_cls()
+            self.returncode: int | None = None
+            self.stdout = _DynamicStream(self)
+            self.stderr = _DynamicStream(self)
+            self._cwd = cwd
+            self.stdout.push({"type": "thread.started"})
+
+            def _writer() -> None:
+                time.sleep(0.05)
+                out_dir = cwd / "out"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "shard-001.json").write_text(
+                    json.dumps({"v": "2", "bid": "shard-001", "r": []}),
+                    encoding="utf-8",
+                )
+                time.sleep(0.05)
+                self.stdout.push(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": "Finished."},
+                    }
+                )
+                self.stdout.push(
+                    {
+                        "type": "turn.completed",
+                        "usage": {
+                            "input_tokens": 100,
+                            "cached_input_tokens": 10,
+                            "output_tokens": 20,
+                        },
+                    }
+                )
+                self.returncode = 0
+
+            threading.Thread(target=_writer, daemon=True).start()
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner.subprocess.Popen",
+        lambda *args, **kwargs: _FakeProcess(Path(str(kwargs["cwd"]))),
+    )
+
+    runner = SubprocessCodexExecRunner(cmd="codex exec")
+    result = runner.run_workspace_worker(
+        prompt_text="Write shard output files locally and stop once done.",
+        working_dir=source_root,
+        env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
+        workspace_task_label="knowledge worker session",
+        supervision_callback=lambda _snapshot: (
+            CodexExecSupervisionDecision.terminate(
+                reason_code=reason_code,
+                reason_detail="worker outputs stabilized",
+                retryable=False,
+                supervision_state=supervision_state,
+            )
+            if (source_root / "out" / "shard-001.json").exists()
+            else None
+        ),
+    )
+
+    assert result.subprocess_exit_code == 0
+    assert result.usage == {
+        "input_tokens": 100,
+        "cached_input_tokens": 10,
+        "output_tokens": 20,
+        "reasoning_tokens": 0,
+    }
+    assert result.supervision_reason_code == reason_code
+    assert result.supervision_state == supervision_state
     assert result.completed_successfully() is True

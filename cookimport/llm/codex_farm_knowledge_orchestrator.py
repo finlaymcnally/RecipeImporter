@@ -35,6 +35,7 @@ from .codex_farm_knowledge_ingest import (
 )
 from .codex_farm_knowledge_models import (
     ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
+    ALLOWED_KNOWLEDGE_REASON_CODES,
     ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
 )
 from .codex_farm_knowledge_jobs import (
@@ -88,6 +89,8 @@ logger = logging.getLogger(__name__)
 
 COMPACT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
 DEFAULT_KNOWLEDGE_PIPELINE_ID = COMPACT_KNOWLEDGE_PIPELINE_ID
+_KNOWLEDGE_TASK_PACKET_MAX_CHUNKS = 2
+_KNOWLEDGE_TASK_PACKET_MAX_INPUT_BYTES = 12_000
 _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD = 1
 _KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD = 6000
 _KNOWLEDGE_PATHOLOGICAL_WHITESPACE_RUN = 4096
@@ -100,6 +103,7 @@ _KNOWLEDGE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _KNOWLEDGE_WATCHDOG_RETRY_SILENCE_TIMEOUT_SECONDS = 90
 _KNOWLEDGE_WATCHDOG_RETRY_TIMEOUT_SECONDS = 300
 _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
+_KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = 2.0
 _KNOWLEDGE_WORKSPACE_PROGRESS_GRACE_COMMANDS = 24
 _KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES = 2
 _KNOWLEDGE_TASK_STATUS_FILE_NAME = "task_status.jsonl"
@@ -127,6 +131,7 @@ class _KnowledgeWorkspaceStageCommandViolation:
     policy: str
     reason_code: str
     reason: str
+    enforce: bool = True
 
 
 def _build_knowledge_task_manifest_entry(
@@ -150,7 +155,6 @@ def _build_knowledge_task_plans(
     chunks = [dict(row) for row in (payload.get("c") or []) if isinstance(row, Mapping)]
     if not chunks:
         return ()
-    task_count = len(chunks)
     chunk_block_indices_by_id = _coerce_dict((shard.metadata or {}).get("chunk_block_indices_by_id"))
     chunk_seed_stage_category_by_id = _coerce_dict((shard.metadata or {}).get("chunk_seed_stage_category_by_id"))
     chunk_lane_by_id = _coerce_dict((shard.metadata or {}).get("chunk_lane_by_id"))
@@ -158,30 +162,87 @@ def _build_knowledge_task_plans(
     chunk_has_heading_by_id = _coerce_dict((shard.metadata or {}).get("chunk_has_heading_by_id"))
     chunk_has_table_hint_by_id = _coerce_dict((shard.metadata or {}).get("chunk_has_table_hint_by_id"))
     chunk_knowledge_cue_by_id = _coerce_dict((shard.metadata or {}).get("chunk_knowledge_cue_by_id"))
-    task_plans: list[_KnowledgeTaskPlan] = []
-    for task_index, chunk_row in enumerate(chunks, start=1):
+    chunk_utility_positive_cues_by_id = _coerce_dict(
+        (shard.metadata or {}).get("chunk_utility_positive_cues_by_id")
+    )
+    chunk_utility_negative_cues_by_id = _coerce_dict(
+        (shard.metadata or {}).get("chunk_utility_negative_cues_by_id")
+    )
+    chunk_utility_borderline_by_id = _coerce_dict(
+        (shard.metadata or {}).get("chunk_utility_borderline_by_id")
+    )
+    chunk_strong_negative_utility_cue_by_id = _coerce_dict(
+        (shard.metadata or {}).get("chunk_strong_negative_utility_cue_by_id")
+    )
+    packet_chunk_groups: list[list[dict[str, Any]]] = []
+    current_group: list[dict[str, Any]] = []
+    current_group_bytes = 0
+    for chunk_row in chunks:
         chunk_id = str(chunk_row.get("cid") or "").strip()
         if not chunk_id:
+            continue
+        chunk_bytes = len(json.dumps(chunk_row, sort_keys=True))
+        would_exceed_count = (
+            current_group
+            and len(current_group) >= _KNOWLEDGE_TASK_PACKET_MAX_CHUNKS
+        )
+        would_exceed_bytes = (
+            current_group
+            and current_group_bytes + chunk_bytes > _KNOWLEDGE_TASK_PACKET_MAX_INPUT_BYTES
+        )
+        if would_exceed_count or would_exceed_bytes:
+            packet_chunk_groups.append(current_group)
+            current_group = []
+            current_group_bytes = 0
+        current_group.append(dict(chunk_row))
+        current_group_bytes += chunk_bytes
+    if current_group:
+        packet_chunk_groups.append(current_group)
+    task_count = len(packet_chunk_groups)
+    task_plans: list[_KnowledgeTaskPlan] = []
+    for task_index, chunk_group in enumerate(packet_chunk_groups, start=1):
+        ordered_chunk_ids = [
+            str(chunk_row.get("cid") or "").strip()
+            for chunk_row in chunk_group
+            if str(chunk_row.get("cid") or "").strip()
+        ]
+        if not ordered_chunk_ids:
             continue
         task_id = (
             shard.shard_id
             if task_count == 1
             else f"{shard.shard_id}.task-{task_index:03d}"
         )
-        chunk_blocks = [dict(block) for block in (chunk_row.get("b") or []) if isinstance(block, Mapping)]
+        chunk_blocks = [
+            dict(block)
+            for chunk_row in chunk_group
+            for block in (chunk_row.get("b") or [])
+            if isinstance(block, Mapping)
+        ]
         evidence_refs = tuple(
             f"block:{int(block.get('i', 0))}"
             for block in chunk_blocks
             if block.get("i") is not None
         )
+        owned_block_indices = sorted(
+            {
+                int(block_index)
+                for chunk_id in ordered_chunk_ids
+                for block_index in (chunk_block_indices_by_id.get(chunk_id) or [])
+            }
+        )
+        char_count = sum(
+            len(str(block.get("t") or ""))
+            for block in chunk_blocks
+        )
         task_payload = {
             **payload,
             "bid": task_id,
-            "c": [dict(chunk_row)],
+            "c": [dict(chunk_row) for chunk_row in chunk_group],
         }
         task_manifest = ShardManifestEntryV1(
             shard_id=task_id,
-            owned_ids=(chunk_id,),
+            owned_ids=tuple(ordered_chunk_ids),
             evidence_refs=evidence_refs,
             input_payload=task_payload,
             metadata={
@@ -190,42 +251,64 @@ def _build_knowledge_task_plans(
                 "task_id": task_id,
                 "task_index": task_index,
                 "task_count": task_count,
-                "ordered_chunk_ids": [chunk_id],
-                "chunk_count": 1,
-                "owned_block_indices": list(chunk_block_indices_by_id.get(chunk_id) or []),
+                "ordered_chunk_ids": list(ordered_chunk_ids),
+                "chunk_count": len(ordered_chunk_ids),
+                "char_count": char_count,
+                "owned_block_indices": owned_block_indices,
                 "chunk_block_indices_by_id": {
                     chunk_id: list(chunk_block_indices_by_id.get(chunk_id) or [])
+                    for chunk_id in ordered_chunk_ids
                 },
-                "chunk_seed_stage_category_by_id": (
-                    {chunk_id: chunk_seed_stage_category_by_id.get(chunk_id)}
+                "chunk_seed_stage_category_by_id": {
+                    chunk_id: chunk_seed_stage_category_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
                     if chunk_id in chunk_seed_stage_category_by_id
-                    else {}
-                ),
-                "chunk_lane_by_id": (
-                    {chunk_id: chunk_lane_by_id.get(chunk_id)}
+                },
+                "chunk_lane_by_id": {
+                    chunk_id: chunk_lane_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
                     if chunk_id in chunk_lane_by_id
-                    else {}
-                ),
-                "chunk_title_by_id": (
-                    {chunk_id: chunk_title_by_id.get(chunk_id)}
+                },
+                "chunk_title_by_id": {
+                    chunk_id: chunk_title_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
                     if chunk_id in chunk_title_by_id
-                    else {}
-                ),
-                "chunk_has_heading_by_id": (
-                    {chunk_id: chunk_has_heading_by_id.get(chunk_id)}
+                },
+                "chunk_has_heading_by_id": {
+                    chunk_id: chunk_has_heading_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
                     if chunk_id in chunk_has_heading_by_id
-                    else {}
-                ),
-                "chunk_has_table_hint_by_id": (
-                    {chunk_id: chunk_has_table_hint_by_id.get(chunk_id)}
+                },
+                "chunk_has_table_hint_by_id": {
+                    chunk_id: chunk_has_table_hint_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
                     if chunk_id in chunk_has_table_hint_by_id
-                    else {}
-                ),
-                "chunk_knowledge_cue_by_id": (
-                    {chunk_id: chunk_knowledge_cue_by_id.get(chunk_id)}
+                },
+                "chunk_knowledge_cue_by_id": {
+                    chunk_id: chunk_knowledge_cue_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
                     if chunk_id in chunk_knowledge_cue_by_id
-                    else {}
-                ),
+                },
+                "chunk_utility_positive_cues_by_id": {
+                    chunk_id: chunk_utility_positive_cues_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
+                    if chunk_id in chunk_utility_positive_cues_by_id
+                },
+                "chunk_utility_negative_cues_by_id": {
+                    chunk_id: chunk_utility_negative_cues_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
+                    if chunk_id in chunk_utility_negative_cues_by_id
+                },
+                "chunk_utility_borderline_by_id": {
+                    chunk_id: chunk_utility_borderline_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
+                    if chunk_id in chunk_utility_borderline_by_id
+                },
+                "chunk_strong_negative_utility_cue_by_id": {
+                    chunk_id: chunk_strong_negative_utility_cue_by_id.get(chunk_id)
+                    for chunk_id in ordered_chunk_ids
+                    if chunk_id in chunk_strong_negative_utility_cue_by_id
+                },
             },
         )
         task_plans.append(
@@ -1303,6 +1386,13 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
             "unreviewed_chunk_count": review_rollup["unreviewed_chunk_count"],
             "unreviewed_block_count": review_rollup["unreviewed_block_count"],
+            "reason_code_counts": dict(promotion_report.get("reason_code_counts") or {}),
+            "useful_reason_code_counts": dict(
+                promotion_report.get("useful_reason_code_counts") or {}
+            ),
+            "other_reason_code_counts": dict(
+                promotion_report.get("other_reason_code_counts") or {}
+            ),
         }
         refined_stage_result = replace(
             refined_stage_result,
@@ -1368,6 +1458,13 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
                 "unreviewed_chunk_count": review_rollup["unreviewed_chunk_count"],
                 "unreviewed_block_count": review_rollup["unreviewed_block_count"],
+                "reason_code_counts": dict(promotion_report.get("reason_code_counts") or {}),
+                "useful_reason_code_counts": dict(
+                    promotion_report.get("useful_reason_code_counts") or {}
+                ),
+                "other_reason_code_counts": dict(
+                    promotion_report.get("other_reason_code_counts") or {}
+                ),
             },
             "timing": {"total_seconds": elapsed_seconds},
             "paths": {
@@ -1708,6 +1805,14 @@ def _write_json(payload: Any, path: Path) -> None:
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _write_optional_text(path: Path, text: str | None) -> None:
+    rendered = str(text or "")
+    if not rendered.strip():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(rendered, encoding="utf-8")
 
 
 def _load_json_dict(path: Path) -> dict[str, Any]:
@@ -2245,6 +2350,55 @@ def _write_knowledge_runtime_summary_artifacts(
             }
         )
 
+    reason_code_counts: dict[str, int] = {}
+    useful_reason_code_counts: dict[str, int] = {}
+    other_reason_code_counts: dict[str, int] = {}
+    for row in proposal_promotion_rows:
+        metadata = _coerce_dict(row["proposal"].metadata)
+        promoted_chunk_ids = {
+            str(chunk_id).strip()
+            for chunk_id in (row["promotion_info"].get("promoted_chunk_ids") or [])
+            if str(chunk_id).strip()
+        }
+        chunk_reason_code_by_id = _coerce_dict(metadata.get("reason_code_by_chunk_id"))
+        useful_reason_counts = _coerce_dict(metadata.get("useful_reason_code_counts"))
+        other_reason_counts = _coerce_dict(metadata.get("other_reason_code_counts"))
+        if promoted_chunk_ids and chunk_reason_code_by_id:
+            for chunk_id in promoted_chunk_ids:
+                reason_code = str(chunk_reason_code_by_id.get(chunk_id) or "").strip()
+                if reason_code:
+                    reason_code_counts[reason_code] = reason_code_counts.get(reason_code, 0) + 1
+        elif row["proposal"].status == "validated":
+            for source_counts, target_counts in (
+                (useful_reason_counts, useful_reason_code_counts),
+                (other_reason_counts, other_reason_code_counts),
+            ):
+                for reason_code, count in source_counts.items():
+                    cleaned_reason = str(reason_code).strip()
+                    if not cleaned_reason:
+                        continue
+                    numeric_count = int(count or 0)
+                    target_counts[cleaned_reason] = (
+                        target_counts.get(cleaned_reason, 0) + numeric_count
+                    )
+                    reason_code_counts[cleaned_reason] = (
+                        reason_code_counts.get(cleaned_reason, 0) + numeric_count
+                    )
+            continue
+        for source_counts, target_counts in (
+            (useful_reason_counts, useful_reason_code_counts),
+            (other_reason_counts, other_reason_code_counts),
+        ):
+            for reason_code, count in source_counts.items():
+                cleaned_reason = str(reason_code).strip()
+                if not cleaned_reason:
+                    continue
+                numeric_count = min(1, int(count or 0))
+                if numeric_count <= 0:
+                    continue
+                target_counts[cleaned_reason] = target_counts.get(cleaned_reason, 0) + numeric_count
+                reason_code_counts[cleaned_reason] = reason_code_counts.get(cleaned_reason, 0) + numeric_count
+
     promotion_report = {
         "schema_version": "phase_worker_runtime.promotion_report.v1",
         "phase_key": phase_key,
@@ -2303,6 +2457,9 @@ def _write_knowledge_runtime_summary_artifacts(
             _unreviewed_block_count_for_proposal(row["proposal"], row["promotion_info"])
             for row in proposal_promotion_rows
         ),
+        "reason_code_counts": dict(sorted(reason_code_counts.items())),
+        "useful_reason_code_counts": dict(sorted(useful_reason_code_counts.items())),
+        "other_reason_code_counts": dict(sorted(other_reason_code_counts.items())),
     }
     telemetry_summary = _summarize_direct_rows(stage_rows)
     telemetry_summary.update(_summarize_knowledge_workspace_relaunches(worker_reports))
@@ -3141,26 +3298,29 @@ def _build_knowledge_workspace_worker_prompt(
 ) -> str:
     final_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)
     reviewer_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)
+    reason_codes_text = "`, `".join(ALLOWED_KNOWLEDGE_REASON_CODES)
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
+        "Keep only durable cooking leverage. The positive class is not broad cooking-related factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
         "",
         "Process the repo-written ordered packet queue in this workspace as small repo-owned consecutive batches. The current working directory is already the workspace root.",
         "The assignment is complete only when the repo removes `current_batch.json` and the batch sidecars say no current batch is active / the queue is complete.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then `CURRENT_BATCH.md`, then `current_batch.json`, then `CURRENT_BATCH_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
-        "2. Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative current-batch surface. `assigned_tasks.json` is background queue/progress context only and should not be dumped directly during the main loop. Single-task `CURRENT_TASK*` files are fallback recovery surfaces for the first active task, not the normal batch path.",
-        "3. Open the raw hint/input files named by the current batch only when the batch packet is insufficient: `tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path` in `current_batch.json`.",
-        "4. Use the paved road: run `python3 tools/knowledge_worker.py complete-batch`, edit the prewritten drafts under `scratch/current_batch/`, run `python3 tools/knowledge_worker.py check-batch`, and run `python3 tools/knowledge_worker.py install-batch` after the checker says OK or when you want the repo to install the longest valid prefix you already repaired.",
+        "1. Open `worker_manifest.json`, then `CURRENT_BATCH.md`, then `CURRENT_BATCH_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`. Open `current_batch.json` only when you need the machine-readable paths or task rows.",
+        "2. Treat `CURRENT_BATCH.md`, `CURRENT_BATCH_FEEDBACK.md`, and `current_batch.json` as the authoritative current-batch surface. `assigned_tasks.json` is background queue/progress context only and should not be dumped directly during the main loop. Single-task `CURRENT_TASK*` files and the `python3 tools/knowledge_worker.py debug ...` surface are fallback recovery tools for the first active task, not the normal batch path.",
+        "3. Use the paved road: run `python3 tools/knowledge_worker.py complete-batch`, edit the prewritten drafts under `scratch/current_batch/`, run `python3 tools/knowledge_worker.py check-batch`, and run `python3 tools/knowledge_worker.py install-batch` after the checker says OK or when you want the repo to install the longest valid prefix you already repaired.",
+        "4. Open the raw hint/input files named by the current batch only when the batch sidecars are insufficient: `tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path` in `current_batch.json`.",
         "5. A task is not finished until its batch draft validates. Direct writes to `out/<task_id>.json` without a passing repo-written checker are incomplete work.",
-        "6. After each validation failure, re-open `CURRENT_BATCH_FEEDBACK.md`. After each successful install, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`. If a new batch is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo owns batch advancement.",
-        "7. If you need orientation, use `python3 tools/knowledge_worker.py current-batch`, `python3 tools/knowledge_worker.py next-batch`, `python3 tools/knowledge_worker.py explain-failure`, `python3 tools/knowledge_worker.py overview`, or `python3 tools/knowledge_worker.py show-batch` instead of dumping the queue back to yourself.",
-        "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, helper-source spelunking, broad inline schedulers, or one-off validators.",
+        "6. After each validation failure, re-open `CURRENT_BATCH_FEEDBACK.md`. After each successful install, re-open `CURRENT_BATCH.md`, `CURRENT_BATCH_FEEDBACK.md`, and `current_batch.json`. If a new batch is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo owns batch advancement.",
+        "6a. Once the queue is complete and no new batch becomes active, send one short completion message and stop.",
+        "7. If the batch sidecars are still insufficient after that, use `python3 tools/knowledge_worker.py explain-failure` or the narrower `python3 tools/knowledge_worker.py debug ...` recovery surface instead of broad queue dumps or task-by-task helper detours. Safe fallback examples are `debug current`, `debug show`, `debug complete-current`, and `debug check-current`.",
+        "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, helper-source spelunking, broad inline schedulers, or one-off validators. If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`.",
         "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "10. Write one completed semantic packet result file per listed batch task only. Do not work ahead on later tasks outside the current batch while the repo-owned batch still has unaccepted drafts.",
         "11. Do not invent extra packets, skip owned chunks, or write outside the listed `result_path` files.",
-        "12. Do not invent your own shell batch scheduler, dump the whole `assigned_tasks.json` inventory back to yourself, read `tools/knowledge_worker.py` just to rediscover commands, switch back to `install-current`-style single-task helpers while a batch is active, or run extra shell checks against finished files in `out/` beyond the repo-written `check-batch` / `install-batch` loop. The main-worker watchdog treats those detours as off-contract behavior.",
+        "12. Do not invent your own queue/output scheduler or rewrite repo-owned queue-control files. Reading `tools/knowledge_worker.py`, dumping `assigned_tasks.json`, or switching back to single-task helpers during an active batch are discouraged fallback moves, but the real hard boundary is queue/output bypass. The main-worker watchdog treats those bypasses as off-contract behavior and records the slower fallback moves as telemetry instead.",
         "",
         "Semantic packet result contract for each assigned result path:",
         "- Write exactly one JSON object.",
@@ -3168,13 +3328,16 @@ def _build_knowledge_workspace_worker_prompt(
         "- Top level keys: `packet_id`, `chunk_results`.",
         "- `packet_id` must equal the current task row's `task_id`.",
         "- `chunk_results` must contain exactly one result row for each owned chunk in the current task row and no extras.",
-        "- Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and optional `reason_code`.",
+        "- Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and required `reason_code`.",
         "- Each block decision uses `block_index`, `category`, and optional `reviewer_category`.",
         f"- `category` must be exactly one of `{final_categories_text}`.",
         (
             f"- `reviewer_category` may be omitted or must be one of "
             f"`{reviewer_categories_text}`."
         ),
+        f"- `reason_code` must be one of `{reason_codes_text}`.",
+        "- Use `technique_or_mechanism`, `diagnostic_or_troubleshooting`, `reference_or_definition`, or `substitution_storage_or_safety` only when the chunk clearly earns preservation.",
+        "- Use `book_framing_or_marketing`, `memoir_or_scene_setting`, `navigation_or_chapter_taxonomy`, `decorative_heading_only`, `true_but_low_utility`, or `not_cooking_knowledge` when the chunk stays `other`.",
         "- If `category` is `knowledge`, `reviewer_category` must be `knowledge`.",
         (
             "- Never invent category labels such as `content`, `noise`, or `heading`; "
@@ -3194,6 +3357,8 @@ def _build_knowledge_workspace_worker_prompt(
             "owned chunk or stitches long quotes from every owned block into one snippet."
         ),
         "- If `check` says the packet copied source prose, keep the evidence pointers and rewrite only the snippet body into a shorter grounded claim before installing.",
+        "- Ask: would saving this materially improve a cook's future decisions, diagnosis, or technique?",
+        "- If the text is technically true but low-value prose, generic memoir-like framing, or just navigation, keep it `other`.",
         "- Keep all block decisions and snippet evidence on the current task row's own block indices only.",
         "- If a chunk is not useful, still include its result row with `is_useful: false` and an empty snippet list.",
         "- Treat each task row's `metadata.hint_path` file as guidance and its `metadata.input_path` file as the authoritative owned input.",
@@ -3210,6 +3375,7 @@ def _write_knowledge_worker_hint(
     shard: ShardManifestEntryV1,
 ) -> None:
     payload = _coerce_dict(shard.input_payload)
+    shard_metadata = _coerce_dict(shard.metadata)
     chunks = list(payload.get("c") or [])
     nearby_recipe_blocks: list[int] = []
     for value in (_coerce_dict(payload.get("g")).get("r") or []):
@@ -3230,6 +3396,24 @@ def _write_knowledge_worker_hint(
         previews = [preview_text(block.get("t"), max_chars=70) for block in blocks[:3]]
         all_short = bool(blocks) and all(len(str(block.get("t") or "").split()) <= 6 for block in blocks)
         has_heading = bool(heading_levels)
+        positive_cues = [
+            str(value).strip()
+            for value in (_coerce_dict(shard_metadata.get("chunk_utility_positive_cues_by_id")).get(chunk_id) or [])
+            if str(value).strip()
+        ]
+        negative_cues = [
+            str(value).strip()
+            for value in (_coerce_dict(shard_metadata.get("chunk_utility_negative_cues_by_id")).get(chunk_id) or [])
+            if str(value).strip()
+        ]
+        borderline = bool(
+            _coerce_dict(shard_metadata.get("chunk_utility_borderline_by_id")).get(chunk_id)
+        )
+        strong_negative = bool(
+            _coerce_dict(shard_metadata.get("chunk_strong_negative_utility_cue_by_id")).get(
+                chunk_id
+            )
+        )
         profile = "mixed"
         if has_heading and all_short:
             profile = "heading_or_navigation_candidate"
@@ -3238,7 +3422,11 @@ def _write_knowledge_worker_hint(
             profile = "prose_or_reference_candidate"
             prose_chunk_count += 1
         chunk_summaries.append(
-            f"`{chunk_id}` blocks `{block_indices[0] if block_indices else '?'}..{block_indices[-1] if block_indices else '?'}` profile `{profile}` preview `{ ' / '.join(previews) or '[empty]' }`"
+            f"`{chunk_id}` blocks `{block_indices[0] if block_indices else '?'}..{block_indices[-1] if block_indices else '?'}` "
+            f"profile `{profile}` positive cues `{', '.join(positive_cues) or 'none'}` "
+            f"negative cues `{', '.join(negative_cues) or 'none'}` "
+            f"borderline `{str(borderline).lower()}` strong_negative `{str(strong_negative).lower()}` "
+            f"preview `{ ' / '.join(previews) or '[empty]' }`"
         )
     write_worker_hint_markdown(
         path,
@@ -3247,6 +3435,7 @@ def _write_knowledge_worker_hint(
             "This sidecar is worker guidance only.",
             "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
             f"Chunk count: {len(chunks)}. Heading-heavy chunks: {heading_only_count}. Longer prose/reference chunks: {prose_chunk_count}.",
+            "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
             (
                 "Nearby recipe guardrail block indices: "
                 + (", ".join(str(value) for value in nearby_recipe_blocks[:12]) if nearby_recipe_blocks else "none")
@@ -3257,11 +3446,12 @@ def _write_knowledge_worker_hint(
             (
                 "How to use this packet",
                 [
-                    "Use the hint file to understand whether this bundle looks like front matter, navigation, headings, or real reusable technique/reference text.",
+                    "Use the hint file to understand whether this bundle looks like front matter, navigation, headings, or genuinely useful technique/reference text.",
                     "Use only chunk-local block text from `in/<shard_id>.json` as evidence in the final output.",
                     "A short chunk can still be real knowledge if it is genuinely technical or reference-like.",
+                    "Do not keep a chunk merely because it is true or cooking-adjacent; keep it only if it would materially improve future cooking decisions.",
                     "Good snippet body: a shorter grounded claim. Bad snippet body: copied evidence quote text.",
-                    "Do not treat the task as finished until `python3 tools/knowledge_worker.py check-current` passes.",
+                    "Do not treat the task as finished until `python3 tools/knowledge_worker.py check-batch` passes for the active batch.",
                 ],
             ),
             ("Chunk previews", chunk_summaries or ["No chunk previews available."]),
@@ -3675,6 +3865,8 @@ def _run_knowledge_workspace_worker_assignment_v1(
         _write_json({"text": run_result.response_text}, worker_root / "last_message.json")
         _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
         _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
+        _write_optional_text(worker_root / "stdout.txt", run_result.stdout_text)
+        _write_optional_text(worker_root / "stderr.txt", run_result.stderr_text)
 
         task_count = len(runnable_shards)
         for task_index, shard in enumerate(runnable_shards):
@@ -4918,6 +5110,8 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
         _write_json({"text": run_result.response_text}, worker_root / "last_message.json")
         _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
         _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
+        _write_optional_text(worker_root / "stdout.txt", run_result.stdout_text)
+        _write_optional_text(worker_root / "stderr.txt", run_result.stderr_text)
         if task_status_tracker is not None:
             for task_entry in workspace_task_entries:
                 task_metadata = dict(task_entry.metadata or {})
@@ -5890,6 +6084,9 @@ def _build_strict_json_watchdog_callback(
     last_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
     last_workspace_present_count = 0
     last_output_progress_command_count: int | None = None
+    completion_wait_started_elapsed_seconds: float | None = None
+    completion_wait_agent_message_count: int | None = None
+    completion_wait_turn_completed_count: int | None = None
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         nonlocal last_complete_workspace_signature
@@ -5897,6 +6094,9 @@ def _build_strict_json_watchdog_callback(
         nonlocal last_workspace_signature
         nonlocal last_workspace_present_count
         nonlocal last_output_progress_command_count
+        nonlocal completion_wait_started_elapsed_seconds
+        nonlocal completion_wait_agent_message_count
+        nonlocal completion_wait_turn_completed_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_stage_violation: _KnowledgeWorkspaceStageCommandViolation | None = None
@@ -5962,39 +6162,89 @@ def _build_strict_json_watchdog_callback(
             else:
                 last_complete_workspace_signature = current_workspace_signature
                 workspace_output_stable_passes = 1
+                completion_wait_started_elapsed_seconds = None
+                completion_wait_agent_message_count = None
+                completion_wait_turn_completed_count = None
         else:
             last_complete_workspace_signature = None
             workspace_output_stable_passes = 0
+            completion_wait_started_elapsed_seconds = None
+            completion_wait_agent_message_count = None
+            completion_wait_turn_completed_count = None
+        completion_waiting_for_exit = False
+        completion_post_signal_observed = False
         if (
             allow_workspace_commands
             and task_queue_controller is not None
             and task_queue_controller.is_complete()
         ):
-            decision = CodexExecSupervisionDecision.terminate(
-                reason_code="workspace_validated_task_queue_completed",
-                reason_detail=(
-                    "knowledge workspace worker produced repo-validated outputs for "
-                    "every assigned current-task packet"
-                ),
-                retryable=False,
-                supervision_state="completed",
+            completion_waiting_for_exit = True
+            if completion_wait_started_elapsed_seconds is None:
+                completion_wait_started_elapsed_seconds = snapshot.elapsed_seconds
+                completion_wait_agent_message_count = snapshot.agent_message_count
+                completion_wait_turn_completed_count = snapshot.turn_completed_count
+            completion_post_signal_observed = (
+                snapshot.agent_message_count > int(completion_wait_agent_message_count or 0)
+                or snapshot.turn_completed_count > int(completion_wait_turn_completed_count or 0)
             )
+            completion_quiescence_reached = (
+                snapshot.last_event_seconds_ago is not None
+                and snapshot.last_event_seconds_ago
+                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                and (
+                    snapshot.elapsed_seconds
+                    - float(completion_wait_started_elapsed_seconds or 0.0)
+                )
+                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+            )
+            if completion_post_signal_observed or completion_quiescence_reached:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="workspace_validated_task_queue_completed",
+                    reason_detail=(
+                        "knowledge workspace worker produced repo-validated outputs for "
+                        "every assigned current-task packet and the session either emitted "
+                        "a post-install completion signal or went quiet while waiting to exit"
+                    ),
+                    retryable=False,
+                    supervision_state="completed",
+                )
         elif (
             allow_workspace_commands
             and task_queue_controller is None
             and workspace_output_status["complete"]
             and workspace_output_stable_passes >= _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES
         ):
-            decision = CodexExecSupervisionDecision.terminate(
-                reason_code="workspace_validated_task_queue_incomplete",
-                reason_detail=(
-                    "knowledge workspace worker wrote stable output files, but the "
-                    "repo-owned task queue controller is missing so queue completion "
-                    "cannot be proven"
-                ),
-                retryable=True,
-                supervision_state="completed_with_failures",
+            completion_waiting_for_exit = True
+            if completion_wait_started_elapsed_seconds is None:
+                completion_wait_started_elapsed_seconds = snapshot.elapsed_seconds
+                completion_wait_agent_message_count = snapshot.agent_message_count
+                completion_wait_turn_completed_count = snapshot.turn_completed_count
+            completion_post_signal_observed = (
+                snapshot.agent_message_count > int(completion_wait_agent_message_count or 0)
+                or snapshot.turn_completed_count > int(completion_wait_turn_completed_count or 0)
             )
+            completion_quiescence_reached = (
+                snapshot.last_event_seconds_ago is not None
+                and snapshot.last_event_seconds_ago
+                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                and (
+                    snapshot.elapsed_seconds
+                    - float(completion_wait_started_elapsed_seconds or 0.0)
+                )
+                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+            )
+            if completion_post_signal_observed or completion_quiescence_reached:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="workspace_validated_task_queue_incomplete",
+                    reason_detail=(
+                        "knowledge workspace worker wrote stable output files, but the "
+                        "repo-owned task queue controller is missing so queue completion "
+                        "cannot be proven; the session either emitted a post-install "
+                        "completion signal or went quiet while waiting to exit"
+                    ),
+                    retryable=True,
+                    supervision_state="completed_with_failures",
+                )
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
                 last_command_stage_violation = _detect_knowledge_workspace_stage_violation(
@@ -6018,6 +6268,7 @@ def _build_strict_json_watchdog_callback(
                 if (
                     decision is None
                     and last_command_stage_violation is not None
+                    and last_command_stage_violation.enforce
                 ):
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code=last_command_stage_violation.reason_code,
@@ -6035,10 +6286,14 @@ def _build_strict_json_watchdog_callback(
                         ),
                         retryable=True,
                     )
-                if decision is None and should_terminate_workspace_command_loop(
-                    snapshot=snapshot,
-                    recent_output_progress=recent_workspace_output_progress,
-                    completed_output_count=current_workspace_present_count,
+                if (
+                    decision is None
+                    and not completion_waiting_for_exit
+                    and should_terminate_workspace_command_loop(
+                        snapshot=snapshot,
+                        recent_output_progress=recent_workspace_output_progress,
+                        completed_output_count=current_workspace_present_count,
+                    )
                 ):
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code="watchdog_command_loop_without_output",
@@ -6146,6 +6401,11 @@ def _build_strict_json_watchdog_callback(
                 if last_command_stage_violation is not None
                 else None
             ),
+            "last_command_stage_violation_enforced": (
+                bool(last_command_stage_violation.enforce)
+                if last_command_stage_violation is not None
+                else None
+            ),
             "reasoning_item_count": snapshot.reasoning_item_count,
             "last_command": snapshot.last_command,
             "last_command_repeat_count": snapshot.last_command_repeat_count,
@@ -6170,6 +6430,13 @@ def _build_strict_json_watchdog_callback(
             "workspace_output_stable_passes": workspace_output_stable_passes,
             "workspace_output_progress_observed": workspace_output_progress_observed,
             "workspace_recent_output_progress": recent_workspace_output_progress,
+            "workspace_completion_waiting_for_exit": completion_waiting_for_exit,
+            "workspace_completion_quiescence_seconds": (
+                _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                if completion_waiting_for_exit
+                else None
+            ),
+            "workspace_completion_post_signal_observed": completion_post_signal_observed,
             **(
                 task_queue_controller.status_payload()
                 if task_queue_controller is not None
@@ -6210,19 +6477,30 @@ def _detect_knowledge_workspace_stage_violation(
     normalized_command = re.sub(r"\s+", " ", cleaned_command.lower())
 
     if re.search(
+        r"\bpython3?\s+tools/knowledge_worker\.py\s+debug\s+"
+        r"(?:current|next|show-batch|show|scaffold|complete-current|check|check-current)\b",
+        normalized_command,
+    ):
+        return None
+
+    if re.search(
         r"\bpython3?\s+tools/knowledge_worker\.py\s+"
         r"(?:complete-current|check-current|install-current|current|next)\b",
+        normalized_command,
+    ) or re.search(
+        r"\bpython3?\s+tools/knowledge_worker\.py\s+debug\s+install-current\b",
         normalized_command,
     ):
         return _KnowledgeWorkspaceStageCommandViolation(
             policy="knowledge_single_task_helper_during_batch",
             reason_code="watchdog_batch_contract_bypass_single_task_helper",
             reason=(
-                "knowledge batch workers must stay on the repo-owned batch loop; "
+                "knowledge batch workers should prefer the repo-owned batch loop; "
                 "single-task helpers such as `complete-current`, `check-current`, "
-                "`install-current`, `current`, and `next` are off-contract while a "
-                "batch is active"
+                "`install-current`, `current`, and `next` are a slower recovery path "
+                "while a batch is active, not the preferred happy path"
             ),
+            enforce=False,
         )
 
     if "assigned_tasks.json" in normalized_command:
@@ -6230,10 +6508,11 @@ def _detect_knowledge_workspace_stage_violation(
             policy="knowledge_assigned_tasks_inventory_dump",
             reason_code="watchdog_batch_contract_bypass_inventory_dump",
             reason=(
-                "knowledge batch workers must not dump or script directly against "
-                "`assigned_tasks.json`; use `current-batch`, `next-batch`, "
-                "`show-batch`, or `overview` instead"
+                "knowledge batch workers should not dump or script broadly against "
+                "`assigned_tasks.json`; use the repo-written batch sidecars first and "
+                "treat `assigned_tasks.json` as fallback queue/progress context only"
             ),
+            enforce=False,
         )
 
     if (
@@ -6243,7 +6522,6 @@ def _detect_knowledge_workspace_stage_violation(
             for marker in (
                 "out/",
                 "current_task.json",
-                "current_batch.json",
                 "assigned_tasks.json",
             )
         )
@@ -6252,12 +6530,27 @@ def _detect_knowledge_workspace_stage_violation(
             policy="knowledge_shell_scheduler_bypass",
             reason_code="watchdog_batch_contract_bypass_shell_scheduler",
             reason=(
-                "knowledge batch workers must not invent shell schedulers or broad "
-                "validation loops over queue/output files; use the repo-written "
-                "`complete-batch`, `check-batch`, and `install-batch` loop instead"
+                "knowledge batch workers should avoid inventing queue/output schedulers "
+                "or broad validation loops over queue/output files; prefer the "
+                "repo-written `complete-batch`, `check-batch`, and `install-batch` loop "
+                "and keep any local automation bounded to the active batch drafts"
             ),
+            enforce=False,
         )
 
+    writes_current_batch_json = any(
+        marker in normalized_command
+        for marker in (
+            "> current_batch.json",
+            ">> current_batch.json",
+            "path('current_batch.json').write_text(",
+            'path("current_batch.json").write_text(',
+            "path(\"current_batch.json\").write_text(",
+            'path(\'current_batch.json\').write_text(',
+            "open('current_batch.json', 'w')",
+            'open("current_batch.json", "w")',
+        )
+    )
     if any(
         marker in normalized_command
         for marker in (
@@ -6266,13 +6559,7 @@ def _detect_knowledge_workspace_stage_violation(
             "write_current_batch_sidecars",
             "write_current_task_sidecars",
         )
-    ) or (
-        "current_batch.json" in normalized_command
-        and any(
-            marker in normalized_command
-            for marker in ("write_text(", "> current_batch.json", ">> current_batch.json")
-        )
-    ):
+    ) or writes_current_batch_json:
         return _KnowledgeWorkspaceStageCommandViolation(
             policy="knowledge_runtime_control_rewrite",
             reason_code="watchdog_batch_contract_bypass_runtime_control_rewrite",
@@ -6294,10 +6581,11 @@ def _detect_knowledge_workspace_stage_violation(
                 policy="knowledge_helper_source_spelunking",
                 reason_code="watchdog_batch_contract_bypass_helper_source_read",
                 reason=(
-                    "knowledge batch workers must use the repo-written helper CLI as "
-                    "documented instead of reading helper source or probing ad hoc "
-                    "helper commands such as `--help` during the main loop"
+                    "knowledge batch workers should use the repo-written helper CLI "
+                    "and sidecars instead of rereading helper source or probing ad hoc "
+                    "helper commands during the main loop"
                 ),
+                enforce=False,
             )
 
     return None
@@ -7058,6 +7346,7 @@ def _build_knowledge_watchdog_retry_prompt(
         f"- `bid` must be `{shard.shard_id}`.\n"
         "- Return exactly one result row for each owned chunk id.\n"
         f"- Owned chunk ids: {owned_ids}\n"
+        "- Keep only durable cooking leverage; technically true but low-value prose stays `other`.\n"
         "- Preserve chunk-local evidence and do not invent synthetic ids.\n\n"
         f"Previous stop reason: {reason_code or '[unknown]'}\n"
         f"Reason detail: {reason_detail or '[none recorded]'}\n\n"
@@ -7100,6 +7389,7 @@ def _build_knowledge_repair_prompt(
         f"- `bid` must be `{shard.shard_id}`.\n"
         "- Return exactly one result row for each owned chunk id.\n"
         f"- Owned chunk ids: {owned_ids}\n"
+        "- Keep only durable cooking leverage; technically true but low-value prose stays `other`.\n"
         "- Preserve chunk-local evidence and do not invent synthetic ids.\n\n"
         f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
         f"Missing owned chunk ids: {missing_ids or '[none recorded]'}\n\n"
@@ -7142,6 +7432,7 @@ def _build_knowledge_snippet_repair_prompt(
         f"- `bid` must be `{shard.shard_id}`.\n"
         "- Return exactly one result row for each owned chunk id.\n"
         f"- Owned chunk ids: {owned_ids}\n"
+        "- Keep the existing durable-utility judgment. Do not widen the semantic bar back to generic cooking facts.\n"
         "- Preserve every existing `chunk_id`, `is_useful`, `block_decisions`, `reason_code`, and evidence pointer.\n"
         "- Rewrite only `snippets[*].body`.\n"
         "- Each rewritten snippet body must be a short grounded extraction, not copied evidence prose.\n"

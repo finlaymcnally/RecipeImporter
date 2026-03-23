@@ -57,7 +57,11 @@ def _semantic_packet_payload(
                         else []
                     )
                 ),
-                "reason_code": "grounded_useful" if useful else "all_other",
+                "reason_code": (
+                    "technique_or_mechanism"
+                    if useful
+                    else "not_cooking_knowledge"
+                ),
             }
         ],
     }
@@ -72,7 +76,11 @@ def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() 
         )
     )
 
-    assert metadata == {"worker_output_contract": "semantic_packet_result_v1"}
+    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
+    assert metadata["reason_code_by_chunk_id"] == {
+        "book.c0099.nr": "technique_or_mechanism"
+    }
+    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
     assert payload == {
         "v": "2",
         "bid": "book.ks0099.nr.task-001",
@@ -103,6 +111,7 @@ def test_normalize_knowledge_worker_payload_rewrites_known_semantic_category_ali
                 {
                     "chunk_id": "book.c0100.nr",
                     "is_useful": True,
+                    "reason_code": "technique_or_mechanism",
                     "block_decisions": [
                         {"block_index": 8, "category": "content"},
                         {"block_index": 9, "category": "heading"},
@@ -128,15 +137,19 @@ def test_normalize_knowledge_worker_payload_rewrites_known_semantic_category_ali
         }
     )
 
-    assert metadata == {
-        "worker_output_contract": "semantic_packet_result_v1",
-        "semantic_category_alias_rewrites": {
-            "content": 1,
-            "heading": 1,
-            "noise": 1,
-        },
-        "semantic_category_alias_rewrite_count": 3,
+    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
+    assert metadata["reason_code_by_chunk_id"] == {
+        "book.c0100.nr": "technique_or_mechanism"
     }
+    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
+    assert metadata["useful_reason_code_counts"] == {"technique_or_mechanism": 1}
+    assert metadata["other_reason_code_counts"] == {}
+    assert metadata["semantic_category_alias_rewrites"] == {
+        "content": 1,
+        "heading": 1,
+        "noise": 1,
+    }
+    assert metadata["semantic_category_alias_rewrite_count"] == 3
     assert payload == {
         "v": "2",
         "bid": "book.ks0099.nr.task-002",
@@ -188,6 +201,7 @@ def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> Non
     assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
     assert metadata["bundle_id"] == "book.ks0099.nr.task-001"
     assert metadata["result_chunk_count"] == 1
+    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
 
 
 def test_validate_knowledge_shard_output_rewrites_known_semantic_category_aliases() -> None:
@@ -207,6 +221,7 @@ def test_validate_knowledge_shard_output_rewrites_known_semantic_category_aliase
                 {
                     "chunk_id": "book.c0100.nr",
                     "is_useful": True,
+                    "reason_code": "technique_or_mechanism",
                     "block_decisions": [
                         {"block_index": 8, "category": "content"},
                         {"block_index": 9, "category": "content"},
@@ -899,6 +914,76 @@ def test_validate_knowledge_shard_output_rejects_unknown_semantic_category_alias
     assert valid is False
     assert errors == ("schema_invalid",)
     assert "marketing" in metadata["parse_error"]
+
+
+def test_validate_knowledge_shard_output_rejects_unknown_reason_code() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0010.nr",
+            owned_ids=("book.c0010.nr",),
+            metadata={
+                "owned_block_indices": [50],
+                "ordered_chunk_ids": ["book.c0010.nr"],
+                "chunk_block_indices_by_id": {"book.c0010.nr": [50]},
+            },
+        ),
+        {
+            "packet_id": "book.ks0010.nr",
+            "chunk_results": [
+                {
+                    "chunk_id": "book.c0010.nr",
+                    "is_useful": False,
+                    "block_decisions": [{"block_index": 50, "category": "other"}],
+                    "snippets": [],
+                    "reason_code": "legacy_guess",
+                }
+            ],
+        },
+    )
+
+    assert valid is False
+    assert errors == ("schema_invalid",)
+    assert "reason_code must be one of" in metadata["parse_error"]
+
+
+def test_validate_knowledge_shard_output_normalizes_legacy_reason_codes() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        ShardManifestEntryV1(
+            shard_id="book.ks0011.nr",
+            owned_ids=("book.c0011.nr",),
+            metadata={
+                "owned_block_indices": [51],
+                "ordered_chunk_ids": ["book.c0011.nr"],
+                "chunk_block_indices_by_id": {"book.c0011.nr": [51]},
+            },
+        ),
+        {
+            "packet_id": "book.ks0011.nr",
+            "chunk_results": [
+                {
+                    "chunk_id": "book.c0011.nr",
+                    "is_useful": True,
+                    "block_decisions": [{"block_index": 51, "category": "knowledge"}],
+                    "snippets": [
+                        {
+                            "body": "Keep the pan hot enough to brown, not steam.",
+                            "evidence": [
+                                {
+                                    "block_index": 51,
+                                    "quote": "Keep the pan hot enough to brown, not steam.",
+                                }
+                            ],
+                        }
+                    ],
+                    "reason_code": "grounded_useful",
+                }
+            ],
+        },
+    )
+
+    assert valid is True
+    assert errors == ()
+    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
 
 
 def test_validate_knowledge_shard_output_rejects_saved_run_style_near_full_chunk_echo() -> None:

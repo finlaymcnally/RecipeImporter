@@ -25,6 +25,7 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 - [x] (2026-03-22 16:58 EDT) Audited the current command registration surface in [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py), including top-level commands, nested `bench` commands, nested `compare-control` commands, and the interactive callback path.
 - [x] (2026-03-22 16:59 EDT) Authored this standalone CLI decomposition ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 17:30 EDT) Tightened scope and validation after re-checking the live CLI registration tree, including the already-external `epub` sub-app and the need for signature-preservation tests during extraction.
+- [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats cutover: `cookimport/cli.py` stays only as the public composition root, with moved command implementations deleted from the old file instead of left behind as wrappers.
 - [ ] Create the new `cookimport/cli_commands/` package and establish one module per command family.
 - [ ] Move the `stage` command implementation behind the new package while keeping `cookimport.cli:app` stable.
 - [ ] Move the Label Studio command family behind the new package.
@@ -60,8 +61,8 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
   Rationale: this order reduces the highest supervision cost earliest while keeping the trickiest interactive state migration until the supporting seams already exist.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: allow temporary decorated wrappers to remain in `cookimport/cli.py` during migration.
-  Rationale: Typer registration mechanics make it safer to leave thin compatibility wrappers at first than to combine command movement with decorator rewrites in one step.
+- Decision: complete each command-family move as a real cutover, not a long-lived wrapper migration.
+  Rationale: the final goal is a genuinely thin composition root. Temporary extraction scaffolding is acceptable inside one implementation pass, but the checked-in end state must delete moved command implementations from `cookimport/cli.py`.
   Date/Author: 2026-03-22 / Codex
 
 - Decision: treat the existing `epub` sub-app registration as explicitly out of scope for this plan unless implementation uncovers a concrete CLI-root coupling problem.
@@ -90,7 +91,7 @@ The target package layout for this plan is:
 - `cookimport/cli_commands/compare_control.py`
 - `cookimport/cli_commands/interactive.py`
 
-Each module should own one public family. “Own” here means it becomes the first place a reader opens to understand or modify that family. It does not require moving every helper immediately. Early milestones may still delegate into existing functions while tests and call sites are migrated.
+Each module should own one public family. “Own” here means it becomes the first place a reader opens to understand or modify that family. By the completed end state, moved command implementations must no longer live in `cookimport/cli.py`. The old file remains only because the CLI entrypoint still needs one composition root.
 
 This plan does not move `cookimport.epubdebug.cli`. The `epub` sub-app should remain registered from the composition root exactly as it is today unless a later, separate plan is created for that package.
 
@@ -110,13 +111,13 @@ The point is progressive disclosure. A newcomer should first open `cookimport/cl
 
 ### Milestone 1: Create the new CLI command package and registration skeleton
 
-At the end of this milestone, the repo will contain the `cookimport/cli_commands/` package with one module per command family. The modules may still delegate back into legacy implementations, but the ownership map will exist and `cookimport/cli.py` will begin acting like a composition root instead of a dumping ground.
+At the end of this milestone, the repo will contain the `cookimport/cli_commands/` package with one module per command family. This milestone may use short-lived extraction scaffolding while work is in progress, but the finished milestone state should already remove at least one real command-family implementation from `cookimport/cli.py`.
 
 Acceptance is that the new package exists, the public entrypoint remains `cookimport.cli:app`, and current help output still renders.
 
 ### Milestone 2: Move stage and Label Studio commands behind the new package
 
-At the end of this milestone, the highest-value public command families will be routed through `cookimport/cli_commands/stage.py` and `cookimport/cli_commands/labelstudio.py`. The old `cookimport/cli.py` should retain only thin decorated wrappers or registration glue for those commands. This milestone is where the first meaningful drop in coordination breadth appears.
+At the end of this milestone, the highest-value public command families will be routed through `cookimport/cli_commands/stage.py` and `cookimport/cli_commands/labelstudio.py`. The moved command bodies should be deleted from `cookimport/cli.py`; that file should retain only the registration/composition code required by Typer for those commands. This milestone is where the first meaningful drop in coordination breadth appears.
 
 Acceptance is that stage and Label Studio command tests still pass, help output still matches expected command names, and contributors can now modify those commands by starting in the new modules.
 
@@ -140,13 +141,13 @@ Acceptance is that `bin/docs-list` shows the updated docs, and the tests fail na
 
 ## Plan of Work
 
-Start by creating the package skeleton under `cookimport/cli_commands/`. Add the module files and define empty or minimal registration helpers. Then update `cookimport/cli.py` so it imports those helpers and uses them to register command families. In the first pass, it is acceptable to leave the decorated functions in `cookimport/cli.py` while their bodies call into the new modules. The crucial rule is that wrappers must stay trivial. The owning logic should move out quickly once the package exists.
+Start by creating the package skeleton under `cookimport/cli_commands/`. Add the module files and define explicit registration helpers. Then update `cookimport/cli.py` so it imports those helpers and uses them to register command families. Any extraction scaffolding used while editing should be removed before the milestone is considered complete. The crucial rule is that `cookimport/cli.py` must end each completed milestone with less real command implementation than before, not with a growing pile of wrappers.
 
 Move the command families incrementally. Start with `stage`, because it is the most important public command and the clearest example of why the composition root should stay thin. Then move the Label Studio family, which is a major public surface and one of the next-largest cognitive loads in the file. After that, move analytics and compare-control, which are logically distinct and easy wins for navigation. Then move the nested bench app, which benefits from having its own module but may touch more helper code. Finally, move interactive orchestration. Keep `epub_app` untouched in the composition root throughout; that registration is already as thin as it needs to be.
 
 As each family moves, add or update tests immediately. The right pattern is to capture the command registration boundary at the same time the code boundary appears. Do not postpone tests until the whole CLI split is complete. Also update docs progressively: once a family is truly owned by its new module, the CLI docs should say so.
 
-When moving decorated command functions, preserve the public function signatures used by existing signature-sync tests and helper call sites. If a command needs a new internal helper, add a separately named implementation function in the new module and keep the decorated wrapper signature stable until tests have been updated intentionally.
+When moving decorated command functions, preserve the public function signatures used by existing signature-sync tests and helper call sites, but do not keep duplicate implementations around after the cutover. If one command family needs a bigger extraction, update the tests in the same change set and delete the old body instead of carrying a long-lived bridge.
 
 ## Concrete Steps
 
@@ -171,7 +172,7 @@ Create the new module set with `apply_patch`:
 For each migration step:
 
 1. Move one command family’s implementation into the owning module.
-2. Leave a trivial decorator wrapper in `cookimport/cli.py` if needed.
+2. Remove the moved command implementation from `cookimport/cli.py` once registration is wired through the new module.
 3. Run a narrow test loop.
 4. Run the broader CLI or bench wrapper.
 5. Update docs if that module is now authoritative.
@@ -223,13 +224,15 @@ The second acceptance criterion is navigability. After the refactor, a newcomer 
 
 The third acceptance criterion is local proof. The relevant narrow CLI test slices must pass, including signature-sync tests for adapter-driven commands, followed by `./scripts/test-suite.sh domain cli`, `./scripts/test-suite.sh domain bench` for bench moves, and then `./scripts/test-suite.sh fast` before declaring the migration stable.
 
+The fifth acceptance criterion is final-state deletion. Moved command implementations must be gone from `cookimport/cli.py`; the file should remain only as the public Typer composition root plus the explicitly out-of-scope `epub` passthrough registration.
+
 The fourth acceptance criterion is documentation. `docs/02-cli/02-cli_README.md` and any touched architecture docs must point readers to the new command package rather than treating `cookimport/cli.py` as the only source of truth.
 
 ## Idempotence and Recovery
 
-This refactor is safe to do incrementally. Creating the package and moving one family at a time is repeatable. If one extraction breaks a command, restore a thin wrapper in `cookimport/cli.py` that delegates back to the last known-good implementation while keeping the new module file in place. Do not collapse the whole refactor just because one family needs a temporary bridge.
+This refactor is safe to do incrementally, but it is not meant to end in a dual-home state. If one extraction breaks a command during implementation, fix it or temporarily park the work on that family; do not check in a permanent bridge that keeps the old implementation alive beside the new one.
 
-If Typer registration becomes awkward in one module, prefer a temporary wrapper to a risky decorator rewrite. The goal is to keep the public CLI stable while shrinking the composition root gradually.
+If Typer registration becomes awkward in one module, solve the decorator/registration problem in the same refactor rather than preserving the old command body indefinitely. The goal is to keep the public CLI stable while decisively shrinking the composition root.
 
 ## Artifacts and Notes
 
@@ -279,4 +282,4 @@ The new command modules may depend on their owning runtime domains and shared co
 
 ## Revision note
 
-Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live CLI tree. The revision makes the existing `epub` sub-app scope explicit, adds signature-preservation guidance for extracted Typer commands, and tightens validation so the plan protects the whole public CLI surface rather than only the command families being moved.
+Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live CLI tree and then again to a burn-the-boats posture. The plan now requires real deletion of moved command implementations from `cookimport/cli.py` rather than a long-lived wrapper migration.

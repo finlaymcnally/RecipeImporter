@@ -42,7 +42,7 @@ Rules:
   - `TIME_LINE`: stand-alone timing/temperature lines, not full instruction sentences.
   - `HOWTO_SECTION`: recipe-internal subsection headings that split one recipe into component ingredient lists or step families, such as `FOR THE SAUCE`, `FOR THE DRESSING`, `TO FINISH`, or `FOR SERVING`.
   - `RECIPE_VARIANT`: alternate recipe names, variant headers, or short local alternate-version runs inside one recipe.
-  - `KNOWLEDGE`: explanatory/reference prose, not ordinary recipe structure.
+  - `KNOWLEDGE`: recipe-local explanatory/reference prose, not ordinary recipe structure.
   - `OTHER`: navigation, memoir, marketing, dedications, table of contents, or decorative matter.
 - Negative rules:
   - Never label a quantity/unit ingredient line as `KNOWLEDGE`.
@@ -50,24 +50,24 @@ Rules:
   - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
   - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
   - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
-  - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
-  - Brief first-person lesson prose can still be `KNOWLEDGE` when it states a reusable cooking rule or explanation, not just memoir.
-  - Short declarative teaching lines can stay `KNOWLEDGE` when they clearly state a reusable cooking correction or rule in the same lesson cluster.
+  - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer review-eligible `OTHER`, not `INSTRUCTION_LINE`.
+  - Outside recipes, useful lesson prose still stays review-eligible `OTHER`; the later knowledge stage decides semantic `KNOWLEDGE` versus `OTHER`.
+  - Short declarative teaching lines about reusable cooking rules should still stay review-eligible `OTHER` in this stage.
   - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
-  - If the shard rows are outside recipe context, default to `OTHER` unless the row clearly teaches reusable cooking explanation/reference prose; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
+  - If the shard rows are outside recipe context, default to review-eligible `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
   - If a row is plausible under its current deterministic label, leave it there.
   - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
   - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
   - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the whole line is a short heading-shaped header.
   - A `Variations` heading and its immediately following alternate-version lines usually stay `RECIPE_VARIANT` until the variant run ends.
   - Short `Variation` / `Variations` follow-up lines such as `To add a little heat ...` or `To evoke the flavors ...` usually stay `RECIPE_VARIANT`.
-  - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
-  - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
-  - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
+  - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually review-eligible `OTHER`.
+  - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer review-eligible `OTHER`, not `HOWTO_SECTION`.
+  - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay review-eligible `OTHER` when surrounding rows are explanatory prose.
   - A lone question-style topic heading such as `What is Heat?` should stay `OTHER` unless nearby rows clearly teach that concept.
   - Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` stay `OTHER` until nearby rows prove one live recipe.
   - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
-  - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
+  - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`; only overwhelming obvious junk should also get `review_exclusion_reason`.
 - Dedications, front matter, and table-of-contents entries are usually `OTHER`.
 - Use optional `review_exclusion_reason` only on rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
 - Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`.

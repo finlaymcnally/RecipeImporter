@@ -2905,9 +2905,9 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
                     joined = str(example.get("joined_line_table_jsonl") or "").strip()
                     flips = str(example.get("line_role_flips_vs_baseline_jsonl") or "").strip()
                     slice_path = str(example.get("slice_metrics_json") or "").strip()
-                    kb_path = str(example.get("knowledge_budget_json") or "").strip()
+                    routing_path = str(example.get("routing_summary_json") or "").strip()
                     gates_path = str(example.get("regression_gates_json") or "").strip()
-                    if joined or flips or slice_path or kb_path or gates_path:
+                    if joined or flips or slice_path or routing_path or gates_path:
                         artifact_bits = []
                         if joined:
                             artifact_bits.append(f"joined={joined}")
@@ -2915,8 +2915,8 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
                             artifact_bits.append(f"flips={flips}")
                         if slice_path:
                             artifact_bits.append(f"slices={slice_path}")
-                        if kb_path:
-                            artifact_bits.append(f"knowledge={kb_path}")
+                        if routing_path:
+                            artifact_bits.append(f"routing={routing_path}")
                         if gates_path:
                             artifact_bits.append(f"gates={gates_path}")
                         lines.append(f"  line-role artifacts (sample): {', '.join(artifact_bits)}")
@@ -2928,13 +2928,14 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
                             for name in sorted(slice_summary)
                         )
                         lines.append(f"  line-role slices (sample): {slice_counts}")
-                    kb = example.get("knowledge_budget_summary")
-                    if isinstance(kb, dict) and kb:
-                        total = _coerce_int(kb.get("knowledge_pred_total"))
-                        inside = _coerce_int(kb.get("knowledge_pred_inside_recipe"))
-                        outside = _coerce_int(kb.get("knowledge_pred_outside_recipe"))
+                    routing = example.get("routing_summary")
+                    if isinstance(routing, dict) and routing:
+                        eligible = _coerce_int(routing.get("outside_recipe_review_eligible_count"))
+                        excluded = _coerce_int(routing.get("outside_recipe_review_excluded_count"))
+                        structured = _coerce_int(routing.get("outside_recipe_structured_count"))
                         lines.append(
-                            f"  knowledge (sample): total={total}, inside_recipe={inside}, outside_recipe={outside}"
+                            "  routing (sample): "
+                            f"review_eligible={eligible}, excluded={excluded}, outside_recipe_structured={structured}"
                         )
     lines.append("")
     return "\n".join(lines)
@@ -3041,11 +3042,11 @@ def _summarize_line_role_artifacts(
         joined_path = line_role_dir / "joined_line_table.jsonl"
         flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
         slice_path = line_role_dir / "slice_metrics.json"
-        knowledge_path = line_role_dir / "knowledge_budget.json"
+        routing_path = line_role_dir / "routing_summary.json"
         gates_path = line_role_dir / "regression_gates.json"
 
         slice_payload = _load_json_object_or_none(slice_path) or {}
-        knowledge_payload = _load_json_object_or_none(knowledge_path) or {}
+        routing_payload = _load_json_object_or_none(routing_path) or {}
         gates_payload = _load_json_object_or_none(gates_path) or {}
 
         gates_verdict = str(
@@ -3077,23 +3078,34 @@ def _summarize_line_role_artifacts(
                 "joined_line_table_jsonl": _rel(joined_path) if joined_path.exists() else None,
                 "line_role_flips_vs_baseline_jsonl": _rel(flips_path) if flips_path.exists() else None,
                 "slice_metrics_json": _rel(slice_path) if slice_path.exists() else None,
-                "knowledge_budget_json": _rel(knowledge_path) if knowledge_path.exists() else None,
+                "routing_summary_json": _rel(routing_path) if routing_path.exists() else None,
                 "regression_gates_json": _rel(gates_path) if gates_path.exists() else None,
                 "regression_gates_verdict": gates_verdict or None,
                 "slice_metrics_summary": slices_summary,
-                "knowledge_budget_summary": {
-                    "knowledge_pred_total": _coerce_int(knowledge_payload.get("knowledge_pred_total")),
-                    "knowledge_pred_inside_recipe": _coerce_int(
-                        knowledge_payload.get("knowledge_pred_inside_recipe")
+                "routing_summary": {
+                    "inside_recipe_line_count": _coerce_int(
+                        routing_payload.get("inside_recipe_line_count")
                     ),
-                    "knowledge_pred_outside_recipe": _coerce_int(
-                        knowledge_payload.get("knowledge_pred_outside_recipe")
+                    "outside_recipe_line_count": _coerce_int(
+                        routing_payload.get("outside_recipe_line_count")
                     ),
-                    "knowledge_inside_ratio": _coerce_float(
-                        knowledge_payload.get("knowledge_inside_ratio")
+                    "unknown_recipe_status_line_count": _coerce_int(
+                        routing_payload.get("unknown_recipe_status_line_count")
+                    ),
+                    "recipe_local_label_count": _coerce_int(
+                        routing_payload.get("recipe_local_label_count")
+                    ),
+                    "outside_recipe_structured_count": _coerce_int(
+                        routing_payload.get("outside_recipe_structured_count")
+                    ),
+                    "outside_recipe_review_eligible_count": _coerce_int(
+                        routing_payload.get("outside_recipe_review_eligible_count")
+                    ),
+                    "outside_recipe_review_excluded_count": _coerce_int(
+                        routing_payload.get("outside_recipe_review_excluded_count")
                     ),
                 }
-                if knowledge_payload
+                if routing_payload
                 else {},
             }
         )

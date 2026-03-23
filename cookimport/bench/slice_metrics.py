@@ -59,25 +59,58 @@ def build_line_role_slice_metrics(
     return payload
 
 
+def build_line_role_routing_summary(
+    joined_line_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    inside_recipe_count = 0
+    outside_recipe_count = 0
+    unknown_recipe_status_count = 0
+    outside_recipe_review_excluded_count = 0
+    outside_recipe_review_eligible_count = 0
+    outside_recipe_structured_count = 0
+    recipe_local_label_count = 0
+    structured_labels = {
+        "RECIPE_TITLE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "HOWTO_SECTION",
+        "YIELD_LINE",
+        "TIME_LINE",
+        "RECIPE_NOTES",
+        "RECIPE_VARIANT",
+    }
+    for row in joined_line_rows:
+        label = str(row.get("pred_label") or "OTHER")
+        within_recipe_span = row.get("within_recipe_span")
+        if within_recipe_span is True:
+            inside_recipe_count += 1
+            if label in structured_labels:
+                recipe_local_label_count += 1
+        elif within_recipe_span is False:
+            outside_recipe_count += 1
+            if label in structured_labels:
+                outside_recipe_structured_count += 1
+            review_exclusion_reason = str(row.get("review_exclusion_reason") or "").strip()
+            if label == "OTHER" and review_exclusion_reason:
+                outside_recipe_review_excluded_count += 1
+            else:
+                outside_recipe_review_eligible_count += 1
+        else:
+            unknown_recipe_status_count += 1
+    return {
+        "schema_version": "line_role_routing_summary.v1",
+        "line_count": len(joined_line_rows),
+        "inside_recipe_line_count": inside_recipe_count,
+        "outside_recipe_line_count": outside_recipe_count,
+        "unknown_recipe_status_line_count": unknown_recipe_status_count,
+        "recipe_local_label_count": recipe_local_label_count,
+        "outside_recipe_structured_count": outside_recipe_structured_count,
+        "outside_recipe_review_eligible_count": outside_recipe_review_eligible_count,
+        "outside_recipe_review_excluded_count": outside_recipe_review_excluded_count,
+    }
+
+
 def build_line_role_knowledge_budget(
     joined_line_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    inside_count = 0
-    outside_count = 0
-    for row in joined_line_rows:
-        label = str(row.get("pred_label") or "OTHER")
-        if label != "KNOWLEDGE":
-            continue
-        if bool(row.get("within_recipe_span")):
-            inside_count += 1
-        else:
-            outside_count += 1
-    total = inside_count + outside_count
-    return {
-        "schema_version": "line_role_knowledge_budget.v1",
-        "line_count": len(joined_line_rows),
-        "knowledge_pred_total": total,
-        "knowledge_pred_inside_recipe": inside_count,
-        "knowledge_pred_outside_recipe": outside_count,
-        "knowledge_inside_ratio": (inside_count / total) if total else 0.0,
-    }
+    return build_line_role_routing_summary(joined_line_rows)

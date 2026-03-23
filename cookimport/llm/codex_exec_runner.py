@@ -52,6 +52,7 @@ _DIRECT_EXEC_EXAMPLES_DIR_NAME = "examples"
 _DIRECT_EXEC_TOOLS_DIR_NAME = "tools"
 _DIRECT_EXEC_OUTPUT_DIR_NAME = "out"
 _DIRECT_EXEC_SCRATCH_DIR_NAME = "scratch"
+_DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS = 5.0
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
@@ -194,6 +195,8 @@ class CodexExecLiveSnapshot:
     last_command: str | None
     last_command_repeat_count: int
     has_final_agent_message: bool
+    agent_message_count: int = 0
+    turn_completed_count: int = 0
     timeout_seconds: int | None = None
     final_agent_message_state: FinalAgentMessageState = "absent"
     final_agent_message_reason: str | None = None
@@ -392,6 +395,27 @@ class CodexExecRunResult:
                 "codex_event_count_total": row.get("codex_event_count"),
             },
         }
+        token_usage_status = _token_usage_status_from_direct_rows([row])
+        if token_usage_status is not None:
+            telemetry_summary = dict(telemetry["summary"])
+            telemetry_summary["token_usage_status"] = token_usage_status
+            telemetry_summary["token_usage_available_call_count"] = (
+                1 if _row_has_any_token_usage(row) else 0
+            )
+            telemetry_summary["token_usage_missing_call_count"] = (
+                1 if _row_looks_like_missing_token_usage(row) else 0
+            )
+            if token_usage_status != "complete":
+                for key in (
+                    "tokens_input",
+                    "tokens_cached_input",
+                    "tokens_output",
+                    "tokens_reasoning",
+                    "tokens_total",
+                    "wrapper_overhead_tokens",
+                ):
+                    telemetry_summary[key] = None
+            telemetry["summary"] = telemetry_summary
         return {
             "runner_kind": "codex_exec_direct",
             "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
@@ -1250,12 +1274,13 @@ def _build_direct_exec_agents_text(
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
             "Prefer opening the named files directly instead of exploring the workspace or dumping whole manifests just to orient yourself.\n"
             "If a named JSON file needs structure extraction, prefer a short local `python3` helper or one direct query against that file over a broad shell scheduler.\n"
+            "For knowledge batch workspaces, bounded automation over only the active batch drafts is acceptable; queue/output control scripting and queue-control rewrites are not.\n"
             "Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `scratch/`, approved result paths, or short-lived local temp roots such as `/tmp`.\n"
             "The watchdog is boundary-based: stay inside this workspace, keep every visible path local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
             "When the prompt gives you a leased-packet loop, finish the current packet, then re-open the current-packet files instead of inventing your own batch scheduler.\n"
-            "When the workspace offers a repo-written `complete-batch`, `check-batch`, `install-batch`, `complete-current`, or `check-current` helper, use that paved road instead of scripting your own queue processor.\n"
+            "When the workspace offers repo-written helpers, start with the smallest prompt-named helper surface first and treat broader recovery helpers as fallback, not routine startup.\n"
         )
     return (
         "# RecipeImport Direct Codex Worker\n\n"
@@ -1470,6 +1495,7 @@ def _run_codex_exec_subprocess_streaming(
     last_event_at: float | None = None
     last_snapshot_at = started_at
     termination_decision: CodexExecSupervisionDecision | None = None
+    graceful_termination_deadline: float | None = None
 
     reader_threads = [
         threading.Thread(
@@ -1532,7 +1558,26 @@ def _run_codex_exec_subprocess_streaming(
                     and decision.action == "terminate"
                 ):
                     termination_decision = decision
-                    _terminate_codex_process(process)
+                    normalized_supervision_state = str(
+                        decision.supervision_state or ""
+                    ).strip().lower()
+                    if (
+                        workspace_mode == "workspace_worker"
+                        and normalized_supervision_state.startswith("completed")
+                    ):
+                        graceful_termination_deadline = (
+                            current_time + _DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS
+                        )
+                    else:
+                        _terminate_codex_process(process)
+
+        if (
+            graceful_termination_deadline is not None
+            and process.poll() is None
+            and current_time >= graceful_termination_deadline
+        ):
+            _terminate_codex_process(process)
+            graceful_termination_deadline = None
 
         if (
             process.poll() is not None
@@ -1609,6 +1654,8 @@ def _build_codex_exec_live_snapshot(
         event_count=len(events),
         command_execution_count=live_summary["command_execution_count"],
         reasoning_item_count=live_summary["reasoning_item_count"],
+        agent_message_count=live_summary["agent_message_count"],
+        turn_completed_count=live_summary["turn_completed_count"],
         last_command=live_summary["last_command"],
         last_command_repeat_count=live_summary["last_command_repeat_count"],
         has_final_agent_message=final_agent_message.state != "absent",
@@ -1652,6 +1699,8 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
     watchdog_killed_shards: set[str] = set()
     watchdog_recovered_shards: set[str] = set()
     pathological_shards: set[str] = set()
+    token_usage_available_call_count = 0
+    token_usage_missing_call_count = 0
     for row in rows:
         summary["duration_total_ms"] += int(row.get("duration_ms") or 0)
         summary["tokens_input"] += int(row.get("tokens_input") or 0)
@@ -1668,6 +1717,10 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         prompt_input_mode_counts[prompt_input_mode] = (
             int(prompt_input_mode_counts.get(prompt_input_mode) or 0) + 1
         )
+        if _row_has_any_token_usage(row):
+            token_usage_available_call_count += 1
+        elif _row_looks_like_missing_token_usage(row):
+            token_usage_missing_call_count += 1
         if prompt_input_mode == "workspace_worker":
             summary["workspace_worker_row_count"] += 1
             if bool(row.get("worker_session_primary_row")):
@@ -1756,8 +1809,99 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         sorted(dict(summary.get("command_policy_counts") or {}).items())
     )
     summary["prompt_input_mode_counts"] = dict(sorted(prompt_input_mode_counts.items()))
+    token_usage_status = _token_usage_status_from_counts(
+        available_call_count=token_usage_available_call_count,
+        missing_call_count=token_usage_missing_call_count,
+    )
+    if token_usage_status is not None:
+        summary["token_usage_status"] = token_usage_status
+        summary["token_usage_available_call_count"] = token_usage_available_call_count
+        summary["token_usage_missing_call_count"] = token_usage_missing_call_count
+        if token_usage_status != "complete":
+            for key in (
+                "tokens_input",
+                "tokens_cached_input",
+                "tokens_output",
+                "tokens_reasoning",
+                "tokens_total",
+                "wrapper_overhead_tokens",
+                "command_execution_tokens_total",
+                "reasoning_heavy_tokens_total",
+                "invalid_output_tokens_total",
+                "structured_followup_tokens_total",
+            ):
+                summary[key] = None
+            summary["cost_breakdown"] = {
+                "visible_input_tokens": summary["visible_input_tokens"],
+                "cached_input_tokens": None,
+                "visible_output_tokens": summary["visible_output_tokens"],
+                "wrapper_overhead_tokens": None,
+                "reasoning_tokens": None,
+                "billed_total_tokens": None,
+            }
     summary["pathological_flags"] = _summary_pathological_flags(summary)
     return summary
+
+
+def _row_has_any_token_usage(row: Mapping[str, Any]) -> bool:
+    for field in (
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+    ):
+        value = _coerce_nonnegative_int(row.get(field))
+        if value is not None and value > 0:
+            return True
+    return False
+
+
+def _row_looks_like_missing_token_usage(row: Mapping[str, Any]) -> bool:
+    if _row_has_any_token_usage(row):
+        return False
+    return any(
+        value not in (None, "", 0, False)
+        for value in (
+            _coerce_nonnegative_int(row.get("duration_ms")),
+            _coerce_nonnegative_int(row.get("visible_input_tokens")),
+            _coerce_nonnegative_int(row.get("visible_output_tokens")),
+            _coerce_nonnegative_int(row.get("codex_event_count")),
+            _coerce_nonnegative_int(row.get("command_execution_count")),
+            _coerce_nonnegative_int(row.get("reasoning_item_count")),
+            row.get("started_at_utc"),
+            row.get("finished_at_utc"),
+            row.get("prompt_text"),
+            row.get("output_payload_present"),
+            row.get("prompt_input_mode"),
+        )
+    )
+
+
+def _token_usage_status_from_counts(
+    *,
+    available_call_count: int,
+    missing_call_count: int,
+) -> str | None:
+    if missing_call_count > 0:
+        return "partial" if available_call_count > 0 else "unavailable"
+    if available_call_count > 0:
+        return "complete"
+    return None
+
+
+def _token_usage_status_from_direct_rows(rows: Sequence[Mapping[str, Any]]) -> str | None:
+    available_call_count = 0
+    missing_call_count = 0
+    for row in rows:
+        if _row_has_any_token_usage(row):
+            available_call_count += 1
+        elif _row_looks_like_missing_token_usage(row):
+            missing_call_count += 1
+    return _token_usage_status_from_counts(
+        available_call_count=available_call_count,
+        missing_call_count=missing_call_count,
+    )
 
 
 def _parse_codex_json_events(stdout_text: str | None, stderr_text: str | None) -> list[dict[str, Any]]:
@@ -2045,16 +2189,24 @@ def _summarize_live_codex_events(
     command_item_ids: set[str] = set()
     command_texts: list[str] = []
     reasoning_item_count = 0
+    agent_message_count = 0
+    turn_completed_count = 0
     last_command: str | None = None
     last_command_repeat_count = 0
     for payload in events:
         payload_type = str(payload.get("type") or "").strip()
+        if payload_type == "turn.completed":
+            turn_completed_count += 1
+            continue
         if payload_type not in {"item.started", "item.completed"}:
             continue
         item = payload.get("item")
         if not isinstance(item, Mapping):
             continue
         item_type = str(item.get("type") or "").strip()
+        if payload_type == "item.completed" and item_type == "agent_message":
+            agent_message_count += 1
+            continue
         if item_type == "command_execution":
             item_id = str(item.get("id") or "").strip()
             if item_id:
@@ -2075,6 +2227,8 @@ def _summarize_live_codex_events(
             len(command_item_ids) if command_item_ids else len(command_texts)
         ),
         "reasoning_item_count": reasoning_item_count,
+        "agent_message_count": agent_message_count,
+        "turn_completed_count": turn_completed_count,
         "last_command": last_command,
         "last_command_repeat_count": last_command_repeat_count,
     }
@@ -2299,7 +2453,7 @@ def _write_direct_exec_worker_manifest(
                     else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
                 ),
                 (
-                    "For knowledge batch workspaces, use only the repo-written batch helper commands during the main loop; direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours are off-contract."
+                    "For knowledge batch workspaces, use the repo-written batch helper commands during the main loop. `assigned_tasks.json` dumps and single-task helper detours are discouraged fallback moves, not ideal startup behavior, but only queue/output control scripting and queue-control rewrites are truly off-contract. If you automate, keep it bounded to the active batch drafts named in `current_batch.json`."
                     if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
                     else None
                 ),
@@ -2326,14 +2480,10 @@ def _write_direct_exec_worker_manifest(
                 (
                     [
                         "sed -n '1,120p' CURRENT_BATCH.md",
-                        "jq '.tasks[].task_id' current_batch.json",
-                        "sed -n '1,80p' hints/<task>.md",
-                        "python3 tools/knowledge_worker.py overview",
+                        "sed -n '1,120p' CURRENT_BATCH_FEEDBACK.md",
                         "python3 tools/knowledge_worker.py complete-batch",
                         "python3 tools/knowledge_worker.py check-batch",
                         "python3 tools/knowledge_worker.py install-batch",
-                        "python3 tools/knowledge_worker.py current-batch",
-                        "python3 tools/knowledge_worker.py next-batch",
                     ]
                     if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
                     else []
@@ -2383,7 +2533,7 @@ def _write_direct_exec_worker_manifest(
         "workspace_commands_forbidden": [
             *(
                 [
-                    "direct `assigned_tasks.json` dumps, helper-source reads of `tools/knowledge_worker.py`, and `install-current`-style single-task detours while a knowledge batch is active"
+                    "queue/output control scripting or repo-owned queue-control rewrites while a knowledge batch is active"
                 ]
                 if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
                 else []

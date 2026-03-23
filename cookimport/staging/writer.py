@@ -1428,6 +1428,17 @@ def write_knowledge_outputs_artifact(
                 if category == "other"
             ),
         },
+        "reason_code_counts": dict(
+            ((llm_report or {}).get("refinement_report") or {}).get("reason_code_counts") or {}
+        ),
+        "useful_reason_code_counts": dict(
+            ((llm_report or {}).get("refinement_report") or {}).get("useful_reason_code_counts")
+            or {}
+        ),
+        "other_reason_code_counts": dict(
+            ((llm_report or {}).get("refinement_report") or {}).get("other_reason_code_counts")
+            or {}
+        ),
         "pipeline": str((llm_report or {}).get("pipeline") or "off"),
         "enabled": bool((llm_report or {}).get("enabled")),
         "authority_mode": str(

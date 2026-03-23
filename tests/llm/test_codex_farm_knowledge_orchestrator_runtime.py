@@ -383,16 +383,16 @@ def test_knowledge_orchestrator_reports_live_task_packet_progress(
     payloads = fixture["payloads"]
     assert payloads
     assert payloads[0]["task_current"] == 0
-    assert payloads[0]["task_total"] == 4
+    assert payloads[0]["task_total"] == 2
     live_payloads = [
         payload
         for payload in payloads
         if 0 < int(payload.get("task_current") or 0) < int(payload.get("task_total") or 0)
     ]
     assert live_payloads
-    assert {int(payload["task_current"]) for payload in live_payloads} == {1, 2, 3}
-    assert payloads[-1]["task_current"] == 4
-    assert payloads[-1]["task_total"] == 4
+    assert {int(payload["task_current"]) for payload in live_payloads} == {1}
+    assert payloads[-1]["task_current"] == 2
+    assert payloads[-1]["task_total"] == 2
 
 
 def test_knowledge_orchestrator_progress_detail_lines_track_live_task_packets(
@@ -408,7 +408,7 @@ def test_knowledge_orchestrator_progress_detail_lines_track_live_task_packets(
     ]
 
     assert any(
-        "book.ks0000.nr (1/4 task packets)" in (payload.get("active_tasks") or [])
+        "book.ks0000.nr (1/2 task packets)" in (payload.get("active_tasks") or [])
         for payload in live_payloads
     )
     assert any(
@@ -514,9 +514,9 @@ def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 2
     assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
-    assert process_summary["workspace_worker_row_count"] == 4
+    assert process_summary["workspace_worker_row_count"] == 2
     assert process_summary["workspace_worker_session_count"] == 2
-    assert process_summary["prompt_input_mode_counts"] == {"workspace_worker": 4}
+    assert process_summary["prompt_input_mode_counts"] == {"workspace_worker": 2}
     assert state["max"] >= 2
 
 
@@ -702,14 +702,8 @@ def test_knowledge_orchestrator_leases_runtime_tasks_one_at_a_time(
     assert isinstance(runner, FakeCodexExecRunner)
     assert isinstance(worker_root, Path)
 
-    assert runner.seen_task_ids == [
-        "book.ks0000.nr.task-001",
-        "book.ks0000.nr.task-002",
-    ]
-    assert runner.seen_result_paths == [
-        "out/book.ks0000.nr.task-001.json",
-        "out/book.ks0000.nr.task-002.json",
-    ]
+    assert runner.seen_task_ids == ["book.ks0000.nr"]
+    assert runner.seen_result_paths == ["out/book.ks0000.nr.json"]
     assert all("Knowledge review hints" in prefix for prefix in runner.seen_hint_prefixes)
     assert not (worker_root / "current_task.json").exists()
     assert "No current task is active" in (
@@ -731,9 +725,8 @@ def test_knowledge_orchestrator_records_validated_runtime_task_outputs(
     assert isinstance(task_status_rows, list)
     assert isinstance(proposal, dict)
 
-    assert [row["state"] for row in task_status_rows] == ["validated", "validated"]
+    assert [row["state"] for row in task_status_rows] == ["validated"]
     assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
-        "book.ks0000.nr.task-001",
-        "book.ks0000.nr.task-002",
+        "book.ks0000.nr"
     ]
     assert apply_result.llm_report["counts"]["validated_shards"] == 1

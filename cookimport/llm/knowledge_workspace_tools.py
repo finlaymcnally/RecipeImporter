@@ -12,6 +12,11 @@ from .codex_farm_knowledge_ingest import (
     normalize_knowledge_worker_payload,
     validate_knowledge_shard_output,
 )
+from .codex_farm_knowledge_models import (
+    ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
+    ALLOWED_KNOWLEDGE_REASON_CODES,
+    ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
+)
 from .phase_worker_runtime import ShardManifestEntryV1
 
 _WORKER_SCRIPT_NAME = "knowledge_worker.py"
@@ -42,7 +47,7 @@ _NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT = (
     "No repo-written validation feedback exists yet for this batch."
 )
 _CHECK_CURRENT_AFTER_EDIT_TEXT = (
-    "Run `python3 tools/knowledge_worker.py check-current` after editing the current draft."
+    "Run `python3 tools/knowledge_worker.py debug check-current` after editing the current draft."
 )
 _BATCH_VALIDATION_STATUS_OK_TEXT = "Batch validation status: OK."
 _VALIDATION_STATUS_OK_TEXT = "Validation status: OK."
@@ -61,10 +66,10 @@ _CONTINUE_BATCH_IMMEDIATELY_TEXT = (
 )
 _VALIDATOR_ACCEPTED_TEXT = "The validator accepted this task packet."
 _INSTALL_CURRENT_READY_TEXT = (
-    "You may run `python3 tools/knowledge_worker.py install-current` to write the final result path."
+    "You may run `python3 tools/knowledge_worker.py debug install-current` to write the final result path."
 )
 _REOPEN_AFTER_INSTALL_TEXT = (
-    "After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and "
+    "After `debug install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and "
     "`CURRENT_TASK_FEEDBACK.md`."
 )
 _CONTINUE_IMMEDIATELY_TEXT = (
@@ -82,6 +87,21 @@ _INSTALL_CURRENT_SUCCESS_NOTICE = (
     "another task becomes active, continue with that task immediately. Do not ask for "
     "permission to continue while later tasks remain."
 )
+
+
+def _utility_cue_list(value: object) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [
+        str(item).strip()
+        for item in value
+        if str(item).strip()
+    ]
+
+
+def _format_utility_cues(cues: Sequence[str], *, empty_text: str = "none") -> str:
+    cleaned = [str(cue).strip() for cue in cues if str(cue).strip()]
+    return ", ".join(f"`{cue}`" for cue in cleaned) if cleaned else empty_text
 
 
 @dataclass(frozen=True)
@@ -133,13 +153,41 @@ def build_workspace_inventory_task_row(
         if str(value).strip()
     ]
     chunk_knowledge_cue_by_id = _coerce_dict(metadata.get("chunk_knowledge_cue_by_id"))
+    chunk_positive_cues_by_id = _coerce_dict(metadata.get("chunk_utility_positive_cues_by_id"))
+    chunk_negative_cues_by_id = _coerce_dict(metadata.get("chunk_utility_negative_cues_by_id"))
+    chunk_borderline_by_id = _coerce_dict(metadata.get("chunk_utility_borderline_by_id"))
+    chunk_strong_negative_by_id = _coerce_dict(
+        metadata.get("chunk_strong_negative_utility_cue_by_id")
+    )
     strong_knowledge_cue = any(
         bool(chunk_knowledge_cue_by_id.get(chunk_id))
         for chunk_id in owned_ids
     )
+    positive_cues = sorted(
+        {
+            cue
+            for chunk_id in owned_ids
+            for cue in _utility_cue_list(chunk_positive_cues_by_id.get(chunk_id))
+        }
+    )
+    negative_cues = sorted(
+        {
+            cue
+            for chunk_id in owned_ids
+            for cue in _utility_cue_list(chunk_negative_cues_by_id.get(chunk_id))
+        }
+    )
     inventory_metadata = dict(metadata)
     inventory_metadata["strong_knowledge_cue"] = strong_knowledge_cue
     inventory_metadata["owned_chunk_count"] = len(owned_ids)
+    inventory_metadata["utility_positive_cues"] = positive_cues
+    inventory_metadata["utility_negative_cues"] = negative_cues
+    inventory_metadata["utility_borderline"] = any(
+        bool(chunk_borderline_by_id.get(chunk_id)) for chunk_id in owned_ids
+    )
+    inventory_metadata["strong_negative_utility_cue"] = any(
+        bool(chunk_strong_negative_by_id.get(chunk_id)) for chunk_id in owned_ids
+    )
     return {
         "task_id": task_id,
         "task_kind": str(row.get("task_kind") or "").strip() or None,
@@ -273,6 +321,14 @@ def build_current_batch_payload(
                     if str(value).strip()
                 ],
                 "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
+                "strong_negative_utility_cue": bool(metadata.get("strong_negative_utility_cue")),
+                "utility_borderline": bool(metadata.get("utility_borderline")),
+                "utility_positive_cues": _utility_cue_list(
+                    metadata.get("utility_positive_cues")
+                ),
+                "utility_negative_cues": _utility_cue_list(
+                    metadata.get("utility_negative_cues")
+                ),
             }
         )
     batch_start_position = int(_coerce_dict(batch_rows[0].get("metadata")).get("task_sequence") or current_index + 1)
@@ -352,6 +408,10 @@ def render_current_task_brief_text(
             continue
         block_spans.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
     strong_knowledge_cue = bool(metadata.get("strong_knowledge_cue"))
+    strong_negative_utility_cue = bool(metadata.get("strong_negative_utility_cue"))
+    utility_borderline = bool(metadata.get("utility_borderline"))
+    utility_positive_cues = _utility_cue_list(metadata.get("utility_positive_cues"))
+    utility_negative_cues = _utility_cue_list(metadata.get("utility_negative_cues"))
     task_sequence = int(metadata.get("task_sequence") or 0)
     task_total = int(metadata.get("task_total") or 0)
     remaining_after_current = (
@@ -380,9 +440,21 @@ def render_current_task_brief_text(
             else "Remaining tasks after this one: unknown"
         ),
         (
-            "Strong cue: yes. An all-`other` answer is high risk here unless the owned text is clearly not reusable knowledge."
+            "Strong cue: yes. An all-`other` answer is high risk here unless the owned text is clearly not worth preserving as durable cooking leverage."
             if strong_knowledge_cue
-            else "Strong cue: no. It is acceptable to keep everything `other` if the owned text is clearly non-knowledge."
+            else "Strong cue: no. It is acceptable to keep everything `other` if the owned text is clearly not worth preserving."
+        ),
+        f"Utility-positive cues: {_format_utility_cues(utility_positive_cues)}.",
+        f"Utility-negative cues: {_format_utility_cues(utility_negative_cues)}.",
+        (
+            "Skepticism level: high. This packet looks like framing, memoir, navigation, or low-utility filler unless the block text proves otherwise."
+            if strong_negative_utility_cue
+            else "Skepticism level: balanced."
+        ),
+        (
+            "Borderline packet: yes. Ask whether saving this would materially improve future cooking decisions before keeping anything as `knowledge`."
+            if utility_borderline
+            else "Borderline packet: no."
         ),
         (
             "The prewritten scaffold is intentionally not install-ready here: it uses "
@@ -391,17 +463,18 @@ def render_current_task_brief_text(
             else "The prewritten scaffold is only a starting point; replace `review_not_completed` before install."
         ),
         "",
+        "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
         "This assignment stays active until the repo removes `current_task.json` and rewrites the current-task sidecars to say the queue is complete.",
-        "A successful `install-current` is only a handoff to the next repo-owned current task, not a stopping point.",
+        "A successful `debug install-current` is only a handoff to the next repo-owned current task, not a stopping point.",
         "When `CURRENT_BATCH.md` / `current_batch.json` are present, treat the batch files as the normal path and use this single-task surface only for narrow recovery/debugging.",
         "",
         "Recommended loop:",
         "1. Read the hint and input files named above.",
-        "2. Run `python3 tools/knowledge_worker.py complete-current` to write the default draft to `scratch/current_task.json`.",
+        "2. Run `python3 tools/knowledge_worker.py debug complete-current` to write the default draft to `scratch/current_task.json`.",
         "3. Edit the draft until the snippet bodies are short grounded claims, not copied evidence surfaces.",
-        "4. Run `python3 tools/knowledge_worker.py check-current`.",
-        "5. Run `python3 tools/knowledge_worker.py install-current` only after `check-current` says OK.",
-        "6. After `install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If another task becomes active, continue with that task immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
+        "4. Run `python3 tools/knowledge_worker.py debug check-current`.",
+        "5. Run `python3 tools/knowledge_worker.py debug install-current` only after `debug check-current` says OK.",
+        "6. After `debug install-current`, re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. If another task becomes active, continue with that task immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
         "",
         "Do not process later tasks before this task passes the repo-owned checker.",
     ]
@@ -430,6 +503,18 @@ def render_current_batch_brief_text(
     ]
     first_task = _first_batch_task(batch_payload)
     strong_cue_task_ids = _strong_cue_task_ids(batch_payload)
+    strong_negative_task_ids = [
+        str(task.get("task_id") or "").strip()
+        for task in batch_tasks
+        if bool(task.get("strong_negative_utility_cue"))
+        and str(task.get("task_id") or "").strip()
+    ]
+    borderline_task_ids = [
+        str(task.get("task_id") or "").strip()
+        for task in batch_tasks
+        if bool(task.get("utility_borderline"))
+        and str(task.get("task_id") or "").strip()
+    ]
     lines = [
         "# Current Knowledge Batch",
         "",
@@ -447,7 +532,20 @@ def render_current_batch_brief_text(
             if strong_cue_task_ids
             else "Strong-cue tasks in this batch: none."
         ),
+        (
+            "High-skepticism tasks in this batch: "
+            + ", ".join(f"`{task_id}`" for task_id in strong_negative_task_ids)
+            if strong_negative_task_ids
+            else "High-skepticism tasks in this batch: none."
+        ),
+        (
+            "Borderline utility tasks in this batch: "
+            + ", ".join(f"`{task_id}`" for task_id in borderline_task_ids)
+            if borderline_task_ids
+            else "Borderline utility tasks in this batch: none."
+        ),
         "",
+        "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
         "This assignment stays active until the repo removes `current_batch.json` and rewrites the batch sidecars to say the queue is complete.",
         "A successful `install-batch` is only a handoff to the next repo-owned current batch, not a stopping point.",
         "",
@@ -455,11 +553,12 @@ def render_current_batch_brief_text(
         "1. Read `current_batch.json` and `CURRENT_BATCH_FEEDBACK.md` first; open the named hint and input files only when the batch packet is insufficient.",
         "2. Run `python3 tools/knowledge_worker.py complete-batch` to prewrite the default drafts under `scratch/current_batch/`.",
         "3. Edit the batch drafts until the snippet bodies are short grounded claims, not copied evidence surfaces.",
+        "   If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`. Do not loop over `assigned_tasks.json`, `current_task.json`, or `out/`.",
         "4. Run `python3 tools/knowledge_worker.py check-batch`.",
         "5. Run `python3 tools/knowledge_worker.py install-batch` after the batch checker says OK, or to install the longest valid prefix if an already-edited later draft still needs repair.",
         "6. After `install-batch`, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`. If another batch becomes active, continue with it immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
         "",
-        "Single-task `CURRENT_TASK*` files and `complete-current` helpers remain available only for narrow recovery/debugging on the first task in this batch.",
+        "Single-task `CURRENT_TASK*` files and `python3 tools/knowledge_worker.py debug ...` recovery commands remain available only for narrow recovery/debugging on the first task in this batch.",
     ]
     if first_task is not None:
         lines.extend(
@@ -480,6 +579,17 @@ def render_current_batch_brief_text(
                     "- Strong cue: yes. Do not install the prewritten all-`other` scaffold as-is."
                     if bool(first_task.get("strong_knowledge_cue"))
                     else "- Strong cue: no."
+                ),
+                (
+                    "- Skepticism: high. This first task looks like framing, memoir, navigation, or low-utility filler unless the text proves otherwise."
+                    if bool(first_task.get("strong_negative_utility_cue"))
+                    else "- Skepticism: balanced."
+                ),
+                (
+                    f"- Utility-positive cues: {_format_utility_cues(first_task.get('utility_positive_cues') or [])}."
+                ),
+                (
+                    f"- Utility-negative cues: {_format_utility_cues(first_task.get('utility_negative_cues') or [])}."
                 ),
             ]
         )
@@ -1192,7 +1302,7 @@ def build_knowledge_workspace_contract_examples(
                     "evidence": evidence_rows,
                 }
             ]
-            first_valid_chunk["reason_code"] = "grounded_useful"
+            first_valid_chunk["reason_code"] = "technique_or_mechanism"
     invalid_example = json.loads(json.dumps(valid_example))
     first_chunk = next(
         (
@@ -1243,10 +1353,72 @@ def build_knowledge_workspace_contract_examples(
                     "evidence": evidence_rows,
                 }
             ]
-            first_chunk["reason_code"] = "grounded_useful"
+            first_chunk["reason_code"] = "technique_or_mechanism"
+    low_utility_example = {
+        "packet_id": "utility-contrast-low-value",
+        "chunk_results": [
+            {
+                "chunk_id": "utility-low-value",
+                "is_useful": False,
+                "block_decisions": [
+                    {
+                        "block_index": 41,
+                        "category": "other",
+                        "reviewer_category": "other",
+                    }
+                ],
+                "snippets": [],
+                "reason_code": "true_but_low_utility",
+            }
+        ],
+    }
+    framing_example = {
+        "packet_id": "utility-contrast-framing",
+        "chunk_results": [
+            {
+                "chunk_id": "utility-framing",
+                "is_useful": False,
+                "block_decisions": [
+                    {
+                        "block_index": 51,
+                        "category": "other",
+                        "reviewer_category": "front_matter",
+                    },
+                    {
+                        "block_index": 52,
+                        "category": "other",
+                        "reviewer_category": "endorsement_or_marketing",
+                    },
+                ],
+                "snippets": [],
+                "reason_code": "book_framing_or_marketing",
+            }
+        ],
+    }
+    navigation_example = {
+        "packet_id": "utility-contrast-navigation",
+        "chunk_results": [
+            {
+                "chunk_id": "utility-navigation",
+                "is_useful": False,
+                "block_decisions": [
+                    {
+                        "block_index": 61,
+                        "category": "other",
+                        "reviewer_category": "chapter_taxonomy",
+                    }
+                ],
+                "snippets": [],
+                "reason_code": "navigation_or_chapter_taxonomy",
+            }
+        ],
+    }
     return {
         "valid_semantic_packet.json": valid_example,
         "invalid_echo_packet.json": invalid_example,
+        "valid_all_other_low_utility_packet.json": low_utility_example,
+        "valid_all_other_framing_packet.json": framing_example,
+        "valid_all_other_navigation_packet.json": navigation_example,
     }
 
 
@@ -1264,11 +1436,27 @@ def build_knowledge_workspace_contract_markdown(
         indent=2,
         sort_keys=True,
     )
+    low_utility_example = json.dumps(
+        dict(examples.get("valid_all_other_low_utility_packet.json") or {}),
+        indent=2,
+        sort_keys=True,
+    )
+    framing_example = json.dumps(
+        dict(examples.get("valid_all_other_framing_packet.json") or {}),
+        indent=2,
+        sort_keys=True,
+    )
+    navigation_example = json.dumps(
+        dict(examples.get("valid_all_other_navigation_packet.json") or {}),
+        indent=2,
+        sort_keys=True,
+    )
     return "\n".join(
         [
             "# Knowledge Workspace Output Contract",
             "",
             "Write one semantic packet-result JSON object per task to `out/<task_id>.json`.",
+            "Keep only durable cooking leverage. The positive class is not broad factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
             "",
             "Required top-level keys:",
             "- `packet_id`: must equal the task row `task_id` exactly.",
@@ -1276,15 +1464,25 @@ def build_knowledge_workspace_contract_markdown(
             "",
             "Per chunk-result row:",
             "- `chunk_id`: the owned chunk id from `in/<task_id>.json`.",
-            "- `is_useful`: `true` only when the chunk keeps at least one `knowledge` block and at least one grounded snippet.",
+            "- `is_useful`: `true` only when the chunk keeps at least one `knowledge` block and at least one grounded snippet because the text offers durable cooking leverage.",
             "- `block_decisions`: cover every owned block index exactly once and in order.",
             "- `snippets`: grounded reusable claims only; each snippet needs evidence rows with `block_index` plus verbatim `quote`.",
-            "- Optional `reason_code`: a short internal note such as `grounded_useful` or `all_other`.",
+            "- `reason_code`: required. It must explain why the chunk is worth keeping or why it should stay `other`.",
             "",
             "Category rules:",
-            "- Final `category` values are only `knowledge` or `other`.",
+            f"- Final `category` values are only `{ALLOWED_KNOWLEDGE_FINAL_CATEGORIES[0]}` or `{ALLOWED_KNOWLEDGE_FINAL_CATEGORIES[1]}`.",
             "- Optional `reviewer_category` values are `knowledge`, `chapter_taxonomy`, `decorative_heading`, `front_matter`, `toc_navigation`, `endorsement_or_marketing`, `memoir_or_scene_setting`, `reference_back_matter`, or `other`.",
             "- If final `category` is `knowledge`, `reviewer_category` must also be `knowledge`.",
+            "- `reason_code` must be one of: "
+            + ", ".join(f"`{code}`" for code in ALLOWED_KNOWLEDGE_REASON_CODES)
+            + ".",
+            "- Useful `reason_code` values: `technique_or_mechanism`, `diagnostic_or_troubleshooting`, `reference_or_definition`, `substitution_storage_or_safety`.",
+            "- All-`other` `reason_code` values: `book_framing_or_marketing`, `memoir_or_scene_setting`, `navigation_or_chapter_taxonomy`, `decorative_heading_only`, `true_but_low_utility`, `not_cooking_knowledge`.",
+            "",
+            "Utility questions:",
+            "- Would saving this materially improve a cook's future decisions, diagnosis, or technique?",
+            "- Does it explain cause and effect, sensory judgment, troubleshooting, ingredient behavior, substitution, storage, safety, or durable technique?",
+            "- If the text is technically true but generic or low-value, keep it `other`.",
             "",
             "Snippet rules:",
             "- Good snippet: a short grounded claim such as `Use low heat to prevent curdling.` supported by one or two short evidence quotes.",
@@ -1293,13 +1491,23 @@ def build_knowledge_workspace_contract_markdown(
             "Workflow:",
             "- Start from `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`.",
             "- Use `python3 tools/knowledge_worker.py complete-batch` to prewrite the current batch drafts under `scratch/current_batch/`.",
+            "- If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`; do not script directly against `assigned_tasks.json`, `current_task.json`, or `out/`.",
             "- Run `python3 tools/knowledge_worker.py check-batch` before every final batch install step; copied evidence text in `snippets[].body` is invalid.",
             "- The normal path is `install-batch`, which writes the longest valid prefix of the current batch to the declared `out/<task_id>.json` files.",
-            "- The single-task `CURRENT_TASK*` files plus `complete-current|check-current|install-current` remain available only for targeted recovery/debugging on the first active task.",
-            "- The lower-level `scaffold`, `check`, and `install` verbs remain available for targeted debugging.",
+            "- The single-task `CURRENT_TASK*` files plus `python3 tools/knowledge_worker.py debug complete-current|check-current|install-current` remain available only for targeted recovery/debugging on the first active task.",
+            "- The lower-level `python3 tools/knowledge_worker.py debug scaffold|check|install|show|overview` commands remain available for targeted debugging. Reading `tools/knowledge_worker.py` source is discouraged and usually wasted motion, but queue/output bypass is the hard failure boundary.",
             "",
             "Valid example:",
             valid_example,
+            "",
+            "Valid all-`other` low-utility example:",
+            low_utility_example,
+            "",
+            "Valid all-`other` framing example:",
+            framing_example,
+            "",
+            "Valid all-`other` navigation example:",
+            navigation_example,
             "",
             "Intentionally invalid echo example:",
             invalid_example,
@@ -1841,6 +2049,9 @@ def render_knowledge_worker_script() -> str:
     continue_immediately_text = json.dumps(_CONTINUE_IMMEDIATELY_TEXT)
     queue_complete_text = json.dumps(_QUEUE_COMPLETE_TEXT)
     install_current_success_notice = json.dumps(_INSTALL_CURRENT_SUCCESS_NOTICE)
+    allowed_final_categories = json.dumps(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)
+    allowed_reviewer_categories = json.dumps(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)
+    allowed_reason_codes = json.dumps(ALLOWED_KNOWLEDGE_REASON_CODES)
     return (
         textwrap.dedent(
             """
@@ -1853,22 +2064,29 @@ def render_knowledge_worker_script() -> str:
         import sys
         from pathlib import Path
 
-        ALLOWED_FINAL_CATEGORIES = ("knowledge", "other")
-        ALLOWED_REVIEWER_CATEGORIES = (
-            "knowledge",
-            "chapter_taxonomy",
-            "decorative_heading",
-            "front_matter",
-            "toc_navigation",
-            "endorsement_or_marketing",
-            "memoir_or_scene_setting",
-            "reference_back_matter",
-            "other",
-        )
+        ALLOWED_FINAL_CATEGORIES = tuple({allowed_final_categories})
+        ALLOWED_REVIEWER_CATEGORIES = tuple({allowed_reviewer_categories})
+        ALLOWED_REASON_CODES = tuple({allowed_reason_codes})
         SEMANTIC_CATEGORY_ALIAS_DEFAULTS = {
             "content": ("knowledge", "knowledge"),
             "noise": ("other", "endorsement_or_marketing"),
             "heading": ("other", "decorative_heading"),
+        }
+        USEFUL_REASON_CODES = {
+            "technique_or_mechanism",
+            "diagnostic_or_troubleshooting",
+            "reference_or_definition",
+            "substitution_storage_or_safety",
+        }
+        NON_USEFUL_REASON_CODES = {
+            "book_framing_or_marketing",
+            "memoir_or_scene_setting",
+            "navigation_or_chapter_taxonomy",
+            "decorative_heading_only",
+            "true_but_low_utility",
+            "not_cooking_knowledge",
+            "review_not_completed",
+            "strong_cue_review_required",
         }
         DEFAULT_SCAFFOLD_REASON_CODE = "review_not_completed"
         STRONG_CUE_SCAFFOLD_REASON_CODE = "strong_cue_review_required"
@@ -2081,6 +2299,18 @@ def render_knowledge_worker_script() -> str:
                             if str(value).strip()
                         ],
                         "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
+                        "strong_negative_utility_cue": bool(metadata.get("strong_negative_utility_cue")),
+                        "utility_borderline": bool(metadata.get("utility_borderline")),
+                        "utility_positive_cues": [
+                            str(value).strip()
+                            for value in (metadata.get("utility_positive_cues") or [])
+                            if str(value).strip()
+                        ],
+                        "utility_negative_cues": [
+                            str(value).strip()
+                            for value in (metadata.get("utility_negative_cues") or [])
+                            if str(value).strip()
+                        ],
                     }
                 )
             batch_start_position = int(_coerce_dict(batch_rows[0].get("metadata")).get("task_sequence") or start_index + 1)
@@ -2137,6 +2367,20 @@ def render_knowledge_worker_script() -> str:
                 and bool(task.get("strong_knowledge_cue"))
                 and str(task.get("task_id") or "").strip()
             ]
+            strong_negative_task_ids = [
+                str(task.get("task_id") or "").strip()
+                for task in (batch_payload.get("tasks") or [])
+                if isinstance(task, dict)
+                and bool(task.get("strong_negative_utility_cue"))
+                and str(task.get("task_id") or "").strip()
+            ]
+            borderline_task_ids = [
+                str(task.get("task_id") or "").strip()
+                for task in (batch_payload.get("tasks") or [])
+                if isinstance(task, dict)
+                and bool(task.get("utility_borderline"))
+                and str(task.get("task_id") or "").strip()
+            ]
             brief_lines = [
                 "# Current Knowledge Batch",
                 "",
@@ -2151,7 +2395,20 @@ def render_knowledge_worker_script() -> str:
                     if strong_cue_task_ids
                     else "Strong-cue tasks in this batch: none."
                 ),
+                (
+                    "High-skepticism tasks in this batch: "
+                    + ", ".join(f"`{task_id}`" for task_id in strong_negative_task_ids)
+                    if strong_negative_task_ids
+                    else "High-skepticism tasks in this batch: none."
+                ),
+                (
+                    "Borderline utility tasks in this batch: "
+                    + ", ".join(f"`{task_id}`" for task_id in borderline_task_ids)
+                    if borderline_task_ids
+                    else "Borderline utility tasks in this batch: none."
+                ),
                 "",
+                "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
                 "Use `complete-batch`, edit the drafts under `scratch/current_batch/`, then `check-batch` and `install-batch`.",
                 "Single-task `CURRENT_TASK*` files remain available only for narrow recovery on the first active task.",
             ]
@@ -2169,6 +2426,17 @@ def render_knowledge_worker_script() -> str:
                             if bool(first_task.get('strong_knowledge_cue'))
                             else "- Strong cue: no."
                         ),
+                        (
+                            "- Skepticism: high. This first task looks like framing, memoir, navigation, or low-utility filler unless the text proves otherwise."
+                            if bool(first_task.get('strong_negative_utility_cue'))
+                            else "- Skepticism: balanced."
+                        ),
+                        "- Utility-positive cues: "
+                        + (", ".join(f"`{value}`" for value in (first_task.get("utility_positive_cues") or [])) or "none")
+                        + ".",
+                        "- Utility-negative cues: "
+                        + (", ".join(f"`{value}`" for value in (first_task.get("utility_negative_cues") or [])) or "none")
+                        + ".",
                     ]
                 )
             brief_path.write_text("\\n".join(brief_lines) + "\\n", encoding="utf-8")
@@ -2185,6 +2453,12 @@ def render_knowledge_worker_script() -> str:
                         + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
                         if strong_cue_task_ids
                         else "Strong-cue tasks still needing a real judgment: none."
+                    ),
+                    (
+                        "High-skepticism tasks in this batch: "
+                        + ", ".join(f"`{task_id}`" for task_id in strong_negative_task_ids)
+                        if strong_negative_task_ids
+                        else "High-skepticism tasks in this batch: none."
                     ),
                     "Current first task:",
                     f"- `{first_task.get('task_id') or '[unknown task]'}`",
@@ -2270,6 +2544,11 @@ def render_knowledge_worker_script() -> str:
                 for chunk_result in working.get("chunk_results") or []:
                     if not isinstance(chunk_result, dict):
                         continue
+                    reason_code = str(chunk_result.get("reason_code") or "").strip()
+                    if reason_code == "grounded_useful":
+                        chunk_result["reason_code"] = "technique_or_mechanism"
+                    elif reason_code == "all_other":
+                        chunk_result["reason_code"] = "not_cooking_knowledge"
                     for decision in chunk_result.get("block_decisions") or []:
                         if not isinstance(decision, dict):
                             continue
@@ -2419,10 +2698,15 @@ def render_knowledge_worker_script() -> str:
                 row = chunk_results_by_id[chunk_id]
                 block_decisions = row.get("block_decisions")
                 snippets = row.get("snippets")
+                reason_code = str(row.get("reason_code") or "").strip()
                 if not isinstance(block_decisions, list):
                     raise ValueError("block_decisions must be a list")
                 if not isinstance(snippets, list):
                     raise ValueError("snippets must be a list")
+                if reason_code not in ALLOWED_REASON_CODES:
+                    raise ValueError(
+                        "reason_code must be one of " + ", ".join(ALLOWED_REASON_CODES)
+                    )
                 expected_block_indices = [
                     int(block.get("i"))
                     for block in chunk.get("b") or []
@@ -2542,10 +2826,14 @@ def render_knowledge_worker_script() -> str:
                     raise ValueError("useful chunk results must include at least one knowledge block decision")
                 if is_useful and snippet_count <= 0:
                     raise ValueError("useful chunk results must include at least one snippet")
+                if is_useful and reason_code not in USEFUL_REASON_CODES:
+                    raise ValueError("useful chunk reason_code must describe durable cooking leverage")
                 if not is_useful and knowledge_decision_count > 0:
                     raise ValueError("non-useful chunk results must not include knowledge block decisions")
                 if not is_useful and snippet_count > 0:
                     raise ValueError("non-useful chunk results must not include snippets")
+                if not is_useful and reason_code not in NON_USEFUL_REASON_CODES:
+                    raise ValueError("non-useful chunk reason_code must explain why the chunk stays other")
 
             if non_grounded_chunk_ids:
                 errors.append("semantic_snippet_body_not_grounded_text")
@@ -3142,64 +3430,70 @@ def render_knowledge_worker_script() -> str:
             parser = argparse.ArgumentParser(description="Knowledge workspace helper")
             subparsers = parser.add_subparsers(dest="command", required=True)
 
-            overview = subparsers.add_parser("overview", help="Show the ordered task queue")
-            overview.set_defaults(func=_command_overview)
-
             current_batch = subparsers.add_parser("current-batch", help="Show the repo-written current batch brief")
             current_batch.set_defaults(func=_command_current_batch)
-
-            current = subparsers.add_parser("current", help="Show the repo-written current task brief")
-            current.set_defaults(func=_command_current)
-
-            next_batch = subparsers.add_parser("next-batch", help="Show the next queued batch task ids")
-            next_batch.set_defaults(func=_command_next_batch)
-
-            next_task = subparsers.add_parser("next", help="Show the next queued task id after the current task")
-            next_task.set_defaults(func=_command_next)
-
-            show_batch = subparsers.add_parser("show-batch", help="Show the current batch payload")
-            show_batch.set_defaults(func=_command_show_batch)
-
-            show = subparsers.add_parser("show", help="Show one task row")
-            show.add_argument("task_id")
-            show.set_defaults(func=_command_show)
-
-            scaffold = subparsers.add_parser("scaffold", help="Write a semantic packet scaffold")
-            scaffold.add_argument("task_id")
-            scaffold.add_argument("--dest")
-            scaffold.set_defaults(func=_command_scaffold)
-
-            complete_current = subparsers.add_parser("complete-current", help="Write the default scaffold for the current task")
-            complete_current.add_argument("--dest")
-            complete_current.set_defaults(func=_command_complete_current)
 
             complete_batch = subparsers.add_parser("complete-batch", help="Write the default scaffolds for the current batch")
             complete_batch.set_defaults(func=_command_complete_batch)
 
-            check = subparsers.add_parser("check", help="Validate a draft packet")
-            check.add_argument("json_path")
-            check.set_defaults(func=_command_check)
-
-            check_current = subparsers.add_parser("check-current", help="Validate the current task draft")
-            check_current.add_argument("json_path", nargs="?")
-            check_current.set_defaults(func=_command_check_current)
-
             check_batch = subparsers.add_parser("check-batch", help="Validate the current batch drafts")
             check_batch.set_defaults(func=_command_check_batch)
-
-            install = subparsers.add_parser("install", help="Validate and install a draft packet")
-            install.add_argument("json_path")
-            install.set_defaults(func=_command_install)
-
-            install_current = subparsers.add_parser("install-current", help="Validate and install the current task draft")
-            install_current.add_argument("json_path", nargs="?")
-            install_current.set_defaults(func=_command_install_current)
 
             install_batch = subparsers.add_parser("install-batch", help="Validate and install the current batch drafts")
             install_batch.set_defaults(func=_command_install_batch)
 
             explain_failure = subparsers.add_parser("explain-failure", help="Show the current task feedback sidecar")
             explain_failure.set_defaults(func=_command_explain_failure)
+
+            debug = subparsers.add_parser(
+                "debug",
+                help="Recovery/debug helper surface for task-level inspection and fallback commands",
+            )
+            debug_subparsers = debug.add_subparsers(dest="debug_command", required=True)
+
+            overview = debug_subparsers.add_parser("overview", help="Show the ordered task queue")
+            overview.set_defaults(func=_command_overview)
+
+            current = debug_subparsers.add_parser("current", help="Show the repo-written current task brief")
+            current.set_defaults(func=_command_current)
+
+            next_batch = debug_subparsers.add_parser("next-batch", help="Show the next queued batch task ids")
+            next_batch.set_defaults(func=_command_next_batch)
+
+            next_task = debug_subparsers.add_parser("next", help="Show the next queued task id after the current task")
+            next_task.set_defaults(func=_command_next)
+
+            show_batch = debug_subparsers.add_parser("show-batch", help="Show the current batch payload")
+            show_batch.set_defaults(func=_command_show_batch)
+
+            show = debug_subparsers.add_parser("show", help="Show one task row")
+            show.add_argument("task_id")
+            show.set_defaults(func=_command_show)
+
+            scaffold = debug_subparsers.add_parser("scaffold", help="Write a semantic packet scaffold")
+            scaffold.add_argument("task_id")
+            scaffold.add_argument("--dest")
+            scaffold.set_defaults(func=_command_scaffold)
+
+            complete_current = debug_subparsers.add_parser("complete-current", help="Write the default scaffold for the current task")
+            complete_current.add_argument("--dest")
+            complete_current.set_defaults(func=_command_complete_current)
+
+            check = debug_subparsers.add_parser("check", help="Validate a draft packet")
+            check.add_argument("json_path")
+            check.set_defaults(func=_command_check)
+
+            check_current = debug_subparsers.add_parser("check-current", help="Validate the current task draft")
+            check_current.add_argument("json_path", nargs="?")
+            check_current.set_defaults(func=_command_check_current)
+
+            install = debug_subparsers.add_parser("install", help="Validate and install a draft packet")
+            install.add_argument("json_path")
+            install.set_defaults(func=_command_install)
+
+            install_current = debug_subparsers.add_parser("install-current", help="Validate and install the current task draft")
+            install_current.add_argument("json_path", nargs="?")
+            install_current.set_defaults(func=_command_install_current)
             return parser
 
         def main(argv=None):
@@ -3237,6 +3531,9 @@ def render_knowledge_worker_script() -> str:
         .replace("{continue_immediately_text}", continue_immediately_text)
         .replace("{queue_complete_text}", queue_complete_text)
         .replace("{install_current_success_notice}", install_current_success_notice)
+        .replace("{allowed_final_categories}", allowed_final_categories)
+        .replace("{allowed_reviewer_categories}", allowed_reviewer_categories)
+        .replace("{allowed_reason_codes}", allowed_reason_codes)
     )
 
 

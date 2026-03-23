@@ -124,6 +124,7 @@ _LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT = 16
 _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT = 4
 _LINE_ROLE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
+_LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = 2.0
 _LINE_ROLE_TASK_TARGET_ROWS = 80
 _LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS = 3
 _LINE_ROLE_PATHOLOGY_MIN_ROWS = 4
@@ -133,10 +134,10 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
     (
         "01-lesson-prose-vs-howto.md",
         "# Lesson prose vs recipe how-to\n\n"
-        "- Keep lesson headings such as `Balancing Fat` or `WHAT IS ACID?` as `KNOWLEDGE` when nearby rows are explanatory prose.\n"
-        "- Short declarative teaching lines such as `Foods that are too dry can be corrected with a bit more fat.` can stay `KNOWLEDGE` when they belong to the same lesson cluster.\n"
-        "- Declarative lesson prose about reusable cooking rules, such as `Salt, Fat, Acid, and Heat were the four elements ...`, should stay `KNOWLEDGE` even when the narration uses `I` or `we`.\n"
-        "- A lone question-style topic heading such as `What is Heat?` should stay `OTHER` unless nearby rows clearly teach that concept.\n"
+        "- Outside recipes, lesson headings such as `Balancing Fat` or `WHAT IS ACID?` stay review-eligible `OTHER`; the knowledge stage decides later whether they become semantic `KNOWLEDGE`.\n"
+        "- Short declarative teaching lines such as `Foods that are too dry can be corrected with a bit more fat.` also stay review-eligible `OTHER` in this stage.\n"
+        "- Declarative lesson prose about reusable cooking rules should stay `OTHER` here even when it looks useful.\n"
+        "- A lone question-style topic heading such as `What is Heat?` also stays review-eligible `OTHER` unless it is obvious junk that should be excluded.\n"
         "- Upgrade a heading to `HOWTO_SECTION` only when immediate neighboring rows are recipe-local ingredients or method subsections.\n"
         "- A heading by itself is weak evidence.\n",
     ),
@@ -144,7 +145,8 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "02-memoir-vs-knowledge.md",
         "# Memoir vs knowledge\n\n"
         "- First-person narrative or autobiographical prose is usually `OTHER`.\n"
-        "- Use `KNOWLEDGE` only when the prose is clearly teaching a reusable cooking idea.\n"
+        "- Useful outside-recipe teaching prose still stays review-eligible `OTHER` here; only the later knowledge stage decides `KNOWLEDGE` versus `OTHER`.\n"
+        "- Use `review_exclusion_reason` only for overwhelming obvious junk such as endorsements or front matter.\n"
         "- Do not turn memoir into recipe structure.\n",
     ),
     (
@@ -192,7 +194,7 @@ _TIME_PREFIX_RE = re.compile(
 _INSTRUCTION_VERB_RE = re.compile(
     r"^\s*(?:add|bake|beat|blend|boil|braise|bring|combine|cook|cool|cover|drain|"
     r"fold|grill|heat|mix|place|pour|quarter|reduce|remove|roast|season|serve|"
-    r"simmer|slice|stir|toss|transfer|whisk)\b",
+    r"simmer|slice|stir|toast|toss|transfer|whisk)\b",
     re.IGNORECASE,
 )
 _RECIPE_ACTION_CUE_RE = re.compile(
@@ -1013,6 +1015,7 @@ def _classify_line_role_packet_mode(
     front_matter_heading_count = 0
     navigation_entry_count = 0
     prose_line_count = 0
+    lesson_signal_count = 0
     for row in rows:
         if not isinstance(row, Mapping):
             continue
@@ -1061,6 +1064,25 @@ def _classify_line_role_packet_mode(
             front_matter_heading_count += 1
         if _looks_navigation_title_list_entry(current_line):
             navigation_entry_count += 1
+        if within_recipe_span is not True and not _looks_narrative_prose(current_line):
+            if (
+                _looks_domain_knowledge_prose(current_line)
+                or _looks_explicit_knowledge_cue(current_line)
+                or (
+                    "explicit_prose" in row_tags
+                    and _looks_prose(current_line)
+                    and not _looks_book_framing_or_exhortation_prose(current_line)
+                    and not _looks_recipe_note_prose(current_line)
+                    and not _looks_editorial_note(current_line)
+                )
+                or (
+                    "title_like" in row_tags
+                    and _looks_knowledge_heading_shape(current_line)
+                    and not _looks_front_matter_navigation_heading(current_line)
+                    and not _looks_navigation_title_list_entry(current_line)
+                )
+            ):
+                lesson_signal_count += 1
 
     knowledge_count = label_counts.get("KNOWLEDGE", 0)
     other_count = label_counts.get("OTHER", 0)
@@ -1109,10 +1131,16 @@ def _classify_line_role_packet_mode(
     if first_person_count > 0 and recipe_structure_count == 0 and other_count >= max(1, knowledge_count):
         confidence = "high" if other_count >= 2 or first_person_count >= 2 else "medium"
         return "memoir_front_matter", confidence
-    if knowledge_count >= max(2, other_count) and recipe_structure_count <= 1 and (
+    effective_lesson_signal_count = max(knowledge_count, lesson_signal_count)
+    if effective_lesson_signal_count >= 2 and recipe_structure_count <= 1 and (
         title_like_count > 0 or explicit_prose_count > 0
-    ):
-        confidence = "high" if knowledge_count >= 3 or title_like_count > 0 else "medium"
+    ) and navigation_entry_count < max(3, row_count // 3):
+        confidence = (
+            "high"
+            if effective_lesson_signal_count >= 3
+            or (title_like_count > 0 and explicit_prose_count > 0)
+            else "medium"
+        )
         return "lesson_prose", confidence
     if note_like_count > 0 and recipe_structure_count > 0:
         return "recipe_adjacent_notes", "medium"
@@ -1149,7 +1177,7 @@ def _line_role_packet_summary(*, packet_mode: str) -> str:
 def _line_role_default_posture(*, packet_mode: str) -> str:
     postures = {
         "front_matter_navigation": (
-            "Default to `OTHER` or `KNOWLEDGE`; treat contents lists, seasonal menus, and part/chapter headings as navigation until multiple adjacent rows form one concrete recipe component."
+            "Default to `OTHER`; use `review_exclusion_reason` only for overwhelming obvious navigation/front-matter junk, and only promote to recipe structure when multiple adjacent rows show one concrete recipe component."
         ),
         "recipe_body": (
             "Preserve recipe-structure labels unless a row clearly reads as note text or explanatory prose."
@@ -1158,10 +1186,10 @@ def _line_role_default_posture(*, packet_mode: str) -> str:
             "Keep recipe-body rows structured, but treat surrounding prose conservatively."
         ),
         "lesson_prose": (
-            "Default to `OTHER`; upgrade to `KNOWLEDGE` when a row teaches reusable cooking explanation/reference prose, including short lesson headings or short declarative teaching lines in a lesson cluster, even if it uses brief first-person framing. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
+            "Default to review-eligible `OTHER`; useful outside-recipe lesson prose stays `OTHER` here and the knowledge stage decides semantic `KNOWLEDGE` versus `OTHER` later. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
         ),
         "memoir_front_matter": (
-            "Default to `OTHER`; upgrade only if a row clearly teaches reusable cooking knowledge."
+            "Default to `OTHER`; exclude only when the row is overwhelming obvious junk such as endorsements, navigation, or front matter."
         ),
         "mixed_boundaries": (
             "Make the smallest safe correction and leave ambiguous rows near the deterministic seed."
@@ -1187,8 +1215,8 @@ def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
         ],
         "lesson_prose": [
             "A topic heading followed by explanatory prose about technique, science, or broad culinary guidance.",
-            "Declarative lesson prose about reusable cooking rules can still be `KNOWLEDGE` even if it briefly uses `I` or `we`.",
-            "Repeated `KNOWLEDGE` rows are a stronger signal than title casing alone.",
+            "Useful lesson prose is still review-eligible `OTHER` in this stage; the knowledge stage decides semantic usefulness later.",
+            "Repeated lesson-like rows are a stronger signal than title casing alone.",
         ],
         "memoir_front_matter": [
             "First-person narrative, acknowledgments, dedication-style prose, or autobiographical sentences.",
@@ -1224,7 +1252,7 @@ def _line_role_flip_policy(
         "Treat the deterministic label as a strong prior, not a neutral starting guess.",
         "Only flip a row when packet-local evidence is clearer than the seed label.",
         "A heading alone is weak evidence; promote to `HOWTO_SECTION` only with immediate recipe-local support.",
-        "Generic advice or science explanations are `KNOWLEDGE`/`OTHER`, not `INSTRUCTION_LINE`.",
+        "Generic advice or science explanations are review-eligible `OTHER` here, not `INSTRUCTION_LINE`.",
     ]
     if howto_availability == "absent_or_unproven":
         policy.append(
@@ -1240,19 +1268,19 @@ def _line_role_flip_policy(
         )
     if packet_mode == "lesson_prose":
         policy.append(
-            "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose."
+            "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay review-eligible `OTHER` so the knowledge stage can make the semantic call later."
         )
         policy.append(
-            "Short declarative lesson lines can stay `KNOWLEDGE` when they clearly state a reusable cooking correction or rule in the same lesson cluster."
+            "Short declarative lesson lines that state reusable cooking rules should also stay review-eligible `OTHER` in this stage."
         )
         policy.append(
             "A lone question-style topic heading such as `What is Heat?` should stay `OTHER` unless nearby rows clearly teach that concept."
         )
         policy.append(
-            "Do not flatten reusable cooking lesson prose to `OTHER` just because it includes brief first-person framing around a general rule."
+            "Do not assign outside-recipe `KNOWLEDGE` in this stage just because a row teaches a reusable cooking idea."
         )
         policy.append(
-            "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`."
+            "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`; only overwhelming obvious junk gets `review_exclusion_reason`."
         )
     elif packet_mode == "front_matter_navigation":
         policy.append(
@@ -2994,6 +3022,8 @@ def _run_line_role_workspace_worker_assignment_v1(
             worker_root / "workspace_manifest.json",
             session_run_result.workspace_manifest(),
         )
+        _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
+        _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
     else:
         _write_runtime_json(
             worker_root / "live_status.json",
@@ -4359,6 +4389,7 @@ def _build_line_role_workspace_worker_prompt(
         "- Start by opening `worker_manifest.json`, then `CURRENT_TASK.md`, then `OUTPUT_CONTRACT.md`. Open `current_task.json` when you need the exact metadata fields or file paths.\n"
         "- The normal path is repo-written already: open the `metadata.scratch_draft_path` named in `current_task.json`, then `hints/<task_id>.md`; open `in/<task_id>.json` only when the draft or hint seems insufficient; edit that prewritten draft only where the deterministic seed is wrong; then run `python3 tools/line_role_worker.py finalize <draft_path>`.\n"
         "- If several prewritten drafts are ready, `python3 tools/line_role_worker.py finalize-all scratch/` is the preferred bulk completion path.\n"
+        "- After the last output file is finalized, send one brief completion message naming the finished outputs and then stop.\n"
         "- If `tools/line_role_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.\n"
         "- `python3 tools/line_role_worker.py overview`, `show <task_id>`, `check <json_path>`, `prepare-all --dest-dir scratch/`, and `scaffold <task_id> --dest scratch/<task_id>.json` are fallback/debug tools, not the default starting path.\n"
         "- Long handwritten `jq` transforms are unnecessary here because the helper can already expand the deterministic label codes into the correct output shape.\n"
@@ -4391,14 +4422,14 @@ def _build_line_role_workspace_worker_prompt(
         "- `HOWTO_SECTION`: recipe-internal subsection headings such as `FOR THE SAUCE`, `TO FINISH`, or `FOR SERVING`.\n"
         "- `HOWTO_SECTION` is book-optional: some books legitimately use zero of them, so emit it only with immediate recipe-local support.\n"
         "- `RECIPE_VARIANT`: alternate recipe names or variant headers inside a recipe.\n"
-        "- `KNOWLEDGE`: explanatory or reference prose, not ordinary recipe structure.\n"
+        "- `KNOWLEDGE`: keep this for recipe-local explanatory/reference prose only; outside recipes, useful prose should stay `OTHER` for the later knowledge stage.\n"
         "- `OTHER`: navigation, memoir, marketing, dedications, table of contents, or decorative matter.\n"
         "- Never label a quantity ingredient line as `KNOWLEDGE`.\n"
         "- Never label an imperative recipe step as `KNOWLEDGE`.\n"
         "- Do not use `INSTRUCTION_LINE` for generic culinary advice or cookbook teaching prose.\n"
-        "- Generic cooking advice that spans many dishes belongs in `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.\n"
+        "- Generic cooking advice that spans many dishes belongs in review-eligible `OTHER` here, not `INSTRUCTION_LINE`.\n"
         "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n"
-        "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as `KNOWLEDGE` when nearby rows are explanatory prose.\n"
+        "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as review-eligible `OTHER` unless nearby rows prove recipe-local structure.\n"
         "- First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n\n"
         "Do not return task labels in your final message. The authoritative results are the `out/<task_id>.json` files.\n\n"
         "Assigned task files:\n"
@@ -4887,10 +4918,16 @@ def _build_strict_json_watchdog_callback(
         target_paths.extend(Path(path) for path in live_status_paths)
     last_complete_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
     workspace_output_stable_passes = 0
+    completion_wait_started_elapsed_seconds: float | None = None
+    completion_wait_agent_message_count: int | None = None
+    completion_wait_turn_completed_count: int | None = None
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         nonlocal last_complete_workspace_signature
         nonlocal workspace_output_stable_passes
+        nonlocal completion_wait_started_elapsed_seconds
+        nonlocal completion_wait_agent_message_count
+        nonlocal completion_wait_turn_completed_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_verdict = _classify_line_role_workspace_command(snapshot.last_command)
@@ -4922,23 +4959,53 @@ def _build_strict_json_watchdog_callback(
             else:
                 last_complete_workspace_signature = current_signature
                 workspace_output_stable_passes = 1
+                completion_wait_started_elapsed_seconds = None
+                completion_wait_agent_message_count = None
+                completion_wait_turn_completed_count = None
         else:
             last_complete_workspace_signature = None
             workspace_output_stable_passes = 0
+            completion_wait_started_elapsed_seconds = None
+            completion_wait_agent_message_count = None
+            completion_wait_turn_completed_count = None
+        completion_waiting_for_exit = False
+        completion_post_signal_observed = False
         if (
             allow_workspace_commands
             and workspace_output_status["complete"]
             and workspace_output_stable_passes >= _LINE_ROLE_WORKSPACE_OUTPUT_STABLE_PASSES
         ):
-            decision = CodexExecSupervisionDecision.terminate(
-                reason_code="workspace_outputs_stabilized",
-                reason_detail=(
-                    "line-role workspace worker wrote every assigned output file and the "
-                    "files stabilized across consecutive supervision snapshots"
-                ),
-                retryable=False,
-                supervision_state="completed",
+            completion_waiting_for_exit = True
+            if completion_wait_started_elapsed_seconds is None:
+                completion_wait_started_elapsed_seconds = snapshot.elapsed_seconds
+                completion_wait_agent_message_count = snapshot.agent_message_count
+                completion_wait_turn_completed_count = snapshot.turn_completed_count
+            completion_post_signal_observed = (
+                snapshot.agent_message_count > int(completion_wait_agent_message_count or 0)
+                or snapshot.turn_completed_count > int(completion_wait_turn_completed_count or 0)
             )
+            completion_quiescence_reached = (
+                snapshot.last_event_seconds_ago is not None
+                and snapshot.last_event_seconds_ago
+                >= _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                and (
+                    snapshot.elapsed_seconds
+                    - float(completion_wait_started_elapsed_seconds or 0.0)
+                )
+                >= _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+            )
+            if completion_post_signal_observed or completion_quiescence_reached:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="workspace_outputs_stabilized",
+                    reason_detail=(
+                        "line-role workspace worker wrote every assigned output file, the "
+                        "files stabilized across consecutive supervision snapshots, and the "
+                        "session either emitted a post-finalize completion signal or went "
+                        "quiet while waiting to exit"
+                    ),
+                    retryable=False,
+                    supervision_state="completed",
+                )
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
                 if not last_command_verdict.allowed:
@@ -4961,10 +5028,14 @@ def _build_strict_json_watchdog_callback(
                         ),
                         retryable=True,
                     )
-                if decision is None and should_terminate_workspace_command_loop(
-                    snapshot=snapshot,
-                    max_command_count=_LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT,
-                    max_repeat_count=_LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT,
+                if (
+                    decision is None
+                    and not completion_waiting_for_exit
+                    and should_terminate_workspace_command_loop(
+                        snapshot=snapshot,
+                        max_command_count=_LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT,
+                        max_repeat_count=_LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT,
+                    )
                 ):
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code="watchdog_command_loop_without_output",
@@ -5055,6 +5126,13 @@ def _build_strict_json_watchdog_callback(
             "workspace_output_complete": workspace_output_status["complete"],
             "workspace_output_missing_files": workspace_output_status["missing_files"],
             "workspace_output_stable_passes": workspace_output_stable_passes,
+            "workspace_completion_waiting_for_exit": completion_waiting_for_exit,
+            "workspace_completion_quiescence_seconds": (
+                _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                if completion_waiting_for_exit
+                else None
+            ),
+            "workspace_completion_post_signal_observed": completion_post_signal_observed,
             "workspace_command_loop_max_count": _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT,
             "workspace_command_loop_max_repeat_count": _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT,
             "reason_code": decision.reason_code if decision is not None else None,
@@ -5618,7 +5696,7 @@ def _build_line_role_watchdog_retry_prompt(
         "- `INGREDIENT_LINE` means quantity/unit ingredients or bare ingredient-list items.\n"
         "- `INSTRUCTION_LINE` means a recipe-local procedural step, not generic cooking advice.\n"
         "- `HOWTO_SECTION` means a recipe-internal subsection heading, not a chapter or topic heading.\n"
-        "- `KNOWLEDGE` means explanatory/reference prose.\n"
+        "- `KNOWLEDGE` is only for recipe-local explanatory/reference prose here; outside-recipe useful prose should stay `OTHER` for the later knowledge stage.\n"
         "- `OTHER` means navigation, memoir, decorative matter, or other non-structure text.\n\n"
         f"Previous stop reason: {original_reason_code or '[unknown]'}\n"
         f"Reason detail: {original_reason_detail or '[none recorded]'}\n\n"
@@ -5664,7 +5742,7 @@ def _build_line_role_repair_prompt(
         "- `INGREDIENT_LINE` means quantity/unit ingredients or bare ingredient-list items.\n"
         "- `INSTRUCTION_LINE` means a recipe-local procedural step, not generic cooking advice.\n"
         "- `HOWTO_SECTION` means a recipe-internal subsection heading, not a chapter or topic heading.\n"
-        "- `KNOWLEDGE` means explanatory/reference prose.\n"
+        "- `KNOWLEDGE` is only for recipe-local explanatory/reference prose here; outside-recipe useful prose should stay `OTHER` for the later knowledge stage.\n"
         "- `OTHER` means navigation, memoir, decorative matter, or other non-structure text.\n\n"
         "Authoritative shard rows to relabel (each row is [atomic_index, label_code, current_line]):\n"
         "<BEGIN_AUTHORITATIVE_ROWS>\n"
@@ -5728,6 +5806,14 @@ def _write_runtime_json(path: Path, payload: Any) -> None:
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _write_optional_runtime_text(path: Path, text: str | None) -> None:
+    rendered = str(text or "")
+    if not rendered.strip():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(rendered, encoding="utf-8")
 
 
 def _write_runtime_jsonl(path: Path, rows: Sequence[Any]) -> None:
@@ -6487,14 +6573,6 @@ def _deterministic_label(
     ):
         if _looks_narrative_prose(candidate.text):
             return "OTHER", ["outside_recipe_narrative"]
-        if _outside_recipe_knowledge_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            return "KNOWLEDGE", [
-                "outside_recipe_span",
-                "knowledge_high_evidence",
-            ]
         return "OTHER", ["outside_recipe_span", "prose_default_other"]
     if (
         candidate.within_recipe_span is None
@@ -6505,14 +6583,6 @@ def _deterministic_label(
     ):
         if _looks_narrative_prose(candidate.text):
             return "OTHER", ["unknown_recipe_span", "narrative_default_other"]
-        if _outside_recipe_knowledge_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            return "KNOWLEDGE", [
-                "unknown_recipe_span",
-                "knowledge_high_evidence",
-            ]
         return "OTHER", ["unknown_recipe_span", "prose_default_other"]
     if "yield_prefix" in tags:
         return "YIELD_LINE", ["yield_prefix"]
@@ -6557,15 +6627,6 @@ def _deterministic_label(
         return "INSTRUCTION_LINE", ["instruction_like"]
     if "time_metadata" in tags and _is_primary_time_line(candidate.text):
         return "TIME_LINE", ["time_metadata"]
-    if _is_outside_recipe_span(candidate):
-        if _outside_recipe_knowledge_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            return "KNOWLEDGE", [
-                "outside_recipe_span",
-                "knowledge_high_evidence",
-            ]
     if "outside_recipe_span" in tags:
         if _looks_recipe_title_with_context(
             candidate,
@@ -6575,21 +6636,8 @@ def _deterministic_label(
         if _looks_prose(candidate.text):
             if _looks_narrative_prose(candidate.text):
                 return "OTHER", ["outside_recipe_narrative", "outside_recipe_span"]
-            if _outside_recipe_knowledge_label_allowed(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            ):
-                return "KNOWLEDGE", [
-                    "outside_recipe_span",
-                    "knowledge_high_evidence",
-                ]
             return "OTHER", ["outside_recipe_span", "prose_default_other"]
         return "OTHER", ["outside_recipe_span"]
-    if candidate.within_recipe_span is None and _outside_recipe_knowledge_label_allowed(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return "KNOWLEDGE", ["unknown_recipe_span", "knowledge_high_evidence"]
     if (
         "title_like" in tags or _looks_recipe_title(candidate.text)
     ) and _looks_recipe_title_with_context(
@@ -6714,13 +6762,6 @@ def _sanitize_prediction(
             label = "RECIPE_VARIANT"
             decided_by = "fallback"
             reason_tags.append("rescued_other_to_variant")
-        elif not _is_within_recipe_span(candidate) and _outside_recipe_knowledge_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            label = "KNOWLEDGE"
-            decided_by = "fallback"
-            reason_tags.append("rescued_other_to_knowledge")
         elif _should_rescue_other_to_knowledge_label(
             candidate,
             by_atomic_index=by_atomic_index,
@@ -6774,14 +6815,10 @@ def _sanitize_prediction(
         decided_by = "fallback"
         reason_tags.append("sanitized_instruction_without_local_support")
     if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
-        if not _outside_recipe_knowledge_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            label = "OTHER"
-            decided_by = "fallback"
-            if "sanitized_outside_recipe_knowledge_without_support" not in reason_tags:
-                reason_tags.append("sanitized_outside_recipe_knowledge_without_support")
+        label = "OTHER"
+        decided_by = "fallback"
+        if "coerced_outside_recipe_knowledge_to_reviewable_other" not in reason_tags:
+            reason_tags.append("coerced_outside_recipe_knowledge_to_reviewable_other")
     if label != "OTHER" or _is_within_recipe_span(candidate):
         review_exclusion_reason = None
     else:
@@ -6899,14 +6936,6 @@ def _outside_span_nonstructured_fallback_label(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> str:
     text = str(candidate.text or "").strip()
-    if _looks_knowledge_heading_with_context(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ) or _looks_knowledge_prose_with_context(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return "KNOWLEDGE"
     if _looks_recipe_note_prose(text) or _looks_editorial_note(text):
         return "RECIPE_NOTES"
     return "OTHER"
@@ -6992,8 +7021,6 @@ def _outside_span_has_neighboring_component_structure(
         tags = {str(tag) for tag in row.rule_tags}
         if {
             "ingredient_like",
-            "instruction_like",
-            "instruction_with_time",
             "yield_prefix",
             "howto_heading",
             "variant_heading",
@@ -7003,7 +7030,7 @@ def _outside_span_has_neighboring_component_structure(
             return True
         if _looks_recipe_start_boundary(row):
             return True
-        if _looks_instructional_neighbor(row):
+        if _looks_direct_instruction_start(row):
             return True
     return False
 
@@ -7065,41 +7092,17 @@ def _classify_non_heading_howto_prose(
             if is_generic_make_step:
                 reason_tags.append("generic_to_make_step")
             return "INSTRUCTION_LINE", reason_tags
-        if (
-            by_atomic_index is not None
-            and _outside_recipe_knowledge_label_allowed(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            )
-        ):
-            return "KNOWLEDGE", ["howto_prefix_prose", "knowledge_high_evidence"]
         if _is_outside_recipe_span(candidate):
             return "OTHER", ["howto_prefix_prose", "outside_recipe_default_other"]
         return "OTHER", ["howto_prefix_prose", "default_other"]
     if lowered.startswith("to serve"):
         if _is_within_recipe_span(candidate):
             return "INSTRUCTION_LINE", ["howto_prefix_prose", "serving_step_prose"]
-        if (
-            by_atomic_index is not None
-            and _outside_recipe_knowledge_label_allowed(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            )
-        ):
-            return "KNOWLEDGE", ["howto_prefix_prose", "knowledge_high_evidence"]
         if _is_outside_recipe_span(candidate):
             return "OTHER", ["howto_prefix_prose", "outside_recipe_serving_prose"]
         return "OTHER", ["howto_prefix_prose", "default_other"]
     if _looks_storage_or_serving_note(text) or _looks_recipe_note_prose(text):
         return "RECIPE_NOTES", ["howto_prefix_prose", "note_like_prose"]
-    if (
-        by_atomic_index is not None
-        and _outside_recipe_knowledge_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        return "KNOWLEDGE", ["howto_prefix_prose", "knowledge_high_evidence"]
     if _is_outside_recipe_span(candidate):
         return "OTHER", ["howto_prefix_prose", "outside_recipe_default_other"]
     return "OTHER", ["howto_prefix_prose", "default_other"]
@@ -7233,6 +7236,7 @@ def _instruction_line_label_allowed(
     return _outside_span_has_neighboring_component_structure(
         candidate,
         by_atomic_index=by_atomic_index,
+        radius=4,
     )
 
 

@@ -24,11 +24,12 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 18:00 EDT) Re-ran `bin/docs-list` and re-read `docs/PLANS.md`, `docs/reports/AI-codebase.md`, `docs/reports/ai-readiness-improvement-report.md`, `docs/07-bench/07-bench_README.md`, and `docs/12-testing/12-testing_README.md`.
 - [x] (2026-03-22 18:03 EDT) Audited the current QualitySuite file shape in [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py), including experiment models, resume/checkpoint logic, executor/environment logic, experiment planning, per-experiment runtime execution, summary/report formatting, and worker CLI support.
 - [x] (2026-03-22 18:08 EDT) Authored this standalone QualitySuite decomposition ExecPlan in `docs/plans/`.
+- [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes old helper imports and internal compatibility re-exports instead of keeping `quality_runner.py` as a broad facade.
 - [ ] Create a `cookimport/bench/qualitysuite/` package with one module per major responsibility cluster.
 - [ ] Move experiment schema and resolution logic out of `quality_runner.py`.
 - [ ] Move environment/executor decision logic and subprocess worker plumbing out of `quality_runner.py`.
 - [ ] Move checkpoint/resume persistence and summary/report rendering out of `quality_runner.py`.
-- [ ] Reduce `quality_runner.py` to a thin public facade that preserves existing imports and command call sites.
+- [ ] Cut `quality_runner.py` down to the smallest product-facing entrypoint surface and delete old helper exports and internal compatibility names.
 - [ ] Add or update bench-domain tests and docs so the new QualitySuite ownership map is explicit.
 
 ## Surprises & Discoveries
@@ -47,8 +48,8 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 
 ## Decision Log
 
-- Decision: keep `cookimport.bench.quality_runner.run_quality_suite` and `cookimport.bench.quality_runner.load_quality_run_summary` as stable public import paths during migration.
-  Rationale: callers and tests already use these names; the goal is to narrow implementation ownership, not to force repo-wide import churn.
+- Decision: keep only the truly public QualitySuite entrypoints in `quality_runner.py` and move everything else to the new package with updated imports.
+  Rationale: the burn-the-boats end state should not preserve the old file as a compatibility museum. Only real product-facing entrypoints should remain there.
   Date/Author: 2026-03-22 / Codex
 
 - Decision: introduce a new internal package `cookimport/bench/qualitysuite/` rather than creating more sibling giant files under `cookimport/bench/`.
@@ -59,8 +60,8 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
   Rationale: the point is to create deep modules with simple entrypoints, not to maximize file count.
   Date/Author: 2026-03-22 / Codex
 
-- Decision: keep the worker CLI parser and `_main(...)` path in a dedicated runtime-facing module, then re-export or delegate from `quality_runner.py`.
-  Rationale: subprocess worker behavior is part of runtime execution, but the public file should still remain the stable import and script target during migration.
+- Decision: move the worker CLI parser and `_main(...)` path into the new package and update any invoking paths rather than preserving broad helper exports from `quality_runner.py`.
+  Rationale: subprocess worker behavior is runtime implementation, not a reason to keep the old giant file as a general-purpose import surface.
   Date/Author: 2026-03-22 / Codex
 
 ## Outcomes & Retrospective
@@ -83,7 +84,7 @@ The current file mixes several concerns:
 - run-summary aggregation and markdown/text report formatting
 - a worker CLI parser and `_main(...)` entrypoint
 
-For AI-readiness, that is too much breadth in one file. A fresh agent trying to change summary formatting should not need to scan subprocess worker plumbing. A contributor trying to change resume compatibility should not need to read all-method runtime target selection. The goal is progressive disclosure: first open a public QualitySuite facade, then one owning module, then its internals only if needed.
+For AI-readiness, that is too much breadth in one file. A fresh agent trying to change summary formatting should not need to scan subprocess worker plumbing. A contributor trying to change resume compatibility should not need to read all-method runtime target selection. The goal is progressive disclosure: first open the small product-facing entrypoint surface, then one owning module, then its internals only if needed.
 
 The target package layout for this plan is:
 
@@ -96,7 +97,7 @@ The target package layout for this plan is:
 - `cookimport/bench/qualitysuite/summary.py`
 - `cookimport/bench/qualitysuite/worker_cli.py`
 
-The target public facade should remain in [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py). That file should become a thin module that imports and re-exports the stable public functions while delegating the real work to the new package.
+The final product-facing surface may remain in [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py) only for the genuinely public entrypoints such as `run_quality_suite(...)` and `load_quality_run_summary(...)`. Moved helper names, model names, and runtime internals should not be re-exported from that file in the completed end state.
 
 The intended ownership boundaries are:
 
@@ -116,7 +117,7 @@ That layout is intentionally not tiny-granular. Each new module should be deep e
 
 At the end of this milestone, the repo will contain the new `cookimport/bench/qualitysuite/` package and the experiment/result models will live in `models.py`. `quality_runner.py` may still define runtime logic, but the subsystem will have a visible ownership map and the lowest-risk shared types will no longer be buried in the giant coordinator file.
 
-Acceptance is that imports and tests still pass, and the public `quality_runner.py` file re-exports any moved model names that existing callers still rely on.
+Acceptance is that imports and tests still pass, and the repo has updated any imports that used old helper/model names from `quality_runner.py` rather than preserving those names indefinitely.
 
 ### Milestone 2: Extract planning and environment guardrails
 
@@ -132,7 +133,7 @@ Acceptance is that resumed runs, partial-summary writes, and summary/report cons
 
 ### Milestone 4: Isolate runtime execution and worker CLI plumbing
 
-At the end of this milestone, runtime orchestration will live in `runtime.py` and worker parser / `_main(...)` logic will live in `worker_cli.py`. `quality_runner.py` will become a public facade rather than the implementation home.
+At the end of this milestone, runtime orchestration will live in `runtime.py` and worker parser / `_main(...)` logic will live in `worker_cli.py`. `quality_runner.py` will no longer be the implementation home and should expose only the smallest product-facing entrypoints still required by callers.
 
 Acceptance is that `run_quality_suite(...)` still works, subprocess worker execution still works, and the worker CLI path still accepts the same arguments and exits with the same success/failure behavior.
 
@@ -144,15 +145,15 @@ Acceptance is passing bench-domain validation, passing CLI paths that touch Qual
 
 ## Plan of Work
 
-Start by creating `cookimport/bench/qualitysuite/` and moving the least-coupled pieces first. The safest opening move is models plus pure planning helpers, because that creates the subsystem shape without destabilizing runtime orchestration. Keep `quality_runner.py` importing those pieces and re-exporting any names that tests or callers still import directly.
+Start by creating `cookimport/bench/qualitysuite/` and moving the least-coupled pieces first. The safest opening move is models plus pure planning helpers, because that creates the subsystem shape without destabilizing runtime orchestration. Update imports as the new modules land; do not preserve broad helper re-exports from `quality_runner.py` in the final state.
 
 Next, extract environment and executor guardrails. Those helpers are an especially good deep-module seam because they are conceptually one policy cluster: how QualitySuite decides whether to use process workers, thread workers, or safety-reduced parallelism on the current host. They should be readable without scanning summary formatting or experiment expansion.
 
 Then extract checkpoint/resume and summary/report logic. Those are already artifact-focused concerns and should become their own modules because they define the persistence contract for QualitySuite runs. A contributor debugging resume compatibility should be able to stay inside `persistence.py` plus a small number of tests.
 
-Finally, move runtime execution and worker CLI logic. This is left until late because it likely has the widest coupling to the existing file and the most moving parts. Keep the public `run_quality_suite(...)` function in `quality_runner.py` as a thin delegate until the rest of the codebase and tests are happily using the new modules underneath.
+Finally, move runtime execution and worker CLI logic. This is left until late because it likely has the widest coupling to the existing file and the most moving parts. Finish by deleting the moved helper implementations from `quality_runner.py` and leaving only the product-facing entrypoints that still deserve that import path.
 
-Throughout the migration, prefer additive moves with thin compatibility wrappers over big-bang rewrites. The AI-friendly goal is not just “split the file.” It is to create discoverable responsibility boundaries with narrow public entrypoints and strong regression feedback.
+Throughout the migration, prefer decisive cutovers over lingering compatibility layers. The AI-friendly goal is not just “split the file.” It is to create discoverable responsibility boundaries with narrow public entrypoints and strong regression feedback, with the old wide import surface removed.
 
 ## Concrete Steps
 
@@ -181,7 +182,7 @@ Migration order:
 2. Move planning helpers and environment/executor helpers.
 3. Move persistence and summary/report helpers.
 4. Move runtime and worker CLI plumbing.
-5. Reduce `quality_runner.py` to a thin public facade.
+5. Delete moved helper exports from `quality_runner.py` and leave only the product-facing entrypoints that still matter.
 6. Update docs and tests.
 
 Prepare the environment if needed:
@@ -220,15 +221,17 @@ The second acceptance criterion is discoverability. A contributor looking for Qu
 
 The third acceptance criterion is regression safety. Bench-domain and CLI paths that touch QualitySuite must still pass, including resume/checkpoint behavior, summary/report generation, and any worker CLI tests that already exist or are added during the migration.
 
-The fourth acceptance criterion is public-import stability. Existing repo-local imports of `run_quality_suite`, `load_quality_run_summary`, and any retained public model names must keep working while the refactor lands.
+The fourth acceptance criterion is public-import stability for the true product-facing entrypoints only. `run_quality_suite` and `load_quality_run_summary` may remain stable, but old helper/model import paths from `quality_runner.py` should be removed and callers updated.
 
-The fifth acceptance criterion is documentation. Bench docs should teach the new ownership map so future contributors do not start from the giant facade file by default.
+The fifth acceptance criterion is documentation. Bench docs should teach the new ownership map so future contributors do not start from the giant old file by default.
+
+The sixth acceptance criterion is deletion. The completed refactor must remove moved helper implementations and helper exports from `quality_runner.py`; the file should no longer function as a broad compatibility surface.
 
 ## Idempotence and Recovery
 
-This refactor is safe to do incrementally. If a moved responsibility becomes awkward, keep a thin delegate in `quality_runner.py` and continue moving smaller pure helpers first. Do not revert the subsystem package just because one runtime path still needs bridging code.
+This refactor is safe to do incrementally, but the completed end state must not keep bridging code in `quality_runner.py` beyond the truly public entrypoints. If one runtime path is awkward, finish that migration or postpone the cutover rather than preserving a broad dual-home surface.
 
-If public imports begin to drift, restore re-export shims immediately and add a narrow test that captures the expected import path. The point of this plan is to create deep modules without imposing unnecessary repo-wide rename churn.
+If public imports begin to drift, distinguish real public entrypoints from old convenience imports. Preserve the former with tests; update the latter and delete them.
 
 If resume or summary behavior changes unexpectedly, preserve the old artifact shape first and only then refactor the writer/reader ownership. Artifact compatibility matters more than achieving a perfectly “clean” module graph in one pass.
 
@@ -295,8 +298,8 @@ In `cookimport/bench/qualitysuite/worker_cli.py`:
     def build_worker_cli_parser() -> argparse.ArgumentParser: ...
     def main(argv: list[str] | None = None) -> int: ...
 
-Use these as ownership targets, not rigid exact names if implementation reveals a clearer naming improvement. What matters is one obvious owner per responsibility cluster and a thin stable public facade.
+Use these as ownership targets, not rigid exact names if implementation reveals a clearer naming improvement. What matters is one obvious owner per responsibility cluster and a final state where the old giant file is no longer a broad import surface.
 
 ## Revision note
 
-Created on 2026-03-22 as a follow-on AI-readiness plan after the initial CLI, shared planner, and run-settings plans. This file owns only QualitySuite decomposition and is intentionally focused on deep-module boundaries rather than generic line-count reduction.
+Created on 2026-03-22 as a follow-on AI-readiness plan after the initial CLI, shared planner, and run-settings plans. Updated later the same day to a burn-the-boats posture. This file owns only QualitySuite decomposition and now requires deletion of old helper exports from `quality_runner.py` rather than a long-lived compatibility facade.

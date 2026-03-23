@@ -13,6 +13,7 @@ from .codex_farm_knowledge_models import (
     KnowledgePacketSemanticResultV1,
     ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
     ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
+    ALLOWED_KNOWLEDGE_REASON_CODES,
     semantic_result_from_canonical_bundle,
     serialize_canonical_knowledge_packet,
 )
@@ -66,6 +67,7 @@ def normalize_knowledge_worker_payload(
     else:
         return serialize_canonical_knowledge_packet(semantic_result), {
             "worker_output_contract": "semantic_packet_result_v1",
+            **_knowledge_reason_metadata(semantic_result),
             **alias_metadata,
         }
 
@@ -128,6 +130,35 @@ def _normalize_semantic_category_aliases(
         "semantic_category_alias_rewrites": dict(sorted(rewrite_counts.items())),
         "semantic_category_alias_rewrite_count": sum(rewrite_counts.values()),
     }
+
+
+def _knowledge_reason_metadata(
+    semantic_result: KnowledgePacketSemanticResultV1,
+) -> dict[str, Any]:
+    reason_code_by_chunk_id: dict[str, str] = {}
+    reason_code_counts: dict[str, int] = {}
+    useful_reason_code_counts: dict[str, int] = {}
+    other_reason_code_counts: dict[str, int] = {}
+    for chunk_result in semantic_result.chunk_results:
+        reason_code = str(chunk_result.reason_code or "").strip()
+        if not reason_code:
+            continue
+        reason_code_by_chunk_id[chunk_result.chunk_id] = reason_code
+        reason_code_counts[reason_code] = reason_code_counts.get(reason_code, 0) + 1
+        target_counts = (
+            useful_reason_code_counts if chunk_result.is_useful else other_reason_code_counts
+        )
+        target_counts[reason_code] = target_counts.get(reason_code, 0) + 1
+    metadata = {
+        "allowed_reason_codes": list(ALLOWED_KNOWLEDGE_REASON_CODES),
+        "reason_code_by_chunk_id": dict(sorted(reason_code_by_chunk_id.items())),
+        "reason_code_counts": dict(sorted(reason_code_counts.items())),
+        "useful_reason_code_counts": dict(sorted(useful_reason_code_counts.items())),
+        "other_reason_code_counts": dict(sorted(other_reason_code_counts.items())),
+    }
+    if other_reason_code_counts:
+        metadata["all_other_reason_code_counts"] = dict(sorted(other_reason_code_counts.items()))
+    return metadata
 
 
 def validate_knowledge_shard_output(

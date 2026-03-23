@@ -153,6 +153,7 @@ from cookimport.bench.oracle_upload import (
     OracleBenchmarkBundleTarget,
     OracleUploadResult,
     resolve_oracle_benchmark_bundle,
+    resolve_oracle_benchmark_review_profiles,
     run_oracle_benchmark_upload,
     start_oracle_benchmark_upload_background,
 )
@@ -165,7 +166,7 @@ from cookimport.bench.oracle_followup import (
 )
 from cookimport.bench.pairwise_flips import build_line_role_flips_vs_baseline
 from cookimport.bench.slice_metrics import (
-    build_line_role_knowledge_budget,
+    build_line_role_routing_summary,
     build_line_role_slice_metrics,
 )
 from cookimport.labelstudio.client import LabelStudioClient
@@ -5431,6 +5432,9 @@ def _print_oracle_upload_summary(
     success_color: str,
 ) -> None:
     typer.secho(f"Oracle benchmark bundle: {target.bundle_dir}", fg=typer.colors.CYAN)
+    if result.review_profile:
+        profile_label = result.review_profile_display_name or result.review_profile
+        typer.secho(f"Oracle review profile: {profile_label}", fg=typer.colors.CYAN)
     typer.secho(f"Oracle mode: {result.mode}", fg=typer.colors.CYAN)
     if result.oracle_version:
         typer.secho(f"Oracle version: {result.oracle_version}", fg=typer.colors.BRIGHT_BLACK)
@@ -5496,11 +5500,14 @@ def _print_background_oracle_upload_summary(
     target: OracleBenchmarkBundleTarget,
     launch: OracleBackgroundUploadLaunch,
 ) -> None:
+    profile_label = launch.review_profile_display_name or launch.review_profile or "Oracle"
     typer.secho(
-        f"Oracle benchmark upload started in background for {target.scope}.",
+        f"{profile_label} Oracle benchmark upload started in background for {target.scope}.",
         fg=typer.colors.GREEN,
     )
     typer.secho(f"Oracle benchmark bundle: {target.bundle_dir}", fg=typer.colors.CYAN)
+    if launch.review_profile:
+        typer.secho(f"Oracle review profile: {profile_label}", fg=typer.colors.CYAN)
     typer.secho(f"Oracle mode: {launch.mode}", fg=typer.colors.CYAN)
     typer.secho(
         "Oracle browser launcher: auto (visible with display, xvfb otherwise)",
@@ -5531,14 +5538,6 @@ def _print_background_oracle_upload_summary(
         )
     if launch.note:
         transport_message = launch.note.strip()
-        if transport_message.startswith("Prepared browser-safe Oracle starter-pack upload"):
-            transport_message = (
-                "Oracle transport: oversized payload trimmed to a browser-safe starter packet."
-            )
-        elif transport_message.startswith("Prepared sharded Oracle browser upload"):
-            transport_message = (
-                "Oracle transport: oversized bundle files were sharded for upload."
-            )
         typer.secho(
             transport_message,
             fg=typer.colors.BRIGHT_BLACK,
@@ -5582,7 +5581,8 @@ def _start_background_oracle_followup_worker(
     source_launch_dir = launch.launch_dir
     status_path = source_launch_dir / ORACLE_AUTO_FOLLOWUP_STATUS_NAME
     log_path = source_launch_dir / ORACLE_AUTO_FOLLOWUP_LOG_NAME
-    effective_model = str(model or launch.model or "").strip() or None
+    explicit_model = str(model or "").strip() or None
+    status_model = explicit_model or str(launch.model or "").strip() or None
     status_path.write_text(
         json.dumps(
             {
@@ -5591,7 +5591,7 @@ def _start_background_oracle_followup_worker(
                 "updated_at": dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S"),
                 "bundle_dir": str(target.bundle_dir),
                 "source_run": source_launch_dir.name,
-                "model": effective_model,
+                "model": status_model,
             },
             indent=2,
             sort_keys=True,
@@ -5609,8 +5609,8 @@ def _start_background_oracle_followup_worker(
         "--from-run",
         source_launch_dir.name,
     ]
-    if effective_model is not None:
-        command.extend(["--model", effective_model])
+    if explicit_model is not None:
+        command.extend(["--model", explicit_model])
     with log_path.open("w", encoding="utf-8") as log_handle:
         worker = popen(
             command,
@@ -5635,15 +5635,12 @@ def _start_benchmark_bundle_oracle_upload_background(
     scope: str,
     mode: str = "browser",
     model: str | None = None,
+    review_profile: str = "all",
 ) -> None:
     try:
         target = resolve_oracle_benchmark_bundle(bundle_dir)
         target = replace(target, scope=scope)
-        launch = start_oracle_benchmark_upload_background(
-            target=target,
-            mode=mode,
-            model=model,
-        )
+        profiles = resolve_oracle_benchmark_review_profiles(review_profile)
     except Exception as exc:  # noqa: BLE001
         typer.secho(
             f"Oracle benchmark upload not started for {bundle_dir}: {exc}",
@@ -5654,26 +5651,45 @@ def _start_benchmark_bundle_oracle_upload_background(
             fg=typer.colors.BRIGHT_BLACK,
         )
         return
-    if launch.mode == "browser":
+
+    for profile in profiles:
         try:
-            launch = _start_background_oracle_followup_worker(
+            launch = start_oracle_benchmark_upload_background(
                 target=target,
-                launch=launch,
-                model=launch.model,
+                mode=mode,
+                model=model,
+                review_profile=profile.profile_id,
             )
         except Exception as exc:  # noqa: BLE001
             typer.secho(
-                f"Oracle auto-follow-up worker not started for {bundle_dir}: {exc}",
+                f"Oracle {profile.profile_id} upload not started for {bundle_dir}: {exc}",
                 fg=typer.colors.YELLOW,
             )
             typer.secho(
-                (
-                    "Retry manually after turn 1 finishes: "
-                    f"cookimport bench oracle-followup {bundle_dir} --from-run {launch.launch_dir.name}"
-                ),
+                f"Retry manually: cookimport bench oracle-upload {bundle_dir} --profile {profile.profile_id}",
                 fg=typer.colors.BRIGHT_BLACK,
             )
-    _print_background_oracle_upload_summary(target=target, launch=launch)
+            continue
+        if launch.mode == "browser":
+            try:
+                launch = _start_background_oracle_followup_worker(
+                    target=target,
+                    launch=launch,
+                    model=model,
+                )
+            except Exception as exc:  # noqa: BLE001
+                typer.secho(
+                    f"Oracle auto-follow-up worker not started for {bundle_dir}: {exc}",
+                    fg=typer.colors.YELLOW,
+                )
+                typer.secho(
+                    (
+                        "Retry manually after turn 1 finishes: "
+                        f"cookimport bench oracle-followup {bundle_dir} --from-run {launch.launch_dir.name}"
+                    ),
+                    fg=typer.colors.BRIGHT_BLACK,
+                )
+        _print_background_oracle_upload_summary(target=target, launch=launch)
 
 
 def _maybe_upload_benchmark_bundle_to_oracle(
@@ -5682,15 +5698,12 @@ def _maybe_upload_benchmark_bundle_to_oracle(
     scope: str,
     mode: str = "browser",
     model: str | None = None,
+    review_profile: str = "all",
 ) -> None:
     try:
         target = resolve_oracle_benchmark_bundle(bundle_dir)
         target = replace(target, scope=scope)
-        result = run_oracle_benchmark_upload(
-            target=target,
-            mode=mode,
-            model=model,
-        )
+        profiles = resolve_oracle_benchmark_review_profiles(review_profile)
     except Exception as exc:  # noqa: BLE001
         typer.secho(
             f"Oracle benchmark upload skipped for {bundle_dir}: {exc}",
@@ -5702,37 +5715,57 @@ def _maybe_upload_benchmark_bundle_to_oracle(
         )
         return
 
-    status_color = typer.colors.GREEN if result.success else typer.colors.YELLOW
-    typer.secho(
-        (
-            "Oracle benchmark upload "
-            f"{'completed' if result.success else 'failed'} "
-            f"for {target.scope}."
-        ),
-        fg=status_color,
-    )
-    _print_oracle_upload_summary(
-        target=target,
-        result=result,
-        success_color=status_color,
-    )
-    if not result.success:
+    had_failure = False
+    for profile in profiles:
+        try:
+            result = run_oracle_benchmark_upload(
+                target=target,
+                mode=mode,
+                model=model,
+                review_profile=profile.profile_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"Oracle {profile.profile_id} upload skipped for {bundle_dir}: {exc}",
+                fg=typer.colors.YELLOW,
+            )
+            had_failure = True
+            typer.secho(
+                f"Retry manually: cookimport bench oracle-upload {bundle_dir} --profile {profile.profile_id}",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+            continue
+
+        status_color = typer.colors.GREEN if result.success else typer.colors.YELLOW
         typer.secho(
-            f"Retry manually: cookimport bench oracle-upload {bundle_dir}",
-            fg=typer.colors.BRIGHT_BLACK,
+            (
+                f"Oracle {profile.profile_id} upload "
+                f"{'completed' if result.success else 'failed'} "
+                f"for {target.scope}."
+            ),
+            fg=status_color,
         )
-        if result.reattach_command:
+        _print_oracle_upload_summary(
+            target=target,
+            result=result,
+            success_color=status_color,
+        )
+        if not result.success:
+            had_failure = True
             typer.secho(
-                f"Reattach directly: {result.reattach_command}",
+                f"Retry manually: cookimport bench oracle-upload {bundle_dir} --profile {profile.profile_id}",
                 fg=typer.colors.BRIGHT_BLACK,
             )
-        else:
-            typer.secho(
-                "If the Oracle session detached, inspect it with `oracle status --hours 72`.",
-                fg=typer.colors.BRIGHT_BLACK,
-            )
-
-
+            if result.reattach_command:
+                typer.secho(
+                    f"Reattach directly: {result.reattach_command}",
+                    fg=typer.colors.BRIGHT_BLACK,
+                )
+            else:
+                typer.secho(
+                    "If the Oracle session detached, inspect it with `oracle status --hours 72`.",
+                    fg=typer.colors.BRIGHT_BLACK,
+                )
 def _write_single_book_summary_markdown(
     *,
     run_timestamp: str,
@@ -29400,10 +29433,10 @@ def labelstudio_benchmark(
             encoding="utf-8",
         )
 
-        knowledge_budget_payload = build_line_role_knowledge_budget(joined_line_rows)
-        knowledge_budget_path = line_role_output_dir / "knowledge_budget.json"
-        knowledge_budget_path.write_text(
-            json.dumps(knowledge_budget_payload, indent=2, sort_keys=True),
+        routing_summary_payload = build_line_role_routing_summary(joined_line_rows)
+        routing_summary_path = line_role_output_dir / "routing_summary.json"
+        routing_summary_path.write_text(
+            json.dumps(routing_summary_payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         prompt_eval_alignment_path = line_role_output_dir / "prompt_eval_alignment.md"
@@ -29444,9 +29477,9 @@ def labelstudio_benchmark(
                 eval_output_dir,
                 slice_metrics_path,
             ),
-            "knowledge_budget_json": _path_for_manifest(
+            "routing_summary_json": _path_for_manifest(
                 eval_output_dir,
-                knowledge_budget_path,
+                routing_summary_path,
             ),
             "prompt_eval_alignment_md": _path_for_manifest(
                 eval_output_dir,
@@ -30045,34 +30078,54 @@ def bench_oracle_upload(
         "--model",
         help="Oracle model used for browser uploads. Defaults to the genuine model lane, or the test lane when helper-mode env is set.",
     ),
+    profile: str = typer.Option(
+        "all",
+        "--profile",
+        help="Oracle review profile to launch: quality, token, or all.",
+    ),
 ) -> None:
     """Upload an existing benchmark upload bundle to Oracle."""
     try:
         target = resolve_oracle_benchmark_bundle(path)
-        result = run_oracle_benchmark_upload(
-            target=target,
-            mode=mode,
-            model=model,
-        )
+        profiles = resolve_oracle_benchmark_review_profiles(profile)
     except Exception as exc:  # noqa: BLE001
         typer.secho(f"Oracle benchmark upload failed: {exc}", fg=typer.colors.RED)
         raise typer.Exit(1) from exc
 
-    status_color = typer.colors.GREEN if result.success else typer.colors.RED
-    typer.secho(
-        (
-            "Oracle benchmark upload "
-            f"{'completed' if result.success else 'failed'}."
-            + (f" Status: {result.status}." if result.status else "")
-        ),
-        fg=status_color,
-    )
-    _print_oracle_upload_summary(
-        target=target,
-        result=result,
-        success_color=status_color,
-    )
-    if not result.success:
+    had_failure = False
+    for review_profile in profiles:
+        try:
+            result = run_oracle_benchmark_upload(
+                target=target,
+                mode=mode,
+                model=model,
+                review_profile=review_profile.profile_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"Oracle benchmark upload failed for {review_profile.profile_id}: {exc}",
+                fg=typer.colors.RED,
+            )
+            had_failure = True
+            continue
+
+        status_color = typer.colors.GREEN if result.success else typer.colors.RED
+        typer.secho(
+            (
+                f"Oracle {review_profile.profile_id} benchmark upload "
+                f"{'completed' if result.success else 'failed'}."
+                + (f" Status: {result.status}." if result.status else "")
+            ),
+            fg=status_color,
+        )
+        _print_oracle_upload_summary(
+            target=target,
+            result=result,
+            success_color=status_color,
+        )
+        if not result.success:
+            had_failure = True
+    if had_failure:
         raise typer.Exit(1)
 
 

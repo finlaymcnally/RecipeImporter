@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import ChunkLane, KnowledgeChunk, ParsingOverrides
-from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
+from cookimport.parsing.chunks import (
+    chunks_from_non_recipe_blocks,
+    summarize_chunk_utility_profile,
+)
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
@@ -64,6 +67,7 @@ class _PreparedKnowledgeBundleChunk:
     suggested_lane: str | None
     title: str | None
     knowledge_cue: bool
+    utility_profile: dict[str, Any]
     source_span_id: str
 
 
@@ -149,6 +153,7 @@ def build_knowledge_jobs(
                 full_blocks_by_index=full_blocks_by_index,
                 table_hints_by_index=table_hints_by_index,
             )
+            utility_profile = summarize_chunk_utility_profile(chunk)
             all_prepared_chunks.append(
                 _PreparedKnowledgeBundleChunk(
                     payload=payload,
@@ -163,7 +168,9 @@ def build_knowledge_jobs(
                         chunk=chunk,
                         payload=payload,
                         seed_stage_category=str(stage_span.category or "").strip() or None,
+                        utility_profile=utility_profile,
                     ),
+                    utility_profile=utility_profile,
                     source_span_id=stage_span.span_id,
                 )
             )
@@ -259,6 +266,30 @@ def build_knowledge_jobs(
                     },
                     "chunk_knowledge_cue_by_id": {
                         chunk.payload.chunk_id: bool(chunk.knowledge_cue)
+                        for chunk in bundle_chunks
+                    },
+                    "chunk_utility_positive_cues_by_id": {
+                        chunk.payload.chunk_id: list(
+                            chunk.utility_profile.get("positive_cues") or []
+                        )
+                        for chunk in bundle_chunks
+                    },
+                    "chunk_utility_negative_cues_by_id": {
+                        chunk.payload.chunk_id: list(
+                            chunk.utility_profile.get("negative_cues") or []
+                        )
+                        for chunk in bundle_chunks
+                    },
+                    "chunk_utility_borderline_by_id": {
+                        chunk.payload.chunk_id: bool(
+                            chunk.utility_profile.get("borderline")
+                        )
+                        for chunk in bundle_chunks
+                    },
+                    "chunk_strong_negative_utility_cue_by_id": {
+                        chunk.payload.chunk_id: bool(
+                            chunk.utility_profile.get("strong_negative_cue")
+                        )
                         for chunk in bundle_chunks
                     },
                 },
@@ -612,12 +643,25 @@ def _chunk_has_strong_knowledge_cue(
     chunk: KnowledgeChunk,
     payload: KnowledgeCompactBundleChunkPayloadV2,
     seed_stage_category: str | None,
+    utility_profile: Mapping[str, Any] | None,
 ) -> bool:
     normalized_seed_category = str(seed_stage_category or "").strip().lower()
     block_char_count = sum(len(str(block.text or "").strip()) for block in payload.blocks)
-    if normalized_seed_category == "knowledge" and block_char_count >= 20:
+    profile = dict(utility_profile or {})
+    positive_cues = {
+        str(cue).strip()
+        for cue in (profile.get("positive_cues") or [])
+        if str(cue).strip()
+    }
+    if bool(profile.get("strong_positive_cue")):
         return True
     if any(block.table_hint is not None for block in payload.blocks):
+        return True
+    if normalized_seed_category == "knowledge" and block_char_count >= 20 and positive_cues:
+        return True
+    if {"storage_or_safety", "failure_prevention", "diagnostic_or_sensory"}.intersection(
+        positive_cues
+    ):
         return True
     title_candidates: list[str] = []
     title = str(chunk.title or "").strip()
@@ -628,7 +672,9 @@ def _chunk_has_strong_knowledge_cue(
         for block in payload.blocks
         if block.heading_level is not None and str(block.text or "").strip()
     )
-    return any(_looks_like_reference_heading(text) for text in title_candidates)
+    return bool(positive_cues) and any(
+        _looks_like_reference_heading(text) for text in title_candidates
+    )
 
 
 def _looks_like_reference_heading(text: str) -> bool:

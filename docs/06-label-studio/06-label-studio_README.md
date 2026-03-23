@@ -32,6 +32,7 @@ Nearby code used directly by Label Studio benchmark/eval flow:
 - `cookimport/bench/sequence_matcher_select.py`
 - `cookimport/bench/canonical_alignment_cache.py`
 - `cookimport/analytics/perf_report.py`
+- `cookimport/labelstudio/canonical_line_projection.py`
 
 Label-first runtime seam used by benchmark/import flows:
 
@@ -219,6 +220,11 @@ New eval manifests should record the prediction-run root under `artifacts.artifa
 
 `labelstudio-benchmark` supports:
 
+Canonical line-role projection note:
+- `line_role_predictions.jsonl` remains the diagnostic/provisional line-role view after any final-authority overwrite that actually exists.
+- `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view and must fail closed for outside-recipe review-eligible rows that remained unreviewed by the knowledge stage.
+- In other words, an unreviewed outside-recipe row may still appear as provisional `KNOWLEDGE` in diagnostic artifacts, but benchmark scoring must serialize it as `OTHER` until explicit final non-recipe authority exists.
+
 - upload path (prediction import + eval)
 - offline path (`--no-upload`)
 - eval-only from prediction records (`--predictions-in`)
@@ -300,7 +306,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - `line-role-pipeline/joined_line_table.jsonl`
 - `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
 - `line-role-pipeline/slice_metrics.json`
-- `line-role-pipeline/knowledge_budget.json`
+- `line-role-pipeline/routing_summary.json`
 - `line-role-pipeline/prompt_eval_alignment.md`
 - stable sampled cutdowns keyed from one joined `sample_id` table
 

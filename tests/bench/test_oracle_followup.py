@@ -135,6 +135,7 @@ def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(tmp_p
         "continue-session",
         "you-are-reviewing-a-benchmark-301",
     ]
+    assert "--model" not in result.command
     assert "--browser-keep-browser" not in result.command
     assert workspace.handoff_path.is_file()
     assert workspace.request_json_path.is_file()
@@ -301,6 +302,79 @@ def test_run_oracle_benchmark_followup_reuses_source_browser_profile_for_continu
     assert metadata_payload["browser_profile_dir"] == str(browser_profile_dir)
 
 
+def test_run_oracle_benchmark_followup_maps_explicit_gpt_alias_to_browser_visible_label(
+    tmp_path: Path,
+) -> None:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-22_20.03.30"
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "session_id": "you-are-reviewing-a-benchmark-324",
+                "conversation_url": "https://chatgpt.com/c/source-324",
+                "conversation_id": "source-324",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                "Answer:",
+                "Top regressions",
+                "The main regression is outside-span line-role drift.",
+                "",
+                "Likely cause buckets",
+                "Knowledge boundary drift.",
+                "",
+                "Immediate next checks",
+                "Inspect the densest window.",
+                "",
+                "Requested follow-up data",
+                "Ask 1",
+                "ask_id: ask_001_line_role",
+                "question: Show the line-role evidence for the worst negative cases.",
+                "outputs: case_export",
+                "stage_filters: line_role",
+                "hypothesis: The issue is in line-role repair.",
+                "smallest_useful_packet: One bad case is enough.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    captured: dict[str, object] = {}
+
+    def fake_runner(command, **kwargs):
+        captured["command"] = [str(part) for part in command]
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="Answer:\nUpdated assessment\nFollow-up answer.\n",
+            stderr="",
+        )
+
+    result, _workspace = run_oracle_benchmark_followup(
+        target=target,
+        from_run="latest",
+        model="gpt-5-pro",
+        runner=fake_runner,
+    )
+
+    assert result.success is True
+    command = captured["command"]
+    assert "--model" in command
+    assert command[command.index("--model") + 1] == "GPT-5 Pro"
+
+
 def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from_oracle(
     tmp_path: Path,
 ) -> None:
@@ -367,6 +441,8 @@ def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from
 def _run_completed_turn1_followup_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    model: str | None = "gpt-5.3",
 ) -> dict[str, object]:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
@@ -461,7 +537,7 @@ def _run_completed_turn1_followup_fixture(
     result = run_oracle_benchmark_followup_background_worker(
         target=target,
         from_run=source_run,
-        model="gpt-5.3",
+        model=model,
         poll_interval_seconds=0.01,
         timeout_seconds=1.0,
     )
@@ -502,6 +578,14 @@ def test_auto_followup_worker_marks_completed_turn1_status_succeeded(
 
     assert status_payload["status"] == "succeeded"
     assert source_status["status"] == "succeeded"
+
+
+def test_auto_followup_worker_does_not_force_default_model_override_into_turn2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _run_completed_turn1_followup_fixture(tmp_path, monkeypatch, model=None)
+    assert fixture["captured"]["model"] is None
 
 
 def test_auto_followup_worker_marks_missing_requested_section_explicitly(tmp_path: Path) -> None:

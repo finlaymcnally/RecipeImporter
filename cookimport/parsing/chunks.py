@@ -785,6 +785,30 @@ _NOISE_NAVIGATION_TITLES = frozenset({
     "copyright", "credits", "acknowledgments", "acknowledgements",
     "dedication", "author's note", "authors' note",
 })
+_UTILITY_SUBSTITUTION_RE = re.compile(
+    r"\b(substitut(?:e|ion|ions)|swap|replace|instead of|in place of)\b",
+    re.IGNORECASE,
+)
+_UTILITY_STORAGE_SAFETY_RE = re.compile(
+    r"\b(store|storage|storing|refrigerat(?:e|ed|ion)|freeze|frozen|keep refrigerated|"
+    r"food safety|safe(?:ly)?|danger zone|perishable|shelf life)\b",
+    re.IGNORECASE,
+)
+_UTILITY_REFERENCE_RE = re.compile(
+    r"\b(chart|table|guide|ratio|conversion|glossary|definition|means|refers to|"
+    r"smoke point|temperature|doneness)\b",
+    re.IGNORECASE,
+)
+_UTILITY_FAILURE_RE = re.compile(
+    r"\b(prevent|avoid|fix|rescue|troubleshoot|curdle|split|seize|overcook|undercook|"
+    r"burn|sticking|grainy)\b",
+    re.IGNORECASE,
+)
+_UTILITY_LOW_VALUE_TRUTH_RE = re.compile(
+    r"\b(is a|are a|is an|are an|is one of|are one of|comes from|is made from|"
+    r"is used in|is popular|has a flavor|can be used)\b",
+    re.IGNORECASE,
+)
 
 
 def assign_lanes(chunks: list[KnowledgeChunk]) -> list[KnowledgeChunk]:
@@ -976,6 +1000,81 @@ def _looks_navigation_fragment(lines: Sequence[str], title: str) -> bool:
         if re.search(r"\.{2,}\s*\d+$", line) or re.match(r"^\d+\.?\s+[A-Z]", line)
     ]
     return len(lines) >= 3 and len(numbered_or_dotted) >= max(2, len(lines) // 2)
+
+
+def summarize_chunk_utility_profile(chunk: KnowledgeChunk) -> dict[str, Any]:
+    text = str(chunk.text or "").strip()
+    title = str(chunk.title or "").strip()
+    normalized_title = title.lower().rstrip(":")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    positive_cues: list[str] = []
+    negative_cues: list[str] = []
+
+    if _chunk_has_table_content(chunk):
+        positive_cues.append("reference_table_shape")
+    if _KNOWLEDGE_MECHANISM_RE.search(text):
+        positive_cues.append("cause_effect")
+    if _KNOWLEDGE_DIAGNOSTIC_RE.search(text):
+        positive_cues.append("diagnostic_or_sensory")
+    if _UTILITY_SUBSTITUTION_RE.search(text):
+        positive_cues.append("substitution")
+    if _UTILITY_STORAGE_SAFETY_RE.search(text):
+        positive_cues.append("storage_or_safety")
+    if _UTILITY_REFERENCE_RE.search(text) and (
+        _chunk_has_table_content(chunk) or len(lines) <= 6 or _looks_standalone_heading_chunk(chunk)
+    ):
+        positive_cues.append("reference_or_definition")
+    if _UTILITY_FAILURE_RE.search(text):
+        positive_cues.append("failure_prevention")
+    if _KNOWLEDGE_IMPERATIVE_RE.search(text) and _KNOWLEDGE_MODAL_RE.search(text):
+        positive_cues.append("actionable_technique")
+
+    if _NARRATIVE_ANECDOTE_RE.search(text) or _NARRATIVE_FIRST_PERSON_RE.search(text):
+        negative_cues.append("memoir_or_voice")
+    if _NOISE_BOOK_RE.search(text) or _NOISE_MARKETING_RE.search(text) or _NOISE_PRAISE_RE.search(text):
+        negative_cues.append("book_framing_or_marketing")
+    if _looks_navigation_fragment(lines, normalized_title):
+        negative_cues.append("navigation_or_taxonomy")
+    if _looks_standalone_heading_chunk(chunk):
+        negative_cues.append("rhetorical_heading")
+    if (
+        _UTILITY_LOW_VALUE_TRUTH_RE.search(text)
+        and not positive_cues
+        and len(lines) <= 3
+        and len(text) <= 220
+    ):
+        negative_cues.append("true_but_low_utility")
+
+    deduped_positive = list(dict.fromkeys(positive_cues))
+    deduped_negative = list(dict.fromkeys(negative_cues))
+    strong_positive = bool(
+        {
+            "reference_table_shape",
+            "cause_effect",
+            "diagnostic_or_sensory",
+            "storage_or_safety",
+            "failure_prevention",
+        }.intersection(deduped_positive)
+    )
+    strong_negative = bool(
+        {
+            "book_framing_or_marketing",
+            "navigation_or_taxonomy",
+            "memoir_or_voice",
+        }.intersection(deduped_negative)
+    ) or (
+        "rhetorical_heading" in deduped_negative and not deduped_positive
+    )
+    borderline = bool(deduped_positive and deduped_negative) or (
+        "true_but_low_utility" in deduped_negative and not strong_negative
+    )
+    return {
+        "positive_cues": deduped_positive,
+        "negative_cues": deduped_negative,
+        "strong_positive_cue": strong_positive,
+        "strong_negative_cue": strong_negative,
+        "borderline": borderline,
+    }
 
 
 def _looks_attribution_fragment(lines: Sequence[str]) -> bool:

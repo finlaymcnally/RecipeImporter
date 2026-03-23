@@ -63,6 +63,8 @@ def _make_bundle(
         '{"path":"row","payload":"benchmark payload"}\n',
         encoding="utf-8",
     )
+    _write_profile_bundle_context(bundle_dir)
+    _write_profile_payload_rows(bundle_dir)
     return bundle_dir
 
 
@@ -104,6 +106,113 @@ def _write_browser_safe_row_locator_index(bundle_dir: Path) -> None:
     )
 
 
+def _write_profile_bundle_context(bundle_dir: Path) -> None:
+    index_path = bundle_dir / "upload_bundle_index.json"
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    payload["topline"]["active_recipe_span_breakout"] = {
+        "outside_share_of_scored_lines": 0.839018,
+    }
+    payload["analysis"] = {
+        "top_confusion_deltas": [
+            {
+                "gold_label": "KNOWLEDGE",
+                "pred_label": "OTHER",
+            }
+        ],
+        "structure_label_report": {
+            "boundary": {
+                "codex_exact_ratio_avg": 1.0,
+            },
+            "slices": {
+                "structure_core": {
+                    "codex_f1_avg": 0.777012,
+                },
+                "nonrecipe_core": {
+                    "codex_f1_avg": 0.578081,
+                },
+            },
+        },
+        "call_inventory_runtime": {
+            "summary": {
+                "total_tokens": 33699633,
+                "nonrecipe_knowledge_review_token_share": 0.8535,
+            }
+        },
+    }
+    index_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    comparison_path = bundle_dir.parent / "codex_vs_vanilla_comparison.json"
+    comparison_path.write_text(
+        json.dumps(
+            {
+                "metrics": {
+                    "codexfarm": {
+                        "strict_accuracy": 0.64734,
+                        "macro_f1_excluding_other": 0.777327,
+                    }
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    prompt_budget_path = bundle_dir.parent / "codexfarm" / "prompt_budget_summary.json"
+    prompt_budget_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_budget_path.write_text(
+        json.dumps(
+            {
+                "by_stage": {
+                    "knowledge": {
+                        "tokens_total": 28762251,
+                        "wrapper_overhead_tokens": 14637956,
+                    },
+                    "line_role": {
+                        "tokens_total": 2952847,
+                    },
+                    "recipe_correction": {
+                        "tokens_total": 1984535,
+                    },
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_profile_payload_rows(bundle_dir: Path) -> None:
+    selected_paths = set()
+    for profile in oracle_upload.ORACLE_BENCHMARK_REVIEW_PROFILES:
+        selected_paths.update(profile.payload_paths)
+    rows = []
+    for path in sorted(selected_paths):
+        rows.append(
+            json.dumps(
+                {
+                    "path": path,
+                    "payload": f"payload for {path}",
+                }
+            )
+            + "\n"
+        )
+    rows.append(
+        json.dumps(
+            {
+                "path": "heavy/unselected.json",
+                "payload": "x" * 20000,
+            }
+        )
+        + "\n"
+    )
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text("".join(rows), encoding="utf-8")
+
+
 def test_resolve_oracle_benchmark_bundle_accepts_bundle_dir_and_parent(tmp_path: Path) -> None:
     session_root = tmp_path / "single-profile-benchmark"
     bundle_dir = _make_bundle(session_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME)
@@ -139,16 +248,37 @@ def test_build_oracle_benchmark_prompt_describes_synthetic_attachment_transport(
 
     prompt = oracle_upload.build_oracle_benchmark_prompt(target=target)
 
+    assert "You are the quality lane" in prompt
     assert "logical contents come from an existing `upload_bundle_v1` benchmark package" in prompt
     assert "synthetic text attachment such as `attachments-bundle.txt`" in prompt
-    assert "Within that attachment, start with `upload_bundle_overview.md`" in prompt
-    assert "help improve Codex benchmark accuracy" in prompt
+    assert "Start with `oracle_quality_focus.md`" in prompt
+    assert "path from the current benchmark quality toward `>95%`" in prompt
     assert "Only write `None` in `Requested follow-up data`" in prompt
     assert "Useful local follow-up tools include `cf-debug structure-report`" in prompt
-    assert "exactly four sections" in prompt
+    assert "`Top blockers to 95%`" in prompt
     assert "`Requested follow-up data`" in prompt
     assert "`ask_id: <short_slug>`" in prompt
     assert "`outputs: <comma-separated outputs such as case_export, line_role_audit" in prompt
+
+
+def test_build_oracle_benchmark_prompt_supports_token_lane(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    prompt = oracle_upload.build_oracle_benchmark_prompt(
+        target=target,
+        review_profile="token",
+    )
+
+    assert "You are the token lane" in prompt
+    assert "Start with `oracle_token_focus.md`" in prompt
+    assert "sharpest token-spend reductions" in prompt
+    assert "`Top spend sinks`" in prompt
+    assert "`Requested follow-up data`" in prompt
 
 
 def test_build_oracle_benchmark_prompt_renders_editable_template_file_tokens(
@@ -163,6 +293,7 @@ def test_build_oracle_benchmark_prompt_renders_editable_template_file_tokens(
     template_path.write_text(
         "\n".join(
             [
+                "brief={{LANE_BRIEF_FILE}}",
                 "scope={{BUNDLE_SCOPE}}",
                 "root={{BENCHMARK_ROOT}}",
             ]
@@ -178,7 +309,9 @@ def test_build_oracle_benchmark_prompt_renders_editable_template_file_tokens(
 
     prompt = oracle_upload.build_oracle_benchmark_prompt(target=target)
 
-    assert prompt == f"scope={target.scope}\nroot={target.source_root}"
+    assert prompt == (
+        f"brief=oracle_quality_focus.md\nscope={target.scope}\nroot={target.source_root}"
+    )
 
 
 def test_build_oracle_benchmark_prompt_marks_test_helpers_clearly(
@@ -312,11 +445,11 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         "--model",
     ]
     assert oracle_upload.ORACLE_DEFAULT_MODEL in command
-    assert command.count("--file") == 3
-    for file_argument in oracle_upload._oracle_file_arguments(
-        [bundle_dir / file_name for file_name in oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES]
-    ):
-        assert file_argument in command
+    assert command.count("--file") == 4
+    assert any(arg.endswith("oracle_quality_focus.md") for arg in command)
+    assert any(arg.endswith("upload_bundle_overview.md") for arg in command)
+    assert any(arg.endswith("upload_bundle_index.json") for arg in command)
+    assert any(arg.endswith("upload_bundle_payload.jsonl") for arg in command)
     assert "-p" in command
     kwargs = captured["kwargs"]
     assert kwargs["check"] is False
@@ -456,11 +589,9 @@ def test_run_oracle_benchmark_upload_assembles_dry_run_command(tmp_path: Path) -
     assert command[:6] == list(oracle_upload.ORACLE_DRY_RUN_BASE_COMMAND)
     assert "--model" in command
     assert oracle_upload.ORACLE_DEFAULT_MODEL in command
-    assert command.count("--file") == 3
-    for file_argument in oracle_upload._oracle_file_arguments(
-        [bundle_dir / file_name for file_name in oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES]
-    ):
-        assert file_argument in command
+    assert command.count("--file") == 4
+    assert any(arg.endswith("oracle_quality_focus.md") for arg in command)
+    assert any(arg.endswith("upload_bundle_payload.jsonl") for arg in command)
 
 
 def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_large_bundle(
@@ -469,10 +600,18 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
     bundle_dir = _make_bundle(
         tmp_path / "single-profile-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
-    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
-        "x" * (oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES + 1),
-        encoding="utf-8",
-    )
+    oversized_rows = []
+    for path in oracle_upload.resolve_oracle_benchmark_review_profile("quality").payload_paths:
+        oversized_rows.append(
+            json.dumps(
+                {
+                    "path": path,
+                    "payload": "x" * 120_000,
+                }
+            )
+            + "\n"
+        )
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text("".join(oversized_rows), encoding="utf-8")
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
     result = oracle_upload.run_oracle_benchmark_upload(
@@ -485,6 +624,7 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
     assert result.returncode == 0
     assert "Local dry-run preview only" in result.stdout
     assert "upload_bundle_payload.jsonl" in result.stdout
+    assert result.review_profile == "quality"
     assert result.command[:9] == [
         oracle_upload.ORACLE_BROWSER_CMD,
         "--engine",
@@ -518,15 +658,19 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
-    payload_rows = []
-    while len("".join(payload_rows).encode("utf-8")) <= (
-        oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES + 50_000
-    ):
-        payload_rows.append('{"path":"row","payload":"' + ("x" * 2000) + '"}\n')
-    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
-        "".join(payload_rows),
-        encoding="utf-8",
-    )
+    _write_profile_bundle_context(bundle_dir)
+    rows = []
+    for path in oracle_upload.resolve_oracle_benchmark_review_profile("quality").payload_paths:
+        rows.append(
+            json.dumps(
+                {
+                    "path": path,
+                    "payload": "x" * 120_000,
+                }
+            )
+            + "\n"
+        )
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text("".join(rows), encoding="utf-8")
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
     captured: dict[str, object] = {}
@@ -544,7 +688,7 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
             assert path.is_file()
             assert path.stat().st_size <= oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES
         prompt = command[command.index("-p") + 1]
-        assert "split into ordered shards" in prompt
+        assert "was split into 2 ordered shards" in prompt
         assert "upload_bundle_payload.part001.jsonl" in prompt
         return subprocess.CompletedProcess(
             command,
@@ -566,16 +710,18 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        review_profile="quality",
         runner=fake_runner,
     )
 
     assert result.success is True
-    assert "Prepared sharded Oracle browser upload" in result.stdout
+    assert "Prepared Oracle quality review packet" in result.stdout
     command = captured["command"]
     assert isinstance(command, list)
     file_args = captured["file_args"]
     assert isinstance(file_args, list)
     file_names = sorted(path.name for path in file_args)
+    assert "oracle_quality_focus.md" in file_names
     assert "upload_bundle_overview.md" in file_names
     assert "upload_bundle_index.json" in file_names
     assert "upload_bundle_payload.jsonl" not in file_names
@@ -593,31 +739,14 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
 
 
-def test_run_oracle_benchmark_upload_browser_prefers_starter_packet_subset_for_oversized_payload(
+def test_run_oracle_benchmark_upload_browser_stages_quality_profile_subset(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
-    _write_browser_safe_row_locator_index(bundle_dir)
-    payload_lines: list[str] = []
-    for row_number in range(1, 81):
-        if row_number in {2, 5, 7, 9}:
-            payload = {
-                "path": f"selected-{row_number}.json",
-                "payload": f"selected row {row_number}",
-            }
-            payload_lines.append(json.dumps(payload) + "\n")
-            continue
-        payload = {
-            "path": f"heavy-{row_number}.json",
-            "payload": "x" * 20_000,
-        }
-        payload_lines.append(json.dumps(payload) + "\n")
-    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
-        "".join(payload_lines),
-        encoding="utf-8",
-    )
+    _write_profile_bundle_context(bundle_dir)
+    _write_profile_payload_rows(bundle_dir)
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
     captured: dict[str, object] = {}
@@ -632,12 +761,15 @@ def test_run_oracle_benchmark_upload_browser_prefers_starter_packet_subset_for_o
         captured["file_args"] = file_args
         payload_path = next(path for path in file_args if path.name == "upload_bundle_payload.jsonl")
         payload_rows = payload_path.read_text(encoding="utf-8").splitlines()
-        assert len(payload_rows) == 4
-        assert all("selected-" in row for row in payload_rows)
+        assert len(payload_rows) == len(
+            oracle_upload.resolve_oracle_benchmark_review_profile("quality").payload_paths
+        )
+        assert "heavy/unselected.json" not in payload_path.read_text(encoding="utf-8")
+        assert any(path.name == "oracle_quality_focus.md" for path in file_args)
         assert payload_path.stat().st_size <= oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES
         prompt = command[command.index("-p") + 1]
-        assert "browser-safe starter-pack subset" in prompt
-        assert "full local bundle rather than this browser-safe subset" in prompt
+        assert "oracle_quality_focus.md" in prompt
+        assert "`quality` review subset" in prompt
         return subprocess.CompletedProcess(
             command,
             0,
@@ -658,17 +790,70 @@ def test_run_oracle_benchmark_upload_browser_prefers_starter_packet_subset_for_o
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        review_profile="quality",
         runner=fake_runner,
     )
 
     assert result.success is True
-    assert "Prepared browser-safe Oracle starter-pack upload" in result.stdout
+    assert result.review_profile == "quality"
+    assert "Prepared Oracle quality review packet" in result.stdout
     command = captured["command"]
     assert isinstance(command, list)
     file_args = captured["file_args"]
     assert isinstance(file_args, list)
-    assert len(file_args) == 3
-    assert {path.name for path in file_args} == set(oracle_upload.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
+    assert len(file_args) == 4
+    assert {
+        "oracle_quality_focus.md",
+        "upload_bundle_overview.md",
+        "upload_bundle_index.json",
+        "upload_bundle_payload.jsonl",
+    } == {path.name for path in file_args}
+
+
+def test_run_oracle_benchmark_upload_browser_stages_token_profile_subset(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    _write_profile_bundle_context(bundle_dir)
+    _write_profile_payload_rows(bundle_dir)
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+
+    captured: dict[str, object] = {}
+
+    def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        file_args = [
+            Path(command[index + 1])
+            for index, arg in enumerate(command)
+            if arg == "--file"
+        ]
+        payload_path = next(path for path in file_args if path.name == "upload_bundle_payload.jsonl")
+        payload_text = payload_path.read_text(encoding="utf-8")
+        assert 'codexfarm/prompt_budget_summary.json' in payload_text
+        assert 'starter_pack_v1/02_call_inventory.jsonl' in payload_text
+        assert 'codexfarm/eval_report.json' not in payload_text
+        prompt = command[command.index("-p") + 1]
+        assert "oracle_token_focus.md" in prompt
+        assert "`token` review subset" in prompt
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="oracle (gpt-5.2)\nAnswer:\nTop spend sinks\n- none\nLikely waste buckets\n- none\nLowest-risk cuts\n- none\nRequested follow-up data\nNone\n",
+            stderr="",
+        )
+
+    result = oracle_upload.run_oracle_benchmark_upload(
+        target=target,
+        mode="browser",
+        review_profile="token",
+        runner=fake_runner,
+    )
+
+    assert result.success is True
+    assert result.review_profile == "token"
+    assert result.review_profile_display_name == "Token"
 
 
 def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_session_metadata(
@@ -892,15 +1077,19 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
+    _write_profile_bundle_context(bundle_dir)
     payload_rows = []
-    while len("".join(payload_rows).encode("utf-8")) <= (
-        oracle_upload.ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES + 50_000
-    ):
-        payload_rows.append('{"path":"row","payload":"' + ("x" * 2000) + '"}\n')
-    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
-        "".join(payload_rows),
-        encoding="utf-8",
-    )
+    for path in oracle_upload.resolve_oracle_benchmark_review_profile("quality").payload_paths:
+        payload_rows.append(
+            json.dumps(
+                {
+                    "path": path,
+                    "payload": "x" * 120_000,
+                }
+            )
+            + "\n"
+        )
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text("".join(payload_rows), encoding="utf-8")
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
     captured: dict[str, object] = {}
@@ -922,6 +1111,7 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     launch = oracle_upload.start_oracle_benchmark_upload_background(
         target=target,
         mode="browser",
+        review_profile="quality",
         popen=FakePopen,
     )
 
@@ -930,16 +1120,18 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     assert launch.launch_dir.parent == bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME
     assert launch.log_path.is_file()
     assert launch.metadata_path.is_file()
-    assert "Prepared sharded Oracle browser upload" in launch.note
+    assert "Prepared Oracle quality review packet" in launch.note
     assert launch.browser_profile_dir == oracle_upload._resolve_oracle_browser_profile_dir(env={})
     log_text = launch.log_path.read_text(encoding="utf-8")
-    assert "Prepared sharded Oracle browser upload" in log_text
+    assert "Prepared Oracle quality review packet" in log_text
     assert "Oracle browser profile:" in log_text
     assert "Oracle command:" in log_text
     metadata = json.loads(launch.metadata_path.read_text(encoding="utf-8"))
     assert metadata["pid"] == 4242
     assert metadata["bundle_dir"] == str(bundle_dir)
     assert metadata["log_path"] == str(launch.log_path)
+    assert metadata["review_profile"] == "quality"
+    assert metadata["review_profile_display_name"] == "Quality"
     assert metadata["mode"] == "browser"
     assert metadata["browser_profile_dir"] == str(launch.browser_profile_dir)
     assert metadata["oracle_version"] == "0.8.6-test"
@@ -960,6 +1152,7 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
         if arg == "--file"
     ]
     assert len(file_args) > 3
+    assert "oracle_quality_focus.md" in {path.name for path in file_args}
     assert "upload_bundle_payload.jsonl" not in {path.name for path in file_args}
     assert any(path.name.startswith("upload_bundle_payload.part") for path in file_args)
     for path in file_args:
@@ -979,40 +1172,15 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
 
 
-def test_start_oracle_benchmark_upload_background_prefers_starter_packet_subset_for_oversized_payload(
+def test_start_oracle_benchmark_upload_background_stages_profile_packet(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
-    _write_browser_safe_row_locator_index(bundle_dir)
-    payload_lines: list[str] = []
-    for row_number in range(1, 81):
-        if row_number in {2, 5, 7, 9}:
-            payload_lines.append(
-                json.dumps(
-                    {
-                        "path": f"selected-{row_number}.json",
-                        "payload": f"selected row {row_number}",
-                    }
-                )
-                + "\n"
-            )
-            continue
-        payload_lines.append(
-            json.dumps(
-                {
-                    "path": f"heavy-{row_number}.json",
-                    "payload": "x" * 20_000,
-                }
-            )
-            + "\n"
-        )
-    (bundle_dir / "upload_bundle_payload.jsonl").write_text(
-        "".join(payload_lines),
-        encoding="utf-8",
-    )
+    _write_profile_bundle_context(bundle_dir)
+    _write_profile_payload_rows(bundle_dir)
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
     captured: dict[str, object] = {}
@@ -1025,7 +1193,7 @@ def test_start_oracle_benchmark_upload_background_prefers_starter_packet_subset_
             log_handle = kwargs["stdout"]
             assert log_handle is not None
             log_handle.write(
-                "Session running in background. Reattach via: oracle session starter-pack-123\n"
+                "Session running in background. Reattach via: oracle session token-lane-123\n"
             )
             log_handle.flush()
             self.pid = 5252
@@ -1033,11 +1201,13 @@ def test_start_oracle_benchmark_upload_background_prefers_starter_packet_subset_
     launch = oracle_upload.start_oracle_benchmark_upload_background(
         target=target,
         mode="browser",
+        review_profile="token",
         popen=FakePopen,
     )
 
     assert launch.pid == 5252
-    assert "Prepared browser-safe Oracle starter-pack upload" in launch.note
+    assert launch.review_profile == "token"
+    assert "Prepared Oracle token review packet" in launch.note
     command = captured["command"]
     assert isinstance(command, list)
     file_args = [
@@ -1045,14 +1215,14 @@ def test_start_oracle_benchmark_upload_background_prefers_starter_packet_subset_
         for index, arg in enumerate(command)
         if arg == "--file"
     ]
-    assert len(file_args) == 3
+    assert len(file_args) == 4
     payload_path = next(path for path in file_args if path.name == "upload_bundle_payload.jsonl")
-    payload_rows = payload_path.read_text(encoding="utf-8").splitlines()
-    assert len(payload_rows) == 4
-    assert all("selected-" in row for row in payload_rows)
+    payload_text = payload_path.read_text(encoding="utf-8")
+    assert "codexfarm/prompt_budget_summary.json" in payload_text
+    assert "starter_pack_v1/02_call_inventory.jsonl" in payload_text
     prompt = command[command.index("-p") + 1]
-    assert "browser-safe starter-pack subset" in prompt
-    assert "request narrow follow-up data" in prompt
+    assert "oracle_token_focus.md" in prompt
+    assert "`token` review subset" in prompt
     assert "--browser-keep-browser" not in command
 
 
@@ -1170,7 +1340,9 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
         log_path=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-17_17.05.00" / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME,
         metadata_path=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-17_17.05.00" / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME,
         pid=4242,
-        note="Prepared sharded Oracle browser upload for oversized bundle files: upload_bundle_payload.jsonl (37675212 bytes).",
+        note="Prepared Oracle quality review packet with 12 payload rows (25000 bytes).",
+        review_profile="quality",
+        review_profile_display_name="Quality",
         browser_profile_dir=Path("/tmp/oracle-profile"),
         oracle_version="0.8.6-test",
         status="running",
@@ -1206,12 +1378,12 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
     assert any("Reattach: oracle session test-session-123" in message for message in messages)
     assert any("Conversation: https://chatgpt.com/c/test-session-123" in message for message in messages)
     assert any("When Oracle finishes, open that log file to read the response." in message for message in messages)
-    assert any("oversized bundle files were sharded for upload" in message for message in messages)
+    assert any("Prepared Oracle quality review packet" in message for message in messages)
     assert not any(message.startswith("Oracle command:") for message in messages)
     assert not any(message.startswith("Oracle launch metadata:") for message in messages)
 
 
-def test_print_background_oracle_upload_summary_describes_starter_packet_transport(
+def test_print_background_oracle_upload_summary_shows_profile_and_note(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1234,11 +1406,9 @@ def test_print_background_oracle_upload_summary_describes_starter_packet_transpo
         / "2026-03-21_16.17.50"
         / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME,
         pid=80663,
-        note=(
-            "Prepared browser-safe Oracle starter-pack upload for oversized bundle files: "
-            "upload_bundle_payload.jsonl (193045081 bytes). Trimmed "
-            "`upload_bundle_payload.jsonl` to 22 starter-pack rows (363907 bytes) before browser upload."
-        ),
+        note="Prepared Oracle token review packet with 10 payload rows (18000 bytes).",
+        review_profile="token",
+        review_profile_display_name="Token",
         browser_profile_dir=Path("/tmp/oracle-profile"),
         oracle_version="0.8.6-test",
         status="running",
@@ -1263,17 +1433,14 @@ def test_print_background_oracle_upload_summary_describes_starter_packet_transpo
     )
 
     assert any(
-        "Oracle transport: oversized payload trimmed to a browser-safe starter packet."
+        "Oracle review profile: Token"
         in message
         for message in messages
     )
-    assert not any(
-        "Oracle transport: oversized bundle files were sharded for upload." in message
-        for message in messages
-    )
+    assert any("Prepared Oracle token review packet" in message for message in messages)
 
 
-def test_start_background_oracle_followup_worker_uses_resolved_launch_model_when_override_blank(
+def test_start_background_oracle_followup_worker_does_not_forward_launch_default_model_when_override_blank(
     tmp_path: Path,
 ) -> None:
     bundle_dir = _make_bundle(
@@ -1309,7 +1476,7 @@ def test_start_background_oracle_followup_worker_uses_resolved_launch_model_when
 
     command = captured["command"]
     assert isinstance(command, list)
-    assert command[-2:] == ["--model", "gpt-5.4"]
+    assert "--model" not in command
     status_payload = json.loads(
         (launch_dir / cli.ORACLE_AUTO_FOLLOWUP_STATUS_NAME).read_text(encoding="utf-8")
     )
@@ -1372,7 +1539,7 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
         model=None,
     )
 
-    assert summary_calls == [(target, launch)]
+    assert summary_calls == [(target, launch), (target, launch)]
     assert any("Oracle auto-follow-up worker not started" in message for message in messages)
     assert not any("Oracle benchmark upload not started" in message for message in messages)
 
@@ -1513,10 +1680,12 @@ def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
         target: oracle_upload.OracleBenchmarkBundleTarget,
         mode: str,
         model: str,
+        review_profile: str,
     ) -> oracle_upload.OracleUploadResult:
         captured["target"] = target
         captured["mode"] = mode
         captured["model"] = model
+        captured["review_profile"] = review_profile
         return oracle_upload.OracleUploadResult(
             success=True,
             mode=mode,
@@ -1525,6 +1694,64 @@ def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
             returncode=0,
             stdout="files-report ok\n",
             stderr="",
+            review_profile=review_profile,
+            review_profile_display_name=review_profile.title(),
+        )
+
+    monkeypatch.setattr(cli, "run_oracle_benchmark_upload", fake_run_oracle_benchmark_upload)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "bench",
+            "oracle-upload",
+            str(sample_single_profile_root),
+            "--mode",
+            "dry-run",
+            "--profile",
+            "quality",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["mode"] == "dry-run"
+    assert captured["review_profile"] == "quality"
+    target = captured["target"]
+    assert isinstance(target, oracle_upload.OracleBenchmarkBundleTarget)
+    assert target.bundle_dir == (
+        sample_single_profile_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    assert str(target.bundle_dir) in result.output
+    assert "Oracle review profile: Quality" in result.output
+    assert "Oracle mode: dry-run" in result.output
+
+
+def test_bench_oracle_upload_command_defaults_to_all_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sample_single_profile_root = tmp_path / "single-profile-benchmark"
+    _make_bundle(sample_single_profile_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME)
+    captured_profiles: list[str] = []
+
+    def fake_run_oracle_benchmark_upload(
+        *,
+        target: oracle_upload.OracleBenchmarkBundleTarget,
+        mode: str,
+        model: str,
+        review_profile: str,
+    ) -> oracle_upload.OracleUploadResult:
+        captured_profiles.append(review_profile)
+        return oracle_upload.OracleUploadResult(
+            success=True,
+            mode=mode,
+            command=["oracle", "--dry-run"],
+            bundle_dir=target.bundle_dir,
+            returncode=0,
+            stdout="ok\n",
+            stderr="",
+            review_profile=review_profile,
+            review_profile_display_name=review_profile.title(),
         )
 
     monkeypatch.setattr(cli, "run_oracle_benchmark_upload", fake_run_oracle_benchmark_upload)
@@ -1541,14 +1768,7 @@ def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
     )
 
     assert result.exit_code == 0
-    assert captured["mode"] == "dry-run"
-    target = captured["target"]
-    assert isinstance(target, oracle_upload.OracleBenchmarkBundleTarget)
-    assert target.bundle_dir == (
-        sample_single_profile_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
-    )
-    assert str(target.bundle_dir) in result.output
-    assert "Oracle mode: dry-run" in result.output
+    assert captured_profiles == ["quality", "token"]
 
 
 def test_maybe_upload_benchmark_bundle_to_oracle_is_best_effort(

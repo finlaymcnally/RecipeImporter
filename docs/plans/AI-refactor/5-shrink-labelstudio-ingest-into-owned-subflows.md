@@ -24,12 +24,13 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 18:00 EDT) Re-ran `bin/docs-list` and read `docs/PLANS.md`, `docs/reports/AI-codebase.md`, `docs/reports/ai-readiness-improvement-report.md`, `docs/06-label-studio/06-label-studio_README.md`, `docs/01-architecture/01-architecture_README.md`, and `docs/12-testing/12-testing_README.md`.
 - [x] (2026-03-22 18:06 EDT) Audited [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py), including normalization helpers, split-cache helpers, split planning and merge logic, prediction-artifact generation, and Label Studio upload behavior.
 - [x] (2026-03-22 18:08 EDT) Authored this standalone Label Studio ingest decomposition ExecPlan in `docs/plans/`.
+- [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes moved helper implementations from `ingest.py` and updates imports instead of preserving a broad facade.
 - [ ] Create a `cookimport/labelstudio/ingest_flows/` package with one module per major responsibility cluster.
 - [ ] Move normalization and split-cache logic out of `ingest.py`.
 - [ ] Move split merge and artifact-writing helpers out of `ingest.py`.
 - [ ] Move offline prediction-artifact generation into an owned module.
 - [ ] Move online upload/project-resolution behavior into an owned module.
-- [ ] Reduce `ingest.py` to a thin public facade that preserves stable entrypoints and imports.
+- [ ] Cut `ingest.py` down to the smallest product-facing entrypoint surface and delete old helper exports and compatibility names.
 - [ ] Add or update Label Studio docs and tests for the new ownership map.
 
 ## Surprises & Discoveries
@@ -66,7 +67,7 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 
 ## Outcomes & Retrospective
 
-No code has changed yet. The current outcome is a concrete plan for turning the broad Label Studio ingest coordinator into a thin public facade over several owned subflows.
+No code has changed yet. The current outcome is a concrete plan for turning the broad Label Studio ingest coordinator into a small product-facing entrypoint surface over several owned subflows.
 
 The main planning lesson is that this file is already structured around coherent support clusters. The work is to make those clusters first-class owners, not to invent a new runtime model.
 
@@ -105,13 +106,13 @@ The intended ownership boundaries are:
 - `prediction_run.py`: the owned implementation of `generate_pred_run_artifacts(...)`
 - `upload.py`: the owned implementation of `run_labelstudio_import(...)`, project resolution, resume behavior, and upload fallback logic
 
-The public facade should remain in [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py). That file should import and re-export the stable public functions while delegating to the new package.
+The final product-facing surface may remain in [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py) only for the genuinely public entrypoints `generate_pred_run_artifacts(...)` and `run_labelstudio_import(...)`. Moved helper names and internal support logic should not be re-exported from that file in the completed end state.
 
 ## Milestones
 
 ### Milestone 1: Create the `ingest_flows` package and move normalization/cache helpers
 
-At the end of this milestone, the new package will exist and the least-coupled helpers such as normalization and split-cache logic will live there. The public file may still own the two major public functions, but the subsystem will already have a visible ownership map.
+At the end of this milestone, the new package will exist and the least-coupled helpers such as normalization and split-cache logic will live there. The completed milestone state should already remove those helpers from `ingest.py`.
 
 Acceptance is that imports and Label Studio tests still pass and the moved helpers are no longer buried in the giant coordinator file.
 
@@ -123,7 +124,7 @@ Acceptance is that split-run merge behavior, processed artifacts, and manifest/r
 
 ### Milestone 3: Move offline prediction-artifact generation into `prediction_run.py`
 
-At the end of this milestone, the full implementation of `generate_pred_run_artifacts(...)` will live in `prediction_run.py`, with `ingest.py` retaining only a thin delegate if needed.
+At the end of this milestone, the full implementation of `generate_pred_run_artifacts(...)` will live in `prediction_run.py`, and the old helper bodies supporting it should be deleted from `ingest.py`.
 
 Acceptance is that benchmark/import offline artifact generation still works and relevant Label Studio tests still pass.
 
@@ -141,7 +142,7 @@ Acceptance is passing Label Studio and CLI validation plus docs that point reade
 
 ## Plan of Work
 
-Start with the lowest-coupled helpers: normalization and split-cache. These create the package structure and reduce noise in the public file without changing the main orchestration path much.
+Start with the lowest-coupled helpers: normalization and split-cache. These create the package structure and reduce noise in the public file without changing the main orchestration path much. Delete each moved helper cluster from `ingest.py` as soon as its new owning module is wired in.
 
 Next, move split merge and artifact writing. Those helpers already form clear support layers and should not stay interwoven with online upload behavior. If the shared planner plan has already landed, replace the local planner helpers with imports from the shared planner seam during this step rather than preserving a second planning owner.
 
@@ -149,7 +150,7 @@ Then move the full implementation of `generate_pred_run_artifacts(...)` into `pr
 
 Finally, move `run_labelstudio_import(...)` implementation into `upload.py`. That module should own project creation, overwrite/resume semantics, task upload, prelabel upload-as behavior, and repair fallbacks. Keeping this separate from offline artifact generation is one of the biggest AI-readiness wins in the file.
 
-Throughout the migration, preserve stable public import paths and avoid creating a shallow helper web. Each new module should correspond to a coherent user-visible or operator-visible concern.
+Throughout the migration, preserve only the stable product-facing entrypoints and avoid creating a shallow helper web. Each new module should correspond to a coherent user-visible or operator-visible concern, and the old helper bodies in `ingest.py` should be removed rather than left behind.
 
 ## Concrete Steps
 
@@ -178,7 +179,7 @@ Migration order:
 2. Move split-merge and artifact helpers.
 3. Move offline prediction-run implementation.
 4. Move online upload implementation.
-5. Reduce `ingest.py` to a thin facade.
+5. Delete moved helper exports from `ingest.py` and leave only the product-facing entrypoints that still matter.
 6. Update docs and tests.
 
 Prepare the environment if needed:
@@ -224,9 +225,11 @@ The fourth acceptance criterion is single authority. Once the shared source-job 
 
 The fifth acceptance criterion is documentation. Label Studio docs should explain the new ownership map so future contributors no longer treat `ingest.py` as the only place to start.
 
+The sixth acceptance criterion is deletion. Moved helper implementations and helper exports should be gone from `ingest.py`; the file should no longer function as a broad compatibility layer.
+
 ## Idempotence and Recovery
 
-This refactor is safe to do incrementally. If one workflow extraction becomes awkward, keep the public function in `ingest.py` and delegate to newly moved helpers while continuing the package split.
+This refactor is safe to do incrementally, but the completed end state must not keep broad helper delegates in `ingest.py`. If one workflow extraction becomes awkward, finish that migration or postpone the cutover rather than preserving a dual-home implementation.
 
 If the shared source-job planning plan has not landed yet, do not block the whole decomposition. Move other seams first and leave a clearly marked temporary local planner delegate that can be replaced later.
 
@@ -292,4 +295,4 @@ These names are ownership targets, not rigid mandatory final names. What matters
 
 ## Revision note
 
-Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. This file owns only Label Studio ingest decomposition and is intentionally designed to consume the shared planner seam once that separate plan lands.
+Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. Updated later the same day to a burn-the-boats posture. This file owns only Label Studio ingest decomposition and now requires deletion of moved helper implementations from `ingest.py` rather than a long-lived compatibility facade.

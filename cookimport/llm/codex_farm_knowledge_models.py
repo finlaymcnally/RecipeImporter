@@ -17,6 +17,53 @@ ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES: tuple[str, ...] = (
     "reference_back_matter",
     "other",
 )
+ALLOWED_KNOWLEDGE_REASON_CODES: tuple[str, ...] = (
+    "technique_or_mechanism",
+    "diagnostic_or_troubleshooting",
+    "reference_or_definition",
+    "substitution_storage_or_safety",
+    "book_framing_or_marketing",
+    "memoir_or_scene_setting",
+    "navigation_or_chapter_taxonomy",
+    "decorative_heading_only",
+    "true_but_low_utility",
+    "not_cooking_knowledge",
+    "review_not_completed",
+    "strong_cue_review_required",
+)
+_REASON_CODE_ALIASES: dict[str, str] = {
+    "grounded_useful": "technique_or_mechanism",
+    "all_other": "not_cooking_knowledge",
+}
+_USEFUL_REASON_CODES = frozenset(
+    {
+        "technique_or_mechanism",
+        "diagnostic_or_troubleshooting",
+        "reference_or_definition",
+        "substitution_storage_or_safety",
+    }
+)
+_NON_USEFUL_REASON_CODES = frozenset(
+    {
+        "book_framing_or_marketing",
+        "memoir_or_scene_setting",
+        "navigation_or_chapter_taxonomy",
+        "decorative_heading_only",
+        "true_but_low_utility",
+        "not_cooking_knowledge",
+        "review_not_completed",
+        "strong_cue_review_required",
+    }
+)
+
+
+def normalize_knowledge_reason_code(value: object) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    return _REASON_CODE_ALIASES.get(cleaned, cleaned)
 
 
 class EvidencePointerV1(BaseModel):
@@ -273,10 +320,7 @@ class KnowledgeSemanticChunkResultV1(BaseModel):
     @field_validator("reason_code", mode="before")
     @classmethod
     def _normalize_reason_code(cls, value: object) -> object:
-        if value is None:
-            return None
-        cleaned = str(value).strip()
-        return cleaned or None
+        return normalize_knowledge_reason_code(value)
 
     @field_validator("block_decisions")
     @classmethod
@@ -299,6 +343,14 @@ class KnowledgeSemanticChunkResultV1(BaseModel):
             decision.category == "knowledge" for decision in self.block_decisions
         )
         has_snippets = bool(self.snippets)
+        if self.reason_code is None:
+            raise ValueError("chunk results must include a utility-focused reason_code.")
+        if self.reason_code not in ALLOWED_KNOWLEDGE_REASON_CODES:
+            raise ValueError(
+                "reason_code must be one of "
+                + ", ".join(repr(code) for code in ALLOWED_KNOWLEDGE_REASON_CODES)
+                + f"; got {self.reason_code!r}."
+            )
         if self.is_useful:
             if not has_knowledge_decision:
                 raise ValueError(
@@ -306,6 +358,10 @@ class KnowledgeSemanticChunkResultV1(BaseModel):
                 )
             if not has_snippets:
                 raise ValueError("useful chunk results must include at least one snippet.")
+            if self.reason_code not in _USEFUL_REASON_CODES:
+                raise ValueError(
+                    "useful chunk reason_code must describe durable cooking leverage."
+                )
             return self
         if has_knowledge_decision:
             raise ValueError(
@@ -313,6 +369,10 @@ class KnowledgeSemanticChunkResultV1(BaseModel):
             )
         if has_snippets:
             raise ValueError("non-useful chunk results must not include snippets.")
+        if self.reason_code not in _NON_USEFUL_REASON_CODES:
+            raise ValueError(
+                "non-useful chunk reason_code must describe why the chunk is not worth keeping."
+            )
         return self
 
 

@@ -76,10 +76,17 @@ def test_contract_examples_prefer_representative_knowledge_chunk() -> None:
     )
 
     assert valid_row["is_useful"] is True
+    assert valid_row["reason_code"] == "technique_or_mechanism"
     assert "PRAISE FOR THIS BOOK" not in valid_snippet["body"]
     assert valid_snippet["body"] != valid_snippet["evidence"][0]["quote"]
     assert invalid_snippet["body"] == invalid_quote_surface
     assert "milk sauces stay smooth" in invalid_quote_surface
+    assert examples["valid_all_other_low_utility_packet.json"]["chunk_results"][0]["reason_code"] == (
+        "true_but_low_utility"
+    )
+    assert examples["valid_all_other_framing_packet.json"]["chunk_results"][0]["reason_code"] == (
+        "book_framing_or_marketing"
+    )
 
 
 def test_scaffold_task_payload_marks_strong_cue_packets_as_review_required() -> None:
@@ -187,7 +194,7 @@ def test_install_workspace_draft_reports_actionable_snippet_copy_guidance(
                                 ],
                             }
                         ],
-                        "reason_code": "grounded_useful",
+                        "reason_code": "technique_or_mechanism",
                     }
                 ],
             },
@@ -280,7 +287,7 @@ def test_generated_knowledge_worker_cli_stays_in_sync_with_repo_feedback_contrac
     )
 
     complete_result = subprocess.run(
-        [sys.executable, "tools/knowledge_worker.py", "complete-current"],
+        [sys.executable, "tools/knowledge_worker.py", "debug", "complete-current"],
         cwd=workspace_root,
         check=True,
         capture_output=True,
@@ -303,7 +310,7 @@ def test_generated_knowledge_worker_cli_stays_in_sync_with_repo_feedback_contrac
     assert check_result.valid is True
 
     check_current_result = subprocess.run(
-        [sys.executable, "tools/knowledge_worker.py", "check-current"],
+        [sys.executable, "tools/knowledge_worker.py", "debug", "check-current"],
         cwd=workspace_root,
         check=True,
         capture_output=True,
@@ -320,7 +327,7 @@ def test_generated_knowledge_worker_cli_stays_in_sync_with_repo_feedback_contrac
     assert valid_feedback == expected_valid_feedback
 
     install_result = subprocess.run(
-        [sys.executable, "tools/knowledge_worker.py", "install-current"],
+        [sys.executable, "tools/knowledge_worker.py", "debug", "install-current"],
         cwd=workspace_root,
         check=True,
         capture_output=True,
@@ -395,7 +402,7 @@ def test_install_current_batch_drafts_accepts_valid_prefix_and_advances_sidecars
                     }
                 ],
                 "snippets": [],
-                "reason_code": "all_other",
+                "reason_code": "not_cooking_knowledge",
             }
         ],
     }
