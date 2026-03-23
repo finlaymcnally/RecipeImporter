@@ -2257,9 +2257,10 @@ def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, 
                     {
                         "task_id": "book.ks0000.nr.task-001",
                         "state": "validated",
-                        "last_attempt_type": "main_worker",
-                        "terminal_reason_code": "validated",
+                        "last_attempt_type": "deterministic_bypass",
+                        "terminal_reason_code": "deterministic_other_bypass",
                         "metadata": {
+                            "deterministic_bypass_reason_code": "book_framing_or_marketing",
                             "watchdog_retry_status": "not_attempted",
                             "retry_status": "not_attempted",
                             "repair_status": "not_attempted",
@@ -2444,6 +2445,11 @@ def test_prompt_budget_summary_surfaces_knowledge_packet_and_followup_counts(
     assert isinstance(knowledge_stage, dict)
 
     assert knowledge_stage["task_packet_total"] == 3
+    assert knowledge_stage["deterministic_bypass_total"] == 1
+    assert knowledge_stage["llm_review_task_packet_total"] == 2
+    assert knowledge_stage["deterministic_bypass_reason_code_counts"] == {
+        "book_framing_or_marketing": 1,
+    }
     assert knowledge_stage["packet_state_counts"] == {
         "repair_failed": 1,
         "retry_recovered": 1,

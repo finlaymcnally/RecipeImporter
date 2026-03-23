@@ -434,3 +434,60 @@ def test_install_current_batch_drafts_accepts_valid_prefix_and_advances_sidecars
     assert json.loads((workspace_root / "current_task.json").read_text(encoding="utf-8"))["task_id"] == "task-002"
     current_batch = json.loads((workspace_root / "current_batch.json").read_text(encoding="utf-8"))
     assert [task["task_id"] for task in current_batch["tasks"]] == ["task-002"]
+
+
+def test_build_current_batch_payload_packs_more_small_single_chunk_tasks(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "worker"
+    (workspace_root / "in").mkdir(parents=True, exist_ok=True)
+
+    task_rows = []
+    for index in range(6):
+        task_id = f"task-{index + 1:03d}"
+        task_rows.append(
+            {
+                "task_id": task_id,
+                "parent_shard_id": task_id,
+                "owned_ids": [f"chunk-{index + 1:03d}"],
+                "metadata": {
+                    "task_sequence": index + 1,
+                    "task_total": 6,
+                    "input_path": f"in/{task_id}.json",
+                    "hint_path": f"hints/{task_id}.md",
+                    "result_path": f"out/{task_id}.json",
+                },
+            }
+        )
+        (workspace_root / "in" / f"{task_id}.json").write_text(
+            json.dumps(
+                {
+                    "v": "2",
+                    "bid": task_id,
+                    "c": [
+                        {
+                            "cid": f"chunk-{index + 1:03d}",
+                            "b": [{"i": index + 1, "t": f"Short line {index + 1}."}],
+                        }
+                    ],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    payload = knowledge_tools_module.build_current_batch_payload(
+        workspace_root=workspace_root,
+        task_rows=task_rows,
+        current_index=0,
+    )
+
+    assert payload is not None
+    assert payload["batch_task_count"] == 6
+    assert [task["task_id"] for task in payload["tasks"]] == [
+        "task-001",
+        "task-002",
+        "task-003",
+        "task-004",
+        "task-005",
+        "task-006",
+    ]

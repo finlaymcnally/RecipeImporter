@@ -515,6 +515,16 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     packet_state_counts = _count_value_rows(task_rows, "state")
     packet_attempt_type_counts = _count_value_rows(task_rows, "last_attempt_type")
     terminal_reason_code_counts = _count_value_rows(task_rows, "terminal_reason_code")
+    deterministic_bypass_reason_code_counts: Counter[str] = Counter()
+    for row in task_rows:
+        if str(row.get("last_attempt_type") or "").strip() != "deterministic_bypass":
+            continue
+        metadata = row.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        reason_code = str(metadata.get("deterministic_bypass_reason_code") or "").strip()
+        if reason_code:
+            deterministic_bypass_reason_code_counts[reason_code] += 1
     terminal_outcome_counts = {
         state: count
         for state, count in packet_state_counts.items()
@@ -536,6 +546,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     salvage_counts = _collect_salvage_counts(stage_root)
     replay_summary = replay_knowledge_runtime(knowledge_root=stage_root)
     packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
+    deterministic_bypass_total = int(packet_attempt_type_counts.get("deterministic_bypass") or 0)
     return {
         "authoritative": bool(status_payload),
         "schema_version": KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION,
@@ -562,10 +573,16 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "terminal_outcome_counts": dict(sorted(terminal_outcome_counts.items())),
             "attempt_type_counts": packet_attempt_type_counts,
             "terminal_reason_code_counts": terminal_reason_code_counts,
+            "deterministic_bypass_total": deterministic_bypass_total,
+            "llm_review_total": max(packet_total - deterministic_bypass_total, 0),
+            "deterministic_bypass_reason_code_counts": dict(
+                sorted(deterministic_bypass_reason_code_counts.items())
+            ),
             "topline": {
                 "validated": int(packet_state_counts.get("validated") or 0),
                 "retry_recovered": int(packet_state_counts.get("retry_recovered") or 0),
                 "repair_recovered": int(packet_state_counts.get("repair_recovered") or 0),
+                "deterministic_bypass": deterministic_bypass_total,
                 "failed": sum(
                     int(packet_state_counts.get(key) or 0)
                     for key in (

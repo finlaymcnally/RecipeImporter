@@ -74,23 +74,36 @@ a note to AI editors: please do not include code/file referneces here. it is con
 
 35. Finally, the run writes summary and observability files so later tools can inspect what happened.
 
-# Hidden Layers
+ # Hidden Layers
 
-- The importer is not the final authority. It is only the first pass.
-- The regrouped label-first recipe spans are the real authority for what counts as a recipe.
-- Outside-recipe text goes through more than one meaning layer: leftover text, Stage 7 seed routing, and final reviewed authority.
-- The same non-recipe field changes meaning over the life of the run, which makes it easy to misunderstand when debugging.
-- Recipe LLM correction and knowledge LLM review are refinement layers on top of repo-owned deterministic structure, not free-form end-to-end generators.
-- Split PDF and EPUB runs are two-stage by design: early parsing happens per slice, but semantic authority is decided only after merge.
+  - Importer output is provisional. Label-first regrouping is the real recipe authority seam.
+    HAVE EXECPLANS
 
-# Design Smells Worth Investigating
+  - Deterministic label-first still runs even when all LLM pipelines are off.
+  NOT A PROBLEM, IMPORTER ISN"T SUPPOSED TO DO ANYTHING
+  
+  - “Non-recipe” exists in three different states: importer leftovers, Stage 7 seed routing, and final reviewed authority.
+    
 
-- The stage session is doing too much. A huge amount of pipeline truth is concentrated in one central coordinator.
-- Recipe authority moves several times during the run, which is logically defensible but mentally expensive.
-- The non-recipe side also has multiple authority stages, which makes "what is final?" harder to answer than it should be.
-- Some outputs are rebuilt after regrouping while others are mostly carried forward from the importer stage, so the data-flow policy is not uniform.
-- The names of some artifacts make them sound simpler than they really are. In practice, some of them mix seed decisions, excluded junk, final reviewed authority, and unresolved review-eligible material in one place.
-- The knowledge-stage terminology still carries leftovers from older designs, so it is easy to think an old concept is still important when it may now be mostly wrapper language.
-- The docs around the knowledge stage appear to have drifted from the current implementation, which is exactly the kind of hidden architecture problem that causes confusion later.
+  - ConversionResult.non_recipe_blocks changes meaning during the session; it starts as importer leftovers and ends as final Stage 7 authority.
+  
+  - Recipe Codex and knowledge Codex are refinement layers over repo-owned deterministic scaffolding, not direct final-output writers.
+ 
+  - Split PDF/EPUB debugging is different from single-file debugging because the semantic pipeline runs only after merge.
 
-The best next pass is probably not "read more code." It is "decide which authority layers are worth keeping, and which ones should be collapsed or deleted."
+ # Design Smells Worth Investigating
+
+  - execute_stage_import_session_from_result() is a god-function. Too much pipeline truth is concentrated in one place, which makes invisible design coupling likely.
+  cookimport/staging/import_session.py:379
+  PLANNING TO ADDRESS IN REFACTOR
+
+  - The authority story is clean in principle but hard in practice because ownership moves several times: importer -> label-first regrouping -> Stage 7 seed routing ->
+  knowledge final authority.
+  HAVE EXECPLANS
+
+  - Recipe tips are recomputed from rebuilt recipes, while topic candidates mostly survive from importer output. That mixed rebuild/carry-forward policy is easy to forget.
+ GOING TO REMOVE
+
+  - The artifact names make it look like 08_nonrecipe_spans.json is purely final truth, but it actually mixes seed routing, excluded junk, reviewed authority, and unreviewed
+  review-eligible rows.
+   HAVE EXECPLAN

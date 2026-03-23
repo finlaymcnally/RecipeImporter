@@ -831,6 +831,12 @@ def _attach_knowledge_stage_observability(
     if isinstance(packets, Mapping):
         stage_summary["task_packet_total"] = _nonnegative_int(packets.get("packet_total"))
         stage_summary["parent_shard_total"] = _nonnegative_int(packets.get("parent_shard_total"))
+        stage_summary["deterministic_bypass_total"] = _nonnegative_int(
+            packets.get("deterministic_bypass_total")
+        )
+        stage_summary["llm_review_task_packet_total"] = _nonnegative_int(
+            packets.get("llm_review_total")
+        )
         if isinstance(packets.get("state_counts"), Mapping):
             stage_summary["packet_state_counts"] = dict(
                 sorted(dict(packets.get("state_counts") or {}).items())
@@ -838,6 +844,10 @@ def _attach_knowledge_stage_observability(
         if isinstance(packets.get("terminal_outcome_counts"), Mapping):
             stage_summary["packet_terminal_outcome_counts"] = dict(
                 sorted(dict(packets.get("terminal_outcome_counts") or {}).items())
+            )
+        if isinstance(packets.get("deterministic_bypass_reason_code_counts"), Mapping):
+            stage_summary["deterministic_bypass_reason_code_counts"] = dict(
+                sorted(dict(packets.get("deterministic_bypass_reason_code_counts") or {}).items())
             )
     if isinstance(workers, Mapping):
         if isinstance(workers.get("outcome_counts"), Mapping):

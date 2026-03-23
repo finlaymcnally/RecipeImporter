@@ -68,6 +68,7 @@ from .knowledge_workspace_tools import (
     check_workspace_draft,
     current_task_draft_path,
     resolve_current_task_row,
+    scaffold_task_payload,
     write_current_batch_and_task_sidecars,
     write_current_task_sidecars,
     write_current_task_scaffold,
@@ -112,6 +113,7 @@ _KNOWLEDGE_SCRATCH_DIR_NAME = "scratch"
 _KNOWLEDGE_POISONED_WORKER_MIN_FAILURES = 2
 _KNOWLEDGE_FOLLOWUP_CIRCUIT_BREAKER_MIN_ATTEMPTS = 3
 _KNOWLEDGE_FOLLOWUP_CIRCUIT_BREAKER_MIN_SUCCESS_RATE = 0.25
+_KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID = "deterministic-bypass"
 _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
     {
         "response_json_invalid",
@@ -208,6 +210,189 @@ def _build_knowledge_task_runtime_manifest_entry(
         input_text=task_manifest.input_text,
         metadata=dict(task_manifest.metadata or {}),
     )
+
+
+def _deterministic_bypass_reason_for_negative_cues(
+    negative_cues: Sequence[str],
+) -> tuple[str, str, str | None]:
+    normalized_cues = [
+        str(value).strip()
+        for value in negative_cues
+        if str(value).strip()
+    ]
+    cue_set = set(normalized_cues)
+    if "navigation_or_taxonomy" in cue_set:
+        return "navigation_or_chapter_taxonomy", "chapter_taxonomy", "navigation_or_taxonomy"
+    if "rhetorical_heading" in cue_set:
+        return "decorative_heading_only", "decorative_heading", "rhetorical_heading"
+    if "book_framing_or_marketing" in cue_set:
+        return (
+            "book_framing_or_marketing",
+            "endorsement_or_marketing",
+            "book_framing_or_marketing",
+        )
+    if "memoir_or_voice" in cue_set:
+        return "memoir_or_scene_setting", "memoir_or_scene_setting", "memoir_or_voice"
+    if "true_but_low_utility" in cue_set:
+        return "true_but_low_utility", "other", "true_but_low_utility"
+    return "not_cooking_knowledge", "other", None
+
+
+def _build_deterministic_knowledge_bypass_candidate(
+    shard: ShardManifestEntryV1,
+) -> tuple[dict[str, Any], dict[str, Any], str] | None:
+    task_row = build_workspace_inventory_task_row(
+        asdict(_build_knowledge_task_manifest_entry(shard))
+    )
+    metadata = _coerce_dict(task_row.get("metadata"))
+    owned_ids = [
+        str(value).strip()
+        for value in (task_row.get("owned_ids") or [])
+        if str(value).strip()
+    ]
+    if len(owned_ids) != 1:
+        return None
+    if bool(metadata.get("strong_knowledge_cue")) or bool(metadata.get("utility_borderline")):
+        return None
+    positive_cues = sorted(
+        {
+            str(value).strip()
+            for value in (metadata.get("utility_positive_cues") or [])
+            if str(value).strip()
+        }
+    )
+    if positive_cues or not bool(metadata.get("strong_negative_utility_cue")):
+        return None
+    seed_category_by_id = _coerce_dict(metadata.get("chunk_seed_stage_category_by_id"))
+    if any(
+        str(seed_category_by_id.get(chunk_id) or "").strip().lower() == "knowledge"
+        for chunk_id in owned_ids
+    ):
+        return None
+    negative_cues = sorted(
+        {
+            str(value).strip()
+            for value in (metadata.get("utility_negative_cues") or [])
+            if str(value).strip()
+        }
+    )
+    reason_code, reviewer_category, trigger_cue = _deterministic_bypass_reason_for_negative_cues(
+        negative_cues
+    )
+    input_payload = _coerce_dict(shard.input_payload)
+    semantic_payload = scaffold_task_payload(task_row=task_row, input_payload=input_payload)
+    chunk_results = semantic_payload.get("chunk_results")
+    if not isinstance(chunk_results, list) or len(chunk_results) != 1:
+        return None
+    chunk_result = chunk_results[0]
+    if not isinstance(chunk_result, Mapping):
+        return None
+    chunk_result_dict = dict(chunk_result)
+    chunk_result_dict["is_useful"] = False
+    chunk_result_dict["snippets"] = []
+    chunk_result_dict["reason_code"] = reason_code
+    block_decisions = []
+    for decision in chunk_result_dict.get("block_decisions") or []:
+        if not isinstance(decision, Mapping):
+            continue
+        block_decision = dict(decision)
+        block_decision["category"] = "other"
+        block_decision["reviewer_category"] = reviewer_category
+        block_decisions.append(block_decision)
+    chunk_result_dict["block_decisions"] = block_decisions
+    semantic_payload["chunk_results"] = [chunk_result_dict]
+    canonical_payload, normalization_metadata = normalize_knowledge_worker_payload(semantic_payload)
+    valid, validation_errors, validation_metadata = validate_knowledge_shard_output(
+        shard,
+        canonical_payload,
+    )
+    if not valid:
+        logger.warning(
+            "knowledge deterministic bypass candidate for %s failed local validation: %s",
+            shard.shard_id,
+            ", ".join(validation_errors) or "unknown_error",
+        )
+        return None
+    detail = (
+        "repo bypassed the LLM because this single-chunk task had a strong negative-utility "
+        "profile, no positive utility cues, no strong knowledge cue, and no borderline signal"
+    )
+    if trigger_cue:
+        detail = f"{detail}; trigger cue `{trigger_cue}`"
+    metadata_payload = {
+        **dict(validation_metadata or {}),
+        **dict(normalization_metadata or {}),
+        "deterministic_bypass": True,
+        "deterministic_bypass_reason_code": reason_code,
+        "deterministic_bypass_reviewer_category": reviewer_category,
+        "deterministic_bypass_negative_cues": list(negative_cues),
+        "deterministic_bypass_positive_cues": list(positive_cues),
+        "deterministic_bypass_trigger_cue": trigger_cue,
+        "deterministic_bypass_reason_detail": detail,
+        "execution_mode": "deterministic_bypass",
+    }
+    return canonical_payload, metadata_payload, detail
+
+
+def _apply_deterministic_knowledge_bypasses(
+    *,
+    run_root: Path,
+    artifacts: Mapping[str, str],
+    shards: Sequence[ShardManifestEntryV1],
+    task_status_tracker: _KnowledgeTaskStatusTracker,
+) -> tuple[set[str], list[ShardProposalV1], dict[str, int]]:
+    bypassed_shard_ids: set[str] = set()
+    proposals: list[ShardProposalV1] = []
+    reason_code_counts: dict[str, int] = {}
+    for shard in shards:
+        candidate = _build_deterministic_knowledge_bypass_candidate(shard)
+        if candidate is None:
+            continue
+        payload, metadata, detail = candidate
+        reason_code = str(metadata.get("deterministic_bypass_reason_code") or "").strip()
+        if reason_code:
+            reason_code_counts[reason_code] = reason_code_counts.get(reason_code, 0) + 1
+        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        _write_json(
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": _KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID,
+                "payload": payload,
+                "validation_errors": [],
+                "validation_metadata": dict(metadata),
+                "watchdog_retry_attempted": False,
+                "watchdog_retry_status": "not_attempted",
+                "retry_attempted": False,
+                "retry_status": "not_attempted",
+                "repair_attempted": False,
+                "repair_status": "not_attempted",
+            },
+            proposal_path,
+        )
+        proposals.append(
+            ShardProposalV1(
+                shard_id=shard.shard_id,
+                worker_id=_KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID,
+                status="validated",
+                proposal_path=_relative_path(run_root, proposal_path),
+                payload=payload,
+                validation_errors=(),
+                metadata=dict(metadata),
+            )
+        )
+        task_status_tracker.mark_terminal(
+            task_id=shard.shard_id,
+            worker_id=_KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID,
+            terminal_state="validated",
+            attempt_type="deterministic_bypass",
+            proposal_status="validated",
+            validation_errors=(),
+            metadata=dict(metadata),
+            terminal_reason_code="deterministic_other_bypass",
+            terminal_reason_detail=detail,
+        )
+        bypassed_shard_ids.add(shard.shard_id)
+    return bypassed_shard_ids, proposals, dict(sorted(reason_code_counts.items()))
 
 
 def _decorate_knowledge_workspace_task_runtime_entry(
@@ -1913,11 +2098,6 @@ def _run_direct_knowledge_workers_v1(
     }
     run_root.mkdir(parents=True, exist_ok=True)
     shard_by_id = {shard.shard_id: shard for shard in shards}
-    assignments = _assign_workers_v1(
-        run_root=run_root,
-        shards=shards,
-        worker_count=worker_count,
-    )
     task_plans_by_shard_id = {
         shard.shard_id: _build_knowledge_task_plans(shard)
         for shard in shards
@@ -1938,10 +2118,6 @@ def _run_direct_knowledge_workers_v1(
         run_root / artifacts["task_manifest"],
         [asdict(task_entry) for task_entry in task_entries],
     )
-    _write_json(
-        [asdict(assignment) for assignment in assignments],
-        run_root / artifacts["worker_assignments"],
-    )
     task_status_tracker = _build_knowledge_task_status_tracker(
         path=run_root / artifacts["task_status"],
         task_entries=task_entries,
@@ -1951,6 +2127,27 @@ def _run_direct_knowledge_workers_v1(
     failures: list[dict[str, Any]] = []
     worker_reports: list[WorkerExecutionReportV1] = []
     stage_rows: list[dict[str, Any]] = []
+    bypassed_shard_ids, bypassed_proposals, bypass_reason_code_counts = (
+        _apply_deterministic_knowledge_bypasses(
+            run_root=run_root,
+            artifacts=artifacts,
+            shards=shards,
+            task_status_tracker=task_status_tracker,
+        )
+    )
+    all_proposals.extend(bypassed_proposals)
+    runnable_shards = [
+        shard for shard in shards if shard.shard_id not in bypassed_shard_ids
+    ]
+    assignments = _assign_workers_v1(
+        run_root=run_root,
+        shards=runnable_shards,
+        worker_count=worker_count,
+    )
+    _write_json(
+        [asdict(assignment) for assignment in assignments],
+        run_root / artifacts["worker_assignments"],
+    )
     total_shards = len(shards)
     total_task_packets = sum(
         len(_progress_task_ids_for_knowledge_shard(
@@ -1970,8 +2167,8 @@ def _run_direct_knowledge_workers_v1(
     )
     progress_state = _KnowledgePhaseProgressState(
         progress_callback=progress_callback,
-        total_shards=total_shards,
-        total_task_packets=total_task_packets,
+        total_shards=len(runnable_shards),
+        total_task_packets=max(total_task_packets - len(bypassed_shard_ids), 0),
         worker_total=displayed_worker_total,
         worker_order=tuple(assignment.worker_id for assignment in assignments),
         worker_states={
@@ -2004,6 +2201,9 @@ def _run_direct_knowledge_workers_v1(
         **dict(runtime_metadata or {}),
         "task_total": total_task_packets,
         "task_packet_total": total_task_packets,
+        "deterministic_bypass_packet_total": len(bypassed_shard_ids),
+        "llm_review_packet_total": max(total_task_packets - len(bypassed_shard_ids), 0),
+        "deterministic_bypass_reason_code_counts": dict(bypass_reason_code_counts),
         **packet_distribution,
     }
     manifest = _write_knowledge_runtime_summary_artifacts(
@@ -3220,7 +3420,7 @@ def _build_knowledge_workspace_worker_prompt(
         "3. Use the paved road: run `python3 tools/knowledge_worker.py complete-batch`, edit the prewritten drafts under `scratch/current_batch/`, run `python3 tools/knowledge_worker.py check-batch`, and run `python3 tools/knowledge_worker.py install-batch` after the checker says OK or when you want the repo to install the longest valid prefix you already repaired.",
         "4. Open the raw hint/input files named by the current batch only when the batch sidecars are insufficient: `tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path` in `current_batch.json`.",
         "5. A task is not finished until its batch draft validates. Direct writes to `out/<task_id>.json` without a passing repo-written checker are incomplete work.",
-        "6. After each validation failure, re-open `CURRENT_BATCH_FEEDBACK.md`. After each successful install, re-open `CURRENT_BATCH.md`, `CURRENT_BATCH_FEEDBACK.md`, and `current_batch.json`. If a new batch is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo owns batch advancement.",
+        "6. After each validation failure, re-open `CURRENT_BATCH_FEEDBACK.md`. After each successful install, re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md`. Open `current_batch.json` only when you need the next batch's machine-readable paths or task rows. If a new batch is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo owns batch advancement.",
         "6a. Once the queue is complete and no new batch becomes active, send one short completion message and stop.",
         "7. If the batch sidecars are still insufficient after that, use `python3 tools/knowledge_worker.py explain-failure` or the narrower `python3 tools/knowledge_worker.py debug ...` recovery surface instead of broad queue dumps or task-by-task helper detours. Safe fallback examples are `debug current`, `debug show`, `debug complete-current`, and `debug check-current`.",
         "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, helper-source spelunking, broad inline schedulers, or one-off validators. If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`.",

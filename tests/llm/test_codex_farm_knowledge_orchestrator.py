@@ -87,6 +87,53 @@ def _payload_chunks_or_fallback(payload: dict[str, object] | None) -> list[dict[
     return [{"cid": "fallback.chunk", "b": [{"i": 1, "t": "Fallback knowledge block."}]}]
 
 
+def test_build_deterministic_knowledge_bypass_candidate_returns_valid_other_payload() -> None:
+    shard = ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=("book.c0000.nr",),
+        input_payload={
+            "v": "2",
+            "bid": "book.ks0000.nr",
+            "c": [
+                {
+                    "cid": "book.c0000.nr",
+                    "b": [
+                        {"i": 11, "t": "About this chapter", "hl": 1},
+                        {
+                            "i": 12,
+                            "t": "This story explains why I love this cookbook so much.",
+                        },
+                    ],
+                }
+            ],
+        },
+        metadata={
+            "ordered_chunk_ids": ["book.c0000.nr"],
+            "owned_block_indices": [11, 12],
+            "chunk_block_indices_by_id": {"book.c0000.nr": [11, 12]},
+            "chunk_seed_stage_category_by_id": {"book.c0000.nr": "other"},
+            "chunk_knowledge_cue_by_id": {"book.c0000.nr": False},
+            "chunk_utility_positive_cues_by_id": {"book.c0000.nr": []},
+            "chunk_utility_negative_cues_by_id": {
+                "book.c0000.nr": ["book_framing_or_marketing"]
+            },
+            "chunk_utility_borderline_by_id": {"book.c0000.nr": False},
+            "chunk_strong_negative_utility_cue_by_id": {"book.c0000.nr": True},
+        },
+    )
+
+    candidate = knowledge_module._build_deterministic_knowledge_bypass_candidate(shard)  # noqa: SLF001
+
+    assert candidate is not None
+    payload, metadata, detail = candidate
+    assert payload["bid"] == "book.ks0000.nr"
+    assert payload["r"][0]["u"] is False
+    assert payload["r"][0]["d"][0]["rc"] == "endorsement_or_marketing"
+    assert metadata["deterministic_bypass"] is True
+    assert metadata["deterministic_bypass_reason_code"] == "book_framing_or_marketing"
+    assert "strong negative-utility profile" in detail
+
+
 class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
     def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         result = super().run_workspace_worker(**kwargs)
@@ -1633,7 +1680,8 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "durable cooking leverage" in worker_prompt
     assert "future cooking decisions, diagnosis, or technique" in worker_prompt
     assert "The assignment is complete only when the repo removes `current_batch.json`" in worker_prompt
-    assert "After each successful install, re-open `CURRENT_BATCH.md`, `CURRENT_BATCH_FEEDBACK.md`, and `current_batch.json`." in worker_prompt
+    assert "After each successful install, re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md`." in worker_prompt
+    assert "Open `current_batch.json` only when you need the next batch's machine-readable paths or task rows." in worker_prompt
     assert "If a new batch is active, continue with it immediately." in worker_prompt
     assert "Do not ask for permission to continue" in worker_prompt
     assert "Once the queue is complete and no new batch becomes active, send one short completion message and stop." in worker_prompt

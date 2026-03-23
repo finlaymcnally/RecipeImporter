@@ -27,8 +27,8 @@ _CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
 _CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
 _CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
 _CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
-_KNOWLEDGE_MICRO_BATCH_MAX_TASKS = 4
-_KNOWLEDGE_MICRO_BATCH_MAX_INPUT_BYTES = 24_000
+_KNOWLEDGE_MICRO_BATCH_MAX_TASKS = 8
+_KNOWLEDGE_MICRO_BATCH_MAX_INPUT_BYTES = 48_000
 _NO_CURRENT_BATCH_ACTIVE_TEXT = "No current batch is active. The queue is complete."
 _NO_CURRENT_TASK_ACTIVE_TEXT = "No current task is active. The queue is complete."
 _ACTIVE_BATCH_ASSIGNMENT_TEXT = (
@@ -57,8 +57,8 @@ _INSTALL_BATCH_READY_TEXT = (
     "valid prefix of this batch."
 )
 _REOPEN_BATCH_AFTER_INSTALL_TEXT = (
-    "After `install-batch`, re-open `CURRENT_BATCH.md`, `current_batch.json`, and "
-    "`CURRENT_BATCH_FEEDBACK.md`."
+    "After `install-batch`, re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md`. "
+    "Open `current_batch.json` only if you need the next batch's machine-readable paths or task rows."
 )
 _CONTINUE_BATCH_IMMEDIATELY_TEXT = (
     "If another batch becomes active, continue with it immediately. Do not ask for "
@@ -78,9 +78,10 @@ _CONTINUE_IMMEDIATELY_TEXT = (
 )
 _QUEUE_COMPLETE_TEXT = "If not, the queue is complete."
 _INSTALL_BATCH_SUCCESS_NOTICE = (
-    "re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`; "
-    "if another batch becomes active, continue with it immediately. Do not ask for "
-    "permission to continue while later tasks remain."
+    "re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md`; open `current_batch.json` "
+    "only if you need the next batch's machine-readable paths or task rows; if another "
+    "batch becomes active, continue with it immediately. Do not ask for permission to "
+    "continue while later tasks remain."
 )
 _INSTALL_CURRENT_SUCCESS_NOTICE = (
     "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`; if "
@@ -550,13 +551,13 @@ def render_current_batch_brief_text(
         "A successful `install-batch` is only a handoff to the next repo-owned current batch, not a stopping point.",
         "",
         "Recommended loop:",
-        "1. Read `current_batch.json` and `CURRENT_BATCH_FEEDBACK.md` first; open the named hint and input files only when the batch summary is insufficient.",
+        "1. Read `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md` first. Open `current_batch.json` only when you need the next batch's machine-readable paths or task rows, and open the named hint/input files only when the batch summary is insufficient.",
         "2. Run `python3 tools/knowledge_worker.py complete-batch` to prewrite the default drafts under `scratch/current_batch/`.",
         "3. Edit the batch drafts until the snippet bodies are short grounded claims, not copied evidence surfaces.",
         "   If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`. Do not loop over `assigned_tasks.json`, `current_task.json`, or `out/`.",
         "4. Run `python3 tools/knowledge_worker.py check-batch`.",
         "5. Run `python3 tools/knowledge_worker.py install-batch` after the batch checker says OK, or to install the longest valid prefix if an already-edited later draft still needs repair.",
-        "6. After `install-batch`, re-open `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`. If another batch becomes active, continue with it immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
+        "6. After `install-batch`, re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md`. Open `current_batch.json` only when you need the next batch's machine-readable paths or task rows. If another batch becomes active, continue with it immediately. Do not stop to summarize progress or ask for permission to continue while later tasks remain.",
         "",
         "Single-task `CURRENT_TASK*` files and `python3 tools/knowledge_worker.py debug ...` recovery commands remain available only for narrow recovery/debugging on the first task in this batch.",
     ]
@@ -2409,7 +2410,9 @@ def render_knowledge_worker_script() -> str:
                 ),
                 "",
                 "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
-                "Use `complete-batch`, edit the drafts under `scratch/current_batch/`, then `check-batch` and `install-batch`.",
+                    "Use `complete-batch`, edit the drafts under `scratch/current_batch/`, then `check-batch` and `install-batch`.",
+                    "Re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md` after each install; open `current_batch.json` only when you need machine-readable paths or task rows.",
+                "Re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md` after each install; open `current_batch.json` only when you need machine-readable paths or task rows.",
                 "Single-task `CURRENT_TASK*` files remain available only for narrow recovery on the first active task.",
             ]
             if first_task is not None:
