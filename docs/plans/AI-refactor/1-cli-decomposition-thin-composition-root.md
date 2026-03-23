@@ -26,6 +26,7 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 - [x] (2026-03-22 16:59 EDT) Authored this standalone CLI decomposition ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 17:30 EDT) Tightened scope and validation after re-checking the live CLI registration tree, including the already-external `epub` sub-app and the need for signature-preservation tests during extraction.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats cutover: `cookimport/cli.py` stays only as the public composition root, with moved command implementations deleted from the old file instead of left behind as wrappers.
+- [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed `cookimport/cli_commands/` still does not exist, while [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py) remains a 31,477-line CLI/root coordinator with top-level, bench, compare-control, and interactive ownership still co-located.
 - [ ] Create the new `cookimport/cli_commands/` package and establish one module per command family.
 - [ ] Move the `stage` command implementation behind the new package while keeping `cookimport.cli:app` stable.
 - [ ] Move the Label Studio command family behind the new package.
@@ -46,6 +47,9 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 
 - Observation: this refactor is mostly local and should not require token-spending validation.
   Evidence: the affected surfaces are command wiring, help output, and local orchestration boundaries; routine proof should come from CLI and domain test slices plus command help rendering.
+
+- Observation: some former CLI-local responsibilities have already moved out, but that was not enough to shrink the CLI root itself.
+  Evidence: [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py) now imports shared job planning from [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py), yet the command registration and command-family implementations are still concentrated in the same file.
 
 ## Decision Log
 
@@ -71,9 +75,9 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 
 ## Outcomes & Retrospective
 
-No code has been changed yet. The current outcome is a standalone plan for one specific slice of the broader AI-readiness refactor: making the CLI readable and maintainable through real command-group boundaries.
+This plan is still current and still pending. The live tree has improved a few adjacent seams, such as shared job planning, but `cookimport/cli.py` remains the dominant command-family coordination bottleneck.
 
-The main lesson from planning is that the right success metric is not line count. It is whether a contributor can make a stage-only or bench-only change without reading unrelated command families.
+The main lesson from re-auditing is unchanged: the right success metric is not line count alone. It is whether a contributor can make a stage-only or bench-only change without reading unrelated command families.
 
 ## Context and Orientation
 
@@ -282,4 +286,4 @@ The new command modules may depend on their owning runtime domains and shared co
 
 ## Revision note
 
-Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live CLI tree and then again to a burn-the-boats posture. The plan now requires real deletion of moved command implementations from `cookimport/cli.py` rather than a long-lived wrapper migration.
+Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live CLI tree and then again to a burn-the-boats posture. Updated on 2026-03-23 after re-auditing the current tree; the plan still applies, but now explicitly notes that other refactors have reduced some adjacent seams without yet creating `cookimport/cli_commands/`.

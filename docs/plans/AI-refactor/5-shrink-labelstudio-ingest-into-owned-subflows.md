@@ -20,7 +20,7 @@ There is a second coordinator problem sitting directly underneath that file: [co
 
 After this change, `run_labelstudio_import(...)` and `generate_pred_run_artifacts(...)` should still behave the same for operators and tests, but the implementation should be organized into smaller owned subflows under a dedicated package. The shared stage-session seam should also stay public and stable while becoming internally decomposed into owned subflows under `cookimport/staging/`. The visible proof is that Label Studio tests still pass while a contributor can change normalization, cache behavior, split merge, artifact writing, stage authority building, non-recipe review wiring, or upload logic from one focused module instead of one giant coordinator.
 
-This plan is self-contained. It does not require a parent ExecPlan, but it is intentionally aware of the separate shared source-job planning plan already authored in [2026-03-22_16.57.38-extract-shared-source-job-planning.md](/home/mcnal/projects/recipeimport/docs/plans/2026-03-22_16.57.38-extract-shared-source-job-planning.md). If that planner plan lands first, this decomposition should import the shared planner seam rather than move those helpers again. It also assumes the stable public stage-session entrypoint remains `execute_stage_import_session_from_result(...)` even while the implementation beneath it is split into smaller internal modules.
+This plan is self-contained. It does not require a parent ExecPlan, and it now assumes the shared planner dependency has already landed in [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py). It also assumes the stable public stage-session entrypoint remains `execute_stage_import_session_from_result(...)` even while the implementation beneath it is split into smaller internal modules.
 
 ## Progress
 
@@ -29,6 +29,7 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 18:06 EDT) Re-audited [cookimport/staging/import_session.py](/home/mcnal/projects/recipeimport/cookimport/staging/import_session.py) as the shared runtime coordinator that both stage and Label Studio ultimately depend on.
 - [x] (2026-03-22 18:08 EDT) Authored this standalone Label Studio ingest decomposition ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes moved helper implementations from `ingest.py` and updates imports instead of preserving a broad facade.
+- [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed the shared source-job planning dependency has already landed: [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py) now imports `JobSpec` and `plan_source_job(...)` from [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py) instead of owning duplicate planner bodies.
 - [ ] Create a `cookimport/labelstudio/ingest_flows/` package with one module per major responsibility cluster.
 - [ ] Move normalization and split-cache logic out of `ingest.py`.
 - [ ] Move split merge and artifact-writing helpers out of `ingest.py`.
@@ -48,8 +49,8 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - Observation: the file already contains clean support seams that do not need a redesign to become modules.
   Evidence: normalization helpers cluster together, split-cache helpers cluster together, offset/merge helpers cluster together, and online upload logic is mostly concentrated under `run_labelstudio_import(...)`.
 
-- Observation: the shared source-job planning seam should not be reinvented here.
-  Evidence: `ingest.py` currently contains duplicate split planning helpers, and there is already a separate ExecPlan to move that logic into `cookimport/staging/job_planning.py`.
+- Observation: the shared source-job planning seam is already an external dependency of this plan in the live tree.
+  Evidence: [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py) now imports `JobSpec` and `plan_source_job(...)` from [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py), so this decomposition no longer needs to move or rewrite planner logic.
 
 - Observation: decomposing `ingest.py` alone would leave too much of the actual runtime story concentrated in `import_session.py`.
   Evidence: [cookimport/staging/import_session.py](/home/mcnal/projects/recipeimport/cookimport/staging/import_session.py) currently owns label-first authority building, optional recipe Codex application, Stage 7 non-recipe routing, optional knowledge review, chunk and table regeneration, report rebuilding, and most staged output writing in one coordinator.
@@ -74,6 +75,10 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
   Rationale: the AI-friendly goal is single authority, so this decomposition should consume the shared planner plan rather than re-own it.
   Date/Author: 2026-03-22 / Codex
 
+- Decision: preserve the current `job_planning.py` dependency and remove any wording in this plan that implies `ingest.py` still owns planner duplication.
+  Rationale: the shared planner refactor has already landed, so this plan should focus only on the still-broad normalization/cache/merge/upload/session responsibilities.
+  Date/Author: 2026-03-23 / Codex
+
 - Decision: separate offline artifact generation from online Label Studio upload behavior.
   Rationale: these are distinct product concerns with different dependencies and validation loops, and they should not require joint understanding for routine changes.
   Date/Author: 2026-03-22 / Codex
@@ -88,7 +93,7 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 
 ## Outcomes & Retrospective
 
-No code has changed yet. The current outcome is a concrete plan for turning the broad Label Studio ingest coordinator and the broad shared stage-session coordinator into smaller owned subflows with stable public seams.
+This plan is still largely outstanding, but one important dependency is now complete: shared source-job planning has already moved out into [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py). The remaining work is the decomposition of the still-broad Label Studio ingest and shared stage-session coordinators.
 
 The main planning lesson is that both files already contain coherent support clusters. The work is to make those clusters first-class owners, not to invent a new runtime model.
 
@@ -100,7 +105,7 @@ The current file mixes these concerns:
 
 - normalization and validation helpers for EPUB, parser, Codex, and prelabel options
 - single-book split-cache helpers and file locking
-- split planning, per-job conversion, offset rebasing, and result merging
+- shared-planner calls, per-job conversion, offset rebasing, and result merging
 - manifest and processed-artifact writing
 - authoritative line-role and non-recipe projection helpers
 - offline prediction-artifact generation in `generate_pred_run_artifacts(...)`
@@ -142,7 +147,7 @@ The intended ownership boundaries are:
 
 - `normalize.py`: option normalization and small validation helpers
 - `split_cache.py`: single-book split-cache entry files, lock files, wait/retry logic
-- `split_merge.py`: split worker job adaptation, offset rebasing, result merge logic, and later the shared planner import once that exists
+- `split_merge.py`: split worker job adaptation, offset rebasing, result merge logic, and the existing shared planner dependency
 - `artifacts.py`: manifest/report/artifact write helpers and authority-projection helpers
 - `prediction_run.py`: the owned implementation of `generate_pred_run_artifacts(...)`
 - `upload.py`: the owned implementation of `run_labelstudio_import(...)`, project resolution, resume behavior, and upload fallback logic
@@ -166,7 +171,7 @@ Acceptance is that imports and Label Studio tests still pass and the moved helpe
 
 ### Milestone 2: Extract split merge and artifact-writing helpers
 
-At the end of this milestone, offset rebasing, merge logic, manifest/report writing, and authoritative artifact projection helpers will live in dedicated modules. If the shared planner plan has already landed, the split-merge module should consume it here.
+At the end of this milestone, offset rebasing, merge logic, manifest/report writing, and authoritative artifact projection helpers will live in dedicated modules. The split-merge module should consume the existing shared planner in [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py) rather than recreating planning logic locally.
 
 Acceptance is that split-run merge behavior, processed artifacts, and manifest/report writes remain stable.
 
@@ -198,7 +203,7 @@ Acceptance is passing Label Studio, staging, and CLI validation plus docs that p
 
 Start with the lowest-coupled helpers: normalization and split-cache. These create the package structure and reduce noise in the public file without changing the main orchestration path much. Delete each moved helper cluster from `ingest.py` as soon as its new owning module is wired in.
 
-Next, move split merge and artifact writing. Those helpers already form clear support layers and should not stay interwoven with online upload behavior. If the shared planner plan has already landed, replace the local planner helpers with imports from the shared planner seam during this step rather than preserving a second planning owner.
+Next, move split merge and artifact writing. Those helpers already form clear support layers and should not stay interwoven with online upload behavior. The shared planner dependency is already satisfied, so this step should preserve `job_planning.py` as the planner owner and only move the Label Studio-specific job execution, rebasing, and merge code.
 
 Then split the shared stage session. Start by creating `cookimport/staging/import_session_flows/` and move the lowest-ambiguity seams first: label-first authority building and artifact writing, then optional recipe-stage application, then Stage 7 plus optional knowledge-review coordination, then output-writing orchestration and report assembly. Keep `execute_stage_import_session_from_result(...)` as the single public seam while deleting the moved implementation blocks from `import_session.py` once the new modules are wired in. The goal is not to create a second public session API. The goal is to preserve one small shared session entrypoint and make the internal pipeline stages progressive and inspectable.
 
@@ -397,4 +402,4 @@ These names are ownership targets, not rigid mandatory final names. What matters
 
 ## Revision note
 
-Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. Updated later the same day to a burn-the-boats posture. This file owns Label Studio ingest decomposition plus the shared stage-session decomposition and requires deletion of moved helper implementations from `ingest.py` and moved implementation blocks from `import_session.py` rather than long-lived compatibility facades.
+Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. Updated later the same day to a burn-the-boats posture. Updated on 2026-03-23 after re-auditing the live tree so the plan now reflects that shared source-job planning has already moved to `cookimport/staging/job_planning.py` and only the remaining ingest/session decomposition work is still pending.

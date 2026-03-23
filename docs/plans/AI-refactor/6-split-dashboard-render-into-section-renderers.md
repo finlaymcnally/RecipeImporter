@@ -25,6 +25,7 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 18:05 EDT) Audited the current renderer structure in [cookimport/analytics/dashboard_render.py](/home/mcnal/projects/recipeimport/cookimport/analytics/dashboard_render.py), including the top-level `render_dashboard(...)`, all-method grouping/data helpers, all-method page rendering, and asset/template write behavior.
 - [x] (2026-03-22 18:08 EDT) Authored this standalone dashboard-render decomposition ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes moved helpers and renderers from `dashboard_render.py` instead of preserving a broad facade.
+- [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed `cookimport/analytics/dashboard_renderers/` still does not exist, while [cookimport/analytics/dashboard_render.py](/home/mcnal/projects/recipeimport/cookimport/analytics/dashboard_render.py) remains a 14,535-line renderer with embedded assets and all-method page rendering still co-located.
 - [ ] Create a `cookimport/analytics/dashboard_renderers/` package with clear page/section ownership.
 - [ ] Move asset and shell-writing concerns out of `dashboard_render.py`.
 - [ ] Move all-method grouping and page rendering into dedicated modules.
@@ -46,6 +47,9 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - Observation: this is a prime AI-readiness target because a fresh contributor does not need one giant renderer file to safely change one page section.
   Evidence: [docs/reports/AI-codebase.md](/home/mcnal/projects/recipeimport/docs/reports/AI-codebase.md) argues for progressive disclosure and deep modules; a fourteen-thousand-line mixed renderer is a direct violation of that guidance.
 
+- Observation: the renderer remains largely unchanged in shape since this plan was written.
+  Evidence: the live file still owns `render_dashboard(...)`, `_render_all_method_pages(...)`, giant embedded `_HTML` / `_CSS` / `_JS` constants, and the main index-page diagnostics sections in one module.
+
 ## Decision Log
 
 - Decision: preserve `cookimport.analytics.dashboard_render.render_dashboard(...)` as the stable public import path.
@@ -66,9 +70,9 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 
 ## Outcomes & Retrospective
 
-No code has changed yet. The current result is a concrete plan for decomposing the largest renderer-style file in the repo into page-family modules with clearer ownership.
+This plan is still current and still pending. The dashboard renderer remains one of the repo’s largest single-file coordination surfaces, and the current output contract is still narrow enough to make decomposition feasible behind a stable facade.
 
-The main planning lesson is that the dashboard already has a small public output contract, which makes it a good candidate for a deep-module refactor under a stable facade.
+The main lesson from re-auditing is unchanged: the dashboard already has a small public output contract, which makes it a good candidate for a deep-module refactor under a stable facade.
 
 ## Context and Orientation
 
@@ -288,4 +292,4 @@ Use these as ownership targets, not exact mandatory names. What matters is one o
 
 ## Revision note
 
-Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. Updated later the same day to a burn-the-boats posture. This file owns only dashboard-render decomposition and now requires deletion of moved helper/render bodies from `dashboard_render.py` rather than a long-lived compatibility facade.
+Created on 2026-03-22 as a follow-on AI-readiness plan after the initial coordinator-splitting plans. Updated later the same day to a burn-the-boats posture. Updated on 2026-03-23 after re-auditing the live analytics tree; the plan still applies, and now explicitly records that `dashboard_render.py` remains the large unsplit renderer surface.

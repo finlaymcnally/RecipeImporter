@@ -26,11 +26,10 @@ This plan is standalone. It does not require a parent ExecPlan. It replaces the 
 - [x] (2026-03-22 17:00 EDT) Authored this standalone planning-seam ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 17:30 EDT) Tightened the module contract after re-checking live callers and conventions, including the stale dual-planner guidance in `cookimport/config/CONVENTIONS.md`.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a hard cutover: one planner, one worker-resolution owner, and deletion of the duplicated planner helpers from their old homes.
-- [ ] Create `cookimport/staging/job_planning.py` with the authoritative `JobSpec` and shared planner helpers.
-- [ ] Migrate stage planning to the shared module.
-- [ ] Migrate Label Studio import and benchmark planning to the shared module.
-- [ ] Move the effective-worker helper into the shared planning owner and delete the old config-local definition.
-- [ ] Add shared planner tests and update architecture docs.
+- [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py) now owns `JobSpec`, `plan_source_jobs(...)`, `plan_source_job(...)`, and `compute_effective_workers_for_sources(...)`.
+- [x] (2026-03-23 17:16 EDT) Verified stage now imports the shared planner from [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py) and Label Studio now imports it from [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py) instead of maintaining parallel planner bodies.
+- [x] (2026-03-23 17:16 EDT) Verified [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py) no longer owns a separate effective-worker implementation; it aliases `compute_effective_workers` from the shared planner.
+- [x] (2026-03-23 17:16 EDT) Verified shared-planner coverage exists in [tests/labelstudio/test_labelstudio_ingest_parallel.py](/home/mcnal/projects/recipeimport/tests/labelstudio/test_labelstudio_ingest_parallel.py) and shared-caller coverage exists in [tests/cli/test_stage_progress_dashboard.py](/home/mcnal/projects/recipeimport/tests/cli/test_stage_progress_dashboard.py), with docs updated in [docs/01-architecture/01-architecture_README.md](/home/mcnal/projects/recipeimport/docs/01-architecture/01-architecture_README.md), [docs/03-ingestion/03-ingestion_readme.md](/home/mcnal/projects/recipeimport/docs/03-ingestion/03-ingestion_readme.md), and [cookimport/staging/README.md](/home/mcnal/projects/recipeimport/cookimport/staging/README.md).
 
 ## Surprises & Discoveries
 
@@ -45,6 +44,9 @@ This plan is standalone. It does not require a parent ExecPlan. It replaces the 
 
 - Observation: the repo’s written conventions currently encode the duplication this plan is supposed to remove.
   Evidence: [cookimport/config/CONVENTIONS.md](/home/mcnal/projects/recipeimport/cookimport/config/CONVENTIONS.md) still tells contributors to update both planners and `compute_effective_workers(...)` together, so the migration is not complete until that guidance is replaced.
+
+- Observation: the March 23 source-job cutover ended up subsuming this plan rather than merely depending on it.
+  Evidence: [docs/plans/2026-03-23_11.20.00-make-stage-always-run-through-source-jobs.md](/home/mcnal/projects/recipeimport/docs/plans/2026-03-23_11.20.00-make-stage-always-run-through-source-jobs.md) records the broader job-runtime refactor, and the live code now routes both stage and Label Studio through [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py).
 
 ## Decision Log
 
@@ -64,21 +66,25 @@ This plan is standalone. It does not require a parent ExecPlan. It replaces the 
   Rationale: worker-count resolution is part of how the planner interprets source sets and split settings, and the burn-the-boats end state should leave no ambiguity about ownership.
   Date/Author: 2026-03-22 / Codex
 
+- Decision: treat the current `compute_effective_workers` import alias in [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py) as acceptable compatibility glue because the implementation owner has still moved to [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py).
+  Rationale: the old config-local function body is gone, and preserving the familiar import name does not recreate a second planning implementation.
+  Date/Author: 2026-03-23 / Codex
+
 ## Outcomes & Retrospective
 
-No code has changed yet. The current result is a self-contained execution plan for one concrete architecture goal: one planning truth for stage and Label Studio split jobs.
+This plan is effectively complete in the current tree. The shared source-job planner now exists, both stage and Label Studio use it, the old config-local worker-resolution implementation is gone, and the docs teach [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py) as the owner.
 
-The important lesson from planning is that this seam is a high-value, low-drama extraction. It gives a real AI-readiness win because it turns “remember to update both planners” into “there is only one planner.”
+The important lesson from implementation is that this seam was best treated as infrastructure for the broader March 23 source-job refactor rather than as an isolated helper extraction. The planner only became truly authoritative once stage also stopped bypassing the planned-job path.
 
 ## Context and Orientation
 
-This repository supports split processing for large PDFs and EPUBs. A “split job” means one bounded unit of source conversion work, such as a PDF page range or an EPUB spine-item range. Stage runs use split jobs for processed output generation. Label Studio import and benchmark flows use similar split logic to keep their processed predictions and global block coordinates aligned. In both cases the split plan determines how much work runs in parallel and how part results are merged later.
+This repository supports split processing for large PDFs and EPUBs. A “split job” means one bounded unit of source conversion work, such as a PDF page range or an EPUB spine-item range. Stage runs use split jobs for processed output generation. Label Studio import and benchmark flows use the same split logic to keep their processed predictions and global block coordinates aligned. In both cases the split plan determines how much work runs in parallel and how part results are merged later.
 
-The current stage planning code lives in [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py). It defines `JobSpec`, `_resolve_pdf_page_count(...)`, `_resolve_epub_spine_count(...)`, and `_plan_jobs(...)`. That code uses `plan_pdf_page_ranges(...)` and `plan_job_ranges(...)` to build page-range or spine-range jobs when worker settings justify splitting. If splitting is not warranted, it emits a single unsplit `JobSpec`.
+The authoritative planning code now lives in [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py). That module defines `JobSpec`, `resolve_pdf_page_count(...)`, `resolve_epub_spine_count(...)`, `plan_source_jobs(...)`, `plan_source_job(...)`, and `compute_effective_workers_for_sources(...)`. It uses `plan_pdf_page_ranges(...)` and `plan_job_ranges(...)` to build page-range or spine-range jobs when worker settings justify splitting. If splitting is not warranted, it emits a single unsplit `JobSpec`.
 
-The current Label Studio planning code lives in [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py). It defines `_plan_parallel_convert_jobs(...)` and emits a list of dictionaries shaped like `{"job_index": ..., "start_page": ..., "end_page": ..., "start_spine": ..., "end_spine": ...}`. The logic is semantically parallel to the stage planner, but because it is a separate function it can drift.
+Stage now imports `JobSpec` and `plan_source_jobs(...)` from [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py) and uses those planned jobs as the authoritative stage runtime input. Label Studio now imports `JobSpec` and `plan_source_job(...)` from [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py) and adapts the returned `JobSpec` records into its split-run execution path instead of owning a second planner body.
 
-The current worker-resolution helper lives in [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py) as `compute_effective_workers(...)`. It decides whether all-EPUB inputs with non-markitdown extractors should honor `epub_split_workers` over the base `workers` count. Although that function sits in the config module now, it is effectively planning logic because it interprets the planned source set.
+The old config-local worker-resolution implementation is gone. [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py) now imports `compute_effective_workers_for_sources(...)` under the existing public name `compute_effective_workers`, which preserves caller ergonomics without restoring duplicate logic.
 
 The new target module is:
 
@@ -113,7 +119,7 @@ The target interface is:
 
 Callers may adapt `JobSpec` into caller-local shapes if needed, but the planning logic itself must live only here and the old planner helpers must be deleted from their previous modules.
 
-`plan_source_job(...)` is the single-file convenience wrapper for the current Label Studio calling pattern. It should delegate to `plan_source_jobs(...)` rather than recreate any branching logic.
+`plan_source_job(...)` is the single-file convenience wrapper for the current Label Studio calling pattern. In the live implementation it delegates to the same shared split logic as `plan_source_jobs(...)` rather than recreating any branching locally.
 
 ## Milestones
 
@@ -285,4 +291,4 @@ The authoritative interface is:
 
 ## Revision note
 
-Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live duplicated planner seams and then again to a burn-the-boats posture. The plan now requires deletion of the duplicated planner helpers and the old config-local effective-worker owner once the shared seam lands.
+Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day after re-checking the live duplicated planner seams and then again to a burn-the-boats posture. Updated on 2026-03-23 after the March 23 source-job refactor landed so this file now documents the completed shared-planner state instead of describing the pre-cutover duplicate planners as still current.

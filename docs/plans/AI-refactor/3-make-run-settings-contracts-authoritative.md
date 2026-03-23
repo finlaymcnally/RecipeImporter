@@ -26,9 +26,11 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
 - [x] (2026-03-22 17:00 EDT) Authored this standalone run-settings contracts ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 17:30 EDT) Tightened the extraction boundary after re-checking live imports, adapter usage, and the current tests that already lock adapter signatures.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a cutover migration: new contracts owner, updated imports, and no lingering compatibility re-exports once the refactor is complete.
+- [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed [cookimport/config/run_settings_adapters.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings_adapters.py) is now documented as the canonical mapping layer in [cookimport/config/README.md](/home/mcnal/projects/recipeimport/cookimport/config/README.md) and [cookimport/config/CONVENTIONS.md](/home/mcnal/projects/recipeimport/cookimport/config/CONVENTIONS.md).
+- [x] (2026-03-23 17:16 EDT) Verified adapter-driven runtime assembly is already the normal path in [cookimport/entrypoint.py](/home/mcnal/projects/recipeimport/cookimport/entrypoint.py), [cookimport/bench/speed_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/speed_runner.py), and several CLI helper paths in [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py).
 - [ ] Create `cookimport/config/run_settings_contracts.py` and move the contract names and projection helpers there as the only import home.
-- [ ] Make runtime call adapters the default path for stage and benchmark kwargs.
-- [ ] Migrate major callers to use the authoritative contract helpers instead of ad hoc payload projection.
+- [ ] Finish migrating the remaining high-traffic callers so adapters and contract helpers are the ordinary path everywhere they should be (completed: entrypoint, speed suite, and several CLI benchmark/stage helpers; remaining: summary-heavy and config-projection-heavy callers such as leaderboard, interactive summaries, and quality-run reporting paths).
+- [ ] Migrate major callers that still hand-project payloads to the authoritative contract helpers instead of ad hoc field selection.
 - [ ] Add narrow tests proving product, operator, benchmark-lab, and internal boundaries.
 - [ ] Update CLI and architecture docs so they teach the smaller config surfaces first.
 
@@ -48,6 +50,9 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
 
 - Observation: a naive extraction of projection helpers can create a cycle or duplicate truth.
   Evidence: [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py) currently derives projection order from `RunSettings.model_fields`, while [cookimport/config/run_settings_adapters.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings_adapters.py) imports `RunSettings` from that module. Moving model-aware helpers wholesale without a boundary rule would either force `run_settings_contracts.py` to import `RunSettings` or duplicate field-order truth.
+
+- Observation: the repo has already chosen adapters as the operator-facing runtime seam even though contract constants still live in `run_settings.py`.
+  Evidence: [cookimport/config/README.md](/home/mcnal/projects/recipeimport/cookimport/config/README.md) and [cookimport/config/CONVENTIONS.md](/home/mcnal/projects/recipeimport/cookimport/config/CONVENTIONS.md) both teach `run_settings_adapters.py` as the canonical mapping layer, and [cookimport/entrypoint.py](/home/mcnal/projects/recipeimport/cookimport/entrypoint.py) uses those builders directly.
 
 ## Decision Log
 
@@ -71,11 +76,15 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
   Rationale: the contracts module should own contract names, field-name groupings, and generic projection helpers, but it should not import `RunSettings` directly because that would blur the boundary and risk circular imports with adapter and model code.
   Date/Author: 2026-03-22 / Codex
 
+- Decision: preserve `run_settings_adapters.py` as the existing owner of runtime kwarg assembly instead of re-solving that field grouping in a second new module.
+  Rationale: the adapter seam has already landed socially and technically, so the remaining work is to extract contract/projection helpers and finish caller cleanup, not to re-open adapter ownership.
+  Date/Author: 2026-03-23 / Codex
+
 ## Outcomes & Retrospective
 
-No code has changed yet. The current outcome is a dedicated execution plan for making config layering real in code without rewriting the underlying persistence model.
+This plan is now partially landed. The runtime-adapter half of the design is real in the current tree, but the contract/projection half is still concentrated in [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py), and several summary-style callers still rely on direct payload projection rather than a smaller dedicated contracts home.
 
-The key insight from planning is that the repo already did much of the conceptual work. The remaining effort is to move callers, tests, and docs onto that conceptual shape.
+The key implementation lesson so far is that the repo did not need a new abstraction to prove adapter ownership. It needed a smaller second step that moves contract constants and projection helpers out of the model file without undoing the adapter seam that already works.
 
 ## Context and Orientation
 
@@ -88,7 +97,7 @@ The repo already exposes several important concepts that this plan should formal
 3. Stage and benchmark runtime call builders in [cookimport/config/run_settings_adapters.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings_adapters.py).
 4. Interactive top-tier profile logic in [cookimport/cli_ui/run_settings_flow.py](/home/mcnal/projects/recipeimport/cookimport/cli_ui/run_settings_flow.py), which already treats the everyday surface as much smaller than the raw model.
 
-The problem is discoverability and authority. A newcomer still has to open `run_settings.py` to understand where the real contracts live, and too many callers still behave like payload projection is incidental instead of foundational.
+The current state is asymmetric. [cookimport/config/run_settings_adapters.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings_adapters.py) is already the canonical mapping from `RunSettings` to concrete stage and benchmark kwargs, and the config docs now say so explicitly. The remaining problem is discoverability and authority for the contract constants and projection helpers themselves. A newcomer still has to open `run_settings.py` to understand where the real contract names live, and too many summary-style callers still behave like payload projection is incidental instead of foundational.
 
 The new target files for this plan are:
 
@@ -141,7 +150,7 @@ Acceptance is updated docs plus a clean `bin/docs-list` result for touched docs.
 
 Start by creating `cookimport/config/run_settings_contracts.py` and moving the contract constants and helpers there. The minimum set is `RUN_SETTING_CONTRACT_*`, `_normalize_run_setting_contract(...)`, the specific grouping functions such as `product_run_setting_names()`, and generic helpers that accept explicit ordered field-name inputs. Update imports in the same refactor so the new module becomes the direct home rather than a passive sibling.
 
-Once the contracts module exists, update `run_settings_adapters.py` to import contract-name groupings from it directly where that improves clarity. Then audit the main call sites. The highest-value ones are the CLI stage and benchmark paths, Label Studio paths, quality runner, quality leaderboard, and interactive settings flow. `speed_runner.py` is already a good example and should mostly need import cleanup at most. Move the remaining callers so they consistently use the contract and adapter helpers rather than assembling runtime payloads in their own local way.
+Once the contracts module exists, update `run_settings_adapters.py` to import contract-name groupings from it directly where that improves clarity, but do not rebuild or relocate the adapter seam itself. Then audit the main call sites. The highest-value ones are the quality runner, quality leaderboard, Label Studio summary/reporting paths, and interactive settings flow. `speed_runner.py`, `entrypoint.py`, and several CLI paths already demonstrate the desired adapter pattern and should mostly need import cleanup at most. Move the remaining callers so they consistently use the contract and adapter helpers rather than assembling runtime payloads in their own local way.
 
 If introducing typed wrapper objects around adapter output improves comprehension, add small dataclasses such as `StageCallContract` and `BenchmarkCallContract`. If that feels like abstraction theater in practice, keep dict-returning helpers. The real requirement is not the wrapper type. The requirement is that runtime call assembly happens in one authoritative place.
 
@@ -174,11 +183,10 @@ Create the new module with `apply_patch`:
 Migration order:
 
 1. Move contract helpers into the new module.
-2. Re-export from `run_settings.py`.
-3. Update `run_settings_adapters.py`.
-4. Update remaining open-coded callers.
-5. Add tests.
-6. Update docs.
+2. Update `run_settings_adapters.py` imports only where that improves clarity.
+3. Update remaining open-coded callers.
+4. Add tests.
+5. Update docs.
 
 Prepare the environment if needed:
 
@@ -283,4 +291,4 @@ Optional typed wrappers are acceptable if they genuinely clarify use. They are n
 
 ## Revision note
 
-Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day to make the contracts-module boundary model-agnostic, to treat `speed_runner.py` as an existing good seam rather than migration debt, to anchor validation on the current adapter/signature tests, and then again to a burn-the-boats posture with no final-state re-export shims.
+Created on 2026-03-22 as one of three standalone child ExecPlans replacing the earlier umbrella AI-readiness refactor plan. Updated later the same day to make the contracts-module boundary model-agnostic, to treat `speed_runner.py` as an existing good seam rather than migration debt, to anchor validation on the current adapter/signature tests, and then again to a burn-the-boats posture with no final-state re-export shims. Updated on 2026-03-23 after re-auditing the live tree so the plan now reflects that adapter ownership has already landed while the contracts/projection extraction remains outstanding.

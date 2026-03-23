@@ -13,7 +13,7 @@ This document must be maintained in accordance with [docs/PLANS.md](/home/mcnal/
 
 ## Purpose / Big Picture
 
-QualitySuite is one of the repo’s most important AI-facing benchmark surfaces, but its main implementation file is currently a giant mixed-responsibility coordinator. Today [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py) owns experiment models, environment guardrails, resume/checkpoint files, experiment expansion, executor selection, per-experiment runtime orchestration, reporting, summary formatting, and a worker CLI entrypoint. That means a contributor trying to change one narrow concern such as resume validation or summary rendering often has to open more than three thousand lines of unrelated logic.
+QualitySuite is one of the repo’s most important AI-facing benchmark surfaces, but its runtime implementation is still concentrated in a giant mixed-responsibility coordinator. The current tree has already split deterministic suite discovery, manifest IO, and `QualitySuite` / `QualityTarget` schema ownership into [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py), but [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py) still owns experiment expansion, executor selection, environment guardrails, resume/checkpoint files, per-experiment runtime orchestration, reporting, summary formatting, and a worker CLI entrypoint. That means a contributor trying to change one narrow concern such as resume validation or summary rendering still has to open more than three thousand lines of unrelated runtime logic.
 
 After this change, QualitySuite should still behave the same for operators using `cookimport bench quality-run` and related read-side tools, but the code should be organized into a `qualitysuite` package with explicit ownership boundaries for planning, runtime execution, persistence, and summaries. The visible proof is that benchmark commands and existing quality-domain tests still pass while a newcomer can inspect one smaller module to change one concern safely.
 
@@ -25,8 +25,10 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 18:03 EDT) Audited the current QualitySuite file shape in [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py), including experiment models, resume/checkpoint logic, executor/environment logic, experiment planning, per-experiment runtime execution, summary/report formatting, and worker CLI support.
 - [x] (2026-03-22 18:08 EDT) Authored this standalone QualitySuite decomposition ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes old helper imports and internal compatibility re-exports instead of keeping `quality_runner.py` as a broad facade.
-- [ ] Create a `cookimport/bench/qualitysuite/` package with one module per major responsibility cluster.
-- [ ] Move experiment schema and resolution logic out of `quality_runner.py`.
+- [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed deterministic suite discovery, manifest IO, and `QualitySuite` / `QualityTarget` ownership already live in [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py), with dedicated coverage in [tests/bench/test_quality_suite_discovery.py](/home/mcnal/projects/recipeimport/tests/bench/test_quality_suite_discovery.py).
+- [x] (2026-03-23 17:16 EDT) Verified [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py) still owns runtime, resume, executor, summary, and worker CLI concerns and remains a 3,148-line coordination surface.
+- [ ] Create the remaining `cookimport/bench/qualitysuite/` runtime package behind the already-landed [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py) module.
+- [ ] Move experiment expansion and runtime-resolution logic out of `quality_runner.py`.
 - [ ] Move environment/executor decision logic and subprocess worker plumbing out of `quality_runner.py`.
 - [ ] Move checkpoint/resume persistence and summary/report rendering out of `quality_runner.py`.
 - [ ] Cut `quality_runner.py` down to the smallest product-facing entrypoint surface and delete old helper exports and internal compatibility names.
@@ -39,6 +41,9 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 
 - Observation: the file already contains natural deep-module seams.
   Evidence: function clusters separate cleanly into environment/executor helpers, experiment expansion and resolution, checkpoint persistence, per-experiment runtime execution, and summary/report loading.
+
+- Observation: part of the decomposition already landed under a sibling module rather than the package layout this plan originally proposed.
+  Evidence: [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py) now owns `QualityTarget`, `QualitySuite`, `discover_quality_suite(...)`, `load_quality_suite(...)`, `write_quality_suite(...)`, and `validate_quality_suite(...)`, and the bench docs already teach that split.
 
 - Observation: QualitySuite already has meaningful boundary tests that can lock down a refactor.
   Evidence: the bench and CLI docs name active test anchors, and the repo already contains focused adapter and benchmark tests that can verify the public surface while the implementation moves underneath.
@@ -64,19 +69,28 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
   Rationale: subprocess worker behavior is runtime implementation, not a reason to keep the old giant file as a general-purpose import surface.
   Date/Author: 2026-03-22 / Codex
 
+- Decision: keep [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py) as the current owner of suite discovery/schema behavior rather than moving that already-landed split back into `quality_runner.py`.
+  Rationale: that module is already a useful deep-module seam with dedicated tests, so the remaining work should decompose the runner-specific responsibilities around it instead of re-churning completed ownership.
+  Date/Author: 2026-03-23 / Codex
+
 ## Outcomes & Retrospective
 
-No code has changed yet. The current outcome is a concrete decomposition plan for one of the repo’s largest active benchmark coordinators.
+This plan is now partially landed. The repo already has one good deep-module split for QualitySuite discovery and manifest handling, but the runtime half remains concentrated in [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py).
 
-The main planning lesson is that `quality_runner.py` already contains strong seams; the work is less about inventing abstractions than about making the existing responsibility clusters visible and separately owned.
+The main implementation lesson so far is that the best next move is not to re-open the completed `quality_suite.py` extraction. It is to keep that seam and continue decomposing the runner-specific responsibilities around it.
 
 ## Context and Orientation
 
-QualitySuite is the deterministic quality benchmark surface described in [docs/07-bench/07-bench_README.md](/home/mcnal/projects/recipeimport/docs/07-bench/07-bench_README.md). In this repo, “QualitySuite” means the logic behind `cookimport bench quality-run`, related experiment definitions, resume/checkpoint files, and the summary artifacts that later readers such as the leaderboard consume. The active public runtime entrypoint today is [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py).
+QualitySuite is the deterministic quality benchmark surface described in [docs/07-bench/07-bench_README.md](/home/mcnal/projects/recipeimport/docs/07-bench/07-bench_README.md). In this repo, “QualitySuite” means the logic behind `cookimport bench quality-discover`, `cookimport bench quality-run`, related experiment definitions, resume/checkpoint files, and the summary artifacts that later readers such as the leaderboard consume.
 
-The current file mixes several concerns:
+The current ownership is split across two files:
 
-- experiment schema models such as `QualityExperiment`, `QualityLever`, and `QualityExperimentResult`
+- [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py): deterministic suite discovery, suite/target schema models, manifest read/write helpers, and suite validation.
+- [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py): runtime execution, experiment-file parsing and expansion, environment/executor policy, checkpoint/resume persistence, summary/report generation, and worker CLI support.
+
+The remaining problem is that `quality_runner.py` still mixes several concerns:
+
+- runtime-side experiment schema and resolution helpers such as `QualityExperiment`, `QualityLever`, `QualityExperimentResult`, and `_ResolvedExperiment`
 - environment and executor guardrails such as WSL safety checks and process-vs-thread executor choice
 - experiment expansion and resolution from experiment files plus base run settings
 - per-experiment runtime execution including subprocess worker fallback
@@ -88,8 +102,8 @@ For AI-readiness, that is too much breadth in one file. A fresh agent trying to 
 
 The target package layout for this plan is:
 
+- `cookimport/bench/quality_suite.py`
 - `cookimport/bench/qualitysuite/__init__.py`
-- `cookimport/bench/qualitysuite/models.py`
 - `cookimport/bench/qualitysuite/environment.py`
 - `cookimport/bench/qualitysuite/planning.py`
 - `cookimport/bench/qualitysuite/runtime.py`
@@ -101,7 +115,7 @@ The final product-facing surface may remain in [cookimport/bench/quality_runner.
 
 The intended ownership boundaries are:
 
-- `models.py`: experiment/result models and resolved experiment dataclasses
+- `quality_suite.py`: deterministic suite discovery, suite/target schema models, manifest IO, and suite validation
 - `environment.py`: platform guards, load-based caps, executor-mode decisions, live ETA poll defaults
 - `planning.py`: experiment-file loading, base-run-settings resolution, patch validation, experiment expansion and target selection
 - `runtime.py`: `run_quality_suite(...)`, per-experiment execution, subprocess worker request handling, runtime target loop orchestration
@@ -113,11 +127,11 @@ That layout is intentionally not tiny-granular. Each new module should be deep e
 
 ## Milestones
 
-### Milestone 1: Create the `qualitysuite` package and move the stable models
+### Milestone 1: Keep `quality_suite.py` as the discovery/schema owner and create the runtime package
 
-At the end of this milestone, the repo will contain the new `cookimport/bench/qualitysuite/` package and the experiment/result models will live in `models.py`. `quality_runner.py` may still define runtime logic, but the subsystem will have a visible ownership map and the lowest-risk shared types will no longer be buried in the giant coordinator file.
+At the end of this milestone, the repo will contain the new `cookimport/bench/qualitysuite/` package, while [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py) remains the owner of suite discovery and manifest/schema behavior. `quality_runner.py` may still define runtime logic, but the subsystem will have a visible ownership map and the lowest-risk discovery/types work will remain out of the giant coordinator file.
 
-Acceptance is that imports and tests still pass, and the repo has updated any imports that used old helper/model names from `quality_runner.py` rather than preserving those names indefinitely.
+Acceptance is that imports and tests still pass, and the repo has a clear split between suite discovery/manifest ownership and the remaining runner-runtime ownership.
 
 ### Milestone 2: Extract planning and environment guardrails
 
@@ -145,7 +159,7 @@ Acceptance is passing bench-domain validation, passing CLI paths that touch Qual
 
 ## Plan of Work
 
-Start by creating `cookimport/bench/qualitysuite/` and moving the least-coupled pieces first. The safest opening move is models plus pure planning helpers, because that creates the subsystem shape without destabilizing runtime orchestration. Update imports as the new modules land; do not preserve broad helper re-exports from `quality_runner.py` in the final state.
+Start from the current split instead of pretending the repo is still on day zero. [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py) is already the owner of deterministic suite discovery and manifest/schema behavior. Create `cookimport/bench/qualitysuite/` only for the remaining runtime-side concerns that still live in `quality_runner.py`. Update imports as the new modules land; do not preserve broad helper re-exports from `quality_runner.py` in the final state.
 
 Next, extract environment and executor guardrails. Those helpers are an especially good deep-module seam because they are conceptually one policy cluster: how QualitySuite decides whether to use process workers, thread workers, or safety-reduced parallelism on the current host. They should be readable without scanning summary formatting or experiment expansion.
 
@@ -168,7 +182,6 @@ Inspect the current QualitySuite seam map:
 Create the new package with `apply_patch`:
 
     cookimport/bench/qualitysuite/__init__.py
-    cookimport/bench/qualitysuite/models.py
     cookimport/bench/qualitysuite/environment.py
     cookimport/bench/qualitysuite/planning.py
     cookimport/bench/qualitysuite/runtime.py
@@ -178,8 +191,8 @@ Create the new package with `apply_patch`:
 
 Migration order:
 
-1. Move models and resolved-experiment types.
-2. Move planning helpers and environment/executor helpers.
+1. Keep `quality_suite.py` as the already-landed discovery/schema owner.
+2. Move planning helpers and environment/executor helpers out of `quality_runner.py`.
 3. Move persistence and summary/report helpers.
 4. Move runtime and worker CLI plumbing.
 5. Delete moved helper exports from `quality_runner.py` and leave only the product-facing entrypoints that still matter.
@@ -260,19 +273,21 @@ The stable public interface should remain:
 
 Internal package interfaces should become:
 
-In `cookimport/bench/qualitysuite/models.py`:
+In `cookimport/bench/quality_suite.py`, keep authoritative:
 
-    class QualityExperiment(BaseModel): ...
-    class QualityExperimentResult(BaseModel): ...
-    @dataclass
-    class ResolvedExperiment: ...
+    class QualityTarget(BaseModel): ...
+    class QualitySuite(BaseModel): ...
+    def discover_quality_suite(...) -> QualitySuite: ...
+    def load_quality_suite(path: Path) -> QualitySuite: ...
+    def write_quality_suite(path: Path, suite: QualitySuite) -> None: ...
+    def validate_quality_suite(...) -> list[str]: ...
 
 In `cookimport/bench/qualitysuite/planning.py`:
 
     def load_experiment_file(...) -> ...: ...
     def resolve_base_run_settings_payload(...) -> dict[str, Any]: ...
     def expand_experiments(...) -> list[...]: ...
-    def resolve_experiments(...) -> list[ResolvedExperiment]: ...
+    def resolve_experiments(...) -> list[...]: ...
 
 In `cookimport/bench/qualitysuite/environment.py`:
 
@@ -302,4 +317,4 @@ Use these as ownership targets, not rigid exact names if implementation reveals 
 
 ## Revision note
 
-Created on 2026-03-22 as a follow-on AI-readiness plan after the initial CLI, shared planner, and run-settings plans. Updated later the same day to a burn-the-boats posture. This file owns only QualitySuite decomposition and now requires deletion of old helper exports from `quality_runner.py` rather than a long-lived compatibility facade.
+Created on 2026-03-22 as a follow-on AI-readiness plan after the initial CLI, shared planner, and run-settings plans. Updated later the same day to a burn-the-boats posture. Updated on 2026-03-23 after re-auditing the live QualitySuite tree so the plan now starts from the already-landed `quality_suite.py` split and focuses the remaining work on decomposing the still-large runtime coordinator in `quality_runner.py`.
