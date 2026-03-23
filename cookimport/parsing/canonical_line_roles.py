@@ -373,6 +373,7 @@ _REVIEW_EXCLUSION_REASON_CODES = frozenset(
         "publishing_metadata",
         "copyright_legal",
         "endorsement",
+        "publisher_promo",
         "page_furniture",
     }
 )
@@ -383,6 +384,19 @@ _COPYRIGHT_LEGAL_RE = re.compile(
 )
 _PUBLISHING_METADATA_RE = re.compile(
     r"\b(?:isbn(?:-1[03])?|library of congress|cataloging-in-publication|published by|printed in)\b",
+    re.IGNORECASE,
+)
+_PUBLISHER_PROMO_RE = re.compile(
+    r"\b(?:download(?:ing|ed)?\s+(?:this|the)\s+ebook|mailing list|sign up|"
+    r"register this ebook|recommended reads|exclusive offers|new releases|"
+    r"terms and conditions|subscriber|subscribe|inbox|free ebook|click here)\b",
+    re.IGNORECASE,
+)
+_ENDORSEMENT_BLURB_CUE_RE = re.compile(
+    r"\b(?:a must for anyone wanting to be a better cook|book\b|guide to|"
+    r"guide readers|guide to employing|wildly informative|fun illustrations|"
+    r"beautiful storytelling|powerful art|joyful to read|new-generation culinary resource|"
+    r"perfect mixture|pitch-perfect combination|better cook)\b",
     re.IGNORECASE,
 )
 _FRONT_MATTER_EXCLUSION_HEADINGS = {
@@ -1389,6 +1403,23 @@ def _looks_publishing_metadata(text: str) -> bool:
     return _PUBLISHING_METADATA_RE.search(stripped) is not None
 
 
+def _looks_publisher_promo(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _looks_publishing_metadata(stripped) or _looks_copyright_legal(stripped):
+        return False
+    if _PUBLISHER_PROMO_RE.search(stripped):
+        return True
+    lowered = stripped.lower()
+    return (
+        "thank you for downloading" in lowered
+        or ("join our" in lowered and "mailing list" in lowered)
+        or ("send you more of what you like to read" in lowered)
+        or ("click below to sign up" in lowered)
+    )
+
+
 def _looks_copyright_legal(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped:
@@ -1446,6 +1477,104 @@ def _looks_navigation_exclusion_candidate(
     return navigation_like_neighbors >= 1 and lesson_like_neighbors == 0
 
 
+def _neighbor_candidates(
+    *,
+    candidate: AtomicLineCandidate,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+    offsets: Sequence[int] = (-2, -1, 1, 2),
+) -> list[AtomicLineCandidate]:
+    if by_atomic_index is None:
+        return []
+    neighbors: list[AtomicLineCandidate] = []
+    for offset in offsets:
+        neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
+        if neighbor is None or _is_within_recipe_span(neighbor):
+            continue
+        neighbors.append(neighbor)
+    return neighbors
+
+
+def _looks_endorsement_blurb_candidate(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text or not _looks_prose(text):
+        return False
+    endorsement_blurb_cue = _ENDORSEMENT_BLURB_CUE_RE.search(text) is not None
+    if _looks_explicit_knowledge_cue(text):
+        return False
+    lowered = text.lower()
+    quote_like = text.startswith('"') or text.startswith("'") or text.endswith('"')
+    if not (
+        quote_like
+        or _looks_book_framing_or_exhortation_prose(text)
+        or endorsement_blurb_cue
+    ):
+        return False
+    neighbor_endorsements = sum(
+        1
+        for neighbor in _neighbor_candidates(
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        if _looks_endorsement_credit(str(neighbor.text or "").strip())
+    )
+    if neighbor_endorsements <= 0:
+        return False
+    if _looks_domain_knowledge_prose(text) and not endorsement_blurb_cue:
+        return False
+    if (
+        "guide" in lowered
+        and _KNOWLEDGE_EXPLANATION_CUE_RE.search(text)
+        and not endorsement_blurb_cue
+    ):
+        return False
+    return True
+
+
+def _looks_publisher_promo_candidate(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if _looks_publisher_promo(text):
+        return True
+    if not _looks_prose(text):
+        return False
+    if _looks_explicit_knowledge_cue(text) or _looks_domain_knowledge_prose(text):
+        return False
+    neighbors = _neighbor_candidates(
+        candidate=candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    promo_like_neighbors = sum(
+        1
+        for neighbor in neighbors
+        if _looks_publisher_promo(str(neighbor.text or "").strip())
+    )
+    if promo_like_neighbors <= 0:
+        return False
+    lowered = text.lower()
+    return any(
+        cue in lowered
+        for cue in (
+            "thank you",
+            "subscriber",
+            "ebook",
+            "offers",
+            "recommended reads",
+            "terms and conditions",
+            "sign up",
+            "register",
+        )
+    )
+
+
 def _outside_recipe_review_exclusion_reason(
     candidate: AtomicLineCandidate,
     *,
@@ -1464,6 +1593,16 @@ def _outside_recipe_review_exclusion_reason(
         return "publishing_metadata"
     if _looks_endorsement_credit(text):
         return "endorsement"
+    if _looks_endorsement_blurb_candidate(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "endorsement"
+    if _looks_publisher_promo_candidate(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "publisher_promo"
     if _looks_front_matter_exclusion_heading(text):
         return "front_matter"
     if _looks_navigation_exclusion_candidate(

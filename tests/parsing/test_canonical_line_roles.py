@@ -821,10 +821,81 @@ def test_label_atomic_lines_outside_recipe_instruction_like_endorsement_cluster_
         "OTHER",
         "OTHER",
     ]
+    assert [prediction.review_exclusion_reason for prediction in predictions] == [
+        "endorsement",
+        "endorsement",
+        "endorsement",
+    ]
     assert all(
         "rescued_other_to_instruction" not in prediction.reason_tags
         for prediction in predictions
     )
+
+
+def test_label_atomic_lines_outside_recipe_publisher_signup_cluster_is_excluded() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:promo:1",
+            block_index=1,
+            atomic_index=0,
+            text="Thank you for downloading this Simon & Schuster ebook.",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:promo:2",
+            block_index=2,
+            atomic_index=1,
+            text=(
+                "Get a FREE ebook when you join our mailing list. Plus, get "
+                "updates on new releases, deals, recommended reads, and more "
+                "from Simon & Schuster. Click below to sign up and see terms "
+                "and conditions."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:promo:3",
+            block_index=3,
+            atomic_index=2,
+            text=(
+                "Already a subscriber? Provide your email again so we can "
+                "register this ebook and send you more of what you like to "
+                "read. You will continue to receive exclusive offers in your "
+                "inbox."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:promo:4",
+            block_index=4,
+            atomic_index=3,
+            text="CLICK HERE TO SIGN UP",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+    ]
+    assert [prediction.review_exclusion_reason for prediction in predictions] == [
+        "publisher_promo",
+        "publisher_promo",
+        "publisher_promo",
+        "publisher_promo",
+    ]
 
 
 def test_label_atomic_lines_outside_recipe_isolated_howto_heading_defaults_away_from_structure() -> None:
@@ -2334,6 +2405,37 @@ def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -
     assert predictions[0].review_exclusion_reason == "endorsement"
 
 
+def test_codex_outside_recipe_publisher_promo_demotes_knowledge_to_other(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:promo:1",
+            block_index=1,
+            atomic_index=0,
+            text=(
+                "Get a FREE ebook when you join our mailing list. Plus, get "
+                "updates on new releases, deals, recommended reads, and more "
+                "from Simon & Schuster."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-shard-v1"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "KNOWLEDGE"}),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "fallback"
+    assert "coerced_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
+    assert predictions[0].review_exclusion_reason == "publisher_promo"
+
+
 def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -3320,6 +3422,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
     assert "default to review-eligible `OTHER`" in prompt
     assert "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`" in prompt
+    assert "Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk" in prompt
     assert "Short declarative teaching lines about reusable cooking rules should still stay review-eligible `OTHER` in this stage." in prompt
     assert "HOWTO_SECTION availability: absent_or_unproven (evidence rows: 0)" in prompt
     assert "HOWTO_SECTION policy: This book may legitimately use zero `HOWTO_SECTION` labels." in prompt

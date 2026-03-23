@@ -70,8 +70,9 @@ Rules:
   - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`; only overwhelming obvious junk should also get `review_exclusion_reason`.
 - Dedications, front matter, and table-of-contents entries are usually `OTHER`.
 - Use optional `review_exclusion_reason` only on rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
-- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`.
+- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.
 - If outside-recipe prose seems useful but not recipe-local, keep it `OTHER` and leave `review_exclusion_reason` empty so the knowledge stage can review it.
+- Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk and may use `review_exclusion_reason`.
 
 {{PACKET_CONTEXT_BLOCK}}
 

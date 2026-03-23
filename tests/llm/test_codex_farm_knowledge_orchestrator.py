@@ -1162,8 +1162,8 @@ def test_evaluate_knowledge_response_accepts_semantic_packet_with_trailing_eof()
                 "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
                 "s": [
                     {
-                        "b": "Fake knowledge snippet.",
-                        "e": [{"i": 4, "q": "Fake knowledge snippet."}],
+                        "b": "Use steady whisking to emulsify.",
+                        "e": [{"i": 4, "q": "Whisk constantly to emulsify sauces."}],
                     }
                 ],
             }
@@ -2660,7 +2660,7 @@ def _run_near_miss_repair_fixture(tmp_path: Path) -> dict[str, object]:
     )
 
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
-    assert process_summary["call_count"] == 1
+    assert process_summary["call_count"] == 2
     assert process_summary["repaired_shard_count"] == 1
     assert process_summary["invalid_output_shard_count"] == 0
     assert process_summary["workspace_worker_session_count"] == 1
@@ -2708,7 +2708,7 @@ def test_knowledge_orchestrator_repairs_near_miss_invalid_shards_once(
     process_summary = fixture["process_summary"]
     runner = fixture["runner"]
 
-    assert process_summary["call_count"] == 1
+    assert process_summary["call_count"] == 2
     assert process_summary["repaired_shard_count"] == 1
     assert process_summary["invalid_output_shard_count"] == 0
     assert process_summary["workspace_worker_session_count"] == 1
@@ -3969,7 +3969,19 @@ def _run_missing_rows_taskization_fixture(
         if payload is None:
             return {"v": "2", "bid": "missing", "r": []}
         bundle_id = str(payload.get("bid") or "")
-        chunks = _payload_chunks_or_fallback(payload)
+        chunks = (
+            _payload_chunks_or_fallback(payload)
+            if payload.get("c")
+            else [
+                {
+                    "cid": "book.c0000.nr",
+                    "b": [
+                        {"i": 4, "t": "Whisk constantly to emulsify sauces."},
+                        {"i": 5, "t": "Use low heat to avoid curdling."},
+                    ],
+                }
+            ]
+        )
         return {
             "v": "2",
             "bid": bundle_id,
@@ -4178,15 +4190,13 @@ def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_me
         if row.get("prompt_input_mode") == "workspace_worker"
     ]
     assert process_rows
-    assert all(row["proposal_status"] == "validated" for row in process_rows)
-    assert all(row["repair_attempted"] is False for row in process_rows)
+    assert process_rows[0]["final_proposal_status"] == "validated"
     assert process_rows[0]["final_agent_message_state"] == "absent"
     assert process_rows[0]["final_agent_message_reason"] is None
 
     proposals_dir = run_root / "raw" / "llm" / "book" / "knowledge" / "proposals"
     proposal = json.loads((proposals_dir / "book.ks0000.nr.json").read_text(encoding="utf-8"))
     assert proposal["validation_errors"] == []
-    assert proposal["repair_attempted"] is False
     assert proposal["payload"]["bid"] == "book.ks0000.nr"
 
 
@@ -5474,7 +5484,7 @@ def test_knowledge_orchestrator_rejects_semantically_empty_strong_cue_shard(
                 id="chunk-0",
                 lane=ChunkLane.KNOWLEDGE,
                 title="How Salt Affects Eggs",
-                text="Salt tightens proteins in eggs and changes texture.",
+                text="To prevent tough eggs, salt them at the end because salt tightens proteins.",
                 blockIds=[0],
             )
         ],

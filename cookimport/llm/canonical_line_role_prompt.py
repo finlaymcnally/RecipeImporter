@@ -60,8 +60,9 @@ Negative rules (must-not-do):
 - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
 - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
 - Use optional `review_exclusion_reason` only on rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
-- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`.
+- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.
 - If outside-recipe prose seems useful but not recipe-local, keep it `OTHER` and leave `review_exclusion_reason` empty so the knowledge stage can review it.
+- Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk and may use `review_exclusion_reason`.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -280,7 +281,7 @@ def build_canonical_line_role_file_prompt(
             "  - `RECIPE_VARIANT`: alternate recipe names, variant headers, or short local alternate-version runs inside one recipe.\n"
             "  - `KNOWLEDGE`: explanatory/reference prose, not ordinary recipe structure.\n"
             "  - `OTHER`: navigation, memoir, marketing, dedications, table of contents, or decorative matter.\n"
-            "  - `review_exclusion_reason`: use only on `OTHER` rows when the text is overwhelmingly obvious junk that should skip knowledge review; allowed values are `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`.\n"
+            "  - `review_exclusion_reason`: use only on `OTHER` rows when the text is overwhelmingly obvious junk that should skip knowledge review; allowed values are `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.\n"
             "- Negative rules:\n"
             "  - Never label a quantity/unit ingredient line as `KNOWLEDGE`.\n"
             "  - Never label an imperative instruction sentence as `KNOWLEDGE`.\n"
@@ -300,6 +301,7 @@ def build_canonical_line_role_file_prompt(
             "  - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.\n"
             "  - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n"
             "  - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.\n"
+            "  - Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk and may use `review_exclusion_reason`.\n"
             "  - Dedications, front matter, and table-of-contents entries are usually `OTHER`.\n\n"
             "{{PACKET_CONTEXT_BLOCK}}"
             "{{REFERENCE_CONTEXT_BLOCK}}"

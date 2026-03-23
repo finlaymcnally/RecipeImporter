@@ -273,6 +273,7 @@ Canonical-text diagnostics commonly include:
 - `line_role_flips_vs_baseline.jsonl`
 - `slice_metrics.json`
 - `routing_summary.json`
+  - this routing artifact is now the plain-language upstream-diversion summary for line-role. In addition to recipe-local versus outside-recipe counts, it also carries `review_exclusion_reason_counts` so reviewers can see which obvious-junk families were filtered before the knowledge stage.
 - `prompt_eval_alignment.md`
 
 When `--line-role-gated` is enabled, canonical-text runs also write:

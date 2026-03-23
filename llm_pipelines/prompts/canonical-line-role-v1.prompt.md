@@ -47,8 +47,9 @@ Negative rules (must-not-do):
 - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
 - Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`; only overwhelming obvious junk should also get `review_exclusion_reason`.
 - Use optional `review_exclusion_reason` only on outside-recipe rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
-- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`.
+- Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.
 - If outside-recipe prose seems genuinely useful but not recipe-local, still label it `OTHER` and leave `review_exclusion_reason` empty so the knowledge stage can decide.
+- Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk and may use `review_exclusion_reason`.
 
 Few-shot examples:
 1) Context: inside recipe, heading line

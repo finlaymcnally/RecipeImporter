@@ -216,6 +216,9 @@ def _extract_line_role_artifacts(
             "outside_recipe_review_excluded_count": routing_payload.get(
                 "outside_recipe_review_excluded_count"
             ),
+            "review_exclusion_reason_counts": routing_payload.get(
+                "review_exclusion_reason_counts"
+            ),
         }
 
     return {

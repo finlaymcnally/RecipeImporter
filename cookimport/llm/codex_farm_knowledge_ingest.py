@@ -14,6 +14,7 @@ from .codex_farm_knowledge_models import (
     ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
     ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
     ALLOWED_KNOWLEDGE_REASON_CODES,
+    default_legacy_knowledge_reason_code,
     semantic_result_from_canonical_bundle,
     serialize_canonical_knowledge_packet,
 )
@@ -98,9 +99,17 @@ def _normalize_semantic_category_aliases(
 
     normalized_payload = deepcopy(payload)
     rewrite_counts: dict[str, int] = {}
+    missing_reason_count = 0
+    semantic_packet_shape = "packet_id" in normalized_payload
     for chunk_result in normalized_payload.get("chunk_results") or []:
         if not isinstance(chunk_result, dict):
             continue
+        reason_code = str(chunk_result.get("reason_code") or "").strip()
+        if semantic_packet_shape and not reason_code:
+            chunk_result["reason_code"] = default_legacy_knowledge_reason_code(
+                is_useful=bool(chunk_result.get("is_useful"))
+            )
+            missing_reason_count += 1
         block_decisions = chunk_result.get("block_decisions")
         if not isinstance(block_decisions, list):
             continue
@@ -124,12 +133,15 @@ def _normalize_semantic_category_aliases(
                     decision["reviewer_category"] = default_reviewer_category
             rewrite_counts[category] = rewrite_counts.get(category, 0) + 1
 
-    if not rewrite_counts:
+    if not rewrite_counts and missing_reason_count <= 0:
         return payload, {}
-    return normalized_payload, {
-        "semantic_category_alias_rewrites": dict(sorted(rewrite_counts.items())),
-        "semantic_category_alias_rewrite_count": sum(rewrite_counts.values()),
-    }
+    metadata: dict[str, Any] = {}
+    if rewrite_counts:
+        metadata["semantic_category_alias_rewrites"] = dict(sorted(rewrite_counts.items()))
+        metadata["semantic_category_alias_rewrite_count"] = sum(rewrite_counts.values())
+    if missing_reason_count > 0:
+        metadata["legacy_missing_reason_code_count"] = missing_reason_count
+    return normalized_payload, metadata
 
 
 def _knowledge_reason_metadata(

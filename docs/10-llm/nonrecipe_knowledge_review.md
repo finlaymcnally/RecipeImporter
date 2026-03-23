@@ -36,6 +36,7 @@ Optional knobs:
 
 Chunking note:
 - knowledge-stage inputs now come from the review-eligible subset of Stage 7 non-recipe spans. Obvious-junk `OTHER` blocks excluded by line-role stay visible in `08_nonrecipe_spans.json` / `08_nonrecipe_review_exclusions.jsonl`, but they are pruned before `knowledge/in/*.json` is written.
+- the current upstream junk veto also covers stronger publisher-promo and endorsement-cluster cases, so `knowledge/in/*.json` should no longer carry obvious ebook signup or praise-blurb runs when line-role can prove they are junk locally.
 - Stage 7 no longer grants semantic authority to review-eligible rows by itself. If the knowledge stage does not review a row, downstream scoring and Label Studio projection must treat it as unreviewed seed-kept fallback rather than reviewed semantic `other`.
 - compact knowledge jobs now bundle surviving chunks across neighboring seed spans when they stay local, including small bridged gaps up to 10 blocks, so prompt count tracks broader outside-recipe regions instead of one chunk per prompt.
 - standalone heading fragments and tiny bridge chunks are collapsed before bundling so decorative section seams do not become their own Codex jobs.

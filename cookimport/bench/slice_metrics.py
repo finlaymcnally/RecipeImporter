@@ -69,6 +69,7 @@ def build_line_role_routing_summary(
     outside_recipe_review_eligible_count = 0
     outside_recipe_structured_count = 0
     recipe_local_label_count = 0
+    review_exclusion_reason_counts: dict[str, int] = {}
     structured_labels = {
         "RECIPE_TITLE",
         "INGREDIENT_LINE",
@@ -93,6 +94,10 @@ def build_line_role_routing_summary(
             review_exclusion_reason = str(row.get("review_exclusion_reason") or "").strip()
             if label == "OTHER" and review_exclusion_reason:
                 outside_recipe_review_excluded_count += 1
+                review_exclusion_reason_counts[review_exclusion_reason] = (
+                    int(review_exclusion_reason_counts.get(review_exclusion_reason) or 0)
+                    + 1
+                )
             else:
                 outside_recipe_review_eligible_count += 1
         else:
@@ -107,6 +112,7 @@ def build_line_role_routing_summary(
         "outside_recipe_structured_count": outside_recipe_structured_count,
         "outside_recipe_review_eligible_count": outside_recipe_review_eligible_count,
         "outside_recipe_review_excluded_count": outside_recipe_review_excluded_count,
+        "review_exclusion_reason_counts": review_exclusion_reason_counts,
     }
 
 

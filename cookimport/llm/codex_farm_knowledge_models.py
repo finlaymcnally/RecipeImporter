@@ -66,6 +66,10 @@ def normalize_knowledge_reason_code(value: object) -> str | None:
     return _REASON_CODE_ALIASES.get(cleaned, cleaned)
 
 
+def default_legacy_knowledge_reason_code(*, is_useful: bool) -> str:
+    return "technique_or_mechanism" if is_useful else "not_cooking_knowledge"
+
+
 class EvidencePointerV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -471,6 +475,9 @@ def semantic_result_from_canonical_bundle(
                         }
                         for snippet in result.snippets
                     ],
+                    "reason_code": default_legacy_knowledge_reason_code(
+                        is_useful=bool(result.is_useful)
+                    ),
                 }
                 for result in bundle.chunk_results
             ],
