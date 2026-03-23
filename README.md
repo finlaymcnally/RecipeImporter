@@ -1,5 +1,9 @@
 # Recipe Import (cookimport)
 
+> README goal (for humans and future AIs editing this file)
+> Keep this README as a simple, step-by-step, non-coder walkthrough for setting up, running, and tweaking an import pipeline.
+
+
 ## Full Processing Flowchart (File Types + Label Studio)
 
 ```text
@@ -80,30 +84,8 @@ START
     `-- Shared history + dashboard: `.history/` (repo-local outputs)
 ```
 
-> README goal (for humans and future AIs editing this file)
->
-> Keep this README as a simple, step-by-step, non-coder walkthrough for setting up, running, and tweaking an import pipeline.
-> Put deep reference material in `docs/` (especially `docs/02-cli/02-cli_README.md`) and link to it from here.
 
-## Choice Tree (Start Here)
 
-```text
-Start
-|-- Step 1) Put your file(s) in `data/input/`
-|   `-- Important: interactive mode only shows top-level files in `data/input/`
-|-- Step 2) Every time: launch the tool
-|   |-- `cd /home/mcnal/projects/recipeimport`
-|   |-- . .venv/bin/activate
-|   `-- C3imp (or `C3imp 10` for a small test run)
-`-- Step 3) In the menu, pick a workflow
-    |-- Import: stage files -> outputs in `data/output/<YYYY-MM-DD_HH.MM.SS>/`
-    |-- Settings: change defaults (saved in `cookimport.json`)
-    |-- Label Studio upload: create labeling tasks (optional)
-    |-- Label Studio export: export completed labels (optional)
-    |-- Label Studio: decorate with AI spans (optional)
-    |-- Evaluate predictions vs freeform gold (optional)
-    `-- Generate dashboard (optional)
-```
 
 ## What This Tool Does (Plain English)
 
@@ -128,10 +110,6 @@ That run folder contains:
 ```text
 data/input/
 ```
-
-2. Keep it top-level (no subfolders).
-   - Interactive mode only lists files directly inside `data/input/`.
-   - Batch mode (`cookimport stage <folder>`) scans folders recursively.
 
 Common inputs this project recognizes:
 - Excel workbooks: `.xlsx`, `.xlsm`

@@ -16,12 +16,6 @@ from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_span,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
-from cookimport.llm.shard_prompt_targets import (
-    coerce_positive_int,
-    partition_contiguous_items,
-    resolve_shard_count,
-    resolve_items_per_shard,
-)
 
 from .codex_farm_knowledge_contracts import (
     KnowledgeCompactBundleChunkPayloadV2,
@@ -34,10 +28,6 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeTableHintV1,
     SpanV1,
 )
-
-_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS = 12
-_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS = 14000
-_DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,16 +169,18 @@ def build_knowledge_jobs(
                 str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else suggested_lane
             )
             chunk_counter += 1
-    planned_bundles, planning_warnings = _bundle_prepared_chunks(
-        sorted(all_prepared_chunks, key=lambda chunk: chunk.absolute_indices[0]),
-        target_bundle_count=target_prompt_count,
-        max_chunks_per_bundle=target_chunks_per_shard,
+    planning_warnings = _single_chunk_task_warnings(
+        target_prompt_count=target_prompt_count,
+        target_chunks_per_shard=target_chunks_per_shard,
     )
-    for bundle_chunks in planned_bundles:
+    for prepared_chunk in sorted(
+        all_prepared_chunks,
+        key=lambda chunk: chunk.absolute_indices[0],
+    ):
         bundle_id = f"{workbook_slug}.ks{bundle_counter:04d}.nr"
         bundle_payload = _build_bundle_job_payload(
             bundle_id=bundle_id,
-            prepared_chunks=bundle_chunks,
+            prepared_chunks=[prepared_chunk],
             full_blocks_by_index=full_blocks_by_index,
             recipe_spans_payload=recipe_spans_payload,
             context_blocks=context_blocks,
@@ -204,25 +196,10 @@ def build_knowledge_jobs(
             bundle_payload_json,
             out_dir / f"{bundle_id}.json",
         )
-        owned_chunk_ids = tuple(chunk.payload.chunk_id for chunk in bundle_chunks)
-        owned_block_indices = tuple(
-            sorted(
-                {
-                    int(index)
-                    for chunk in bundle_chunks
-                    for index in chunk.absolute_indices
-                }
-            )
-        )
-        source_span_ids = tuple(
-            sorted(
-                {
-                    str(chunk.source_span_id).strip()
-                    for chunk in bundle_chunks
-                    if str(chunk.source_span_id).strip()
-                }
-            )
-        )
+        owned_chunk_ids = (prepared_chunk.payload.chunk_id,)
+        owned_block_indices = tuple(sorted(int(index) for index in prepared_chunk.absolute_indices))
+        source_span_id = str(prepared_chunk.source_span_id).strip()
+        source_span_ids = (source_span_id,) if source_span_id else ()
         shard_entries.append(
             ShardManifestEntryV1(
                 shard_id=bundle_id,
@@ -233,64 +210,58 @@ def build_knowledge_jobs(
                     "ordered_chunk_ids": list(owned_chunk_ids),
                     "owned_block_indices": list(owned_block_indices),
                     "source_span_ids": list(source_span_ids),
-                    "chunk_count": len(owned_chunk_ids),
-                    "char_count": sum(chunk.char_count for chunk in bundle_chunks),
-                    "table_heavy": any(chunk.has_table_content for chunk in bundle_chunks),
+                    "chunk_count": 1,
+                    "char_count": int(prepared_chunk.char_count),
+                    "table_heavy": bool(prepared_chunk.has_table_content),
                     "context_blocks": max(0, int(context_blocks)),
                     "chunk_block_indices_by_id": {
-                        chunk.payload.chunk_id: list(chunk.absolute_indices)
-                        for chunk in bundle_chunks
+                        prepared_chunk.payload.chunk_id: list(prepared_chunk.absolute_indices)
                     },
-                    "chunk_seed_stage_category_by_id": {
-                        chunk.payload.chunk_id: chunk.seed_stage_category
-                        for chunk in bundle_chunks
-                        if chunk.seed_stage_category is not None
-                    },
-                    "chunk_lane_by_id": {
-                        chunk.payload.chunk_id: chunk.suggested_lane
-                        for chunk in bundle_chunks
-                        if chunk.suggested_lane is not None
-                    },
-                    "chunk_title_by_id": {
-                        chunk.payload.chunk_id: chunk.title
-                        for chunk in bundle_chunks
-                        if chunk.title is not None
-                    },
+                    "chunk_seed_stage_category_by_id": (
+                        {
+                            prepared_chunk.payload.chunk_id: prepared_chunk.seed_stage_category
+                        }
+                        if prepared_chunk.seed_stage_category is not None
+                        else {}
+                    ),
+                    "chunk_lane_by_id": (
+                        {prepared_chunk.payload.chunk_id: prepared_chunk.suggested_lane}
+                        if prepared_chunk.suggested_lane is not None
+                        else {}
+                    ),
+                    "chunk_title_by_id": (
+                        {prepared_chunk.payload.chunk_id: prepared_chunk.title}
+                        if prepared_chunk.title is not None
+                        else {}
+                    ),
                     "chunk_has_heading_by_id": {
-                        chunk.payload.chunk_id: bool(chunk.has_heading)
-                        for chunk in bundle_chunks
+                        prepared_chunk.payload.chunk_id: bool(prepared_chunk.has_heading)
                     },
                     "chunk_has_table_hint_by_id": {
-                        chunk.payload.chunk_id: bool(chunk.has_table_content)
-                        for chunk in bundle_chunks
+                        prepared_chunk.payload.chunk_id: bool(prepared_chunk.has_table_content)
                     },
                     "chunk_knowledge_cue_by_id": {
-                        chunk.payload.chunk_id: bool(chunk.knowledge_cue)
-                        for chunk in bundle_chunks
+                        prepared_chunk.payload.chunk_id: bool(prepared_chunk.knowledge_cue)
                     },
                     "chunk_utility_positive_cues_by_id": {
-                        chunk.payload.chunk_id: list(
-                            chunk.utility_profile.get("positive_cues") or []
+                        prepared_chunk.payload.chunk_id: list(
+                            prepared_chunk.utility_profile.get("positive_cues") or []
                         )
-                        for chunk in bundle_chunks
                     },
                     "chunk_utility_negative_cues_by_id": {
-                        chunk.payload.chunk_id: list(
-                            chunk.utility_profile.get("negative_cues") or []
+                        prepared_chunk.payload.chunk_id: list(
+                            prepared_chunk.utility_profile.get("negative_cues") or []
                         )
-                        for chunk in bundle_chunks
                     },
                     "chunk_utility_borderline_by_id": {
-                        chunk.payload.chunk_id: bool(
-                            chunk.utility_profile.get("borderline")
+                        prepared_chunk.payload.chunk_id: bool(
+                            prepared_chunk.utility_profile.get("borderline")
                         )
-                        for chunk in bundle_chunks
                     },
                     "chunk_strong_negative_utility_cue_by_id": {
-                        chunk.payload.chunk_id: bool(
-                            chunk.utility_profile.get("strong_negative_cue")
+                        prepared_chunk.payload.chunk_id: bool(
+                            prepared_chunk.utility_profile.get("strong_negative_cue")
                         )
-                        for chunk in bundle_chunks
                     },
                 },
             )
@@ -317,6 +288,25 @@ def build_knowledge_jobs(
         planning_warnings=planning_warnings,
         shard_entries=shard_entries,
     )
+
+
+def _single_chunk_task_warnings(
+    *,
+    target_prompt_count: int | None,
+    target_chunks_per_shard: int | None,
+) -> list[str]:
+    warnings: list[str] = []
+    if target_prompt_count is not None:
+        warnings.append(
+            "Knowledge planner ignored `knowledge_prompt_target_count` because the stage "
+            "now emits one shard per deterministic chunk."
+        )
+    if target_chunks_per_shard is not None:
+        warnings.append(
+            "Knowledge planner ignored `knowledge_shard_target_chunks` because the stage "
+            "now emits one shard per deterministic chunk."
+        )
+    return warnings
 
 
 def _prepare_full_blocks_by_index(
@@ -431,189 +421,6 @@ def _build_bundle_job_payload(
             else None
         ),
     )
-
-def _bundle_prepared_chunks(
-    chunks: Sequence[_PreparedKnowledgeBundleChunk],
-    *,
-    target_bundle_count: int | None = None,
-    max_chunks_per_bundle: int | None = None,
-    max_bundle_chars: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHARS,
-    max_gap_blocks: int = _DEFAULT_KNOWLEDGE_BUNDLE_MAX_GAP_BLOCKS,
-) -> tuple[list[list[_PreparedKnowledgeBundleChunk]], list[str]]:
-    if not chunks:
-        return [], []
-    effective_max_bundle_chars = max(1, int(max_bundle_chars))
-    effective_max_gap_blocks = max(0, int(max_gap_blocks))
-    explicit_max_chunks = coerce_positive_int(max_chunks_per_bundle)
-    requested_bundle_count = (
-        None
-        if explicit_max_chunks is not None
-        else coerce_positive_int(target_bundle_count)
-    )
-
-    if requested_bundle_count is not None:
-        forced_bundle_count = resolve_shard_count(
-            total_items=len(chunks),
-            prompt_target_count=requested_bundle_count,
-            items_per_shard=None,
-            default_items_per_shard=_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
-        )
-        bundles = partition_contiguous_items(
-            chunks,
-            shard_count=forced_bundle_count,
-        )
-        return bundles, _forced_bundle_count_warnings(
-            bundles=bundles,
-            requested_bundle_count=requested_bundle_count,
-            actual_bundle_count=forced_bundle_count,
-            total_chunk_count=len(chunks),
-            max_bundle_chars=effective_max_bundle_chars,
-            max_gap_blocks=effective_max_gap_blocks,
-        )
-
-    effective_max_chunks = resolve_items_per_shard(
-        total_items=len(chunks),
-        prompt_target_count=requested_bundle_count,
-        items_per_shard=explicit_max_chunks,
-        default_items_per_shard=_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS,
-    )
-
-    bundles: list[list[_PreparedKnowledgeBundleChunk]] = []
-    current: list[_PreparedKnowledgeBundleChunk] = []
-    current_chars = 0
-
-    def flush() -> None:
-        nonlocal current, current_chars
-        if current:
-            bundles.append(current)
-            current = []
-            current_chars = 0
-
-    for chunk in chunks:
-        chunk_is_isolated = chunk.has_table_content or chunk.char_count >= effective_max_bundle_chars
-        would_exceed_chunk_cap = bool(current) and len(current) >= effective_max_chunks
-        would_exceed_char_cap = (
-            bool(current)
-            and current_chars + chunk.char_count > effective_max_bundle_chars
-        )
-        current_has_table = any(existing.has_table_content for existing in current)
-        current_is_local = (
-            not current
-            or _chunk_gap_size(current[-1], chunk) <= max(0, int(effective_max_gap_blocks))
-        )
-
-        if chunk_is_isolated:
-            flush()
-            bundles.append([chunk])
-            continue
-
-        if (
-            would_exceed_chunk_cap
-            or would_exceed_char_cap
-            or current_has_table
-            or not current_is_local
-        ):
-            flush()
-
-        current.append(chunk)
-        current_chars += chunk.char_count
-
-    flush()
-    return bundles, []
-
-
-def _chunk_gap_size(
-    left: _PreparedKnowledgeBundleChunk,
-    right: _PreparedKnowledgeBundleChunk,
-) -> int:
-    return max(0, int(right.absolute_indices[0]) - int(left.absolute_indices[-1]) - 1)
-
-
-def _forced_bundle_count_warnings(
-    *,
-    bundles: Sequence[Sequence[_PreparedKnowledgeBundleChunk]],
-    requested_bundle_count: int,
-    actual_bundle_count: int,
-    total_chunk_count: int,
-    max_bundle_chars: int,
-    max_gap_blocks: int,
-) -> list[str]:
-    warnings: list[str] = []
-    if actual_bundle_count != requested_bundle_count:
-        warnings.append(
-            "Knowledge forced shard count requested "
-            f"{requested_bundle_count} shard(s), but only {actual_bundle_count} non-empty "
-            f"shard(s) were possible from {total_chunk_count} chunk(s)."
-        )
-
-    chunk_limit_violations: list[int] = []
-    char_limit_violations: list[int] = []
-    locality_gap_violations: list[int] = []
-    table_mixing_violations = 0
-
-    for bundle in bundles:
-        if len(bundle) > _DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS:
-            chunk_limit_violations.append(len(bundle))
-
-        bundle_chars = sum(chunk.char_count for chunk in bundle)
-        if bundle_chars > max_bundle_chars:
-            char_limit_violations.append(bundle_chars)
-
-        bundle_gaps = [
-            _chunk_gap_size(bundle[index], bundle[index + 1])
-            for index in range(len(bundle) - 1)
-        ]
-        if bundle_gaps:
-            largest_gap = max(bundle_gaps)
-            if largest_gap > max_gap_blocks:
-                locality_gap_violations.append(largest_gap)
-
-        if any(chunk.has_table_content for chunk in bundle) and len(bundle) > 1:
-            table_mixing_violations += 1
-
-    if (
-        chunk_limit_violations
-        or char_limit_violations
-        or locality_gap_violations
-        or table_mixing_violations
-    ):
-        warnings.insert(
-            0,
-            "Knowledge forced shard count "
-            f"{requested_bundle_count} produced {actual_bundle_count} shard(s); planner kept "
-            "the operator-selected count and downgraded safety-cap violations to warnings.",
-        )
-
-    if chunk_limit_violations:
-        warnings.append(
-            "Knowledge forced shard count "
-            f"{requested_bundle_count} exceeded the chunk limit in "
-            f"{len(chunk_limit_violations)} shard(s); max forced shard size was "
-            f"{max(chunk_limit_violations)} chunk(s) vs limit "
-            f"{_DEFAULT_KNOWLEDGE_BUNDLE_MAX_CHUNKS}."
-        )
-    if char_limit_violations:
-        warnings.append(
-            "Knowledge forced shard count "
-            f"{requested_bundle_count} exceeded the char limit in "
-            f"{len(char_limit_violations)} shard(s); max forced shard size was "
-            f"{max(char_limit_violations)} chars vs limit {max_bundle_chars}."
-        )
-    if locality_gap_violations:
-        warnings.append(
-            "Knowledge forced shard count "
-            f"{requested_bundle_count} crossed locality gaps over {max_gap_blocks} block(s) in "
-            f"{len(locality_gap_violations)} shard(s); max forced gap was "
-            f"{max(locality_gap_violations)} block(s)."
-        )
-    if table_mixing_violations:
-        warnings.append(
-            "Knowledge forced shard count "
-            f"{requested_bundle_count} mixed table chunks with neighboring chunks in "
-            f"{table_mixing_violations} shard(s), overriding table isolation."
-        )
-    return warnings
-
 
 def _absolute_indices_for_chunk(
     chunk: KnowledgeChunk,

@@ -203,7 +203,7 @@ def test_build_knowledge_jobs_writes_compact_bundle_shape(tmp_path: Path) -> Non
     assert "markdown" not in table_hint
 
 
-def test_build_knowledge_jobs_bundles_neighboring_chunks_into_one_prompt(
+def test_build_knowledge_jobs_writes_one_shard_per_neighboring_chunk(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -259,12 +259,12 @@ def test_build_knowledge_jobs_bundles_neighboring_chunks_into_one_prompt(
     )
 
     payloads = _load_all_jobs(in_dir)
-    assert report.chunks_written >= 2
-    assert report.shards_written < report.chunks_written
-    assert any(len(payload["c"]) >= 2 for payload in payloads)
+    assert report.chunks_written == 2
+    assert report.shards_written == report.chunks_written
+    assert all(len(payload["c"]) == 1 for payload in payloads)
 
 
-def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
+def test_build_knowledge_jobs_keeps_small_gap_chunks_as_separate_tasks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -331,12 +331,12 @@ def test_build_knowledge_jobs_bridges_small_gaps_between_neighboring_spans(
 
     payloads = _load_all_jobs(in_dir)
     assert report.chunks_written == 2
-    assert report.shards_written == 1
-    assert len(payloads) == 1
-    assert len(payloads[0]["c"]) == 2
+    assert report.shards_written == 2
+    assert len(payloads) == 2
+    assert all(len(payload["c"]) == 1 for payload in payloads)
 
 
-def test_build_knowledge_jobs_forces_requested_prompt_target_and_warns_on_char_cap(
+def test_build_knowledge_jobs_ignores_requested_prompt_target_and_warns(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -383,15 +383,17 @@ def test_build_knowledge_jobs_forces_requested_prompt_target_and_warns_on_char_c
     )
 
     payloads = _load_all_jobs(in_dir)
-    assert report.shards_written == 5
-    assert len(payloads) == 5
-    assert [len(payload["c"]) for payload in payloads] == [2] * 5
+    assert report.shards_written == 10
+    assert len(payloads) == 10
+    assert all(len(payload["c"]) == 1 for payload in payloads)
     assert report.planning_warnings
-    assert any("forced shard count 5 produced 5 shard(s)" in warning for warning in report.planning_warnings)
-    assert any("char limit" in warning for warning in report.planning_warnings)
+    assert any(
+        "ignored `knowledge_prompt_target_count`" in warning
+        for warning in report.planning_warnings
+    )
 
 
-def test_build_knowledge_jobs_forces_requested_prompt_target_and_warns_on_oversized_bundles(
+def test_build_knowledge_jobs_still_writes_one_chunk_tasks_when_prompt_target_is_set(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -438,12 +440,14 @@ def test_build_knowledge_jobs_forces_requested_prompt_target_and_warns_on_oversi
     )
 
     payloads = _load_all_jobs(in_dir)
-    assert report.shards_written == 2
-    assert len(payloads) == 2
-    assert [len(payload["c"]) for payload in payloads] == [3, 3]
+    assert report.shards_written == 6
+    assert len(payloads) == 6
+    assert all(len(payload["c"]) == 1 for payload in payloads)
     assert report.planning_warnings
-    assert any("forced shard count 2 produced 2 shard(s)" in warning for warning in report.planning_warnings)
-    assert any("char limit" in warning for warning in report.planning_warnings)
+    assert any(
+        "ignored `knowledge_prompt_target_count`" in warning
+        for warning in report.planning_warnings
+    )
 
 
 def test_build_knowledge_jobs_warns_when_requested_shard_count_exceeds_chunk_count(
@@ -503,7 +507,7 @@ def test_build_knowledge_jobs_warns_when_requested_shard_count_exceeds_chunk_cou
     assert len(payloads) == 2
     assert all(len(payload["c"]) == 1 for payload in payloads)
     assert any(
-        "requested 5 shard(s), but only 2 non-empty shard(s) were possible from 2 chunk(s)"
+        "ignored `knowledge_prompt_target_count`"
         in warning
         for warning in report.planning_warnings
     )

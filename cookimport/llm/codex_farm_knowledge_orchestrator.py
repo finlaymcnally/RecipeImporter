@@ -89,8 +89,6 @@ logger = logging.getLogger(__name__)
 
 COMPACT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
 DEFAULT_KNOWLEDGE_PIPELINE_ID = COMPACT_KNOWLEDGE_PIPELINE_ID
-_KNOWLEDGE_TASK_PACKET_MAX_CHUNKS = 2
-_KNOWLEDGE_TASK_PACKET_MAX_INPUT_BYTES = 12_000
 _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD = 1
 _KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD = 6000
 _KNOWLEDGE_PATHOLOGICAL_WHITESPACE_RUN = 4096
@@ -139,7 +137,7 @@ def _build_knowledge_task_manifest_entry(
 ) -> TaskManifestEntryV1:
     return TaskManifestEntryV1(
         task_id=shard.shard_id,
-        task_kind="knowledge_review_shard",
+        task_kind="knowledge_review_chunk_task",
         parent_shard_id=shard.shard_id,
         owned_ids=tuple(shard.owned_ids),
         input_payload=shard.input_payload,
@@ -155,170 +153,46 @@ def _build_knowledge_task_plans(
     chunks = [dict(row) for row in (payload.get("c") or []) if isinstance(row, Mapping)]
     if not chunks:
         return ()
-    chunk_block_indices_by_id = _coerce_dict((shard.metadata or {}).get("chunk_block_indices_by_id"))
-    chunk_seed_stage_category_by_id = _coerce_dict((shard.metadata or {}).get("chunk_seed_stage_category_by_id"))
-    chunk_lane_by_id = _coerce_dict((shard.metadata or {}).get("chunk_lane_by_id"))
-    chunk_title_by_id = _coerce_dict((shard.metadata or {}).get("chunk_title_by_id"))
-    chunk_has_heading_by_id = _coerce_dict((shard.metadata or {}).get("chunk_has_heading_by_id"))
-    chunk_has_table_hint_by_id = _coerce_dict((shard.metadata or {}).get("chunk_has_table_hint_by_id"))
-    chunk_knowledge_cue_by_id = _coerce_dict((shard.metadata or {}).get("chunk_knowledge_cue_by_id"))
-    chunk_utility_positive_cues_by_id = _coerce_dict(
-        (shard.metadata or {}).get("chunk_utility_positive_cues_by_id")
+    task_id = str(shard.shard_id).strip()
+    ordered_chunk_ids = [
+        str(chunk.get("cid") or "").strip()
+        for chunk in chunks
+        if str(chunk.get("cid") or "").strip()
+    ]
+    owned_block_indices = [
+        int(block.get("i"))
+        for chunk in chunks
+        for block in (chunk.get("b") or [])
+        if isinstance(block, Mapping) and block.get("i") is not None
+    ]
+    task_payload = {
+        **payload,
+        "bid": task_id,
+    }
+    task_manifest = ShardManifestEntryV1(
+        shard_id=task_id,
+        owned_ids=tuple(shard.owned_ids),
+        evidence_refs=tuple(shard.evidence_refs),
+        input_payload=task_payload,
+        input_text=shard.input_text,
+        metadata={
+            **dict(shard.metadata or {}),
+            "parent_shard_id": shard.shard_id,
+            "task_id": task_id,
+            "task_index": 1,
+            "task_count": 1,
+            "ordered_chunk_ids": ordered_chunk_ids,
+            "chunk_count": len(ordered_chunk_ids),
+            "owned_block_indices": owned_block_indices,
+        },
     )
-    chunk_utility_negative_cues_by_id = _coerce_dict(
-        (shard.metadata or {}).get("chunk_utility_negative_cues_by_id")
+    return (
+        _KnowledgeTaskPlan(
+            task_id=task_id,
+            parent_shard_id=shard.shard_id,
+            manifest_entry=task_manifest,
+        ),
     )
-    chunk_utility_borderline_by_id = _coerce_dict(
-        (shard.metadata or {}).get("chunk_utility_borderline_by_id")
-    )
-    chunk_strong_negative_utility_cue_by_id = _coerce_dict(
-        (shard.metadata or {}).get("chunk_strong_negative_utility_cue_by_id")
-    )
-    packet_chunk_groups: list[list[dict[str, Any]]] = []
-    current_group: list[dict[str, Any]] = []
-    current_group_bytes = 0
-    for chunk_row in chunks:
-        chunk_id = str(chunk_row.get("cid") or "").strip()
-        if not chunk_id:
-            continue
-        chunk_bytes = len(json.dumps(chunk_row, sort_keys=True))
-        would_exceed_count = (
-            current_group
-            and len(current_group) >= _KNOWLEDGE_TASK_PACKET_MAX_CHUNKS
-        )
-        would_exceed_bytes = (
-            current_group
-            and current_group_bytes + chunk_bytes > _KNOWLEDGE_TASK_PACKET_MAX_INPUT_BYTES
-        )
-        if would_exceed_count or would_exceed_bytes:
-            packet_chunk_groups.append(current_group)
-            current_group = []
-            current_group_bytes = 0
-        current_group.append(dict(chunk_row))
-        current_group_bytes += chunk_bytes
-    if current_group:
-        packet_chunk_groups.append(current_group)
-    task_count = len(packet_chunk_groups)
-    task_plans: list[_KnowledgeTaskPlan] = []
-    for task_index, chunk_group in enumerate(packet_chunk_groups, start=1):
-        ordered_chunk_ids = [
-            str(chunk_row.get("cid") or "").strip()
-            for chunk_row in chunk_group
-            if str(chunk_row.get("cid") or "").strip()
-        ]
-        if not ordered_chunk_ids:
-            continue
-        task_id = (
-            shard.shard_id
-            if task_count == 1
-            else f"{shard.shard_id}.task-{task_index:03d}"
-        )
-        chunk_blocks = [
-            dict(block)
-            for chunk_row in chunk_group
-            for block in (chunk_row.get("b") or [])
-            if isinstance(block, Mapping)
-        ]
-        evidence_refs = tuple(
-            f"block:{int(block.get('i', 0))}"
-            for block in chunk_blocks
-            if block.get("i") is not None
-        )
-        owned_block_indices = sorted(
-            {
-                int(block_index)
-                for chunk_id in ordered_chunk_ids
-                for block_index in (chunk_block_indices_by_id.get(chunk_id) or [])
-            }
-        )
-        char_count = sum(
-            len(str(block.get("t") or ""))
-            for block in chunk_blocks
-        )
-        task_payload = {
-            **payload,
-            "bid": task_id,
-            "c": [dict(chunk_row) for chunk_row in chunk_group],
-        }
-        task_manifest = ShardManifestEntryV1(
-            shard_id=task_id,
-            owned_ids=tuple(ordered_chunk_ids),
-            evidence_refs=evidence_refs,
-            input_payload=task_payload,
-            metadata={
-                **dict(shard.metadata or {}),
-                "parent_shard_id": shard.shard_id,
-                "task_id": task_id,
-                "task_index": task_index,
-                "task_count": task_count,
-                "ordered_chunk_ids": list(ordered_chunk_ids),
-                "chunk_count": len(ordered_chunk_ids),
-                "char_count": char_count,
-                "owned_block_indices": owned_block_indices,
-                "chunk_block_indices_by_id": {
-                    chunk_id: list(chunk_block_indices_by_id.get(chunk_id) or [])
-                    for chunk_id in ordered_chunk_ids
-                },
-                "chunk_seed_stage_category_by_id": {
-                    chunk_id: chunk_seed_stage_category_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_seed_stage_category_by_id
-                },
-                "chunk_lane_by_id": {
-                    chunk_id: chunk_lane_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_lane_by_id
-                },
-                "chunk_title_by_id": {
-                    chunk_id: chunk_title_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_title_by_id
-                },
-                "chunk_has_heading_by_id": {
-                    chunk_id: chunk_has_heading_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_has_heading_by_id
-                },
-                "chunk_has_table_hint_by_id": {
-                    chunk_id: chunk_has_table_hint_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_has_table_hint_by_id
-                },
-                "chunk_knowledge_cue_by_id": {
-                    chunk_id: chunk_knowledge_cue_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_knowledge_cue_by_id
-                },
-                "chunk_utility_positive_cues_by_id": {
-                    chunk_id: chunk_utility_positive_cues_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_utility_positive_cues_by_id
-                },
-                "chunk_utility_negative_cues_by_id": {
-                    chunk_id: chunk_utility_negative_cues_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_utility_negative_cues_by_id
-                },
-                "chunk_utility_borderline_by_id": {
-                    chunk_id: chunk_utility_borderline_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_utility_borderline_by_id
-                },
-                "chunk_strong_negative_utility_cue_by_id": {
-                    chunk_id: chunk_strong_negative_utility_cue_by_id.get(chunk_id)
-                    for chunk_id in ordered_chunk_ids
-                    if chunk_id in chunk_strong_negative_utility_cue_by_id
-                },
-            },
-        )
-        task_plans.append(
-            _KnowledgeTaskPlan(
-                task_id=task_id,
-                parent_shard_id=shard.shard_id,
-                manifest_entry=task_manifest,
-            )
-        )
-    return tuple(task_plans)
 
 
 def _build_knowledge_task_runtime_manifest_entry(
@@ -327,7 +201,7 @@ def _build_knowledge_task_runtime_manifest_entry(
     task_manifest = task_plan.manifest_entry
     return TaskManifestEntryV1(
         task_id=task_plan.task_id,
-        task_kind="knowledge_review_chunk_packet",
+        task_kind="knowledge_review_chunk_task",
         parent_shard_id=task_plan.parent_shard_id,
         owned_ids=tuple(task_manifest.owned_ids),
         input_payload=task_manifest.input_payload,
@@ -418,7 +292,11 @@ def _summarize_knowledge_task_packet_distribution(
         )
     counts = list(worker_task_packet_counts.values())
     return {
-        "bundle_policy": "shard_round_robin_with_task_packets_v1",
+        "bundle_policy": "shard_round_robin_single_chunk_tasks_v1",
+        "task_total": sum(counts),
+        "worker_task_counts": dict(sorted(worker_task_packet_counts.items())),
+        "max_tasks_per_worker": max(counts) if counts else 0,
+        "min_tasks_per_worker": min(counts) if counts else 0,
         "worker_task_packet_counts": dict(sorted(worker_task_packet_counts.items())),
         "max_task_packets_per_worker": max(counts) if counts else 0,
         "min_task_packets_per_worker": min(counts) if counts else 0,
@@ -537,7 +415,7 @@ def _notify_knowledge_progress(
         format_stage_progress(
             message,
             stage_label="non-recipe knowledge review",
-            work_unit_label="task packet",
+            work_unit_label="task",
             task_current=completed,
             task_total=total,
             running_workers=running_tasks,
@@ -586,7 +464,7 @@ class _KnowledgeWorkerProgressState:
             return base_label
         return (
             f"{base_label} "
-            f"({self.visible_task_packets()}/{self.total_task_packets} task packets)"
+            f"({self.visible_task_packets()}/{self.total_task_packets} tasks)"
         )
 
     def worker_session_completed(self) -> bool:
@@ -764,7 +642,7 @@ class _KnowledgePhaseProgressState:
         detail_lines = [
             f"configured workers: {self.worker_total}",
             f"completed shards: {len(self.completed_shard_ids)}/{self.total_shards}",
-            f"queued task packets: {max(0, self.total_task_packets - completed_task_packets)}",
+            f"queued tasks: {max(0, self.total_task_packets - completed_task_packets)}",
         ]
         repair_running = int(self.running_followup_counts.get("repair") or 0)
         retry_running = int(self.running_followup_counts.get("retry") or 0)
@@ -1501,6 +1379,13 @@ def run_codex_farm_nonrecipe_knowledge_review(
                     if phase_manifest is not None
                     else "round_robin_v1"
                 ),
+                "task_total": int(
+                    (phase_manifest.runtime_metadata or {}).get("task_total")
+                    or (phase_manifest.runtime_metadata or {}).get("task_packet_total")
+                    or 0
+                )
+                if phase_manifest is not None
+                else 0,
                 "task_packet_total": int(
                     (phase_manifest.runtime_metadata or {}).get("task_packet_total") or 0
                 )
@@ -1509,15 +1394,36 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "bundle_policy": str(
                     (phase_manifest.runtime_metadata or {}).get("bundle_policy") or ""
                 ).strip()
-                or "shard_round_robin_with_task_packets_v1",
+                or "shard_round_robin_single_chunk_tasks_v1",
+                "worker_task_counts": dict(
+                    (phase_manifest.runtime_metadata or {}).get("worker_task_counts")
+                    or (phase_manifest.runtime_metadata or {}).get("worker_task_packet_counts")
+                    or {}
+                )
+                if phase_manifest is not None
+                else {},
                 "worker_task_packet_counts": dict(
                     (phase_manifest.runtime_metadata or {}).get("worker_task_packet_counts")
                     or {}
                 )
                 if phase_manifest is not None
                 else {},
+                "max_tasks_per_worker": int(
+                    (phase_manifest.runtime_metadata or {}).get("max_tasks_per_worker")
+                    or (phase_manifest.runtime_metadata or {}).get("max_task_packets_per_worker")
+                    or 0
+                )
+                if phase_manifest is not None
+                else 0,
                 "max_task_packets_per_worker": int(
                     (phase_manifest.runtime_metadata or {}).get("max_task_packets_per_worker")
+                    or 0
+                )
+                if phase_manifest is not None
+                else 0,
+                "min_tasks_per_worker": int(
+                    (phase_manifest.runtime_metadata or {}).get("min_tasks_per_worker")
+                    or (phase_manifest.runtime_metadata or {}).get("min_task_packets_per_worker")
                     or 0
                 )
                 if phase_manifest is not None
@@ -2096,6 +2002,7 @@ def _run_direct_knowledge_workers_v1(
 
     runtime_metadata_payload = {
         **dict(runtime_metadata or {}),
+        "task_total": total_task_packets,
         "task_packet_total": total_task_packets,
         **packet_distribution,
     }
@@ -3303,7 +3210,7 @@ def _build_knowledge_workspace_worker_prompt(
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "Keep only durable cooking leverage. The positive class is not broad cooking-related factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
         "",
-        "Process the repo-written ordered packet queue in this workspace as small repo-owned consecutive batches. The current working directory is already the workspace root.",
+        "Process the repo-written ordered task queue in this workspace as small repo-owned consecutive batches. Each task owns exactly one deterministic chunk plus nearby non-authoritative context. The current working directory is already the workspace root.",
         "The assignment is complete only when the repo removes `current_batch.json` and the batch sidecars say no current batch is active / the queue is complete.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
@@ -3318,16 +3225,16 @@ def _build_knowledge_workspace_worker_prompt(
         "7. If the batch sidecars are still insufficient after that, use `python3 tools/knowledge_worker.py explain-failure` or the narrower `python3 tools/knowledge_worker.py debug ...` recovery surface instead of broad queue dumps or task-by-task helper detours. Safe fallback examples are `debug current`, `debug show`, `debug complete-current`, and `debug check-current`.",
         "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, helper-source spelunking, broad inline schedulers, or one-off validators. If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`.",
         "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
-        "10. Write one completed semantic packet result file per listed batch task only. Do not work ahead on later tasks outside the current batch while the repo-owned batch still has unaccepted drafts.",
-        "11. Do not invent extra packets, skip owned chunks, or write outside the listed `result_path` files.",
+        "10. Write one completed semantic task result file per listed batch task only. Do not work ahead on later tasks outside the current batch while the repo-owned batch still has unaccepted drafts.",
+        "11. Do not invent extra tasks, skip owned chunks, or write outside the listed `result_path` files.",
         "12. Do not invent your own queue/output scheduler or rewrite repo-owned queue-control files. Reading `tools/knowledge_worker.py`, dumping `assigned_tasks.json`, or switching back to single-task helpers during an active batch are discouraged fallback moves, but the real hard boundary is queue/output bypass. The main-worker watchdog treats those bypasses as off-contract behavior and records the slower fallback moves as telemetry instead.",
         "",
-        "Semantic packet result contract for each assigned result path:",
+        "Semantic task result contract for each assigned result path:",
         "- Write exactly one JSON object.",
         "- Use semantic field names, not the compact canonical bundle envelope.",
         "- Top level keys: `packet_id`, `chunk_results`.",
         "- `packet_id` must equal the current task row's `task_id`.",
-        "- `chunk_results` must contain exactly one result row for each owned chunk in the current task row and no extras.",
+        "- Each task owns exactly one authoritative chunk. `chunk_results` must therefore contain exactly one row, and its `chunk_id` must match the single owned chunk in the current task row.",
         "- Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and required `reason_code`.",
         "- Each block decision uses `block_index`, `category`, and optional `reviewer_category`.",
         f"- `category` must be exactly one of `{final_categories_text}`.",
@@ -3356,18 +3263,19 @@ def _build_knowledge_workspace_worker_prompt(
             "- Bad snippet pattern: a body that restates nearly every sentence from the "
             "owned chunk or stitches long quotes from every owned block into one snippet."
         ),
-        "- If `check` says the packet copied source prose, keep the evidence pointers and rewrite only the snippet body into a shorter grounded claim before installing.",
+        "- The owned chunk under `c[*]` is authoritative. Nearby `x` context is informational only and must not be cited as evidence or used to expand ownership.",
+        "- If `check` says the task copied source prose, keep the evidence pointers and rewrite only the snippet body into a shorter grounded claim before installing.",
         "- Ask: would saving this materially improve a cook's future decisions, diagnosis, or technique?",
         "- If the text is technically true but low-value prose, generic memoir-like framing, or just navigation, keep it `other`.",
-        "- If a task mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole task `knowledge` by inertia.",
-        "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance.",
+        "- If the owned chunk mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole task `knowledge` by inertia.",
+        "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance inside the owned chunk.",
         "- Sentences about why the book matters, why the author teaches well, or how the writer discovered cooking are usually still `other` even when nearby blocks mention technique.",
         "- Keep all block decisions and snippet evidence on the current task row's own block indices only.",
         "- If a chunk is not useful, still include its result row with `is_useful: false` and an empty snippet list.",
         "- Treat each task row's `metadata.hint_path` file as guidance and its `metadata.input_path` file as the authoritative owned input.",
-        "- The repo will write the final canonical `v` / `bid` / `r` packet artifact after it accepts your semantic result.",
+        "- The repo will write the final canonical `v` / `bid` / `r` bundle artifact after it accepts your semantic result.",
         "",
-        "Do not return the packet outputs in your final message. The authoritative result is the set of files written to the repo-declared local result paths.",
+        "Do not return the task outputs in your final message. The authoritative result is the set of files written to the repo-declared local result paths.",
     ]
     return "\n".join(lines)
 
@@ -3447,10 +3355,10 @@ def _write_knowledge_worker_hint(
         ],
         sections=[
             (
-                "How to use this packet",
+                "How to use this task",
                 [
-                    "Use the hint file to understand whether this bundle looks like front matter, navigation, headings, or genuinely useful technique/reference text.",
-                    "Use only chunk-local block text from `in/<shard_id>.json` as evidence in the final output.",
+                    "Use the hint file to understand whether this owned chunk looks like front matter, navigation, headings, or genuinely useful technique/reference text.",
+                    "Use only block text from the owned chunk in `in/<shard_id>.json` as evidence in the final output. Nearby context is only for grounding.",
                     "A short chunk can still be real knowledge if it is genuinely technical or reference-like.",
                     "Do not keep a chunk merely because it is true or cooking-adjacent; keep it only if it would materially improve future cooking decisions.",
                     "Good snippet body: a shorter grounded claim. Bad snippet body: copied evidence quote text.",
@@ -5065,7 +4973,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 "reason_code": "workspace_validated_task_queue_completed",
                 "reason_detail": (
                     "knowledge workspace worker produced repo-validated outputs for "
-                    "every assigned current-task packet"
+                    "every assigned current task"
                 ),
                 "retryable": False,
                 "watchdog_policy": "workspace_worker_v1",
@@ -5090,7 +4998,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                 _write_live_status(live_status_path, capped_payload)
         elif str(run_result.supervision_state or "completed").strip() == "completed":
             incomplete_reason_detail = (
-                "knowledge workspace worker exited before every current-task packet "
+                "knowledge workspace worker exited before every current task "
                 "was individually validated by the repo-owned checker"
             )
             incomplete_payload = {
@@ -6205,7 +6113,7 @@ def _build_strict_json_watchdog_callback(
                     reason_code="workspace_validated_task_queue_completed",
                     reason_detail=(
                         "knowledge workspace worker produced repo-validated outputs for "
-                        "every assigned current-task packet and the session either emitted "
+                        "every assigned current task and the session either emitted "
                         "a post-install completion signal or went quiet while waiting to exit"
                     ),
                     retryable=False,

@@ -51,7 +51,7 @@ _CHECK_CURRENT_AFTER_EDIT_TEXT = (
 )
 _BATCH_VALIDATION_STATUS_OK_TEXT = "Batch validation status: OK."
 _VALIDATION_STATUS_OK_TEXT = "Validation status: OK."
-_BATCH_VALIDATOR_ACCEPTED_TEXT = "The validator accepted every task packet in this batch."
+_BATCH_VALIDATOR_ACCEPTED_TEXT = "The validator accepted every task in this batch."
 _INSTALL_BATCH_READY_TEXT = (
     "You may run `python3 tools/knowledge_worker.py install-batch` to install the longest "
     "valid prefix of this batch."
@@ -64,7 +64,7 @@ _CONTINUE_BATCH_IMMEDIATELY_TEXT = (
     "If another batch becomes active, continue with it immediately. Do not ask for "
     "permission to continue or stop at this checkpoint while later tasks remain."
 )
-_VALIDATOR_ACCEPTED_TEXT = "The validator accepted this task packet."
+_VALIDATOR_ACCEPTED_TEXT = "The validator accepted this task."
 _INSTALL_CURRENT_READY_TEXT = (
     "You may run `python3 tools/knowledge_worker.py debug install-current` to write the final result path."
 )
@@ -383,7 +383,7 @@ def render_current_task_brief_text(
         return (
             "# Current Knowledge Task\n\n"
             "No current task is active in this workspace.\n"
-            "Every assigned task packet that the repo accepted has already been validated.\n"
+            "Every assigned task that the repo accepted has already been validated.\n"
         )
     row = dict(task_row)
     metadata = _coerce_dict(row.get("metadata"))
@@ -447,14 +447,14 @@ def render_current_task_brief_text(
         f"Utility-positive cues: {_format_utility_cues(utility_positive_cues)}.",
         f"Utility-negative cues: {_format_utility_cues(utility_negative_cues)}.",
         (
-            "Skepticism level: high. This packet looks like framing, memoir, navigation, or low-utility filler unless the block text proves otherwise."
+            "Skepticism level: high. This task looks like framing, memoir, navigation, or low-utility filler unless the block text proves otherwise."
             if strong_negative_utility_cue
             else "Skepticism level: balanced."
         ),
         (
-            "Borderline packet: yes. Ask whether saving this would materially improve future cooking decisions before keeping anything as `knowledge`."
+            "Borderline task: yes. Ask whether saving this would materially improve future cooking decisions before keeping anything as `knowledge`."
             if utility_borderline
-            else "Borderline packet: no."
+            else "Borderline task: no."
         ),
         (
             "The prewritten scaffold is intentionally not install-ready here: it uses "
@@ -489,7 +489,7 @@ def render_current_batch_brief_text(
         return (
             "# Current Knowledge Batch\n\n"
             "No current batch is active in this workspace.\n"
-            "Every assigned task packet that the repo accepted has already been validated.\n"
+            "Every assigned task that the repo accepted has already been validated.\n"
         )
     batch_tasks = [
         dict(task)
@@ -550,7 +550,7 @@ def render_current_batch_brief_text(
         "A successful `install-batch` is only a handoff to the next repo-owned current batch, not a stopping point.",
         "",
         "Recommended loop:",
-        "1. Read `current_batch.json` and `CURRENT_BATCH_FEEDBACK.md` first; open the named hint and input files only when the batch packet is insufficient.",
+        "1. Read `current_batch.json` and `CURRENT_BATCH_FEEDBACK.md` first; open the named hint and input files only when the batch summary is insufficient.",
         "2. Run `python3 tools/knowledge_worker.py complete-batch` to prewrite the default drafts under `scratch/current_batch/`.",
         "3. Edit the batch drafts until the snippet bodies are short grounded claims, not copied evidence surfaces.",
         "   If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`. Do not loop over `assigned_tasks.json`, `current_task.json`, or `out/`.",
@@ -1455,12 +1455,12 @@ def build_knowledge_workspace_contract_markdown(
         [
             "# Knowledge Workspace Output Contract",
             "",
-            "Write one semantic packet-result JSON object per task to `out/<task_id>.json`.",
+            "Write one semantic task-result JSON object per task to `out/<task_id>.json`.",
             "Keep only durable cooking leverage. The positive class is not broad factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
             "",
             "Required top-level keys:",
             "- `packet_id`: must equal the task row `task_id` exactly.",
-            "- `chunk_results`: one row per owned chunk in task order and no extras.",
+            "- Each task owns exactly one chunk, so `chunk_results` must contain exactly one row for that owned chunk and no extras.",
             "",
             "Per chunk-result row:",
             "- `chunk_id`: the owned chunk id from `in/<task_id>.json`.",
@@ -1756,7 +1756,7 @@ def _render_strong_cue_empty_shard_detail_lines(
     snippet_count = int(metadata.get("snippet_count") or 0)
     useful_chunk_count = int(metadata.get("useful_chunk_count") or 0)
     lines = [
-        "This packet has strong knowledge cues, but the current draft still returns "
+        "This task has strong knowledge cues, but the current draft still returns "
         f"`{knowledge_decision_count}` `knowledge` decisions, `{snippet_count}` snippets, "
         f"and `{useful_chunk_count}` useful chunks."
     ]
@@ -1818,11 +1818,11 @@ def _render_validation_error_help(
             )
     if "missing_owned_chunk_results" in error_set or "unexpected_chunk_results" in error_set:
         help_lines.append(
-            "Return exactly one `chunk_results` row for each owned chunk in the input file, in order and with no extras."
+            "Return exactly one `chunk_results` row for the single owned chunk in the input file, with no extras."
         )
     if "chunk_result_order_mismatch" in error_set:
         help_lines.append(
-            "Keep `chunk_results` in the same order as the owned chunks in the input payload."
+            "Keep the single `chunk_results` row aligned to the owned chunk in the input payload."
         )
     if "block_decision_coverage_mismatch" in error_set:
         help_lines.append(
@@ -2335,7 +2335,7 @@ def render_knowledge_worker_script() -> str:
                 if current_batch_path.exists():
                     current_batch_path.unlink()
                 brief_path.write_text(
-                    "# Current Knowledge Batch\\n\\nNo current batch is active in this workspace.\\nEvery assigned task packet that the repo accepted has already been validated.\\n",
+                    "# Current Knowledge Batch\\n\\nNo current batch is active in this workspace.\\nEvery assigned task that the repo accepted has already been validated.\\n",
                     encoding="utf-8",
                 )
                 feedback_path.write_text(
@@ -2921,7 +2921,7 @@ def render_knowledge_worker_script() -> str:
                 knowledge_decision_count = int(metadata.get("knowledge_decision_count") or 0)
                 snippet_count = int(metadata.get("snippet_count") or 0)
                 help_lines.append(
-                    "This packet has strong knowledge cues but still returns "
+                    "This task has strong knowledge cues but still returns "
                     f"`{knowledge_decision_count}` `knowledge` decisions and `{snippet_count}` snippets."
                 )
                 if cue_chunk_ids:
@@ -3470,7 +3470,7 @@ def render_knowledge_worker_script() -> str:
             show.add_argument("task_id")
             show.set_defaults(func=_command_show)
 
-            scaffold = debug_subparsers.add_parser("scaffold", help="Write a semantic packet scaffold")
+            scaffold = debug_subparsers.add_parser("scaffold", help="Write a semantic task scaffold")
             scaffold.add_argument("task_id")
             scaffold.add_argument("--dest")
             scaffold.set_defaults(func=_command_scaffold)
@@ -3479,7 +3479,7 @@ def render_knowledge_worker_script() -> str:
             complete_current.add_argument("--dest")
             complete_current.set_defaults(func=_command_complete_current)
 
-            check = debug_subparsers.add_parser("check", help="Validate a draft packet")
+            check = debug_subparsers.add_parser("check", help="Validate a draft task result")
             check.add_argument("json_path")
             check.set_defaults(func=_command_check)
 
@@ -3487,7 +3487,7 @@ def render_knowledge_worker_script() -> str:
             check_current.add_argument("json_path", nargs="?")
             check_current.set_defaults(func=_command_check_current)
 
-            install = debug_subparsers.add_parser("install", help="Validate and install a draft packet")
+            install = debug_subparsers.add_parser("install", help="Validate and install a draft task result")
             install.add_argument("json_path")
             install.set_defaults(func=_command_install)
 
@@ -3785,11 +3785,11 @@ def _render_validation_error_help(
             )
     if "missing_owned_chunk_results" in error_set or "unexpected_chunk_results" in error_set:
         help_lines.append(
-            "Return exactly one `chunk_results` row for each owned chunk in `in/<task_id>.json`, in order and with no extras."
+            "Return exactly one `chunk_results` row for the single owned chunk in `in/<task_id>.json`, with no extras."
         )
     if "chunk_result_order_mismatch" in error_set:
         help_lines.append(
-            "Keep `chunk_results` in the same order as the owned chunks in the input payload."
+            "Keep the single `chunk_results` row aligned to the owned chunk in the input payload."
         )
     if "block_decision_coverage_mismatch" in error_set:
         help_lines.append(

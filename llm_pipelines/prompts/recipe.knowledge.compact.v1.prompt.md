@@ -1,4 +1,4 @@
-Review non-recipe cookbook text and decide which chunks contain durable cooking knowledge worth preserving.
+Review one owned non-recipe cookbook chunk and decide whether it contains durable cooking knowledge worth preserving.
 
 You are a skeptical reviewer. The raw chunk text is authoritative. Only mechanically true structure is provided.
 
@@ -14,7 +14,8 @@ Evidence rules:
 - `x.*` is local context only; never cite it.
 - `g.r` marks nearby recipe blocks. Do not let recipe content leak into outside-recipe decisions.
 - If a block has `th`, use it only as structural context; quotes must still come from block text.
-- Return one result per input chunk.
+- The owned chunk under `c[0]` is authoritative. Any `x.*` context is informational only.
+- Return exactly one result row for that owned chunk.
 
 Decision boundary:
 - `knowledge` means durable cooking leverage: technique, cause-and-effect explanation, troubleshooting, substitution, storage/safety advice, conversion/reference material, sensory guidance, or other knowledge that improves future cooking decisions.
@@ -23,7 +24,7 @@ Decision boundary:
 - Ask: is this specific and non-obvious enough to earn storage in a cookbook knowledge base?
 - Ask: does it explain cause, judgment, troubleshooting, ingredient behavior, sensory cues, durable technique, substitution, storage, or safety?
 - If the text is technically true but low-value, too generic, or not worth preserving on its own, keep it as `other`.
-- If a chunk mixes memoir, author/teacher praise, book framing, or scene-setting with a few useful cooking sentences, do not promote the whole chunk.
+- If the owned chunk mixes memoir, author/teacher praise, book framing, or scene-setting with a few useful cooking sentences, do not promote the whole chunk.
 - In mixed chunks, keep the memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands on its own as reusable cooking guidance.
 - Statements like "this book will make you a better cook", personal origin stories, why the author wrote the book, or praise for a teacher/book are still `other` even when nearby blocks mention cooking principles.
 - Be especially skeptical of chunks that mostly look like headings, menus, title lists, front matter, or back matter.
@@ -69,11 +70,11 @@ Input keys:
 - guardrails: optional `r` nearby recipe block indices
 
 Per chunk result:
-- `u=true` only when the chunk contains durable cooking knowledge worth keeping.
+- `u=true` only when the owned chunk contains durable cooking knowledge worth keeping.
 - `u=true` requires at least one `d[*].c="knowledge"` decision and at least one snippet in `s`.
 - `u=false` means no durable cooking leverage worth preserving exists in that chunk.
 - `u=false` requires every `d[*].c` to be `other` and requires `s=[]`.
-- When `c` is non-empty, `r` must contain exactly one row per input chunk, in input order.
+- The input always contains exactly one owned chunk. When `c` is non-empty, `r` must therefore contain exactly one row for that chunk.
 - `d` must include every block in order.
 - `c` must be `knowledge` or `other`.
 - `rc` should explain the coarse reviewer reason. If `c=knowledge`, then `rc` must be `knowledge`.
@@ -93,4 +94,4 @@ Strict:
 - `v` must be `"2"`
 - `bid` must echo input `bid`
 - each `cid` must echo input `cid`
-- count input chunks and return exactly that many rows
+- return exactly one row for the owned chunk

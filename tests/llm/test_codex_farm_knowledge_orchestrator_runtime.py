@@ -408,7 +408,7 @@ def test_knowledge_orchestrator_progress_detail_lines_track_live_task_packets(
     ]
 
     assert any(
-        "book.ks0000.nr (1/2 task packets)" in (payload.get("active_tasks") or [])
+        "book.ks0000.nr (1/2 tasks)" in (payload.get("active_tasks") or [])
         for payload in live_payloads
     )
     assert any(

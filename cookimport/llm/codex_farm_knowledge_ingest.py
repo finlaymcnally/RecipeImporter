@@ -78,7 +78,7 @@ def normalize_knowledge_worker_payload(
         if semantic_parse_error is None:
             raise
         raise ValueError(
-            "worker output did not match the semantic packet-result contract or the "
+            "worker output did not match the semantic task-result contract or the "
             f"canonical bundle compatibility contract: semantic={semantic_parse_error}; "
             f"canonical={exc}"
         ) from exc

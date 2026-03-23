@@ -954,7 +954,7 @@ def test_knowledge_workspace_watchdog_completes_only_after_live_task_validation(
         task_entries=(
             TaskManifestEntryV1(
                 task_id=task_id,
-                task_kind="knowledge_review_chunk_packet",
+                task_kind="knowledge_review_chunk_task",
                 parent_shard_id="book.ks0000.nr",
                 owned_ids=("chunk-001",),
                 input_payload=input_payload,
@@ -1644,11 +1644,10 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "Safe fallback examples are `debug current`, `debug show`, `debug complete-current`, and `debug check-current`." in worker_prompt
     assert "switching back to single-task helpers during an active batch are discouraged fallback moves" in worker_prompt
     assert "records the slower fallback moves as telemetry instead" in worker_prompt
+    assert "Each task owns exactly one deterministic chunk plus nearby non-authoritative context." in worker_prompt
     assert "Top level keys: `packet_id`, `chunk_results`." in worker_prompt
-    assert (
-        "Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and required `reason_code`."
-        in worker_prompt
-    )
+    assert "Each task owns exactly one authoritative chunk." in worker_prompt
+    assert "Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and required `reason_code`." in worker_prompt
     assert "- `category` must be exactly one of " in worker_prompt
     assert "`knowledge`" in worker_prompt
     assert "`other`." in worker_prompt
@@ -1670,11 +1669,12 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "full-chunk echo" in worker_prompt
     assert "Good snippet pattern: body `Use low heat to prevent curdling.`" in worker_prompt
     assert "Bad snippet pattern: a body that restates nearly every sentence" in worker_prompt
+    assert "Nearby `x` context is informational only" in worker_prompt
     assert "technically true but low-value prose" in worker_prompt
     assert "do not mark the whole task `knowledge` by inertia" in worker_prompt
     assert "Keep memoir/framing blocks `other`" in worker_prompt
     assert "why the book matters" in worker_prompt
-    assert "The repo will write the final canonical `v` / `bid` / `r` packet artifact" in worker_prompt
+    assert "The repo will write the final canonical `v` / `bid` / `r` bundle artifact" in worker_prompt
     assert "Do not work ahead on later tasks" in worker_prompt
     assert "Do not invent your own queue/output scheduler" in worker_prompt
     assert "Use the paved road:" in worker_prompt
@@ -4686,19 +4686,15 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
 
     phase_runtime = apply_result.llm_report["phase_worker_runtime"]
 
-    assert phase_runtime["shard_count"] == 2
-    assert phase_runtime["worker_count"] == 2
+    assert phase_runtime["shard_count"] == 3
+    assert phase_runtime["worker_count"] == 3
     assert phase_runtime["bundle_policy"] == (
-        "shard_round_robin_with_task_packets_v1"
+        "shard_round_robin_single_chunk_tasks_v1"
     )
-    assert phase_runtime["task_packet_total"] >= phase_runtime["shard_count"]
-    assert sum(phase_runtime["worker_task_packet_counts"].values()) == phase_runtime[
-        "task_packet_total"
-    ]
-    assert phase_runtime["max_task_packets_per_worker"] >= phase_runtime[
-        "min_task_packets_per_worker"
-    ]
-    assert phase_runtime["min_task_packets_per_worker"] >= 1
+    assert phase_runtime["task_total"] == phase_runtime["shard_count"]
+    assert sum(phase_runtime["worker_task_counts"].values()) == phase_runtime["task_total"]
+    assert phase_runtime["max_tasks_per_worker"] >= phase_runtime["min_tasks_per_worker"]
+    assert phase_runtime["min_tasks_per_worker"] >= 1
 
 
 def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment(
@@ -5953,12 +5949,12 @@ def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warning
         ),
     )
 
-    assert apply_result.llm_report["counts"]["shards_written"] == 5
-    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 5
-    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 5
+    assert apply_result.llm_report["counts"]["shards_written"] == 10
+    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 10
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 10
     assert apply_result.llm_report["planning_warnings"]
     assert any(
-        "forced shard count 5 produced 5 shard(s)" in warning
+        "ignored `knowledge_prompt_target_count`" in warning
         for warning in apply_result.llm_report["planning_warnings"]
     )
 

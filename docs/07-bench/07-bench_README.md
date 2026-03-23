@@ -10,7 +10,7 @@ read_when:
 
 This file is the current, code-verified benchmark contract.
 Retained active history lives in `docs/07-bench/07-bench_log.md`.
-QualitySuite operator notes live in `docs/07-bench/qualitysuite-agent-sop.md` and `docs/07-bench/qualitysuite-product-suite.md`.
+QualitySuite operator notes live in `docs/07-bench/qualitysuite-agent-sop.md`.
 
 ## 1. Scope
 
@@ -455,7 +455,6 @@ Primary benchmark modules:
 
 - `docs/07-bench/07-bench_log.md`
 - `docs/07-bench/qualitysuite-agent-sop.md`
-- `docs/07-bench/qualitysuite-product-suite.md`
 - `docs/07-bench/web-ai-followup-instructions.md`
 - `cookimport/bench/README.md`
 - `cookimport/bench/CONVENTIONS.md`
