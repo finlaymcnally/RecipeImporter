@@ -82,10 +82,10 @@ def normalize_knowledge_worker_payload(
             f"canonical bundle compatibility contract: semantic={semantic_parse_error}; "
             f"canonical={exc}"
         ) from exc
-    return serialize_canonical_knowledge_packet(
-        semantic_result_from_canonical_bundle(canonical_bundle)
-    ), {
+    semantic_result = semantic_result_from_canonical_bundle(canonical_bundle)
+    return serialize_canonical_knowledge_packet(semantic_result), {
         "worker_output_contract": "canonical_bundle_v2_compat",
+        **_knowledge_reason_metadata(semantic_result),
         **alias_metadata,
     }
 

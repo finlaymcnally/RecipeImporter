@@ -178,6 +178,69 @@ def test_normalize_knowledge_worker_payload_rewrites_known_semantic_category_ali
     }
 
 
+def test_normalize_knowledge_worker_payload_canonical_bundle_compat_preserves_reason_counts() -> None:
+    payload, metadata = normalize_knowledge_worker_payload(
+        {
+            "v": "2",
+            "bid": "book.ks0099.nr",
+            "r": [
+                {
+                    "cid": "book.c0099.nr",
+                    "u": True,
+                    "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                    "s": [
+                        {
+                            "b": "Keep whisking.",
+                            "e": [{"i": 4, "q": "Keep whisking"}],
+                        }
+                    ],
+                },
+                {
+                    "cid": "book.c0100.nr",
+                    "u": False,
+                    "d": [{"i": 5, "c": "other", "rc": "other"}],
+                    "s": [],
+                },
+            ],
+        }
+    )
+
+    assert metadata["worker_output_contract"] == "canonical_bundle_v2_compat"
+    assert metadata["reason_code_by_chunk_id"] == {
+        "book.c0099.nr": "technique_or_mechanism",
+        "book.c0100.nr": "not_cooking_knowledge",
+    }
+    assert metadata["reason_code_counts"] == {
+        "not_cooking_knowledge": 1,
+        "technique_or_mechanism": 1,
+    }
+    assert metadata["useful_reason_code_counts"] == {"technique_or_mechanism": 1}
+    assert metadata["other_reason_code_counts"] == {"not_cooking_knowledge": 1}
+    assert payload == {
+        "v": "2",
+        "bid": "book.ks0099.nr",
+        "r": [
+            {
+                "cid": "book.c0099.nr",
+                "u": True,
+                "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                "s": [
+                    {
+                        "b": "Keep whisking.",
+                        "e": [{"i": 4, "q": "Keep whisking"}],
+                    }
+                ],
+            },
+            {
+                "cid": "book.c0100.nr",
+                "u": False,
+                "d": [{"i": 5, "c": "other", "rc": "other"}],
+                "s": [],
+            },
+        ],
+    }
+
+
 def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
         ShardManifestEntryV1(

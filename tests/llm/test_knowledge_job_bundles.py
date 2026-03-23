@@ -725,3 +725,69 @@ def test_build_knowledge_jobs_keeps_heading_menu_fragments_for_llm_review(
     assert report.skipped_lane_counts == {}
     payload = _load_all_jobs(tmp_path / "in")[0]
     assert payload["c"][0]["cid"] == "book.c0000.nr"
+
+
+def test_build_knowledge_jobs_does_not_mark_mixed_memoir_chunk_as_strong_knowledge_cue(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-mixed-memoir",
+                lane=ChunkLane.NOISE,
+                text=(
+                    "I set out to write this book after years of cooking with friends. "
+                    "Salting meat early gives the salt time to diffuse into the muscle, "
+                    "which helps it retain moisture. This book will change the way you cook."
+                ),
+                blockIds=[0, 1, 2],
+            )
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": 0, "text": "I set out to write this book after years of cooking with friends."},
+            {
+                "index": 1,
+                "text": (
+                    "Salting meat early gives the salt time to diffuse into the muscle, "
+                    "which helps it retain moisture."
+                ),
+            },
+            {"index": 2, "text": "This book will change the way you cook."},
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.other.0.3",
+                category="other",
+                block_start_index=0,
+                block_end_index=3,
+                block_indices=[0, 1, 2],
+                block_ids=["b0", "b1", "b2"],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=tmp_path / "in",
+        context_blocks=0,
+    )
+
+    metadata = report.shard_entries[0].metadata
+    assert metadata["chunk_utility_positive_cues_by_id"]["book.c0000.nr"] == [
+        "actionable_technique",
+    ]
+    assert metadata["chunk_utility_negative_cues_by_id"]["book.c0000.nr"] == [
+        "memoir_or_voice",
+        "book_framing_or_marketing",
+    ]
+    assert metadata["chunk_utility_borderline_by_id"]["book.c0000.nr"] is True
+    assert metadata["chunk_strong_negative_utility_cue_by_id"]["book.c0000.nr"] is True
+    assert metadata["chunk_knowledge_cue_by_id"]["book.c0000.nr"] is False

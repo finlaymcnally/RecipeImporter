@@ -444,7 +444,7 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         "--browser-bundle-files",
         "--model",
     ]
-    assert oracle_upload.ORACLE_DEFAULT_MODEL in command
+    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
     assert command.count("--file") == 4
     assert any(arg.endswith("oracle_quality_focus.md") for arg in command)
     assert any(arg.endswith("upload_bundle_overview.md") for arg in command)
@@ -799,6 +799,7 @@ def test_run_oracle_benchmark_upload_browser_stages_quality_profile_subset(
     assert "Prepared Oracle quality review packet" in result.stdout
     command = captured["command"]
     assert isinstance(command, list)
+    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
     file_args = captured["file_args"]
     assert isinstance(file_args, list)
     assert len(file_args) == 4
@@ -854,6 +855,9 @@ def test_run_oracle_benchmark_upload_browser_stages_token_profile_subset(
     assert result.success is True
     assert result.review_profile == "token"
     assert result.review_profile_display_name == "Token"
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
 
 
 def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_session_metadata(
@@ -1207,9 +1211,11 @@ def test_start_oracle_benchmark_upload_background_stages_profile_packet(
 
     assert launch.pid == 5252
     assert launch.review_profile == "token"
+    assert launch.model == "gpt-5.2-pro"
     assert "Prepared Oracle token review packet" in launch.note
     command = captured["command"]
     assert isinstance(command, list)
+    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
     file_args = [
         Path(command[index + 1])
         for index, arg in enumerate(command)

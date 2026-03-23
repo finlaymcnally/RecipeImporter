@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Callable
@@ -35,6 +36,7 @@ from cookimport.bench.oracle_upload import (
     _render_oracle_benchmark_prompt_template,
     _read_log_text,
     audit_oracle_upload_log,
+    normalize_oracle_browser_model,
     resolve_oracle_benchmark_model,
 )
 
@@ -69,6 +71,7 @@ ORACLE_AUTO_FOLLOWUP_LOG_NAME = "oracle_auto_followup.log"
 ORACLE_AUTO_FOLLOWUP_POLL_INTERVAL_SECONDS = 15.0
 ORACLE_AUTO_FOLLOWUP_TIMEOUT_SECONDS = 4 * 60 * 60
 ORACLE_TURN1_RECOVERY_TIMEOUT_SECONDS = 5 * 60
+ORACLE_TURN1_STALE_RUNNING_RECOVERY_AGE_SECONDS = 20 * 60
 ORACLE_FOLLOWUP_ALLOWED_OUTPUTS = {
     "structure_report",
     "case_export",
@@ -87,12 +90,6 @@ _ASK_START_RE = re.compile(r"^\s*(?:[-*]\s*)?Ask(?:\s+\d+)?\s*:?\s*$", re.IGNORE
 _KEY_VALUE_RE = re.compile(r"^\s*(?:[-*]\s*)?(?P<key>[a-zA-Z0-9_ -]+?)\s*:\s*(?P<value>.*\S)?\s*$")
 _CONVERSATION_URL_RE = re.compile(r"https://chatgpt\.com/[^\s)]+")
 _ANSWER_MARKER = "Answer:"
-_GPT_BROWSER_MODEL_RE = re.compile(
-    r"^gpt-(?P<version>\d+(?:\.\d+)?)(?:-(?P<variant>pro|instant|thinking))?$",
-    re.IGNORECASE,
-)
-
-
 @dataclass(frozen=True)
 class ParsedOracleFollowupAsk:
     ask_id: str
@@ -243,22 +240,12 @@ def _slugify(text: str, *, fallback: str) -> str:
     return slug or fallback
 
 
-def _browser_visible_followup_model_label(model: str | None) -> str:
+def _followup_browser_model_argument(model: str | None) -> str:
     cleaned = str(model or "").strip()
     if not cleaned:
         return ""
-    normalized = cleaned.lower()
-    if not normalized.startswith("gpt-") or "codex" in normalized:
-        return cleaned
-    if normalized in {"gpt-5", "gpt-5-pro", "gpt-5.1-pro"}:
-        return "GPT-5 Pro"
-    match = _GPT_BROWSER_MODEL_RE.fullmatch(normalized)
-    if match is None:
-        return cleaned
-    version = match.group("version")
-    variant = match.group("variant")
-    suffix = f" {variant.capitalize()}" if variant else ""
-    return f"GPT-{version}{suffix}"
+    normalized = normalize_oracle_browser_model(cleaned)
+    return normalized or cleaned
 
 
 def parse_requested_followup_text(section_text: str) -> ParsedOracleFollowupRequest:
@@ -496,7 +483,22 @@ def _oracle_session_controller_pid(payload: dict[str, Any] | None) -> int:
         return 0
 
 
-def _oracle_turn1_recovery_reason(payload: dict[str, Any] | None) -> tuple[str, str] | None:
+def _turn1_launch_age_seconds(metadata: dict[str, Any] | None) -> float:
+    if not isinstance(metadata, dict):
+        return -1.0
+    started_at = _parse_iso_datetime(str(metadata.get("launch_started_at_utc") or ""))
+    if started_at is None:
+        return -1.0
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - started_at.astimezone(timezone.utc)).total_seconds())
+
+
+def _oracle_turn1_recovery_reason(
+    payload: dict[str, Any] | None,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[str, str] | None:
     incomplete_reason = _oracle_session_incomplete_reason(payload)
     if incomplete_reason == "assistant-timeout":
         return (
@@ -511,6 +513,14 @@ def _oracle_turn1_recovery_reason(payload: dict[str, Any] | None) -> tuple[str, 
         return (
             "recovering_turn_1",
             "Oracle turn 1 session is still marked running, but its saved controller is gone; retrying capture from the saved session.",
+        )
+    launch_age_seconds = _turn1_launch_age_seconds(metadata)
+    if session_status == "running" and launch_age_seconds >= ORACLE_TURN1_STALE_RUNNING_RECOVERY_AGE_SECONDS:
+        elapsed_minutes = max(1, int(round(launch_age_seconds / 60.0)))
+        return (
+            "recovering_turn_1",
+            "Oracle turn 1 session is still marked running after "
+            f"{elapsed_minutes} minutes; retrying capture from the saved session.",
         )
     return None
 
@@ -553,7 +563,7 @@ def _recover_oracle_turn1_session_if_needed(
         session_id=session_id,
         browser_profile_dir=browser_profile_dir,
     )
-    recovery_reason = _oracle_turn1_recovery_reason(session_payload)
+    recovery_reason = _oracle_turn1_recovery_reason(session_payload, metadata=metadata)
     if recovery_reason is None:
         return False
     recovery_status, recovery_status_reason = recovery_reason
@@ -823,7 +833,7 @@ def _build_continue_session_command(
         source_session_id,
         prompt,
     ]
-    browser_model = _browser_visible_followup_model_label(model)
+    browser_model = _followup_browser_model_argument(model)
     if browser_model:
         command.extend(["--model", browser_model])
     command.extend(["--file", _oracle_file_argument(followup_packet_dir)])

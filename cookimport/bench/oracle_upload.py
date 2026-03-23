@@ -456,6 +456,27 @@ def resolve_oracle_benchmark_model(
     return _resolve_oracle_genuine_model(env=env)
 
 
+def normalize_oracle_browser_model(model: str | None) -> str:
+    cleaned = str(model or "").strip()
+    if not cleaned:
+        return ""
+    normalized = cleaned.lower()
+    if not normalized.startswith("gpt-") or "codex" in normalized:
+        return cleaned
+    if normalized in {"gpt-5", "gpt-5.1"}:
+        return "gpt-5.2"
+    if normalized in {"gpt-5-pro", "gpt-5.1-pro"}:
+        return "gpt-5.2-pro"
+    return cleaned
+
+
+def _resolve_oracle_launch_model(*, mode: str, model: str) -> str:
+    cleaned = str(model).strip()
+    if mode.strip().lower() == "browser":
+        return normalize_oracle_browser_model(cleaned)
+    return cleaned
+
+
 def _oracle_benchmark_helper_banner(*, env: Mapping[str, str] | None = None) -> str:
     source_env = env if env is not None else os.environ
     if not oracle_test_helper_enabled(env=source_env):
@@ -1430,6 +1451,7 @@ def start_oracle_benchmark_upload_background(
 ) -> OracleBackgroundUploadLaunch:
     normalized_mode = mode.strip().lower()
     resolved_model = resolve_oracle_benchmark_model(model)
+    launch_model = _resolve_oracle_launch_model(mode=normalized_mode, model=resolved_model)
     profile = resolve_oracle_benchmark_review_profile(review_profile)
     launch_started_at = datetime.now(timezone.utc)
     launch_dir = _oracle_background_launch_dir(target.bundle_dir, suffix=profile.profile_id)
@@ -1453,7 +1475,7 @@ def start_oracle_benchmark_upload_background(
         )
         command = _oracle_command(
             mode=normalized_mode,
-            model=resolved_model,
+            model=launch_model,
             prompt=prepared.prompt,
             file_paths=prepared.file_paths,
         )
@@ -1462,7 +1484,7 @@ def start_oracle_benchmark_upload_background(
     elif normalized_mode == "dry-run":
         command = _oracle_command(
             mode=normalized_mode,
-            model=resolved_model,
+            model=launch_model,
             prompt=session_prompt,
             file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
         )
@@ -1500,7 +1522,7 @@ def start_oracle_benchmark_upload_background(
         "review_profile": profile.profile_id,
         "review_profile_display_name": profile.display_name,
         "mode": normalized_mode,
-        "model": resolved_model,
+        "model": launch_model,
         "prompt": session_prompt,
         "pid": int(proc.pid),
         "command": command,
@@ -1569,7 +1591,7 @@ def start_oracle_benchmark_upload_background(
     )
     return OracleBackgroundUploadLaunch(
         mode=normalized_mode,
-        model=resolved_model,
+        model=launch_model,
         command=command,
         bundle_dir=target.bundle_dir,
         launch_dir=launch_dir,
@@ -1600,6 +1622,7 @@ def run_oracle_benchmark_upload(
 ) -> OracleUploadResult:
     normalized_mode = mode.strip().lower()
     resolved_model = resolve_oracle_benchmark_model(model)
+    launch_model = _resolve_oracle_launch_model(mode=normalized_mode, model=resolved_model)
     profile = resolve_oracle_benchmark_review_profile(review_profile)
 
     if normalized_mode == "browser":
@@ -1619,7 +1642,7 @@ def run_oracle_benchmark_upload(
         )
         command = _oracle_command(
             mode=normalized_mode,
-            model=resolved_model,
+            model=launch_model,
             prompt=prepared.prompt,
             file_paths=prepared.file_paths,
         )
@@ -1695,7 +1718,7 @@ def run_oracle_benchmark_upload(
             "review_profile": profile.profile_id,
             "review_profile_display_name": profile.display_name,
             "mode": normalized_mode,
-            "model": resolved_model,
+            "model": launch_model,
             "prompt": prepared.prompt,
             "pid": None,
             "command": command,
@@ -1748,8 +1771,8 @@ def run_oracle_benchmark_upload(
             ]
             if oversized_staged:
                 browser_command = _oracle_command(
-                    mode="browser",
-                    model=resolved_model,
+                mode="browser",
+                    model=launch_model,
                     prompt=prepared.prompt,
                     file_paths=prepared.file_paths,
                 )

@@ -653,6 +653,21 @@ def _chunk_has_strong_knowledge_cue(
         for cue in (profile.get("positive_cues") or [])
         if str(cue).strip()
     }
+    strong_negative_cue = bool(profile.get("strong_negative_cue"))
+    borderline = bool(profile.get("borderline"))
+    high_precision_positive_cues = {
+        "reference_table_shape",
+        "diagnostic_or_sensory",
+        "storage_or_safety",
+        "failure_prevention",
+    }
+    if (
+        strong_negative_cue
+        and borderline
+        and positive_cues
+        and not high_precision_positive_cues.intersection(positive_cues)
+    ):
+        return False
     if bool(profile.get("strong_positive_cue")):
         return True
     if any(block.table_hint is not None for block in payload.blocks):

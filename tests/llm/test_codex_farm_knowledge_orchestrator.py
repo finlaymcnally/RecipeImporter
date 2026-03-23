@@ -1171,6 +1171,97 @@ def test_evaluate_knowledge_response_accepts_semantic_packet_with_trailing_eof()
     }
 
 
+def test_evaluate_knowledge_response_keeps_reason_counts_for_canonical_bundle_input() -> None:
+    payload, validation_errors, validation_metadata, proposal_status = (
+        knowledge_module._evaluate_knowledge_response(  # noqa: SLF001
+            shard=ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.c0000.nr", "book.c0001.nr"),
+                metadata={
+                    "owned_block_indices": [4, 5],
+                    "ordered_chunk_ids": ["book.c0000.nr", "book.c0001.nr"],
+                    "chunk_block_indices_by_id": {
+                        "book.c0000.nr": [4],
+                        "book.c0001.nr": [5],
+                    },
+                },
+            ),
+            response_text=json.dumps(
+                {
+                    "v": "2",
+                    "bid": "book.ks0000.nr",
+                    "r": [
+                        {
+                            "cid": "book.c0000.nr",
+                            "u": True,
+                            "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                            "s": [
+                                {
+                                    "b": "Use steady whisking to emulsify.",
+                                    "e": [
+                                        {
+                                            "i": 4,
+                                            "q": "Whisk constantly to emulsify sauces.",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "cid": "book.c0001.nr",
+                            "u": False,
+                            "d": [{"i": 5, "c": "other", "rc": "other"}],
+                            "s": [],
+                        },
+                    ],
+                },
+                sort_keys=True,
+            ),
+        )
+    )
+
+    assert proposal_status == "validated"
+    assert validation_errors == ()
+    assert validation_metadata["worker_output_contract"] == "canonical_bundle_v2_compat"
+    assert validation_metadata["reason_code_counts"] == {
+        "not_cooking_knowledge": 1,
+        "technique_or_mechanism": 1,
+    }
+    assert validation_metadata["useful_reason_code_counts"] == {
+        "technique_or_mechanism": 1
+    }
+    assert validation_metadata["other_reason_code_counts"] == {
+        "not_cooking_knowledge": 1
+    }
+    assert validation_metadata["reason_code_by_chunk_id"] == {
+        "book.c0000.nr": "technique_or_mechanism",
+        "book.c0001.nr": "not_cooking_knowledge",
+    }
+    assert payload == {
+        "v": "2",
+        "bid": "book.ks0000.nr",
+        "r": [
+            {
+                "cid": "book.c0000.nr",
+                "u": True,
+                "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                "s": [
+                    {
+                        "b": "Use steady whisking to emulsify.",
+                        "e": [{"i": 4, "q": "Whisk constantly to emulsify sauces."}],
+                    }
+                ],
+            },
+            {
+                "cid": "book.c0001.nr",
+                "u": False,
+                "d": [{"i": 5, "c": "other", "rc": "other"}],
+                "s": [],
+            },
+        ],
+    }
+
+
 def test_knowledge_workspace_task_runtime_entries_add_ordered_queue_metadata() -> None:
     shard = ShardManifestEntryV1(
         shard_id="book.ks0000.nr",
@@ -1580,6 +1671,9 @@ def test_knowledge_orchestrator_writes_worker_prompt_contract_artifacts(
     assert "Good snippet pattern: body `Use low heat to prevent curdling.`" in worker_prompt
     assert "Bad snippet pattern: a body that restates nearly every sentence" in worker_prompt
     assert "technically true but low-value prose" in worker_prompt
+    assert "do not mark the whole task `knowledge` by inertia" in worker_prompt
+    assert "Keep memoir/framing blocks `other`" in worker_prompt
+    assert "why the book matters" in worker_prompt
     assert "The repo will write the final canonical `v` / `bid` / `r` packet artifact" in worker_prompt
     assert "Do not work ahead on later tasks" in worker_prompt
     assert "Do not invent your own queue/output scheduler" in worker_prompt
