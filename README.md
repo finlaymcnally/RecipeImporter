@@ -1,573 +1,398 @@
-# Recipe Import (cookimport)
+# Recipe Import (`cookimport`)
 
-> README goal (for humans and future AIs editing this file)
-> Keep this README as a simple, step-by-step, non-coder walkthrough for setting up, running, and tweaking an import pipeline.
+> README goal
+> Keep this file as the simple current walkthrough for running the tool. If deeper behavior needs explanation, link to the owning doc instead of re-teaching old flows here.
 
+## What This Tool Does
 
-## Full Processing Flowchart (File Types + Label Studio)
+Put recipe sources in `data/input/`, run the CLI, and it writes a fresh timestamped run under `data/output/`.
 
-```text
-START
-|-- Put source(s) in `data/input/`
-|   |-- Interactive mode: top-level files only
-|   `-- `cookimport stage <folder>`: recursive scan
-|-- Launch
-|   |-- Interactive menu: `C3imp` (or `C3imp <N>` for a test-limit run)
-|   `-- Direct CLI: `cookimport <command>`
-|
-|-- Choose workflow
-|   |-- A) Stage/import pipeline (writes cookbook outputs)
-|   |   |-- File selection: Import All / one file
-|   |   |-- Run profile: `CodexFarm automatic top-tier` or `Vanilla automatic top-tier`
-|   |   |-- Optional runtime toggles: warm models, OCR device, EPUB extractor, split sizes/workers, optional codex-farm recipe/knowledge passes
-|   |   `-- Per-file execution path
-|   |       |-- `.xlsx` / `.xlsm` (Excel importer)
-|   |       |   `-- single conversion -> write intermediate/final/tips/chunks/raw/report
-|   |       |-- `.txt` / `.md` / `.markdown` / `.docx` (Text importer)
-|   |       |   `-- single conversion -> write outputs
-|   |       |-- `.paprikarecipes` (Paprika importer)
-|   |       |   `-- single conversion -> write outputs
-|   |       |-- `.json` with RecipeSage shape (RecipeSage importer)
-|   |       |   `-- single conversion -> write outputs
-|   |       |-- `.pdf` (PDF importer)
-|   |       |   |-- Split eligible? (`pdf_split_workers > 1`, `pdf_pages_per_job > 0`, multi-range plan)
-|   |       |   |   |-- yes -> parallel page-range jobs -> merge -> reassign IDs -> merge raw -> write once
-|   |       |   |   `-- no  -> single conversion -> write once
-|   |       |   `-- OCR path (`auto`/`cpu`/`cuda`/`mps`) used when scanned/image pages need OCR
-|   |       `-- `.epub` (EPUB importer)
-|   |           |-- Extractor requested: `unstructured` | `beautifulsoup` | `markitdown`
-|   |           |   `-- effective extractor runs
-|   |           |-- Split eligible?
-|   |           |   |-- `unstructured` / `beautifulsoup` + split settings -> parallel spine jobs -> merge
-|   |           |   `-- `markitdown` -> whole-book conversion (no spine split)
-|   |           `-- write outputs + report
-|   |
-|   |-- B) EPUB debug race (EPUB only)
-|   |   `-- choose EPUB -> choose output folder -> choose candidate extractors -> race report
-|   |
-|   |-- C) Label Studio upload: Create labeling tasks (uploads)
-|   |   |-- choose file -> project name (blank auto-name) -> overwrite existing project
-|   |   |-- choose task scope
-|   |   |   |-- `pipeline` -> chunk level: `both` / `structural` / `atomic`
-|   |   |   |-- `canonical-blocks` -> context window (`0..N` blocks)
-|   |   |   `-- `freeform-spans`
-|   |   |       |-- segment size + overlap
-|   |   |       `-- AI prelabel mode
-|   |   |           |-- off
-|   |   |           |-- strict/allow-partial annotations
-|   |   |           |-- strict/allow-partial predictions
-|   |   |           `-- if enabled: prelabel granularity = `span` (actual freeform) or `block` (legacy)
-|   |   |-- conversion under the hood uses the same importer/file-type branches as Stage (including PDF/EPUB split and EPUB extractor logic)
-|   |   |-- credentials resolution: env -> `cookimport.json` -> prompt/save
-|   |   `-- uploads tasks and writes artifacts (`manifest.json`, tasks JSONL, coverage, extracted files, prelabel reports if used)
-|   |
-|   |-- D) Label Studio export: Export completed labels into golden artifacts
-|   |   |-- choose project (or type project name)
-|   |   |-- scope auto-detected when possible; else prompt: `pipeline` / `canonical-blocks` / `freeform-spans`
-|   |   `-- write export artifacts by scope
-|   |       |-- pipeline -> `labeled_chunks.jsonl`, `golden_set_tip_eval.jsonl`, `summary.json`
-|   |       |-- canonical-blocks -> `canonical_block_labels.jsonl`, `canonical_gold_spans.jsonl`, `summary.json`
-|   |       `-- freeform-spans -> `freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`, `summary.json`
-|   |
-|   |-- E) Evaluate vs freeform gold: Generate predictions and compare to your labels
-|   |   `-- interactive path: generate fresh predictions + upload + evaluate
-|   |       `-- CLI-only extra permutations: `--no-upload` (offline benchmark) or `labelstudio-eval` (re-score existing run)
-|   |
-|   `-- F) Generate dashboard
-|       `-- build lifetime HTML dashboard from output history
-|
-`-- Output roots
-    |-- Stage/import runs: `data/output/<YYYY-MM-DD_HH.MM.SS>/`
-    |-- Label Studio task-generation runs: `data/golden/sent-to-labelstudio/<YYYY-MM-DD_HH.MM.SS>/labelstudio/<book_slug>/`
-    |-- Label Studio exports: `data/golden/pulled-from-labelstudio/<project_slug>/exports/`
-    |-- Benchmark/eval runs: `data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>/`
-    `-- Shared history + dashboard: `.history/` (repo-local outputs)
-```
+Main input types:
+- Excel: `.xlsx`, `.xlsm`
+- EPUB: `.epub`
+- PDF: `.pdf`
+- Word/text: `.docx`, `.txt`, `.md`, `.markdown`
+- Paprika: `.paprikarecipes`
+- RecipeSage-style JSON: `.json`
+- Web recipe/schema sources: `.html`, `.htm`, `.jsonld`, some `.json`
 
+Main outputs from a stage run:
+- `intermediate drafts/` for schema.org-style recipe JSON-LD
+- `final drafts/` for cookbook outputs
+- `sections/`, `tips/`, `chunks/`, and `tables/` when present
+- `raw/` debug artifacts
+- `stage_observability.json`
+- `run_manifest.json`
+- per-source report JSON at the run root
 
-
-
-## What This Tool Does (Plain English)
-
-You drop recipe sources into `data/input/` (EPUB/PDF/Excel/Word/text exports). Then you run the tool.
-
-Each import run creates a new timestamped folder under `data/output/` like:
+Timestamp format everywhere is:
 
 ```text
-data/output/2026-02-20_21.45.00/
+YYYY-MM-DD_HH.MM.SS
 ```
 
-That run folder contains:
-- Converted recipe outputs (intermediate + final)
-- Tips/knowledge snippets (when found)
-- Raw extraction artifacts (useful for debugging)
-- A JSON report that summarizes what happened
+## Quick Start
 
-## Step 1: Put Your Source File(s) in `data/input/`
+### 1. Put files in `data/input/`
 
-1. Copy your file into:
+Interactive mode scans only the top level of `data/input/`.
 
 ```text
 data/input/
 ```
 
-Common inputs this project recognizes:
-- Excel workbooks: `.xlsx`, `.xlsm`
-- EPUB books: `.epub`
-- PDFs: `.pdf`
-- Word docs: `.docx`
-- Plain text: `.txt`, `.md`, `.markdown`
-- Paprika: `.paprikarecipes`
-- RecipeSage export: `.json` (expects a `recipes` array)
-
-## Step 2: Launch the Tool (Every Time)
-
-Run:
+### 2. Activate the project venv
 
 ```bash
 cd /home/mcnal/projects/recipeimport
 . .venv/bin/activate
+```
+
+### 3. Start the interactive menu
+
+```bash
 C3imp
 ```
 
-Optional: do a small "test run" first:
+Useful shortcut:
 
 ```bash
 C3imp 10
 ```
 
-That limits each imported file to at most 10 recipes and 10 tips (faster, less output).
+That keeps the interactive flow, but limits each imported file to the first 10 recipes and 10 tips.
 
-Optional check (shows help instead of starting the menu):
+You can also use:
+- `cookimport` to enter interactive mode
+- `import` or `C3import` to immediately run `stage data/input`
+
+## Main Workflows
+
+### Stage
+
+This is the normal path.
+
+Interactive path:
+1. Choose `Stage: Convert files from data/input into cookbook outputs`
+2. Pick one file or `Import all`
+3. Choose `Vanilla / no Codex` or `CodexFarm`
+4. If you choose `CodexFarm`, the next screen lets you toggle:
+   - recipe correction
+   - non-recipe knowledge review
+   - prompt counts for enabled Codex steps
+5. Wait for the run to finish
+
+Direct CLI examples:
 
 ```bash
-cookimport --help
+cookimport stage data/input
 ```
 
-## Step 3: Pick a Workflow (What Each Menu Option Means)
-
-The menu shows different options depending on what is in `data/input/`:
-- **Stage:** and **Label Studio upload:** only appear when at least one supported top-level file exists in `data/input/`.
-
-After you complete any workflow, the tool returns to the main menu. It only exits when you choose **Exit**.
-
-Tip: On list-style menus (where you pick from a list), Backspace goes back one level.
-
-### Choice Tree: Main Menu + Sub-Prompts
-
-```text
-Main Menu ("What would you like to do?")
-|-- Stage: Convert files from data/input into cookbook outputs
-|   |-- Which file(s) would you like to import?
-|   |   |-- Import all: Process every supported file
-|   |   `-- <pick one file>
-|   |-- Run settings
-|   |   |-- CodexFarm automatic top-tier (recommended)
-|   |   `-- Vanilla automatic top-tier
-|   `-- Outputs written to: <output_dir>/<YYYY-MM-DD_HH.MM.SS>/
-|
-|-- Label Studio upload: Create labeling tasks (uploads)
-|   |-- Select a file to import into Label Studio
-|   |-- Project name (leave blank to auto-name)
-|   |-- Task scope:
-|   |   |-- pipeline chunks -> Chunk level: both / structural only / atomic only
-|   |   |-- canonical blocks -> Canonical context window (blocks): 0,1,2,...
-|   |   `-- freeform spans -> Segment size + overlap (+ optional AI prelabel)
-|   `-- Label Studio URL + API key (prompted if missing)
-|
-|-- Label Studio export: Export completed labels into golden artifacts
-|   |-- Label Studio URL + API key (prompted if missing)
-|   |-- Select Label Studio project to export:
-|   |   |-- Type project name manually
-|   |   `-- <pick a project from the list (shows detected type when possible)>
-|   `-- Export scope (only if type is unknown): pipeline / canonical-blocks / freeform-spans
-|
-|-- Label Studio: decorate existing freeform project with AI spans
-|   |-- Label Studio URL + API key (prompted if missing)
-|   |-- Select Label Studio project (same picker as export)
-|   |-- Select label types to add (checkbox; defaults include YIELD_LINE, TIME_LINE)
-|   |-- Dry run only? (recommended first)
-|   `-- If writing: confirm creating new annotations in Label Studio
-|
-|-- Evaluate vs freeform gold: Generate predictions and compare to your labels
-|   |-- Choose mode:
-|   |   |-- Single offline eval
-|   |   |-- Single config, selected matched sets
-|   |   `-- Single config, all matched sets
-|   `-- Choose top-tier run profile, then run local eval(s)
-|
-|-- Dashboard: Build lifetime stats dashboard HTML
-|   `-- Writes to .history/dashboard/ for repo-local outputs
-|
-|-- Settings: Change worker/OCR/output defaults
-|   `-- Settings Configuration
-|       |-- Workers / PDF Split Workers / EPUB Split Workers
-|       |-- EPUB Extractor + Unstructured tuning
-|       |-- OCR Device + OCR Batch Size
-|       |-- Output Folder
-|       |-- PDF Pages/Job + EPUB Spine Items/Job
-|       |-- Warm Models
-|       `-- Back to Main Menu
-|
-`-- Exit: Close the tool
+```bash
+cookimport stage data/input/my-book.epub --limit 20
 ```
 
-### Stage Files from `data/input/` (Import Pipeline)
-
-This is the main workflow. It reads file(s) from `data/input/` and writes a new run folder under your configured `output_dir`.
-
-Sub-prompts you will see:
-1. **Which file(s) would you like to import?**
-   - **Import All**: processes every supported file in `data/input/`
-   - Or pick one file: runs the import for that file only
-2. **Run settings**
-   - **CodexFarm automatic top-tier**: winner-preferred codex profile
-   - **Vanilla automatic top-tier**: deterministic non-codex profile
-
-### Settings (Change Your Defaults)
-
-This edits your saved defaults and writes them to `cookimport.json`. It affects future imports and benchmark runs.
-
-Sub-menu options (Settings Configuration):
-- **Workers**: how many files/jobs to process in parallel (higher = faster, but uses more CPU/RAM)
-- **PDF Split Workers**: how much parallelism is used to split one large PDF into parts
-- **EPUB Split Workers**: how much parallelism is used to split one large EPUB into parts
-- **EPUB Extractor**: how text is extracted from EPUBs (`auto` is a good first choice if you're unsure)
-- **Unstructured HTML Parser** / **Skip Headers/Footers** / **EPUB Preprocess**: extra knobs for the `unstructured` EPUB extractor
-- **OCR Device** / **OCR Batch Size**: only matters for scanned/image PDFs that need OCR
-- **Output Folder**: where new run folders are written (this is your `output_dir`)
-- **PDF Pages/Job** / **EPUB Spine Items/Job**: how large each split job is (smaller jobs can parallelize more)
-- **Warm Models**: pre-load heavy models before work starts (slower startup, sometimes faster overall)
-
-### EPUB Debug: Race Extractors on One File (EPUB Only)
-
-Use this when an EPUB import looks wrong and you want to compare extractors on that one book without running a full import.
-
-Sub-prompts you will see:
-- Pick an EPUB file.
-- Choose an output folder (default: `data/output/EPUBextractorRace/<book>`).
-- If the folder is not empty, confirm overwrite behavior.
-- Enter a comma-separated list of candidate extractors (default: `unstructured,markdown,legacy`).
-
-### Label Studio: Create Labeling Tasks (Uploads)
-
-Use this only if you want to do manual labeling in Label Studio.
+```bash
+cookimport stage data/input/some-folder --out data/output
+```
 
 Important behavior:
-- This interactive flow always recreates the project if it already exists (it overwrites).
-- It uploads tasks immediately (there is no extra "are you sure?" prompt after you pick options).
+- interactive mode scans only top-level files in `data/input`
+- `cookimport stage <folder>` scans that folder recursively
+- large PDFs and EPUBs can split into worker jobs and merge back into one run
 
-Sub-prompts you will see:
-1. Pick a source file (from `data/input/`).
-2. Pick a project name (or leave blank to auto-name it).
-3. Pick a **task scope**:
-   - **pipeline chunks**: label pipeline "chunks" (bigger or smaller units, depending on chunk level)
-   - **canonical blocks**: label every extracted block (with optional context around it)
-   - **freeform spans**: highlight arbitrary spans of text
-4. Scope-specific prompts:
-   - pipeline chunks: choose **Chunk level** (`both`, `structural`, `atomic`)
-   - canonical blocks: choose **Context window** (how many blocks of context to show)
-   - freeform spans: choose **Segment size** + **Overlap**, then choose **AI prelabel mode**
-5. Enter Label Studio URL + API key if you have not already.
-6. During task generation/upload, a spinner shows live phase updates and `task X/Y` progress when the total work count is known (including AI prelabeling).
+### Label Studio Upload
 
-Choice tree (Label Studio upload):
+Current Label Studio task generation is freeform-only.
 
-```text
-Label Studio upload: Create labeling tasks (uploads)
-|-- Select a file
-|-- Project name (blank = auto-name)
-`-- Task scope
-    |-- pipeline chunks
-    |   `-- Chunk level: both / structural only / atomic only
-    |-- canonical blocks
-    |   `-- Context window (blocks): 0,1,2,...
-    `-- freeform spans
-        |-- Segment size (blocks per task): 1,2,3,...
-        |-- Segment overlap (blocks): 0,1,2,...
-        `-- AI prelabel mode (off / strict / allow-partial; requires local Codex CLI with `exec` support)
+Interactive path:
+1. Choose `Label Studio upload: Create labeling tasks (uploads)`
+2. Pick a source file
+3. Pick a project name, or leave blank
+4. Set freeform segment sizing
+5. Optionally enable AI prelabeling
+6. The interactive flow uploads directly after credential resolution
+
+Current interactive rules:
+- task scope is `freeform-spans` only
+- interactive upload uses overwrite behavior for the target project
+- there is no second upload confirmation prompt
+
+Direct CLI example:
+
+```bash
+cookimport labelstudio-import data/input/my-book.epub \
+  --project-name my-book \
+  --allow-labelstudio-write
 ```
 
-If you enable **AI prelabel**:
-- It tries to generate initial AI annotations before upload.
-- If you do not have the Codex CLI available (`codex exec -`), choose **No** to avoid errors.
+If you want AI prelabels too:
 
-### Label Studio: Export Completed Labels to Golden Artifacts
-
-Use this after you have labeled tasks in Label Studio and want the labeled data downloaded to files.
-
-Sub-prompts you will see:
-- Enter Label Studio URL + API key (if needed).
-- Pick a project from a list (or choose "Type project name manually").
-- If the tool cannot detect the project type, choose an export scope (pipeline vs canonical-blocks vs freeform-spans).
-
-Choice tree (Export):
-
-```text
-Label Studio export: Export completed labels into golden artifacts
-|-- Label Studio URL + API key (if needed)
-|-- Select project:
-|   |-- Pick from list (shows detected type when possible)
-|   `-- Type project name manually
-`-- Export scope (only if unknown): pipeline / canonical-blocks / freeform-spans
+```bash
+cookimport labelstudio-import data/input/my-book.epub \
+  --project-name my-book \
+  --prelabel \
+  --prelabel-granularity span \
+  --allow-labelstudio-write \
+  --allow-codex
 ```
 
-### Label Studio: Decorate Existing Freeform Project with AI Spans
+### Label Studio Export
 
-Use this to add new AI labels to an existing freeform project without deleting your existing human work.
+Use this after labeling to pull your gold data back to disk.
 
-Sub-prompts you will see:
-- Pick a project (same picker as export).
-- If the project type does not look like `freeform-spans`, you will be warned and asked if you want to try anyway.
-- Choose which label types to add (checkbox list; defaults include `YIELD_LINE` and `TIME_LINE`).
-- Choose dry-run (recommended) or write mode.
-- If you choose write mode, it asks for a final confirmation before creating annotations in Label Studio.
+Interactive path:
+1. Choose `Label Studio export: Export completed labels into golden artifacts`
+2. Pick the project
+3. Export
 
-Choice tree (Decorate):
+Current export scope:
+- `freeform-spans` only
 
-```text
-Label Studio: decorate existing freeform project with AI spans
-|-- Select project
-|-- Select label types to add (checkbox list)
-|-- Dry run only? (recommended first)
-|   `-- Yes -> writes a report only
-`-- No -> confirm write -> creates new annotations in Label Studio
+Direct CLI example:
+
+```bash
+cookimport labelstudio-export --project-name my-book
 ```
 
-### Generate Predictions + Evaluate vs Freeform Gold
+### Evaluate / Benchmark Against Gold
 
-Use this to compare pipeline predictions against your freeform "gold" labels.
+Use this when you already have exported freeform gold and want to score predictions.
 
-Sub-prompts you will see:
-- Choose benchmark mode:
-  - single offline: one local prediction+eval run (`no_upload=True`)
-  - single config, selected matched sets: apply one profile to selected matched books
-  - single config, all matched sets: apply one profile to all matched books
-- These interactive benchmark modes use the same top-tier profile chooser as import.
-- Interactive benchmark does not resolve Label Studio credentials and does not upload.
+Interactive benchmark flow stays offline and compares predictions against freeform gold.
 
-If you need to re-score an existing prediction run without regeneration, use:
-- `cookimport labelstudio-eval --pred-run <run_dir> --gold-spans <freeform_span_labels.jsonl> --output-dir <eval_dir>`
+Direct CLI examples:
 
-Choice tree (Evaluate):
-
-```text
-Evaluate vs freeform gold: Generate predictions and compare to your labels
-|-- Choose mode
-|   |-- Single offline
-|   |   |-- Choose top-tier profile
-|   |   `-- Run local prediction + eval (no upload)
-|   |-- Single config, selected matched sets
-|   |   |-- Choose top-tier profile
-|   |   `-- Run selected matched books
-|   `-- Single config, all matched sets
-|       |-- Choose top-tier profile
-|       `-- Run all matched books
-`-- Return to main menu
+```bash
+cookimport labelstudio-benchmark \
+  --source-file data/input/my-book.epub \
+  --gold-spans data/golden/pulled-from-labelstudio/my-book/exports/freeform_span_labels.jsonl \
+  --eval-mode canonical-text \
+  --no-upload
 ```
 
-### Generate Dashboard
-
-This builds a static HTML dashboard of run history under `.history/dashboard/` (repo-local outputs).
-
-No additional prompt is shown for this action, and interactive mode does not auto-open a browser.
-
-## Step 4: Run an Import (The Common Path)
-
-1. Put at least one supported file in `data/input/` (Step 1).
-2. Start `C3imp` (Step 2).
-3. Choose **Stage: Convert files from data/input into cookbook outputs**.
-4. Choose **Import All** or pick a single file.
-5. Choose which settings to use for this run:
-   - CodexFarm automatic top-tier
-   - Vanilla automatic top-tier
-6. Wait for completion.
-7. At the end, the tool prints an "Outputs written to:" path.
-
-## Step 5: Find and Understand the Output Folder
-
-Output root:
-
-```text
-data/output/
+```bash
+cookimport labelstudio-eval \
+  --pred-run data/golden/benchmark-vs-golden/some-run/prediction_run \
+  --gold-spans data/golden/pulled-from-labelstudio/my-book/exports/freeform_span_labels.jsonl \
+  --output-dir data/golden/benchmark-vs-golden/manual-eval
 ```
 
-Each run creates a new timestamp folder:
+For direct control, `labelstudio-benchmark` supports both:
+- `--eval-mode stage-blocks`
+- `--eval-mode canonical-text`
+
+### Dashboard
+
+Build the lifetime dashboard here:
+
+```bash
+cookimport stats-dashboard
+```
+
+Default output:
+
+```text
+.history/dashboard/
+```
+
+#### Compare & Control
+
+This lives inside the dashboard's `Previous Runs` section.
+It has its own analysis scope and does not use the table filters from `History Table & Trend`.
+
+Use it when you want to answer:
+- what seems to move quality, runtime, or cost
+- whether that result still holds when you compare more similar runs
+
+Simple workflow:
+1. Set `Outcome` to the number you care about.
+2. Set `Compare by` to the thing you want to test, like model, effort, or importer.
+3. Choose a `View`:
+   - `discover`: helps you find a good compare field
+   - `raw`: quick direct comparison
+   - `controlled`: fairer comparison that tries to hold other fields constant
+4. Optionally add `Hold constant` fields if you want more apples-to-apples comparisons.
+5. Optionally use `Split by` to repeat the same comparison inside buckets, like by importer.
+
+Rule of thumb:
+- start with `discover` if you do not know what field to test
+- start with `raw` for a quick signal
+- switch to `controlled` when the result might be explained by other differences
+- if `controlled` shows weak coverage, remove some controls and re-check
+
+How to read results:
+- if `raw` and `controlled` agree, confidence goes up
+- if they disagree, prefer `controlled`, but only if coverage looks decent
+
+Useful dashboard behaviors:
+- categorical `Compare by` fields show a group table with rows, averages, and any available side metrics
+- you can limit compare/control to selected groups with `Apply local subset`
+- that local subset does not change the main history table filters
+- you can open `Set 2` to compare two hypotheses side by side
+- when `Set 2` is open, chart layout can be `side by side` or `combined`
+
+Terminal versions of the same analysis:
+
+```bash
+cookimport compare-control run --action analyze --view controlled --outcome-field strict_accuracy --compare-field ai_model
+```
+
+```bash
+cookimport compare-control run --action insights --outcome-field strict_accuracy
+```
+
+```bash
+cookimport compare-control agent
+```
+
+If the dashboard is open with `--serve`, you can also push live Compare & Control state into the browser:
+
+```bash
+cookimport compare-control dashboard-state --compare-field ai_model --view raw --outcome-field strict_accuracy
+```
+
+```bash
+cookimport compare-control dashboard-state --set secondary --compare-field ai_effort --view controlled --enable-second-set --chart-layout combined
+```
+
+If `discover` keeps surfacing noisy fields, tune the suggested cards:
+
+```bash
+cookimport compare-control discovery-preferences --exclude-field processed_report_path --exclude-field run_config_hash --prefer-field ai_model --prefer-field ai_effort --demote-pattern path --demote-pattern hash --max-cards 8
+```
+
+QualitySuite shortcut:
+- after `cookimport bench quality-run` or `cookimport bench quality-compare`, open that run's `agent_compare_control/` folder
+- read `qualitysuite_compare_control_index.json` first
+- if you need deeper follow-up, run:
+
+```bash
+cookimport compare-control agent --output-root data/output --golden-root data/golden < agent_compare_control/agent_requests.jsonl > agent_responses.jsonl
+```
+
+## Where Files Go
+
+### Stage runs
 
 ```text
 data/output/<YYYY-MM-DD_HH.MM.SS>/
 ```
 
-Inside a run folder you will typically see:
-- `intermediate drafts/` (schema.org-style Recipe JSON)
-- `final drafts/` (cookbook outputs)
-- `tips/` (tip/knowledge snippets)
-- `raw/` (debug artifacts, including EPUB extraction artifacts)
-- `*.excel_import_report.json` (the main report for a source file)
+Typical contents:
+- `intermediate drafts/`
+- `final drafts/`
+- `sections/`
+- `tips/`
+- `chunks/`
+- `tables/`
+- `raw/`
+- `stage_observability.json`
+- `run_manifest.json`
+- `<source>.excel_import_report.json`
 
-If you used `epub_extractor=auto`, look for the auto-selection artifact:
+### Label Studio task-generation runs
 
 ```text
-data/output/<run>/raw/epub/<source_hash>/epub_extractor_auto.json
+data/golden/sent-to-labelstudio/<YYYY-MM-DD_HH.MM.SS>/labelstudio/<book_slug>/
 ```
 
-In the report JSON, search for:
-- `runConfig` (the settings used)
-- `runConfig.epub_extractor_requested` / `runConfig.epub_extractor_effective`
+### Label Studio exports
 
-## Step 6: Tweak the Pipeline (Without "Coding")
+```text
+data/golden/pulled-from-labelstudio/<source_slug_or_project_slug>/exports/
+```
 
-### A) Change global defaults (saved in `cookimport.json`)
+Common export files:
+- `freeform_span_labels.jsonl`
+- `freeform_segment_manifest.jsonl`
+- `canonical_text.txt`
+- `canonical_span_labels.jsonl`
+- `summary.json`
 
-Use **Settings** in the interactive menu when you want a default to stick for future runs.
+### Benchmark runs
 
-Common defaults to tweak:
-- `output_dir`: where new run folders are written
-- `workers`: how much parallelism to use (higher = faster, but uses more CPU)
-- `epub_extractor`: how EPUB text is extracted
-- `ocr_device`: only matters for scanned/image PDFs (auto/cpu/cuda/mps)
+```text
+data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>/
+```
 
-### B) Change settings for just one run (recommended for experiments)
+## Settings You Can Tweak Without Coding
 
-When you start an import, choose which automatic top-tier profile to use for that run. This does not modify `cookimport.json`.
+Use the interactive `Settings` screen when you want defaults saved to `cookimport.json`.
 
-### C) Choose an EPUB extractor (simple guidance)
+Common saved defaults:
+- `output_dir`
+- `workers`
+- `pdf_split_workers`
+- `epub_split_workers`
+- `pdf_pages_per_job`
+- `epub_spine_items_per_job`
+- `epub_extractor`
+- `pdf_ocr_policy`
+- `warm_models`
+- Label Studio URL and API key
+- Codex command/path/model defaults
 
-If you are importing an EPUB and results look messy, this is usually the first knob to try:
-- `unstructured`: semantic extraction (often good, can be slower)
-- `beautifulsoup`: direct HTML block extraction
-- `markdown`: converts HTML to Markdown before parsing
-- `markitdown`: whole-book EPUB->markdown mode
+Rule of thumb:
+- use `Settings` when you want the default to stick
+- use per-run prompts or CLI flags when you are just experimenting
 
-### D) Excel mappings (optional, but powerful)
+## Handy Extras
 
-If an Excel workbook doesn't import correctly because the columns/headers don't match expectations:
-
-1. Generate a mapping stub:
+### Inspect a workbook and write a mapping stub
 
 ```bash
 cookimport inspect data/input/your-workbook.xlsx --write-mapping
 ```
 
-This writes:
+That writes a stub under:
 
 ```text
-data/output/mappings/your-workbook.mapping.yaml
+data/output/mappings/
 ```
 
-2. Use it in one of two ways:
-   - Batch mode: pass it directly with `--mapping`.
-   - Interactive mode: copy/rename it next to your workbook as `data/input/your-workbook.mapping.yaml` so the importer can discover it automatically.
+### EPUB debugging
 
-## Step 7 (Optional): Inspect EPUB Extraction Artifacts (Debug)
-
-Use EPUB debug commands to inspect extractor output directly:
+If an EPUB import looks wrong, compare extraction output directly:
 
 ```bash
-cookimport epub blocks data/input/your-book.epub --extractor markdown --out /tmp/epub-blocks --force
-cookimport epub candidates data/input/your-book.epub --extractor markdown --out /tmp/epub-candidates --force
+cookimport epub blocks data/input/your-book.epub --extractor unstructured --out /tmp/epub-blocks --force
 ```
-
-These write `blocks.jsonl`/`blocks_preview.md` and `candidates.json`/`candidates_preview.md` for manual comparison.
-
-## Step 8 (Optional): Label Studio (Manual Labeling + Evaluation)
-
-You only need this if you want to build a "golden set" of labels, add AI spans, or evaluate predictions.
-
-### A) Start Label Studio (Docker)
-
-If you already have a container:
 
 ```bash
-docker start labelstudio
+cookimport epub candidates data/input/your-book.epub --extractor unstructured --out /tmp/epub-candidates --force
 ```
 
-First-time setup:
+### Performance regression checks
+
+When you are changing runtime performance, use the bench speed tools:
 
 ```bash
-docker run -d \
-  --name labelstudio \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -v labelstudio_data:/label-studio/data \
-  heartexlabs/label-studio:latest
+cookimport bench speed-discover
 ```
 
-Open `http://localhost:8080` in your browser and create/get your API token.
-
-### B) Create tasks (upload)
-
-1. Run `C3imp`.
-2. Choose **Label Studio upload: Create labeling tasks (uploads)**.
-3. Pick your source file.
-4. Choose the task type (pipeline vs canonical-blocks vs freeform-spans).
-5. Follow the prompts.
-
-The tool writes local artifacts under:
-
-```text
-data/golden/sent-to-labelstudio/
+```bash
+cookimport bench speed-run
 ```
 
-Note: Label Studio URL and API key can be saved in `cookimport.json`. Treat the API key like a password.
+```bash
+cookimport bench speed-compare
+```
 
-### C) Export "gold" labels
+## Deeper Docs
 
-Use **Label Studio export: Export completed labels into golden artifacts** when you want your labeled data downloaded into files for evaluation.
-
-### D) Add AI spans (decorate)
-
-Use **Label Studio: decorate existing freeform project with AI spans** to add additional AI labels without deleting existing human work.
-
-### E) Evaluate predictions vs gold
-
-Use **Evaluate predictions vs freeform gold** to score pipeline predictions against your exported "gold" labels.
-
-## Advanced Reference
-
-Full command/flag/environment documentation lives in:
+For current source-of-truth docs, start here:
 - `docs/02-cli/02-cli_README.md`
+- `docs/03-ingestion/03-ingestion_readme.md`
+- `docs/06-label-studio/06-label-studio_README.md`
+- `docs/07-bench/07-bench_README.md`
+- `docs/08-analytics/08-analytics_readme.md`
 
-Cross-cutting "hidden rules" and conventions live in:
-- `docs/IMPORTANT CONVENTIONS.md`
-
-## Optional: One-Time Setup (Only If Needed)
-
-Most of the time, this repo already has a working `.venv/`. Only use this section if:
-- `.venv/` is missing (fresh clone, new machine, or your PC was wiped)
-- You activated the venv but `C3imp` / `cookimport` says "command not found"
-
-### Create `.venv` (one-time)
+## One-Time Setup If `.venv` Is Missing
 
 ```bash
 cd /home/mcnal/projects/recipeimport
 python3 -m venv .venv
-```
-
-### Install the tool (one-time, or after dependency changes)
-
-"Install the tool" means: install this project into your virtual environment so the CLI commands (`cookimport`, `C3imp`) exist inside that venv.
-
-```bash
-cd /home/mcnal/projects/recipeimport
 . .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e .[dev]
 ```
-
-## Delete stuff in label studio en mass
-As of February 23, 2026, Label Studio’s web UI still routes project deletion through Project Settings → Danger Zone with confirmation, so there isn’t a built-in “skip typing” toggle.
-
-  Faster options:
-
-  1. Use the API instead of UI clicks/typing
-     DELETE /api/projects/:id/
-     Example:
-
-  # find project IDs first
-  curl -s "$LS_URL/api/projects/?search=my-project" -H "Authorization: Token $LS_TOKEN"
-
-  # delete one project by ID
-  curl -X DELETE "$LS_URL/api/projects/123/" -H "Authorization: Token $LS_TOKEN"
-
-  2. Use Ctrl+K / Cmd+K command palette to jump around faster in UI (less clicking), though delete confirmation still applies.
-  3. If you’re on Enterprise and just want less clutter, move projects into an archive workspace and archive that workspace (soft-hide instead of hard delete)

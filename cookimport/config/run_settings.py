@@ -1136,8 +1136,8 @@ class RunSettings(BaseModel):
             label="Knowledge Review Shard Count",
             order=115,
             description=(
-                "Direct shard-count override for shard-v1 knowledge runtime. "
-                "When set, the planner partitions ordered non-recipe chunks into this many shards."
+                "Compatibility-only knowledge planning knob. "
+                "The current knowledge planner ignores this and warns because it now emits one shard per deterministic chunk."
             ),
             step=1,
             minimum=1,
@@ -1166,7 +1166,10 @@ class RunSettings(BaseModel):
             group="LLM",
             label="Knowledge Shard Target",
             order=115,
-            description="Optional target chunks per shard for shard-v1 knowledge runtime.",
+            description=(
+                "Compatibility-only knowledge planning knob. "
+                "The current knowledge planner ignores this and warns because it now emits one shard per deterministic chunk."
+            ),
             step=1,
             minimum=1,
             maximum=4096,

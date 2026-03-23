@@ -2417,52 +2417,34 @@ def test_run_direct_knowledge_workers_relaunches_premature_clean_mid_queue_stop(
     run_root = tmp_path / "knowledge"
     codex_home = tmp_path / ".codex-home"
     codex_home.mkdir(parents=True, exist_ok=True)
-    shard = ShardManifestEntryV1(
-        shard_id="book.ks0000.nr",
-        owned_ids=(
-            "book.c0000.nr",
-            "book.c0001.nr",
-            "book.c0002.nr",
-            "book.c0003.nr",
-        ),
-        input_payload={
-            "v": "2",
-            "bid": "book.ks0000.nr",
-            "c": [
-                {
-                    "cid": "book.c0000.nr",
-                    "b": [{"i": 4, "t": "Use low heat to prevent curdling."}],
-                },
-                {
-                    "cid": "book.c0001.nr",
-                    "b": [{"i": 5, "t": "Whisk constantly so the sauce stays smooth."}],
-                },
-                {
-                    "cid": "book.c0002.nr",
-                    "b": [{"i": 6, "t": "Add stock slowly so the emulsion stays glossy."}],
-                },
-                {
-                    "cid": "book.c0003.nr",
-                    "b": [{"i": 7, "t": "Season the sauce at the end to adjust balance."}],
-                },
-            ],
-        },
-        metadata={
-            "ordered_chunk_ids": [
-                "book.c0000.nr",
-                "book.c0001.nr",
-                "book.c0002.nr",
-                "book.c0003.nr",
-            ],
-            "chunk_block_indices_by_id": {
-                "book.c0000.nr": [4],
-                "book.c0001.nr": [5],
-                "book.c0002.nr": [6],
-                "book.c0003.nr": [7],
+    shards = [
+        ShardManifestEntryV1(
+            shard_id=f"book.ks{index:04d}.nr",
+            owned_ids=(f"book.c{index:04d}.nr",),
+            input_payload={
+                "v": "2",
+                "bid": f"book.ks{index:04d}.nr",
+                "c": [
+                    {
+                        "cid": f"book.c{index:04d}.nr",
+                        "b": [{"i": 4 + index, "t": text}],
+                    }
+                ],
             },
-            "owned_block_indices": [4, 5, 6, 7],
-        },
-    )
+            metadata={
+                "ordered_chunk_ids": [f"book.c{index:04d}.nr"],
+                "chunk_block_indices_by_id": {f"book.c{index:04d}.nr": [4 + index]},
+                "owned_block_indices": [4 + index],
+                "chunk_count": 1,
+            },
+        )
+        for index, text in enumerate(
+            (
+                "Use low heat to prevent curdling.",
+                "Whisk constantly so the sauce stays smooth.",
+            )
+        )
+    ]
     runner = _PrematureKnowledgeQueueStopRunner(
         output_builder=lambda payload: dict(payload or {})
     )
@@ -2471,7 +2453,7 @@ def test_run_direct_knowledge_workers_relaunches_premature_clean_mid_queue_stop(
         phase_key="nonrecipe_knowledge_review",
         pipeline_id="recipe.knowledge.compact.v1",
         run_root=run_root,
-        shards=[shard],
+        shards=shards,
         runner=runner,
         worker_count=1,
         env={"COOKIMPORT_CODEX_FARM_CODEX_HOME": str(codex_home)},
@@ -2504,9 +2486,9 @@ def test_run_direct_knowledge_workers_relaunches_premature_clean_mid_queue_stop(
             "reason_code": "workspace_validated_task_queue_premature_clean_exit",
             "reason_detail": (
                 "knowledge workspace worker validated repo-owned output, advanced the "
-                "current task from book.ks0000.nr.task-001 to book.ks0000.nr.task-002, "
+                "current task from book.ks0000.nr to book.ks0001.nr, "
                 "then exited cleanly before the queue completed; relaunching the "
-                "remaining queue; final message: Validated book.ks0000.nr.task-001. "
+                "remaining queue; final message: Validated book.ks0000.nr. "
                 "If you want, I can continue immediately with the next task."
             ),
             "state": "retrying",
@@ -2539,56 +2521,36 @@ def test_run_direct_knowledge_workers_marks_clean_exit_relaunch_cap_reached(
     run_root = tmp_path / "knowledge"
     codex_home = tmp_path / ".codex-home"
     codex_home.mkdir(parents=True, exist_ok=True)
-    shard = ShardManifestEntryV1(
-        shard_id="book.ks0000.nr",
-        owned_ids=(
-            "book.c0000.nr",
-            "book.c0001.nr",
-            "book.c0002.nr",
-            "book.c0003.nr",
-            "book.c0004.nr",
-            "book.c0005.nr",
-            "book.c0006.nr",
-            "book.c0007.nr",
-        ),
-        input_payload={
-            "v": "2",
-            "bid": "book.ks0000.nr",
-            "c": [
-                {"cid": "book.c0000.nr", "b": [{"i": 4, "t": "Use low heat."}]},
-                {"cid": "book.c0001.nr", "b": [{"i": 5, "t": "Whisk constantly."}]},
-                {"cid": "book.c0002.nr", "b": [{"i": 6, "t": "Add stock slowly."}]},
-                {"cid": "book.c0003.nr", "b": [{"i": 7, "t": "Season at the end."}]},
-                {"cid": "book.c0004.nr", "b": [{"i": 8, "t": "Simmer gently."}]},
-                {"cid": "book.c0005.nr", "b": [{"i": 9, "t": "Taste before serving."}]},
-                {"cid": "book.c0006.nr", "b": [{"i": 10, "t": "Rest the sauce briefly."}]},
-                {"cid": "book.c0007.nr", "b": [{"i": 11, "t": "Finish with lemon juice."}]},
-            ],
-        },
-        metadata={
-            "ordered_chunk_ids": [
-                "book.c0000.nr",
-                "book.c0001.nr",
-                "book.c0002.nr",
-                "book.c0003.nr",
-                "book.c0004.nr",
-                "book.c0005.nr",
-                "book.c0006.nr",
-                "book.c0007.nr",
-            ],
-            "chunk_block_indices_by_id": {
-                "book.c0000.nr": [4],
-                "book.c0001.nr": [5],
-                "book.c0002.nr": [6],
-                "book.c0003.nr": [7],
-                "book.c0004.nr": [8],
-                "book.c0005.nr": [9],
-                "book.c0006.nr": [10],
-                "book.c0007.nr": [11],
+    shards = [
+        ShardManifestEntryV1(
+            shard_id=f"book.ks{index:04d}.nr",
+            owned_ids=(f"book.c{index:04d}.nr",),
+            input_payload={
+                "v": "2",
+                "bid": f"book.ks{index:04d}.nr",
+                "c": [
+                    {
+                        "cid": f"book.c{index:04d}.nr",
+                        "b": [{"i": 4 + index, "t": text}],
+                    }
+                ],
             },
-            "owned_block_indices": [4, 5, 6, 7, 8, 9, 10, 11],
-        },
-    )
+            metadata={
+                "ordered_chunk_ids": [f"book.c{index:04d}.nr"],
+                "chunk_block_indices_by_id": {f"book.c{index:04d}.nr": [4 + index]},
+                "owned_block_indices": [4 + index],
+                "chunk_count": 1,
+            },
+        )
+        for index, text in enumerate(
+            (
+                "Use low heat.",
+                "Whisk constantly.",
+                "Add stock slowly.",
+                "Season at the end.",
+            )
+        )
+    ]
     relaunch_max = knowledge_module._KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES  # noqa: SLF001
     runner = _PrematureKnowledgeQueueStopRunner(
         output_builder=lambda payload: dict(payload or {}),
@@ -2599,7 +2561,7 @@ def test_run_direct_knowledge_workers_marks_clean_exit_relaunch_cap_reached(
         phase_key="nonrecipe_knowledge_review",
         pipeline_id="recipe.knowledge.compact.v1",
         run_root=run_root,
-        shards=[shard],
+        shards=shards,
         runner=runner,
         worker_count=1,
         env={"COOKIMPORT_CODEX_FARM_CODEX_HOME": str(codex_home)},
@@ -2632,10 +2594,10 @@ def test_run_direct_knowledge_workers_marks_clean_exit_relaunch_cap_reached(
     assert live_status["workspace_premature_clean_exit_count"] == relaunch_max
     assert len(live_status["workspace_relaunch_history"]) == relaunch_max
     assert "automatic relaunch cap" in str(live_status["reason_detail"])
-    assert current_task["task_id"] == "book.ks0000.nr.task-004"
-    assert current_batch["tasks"][0]["task_id"] == "book.ks0000.nr.task-004"
+    assert current_task["task_id"] == "book.ks0003.nr"
+    assert current_batch["tasks"][0]["task_id"] == "book.ks0003.nr"
     assert "No repo-written validation feedback exists yet for this batch." in current_batch_feedback
-    assert last_message["text"].startswith("Validated book.ks0000.nr.task-003.")
+    assert last_message["text"].startswith("Validated book.ks0002.nr.")
     assert worker_report.metadata["workspace_relaunch_count"] == relaunch_max
     assert worker_report.metadata["workspace_relaunch_cap_reached"] is True
     assert process_summary["workspace_relaunch_count_total"] == relaunch_max
@@ -3619,8 +3581,8 @@ def test_knowledge_orchestrator_counts_taskized_watchdog_failures_inside_large_p
     assert hasattr(apply_result, "llm_report")
 
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
-    assert process_summary["workspace_worker_session_count"] == 1
-    assert process_summary["structured_followup_call_count"] == 2
+    assert process_summary["workspace_worker_session_count"] == 2
+    assert process_summary["structured_followup_call_count"] == 4
     assert apply_result.llm_report["review_status"] == "unreviewed"
 
 
@@ -4149,13 +4111,13 @@ def test_knowledge_orchestrator_taskization_eliminates_old_missing_rows_split_re
     fixture = _run_missing_rows_taskization_fixture(tmp_path, monkeypatch)
     apply_result = fixture["apply_result"]
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
-    assert process_summary["call_count"] == 1
+    assert process_summary["call_count"] == 2
     assert process_summary["invalid_output_shard_count"] == 0
     assert process_summary["repaired_shard_count"] == 0
-    assert process_summary["workspace_worker_session_count"] == 1
+    assert process_summary["workspace_worker_session_count"] == 2
     assert process_summary["structured_followup_call_count"] == 0
     assert process_summary["prompt_input_mode_counts"] == {
-        "workspace_worker": 1,
+        "workspace_worker": 2,
     }
 
 
@@ -4171,10 +4133,7 @@ def test_knowledge_orchestrator_taskization_persists_clean_taskized_proposal(
     assert proposal["retry_status"] == "not_attempted"
     assert proposal["repair_attempted"] is False
     assert proposal["payload"]["bid"] == "book.ks0000.nr"
-    assert [row["cid"] for row in proposal["payload"]["r"]] == [
-        "book.c0000.nr",
-        "book.c0001.nr",
-    ]
+    assert [row["cid"] for row in proposal["payload"]["r"]] == ["book.c0000.nr"]
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 1
 
 
@@ -4960,10 +4919,15 @@ def test_knowledge_orchestrator_taskizes_multi_chunk_shards_inside_workspace_ass
     assert isinstance(task_manifest, list)
     assert isinstance(worker_root, Path)
 
-    assert [row["task_id"] for row in task_manifest] == ["book.ks0000.nr"]
-    assert [row["parent_shard_id"] for row in task_manifest] == ["book.ks0000.nr"]
-    assert task_manifest[0]["owned_ids"] == ["book.c0000.nr", "book.c0001.nr"]
+    assert [row["task_id"] for row in task_manifest] == ["book.ks0000.nr", "book.ks0001.nr"]
+    assert [row["parent_shard_id"] for row in task_manifest] == [
+        "book.ks0000.nr",
+        "book.ks0001.nr",
+    ]
+    assert task_manifest[0]["owned_ids"] == ["book.c0000.nr"]
+    assert task_manifest[1]["owned_ids"] == ["book.c0001.nr"]
     assert (worker_root / "out" / "book.ks0000.nr.json").exists()
+    assert (worker_root / "out" / "book.ks0001.nr.json").exists()
 
 
 def test_knowledge_orchestrator_accepts_all_taskized_outputs_inside_workspace_assignment(
@@ -4981,7 +4945,7 @@ def test_knowledge_orchestrator_accepts_all_taskized_outputs_inside_workspace_as
     assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
         "book.ks0000.nr",
     ]
-    assert apply_result.llm_report["counts"]["validated_shards"] == 1
+    assert apply_result.llm_report["counts"]["validated_shards"] == 2
 
 
 def _run_partial_task_promotion_fixture(
@@ -5068,39 +5032,7 @@ def _run_partial_task_promotion_fixture(
     def _task_output(payload: dict[str, object]) -> dict[str, object]:
         task_id = str(payload["bid"])
         chunk_rows = _payload_chunks_or_fallback(payload)
-        if task_id.endswith("task-001"):
-            return {
-                "v": "2",
-                "bid": task_id,
-                "r": [
-                    {
-                        "cid": chunk["cid"],
-                        "u": True,
-                        "d": [{"i": chunk["b"][0]["i"], "c": "knowledge", "rc": "knowledge"}],
-                        "s": [
-                            {
-                                "b": (
-                                    "Whisk constantly."
-                                    if index == 0
-                                    else "Serve immediately while the sauce is glossy."
-                                ),
-                                "e": [
-                                    {
-                                        "i": chunk["b"][0]["i"],
-                                        "q": (
-                                            "Whisk constantly."
-                                            if index == 0
-                                            else "Serve the sauce immediately while it is still glossy."
-                                        ),
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                    for index, chunk in enumerate(chunk_rows)
-                ],
-            }
-        if task_id.endswith("task-002"):
+        if task_id in {"book.ks0000.nr", "book.ks0001.nr"}:
             chunk = chunk_rows[0]
             block = chunk["b"][0]
             return {
@@ -5113,7 +5045,11 @@ def _run_partial_task_promotion_fixture(
                         "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
                         "s": [
                             {
-                                "b": "...",
+                                "b": (
+                                    "Whisk constantly."
+                                    if task_id == "book.ks0000.nr"
+                                    else "Serve immediately while the sauce is glossy."
+                                ),
                                 "e": [{"i": block["i"], "q": str(block["t"])}],
                             }
                         ],
@@ -5173,9 +5109,10 @@ def _run_partial_task_promotion_fixture(
     phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
     return {
         "apply_result": apply_result,
-        "proposal": json.loads(
-            (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
-        ),
+        "proposals": {
+            path.stem: json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted((phase_dir / "proposals").glob("*.json"))
+        },
         "task_rows": [
             json.loads(line)
             for line in (phase_dir / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
@@ -5199,18 +5136,18 @@ def test_knowledge_orchestrator_partially_promotes_accepted_task_packets_from_in
     }
     assert apply_result.llm_report["stage_status"] == "completed_with_failures"
     assert apply_result.llm_report["review_status"] == "partial"
-    assert apply_result.llm_report["counts"]["validated_shards"] == 0
+    assert apply_result.llm_report["counts"]["validated_shards"] == 2
     assert apply_result.llm_report["counts"]["invalid_shards"] == 1
-    assert apply_result.llm_report["counts"]["partially_promoted_shards"] == 1
-    assert apply_result.llm_report["counts"]["wholly_unpromoted_invalid_shards"] == 0
+    assert apply_result.llm_report["counts"]["partially_promoted_shards"] == 0
+    assert apply_result.llm_report["counts"]["wholly_unpromoted_invalid_shards"] == 1
     assert apply_result.llm_report["counts"]["promoted_chunk_count"] == 2
     assert apply_result.llm_report["counts"]["outputs_parsed"] == 2
-    assert apply_result.llm_report["counts"]["unreviewed_shard_count"] == 0
+    assert apply_result.llm_report["counts"]["unreviewed_shard_count"] == 1
     assert apply_result.llm_report["counts"]["unreviewed_chunk_count"] == 1
     assert apply_result.llm_report["counts"]["chunks_missing"] == 1
-    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 1
-    assert apply_result.llm_report["review_summary"]["partially_promoted_shard_count"] == 1
-    assert apply_result.llm_report["review_summary"]["unreviewed_shard_count"] == 0
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 2
+    assert apply_result.llm_report["review_summary"]["partially_promoted_shard_count"] == 0
+    assert apply_result.llm_report["review_summary"]["unreviewed_shard_count"] == 1
     assert apply_result.llm_report["review_summary"]["reviewed_chunk_count"] == 2
     assert apply_result.llm_report["missing_chunk_ids"] == ["book.c0002.nr"]
 
@@ -5220,17 +5157,17 @@ def test_knowledge_orchestrator_records_partial_parent_shard_task_acceptance_met
     tmp_path: Path,
 ) -> None:
     fixture = _run_partial_task_promotion_fixture(monkeypatch, tmp_path)
-    proposal = fixture["proposal"]
+    proposals = fixture["proposals"]
     task_rows = fixture["task_rows"]
-    assert isinstance(proposal, dict)
+    assert isinstance(proposals, dict)
     assert isinstance(task_rows, list)
 
-    assert proposal["validation_errors"] == ["missing_owned_chunk_results"]
-    assert proposal["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == [
-        "book.ks0000.nr.task-001",
-    ]
+    assert proposals["book.ks0000.nr"]["validation_errors"] == []
+    assert proposals["book.ks0001.nr"]["validation_errors"] == []
+    assert proposals["book.ks0002.nr"]["validation_errors"] == ["missing_owned_chunk_results"]
+    assert proposals["book.ks0002.nr"]["validation_metadata"]["task_aggregation"]["accepted_task_ids"] == []
     assert task_rows[0]["state"] == "validated"
-    assert task_rows[1]["validation_errors"] == ["semantic_snippet_body_not_grounded_text"]
+    assert task_rows[2]["validation_errors"] == ["semantic_snippet_body_not_grounded_text"]
 
 
 def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
@@ -5825,12 +5762,12 @@ def test_knowledge_orchestrator_counts_valid_and_invalid_shards_in_same_run(
 
     assert llm_report["stage_status"] == "completed_with_failures"
     assert llm_report["review_status"] == "partial"
-    assert llm_report["review_summary"]["planned_shard_count"] == 2
+    assert llm_report["review_summary"]["planned_shard_count"] == 3
     assert llm_report["review_summary"]["reviewed_shard_count"] == 1
     assert llm_report["review_summary"]["validated_shard_count"] == 1
-    assert llm_report["review_summary"]["invalid_shard_count"] == 1
+    assert llm_report["review_summary"]["invalid_shard_count"] == 2
     assert llm_report["review_summary"]["reviewed_shards_with_useful_chunks"] == 1
-    assert llm_report["review_summary"]["unreviewed_shard_count"] == 1
+    assert llm_report["review_summary"]["unreviewed_shard_count"] == 2
 
 
 def test_knowledge_orchestrator_reports_missing_chunk_counts_for_mixed_shard_run(
@@ -5840,11 +5777,11 @@ def test_knowledge_orchestrator_reports_missing_chunk_counts_for_mixed_shard_run
     fixture = _run_valid_and_invalid_shard_mix_fixture(monkeypatch, tmp_path)
     llm_report = fixture["apply_result"].llm_report
 
-    assert llm_report["counts"]["outputs_parsed"] == 2
-    assert llm_report["counts"]["invalid_shards"] == 1
-    assert llm_report["counts"]["unreviewed_chunk_count"] == 1
-    assert llm_report["counts"]["chunks_missing"] == 1
-    assert llm_report["missing_chunk_ids"] == ["book.c0002.nr"]
+    assert llm_report["counts"]["outputs_parsed"] == 1
+    assert llm_report["counts"]["invalid_shards"] == 2
+    assert llm_report["counts"]["unreviewed_chunk_count"] == 2
+    assert llm_report["counts"]["chunks_missing"] == 2
+    assert llm_report["missing_chunk_ids"] == ["book.c0001.nr", "book.c0002.nr"]
 
 
 def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warnings(
