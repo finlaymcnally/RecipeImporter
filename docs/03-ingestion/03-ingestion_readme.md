@@ -15,11 +15,10 @@ Historical architecture/build/fix-attempt notes are tracked in `docs/03-ingestio
 ## Scope
 
 Ingestion is the stage that converts source files into `ConversionResult` payloads that include:
-- `recipes` (`RecipeCandidate`)
-- `tips` and `tip_candidates`
-- `topic_candidates`
+- `source_blocks` (`SourceBlock`)
+- `source_support` (`SourceSupport`, always non-authoritative)
 - `chunks`
-- `non_recipe_blocks` (block-first formats)
+- `non_recipe_blocks` (downstream Stage 7 cache, not importer truth)
 - `raw_artifacts`
 - `report`
 
@@ -33,15 +32,16 @@ Primary folders:
 ## Where The Code Lives
 
 Core orchestration:
-- `cookimport/cli.py` (job planning, worker dispatch, split merge, run telemetry, report/perf history writes)
-- `cookimport/cli_worker.py` (per-file and per-split worker execution)
+- `cookimport/cli.py` (source-job planning, worker dispatch, universal merge, run telemetry, report/perf history writes)
+- `cookimport/cli_worker.py` (bounded source-job execution)
 - `cookimport/labelstudio/ingest.py` (Label Studio benchmark import path; shares staging writers and finalizes report totals from in-memory results, with mismatch diagnostics artifact whenever pre-finalization totals drift, including implicit default-zero rewrites)
 
 Run-setting normalization and policy locks:
 - `cookimport/config/run_settings.py`
 - `cookimport/epub_extractor_names.py`
 
-Split planning and ID reassignment:
+Source-job planning and ID reassignment:
+- `cookimport/staging/job_planning.py`
 - `cookimport/staging/pdf_jobs.py`
 
 Importer registry + importers:
@@ -97,7 +97,7 @@ OCR:
 - Builds `base_mapping` once and always passes it to workers.
 - Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table export/chunking behavior, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
 - `RunSettings.from_dict(...)` validates recipe codex-farm parsing values against the current public surface (`off` and `codex-recipe-shard-v1`) and rejects removed recipe-pipeline ids.
-- Plans jobs with `_plan_jobs(...)`.
+- Plans jobs with `plan_source_jobs(...)`.
 - Executes with process-first worker fanout and fallback order `ProcessPoolExecutor -> subprocess-backed workers -> ThreadPoolExecutor -> serial`.
 - Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
 - Under thread fallback, worker labels include thread names (for example `MainProcess (...) / ThreadPoolExecutor-...`) so telemetry worker counts reflect concurrent thread workers.
@@ -105,7 +105,7 @@ OCR:
 Important detail:
 - Because `base_mapping` is always passed, worker `_run_import(...)` usually does not call `importer.inspect(...)` in non-split conversion path. Inspection is still used during split planning.
 
-### 2) Job planning (`cookimport/cli.py:_plan_jobs`)
+### 2) Job planning (`cookimport/staging/job_planning.py`)
 
 Per file:
 - PDF split considered when:
@@ -119,88 +119,66 @@ Per file:
   - selected extractor is not `markitdown`
   - `epub_spine_items_per_job > 0`
   - inspect returns spine count
-- Otherwise one non-split `JobSpec`.
+- Otherwise one whole-source `JobSpec`.
 
 Range generation:
 - PDF uses `plan_pdf_page_ranges(...)`.
 - EPUB uses generic `plan_job_ranges(...)`.
-- Split only happens if range count > 1.
+- Multi-job split only happens if range count > 1; a one-job plan is still the same runtime shape.
 
 ### 3) Worker execution (`cookimport/cli_worker.py`)
 
-Non-split file:
-- `stage_one_file(...)`
-- Runs importer conversion
-- Applies optional `--limit` to recipes and tips
-- Hands the result to `execute_stage_import_session_from_result(...)`
-- Session can run codex-farm recipe/knowledge passes when enabled, extracts non-recipe tables from Stage 7 rows, builds chunks from Stage 7-owned non-recipe rows or topic fallback, and writes intermediate/final outputs plus sections, tips, topic candidates, chunks when present, tables, raw artifacts, stage-block predictions, and report
-
-Split job:
-- `stage_pdf_job(...)` or `stage_epub_job(...)`
-- Runs ranged conversion
+Every file/job:
+- `execute_source_job(...)`
+- Runs importer conversion for either the whole source or the planned page/spine range
 - Writes only raw artifacts into temporary:
   - `<run_out>/.job_parts/<workbook_slug>/job_<index>/raw/...`
 - Clears `result.raw_artifacts` before returning payload
-- Returns mergeable job result dict (contains `result` and timing)
+- Returns one mergeable job result dict (contains `result`, importer name, and timing)
 
-### 4) Main-process merge for split files (`cookimport/cli.py:_merge_split_jobs`)
+### 4) Main-process merge for every file (`cookimport/cli.py:_merge_source_jobs`)
 
 - Waits until all jobs for a source file return.
 - If any job failed: merge skipped, error report written, `.job_parts` left for debugging.
 - If all succeed:
   - Sorts job payloads by start range (`start_spine` then fallback / `start_page` path)
-  - Concatenates recipes/tip candidates/topic candidates/non-recipe blocks
-  - Reassigns recipe IDs globally (single sequence) via `reassign_recipe_ids(...)`
-  - Rebuilds merged `raw/<importer>/<source_hash>/full_text.json` from split-job `full_text` artifacts and rebases block indices
-  - Re-partitions tips from merged `tip_candidates`
-  - Runs the shared downstream session once on the merged payload (`execute_stage_import_session_from_result(...)`), including optional codex-farm recipe/knowledge passes, table extraction, chunk generation, and final writes
-  - Emits phase-by-phase main-process status updates (merge payloads, IDs, chunk build, write phases, raw merge)
+  - Offsets and concatenates canonical source blocks plus source support
+  - Rebuilds merged `raw/<importer>/<source_hash>/full_text.json` from per-job `full_text` artifacts and rebases block indices
+  - Runs the shared downstream session once on the merged source model (`execute_stage_import_session_from_result(...)`), including label-first recipe creation, optional codex-farm recipe/knowledge passes, table extraction, chunk generation, and final writes
+  - Emits phase-by-phase main-process status updates (source merge, authoritative stage build, write phases, raw merge)
   - Moves raw artifacts from `.job_parts/.../raw` into run `raw/...`
   - Removes `.job_parts/<workbook_slug>` on successful merge
-
-Merge performance detail:
-- Topic candidate output writing can involve thousands of records; file-hash lookup now caches by source file metadata so merged runs do not re-hash the same source file for every candidate.
 
 Raw collision behavior:
 - If target raw filename already exists during merge move, prefixed as `job_<index>_<name>` (and suffixed with counter if still colliding).
 
-## Split Merge Ordering And ID Rules
+## Split Merge Ordering Rules
 
-ID and ordering rules are centralized in `cookimport/staging/pdf_jobs.py`:
-- `_recipe_sort_key(...)` ordering precedence:
-  1. `location.start_spine` (+ `start_block`)
-  2. `location.start_page` (+ `start_block`)
-  3. `location.start_block`
-  4. fallback index
-- `reassign_recipe_ids(...)` rewrites recipe IDs to `...:c0`, `...:c1`, ...
-- Also updates:
-  - recipe provenance `@id` / `id`
-  - `location.chunk_index` (and camel alias)
-  - `tip.source_recipe_id`
-  - tip provenance `@id` / `id` if they point to remapped recipe IDs
-
-This applies to both split PDF and split EPUB merges.
+Split-job ordering is source-first:
+- job payloads sort by source range (`start_spine` then `start_page`)
+- merged canonical source blocks keep that order after block-index rebasing
+- merged source support is rebased onto the merged block ids
+- recipe ids are assigned later by the authoritative label-first stage after recipes actually exist
 
 ## Importer Families (Convergence Model)
 
 From code and historical notes:
 - Block-first importers: EPUB, PDF
   - Build ordered `Block` streams
-  - Segment candidate ranges from block anchors
-  - Preserve non-recipe blocks for chunking
-- Recipe-record-first importers: Text, Excel
-  - Build `RecipeCandidate` records from rows/text sections
+  - Preserve source-native structure as optional support
+- Record-first importers: Text, Excel
+  - Synthesize canonical source blocks from lines/rows
 - Structured-import-first: Paprika, RecipeSage
-  - Map near-structured exports into `RecipeCandidate`
+  - Synthesize canonical source blocks from exported recipe objects
 
 Convergence point:
 - All importers return `ConversionResult`.
-- Importers now score each candidate with deterministic recipe-likeness (`heuristic_v1`) and map tier to gate action (`keep_full`, `keep_partial`, `reject`).
-- The text multi-recipe splitter also treats explicit divider lines such as `==== RECIPE ==== ` as candidate boundaries when the left side already has recipe signals and the next non-empty line is title-like. That lets trailing note sections become their own low-likeness candidate chunk and be preserved as rejected non-recipe text instead of being silently absorbed into the accepted recipe chunk.
-- EPUB conversion/reference section titles such as `WEIGHT CONVERSIONS` and `COMMON TEMPERATURE CONVERSIONS` now take an explicit recipe-likeness penalty so preserved tables stay available to `nonRecipeBlocks` instead of being emitted as fake recipes.
-- Rejected candidates are preserved as `nonRecipeBlocks` so downstream tip/topic/chunk extraction keeps that source text.
+- Stage-backed flows require canonical `source_blocks`; merge and archive helpers consume that seam directly.
+- `cookimport/core/source_model.py` owns source-model normalization, merge-safe block rebasing, and writes `raw/source/<workbook_slug>/source_blocks.jsonl` plus `source_support.json`.
+- Importers may emit proposal support such as candidate regions, but those proposals are persisted as non-authoritative support only.
+- The text multi-recipe splitter still detects likely recipe regions, including explicit divider lines such as `==== RECIPE ====`, but those regions now survive only as proposal `source_support`.
 - Final recipe normalization converges in `write_draft_outputs(...)` where `recipe_candidate_to_draft_v1(...)` runs shared parsing/linking transforms.
-- Knowledge chunking happens after conversion from `non_recipe_blocks` (or topic fallback).
+- Knowledge chunking happens after conversion from authoritative final `non_recipe_blocks`.
 
 ## Format Support Matrix (Current)
 
@@ -256,7 +234,7 @@ Block extraction:
 - Applies shared post-extraction cleanup for `unstructured`/`beautifulsoup`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
 - HTML-table EPUB rows are now preserved with structured cell metadata (`features.epub_table_cells`) and visible `|` delimiters in both the BeautifulSoup and unstructured paths, so downstream table extraction can recover conversion/reference charts deterministically.
 - Stage/benchmark prediction flows now require explicit extractor choices (`unstructured|beautifulsoup|markdown|markitdown`).
-- Standalone tip/topic extraction now applies deterministic pre-candidate filtering (`toc_noise`, `cross_reference_noise`, `intro_narrative`, duplicate-title carryover) and deterministic long-block sentence splitting, with raw diagnostics artifact `standalone_tip_filter_diagnostics`.
+- EPUB conversion now ends at source-first extraction: `sourceBlocks`, `sourceSupport`, pattern diagnostics, and empty `nonRecipeBlocks`. Importers no longer own a standalone tip/topic semantic lane.
 
 MarkItDown-specific behavior:
 - Uses `markitdown` with plugins disabled (`MarkItDown(enable_plugins=False)`)
@@ -421,9 +399,9 @@ Behavior highlights:
   - ingredient/instruction likelihood
 - `patterns.py` holds shared regexes for quantities/units/time/yield.
 - EPUB extraction health metrics are computed in `cookimport/parsing/epub_health.py` and written as raw artifact `epub_extraction_health.json`; warning keys are appended to report warnings when thresholds trip.
-- `tips.py` mines candidate-anchored tips plus standalone-topic tips and partitions into `general` / `recipe_specific` / `not_tip`.
-- `atoms.py` splits standalone non-recipe text containers into atomic lines for standalone tip/topic analysis.
-- `chunks.py` builds `KnowledgeChunk` records from non-recipe blocks (or topic fallback), preserving table runs via `table_id`.
+- `tips.py` still holds the residual advice/highlight extraction helpers used by chunk highlighting and parser-focused tests.
+- `atoms.py` splits standalone non-recipe text containers into atomic lines when parser helpers need finer-grained analysis or provenance context.
+- `chunks.py` builds `KnowledgeChunk` records from authoritative final non-recipe blocks, preserving table runs via `table_id`.
 - `tables.py` detects/annotates table rows in non-recipe blocks and emits `ExtractedTable` payloads; it now prefers structured EPUB row metadata before falling back to text parsing.
 - `sections.py` groups ingredient and instruction lines into sectioned artifacts used by writer section outputs.
 
@@ -452,18 +430,17 @@ For a run at `data/output/<timestamp>/`:
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json` (+ optional `sections.md`)
-- `tips/<workbook_slug>/...` (includes `topic_candidates.json` / optional `topic_candidates.md`)
 - `chunks/<workbook_slug>/...` (when generated)
 - `tables/<workbook_slug>/tables.jsonl` (+ optional `tables.md` when markdown outputs are enabled)
+- `raw/source/<workbook_slug>/source_blocks.jsonl`
+- `raw/source/<workbook_slug>/source_support.json`
 - `raw/<importer>/<source_hash>/<location_id>.<ext>`
-  - includes `recipe_scoring_debug.jsonl` (one deterministic decision row per candidate) when candidate scoring runs
 - `.bench/<workbook_slug>/stage_block_predictions.json`
 - `<workbook_slug>.excel_import_report.json`
 - `processing_timeseries.jsonl`
 
 Reporting/perf:
 - Report has `runTimestamp`, `importerName`, optional `epubBackend`, timing, warnings/errors, sample stats.
-- Report includes `recipeLikeness` summary payload (backend/version, thresholds, tier counts, score stats, rejected count).
 - Report now includes `runConfig` for run-level knobs (including `epub_extractor`, unstructured parser/preprocess flags, `multi_recipe_*` splitter settings, worker counts, OCR settings, split sizes, and optional mapping/overrides paths).
 - Report includes `runConfigHash` and `runConfigSummary` for reproducibility and history grouping.
 - Report includes `llmCodexFarm` status payload (recipe pipeline stays `off` unless run settings enable it).

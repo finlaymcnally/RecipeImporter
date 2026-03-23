@@ -14,9 +14,17 @@ from typing import Any, Callable, Mapping, Sequence
 from cookimport.config.run_settings import RunSettings
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.core.progress_messages import format_stage_progress
-from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
+from cookimport.core.models import (
+    AuthoritativeRecipeSemantics,
+    ConversionResult,
+    RecipeCandidate,
+    RecipeDraftV1,
+)
 from cookimport.runs import RECIPE_MANIFEST_FILE_NAME
-from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
+from cookimport.staging.draft_v1 import (
+    authoritative_recipe_semantics_to_draft_v1,
+    build_authoritative_recipe_semantics,
+)
 
 from .codex_farm_contracts import (
     MergedRecipeRepairInput,
@@ -160,8 +168,7 @@ def _effort_override_value(value: object | None) -> str | None:
 @dataclass
 class CodexFarmApplyResult:
     updated_conversion_result: ConversionResult
-    intermediate_overrides_by_recipe_id: dict[str, dict[str, Any]]
-    final_overrides_by_recipe_id: dict[str, dict[str, Any]]
+    authoritative_recipe_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics]
     llm_report: dict[str, Any]
     llm_raw_dir: Path
 
@@ -3885,8 +3892,7 @@ def _run_single_correction_recipe_pipeline(
         _write_json(manifest, manifest_path)
         return CodexFarmApplyResult(
             updated_conversion_result=conversion_result,
-            intermediate_overrides_by_recipe_id={},
-            final_overrides_by_recipe_id={},
+            authoritative_recipe_payloads_by_recipe_id={},
             llm_report={
                 "enabled": True,
                 "pipeline": SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
@@ -4054,6 +4060,7 @@ def _run_single_correction_recipe_pipeline(
         str(recipe.identifier or ""): recipe
         for recipe in updated_result.recipes
     }
+    authoritative_recipe_payloads: dict[str, AuthoritativeRecipeSemantics] = {}
     intermediate_overrides: dict[str, dict[str, Any]] = {}
     final_overrides: dict[str, dict[str, Any]] = {}
     explicitly_rejected_recipe_ids: set[str] = set()
@@ -4140,12 +4147,18 @@ def _run_single_correction_recipe_pipeline(
                 state=state,
                 output=correction_output,
             )
-            final_payload = recipe_candidate_to_draft_v1(
+            authoritative_payload = build_authoritative_recipe_semantics(
                 corrected_candidate,
+                semantic_authority=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
                 ingredient_parser_options=run_settings.to_run_config_dict(),
                 instruction_step_options=run_settings.to_run_config_dict(),
                 ingredient_step_mapping_override=correction_output.ingredient_step_mapping,
                 ingredient_step_mapping_reason=correction_output.ingredient_step_mapping_reason,
+            )
+            final_payload = authoritative_recipe_semantics_to_draft_v1(
+                authoritative_payload,
+                ingredient_parser_options=run_settings.to_run_config_dict(),
+                instruction_step_options=run_settings.to_run_config_dict(),
             )
             structural_audit = _classify_recipe_correction_structural_audit(
                 correction_output=correction_output,
@@ -4206,6 +4219,7 @@ def _run_single_correction_recipe_pipeline(
                 by_alias=True,
                 exclude_none=True,
             )
+            authoritative_recipe_payloads[state.recipe_id] = authoritative_payload
             final_overrides[state.recipe_id] = draft_model.model_dump(
                 mode="json",
                 by_alias=True,
@@ -4235,8 +4249,7 @@ def _run_single_correction_recipe_pipeline(
     _write_json(manifest, manifest_path)
     return CodexFarmApplyResult(
         updated_conversion_result=updated_result,
-        intermediate_overrides_by_recipe_id=intermediate_overrides,
-        final_overrides_by_recipe_id=final_overrides,
+        authoritative_recipe_payloads_by_recipe_id=authoritative_recipe_payloads,
         llm_report={
             "enabled": True,
             "pipeline": SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
@@ -4342,8 +4355,7 @@ def run_codex_farm_recipe_pipeline(
     if run_settings.llm_recipe_pipeline.value == "off":
         return CodexFarmApplyResult(
             updated_conversion_result=conversion_result,
-            intermediate_overrides_by_recipe_id={},
-            final_overrides_by_recipe_id={},
+            authoritative_recipe_payloads_by_recipe_id={},
             llm_report={"enabled": False, "pipeline": "off"},
             llm_raw_dir=run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug),
         )

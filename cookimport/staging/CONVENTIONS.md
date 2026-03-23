@@ -8,9 +8,7 @@ Output-path and artifact contracts for staging writers and merge flows.
   - `<run_root>/<workbook_slug>.excel_import_report.json`
 - `cookimport/core/reporting.py` includes an older `ReportBuilder` that writes under `reports/`; it is not part of the active runtime flow.
 - When updating docs about report locations, verify `stage()` and split-merge paths in `cookimport/cli.py` before documenting.
-- Report metadata fields that must be consistent across normal and split runs (for example `importerName`, `runConfig`, `runConfigHash`, `runConfigSummary`) must be set in both:
-  - `cookimport/cli_worker.py` (single-file writer path)
-  - `cookimport/cli.py:_merge_split_jobs` (split merge writer path)
+- Report metadata fields that must stay consistent across stage runs (for example `importerName`, `runConfig`, `runConfigHash`, `runConfigSummary`) are attached to worker payloads in `cookimport/cli_worker.py:execute_source_job(...)` and finalized when `cookimport/cli.py:_merge_source_jobs(...)` writes the run report.
 
 ## Stage Block Prediction Convention
 
@@ -25,8 +23,7 @@ Output-path and artifact contracts for staging writers and merge flows.
   - `sections/<workbook_slug>/r{index}.sections.json`
   - `sections/<workbook_slug>/sections.md`
 - Keep section artifact writes wired in both:
-  - `cookimport/cli_worker.py` (single-file stage path)
-  - `cookimport/cli.py:_merge_split_jobs` (split merge path)
+  - `cookimport/cli.py:_merge_source_jobs` (stage merge path)
   - `cookimport/labelstudio/ingest.py` (pred-run artifact path)
 - Intermediate JSON-LD section contract:
   - instruction section-header lines are removed from literal step text,

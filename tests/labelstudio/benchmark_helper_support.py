@@ -54,6 +54,13 @@ def _force_helper_oracle_test_lane(monkeypatch: pytest.MonkeyPatch) -> None:
         "COOKIMPORT_ORACLE_TEST_HELPER_LABEL",
         "pytest labelstudio benchmark helper",
     )
+    # Default benchmark-helper tests should never open a live Oracle browser chat.
+    # Tests that need launch assertions override this stub explicitly.
+    monkeypatch.setattr(
+        cli,
+        "_start_benchmark_bundle_oracle_upload_background",
+        lambda **_kwargs: None,
+    )
 
 
 def _benchmark_test_run_settings(

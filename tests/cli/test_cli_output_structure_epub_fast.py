@@ -9,7 +9,7 @@ import pytest
 from cookimport import cli
 from cookimport.cli import app
 from cookimport.core.executor_fallback import ProcessThreadExecutorResolution
-from tests.fast_stage_pipeline import install_fake_stage_one_file
+from tests.fast_stage_pipeline import install_fake_source_job_stage
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 runner = CliRunner()
@@ -28,7 +28,7 @@ _BASE_STAGE_ARGS = [
 
 @pytest.fixture(autouse=True)
 def _use_fake_epub_stage_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
-    install_fake_stage_one_file(
+    install_fake_source_job_stage(
         monkeypatch,
         importer_name="epub",
         emit_epub_backend_artifacts=True,
@@ -157,4 +157,3 @@ def test_stage_markdown_epub_writes_backend_and_diagnostics(
     assert "epubAutoSelection" not in report
     assert "epubAutoSelectedScore" not in report
     assert list((timestamp_dir / "raw" / "epub").glob("**/markdown_blocks.jsonl"))
-

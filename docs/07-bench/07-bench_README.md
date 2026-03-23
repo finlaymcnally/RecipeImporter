@@ -57,6 +57,7 @@ Interactive benchmark wrap-up behavior:
 - Each detached launch directory is also the persistent staging root for that lane's temporary prompt packet: staged lane brief, path-selected `upload_bundle_payload.jsonl` subset, and any sharded upload files. The checked `upload_bundle_v1` stays immutable on disk.
 - Detached benchmark uploads now also launch a local follow-up worker in the same per-lane source run directory. It finalizes the saved turn-1 `oracle_upload_status.json` from the completed Oracle log, writes `oracle_auto_followup.json` plus `oracle_auto_followup.log`, and if Oracle requested follow-up data it automatically builds `followup_data1/` and sends turn 2 into the same ChatGPT conversation.
 - turn-1 timeout recovery now appends any reattached Oracle answer back into the original `oracle_upload.log` before the follow-up worker re-audits it, and automatic turn 2 may proceed from either a grounded turn-1 answer or an `invalid_grounding` answer when Oracle explicitly requested follow-up data to resolve the mismatch.
+- turn-1 recovery is now deliberately broader than explicit `assistant-timeout`: if the saved lane is still `running` after the grace window, the follow-up worker will also attempt one bounded `oracle session <id>` recovery when the saved controller PID is gone or when ChatGPT already shows a visible answer but Oracle never finalized the lane state.
 - if a benchmark Oracle lane stays `running` long past launch time, the follow-up worker now does one bounded `oracle session <id>` recovery attempt even when the saved controller PID is still alive; this covers the case where ChatGPT already shows the answer but Oracle never promoted the run into explicit `assistant-timeout`.
 - same-chat Oracle turn 2 now reuses the existing conversation model by default; when an operator explicitly overrides the follow-up model, RecipeImport translates GPT aliases into browser-visible picker labels before calling `oracle continue-session`.
 - Interactive terminal wrap-up should stay short and point operators at `oracle_upload.log`, but it should also surface the current Oracle status, `oracle session <id>` reattach command, and conversation URL when available; detailed launch metadata already lives beside it in the same launch directory.
@@ -241,6 +242,7 @@ Current rules:
 - the sequence matcher is fixed to `dmp`; non-`dmp` modes are not an active benchmark surface
 - canonical-text benchmark runs score the same canonical pointer pair used by all benchmark modes
 - canonical-text `eval_report.json` now carries both overlap-style `boundary` counts and structural `segmentation` metrics (`label_projection=core_structural_v1`, `boundaries.overall_micro`, error taxonomy), so single-book codex-vs-vanilla comparisons can attribute quality deltas across both label semantics and boundary structure
+- canonical-text eval now also emits boundary-mismatch artifacts for structural debugging (`missed_gold_boundaries.jsonl` and `false_positive_boundaries.jsonl`) so segmentation regressions can be inspected without rerunning stage-block mode
 - line-role regression tuning should keep one no-subsection source and one real-subsection source in the deterministic proof story. The current repo-local contrast pair is `saltfatacidheatcutdown` (`HOWTO_SECTION=0` in gold) versus `seaandsmokecutdown` (`HOWTO_SECTION=111` in gold).
 
 Current line-role and knowledge behavior:
@@ -252,8 +254,8 @@ Current line-role and knowledge behavior:
   - `extracted_archive.json` carries the matching atomic line coordinates and `line_role_projection` metadata
   - outside-recipe `KNOWLEDGE` versus `OTHER` labels in that projection must come from the final non-recipe authority, not the pre-knowledge seed
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
-- `08_nonrecipe_spans.json` is the authoritative scored outside-span contract; it contains Stage 7 routing, explicit final-authority indices/categories, and unreviewed seed-kept metadata
-- `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge refinement plus snippet outputs
+- `09_nonrecipe_authority.json` is the authoritative scored outside-span contract; benchmark scoring and projection must read this file only when they need final outside-recipe truth
+- `08_nonrecipe_seed_routing.json` and `09_nonrecipe_review_status.json` are debugging/progress artifacts; they can explain routing or incompleteness but must not be treated as scored truth
 - `line-role-pipeline/line_role_predictions.jsonl` may still preserve provisional outside-recipe line-role labels for debugging, but `line-role-pipeline/stage_block_predictions.json` must fail closed and use explicit final authority only for scored outside-recipe `KNOWLEDGE`
 - prompt preview and live knowledge harvest both rebuild from the same compact `build_knowledge_jobs(...)` inputs
 - knowledge worker manifests and per-shard status files may now end with explicit knowledge-runtime reason codes such as `workspace_outputs_stabilized`, `watchdog_malformed_final_output`, or `watchdog_retry_oversized_skipped`; these mean the worker stopped after stabilized owned outputs, a strict retry emitted malformed pseudo-final JSON, or a multi-chunk oversized watchdog retry was intentionally skipped

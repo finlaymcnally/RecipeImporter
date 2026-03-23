@@ -20,9 +20,6 @@ def _simple_result() -> ConversionResult:
                 identifier="urn:recipeimport:test:soup",
             )
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -32,11 +29,7 @@ def _simple_result() -> ConversionResult:
 def test_build_authoritative_stage_report_strips_legacy_totals() -> None:
     base_report = ConversionReport(
         total_recipes=9,
-        total_tips=8,
-        total_tip_candidates=7,
-        total_topic_candidates=6,
         total_standalone_blocks=5,
-        total_standalone_topic_blocks=4,
         warnings=["keep me"],
         errors=["still here"],
         epub_backend="unstructured",
@@ -46,11 +39,7 @@ def test_build_authoritative_stage_report_strips_legacy_totals() -> None:
     report = build_authoritative_stage_report(base_report)
 
     assert report.total_recipes == 0
-    assert report.total_tips == 0
-    assert report.total_tip_candidates == 0
-    assert report.total_topic_candidates == 0
     assert report.total_standalone_blocks == 0
-    assert report.total_standalone_topic_blocks == 0
     assert report.warnings == ["keep me"]
     assert report.errors == ["still here"]
     assert report.epub_backend == "unstructured"

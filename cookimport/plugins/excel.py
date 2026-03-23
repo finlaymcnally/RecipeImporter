@@ -23,17 +23,8 @@ from cookimport.core.models import (
     WorkbookInspection,
 )
 from cookimport.core.reporting import compute_file_hash
-from cookimport.core.scoring import (
-    build_recipe_scoring_debug_row,
-    recipe_gate_action,
-    score_recipe_likeness,
-    summarize_recipe_likeness,
-)
+from cookimport.core.source_model import normalize_source_blocks
 from cookimport.parsing.text_section_extract import extract_sections_from_text_blob
-from cookimport.parsing.tips import (
-    extract_tip_candidates_from_candidate,
-    partition_tip_candidates,
-)
 from cookimport.plugins import registry
 
 if TYPE_CHECKING:
@@ -55,6 +46,16 @@ _SECTION_NOTES = ("note", "notes", "tip", "tips")
 
 _ALIAS_LOOKUP: dict[str, str] = {}
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _row_source_text(cells: list[str]) -> str:
+    return " | ".join(cell for cell in cells if cell)
 
 
 @dataclass
@@ -147,15 +148,13 @@ class ExcelImporter:
         wb_values = load_workbook(path, read_only=True, data_only=True)
         wb_meta = load_workbook(path, read_only=False, data_only=False)
         report = ConversionReport(mappingUsed=mapping)
-        recipes: list[RecipeCandidate] = []
         raw_artifacts: list[RawArtifact] = []
-        non_recipe_blocks: list[dict[str, Any]] = []
-        recipe_likeness_results = []
-        recipe_scoring_debug_rows: list[dict[str, Any]] = []
-        rejected_candidate_count = 0
         file_hash = compute_file_hash(path)
-        overrides = mapping.parsing_overrides if mapping else None
         try:
+            source_blocks: list[dict[str, Any]] = []
+            source_support: list[dict[str, Any]] = []
+            extracted_rows: list[dict[str, Any]] = []
+
             for name in wb_values.sheetnames:
                 if progress_callback:
                     progress_callback(f"Processing sheet '{name}'...")
@@ -165,168 +164,64 @@ class ExcelImporter:
                 sheet_mapping = _resolve_sheet_mapping(mapping, name) if mapping else None
                 inferred_sheet = inferred.get(name)
                 layout = _resolve_layout(mapping, sheet_mapping, inferred_sheet)
-                header_row = _resolve_header_row(mapping, sheet_mapping, inferred_sheet)
                 low_confidence = bool(getattr(inferred_sheet, "low_confidence", False))
                 if low_confidence:
                     report.low_confidence_sheets.append(name)
 
-                if layout == "wide-table":
-                    sheet_recipes, sheet_report = _convert_wide_table(
-                        path,
-                        name,
-                        values_sheet,
-                        meta_sheet,
-                        merged_map,
-                        mapping,
-                        sheet_mapping,
-                        header_row,
-                    )
-                elif layout == "template":
-                    sheet_recipes, sheet_report = _convert_template(
-                        path,
-                        name,
-                        values_sheet,
-                        meta_sheet,
-                        merged_map,
-                        mapping,
-                        sheet_mapping,
-                    )
-                elif layout == "tall":
-                    sheet_recipes, sheet_report = _convert_tall(
-                        path,
-                        name,
-                        values_sheet,
-                        meta_sheet,
-                        merged_map,
-                        mapping,
-                        sheet_mapping,
-                        header_row,
-                    )
-                else:
-                    sheet_report = ConversionReport()
-                    sheet_report.warnings.append(f"Unknown layout for sheet {name}: {layout}")
-                    sheet_recipes = []
-
-                recipes.extend(sheet_recipes)
-                _merge_report(report, sheet_report)
-                report.per_sheet_counts[name] = report.per_sheet_counts.get(name, 0) + len(
-                    sheet_recipes
-                )
-
-            accepted_recipes: list[RecipeCandidate] = []
-            for index, recipe in enumerate(recipes):
-                if not recipe.identifier:
-                    provenance = recipe.provenance or {}
-                    sheet_name = str(provenance.get("sheet") or "sheet")
-                    row_index = _resolve_row_index(provenance)
-                    sheet_slug = _slugify(sheet_name)
-                    recipe_id = f"urn:recipeimport:excel:{file_hash}:{sheet_slug}:r{row_index}"
-                    recipe.identifier = recipe_id
-                    provenance.setdefault("@id", recipe_id)
-                    recipe.provenance = provenance
-
-                likeness = score_recipe_likeness(recipe, settings=run_settings)
-                gate_action = recipe_gate_action(likeness, settings=run_settings)
-                recipe.recipe_likeness = likeness
-                recipe.confidence = likeness.score
-                recipe_likeness_results.append(likeness)
-
-                provenance = recipe.provenance or {}
-                location = {
-                    "sheet": provenance.get("sheet"),
-                    "row_index": provenance.get("row_index"),
-                    "chunk_index": index,
-                }
-                recipe_scoring_debug_rows.append(
-                    build_recipe_scoring_debug_row(
-                        candidate=recipe,
-                        result=likeness,
-                        gate_action=gate_action,
-                        candidate_index=index,
-                        location=location,
-                        importer="excel",
-                        source_hash=file_hash,
-                    )
-                )
-
-                if gate_action == "reject":
-                    rejected_candidate_count += 1
-                    rejected_text = "\n".join(
-                        [
-                            recipe.name,
-                            "Ingredients:",
-                            *recipe.ingredients,
-                            "Instructions:",
-                            *[str(step) for step in recipe.instructions],
-                        ]
-                    ).strip()
-                    if rejected_text:
-                        non_recipe_blocks.append(
-                            {
-                                "index": len(non_recipe_blocks),
-                                "text": rejected_text,
-                                "location": location,
-                                "features": {
-                                    "source": "rejected_recipe_candidate",
-                                    "gate_action": gate_action,
-                                    "score": likeness.score,
-                                    "tier": likeness.tier.value,
-                                },
-                            }
+                sheet_row_count = 0
+                max_col = max(1, int(values_sheet.max_column or 1))
+                for row_index in range(1, int(values_sheet.max_row or 0) + 1):
+                    resolved_cells = [
+                        _cell_text(value)
+                        for value in _row_values(
+                            values_sheet,
+                            meta_sheet,
+                            row_index,
+                            max_col,
+                            merged_map,
                         )
-                    continue
-
-                accepted_recipes.append(recipe)
-
-                provenance = recipe.provenance or {}
-                original_row = provenance.get("original_row")
-                if original_row is not None:
-                    raw_artifacts.append(
-                        RawArtifact(
-                            importer="excel",
-                            sourceHash=file_hash,
-                            locationId=_raw_location_id(provenance),
-                            extension="json",
-                            content={
-                                "sheet": provenance.get("sheet"),
-                                "row_index": provenance.get("row_index"),
-                                "headers": provenance.get("original_headers") or [],
-                                "row": original_row,
+                    ]
+                    text = _row_source_text(resolved_cells)
+                    if not text:
+                        continue
+                    block_id = f"b{len(source_blocks)}"
+                    source_blocks.append(
+                        {
+                            "block_id": block_id,
+                            "order_index": len(source_blocks),
+                            "text": text,
+                            "location": {"sheet": name, "row_index": row_index},
+                            "features": {
+                                "layout": layout,
+                                "source_kind": "excel_row",
                             },
-                        )
+                            "provenance": {"importer": "excel", "source_hash": file_hash},
+                        }
                     )
-
-            recipes = accepted_recipes
-
-            if recipe_scoring_debug_rows:
-                raw_artifacts.append(
-                    RawArtifact(
-                        importer="excel",
-                        sourceHash=file_hash,
-                        locationId="recipe_scoring_debug",
-                        extension="jsonl",
-                        content="\n".join(
-                            json.dumps(row, sort_keys=True)
-                            for row in recipe_scoring_debug_rows
-                        ),
-                        metadata={"artifact_type": "recipe_scoring_debug"},
+                    extracted_rows.append(
+                        {
+                            "sheet": name,
+                            "row_index": row_index,
+                            "row": resolved_cells,
+                            "layout": layout,
+                        }
                     )
-                )
-
-            extracted_rows: list[dict[str, Any]] = []
-            for artifact in raw_artifacts:
-                if not isinstance(artifact.content, dict):
-                    continue
-                if "row" not in artifact.content:
-                    continue
-                extracted_rows.append(
-                    {
-                        "sheet": artifact.content.get("sheet"),
-                        "row_index": artifact.content.get("row_index"),
-                        "headers": artifact.content.get("headers") or [],
-                        "row": artifact.content.get("row"),
-                    }
-                )
+                    source_support.append(
+                        {
+                            "hintClass": "evidence",
+                            "kind": "excel_row",
+                            "referencedBlockIds": [block_id],
+                            "payload": {
+                                "sheet": name,
+                                "row_index": row_index,
+                                "row": resolved_cells,
+                                "layout": layout,
+                            },
+                            "provenance": {"importer": "excel", "source": "worksheet_row"},
+                        }
+                    )
+                    sheet_row_count += 1
+                report.per_sheet_counts[name] = sheet_row_count
 
             if extracted_rows:
                 raw_artifacts.append(
@@ -340,42 +235,12 @@ class ExcelImporter:
                     )
                 )
 
-            tip_candidates: list[Any] = []
-            for recipe in recipes:
-                tip_candidates.extend(
-                    extract_tip_candidates_from_candidate(recipe, overrides=overrides)
-                )
-
-            tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
-
-            report.total_recipes = len(recipes)
-            report.total_tips = len(tips)
-            report.total_tip_candidates = len(tip_candidates)
-            report.total_general_tips = len(tips)
-            report.total_recipe_specific_tips = len(recipe_specific)
-            report.total_not_tips = len(not_tips)
-            report.recipe_likeness = summarize_recipe_likeness(
-                recipe_likeness_results,
-                rejected_candidate_count,
-                settings=run_settings,
-            )
-            report.per_sheet_counts = {}
-            for recipe in recipes:
-                sheet_name = str((recipe.provenance or {}).get("sheet") or "sheet")
-                report.per_sheet_counts[sheet_name] = report.per_sheet_counts.get(
-                    sheet_name, 0
-                ) + 1
-            report.samples = [
-                {"name": recipe.name, "sheet": recipe.provenance.get("sheet")}
-                for recipe in recipes[:3]
-            ]
-            if tips:
-                report.tip_samples = [{"text": tip.text[:80]} for tip in tips[:3]]
+            report.total_recipes = 0
             return ConversionResult(
-                recipes=recipes,
-                tips=tips,
-                tipCandidates=tip_candidates,
-                nonRecipeBlocks=non_recipe_blocks,
+                recipes=[],
+                sourceBlocks=normalize_source_blocks(source_blocks),
+                sourceSupport=source_support,
+                nonRecipeBlocks=[],
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,

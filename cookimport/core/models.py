@@ -4,7 +4,7 @@ import re
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _WHITESPACE_RE = re.compile(r"[ \t]+")
 
@@ -548,17 +548,7 @@ class ConversionReport(BaseModel):
     category_confidence: dict[str, float] = Field(default_factory=dict, alias="categoryConfidence")
     
     total_recipes: int = Field(0, alias="totalRecipes")
-    total_tips: int = Field(0, alias="totalTips")
-    total_tip_candidates: int = Field(0, alias="totalTipCandidates")
-    total_topic_candidates: int = Field(0, alias="totalTopicCandidates")
     total_standalone_blocks: int = Field(0, alias="totalStandaloneBlocks")
-    total_standalone_topic_blocks: int = Field(0, alias="totalStandaloneTopicBlocks")
-    standalone_topic_coverage: float | None = Field(
-        default=None, alias="standaloneTopicCoverage"
-    )
-    total_general_tips: int = Field(0, alias="totalGeneralTips")
-    total_recipe_specific_tips: int = Field(0, alias="totalRecipeSpecificTips")
-    total_not_tips: int = Field(0, alias="totalNotTips")
     per_sheet_counts: dict[str, int] = Field(default_factory=dict, alias="perSheetCounts")
     skipped_rows: list[SkippedRow] = Field(default_factory=list, alias="skippedRows")
     missing_field_counts: dict[str, int] = Field(
@@ -568,8 +558,6 @@ class ConversionReport(BaseModel):
         default_factory=list, alias="lowConfidenceSheets"
     )
     samples: list[dict[str, Any]] = Field(default_factory=list)
-    tip_samples: list[dict[str, Any]] = Field(default_factory=list, alias="tipSamples")
-    topic_samples: list[dict[str, Any]] = Field(default_factory=list, alias="topicSamples")
     mapping_used: MappingConfig | None = Field(default=None, alias="mappingUsed")
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
@@ -611,6 +599,182 @@ class RecipeDraftV1(BaseModel):
     steps: list[RecipeDraftStep] = Field(default_factory=list)
 
 
+class AuthoritativeRecipeSemantics(BaseModel):
+    """Canonical recipe-semantics payload emitted before final staging writes."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    schema_version: str = Field(default="authoritative_recipe_semantics.v1", alias="schemaVersion")
+    recipe_id: str = Field(alias="recipeId")
+    semantic_authority: str = Field(alias="semanticAuthority")
+    source_block_indices: list[int] = Field(default_factory=list, alias="sourceBlockIndices")
+    title: str
+    ingredients: list[str] = Field(default_factory=list)
+    instructions: list[str] = Field(default_factory=list)
+    description: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    recipe_yield: str | None = Field(default=None, alias="recipeYield")
+    variants: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    ingredient_step_mapping: dict[str, list[int]] = Field(
+        default_factory=dict,
+        alias="ingredientStepMapping",
+    )
+    ingredient_step_mapping_reason: str | None = Field(
+        default=None,
+        alias="ingredientStepMappingReason",
+    )
+    source: str | None = None
+    confidence: float | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator(
+        "recipe_id",
+        "semantic_authority",
+        "title",
+        "description",
+        "recipe_yield",
+        "ingredient_step_mapping_reason",
+        "source",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text_fields(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+    @field_validator(
+        "ingredients",
+        "instructions",
+        "notes",
+        "variants",
+        "tags",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_list_fields(cls, value: Any) -> list[str]:
+        return _normalize_list(value)
+
+    @field_validator("source_block_indices", mode="before")
+    @classmethod
+    def _normalize_source_block_indices(cls, value: Any) -> list[int]:
+        if value is None:
+            return []
+        rows = value if isinstance(value, list) else [value]
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for item in rows:
+            try:
+                rendered = int(item)
+            except (TypeError, ValueError):
+                continue
+            if rendered in seen:
+                continue
+            seen.add(rendered)
+            normalized.append(rendered)
+        return normalized
+
+    @field_validator("ingredient_step_mapping", mode="before")
+    @classmethod
+    def _normalize_ingredient_step_mapping(
+        cls,
+        value: Any,
+    ) -> dict[str, list[int]]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, list[int]] = {}
+        for raw_key, raw_steps in value.items():
+            try:
+                ingredient_index = int(raw_key)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(raw_steps, list):
+                continue
+            seen_steps: set[int] = set()
+            normalized_steps: list[int] = []
+            for raw_step in raw_steps:
+                try:
+                    step_index = int(raw_step)
+                except (TypeError, ValueError):
+                    continue
+                if step_index < 0 or step_index in seen_steps:
+                    continue
+                seen_steps.add(step_index)
+                normalized_steps.append(step_index)
+            normalized[str(ingredient_index)] = normalized_steps
+        return normalized
+
+
+class SourceBlock(BaseModel):
+    """Canonical importer-owned source block used by downstream stage flows."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    block_id: str = Field(alias="blockId")
+    order_index: int = Field(ge=0, alias="orderIndex")
+    text: str
+    source_text: str | None = Field(default=None, alias="sourceText")
+    location: dict[str, Any] = Field(default_factory=dict)
+    features: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("block_id", mode="before")
+    @classmethod
+    def _normalize_block_id(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+    @field_validator("text", "source_text", mode="before")
+    @classmethod
+    def _normalize_source_text_fields(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+
+class SourceSupport(BaseModel):
+    """Typed non-authoritative source-native evidence or proposals."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    hint_class: Literal["evidence", "proposal"] = Field(alias="hintClass")
+    kind: str
+    referenced_block_ids: list[str] = Field(default_factory=list, alias="referencedBlockIds")
+    payload: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _normalize_kind(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _normalize_text(str(value))
+
+    @field_validator("referenced_block_ids", mode="before")
+    @classmethod
+    def _normalize_referenced_block_ids(cls, value: Any) -> list[str]:
+        return _normalize_str_list(value)
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _normalize_metadata(cls, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {"authoritative": False}
+        normalized = dict(value)
+        normalized["authoritative"] = False
+        return normalized
+
+    @model_validator(mode="after")
+    def _enforce_non_authoritative_metadata(self) -> "SourceSupport":
+        metadata = dict(self.metadata)
+        metadata["authoritative"] = False
+        self.metadata = metadata
+        return self
+
+
 class RawArtifact(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -628,9 +792,8 @@ class ConversionResult(BaseModel):
 
     source: str | None = None
     recipes: list[RecipeCandidate] = Field(default_factory=list)
-    tips: list[TipCandidate] = Field(default_factory=list)
-    tip_candidates: list[TipCandidate] = Field(default_factory=list, alias="tipCandidates")
-    topic_candidates: list[TopicCandidate] = Field(default_factory=list, alias="topicCandidates")
+    source_blocks: list[SourceBlock] = Field(default_factory=list, alias="sourceBlocks")
+    source_support: list[SourceSupport] = Field(default_factory=list, alias="sourceSupport")
     chunks: list["KnowledgeChunk"] = Field(default_factory=list)
     non_recipe_blocks: list[dict[str, Any]] = Field(
         default_factory=list, alias="nonRecipeBlocks"

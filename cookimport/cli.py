@@ -121,8 +121,12 @@ from cookimport.core.executor_fallback import (
 )
 from cookimport.core.overrides_io import load_parsing_overrides
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
-from cookimport.core.scoring import summarize_recipe_likeness
 from cookimport.core.slug import slugify_name
+from cookimport.core.source_model import (
+    normalize_source_blocks,
+    offset_source_blocks,
+    offset_source_support,
+)
 from cookimport.core.timing import TimingStats, measure
 from cookimport.bench.eval_canonical_text import (
     evaluate_canonical_text,
@@ -229,16 +233,18 @@ from cookimport.runs import (
     write_run_manifest,
     write_stage_observability_report,
 )
-from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
+from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
-from cookimport.parsing.tips import partition_tip_candidates
-from cookimport.staging.pdf_jobs import (
-    plan_job_ranges,
-    plan_pdf_page_ranges,
-    reassign_recipe_ids,
-)
 from cookimport.staging.import_session import execute_stage_import_session_from_result
+from cookimport.staging.job_planning import (
+    JobSpec,
+    plan_source_jobs,
+)
 from cookimport.staging.writer import (
+    NONRECIPE_AUTHORITY_FILE_NAME,
+    NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME,
+    NONRECIPE_REVIEW_STATUS_FILE_NAME,
+    NONRECIPE_SEED_ROUTING_FILE_NAME,
     OutputStats,
     write_chunk_outputs,
     write_draft_outputs,
@@ -247,8 +253,6 @@ from cookimport.staging.writer import (
     write_section_outputs,
     write_stage_block_predictions,
     write_table_outputs,
-    write_tip_outputs,
-    write_topic_candidate_outputs,
 )
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
@@ -22257,13 +22261,21 @@ def _write_stage_run_manifest(
     artifacts: dict[str, Any] = {}
     if report_paths:
         artifacts["reports"] = [path.name for path in report_paths]
+    for path_name, artifact_key in (
+        (NONRECIPE_SEED_ROUTING_FILE_NAME, "nonrecipe_seed_routing_json"),
+        (NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME, "nonrecipe_review_exclusions_jsonl"),
+        (NONRECIPE_AUTHORITY_FILE_NAME, "nonrecipe_authority_json"),
+        (NONRECIPE_REVIEW_STATUS_FILE_NAME, "nonrecipe_review_status_json"),
+    ):
+        target = run_root / path_name
+        if target.exists():
+            artifacts[artifact_key] = path_name
     for path_key, artifact_key in (
         ("label_det", "label_det_dir"),
         ("label_llm_correct", "label_llm_correct_dir"),
         ("group_recipe_spans", "group_recipe_spans_dir"),
         ("intermediate drafts", "intermediate_drafts_dir"),
         ("final drafts", "final_drafts_dir"),
-        ("tips", "tips_dir"),
         ("chunks", "chunks_dir"),
         ("knowledge", "knowledge_dir"),
         (".bench", "bench_dir"),
@@ -22706,148 +22718,6 @@ def _resolve_overrides_path(workbook: Path, out: Path, override: Path | None) ->
     return None
 
 
-@dataclass(frozen=True)
-class JobSpec:
-    file_path: Path
-    job_index: int
-    job_count: int
-    start_page: int | None = None
-    end_page: int | None = None
-    start_spine: int | None = None
-    end_spine: int | None = None
-
-    @property
-    def is_split(self) -> bool:
-        return self.split_kind is not None
-
-    @property
-    def split_kind(self) -> str | None:
-        if self.start_page is not None or self.end_page is not None:
-            return "pdf"
-        if self.start_spine is not None or self.end_spine is not None:
-            return "epub"
-        return None
-
-    @property
-    def display_name(self) -> str:
-        if not self.is_split:
-            return self.file_path.name
-        if self.split_kind == "epub":
-            start = (self.start_spine or 0) + 1
-            end = self.end_spine or start
-            return f"{self.file_path.name} [spine {start}-{end}]"
-        start = (self.start_page or 0) + 1
-        end = self.end_page or start
-        return f"{self.file_path.name} [pages {start}-{end}]"
-
-
-def _resolve_pdf_page_count(path: Path) -> int | None:
-    importer = registry.get_importer("pdf")
-    if importer is None:
-        return None
-    try:
-        inspection = importer.inspect(path)
-    except Exception:
-        return None
-    if not inspection.sheets:
-        return None
-    page_count = inspection.sheets[0].page_count
-    if page_count is None:
-        return None
-    try:
-        return int(page_count)
-    except (TypeError, ValueError):
-        return None
-
-
-def _resolve_epub_spine_count(path: Path) -> int | None:
-    importer = registry.get_importer("epub")
-    if importer is None:
-        return None
-    try:
-        inspection = importer.inspect(path)
-    except Exception:
-        return None
-    if not inspection.sheets:
-        return None
-    spine_count = inspection.sheets[0].spine_count
-    if spine_count is None:
-        return None
-    try:
-        return int(spine_count)
-    except (TypeError, ValueError):
-        return None
-
-
-def _plan_jobs(
-    files: list[Path],
-    *,
-    workers: int,
-    pdf_pages_per_job: int,
-    epub_spine_items_per_job: int,
-    pdf_split_workers: int,
-    epub_split_workers: int,
-    epub_extractor: str = "unstructured",
-    epub_extractor_by_file: dict[Path, str] | None = None,
-) -> list[JobSpec]:
-    jobs: list[JobSpec] = []
-    for file_path in files:
-        selected_epub_extractor = str(
-            (epub_extractor_by_file or {}).get(file_path, epub_extractor)
-        ).strip().lower()
-        if (
-            pdf_split_workers > 1
-            and file_path.suffix.lower() == ".pdf"
-            and pdf_pages_per_job > 0
-        ):
-            page_count = _resolve_pdf_page_count(file_path)
-            if page_count:
-                ranges = plan_pdf_page_ranges(
-                    page_count,
-                    pdf_split_workers,
-                    pdf_pages_per_job,
-                )
-                if len(ranges) > 1:
-                    for idx, (start, end) in enumerate(ranges):
-                        jobs.append(
-                            JobSpec(
-                                file_path=file_path,
-                                job_index=idx,
-                                job_count=len(ranges),
-                                start_page=start,
-                                end_page=end,
-                            )
-                        )
-                    continue
-        if (
-            epub_split_workers > 1
-            and file_path.suffix.lower() == ".epub"
-            and selected_epub_extractor != "markitdown"
-            and epub_spine_items_per_job > 0
-        ):
-            spine_count = _resolve_epub_spine_count(file_path)
-            if spine_count:
-                ranges = plan_job_ranges(
-                    spine_count,
-                    epub_split_workers,
-                    epub_spine_items_per_job,
-                )
-                if len(ranges) > 1:
-                    for idx, (start, end) in enumerate(ranges):
-                        jobs.append(
-                            JobSpec(
-                                file_path=file_path,
-                                job_index=idx,
-                                job_count=len(ranges),
-                                start_spine=start,
-                                end_spine=end,
-                            )
-                        )
-                    continue
-        jobs.append(JobSpec(file_path=file_path, job_index=0, job_count=1))
-    return jobs
-
-
 def _merge_raw_artifacts(
     out: Path,
     workbook_slug: str,
@@ -22978,11 +22848,7 @@ def _build_stage_run_summary_payload(
 
     totals: dict[str, int] = {
         "recipes": 0,
-        "tips": 0,
-        "tip_candidates": 0,
-        "topic_candidates": 0,
         "standalone_blocks": 0,
-        "standalone_topic_blocks": 0,
     }
     durations: dict[str, float] = {
         "total_seconds": 0.0,
@@ -23003,14 +22869,7 @@ def _build_stage_run_summary_payload(
             "book_name": source_name,
             "importer": payload.get("importerName"),
             "recipes": _coerce_int(payload.get("totalRecipes")) or 0,
-            "tips": _coerce_int(payload.get("totalTips")) or 0,
-            "tip_candidates": _coerce_int(payload.get("totalTipCandidates")) or 0,
-            "topic_candidates": _coerce_int(payload.get("totalTopicCandidates")) or 0,
             "standalone_blocks": _coerce_int(payload.get("totalStandaloneBlocks")) or 0,
-            "standalone_topic_blocks": _coerce_int(
-                payload.get("totalStandaloneTopicBlocks")
-            )
-            or 0,
             "total_seconds": _coerce_non_negative_float(timing.get("total_seconds"))
             or 0.0,
             "parsing_seconds": _coerce_non_negative_float(
@@ -23026,11 +22885,7 @@ def _build_stage_run_summary_payload(
         }
         books.append(row)
         totals["recipes"] += row["recipes"]
-        totals["tips"] += row["tips"]
-        totals["tip_candidates"] += row["tip_candidates"]
-        totals["topic_candidates"] += row["topic_candidates"]
         totals["standalone_blocks"] += row["standalone_blocks"]
-        totals["standalone_topic_blocks"] += row["standalone_topic_blocks"]
         durations["total_seconds"] += row["total_seconds"]
         durations["parsing_seconds"] += row["parsing_seconds"]
         durations["writing_seconds"] += row["writing_seconds"]
@@ -23151,12 +23006,10 @@ def _write_stage_run_summary(
         if payload.get("books"):
             for book in payload.get("books", []):
                 md_lines.append(
-                    "- {name}: {recipes} recipes, {tips} tips, {tip_candidates} tip candidates, {topic_candidates} topic candidates".format(
+                    "- {name}: {recipes} recipes, {standalone_blocks} standalone blocks".format(
                         name=book.get("book_name") or book.get("book_slug") or "unknown",
                         recipes=book.get("recipes", 0),
-                        tips=book.get("tips", 0),
-                        tip_candidates=book.get("tip_candidates", 0),
-                        topic_candidates=book.get("topic_candidates", 0),
+                        standalone_blocks=book.get("standalone_blocks", 0),
                     )
                 )
         else:
@@ -23175,18 +23028,8 @@ def _write_stage_run_summary(
                 "",
                 "## Topline metrics",
                 "- total recipes: {recipes}".format(recipes=totals.get("recipes", 0)),
-                "- total tips: {tips}".format(tips=totals.get("tips", 0)),
-                "- total tip candidates: {tip_candidates}".format(
-                    tip_candidates=totals.get("tip_candidates", 0)
-                ),
-                "- total topic candidates: {topic_candidates}".format(
-                    topic_candidates=totals.get("topic_candidates", 0)
-                ),
                 "- total standalone blocks: {standalone_blocks}".format(
                     standalone_blocks=totals.get("standalone_blocks", 0)
-                ),
-                "- total standalone topic blocks: {standalone_topic_blocks}".format(
-                    standalone_topic_blocks=totals.get("standalone_topic_blocks", 0)
                 ),
                 "- timing total/parsing/writing/ocr: {total}/{parsing}/{writing}/{ocr}".format(
                     total=_fmt_s(totals.get("total_seconds")),
@@ -23264,12 +23107,9 @@ def _print_stage_summary(payload: dict[str, Any], *, write_markdown: bool = True
         )
     )
     typer.echo(
-        "  Totals: recipes={recipes} tips={tips} tip_candidates={tip_candidates} "
-        "topic_candidates={topic_candidates}".format(
+        "  Totals: recipes={recipes} standalone_blocks={standalone_blocks}".format(
             recipes=totals.get("recipes", 0),
-            tips=totals.get("tips", 0),
-            tip_candidates=totals.get("tip_candidates", 0),
-            topic_candidates=totals.get("topic_candidates", 0),
+            standalone_blocks=totals.get("standalone_blocks", 0),
         )
     )
     typer.echo(f"  Timing: total={totals.get('total_seconds', 0.0):.2f}s")
@@ -23300,20 +23140,10 @@ def _offset_location_fields(location: dict[str, Any], offset: int) -> None:
 def _offset_result_block_indices(result: ConversionResult, offset: int) -> None:
     if offset <= 0:
         return
+    result.source_blocks = offset_source_blocks(result.source_blocks, offset)
+    result.source_support = offset_source_support(result.source_support, offset)
     for recipe in result.recipes:
         provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
-        location = provenance.get("location")
-        if isinstance(location, dict):
-            _offset_location_fields(location, offset)
-
-    for tip in result.tip_candidates:
-        provenance = tip.provenance if isinstance(tip.provenance, dict) else {}
-        location = provenance.get("location")
-        if isinstance(location, dict):
-            _offset_location_fields(location, offset)
-
-    for topic in result.topic_candidates:
-        provenance = topic.provenance if isinstance(topic.provenance, dict) else {}
         location = provenance.get("location")
         if isinstance(location, dict):
             _offset_location_fields(location, offset)
@@ -23365,7 +23195,9 @@ def _build_split_full_blocks(
             if index is None:
                 index = fallback_index
             adjusted_block = dict(block)
-            adjusted_block["index"] = index + running_offset
+            adjusted_index = index + running_offset
+            adjusted_block["index"] = adjusted_index
+            adjusted_block["block_id"] = f"b{adjusted_index}"
             merged.append(adjusted_block)
             adjusted_count += 1
         job_block_counts[job_index] = adjusted_count
@@ -23375,14 +23207,14 @@ def _build_split_full_blocks(
     return merged, job_offsets, job_block_counts
 
 
-def _merge_split_jobs(
+def _merge_source_jobs(
     file_path: Path,
     job_results: list[dict[str, Any]],
     out: Path,
     mapping_config: MappingConfig | None,
     limit: int | None,
     run_dt: dt.datetime,
-    importer_name: str,
+    importer_name: str | None = None,
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
@@ -23405,14 +23237,7 @@ def _merge_split_jobs(
     ordered_jobs = sorted(job_results, key=_job_range_start)
     run_settings = RunSettings.from_dict(
         project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
-        warn_context="split merge run config",
-    )
-    has_explicit_run_config = run_config is not None
-    llm_enabled = (
-        has_explicit_run_config and run_settings.llm_recipe_pipeline.value != "off"
-    )
-    knowledge_enabled = (
-        has_explicit_run_config and run_settings.llm_knowledge_pipeline.value != "off"
+        warn_context="source-job merge run config",
     )
     merged_full_blocks, job_offsets, _job_block_counts = _build_split_full_blocks(
         out=out,
@@ -23426,46 +23251,13 @@ def _merge_split_jobs(
         offset = job_offsets.get(int(job.get("job_index", 0)), 0)
         _offset_result_block_indices(result, offset)
 
-    should_write_chunks = False
-    for job in ordered_jobs:
-        result = job.get("result")
-        if result is None:
-            continue
-        if result.non_recipe_blocks or result.topic_candidates:
-            should_write_chunks = True
-            break
-
     phase_labels = [
-        "Merging job payloads...",
-        "Reassigning recipe IDs...",
+        "Merging source-job payloads...",
+        "Building authoritative stage outputs...",
+        "Merging raw artifacts...",
+        "Writing report...",
+        "Merge done",
     ]
-    if llm_enabled:
-        phase_labels.append("Running codex-farm recipe pipeline...")
-    phase_labels.append("Extracting tables...")
-    phase_labels.append("Building chunks...")
-    if knowledge_enabled:
-        phase_labels.append("Running codex-farm non-recipe knowledge review...")
-    phase_labels.extend(
-        [
-            "Writing merged outputs...",
-            "Writing intermediate drafts...",
-            "Writing final drafts...",
-            "Writing sections...",
-            "Writing tips...",
-            "Writing topic candidates...",
-            "Writing stage block predictions...",
-        ]
-    )
-    phase_labels.append("Writing tables...")
-    if should_write_chunks:
-        phase_labels.append("Writing chunks...")
-    phase_labels.extend(
-        [
-            "Merging raw artifacts...",
-            "Writing report...",
-            "Merge done",
-        ]
-    )
     phase_total = len(phase_labels)
     phase_current = 0
 
@@ -23476,25 +23268,18 @@ def _merge_split_jobs(
             format_phase_counter("merge", phase_current, phase_total, label=label)
         )
 
-    _report_phase("Merging job payloads...")
-    merged_recipes: list[Any] = []
-    merged_tip_candidates: list[Any] = []
-    merged_topic_candidates: list[Any] = []
-    merged_non_recipe_blocks: list[Any] = []
+    _report_phase("Merging source-job payloads...")
+    merged_source_blocks: list[Any] = []
+    merged_source_support: list[Any] = []
     warnings: list[str] = []
     epub_backends: set[str] = set()
-    standalone_block_total = 0
-    standalone_topic_block_total = 0
-    split_rejected_candidate_count = 0
 
     for job in ordered_jobs:
         result = job.get("result")
         if result is None:
             continue
-        merged_recipes.extend(result.recipes)
-        merged_tip_candidates.extend(result.tip_candidates)
-        merged_topic_candidates.extend(result.topic_candidates)
-        merged_non_recipe_blocks.extend(result.non_recipe_blocks)
+        merged_source_blocks.extend(result.source_blocks)
+        merged_source_support.extend(result.source_support)
         if result.report and result.report.warnings:
             warnings.extend(result.report.warnings)
         if result.report and result.report.errors:
@@ -23502,25 +23287,23 @@ def _merge_split_jobs(
                 warnings.append(f"Job {job.get('job_index')}: {error}")
         if result.report and result.report.epub_backend:
             epub_backends.add(str(result.report.epub_backend))
-        if result.report:
-            standalone_block_total += result.report.total_standalone_blocks
-            standalone_topic_block_total += result.report.total_standalone_topic_blocks
-            job_recipe_likeness = result.report.recipe_likeness
-            if isinstance(job_recipe_likeness, dict):
-                rejected_value = job_recipe_likeness.get("rejectedCandidateCount")
-                if rejected_value is None:
-                    counts_payload = job_recipe_likeness.get("counts")
-                    if isinstance(counts_payload, dict):
-                        rejected_value = counts_payload.get("reject")
-                try:
-                    split_rejected_candidate_count += max(0, int(rejected_value or 0))
-                except (TypeError, ValueError):
-                    pass
 
-    _report_phase("Reassigning recipe IDs...")
+    resolved_importer_name = str(
+        importer_name
+        or ordered_jobs[0].get("importer_name")
+        or ""
+    ).strip()
+    if not resolved_importer_name:
+        detected_importer, detected_score = registry.best_importer_for_path(file_path)
+        if detected_importer is not None and detected_score > 0:
+            resolved_importer_name = str(detected_importer.name or "").strip()
+    if not resolved_importer_name:
+        raise ValueError(f"Could not determine importer for {file_path.name}.")
     file_hash = compute_file_hash(file_path)
     if merged_full_blocks:
-        merged_full_text_path = out / "raw" / importer_name / file_hash / "full_text.json"
+        merged_full_text_path = (
+            out / "raw" / resolved_importer_name / file_hash / "full_text.json"
+        )
         merged_full_text_path.parent.mkdir(parents=True, exist_ok=True)
         merged_full_text_path.write_text(
             json.dumps(
@@ -23534,81 +23317,43 @@ def _merge_split_jobs(
             encoding="utf-8",
         )
         output_stats.record_path(OUTPUT_STATS_CATEGORY_RAW, merged_full_text_path)
-    sorted_recipes, _ = reassign_recipe_ids(
-        merged_recipes,
-        merged_tip_candidates,
-        file_hash=file_hash,
-        importer_name=importer_name,
-    )
-    tips, _, _ = partition_tip_candidates(merged_tip_candidates)
 
     report = ConversionReport(
         warnings=warnings,
-        importerName=importer_name,
+        importerName=resolved_importer_name,
         runConfig=dict(run_config) if run_config is not None else None,
         runConfigHash=run_config_hash,
         runConfigSummary=run_config_summary,
     )
-    if importer_name == "epub" and epub_backends:
+    if resolved_importer_name == "epub" and epub_backends:
         report.epub_backend = sorted(epub_backends)[0]
         if len(epub_backends) > 1:
             report.warnings.append(
                 "epub_backend_inconsistent_across_split_jobs: "
                 + ", ".join(sorted(epub_backends))
             )
+    resolved_source_blocks = normalize_source_blocks(merged_full_blocks)
+    if not resolved_source_blocks:
+        resolved_source_blocks = normalize_source_blocks(merged_source_blocks)
+
     merged_result = ConversionResult(
-        recipes=sorted_recipes,
-        tips=tips,
-        tip_candidates=merged_tip_candidates,
-        topic_candidates=merged_topic_candidates,
-        non_recipe_blocks=merged_non_recipe_blocks,
+        recipes=[],
+        source_blocks=resolved_source_blocks,
+        source_support=list(merged_source_support),
+        non_recipe_blocks=[],
         raw_artifacts=[],
         report=report,
         workbook=file_path.stem,
         workbook_path=str(file_path),
     )
-    from cookimport.cli_worker import apply_result_limits
-    apply_result_limits(merged_result, limit, limit, limit_label=limit)
-    report.total_topic_candidates = len(merged_result.topic_candidates)
-    report.total_standalone_blocks = standalone_block_total
-    report.total_standalone_topic_blocks = standalone_topic_block_total
-    if standalone_block_total:
-        standalone_coverage = standalone_topic_block_total / standalone_block_total
-        report.standalone_topic_coverage = standalone_coverage
-        if standalone_coverage < 0.9 and not any(
-            warning.startswith("Standalone topic coverage low:") for warning in warnings
-        ):
-            report.warnings.append(
-                "Standalone topic coverage low: "
-                f"{standalone_topic_block_total} of {standalone_block_total} blocks "
-                f"represented ({standalone_coverage:.0%})."
-            )
 
-    recipe_likeness_results = [
-        candidate.recipe_likeness
-        for candidate in merged_result.recipes
-        if candidate.recipe_likeness is not None
-    ]
-    recipe_likeness_summary = summarize_recipe_likeness(
-        recipe_likeness_results,
-        split_rejected_candidate_count,
-        settings=run_settings,
-    )
-    counts_payload = recipe_likeness_summary.get("counts")
-    if isinstance(counts_payload, dict):
-        counts_payload["reject"] = split_rejected_candidate_count
-    recipe_likeness_summary["totalCandidates"] = (
-        len(recipe_likeness_results) + split_rejected_candidate_count
-    )
-    report.recipe_likeness = recipe_likeness_summary
-
-    _report_phase("Writing merged outputs...")
+    _report_phase("Building authoritative stage outputs...")
     session = execute_stage_import_session_from_result(
         result=merged_result,
         source_file=file_path,
         run_root=out,
         run_dt=run_dt,
-        importer_name=importer_name,
+        importer_name=resolved_importer_name,
         run_settings=run_settings,
         run_config=run_config,
         run_config_hash=run_config_hash,
@@ -23620,6 +23365,8 @@ def _merge_split_jobs(
         full_blocks=merged_full_blocks or None,
         write_raw_artifacts_enabled=False,
         output_stats=output_stats,
+        recipe_limit=limit,
+        recipe_limit_label=limit,
     )
     merged_result = session.conversion_result
     report = merged_result.report
@@ -23654,67 +23401,8 @@ def _merge_split_jobs(
         "file": file_path.name,
         "status": "success",
         "recipes": len(merged_result.recipes),
-        "tips": len(merged_result.tips),
         "duration": merge_stats.total_seconds,
     }
-
-
-def _merge_pdf_jobs(
-    file_path: Path,
-    job_results: list[dict[str, Any]],
-    out: Path,
-    mapping_config: MappingConfig | None,
-    limit: int | None,
-    run_dt: dt.datetime,
-    run_config: dict[str, Any] | None = None,
-    run_config_hash: str | None = None,
-    run_config_summary: str | None = None,
-    write_markdown: bool = True,
-    status_callback: Callable[[str], None] | None = None,
-) -> dict[str, Any]:
-    return _merge_split_jobs(
-        file_path,
-        job_results,
-        out,
-        mapping_config,
-        limit,
-        run_dt,
-        importer_name="pdf",
-        run_config=run_config,
-        run_config_hash=run_config_hash,
-        run_config_summary=run_config_summary,
-        write_markdown=write_markdown,
-        status_callback=status_callback,
-    )
-
-
-def _merge_epub_jobs(
-    file_path: Path,
-    job_results: list[dict[str, Any]],
-    out: Path,
-    mapping_config: MappingConfig | None,
-    limit: int | None,
-    run_dt: dt.datetime,
-    run_config: dict[str, Any] | None = None,
-    run_config_hash: str | None = None,
-    run_config_summary: str | None = None,
-    write_markdown: bool = True,
-    status_callback: Callable[[str], None] | None = None,
-) -> dict[str, Any]:
-    return _merge_split_jobs(
-        file_path,
-        job_results,
-        out,
-        mapping_config,
-        limit,
-        run_dt,
-        importer_name="epub",
-        run_config=run_config,
-        run_config_hash=run_config_hash,
-        run_config_summary=run_config_summary,
-        write_markdown=write_markdown,
-        status_callback=status_callback,
-    )
 
 
 @app.command()
@@ -23732,7 +23420,7 @@ def stage(
         "--limit",
         "-n",
         min=1,
-        help="Limit output to the first N recipes and N tips per file.",
+        help="Limit output to the first N recipes per file.",
     ),
     ocr_device: str = typer.Option(
         "auto",
@@ -23807,7 +23495,7 @@ def stage(
     write_markdown: bool = typer.Option(
         True,
         "--write-markdown/--no-write-markdown",
-        help="Write markdown sidecar artifacts (sections/tips/topic/chunks/tables).",
+        help="Write markdown sidecar artifacts (sections/chunks/tables).",
     ),
     epub_extractor: str = typer.Option(
         "unstructured",
@@ -24151,7 +23839,7 @@ def stage(
     Outputs are organized as:
       {out}/{timestamp}/intermediate drafts/{filename}/  - schema.org Recipe JSON
       {out}/{timestamp}/final drafts/{filename}/         - cookbook3 format
-      {out}/{timestamp}/tips/{filename}/                 - Tip/knowledge snippets
+      {out}/{timestamp}/chunks/{filename}/               - Non-recipe knowledge chunks
       {out}/{timestamp}/<workbook>.excel_import_report.json - Conversion report
     """
     out = _unwrap_typer_option_default(out)
@@ -24542,7 +24230,7 @@ def stage(
     run_config_hash = _stable_run_config_hash(run_config)
     run_config_summary = _render_run_config_summary(run_config)
 
-    from cookimport.cli_worker import stage_one_file, stage_pdf_job, stage_epub_job
+    from cookimport.cli_worker import execute_source_job
     progress_queue = None
     try:
         manager = multiprocessing.Manager()
@@ -24550,9 +24238,8 @@ def stage(
     except Exception:
         progress_queue = None
     
-    job_specs = _plan_jobs(
+    job_specs = plan_source_jobs(
         files_to_process,
-        workers=workers,
         pdf_pages_per_job=pdf_pages_per_job,
         epub_spine_items_per_job=epub_spine_items_per_job,
         pdf_split_workers=pdf_split_workers,
@@ -24563,7 +24250,7 @@ def stage(
     total_jobs = len(job_specs)
     expected_jobs: dict[Path, int] = {}
     for job in job_specs:
-        if job.is_split and job.file_path not in expected_jobs:
+        if job.file_path not in expected_jobs:
             expected_jobs[job.file_path] = job.job_count
 
     progress_bar = Progress(
@@ -24891,142 +24578,126 @@ def stage(
         job_run_config = _run_config_for_file(job.file_path)
         job_run_config_hash = _run_config_hash_for_file(job.file_path)
         job_run_config_summary = _run_config_summary_for_file(job.file_path)
+        job_results_by_file[job.file_path].append(res)
+        if res.get("status") == "error":
+            _emit_stage_message(
+                f"[red]✘ Error {job.file_path.name} job {job.job_index}: {res.get('reason')}[/red]",
+                fg=typer.colors.RED,
+            )
 
-        if job.is_split:
-            job_results_by_file[job.file_path].append(res)
-            if res.get("status") == "error":
-                _emit_stage_message(
-                    f"[red]✘ Error {job.file_path.name} job {job.job_index}: {res.get('reason')}[/red]",
-                    fg=typer.colors.RED,
+        expected_count = expected_jobs.get(job.file_path, job.job_count)
+        if len(job_results_by_file[job.file_path]) == expected_count:
+            results = job_results_by_file.pop(job.file_path)
+            result_importer_name = next(
+                (
+                    str(r.get("importer_name") or "").strip()
+                    for r in results
+                    if str(r.get("importer_name") or "").strip()
+                ),
+                None,
+            )
+            successful = [r for r in results if r.get("status") == "success"]
+            skipped = [r for r in results if r.get("status") == "skipped"]
+            failed = [
+                r for r in results if r.get("status") not in {"success", "skipped"}
+            ]
+
+            if successful and not failed and not skipped:
+                _set_worker_status(
+                    "MainProcess",
+                    job.file_path.name,
+                    f"Merging {expected_count} source job(s)...",
                 )
+                _emit_stage_message(
+                    f"Merging {expected_count} source job(s) for {job.file_path.name}...",
+                    fg=typer.colors.CYAN,
+                )
+                try:
+                    def _main_merge_status(message: str) -> None:
+                        _set_worker_status(
+                            "MainProcess",
+                            job.file_path.name,
+                            message,
+                        )
 
-            expected_count = expected_jobs.get(job.file_path, job.job_count)
-            if len(job_results_by_file[job.file_path]) == expected_count:
-                results = job_results_by_file.pop(job.file_path)
-                failed = [r for r in results if r.get("status") != "success"]
-                if failed:
-                    reasons = [
-                        f"job {r.get('job_index')}: {r.get('reason')}"
-                        for r in failed
-                    ]
-                    if not reasons:
-                        reasons = ["job failure"]
-                    message = "; ".join(reasons)
-                    errors.append(f"{job.file_path.name}: {message}")
+                    merged = _merge_source_jobs(
+                        job.file_path,
+                        results,
+                        out,
+                        base_mapping,
+                        limit,
+                        run_dt,
+                        run_config=job_run_config,
+                        run_config_hash=job_run_config_hash,
+                        run_config_summary=job_run_config_summary,
+                        write_markdown=write_markdown,
+                        status_callback=_main_merge_status,
+                    )
+                    imported += 1
                     _set_worker_status(
                         "MainProcess",
                         job.file_path.name,
-                        "Merge skipped (job errors)",
+                        f"Merge done ({merged['duration']:.2f}s)",
                     )
                     _emit_stage_message(
-                        f"[red]✘ Error {job.file_path.name}: {message}[/red]",
+                        f"[green]✔ {merged['file']}: {merged['recipes']} recipes, "
+                        f"merge {merged['duration']:.2f}s[/green]",
+                        fg=typer.colors.GREEN,
+                    )
+                except Exception as exc:
+                    errors.append(f"{job.file_path.name}: {exc}")
+                    _set_worker_status(
+                        "MainProcess",
+                        job.file_path.name,
+                        "Merge error",
+                    )
+                    _emit_stage_message(
+                        f"[red]✘ Error {job.file_path.name}: {exc}[/red]",
                         fg=typer.colors.RED,
                     )
                     _write_error_report(
                         out,
                         job.file_path,
                         run_dt,
-                        reasons,
-                        importer_name=job.split_kind,
+                        [str(exc)],
+                        importer_name=result_importer_name,
                         run_config=job_run_config,
                         run_config_hash=job_run_config_hash,
                         run_config_summary=job_run_config_summary,
                     )
-                else:
-                    _set_worker_status(
-                        "MainProcess",
-                        job.file_path.name,
-                        f"Merging {expected_count} job(s)...",
-                    )
-                    _emit_stage_message(
-                        f"Merging {expected_count} jobs for {job.file_path.name}...",
-                        fg=typer.colors.CYAN,
-                    )
-                    try:
-                        def _main_merge_status(message: str) -> None:
-                            _set_worker_status(
-                                "MainProcess",
-                                job.file_path.name,
-                                message,
-                            )
-
-                        if job.split_kind == "epub":
-                            merged = _merge_epub_jobs(
-                                job.file_path,
-                                results,
-                                out,
-                                base_mapping,
-                                limit,
-                                run_dt,
-                                job_run_config,
-                                job_run_config_hash,
-                                job_run_config_summary,
-                                write_markdown=write_markdown,
-                                status_callback=_main_merge_status,
-                            )
-                        else:
-                            merged = _merge_pdf_jobs(
-                                job.file_path,
-                                results,
-                                out,
-                                base_mapping,
-                                limit,
-                                run_dt,
-                                job_run_config,
-                                job_run_config_hash,
-                                job_run_config_summary,
-                                write_markdown=write_markdown,
-                                status_callback=_main_merge_status,
-                            )
-                        imported += 1
-                        _set_worker_status(
-                            "MainProcess",
-                            job.file_path.name,
-                            f"Merge done ({merged['duration']:.2f}s)",
-                        )
-                        _emit_stage_message(
-                            f"[green]✔ {merged['file']}: {merged['recipes']} recipes, "
-                            f"{merged['tips']} tips (merge {merged['duration']:.2f}s)[/green]",
-                            fg=typer.colors.GREEN,
-                        )
-                    except Exception as exc:
-                        errors.append(f"{job.file_path.name}: {exc}")
-                        _set_worker_status(
-                            "MainProcess",
-                            job.file_path.name,
-                            "Merge error",
-                        )
-                        _emit_stage_message(
-                            f"[red]✘ Error {job.file_path.name}: {exc}[/red]",
-                            fg=typer.colors.RED,
-                        )
-                        _write_error_report(
-                            out,
-                            job.file_path,
-                            run_dt,
-                            [str(exc)],
-                            importer_name=job.split_kind,
-                            run_config=job_run_config,
-                            run_config_hash=job_run_config_hash,
-                            run_config_summary=job_run_config_summary,
-                        )
-        else:
-            if res["status"] == "success":
-                imported += 1
+            elif skipped and not successful and not failed:
+                reason = str(skipped[0].get("reason") or "No importer")
                 _emit_stage_message(
-                    f"[green]✔ {res['file']}: {res['recipes']} recipes, {res['tips']} tips ({res['duration']:.2f}s)[/green]",
-                    fg=typer.colors.GREEN,
-                )
-            elif res["status"] == "skipped":
-                _emit_stage_message(
-                    f"[yellow]⚠ Skipping {res['file']}: {res['reason']}[/yellow]",
+                    f"[yellow]⚠ Skipping {job.file_path.name}: {reason}[/yellow]",
                     fg=typer.colors.YELLOW,
                 )
             else:
-                errors.append(f"{res['file']}: {res['reason']}")
+                reasons = [
+                    f"job {r.get('job_index')}: {r.get('reason')}"
+                    for r in [*failed, *skipped]
+                ]
+                if not reasons:
+                    reasons = ["job failure"]
+                message = "; ".join(reasons)
+                errors.append(f"{job.file_path.name}: {message}")
+                _set_worker_status(
+                    "MainProcess",
+                    job.file_path.name,
+                    "Merge skipped (job errors)",
+                )
                 _emit_stage_message(
-                    f"[red]✘ Error {res['file']}: {res['reason']}[/red]",
+                    f"[red]✘ Error {job.file_path.name}: {message}[/red]",
                     fg=typer.colors.RED,
+                )
+                _write_error_report(
+                    out,
+                    job.file_path,
+                    run_dt,
+                    reasons,
+                    importer_name=result_importer_name,
+                    run_config=job_run_config,
+                    run_config_hash=job_run_config_hash,
+                    run_config_summary=job_run_config_summary,
                 )
         _emit_stage_progress_snapshot(force=True)
         _write_stage_timeseries(event="job_completed", force=True)
@@ -25065,6 +24736,7 @@ def stage(
             "file": job.file_path.name,
             "status": "error",
             "reason": reason,
+            "importer_name": None,
             "job_index": job.job_index,
             "job_count": job.job_count,
         }
@@ -25083,7 +24755,7 @@ def stage(
         job_run_config_hash = _run_config_hash_for_file(job.file_path)
         job_run_config_summary = _run_config_summary_for_file(job.file_path)
         payload: dict[str, Any] = {
-            "file_path": str(job.file_path),
+            **job.to_payload(),
             "out_path": str(out),
             "mapping_config": stage_worker_mapping_payload,
             "run_dt": run_dt.isoformat(timespec="seconds"),
@@ -25091,24 +24763,9 @@ def stage(
             "run_config": job_run_config,
             "run_config_hash": job_run_config_hash,
             "run_config_summary": job_run_config_summary,
+            "job_kind": "source_job",
+            "epub_extractor": effective_epub_extractors.get(job.file_path),
         }
-        if job.is_split:
-            payload["job_index"] = job.job_index
-            payload["job_count"] = job.job_count
-            if job.split_kind == "epub":
-                payload["job_kind"] = "epub_split"
-                payload["start_spine"] = job.start_spine
-                payload["end_spine"] = job.end_spine
-                payload["epub_extractor"] = effective_epub_extractors.get(job.file_path)
-            else:
-                payload["job_kind"] = "pdf_split"
-                payload["start_page"] = job.start_page
-                payload["end_page"] = job.end_page
-        else:
-            payload["job_kind"] = "single"
-            payload["limit"] = limit
-            payload["epub_extractor"] = effective_epub_extractors.get(job.file_path)
-            payload["write_markdown"] = bool(write_markdown)
         return payload
 
     def _run_stage_job_via_subprocess(job: JobSpec) -> dict[str, Any]:
@@ -25194,64 +24851,21 @@ def stage(
             job_run_config_hash = _run_config_hash_for_file(job.file_path)
             job_run_config_summary = _run_config_summary_for_file(job.file_path)
             job_epub_extractor = effective_epub_extractors.get(job.file_path)
-            if job.is_split:
-                if job.split_kind == "epub":
-                    futures[
-                        executor.submit(
-                            stage_epub_job,
-                            job.file_path,
-                            out,
-                            base_mapping,
-                            run_dt,
-                            job.start_spine,
-                            job.end_spine,
-                            job.job_index,
-                            job.job_count,
-                            progress_queue,
-                            job.display_name,
-                            job_epub_extractor,
-                            job_run_config,
-                            job_run_config_hash,
-                            job_run_config_summary,
-                        )
-                    ] = job
-                else:
-                    futures[
-                        executor.submit(
-                            stage_pdf_job,
-                            job.file_path,
-                            out,
-                            base_mapping,
-                            run_dt,
-                            job.start_page,
-                            job.end_page,
-                            job.job_index,
-                            job.job_count,
-                            progress_queue,
-                            job.display_name,
-                            job_run_config,
-                            job_run_config_hash,
-                            job_run_config_summary,
-                        )
-                    ] = job
-            else:
-                futures[
-                    executor.submit(
-                        stage_one_file,
-                        job.file_path,
-                        out,
-                        base_mapping,
-                        limit,
-                        run_dt,
-                        progress_queue,
-                        job.display_name,
-                        job_epub_extractor,
-                        job_run_config,
-                        job_run_config_hash,
-                        job_run_config_summary,
-                        write_markdown,
-                    )
-                ] = job
+            futures[
+                executor.submit(
+                    execute_source_job,
+                    job,
+                    out,
+                    base_mapping,
+                    run_dt,
+                    progress_queue,
+                    job.display_name,
+                    job_epub_extractor,
+                    job_run_config,
+                    job_run_config_hash,
+                    job_run_config_summary,
+                )
+            ] = job
 
         for future in as_completed(futures):
             job = futures[future]
@@ -25320,55 +24934,18 @@ def stage(
             job_run_config_hash = _run_config_hash_for_file(job.file_path)
             job_run_config_summary = _run_config_summary_for_file(job.file_path)
             job_epub_extractor = effective_epub_extractors.get(job.file_path)
-            if job.is_split:
-                if job.split_kind == "epub":
-                    res = stage_epub_job(
-                        job.file_path,
-                        out,
-                        base_mapping,
-                        run_dt,
-                        job.start_spine,
-                        job.end_spine,
-                        job.job_index,
-                        job.job_count,
-                        progress_queue,
-                        job.display_name,
-                        job_epub_extractor,
-                        job_run_config,
-                        job_run_config_hash,
-                        job_run_config_summary,
-                    )
-                else:
-                    res = stage_pdf_job(
-                        job.file_path,
-                        out,
-                        base_mapping,
-                        run_dt,
-                        job.start_page,
-                        job.end_page,
-                        job.job_index,
-                        job.job_count,
-                        progress_queue,
-                        job.display_name,
-                        job_run_config,
-                        job_run_config_hash,
-                        job_run_config_summary,
-                    )
-            else:
-                res = stage_one_file(
-                    job.file_path,
-                    out,
-                    base_mapping,
-                    limit,
-                    run_dt,
-                    progress_queue,
-                    job.display_name,
-                    job_epub_extractor,
-                    job_run_config,
-                    job_run_config_hash,
-                    job_run_config_summary,
-                    write_markdown,
-                )
+            res = execute_source_job(
+                job,
+                out,
+                base_mapping,
+                run_dt,
+                progress_queue,
+                job.display_name,
+                job_epub_extractor,
+                job_run_config,
+                job_run_config_hash,
+                job_run_config_summary,
+            )
             progress_bar.update(overall_task, advance=1)
             handle_job_result(job, res)
 
@@ -27858,7 +27435,7 @@ def labelstudio_benchmark(
         "--write-markdown/--no-write-markdown",
         help=(
             "Write markdown sidecar artifacts for processed stage outputs "
-            "(sections/tips/topic/chunks/tables)."
+            "(sections/chunks/tables)."
         ),
     )] = True,
     write_label_studio_tasks: Annotated[bool, typer.Option(

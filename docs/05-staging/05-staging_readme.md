@@ -33,23 +33,26 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 ## Where Staging Logic Lives
 
 - `cookimport/staging/jsonld.py`
-  - Intermediate conversion from `RecipeCandidate` to schema.org `Recipe` JSON-LD (+ `recipeimport:*` metadata).
+  - Intermediate conversion from canonical recipe semantics into schema.org `Recipe` JSON-LD (+ `recipeimport:*` metadata), with `RecipeCandidate` still acting as the source-adapter for non-semantic fields such as image and publication metadata.
 - `cookimport/staging/draft_v1.py`
-  - Final conversion to cookbook3 output shape (internal model label still `RecipeDraftV1`).
+  - Final conversion from canonical recipe semantics to cookbook3 output shape (internal model label still `RecipeDraftV1`).
   - Applies staging safety normalization for ingredient lines.
-  - Applies deterministic fallback instruction-step segmentation from run settings before section extraction/step parsing.
+  - Builds the canonical `AuthoritativeRecipeSemantics` payload from a deterministic recipe or recipe-Codex correction result, then projects cookbook3 from that payload without re-running semantic note/variant/link decisions later in writer code.
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 review routing for all outside-recipe blocks.
   - Builds the seed routing split between review-excluded final `other` and review-eligible blocks, keeps the practical fallback category map for artifact readability, and records explicit final-authority block indices separately from unreviewed seed-kept rows.
   - Assumes line-role is routing-only outside recipes: useful lesson prose arrives as review-eligible seed `other`, and only final non-recipe authority can emit scored outside-recipe `knowledge`.
   - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
+- `cookimport/staging/pipeline_runtime.py`
+  - Defines the stage-owned runtime bundles now used by `import_session.py`: `ExtractedBookBundle`, `RecipeBoundaryResult`, `RecipeRefineResult`, `NonrecipeRouteResult`, and `KnowledgeFinalResult`.
+  - Keeps the five-stage authority order explicit; the writer now emits split non-recipe seed-routing, final-authority, and review-status artifacts instead of one mixed file.
 - `cookimport/staging/writer.py`
-  - Writes intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, tips, topic candidates, chunks, raw artifacts, and report JSON.
+  - Writes recipe-authority artifacts, intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
 - `cookimport/staging/stage_block_predictions.py`
   - Builds deterministic block-level benchmark evidence labels (`stage_block_predictions.v1`) from staged recipes + archive blocks + knowledge hints.
 - `cookimport/staging/pdf_jobs.py`
-  - Split-job helpers: range planning and post-merge recipe/tip ID reassignment by source order.
+  - Split-job helpers: range planning and post-merge recipe ID reassignment by source order.
 - `cookimport/cli_worker.py`
   - Main single-file stage flow uses writer functions.
 - `cookimport/cli.py`
@@ -62,6 +65,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 Progress telemetry note:
 
 - `cookimport/staging/import_session.py` now emits structured stage-progress snapshots for label-first authority building, knowledge chunk generation, and multi-step output writing, so stage/benchmark spinners and `processing_timeseries.jsonl` retain more than a single status line during those phases.
+- The shared stage session now runs through explicit five-stage runtime objects before writing: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, `knowledge-final`.
 
 ## Canonical Naming Conventions (User-Facing)
 
@@ -80,8 +84,11 @@ Per run, output root:
 
 Per workbook (slugified file stem):
 
-- `08_nonrecipe_spans.json`
-- `09_knowledge_outputs.json`
+- `08_nonrecipe_seed_routing.json`
+- `08_nonrecipe_review_exclusions.jsonl`
+- `09_nonrecipe_authority.json`
+- `09_nonrecipe_review_status.json`
+- `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
 - `label_det/<workbook_slug>/labeled_lines.jsonl`
 - `label_det/<workbook_slug>/block_labels.json`
 - `label_llm_correct/<workbook_slug>/labeled_lines.jsonl`
@@ -93,10 +100,6 @@ Per workbook (slugified file stem):
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`
 - `sections/<workbook_slug>/sections.md` (default; skipped with `stage --no-write-markdown`)
-- `tips/<workbook_slug>/t{index}.json`
-- `tips/<workbook_slug>/tips.md` (default; skipped with `stage --no-write-markdown`)
-- `tips/<workbook_slug>/topic_candidates.json` (if any)
-- `tips/<workbook_slug>/topic_candidates.md` (if any; skipped with `stage --no-write-markdown`)
 - `chunks/<workbook_slug>/c{index}.json` (if any)
 - `chunks/<workbook_slug>/chunks.md` (if any; skipped with `stage --no-write-markdown`)
 - `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
@@ -139,8 +142,8 @@ Outside run root (`.history/` for repo-local output roots):
 
 Code pointers (prefer these over line numbers, which drift often):
 
-- `cookimport/cli_worker.py` (`stage_one_file`) and `cookimport/cli.py` (`_merge_split_jobs`) assemble per-run output dirs and invoke staging writers.
-- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_stage_block_predictions`, `write_report`) implements the file layout above.
+- `cookimport/cli_worker.py` (`execute_source_job`) writes per-job raw artifacts, and `cookimport/cli.py` (`_merge_source_jobs`) assembles the merged book and invokes staging writers once.
+- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_stage_block_predictions`, `write_report`) implements the file layout above.
 - `cookimport/cli.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) adds run-level index/summary/manifest artifacts.
 - `cookimport/runs/stage_observability.py` is the canonical run-level stage model/writer used by summaries and manifests.
 
@@ -149,12 +152,21 @@ Tags embedding note:
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld` uses matching schema.org `keywords`.
 - Those tags now come directly from recipe correction plus deterministic normalization.
 
+Recipe-authority note:
+- `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` is the canonical semantic handoff from Stage 3 into staging writes.
+- When recipe Codex is enabled and validates, its promoted correction payload becomes the semantic owner for title, description, ingredients, instructions, notes, yield phrase, variants, tags, and ingredient-step links.
+- When recipe Codex is off or falls back, `pipeline_runtime.py` still emits the same payload shape deterministically so writer contracts stay uniform.
+- `write_intermediate_outputs(...)`, `write_draft_outputs(...)`, and `write_section_outputs(...)` now project from that payload first; active stage-backed runtime code no longer threads legacy override dicts as a parallel authority lane, and `CodexFarmApplyResult` no longer publishes recipe override maps as part of the live stage contract.
+
 Stage-block `KNOWLEDGE` label contract:
-- `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `08_nonrecipe_spans.json`.
-- `08_nonrecipe_spans.json` carries the seed routing map, the practical fallback category map, the explicit `final_authority_block_indices`, the `authoritative_block_category_by_index` projection seam, and the refinement report that explains which review-eligible rows stayed unreviewed.
+- `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
+- `08_nonrecipe_seed_routing.json` is the deterministic Stage 7 routing artifact. It keeps seed spans, review eligibility, exclusions, exclusion reasons, and block previews, but it is not a final-truth surface.
+- `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
+- `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.
+- `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Optional knowledge snippets are reviewer-facing evidence; Codex `block_decisions` are what can refine final `KNOWLEDGE` versus `OTHER`.
-- Review-eligible rows that remain unreviewed may still appear as fallback `other` in Stage 7 artifacts, but they must not be treated as reviewed semantic authority by scoring or Label Studio projection.
-- Chunk-lane fallback remains only for paths that do not have Stage 7 ownership wired through.
+- Review-eligible rows that remain unreviewed stay visible only in the seed-routing and review-status artifacts; they must not be treated as reviewed semantic authority by scoring or Label Studio projection.
+- Chunk generation now depends on final Stage 7 non-recipe authority; runs with zero final non-recipe rows simply emit no chunks.
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
@@ -188,14 +200,9 @@ Code pointers:
 
 - `cookimport/staging/writer.py` (`_ensure_candidate_id`, `write_intermediate_outputs`, `write_draft_outputs`)
 
-### Tip/topic IDs
+### Tip/topic staging note
 
-- Tip fallback ID pattern: `urn:recipeimport:tip:{file_hash}:{sheet_slug}:t{row_index}:{tip_index}`.
-- Topic fallback ID pattern: `urn:recipeimport:topic:{file_hash}:{sheet_slug}:tc{row_index}:{topic_index}`.
-
-Code pointers:
-
-- `cookimport/staging/writer.py` (`_ensure_tip_id`, `_ensure_topic_id`)
+- Active stage runs no longer write importer-owned tip/topic artifacts. EPUB/PDF importers hand off only source-first blocks plus support proposals, and later stage ownership decides recipe versus non-recipe semantics.
 
 ### Row index fallback rule (important for non-tabular sources)
 
@@ -265,7 +272,7 @@ When PDFs/EPUBs are split into jobs, merge flow:
 
 1. Collects all job results.
 2. Sorts jobs by start range.
-3. When split jobs include `full_text` raw artifacts, builds merged `raw/.../full_text.json` block payload and offsets per-job block indices in recipe/tip/topic/non-recipe provenance to global coordinates.
+3. When split jobs include `full_text` raw artifacts, builds merged `raw/.../full_text.json` block payload and offsets per-job block indices in recipe/non-recipe provenance to global coordinates.
 4. Reassigns recipe IDs in source order (`start_spine` first, then `start_page`, then `start_block`).
 5. Updates tip references (`source_recipe_id`, provenance IDs) via remap.
 6. Writes merged outputs through standard writer functions.
@@ -283,7 +290,7 @@ When touching split merge, keep this ordering and accounting contract:
 - write report after raw merge completes.
 
 Guardrail test:
-- `tests/staging/test_split_merge_status.py::test_merge_split_jobs_output_stats_match_fresh_directory_walk`
+- `tests/staging/test_split_merge_status.py::test_merge_source_jobs_output_stats_match_fresh_directory_walk`
   compares report `outputStats` against a fresh categorized directory walk.
 
 Main-process merge status callback contract:
@@ -295,7 +302,7 @@ Main-process merge status callback contract:
 
 Code pointers:
 
-- `cookimport/cli.py` (`_merge_split_jobs`, `_merge_raw_artifacts`)
+- `cookimport/cli.py` (`_merge_source_jobs`, `_merge_raw_artifacts`)
 - `cookimport/staging/pdf_jobs.py` (`reassign_recipe_ids`)
 
 ## Run manifest contract

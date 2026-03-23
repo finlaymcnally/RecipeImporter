@@ -2,7 +2,7 @@
 summary: "Code-verified parsing reference focused on current behavior, contracts, and regression-sensitive modules."
 read_when:
   - When changing ingredient parsing, instruction metadata extraction, step-ingredient linking, or EPUB recipe segmentation
-  - When changing tip/topic extraction, knowledge chunking, or chunk lane mapping
+  - When changing chunk/highlight extraction, knowledge chunking, or chunk lane mapping
   - When reconciling parsing docs against code/tests (use `04-parsing_log.md` for historical attempts)
 ---
 
@@ -18,8 +18,7 @@ Historical architecture versions, builds, and fix attempts now live in `docs/04-
 - Instruction metadata parsing
 - Ingredient-to-step linking
 - EPUB recipe segmentation rules that affect parsing outcomes
-- Tip candidate extraction and classification
-- Topic candidate extraction
+- Internal advice/highlight extraction helpers
 - Knowledge chunk generation, lane assignment, and highlight extraction
 - Output artifacts and where they are written
 - Current limitations / sharp edges
@@ -52,6 +51,8 @@ Core modules:
 - `cookimport/parsing/block_roles.py`
 - `cookimport/parsing/recipe_block_atomizer.py`
 - `cookimport/parsing/canonical_line_roles.py`
+- `cookimport/parsing/label_source_of_truth.py`
+- `cookimport/parsing/recipe_span_grouping.py`
 - `cookimport/parsing/markdown_blocks.py`
 - `cookimport/parsing/epub_extractors.py`
 - `cookimport/parsing/epub_table_rows.py`
@@ -115,13 +116,13 @@ Parsing-adjacent module (not in the default stage recipe-path runtime):
 Major call sites:
 
 - Recipe draft conversion: `cookimport/staging/draft_v1.py`
-- EPUB segmentation + standalone tip/topic extraction: `cookimport/plugins/epub.py`
-- PDF importer tip/topic extraction + block signal enrichment: `cookimport/plugins/pdf.py`
-- Text importer tip/topic extraction + block signal enrichment: `cookimport/plugins/text.py`
-- Excel importer recipe-level tip extraction: `cookimport/plugins/excel.py`
+- EPUB segmentation + block signal enrichment: `cookimport/plugins/epub.py`
+- PDF importer block signal enrichment: `cookimport/plugins/pdf.py`
+- Text importer block signal enrichment: `cookimport/plugins/text.py`
+- Excel importer recipe extraction: `cookimport/plugins/excel.py`
 - Web/schema.org extraction helpers: `cookimport/plugins/webschema.py`
-- Stage/bench orchestration of tip/chunk/table passes: `cookimport/cli.py`, `cookimport/cli_worker.py`
-- Label Studio ingest chunk/table/tip orchestration: `cookimport/labelstudio/ingest.py`
+- Stage/bench orchestration of chunk/table passes: `cookimport/cli.py`, `cookimport/cli_worker.py`
+- Label Studio ingest chunk/table orchestration: `cookimport/labelstudio/ingest.py`
 - EPUB debug CLI diagnostics path: `cookimport/epubdebug/cli.py`
 - JSON-LD section shaping (`HowToSection`, ingredient section metadata): `cookimport/staging/jsonld.py`
 - Candidate confidence scoring using parsing signals: `cookimport/core/scoring.py`
@@ -130,6 +131,7 @@ Major call sites:
 
 Label-first recipe-span note:
 
+- `label_source_of_truth.py` plus `recipe_span_grouping.py` are now the parser-owned engine behind the `recipe-boundary` stage wrapper in `cookimport/staging/pipeline_runtime.py`.
 - pre-grouping line-role candidates no longer inherit importer recipe provenance. `within_recipe_span` is now `None` until corrected labels are grouped back into spans, and prompt-preview plus Label Studio ingest mirror that same span-free contract.
 - `cookimport/parsing/recipe_span_grouping.py` now treats title-like anchoring as a hard acceptance boundary.
 - Title-anchored spans can now survive one intervening `OTHER`/`KNOWLEDGE` block when the very next block returns to strong recipe-body structure. This preserves real recipes through a single stray misclassified ingredient/prose block without reviving titleless pseudo-recipes.
@@ -155,24 +157,16 @@ Label-first recipe-span note:
 3. Unassigned ingredients get inserted into a prep step (`"Gather and prepare ingredients."`) at step 0.
 4. Writer emits draft outputs.
 
-### Tip/topic/chunk path
+### Chunk/highlight path
 
-1. Importers generate `tip_candidates` and `topic_candidates`:
-   - Recipe text: `extract_tip_candidates_from_candidate`
-   - Standalone non-recipe blocks: atomized extraction in EPUB/PDF flows
-2. `partition_tip_candidates` separates:
-   - `general` + standalone tips
-   - `recipe_specific`
-   - `not_tip`
-3. CLI/ingest path computes chunks:
-   - Preferred: `chunks_from_non_recipe_blocks(non_recipe_blocks)`
-   - Fallback: `chunks_from_topic_candidates(topic_candidates)`
-   - Table-aware enrichment and artifact writing are driven by `extract_and_annotate_tables(...)` in CLI + Label Studio ingest paths
-   - Knowledge job builders also consume parser chunks (`cookimport/llm/codex_farm_knowledge_jobs.py`)
-4. Writer emits:
-   - tips
-   - topic candidates
-   - chunks and chunk summary
+1. Importers publish canonical `source_blocks` plus optional non-authoritative `source_support`; they do not own outside-recipe truth.
+2. The shared stage session builds authoritative outside-recipe ownership from that source model and writes the final Stage 7 non-recipe rows back into `ConversionResult.non_recipe_blocks`.
+3. CLI/ingest path computes chunks from those final non-recipe rows only:
+   - `chunks_from_non_recipe_blocks(non_recipe_blocks)`
+   - table-aware enrichment and artifact writing are driven by `extract_and_annotate_tables(...)` in CLI + Label Studio ingest paths
+   - knowledge job builders also consume parser chunks (`cookimport/llm/codex_farm_knowledge_jobs.py`)
+4. Highlight extraction inside `chunks.py` still reuses the internal advice extractor from `parsing/tips.py`, but those candidates are local chunk metadata rather than a published stage `tips/` product.
+5. Writer emits chunks and optional chunk summaries.
 
 ## Ingredient Parsing (`cookimport/parsing/ingredients.py`)
 
@@ -419,54 +413,40 @@ This was added to stop false recipe splits where component headers like `For the
 - `tests/ingestion/test_epub_importer.py`
 - `tests/ingestion/test_pdf_importer.py`
 
-## Tip Candidate Extraction (`cookimport/parsing/tips.py`)
+## Internal Advice/Highlight Extraction (`cookimport/parsing/tips.py`)
 
-### Scope labels
+### Current role
 
-- `general`
-- `recipe_specific`
-- `not_tip`
+- The old exported tip/topic lane is gone from stage and Label Studio outputs.
+- `parsing/tips.py` remains as an internal helper module for:
+  - chunk highlight extraction
+  - parser-focused tip/advice tests
+  - residual standalone advice heuristics still used by PDF/EPUB helper code paths under test
 
 ### Extraction model (current)
 
 - Split text into candidate blocks.
 - Extract spans from each block.
 - Repair clipped spans using neighboring sentence/block context.
-- Judge each span by tipness + generality + context.
-- Attach taxonomy tags.
+- Judge each span by advice-ness + generality + context.
+- Attach taxonomy tags when the span survives.
 
 Gates include:
 
-- Advice/action cues
-- Cooking anchors
-- Narrative rejection signals
-- Header/prefix strength (strong vs weak callouts)
+- advice/action cues
+- cooking anchors
+- narrative rejection signals
+- header/prefix strength (strong vs weak callouts)
 
-### Header/prefix behavior
+### Important boundary
 
-- Strong tip prefixes (e.g., `Tip:`) can push borderline spans toward tip classification.
-- Weak callouts (e.g., `Note:`) are weaker signals.
-- Recipe-specific headers (`Why this recipe works`, `Chef's note`, etc.) bias toward `recipe_specific`.
-- `ParsingOverrides` can extend tip headers/prefixes.
-
-### Important output distinction
-
-- `tip_candidates` keep all scopes.
-- `results.tips` is intended for exported standalone general tips.
-- `write_tip_outputs` writes only tips where:
-  - scope is `general`
-  - `standalone` is true
-
-### Topic candidate behavior
-
-- `build_topic_candidate` wraps text + tags + provenance.
-- Standalone block flow (EPUB/PDF) atomizes content and emits topic candidates for each atom.
+- These helpers no longer feed `ConversionResult.tips`, `tip_candidates`, or `topic_candidates`; those fields were removed.
+- When `chunks.py` reuses this extractor, the surviving spans become chunk-local highlights only.
 
 ### Tests to read
 
 - `tests/parsing/test_tip_extraction.py`
 - `tests/parsing/test_tip_recipe_notes.py`
-- `tests/staging/test_tip_writer.py`
 
 ## Atomization (`cookimport/parsing/atoms.py`)
 
@@ -478,7 +458,7 @@ Gates include:
 
 ### Why it matters
 
-- Tip/topic provenance carries atom context, used in downstream debugging and review.
+- Parser/debug provenance can carry atom context, which remains useful for standalone advice analysis and chunk-highlight debugging.
 
 ### Tests to read
 
@@ -670,10 +650,6 @@ Timestamp root uses `YYYY-MM-DD_HH.MM.SS`.
 
 Under a run output folder:
 
-- Tips: `data/output/<timestamp>/tips/<workbook_stem>/t{index}.json`
-- Tip summary: `data/output/<timestamp>/tips/<workbook_stem>/tips.md`
-- Topic candidates: `data/output/<timestamp>/tips/<workbook_stem>/topic_candidates.json`
-- Topic candidates summary: `data/output/<timestamp>/tips/<workbook_stem>/topic_candidates.md`
 - Chunks: `data/output/<timestamp>/chunks/<workbook_stem>/c{index}.json`
 - Chunk summary: `data/output/<timestamp>/chunks/<workbook_stem>/chunks.md`
 - Tables: `data/output/<timestamp>/tables/<workbook_stem>/tables.jsonl` and `tables.md`
@@ -686,7 +662,6 @@ Under a run output folder:
    - `tests/parsing/test_step_ingredient_linking.py`
    - `tests/parsing/test_ingredient_parser.py`
    - `tests/parsing/test_instruction_parser.py`
-   - `tests/parsing/test_tip_extraction.py`
    - `tests/parsing/test_chunks.py`
    - `tests/parsing/test_tables.py`
    - `tests/parsing/test_cleaning_epub.py`
@@ -695,14 +670,14 @@ Under a run output folder:
    - `tests/ingestion/test_epub_importer.py`
    - `tests/ingestion/test_epub_extraction_quickwins.py`
    - `tests/ingestion/test_unstructured_adapter.py`
-4. Run end-to-end spot check through `cookimport.cli stage` and inspect generated `tips.md` and `chunks.md`.
+4. Run end-to-end spot check through `cookimport.cli stage` and inspect generated `chunks.md` and `tables.md` when those lanes are enabled.
 5. Keep deterministic behavior as default; new ML/LLM options should remain opt-in with deterministic fallback preserved.
 
 ## Quick Reference: Most Sensitive Files
 
 - Step linking logic and regressions: `cookimport/parsing/step_ingredients.py`
 - EPUB boundary regressions: `cookimport/plugins/epub.py`
-- Tip scope drift: `cookimport/parsing/tips.py`
+- Advice/highlight scope drift: `cookimport/parsing/tips.py`
 - Lane drift and chunk boundary shifts: `cookimport/parsing/chunks.py`
 - Output formatting/selection confusion: `cookimport/staging/writer.py`
 

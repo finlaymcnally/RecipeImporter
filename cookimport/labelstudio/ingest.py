@@ -55,7 +55,11 @@ from cookimport.core.reporting import (
     enrich_report_with_stats,
     finalize_report_totals,
 )
-from cookimport.core.scoring import summarize_recipe_likeness
+from cookimport.core.source_model import (
+    normalize_source_blocks,
+    offset_source_blocks,
+    offset_source_support,
+)
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
     run_codex_farm_nonrecipe_knowledge_review,
@@ -71,10 +75,8 @@ from cookimport.parsing.label_source_of_truth import (
     build_label_first_stage_result,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
-from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.parsing.chunks import (
     chunks_from_non_recipe_blocks,
-    chunks_from_topic_candidates,
 )
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.plugins import registry
@@ -131,6 +133,7 @@ from cookimport.runs import (
     write_stage_observability_report,
 )
 from cookimport.staging.import_session import execute_stage_import_session_from_result
+from cookimport.staging.job_planning import JobSpec, plan_source_job
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
     block_rows_for_nonrecipe_stage,
@@ -146,15 +149,7 @@ from cookimport.staging.writer import (
     write_section_outputs,
     write_stage_block_predictions,
     write_table_outputs,
-    write_tip_outputs,
-    write_topic_candidate_outputs,
 )
-from cookimport.staging.pdf_jobs import (
-    plan_job_ranges,
-    plan_pdf_page_ranges,
-    reassign_recipe_ids,
-)
-
 logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - Windows fallback keeps behavior deterministic.
@@ -1307,110 +1302,6 @@ def _llm_selective_retry_run_config_summary(
     }
 
 
-def _resolve_pdf_page_count(path: Path) -> int | None:
-    importer = registry.get_importer("pdf")
-    if importer is None:
-        return None
-    try:
-        inspection = importer.inspect(path)
-    except Exception:
-        return None
-    if not inspection.sheets:
-        return None
-    page_count = inspection.sheets[0].page_count
-    if page_count is None:
-        return None
-    try:
-        return int(page_count)
-    except (TypeError, ValueError):
-        return None
-
-
-def _resolve_epub_spine_count(path: Path) -> int | None:
-    importer = registry.get_importer("epub")
-    if importer is None:
-        return None
-    try:
-        inspection = importer.inspect(path)
-    except Exception:
-        return None
-    if not inspection.sheets:
-        return None
-    spine_count = inspection.sheets[0].spine_count
-    if spine_count is None:
-        return None
-    try:
-        return int(spine_count)
-    except (TypeError, ValueError):
-        return None
-
-
-def _plan_parallel_convert_jobs(
-    path: Path,
-    *,
-    workers: int,
-    pdf_split_workers: int,
-    epub_split_workers: int,
-    pdf_pages_per_job: int,
-    epub_spine_items_per_job: int,
-    epub_extractor: str = "unstructured",
-) -> list[dict[str, int | None]]:
-    suffix = path.suffix.lower()
-    selected_epub_extractor = epub_extractor.strip().lower()
-    if suffix == ".pdf" and pdf_split_workers > 1 and pdf_pages_per_job > 0:
-        page_count = _resolve_pdf_page_count(path)
-        if page_count:
-            ranges = plan_pdf_page_ranges(
-                page_count,
-                pdf_split_workers,
-                pdf_pages_per_job,
-            )
-            if len(ranges) > 1:
-                return [
-                    {
-                        "job_index": idx,
-                        "start_page": start,
-                        "end_page": end,
-                        "start_spine": None,
-                        "end_spine": None,
-                    }
-                    for idx, (start, end) in enumerate(ranges)
-                ]
-    if (
-        suffix == ".epub"
-        and selected_epub_extractor != "markitdown"
-        and epub_split_workers > 1
-        and epub_spine_items_per_job > 0
-    ):
-        spine_count = _resolve_epub_spine_count(path)
-        if spine_count:
-            ranges = plan_job_ranges(
-                spine_count,
-                epub_split_workers,
-                epub_spine_items_per_job,
-            )
-            if len(ranges) > 1:
-                return [
-                    {
-                        "job_index": idx,
-                        "start_page": None,
-                        "end_page": None,
-                        "start_spine": start,
-                        "end_spine": end,
-                    }
-                    for idx, (start, end) in enumerate(ranges)
-                ]
-    return [
-        {
-            "job_index": 0,
-            "start_page": None,
-            "end_page": None,
-            "start_spine": None,
-            "end_spine": None,
-        }
-    ]
-
-
 def _parallel_convert_worker(
     path: Path,
     pipeline: str,
@@ -1505,18 +1396,12 @@ def _offset_provenance_block_indices(provenance: dict[str, Any], offset: int) ->
 def _offset_result_block_indices(result: ConversionResult, offset: int) -> None:
     if offset <= 0:
         return
+    result.source_blocks = offset_source_blocks(result.source_blocks, offset)
+    result.source_support = offset_source_support(result.source_support, offset)
 
     for recipe in result.recipes:
         if isinstance(recipe.provenance, dict):
             _offset_provenance_block_indices(recipe.provenance, offset)
-
-    for tip in result.tip_candidates:
-        if isinstance(tip.provenance, dict):
-            _offset_provenance_block_indices(tip.provenance, offset)
-
-    for topic in result.topic_candidates:
-        if isinstance(topic.provenance, dict):
-            _offset_provenance_block_indices(topic.provenance, offset)
 
     for block in result.non_recipe_blocks:
         if isinstance(block, dict):
@@ -1540,6 +1425,12 @@ def _offset_result_block_indices(result: ConversionResult, offset: int) -> None:
 
 
 def _extract_result_block_count(result: ConversionResult) -> int:
+    if result.source_blocks:
+        max_order_index = max(
+            (int(block.order_index) for block in result.source_blocks),
+            default=-1,
+        )
+        return max_order_index + 1 if max_order_index >= 0 else 0
     for artifact in result.raw_artifacts:
         metadata = artifact.metadata if isinstance(artifact.metadata, dict) else {}
         if metadata.get("artifact_type") != "extracted_blocks":
@@ -1598,22 +1489,17 @@ def _merge_parallel_results(
     job_results: list[dict[str, Any]],
 ) -> ConversionResult:
     ordered_jobs = sorted(job_results, key=_job_sort_key)
-    merged_recipes: list[Any] = []
-    merged_tip_candidates: list[Any] = []
-    merged_topic_candidates: list[Any] = []
-    merged_non_recipe_blocks: list[Any] = []
+    merged_source_blocks: list[Any] = []
+    merged_source_support: list[Any] = []
     merged_raw_artifacts: list[Any] = []
     warnings: list[str] = []
     block_offset = 0
-    rejected_candidate_count = 0
 
     for job in ordered_jobs:
         result = job["result"]
         _offset_result_block_indices(result, block_offset)
-        merged_recipes.extend(result.recipes)
-        merged_tip_candidates.extend(result.tip_candidates)
-        merged_topic_candidates.extend(result.topic_candidates)
-        merged_non_recipe_blocks.extend(result.non_recipe_blocks)
+        merged_source_blocks.extend(result.source_blocks)
+        merged_source_support.extend(result.source_support)
         merged_raw_artifacts.extend(result.raw_artifacts)
         block_offset += _extract_result_block_count(result)
         if result.report and result.report.warnings:
@@ -1622,51 +1508,13 @@ def _merge_parallel_results(
             warnings.extend(
                 f"Job {job.get('job_index')}: {error}" for error in result.report.errors
             )
-        if result.report and isinstance(result.report.recipe_likeness, dict):
-            rejected_value = result.report.recipe_likeness.get(
-                "rejectedCandidateCount"
-            )
-            if rejected_value is None:
-                counts_payload = result.report.recipe_likeness.get("counts")
-                if isinstance(counts_payload, dict):
-                    rejected_value = counts_payload.get("reject")
-            try:
-                rejected_candidate_count += max(0, int(rejected_value or 0))
-            except (TypeError, ValueError):
-                pass
-
-    file_hash = compute_file_hash(path)
-    sorted_recipes, _ = reassign_recipe_ids(
-        merged_recipes,
-        merged_tip_candidates,
-        file_hash=file_hash,
-        importer_name=importer_name,
-    )
-    tips, _, _ = partition_tip_candidates(merged_tip_candidates)
     report = ConversionReport(warnings=warnings)
-    recipe_likeness_results = [
-        candidate.recipe_likeness
-        for candidate in sorted_recipes
-        if candidate.recipe_likeness is not None
-    ]
-    recipe_likeness_summary = summarize_recipe_likeness(
-        recipe_likeness_results,
-        rejected_candidate_count,
-    )
-    counts_payload = recipe_likeness_summary.get("counts")
-    if isinstance(counts_payload, dict):
-        counts_payload["reject"] = rejected_candidate_count
-    recipe_likeness_summary["totalCandidates"] = (
-        len(recipe_likeness_results) + rejected_candidate_count
-    )
-    report.recipe_likeness = recipe_likeness_summary
 
     merged_result = ConversionResult(
-        recipes=sorted_recipes,
-        tips=tips,
-        tip_candidates=merged_tip_candidates,
-        topic_candidates=merged_topic_candidates,
-        non_recipe_blocks=merged_non_recipe_blocks,
+        recipes=[],
+        source_blocks=normalize_source_blocks(merged_source_blocks),
+        source_support=list(merged_source_support),
+        non_recipe_blocks=[],
         raw_artifacts=merged_raw_artifacts,
         report=report,
         workbook=path.stem,
@@ -2087,9 +1935,8 @@ def generate_pred_run_artifacts(
                 skip_headers_footers=selected_skip_headers_footers,
                 preprocess_mode=selected_preprocess_mode,
             ):
-                job_specs = _plan_parallel_convert_jobs(
+                job_specs = plan_source_job(
                     path,
-                    workers=workers,
                     pdf_split_workers=pdf_split_workers,
                     epub_split_workers=epub_split_workers,
                     pdf_pages_per_job=pdf_pages_per_job,
@@ -2155,26 +2002,30 @@ def generate_pred_run_artifacts(
                         job_results: list[dict[str, Any]] = []
                         job_errors: list[str] = []
 
-                        def _run_job_serial(spec: dict[str, int | None]) -> None:
+                        def _run_job_serial(spec: JobSpec) -> None:
                             importer_name, job_result = _parallel_convert_worker(
                                 path,
                                 pipeline,
                                 run_mapping,
                                 run_config=worker_run_config,
-                                start_page=spec.get("start_page"),
-                                end_page=spec.get("end_page"),
-                                start_spine=spec.get("start_spine"),
-                                end_spine=spec.get("end_spine"),
+                                start_page=spec.start_page,
+                                end_page=spec.end_page,
+                                start_spine=spec.start_spine,
+                                end_spine=spec.end_spine,
                             )
                             job_results.append(
-                                {**spec, "result": job_result, "importer_name": importer_name}
+                                {
+                                    **spec.to_payload(),
+                                    "result": job_result,
+                                    "importer_name": importer_name,
+                                }
                             )
 
-                        def _split_worker_status(spec: dict[str, int | None]) -> str:
-                            job_number = int(spec.get("job_index") or 0) + 1
+                        def _split_worker_status(spec: JobSpec) -> str:
+                            job_number = spec.job_index + 1
                             base = f"job {job_number}/{len(job_specs)}"
-                            start_page = spec.get("start_page")
-                            end_page = spec.get("end_page")
+                            start_page = spec.start_page
+                            end_page = spec.end_page
                             if start_page is not None and end_page is not None:
                                 try:
                                     start = int(start_page) + 1
@@ -2182,8 +2033,8 @@ def generate_pred_run_artifacts(
                                 except (TypeError, ValueError):
                                     return base
                                 return f"{base} pages {start}-{end}"
-                            start_spine = spec.get("start_spine")
-                            end_spine = spec.get("end_spine")
+                            start_spine = spec.start_spine
+                            end_spine = spec.end_spine
                             if start_spine is not None and end_spine is not None:
                                 try:
                                     start = int(start_spine) + 1
@@ -2197,19 +2048,19 @@ def generate_pred_run_artifacts(
                             if max_workers > 1:
                                 _notify(format_worker_activity_reset())
                             pending_specs = list(job_specs)
-                            futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
+                            futures: dict[Any, tuple[int, JobSpec]] = {}
 
-                            def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
+                            def _submit(spec: JobSpec, worker_slot: int) -> None:
                                 future = executor.submit(
                                     _parallel_convert_worker,
                                     path,
                                     pipeline,
                                     run_mapping,
                                     run_config=worker_run_config,
-                                    start_page=spec.get("start_page"),
-                                    end_page=spec.get("end_page"),
-                                    start_spine=spec.get("start_spine"),
-                                    end_spine=spec.get("end_spine"),
+                                    start_page=spec.start_page,
+                                    end_page=spec.end_page,
+                                    start_spine=spec.start_spine,
+                                    end_spine=spec.end_spine,
                                 )
                                 futures[future] = (worker_slot, spec)
                                 if max_workers > 1:
@@ -2234,12 +2085,12 @@ def generate_pred_run_artifacts(
                                     importer_name, job_result = future.result()
                                 except Exception as exc:
                                     job_errors.append(
-                                        f"job {spec.get('job_index', '?')}: {exc}"
+                                        f"job {spec.job_index}: {exc}"
                                     )
                                 else:
                                     job_results.append(
                                         {
-                                            **spec,
+                                            **spec.to_payload(),
                                             "result": job_result,
                                             "importer_name": importer_name,
                                         }
@@ -2263,7 +2114,7 @@ def generate_pred_run_artifacts(
                                     _run_job_serial(spec)
                                 except Exception as exc:  # noqa: BLE001
                                     job_errors.append(
-                                        f"job {spec.get('job_index', '?')}: {exc}"
+                                        f"job {spec.job_index}: {exc}"
                                     )
                                 _notify(_split_progress_status(len(job_results)))
                         try:
@@ -2464,8 +2315,8 @@ def generate_pred_run_artifacts(
             )
         if result.non_recipe_blocks:
             result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
-        elif result.topic_candidates:
-            result.chunks = chunks_from_topic_candidates(result.topic_candidates)
+        else:
+            result.chunks = []
 
     if processed_output_root is None and run_settings.llm_knowledge_pipeline.value != "off":
         _notify("Running codex-farm non-recipe knowledge review...")
@@ -3227,7 +3078,6 @@ def generate_pred_run_artifacts(
         "source_hash": file_hash,
         "book_id": book_id,
         "recipe_count": len(result.recipes),
-        "tip_count": len(result.tips),
         "run_timestamp": run_dt.isoformat(timespec="seconds"),
         "run_config": run_config,
         "run_config_hash": run_config_hash,

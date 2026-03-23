@@ -71,12 +71,7 @@ class PerfRow:
     writing_seconds: float
     ocr_seconds: float
     recipes: int
-    tips: int
-    tip_candidates: int
-    topic_candidates: int
     standalone_blocks: int | None
-    standalone_topic_blocks: int | None
-    standalone_topic_coverage: float | None
     output_files: int | None
     output_bytes: int | None
     checkpoints: dict[str, float]
@@ -88,7 +83,7 @@ class PerfRow:
 
     @property
     def total_units(self) -> int:
-        return self.recipes + self.tips + self.tip_candidates + self.topic_candidates
+        return self.recipes
 
     @property
     def per_unit_seconds(self) -> float | None:
@@ -97,39 +92,10 @@ class PerfRow:
         return self.total_seconds / self.total_units
 
     @property
-    def knowledge_share(self) -> float:
-        total_units = self.total_units
-        if total_units <= 0:
-            return 0.0
-        return self.topic_candidates / total_units
-
-    @property
-    def is_knowledge_heavy(self) -> bool:
-        return self.total_units > 0 and self.knowledge_share >= 0.6
-
-    @property
     def per_recipe_seconds(self) -> float | None:
         if self.recipes <= 0:
             return None
         return self.total_seconds / self.recipes
-
-    @property
-    def per_tip_seconds(self) -> float | None:
-        if self.tips <= 0:
-            return None
-        return self.total_seconds / self.tips
-
-    @property
-    def per_tip_candidate_seconds(self) -> float | None:
-        if self.tip_candidates <= 0:
-            return None
-        return self.total_seconds / self.tip_candidates
-
-    @property
-    def per_topic_candidate_seconds(self) -> float | None:
-        if self.topic_candidates <= 0:
-            return None
-        return self.total_seconds / self.topic_candidates
 
     def dominant_stage(self) -> tuple[str, float] | None:
         total = self.total_seconds
@@ -254,7 +220,7 @@ def build_perf_summary(run_dir: Path) -> PerfSummary:
         lambda row: row.per_recipe_seconds,
         predicate=_is_recipe_heavy,
     )
-    knowledge_heavy = [row for row in rows if row.is_knowledge_heavy]
+    knowledge_heavy: list[PerfRow] = []
     return PerfSummary(
         run_dir=run_dir,
         rows=rows,
@@ -271,39 +237,15 @@ def format_summary_line(row: PerfRow) -> str:
     parts = [
         f"{row.file_name}: total {_fmt_seconds(row.total_seconds)}"
         f" (parse {_fmt_seconds(row.parsing_seconds)}, write {_fmt_seconds(row.writing_seconds)})",
-        f"r {row.recipes} t {row.tips} tc {row.tip_candidates} top {row.topic_candidates}",
-        "per r {per_r} per t {per_t} per tc {per_tc} per top {per_top}".format(
+        f"r {row.recipes} standalone {row.standalone_blocks or 0}",
+        "per r {per_r} per unit {per_unit}".format(
             per_r=_fmt_optional(row.per_recipe_seconds),
-            per_t=_fmt_optional(row.per_tip_seconds),
-            per_tc=_fmt_optional(row.per_tip_candidate_seconds),
-            per_top=_fmt_optional(row.per_topic_candidate_seconds),
+            per_unit=_fmt_optional(row.per_unit_seconds),
         ),
     ]
     dominant = _format_dominant(row)
     if dominant:
         parts.append(f"dominant {dominant}")
-    if row.is_knowledge_heavy:
-        parts.append(f"knowledge-heavy {row.knowledge_share:.0%} topics")
-    if (
-        row.standalone_blocks is not None
-        and row.standalone_topic_blocks is not None
-        and (row.standalone_blocks > 0 or row.standalone_topic_blocks > 0)
-    ):
-        coverage = row.standalone_topic_coverage
-        if coverage is None and row.standalone_blocks:
-            coverage = row.standalone_topic_blocks / row.standalone_blocks
-        if coverage is not None:
-            parts.append(
-                "standalone {topic}/{total} ({coverage:.0%})".format(
-                    topic=row.standalone_topic_blocks,
-                    total=row.standalone_blocks,
-                    coverage=coverage,
-                )
-            )
-        else:
-            parts.append(
-                f"standalone {row.standalone_topic_blocks}/{row.standalone_blocks}"
-            )
     return " | ".join(parts)
 
 
@@ -1018,20 +960,7 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
 
     importer_name = _normalize_optional_text(data.get("importerName"))
     recipes = _safe_int(data.get("totalRecipes"))
-    tips = _safe_int(data.get("totalTips"))
-    tip_candidates = _safe_int(data.get("totalTipCandidates"))
-    topic_candidates = _safe_int(data.get("totalTopicCandidates"))
     standalone_blocks = _safe_int(data.get("totalStandaloneBlocks"), allow_none=True)
-    standalone_topic_blocks = _safe_int(
-        data.get("totalStandaloneTopicBlocks"), allow_none=True
-    )
-    standalone_topic_coverage = _safe_float_or_none(data.get("standaloneTopicCoverage"))
-    if (
-        standalone_topic_coverage is None
-        and standalone_blocks
-        and standalone_topic_blocks is not None
-    ):
-        standalone_topic_coverage = standalone_topic_blocks / standalone_blocks
 
     output_files, output_bytes = _extract_output_totals(data.get("outputStats"))
     run_config = data.get("runConfig")
@@ -1076,12 +1005,7 @@ def _row_from_report(run_dir: Path, report_path: Path, data: dict[str, Any]) -> 
         writing_seconds=writing_seconds,
         ocr_seconds=ocr_seconds,
         recipes=recipes,
-        tips=tips,
-        tip_candidates=tip_candidates,
-        topic_candidates=topic_candidates,
         standalone_blocks=standalone_blocks,
-        standalone_topic_blocks=standalone_topic_blocks,
-        standalone_topic_coverage=standalone_topic_coverage,
         output_files=output_files,
         output_bytes=output_bytes,
         checkpoints=checkpoints,
@@ -1129,7 +1053,7 @@ def _find_outliers(rows: list[PerfRow], metric, *, predicate=None) -> list[PerfR
 
 
 def _is_recipe_heavy(row: PerfRow) -> bool:
-    return row.recipes >= 10 and not row.is_knowledge_heavy
+    return row.recipes >= 10
 
 
 def _has_enough_units(row: PerfRow) -> bool:
@@ -2121,22 +2045,12 @@ _CSV_FIELDS = [
     "writing_seconds",
     "ocr_seconds",
     "recipes",
-    "tips",
-    "tip_candidates",
-    "topic_candidates",
     "standalone_blocks",
-    "standalone_topic_blocks",
-    "standalone_topic_coverage",
     "total_units",
     "per_recipe_seconds",
-    "per_tip_seconds",
-    "per_tip_candidate_seconds",
-    "per_topic_candidate_seconds",
     "per_unit_seconds",
     "output_files",
     "output_bytes",
-    "knowledge_share",
-    "knowledge_heavy",
     "dominant_stage",
     "dominant_stage_seconds",
     "dominant_checkpoint",
@@ -2213,28 +2127,14 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "writing_seconds": row.writing_seconds,
         "ocr_seconds": row.ocr_seconds,
         "recipes": row.recipes,
-        "tips": row.tips,
-        "tip_candidates": row.tip_candidates,
-        "topic_candidates": row.topic_candidates,
         "standalone_blocks": (
             row.standalone_blocks if row.standalone_blocks is not None else ""
         ),
-        "standalone_topic_blocks": (
-            row.standalone_topic_blocks if row.standalone_topic_blocks is not None else ""
-        ),
-        "standalone_topic_coverage": (
-            row.standalone_topic_coverage if row.standalone_topic_coverage is not None else ""
-        ),
         "total_units": row.total_units,
         "per_recipe_seconds": row.per_recipe_seconds if row.per_recipe_seconds is not None else "",
-        "per_tip_seconds": row.per_tip_seconds if row.per_tip_seconds is not None else "",
-        "per_tip_candidate_seconds": row.per_tip_candidate_seconds if row.per_tip_candidate_seconds is not None else "",
-        "per_topic_candidate_seconds": row.per_topic_candidate_seconds if row.per_topic_candidate_seconds is not None else "",
         "per_unit_seconds": row.per_unit_seconds if row.per_unit_seconds is not None else "",
         "output_files": row.output_files if row.output_files is not None else "",
         "output_bytes": row.output_bytes if row.output_bytes is not None else "",
-        "knowledge_share": row.knowledge_share if row.total_units > 0 else "",
-        "knowledge_heavy": "yes" if row.is_knowledge_heavy else "",
         "dominant_stage": dominant_stage,
         "dominant_stage_seconds": dominant_stage_seconds,
         "dominant_checkpoint": dominant_checkpoint,

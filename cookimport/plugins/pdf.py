@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import logging
-import os
 import json
 import re
 import statistics
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Literal, Tuple
 
@@ -18,74 +16,34 @@ from cookimport.core.models import (
     ParsingOverrides,
     RawArtifact,
     RecipeCandidate,
+    SourceSupport,
     WorkbookInspection,
     SheetInspection,
 )
-from cookimport.core.reporting import (
-    ProvenanceBuilder,
-    compute_file_hash,
-    generate_recipe_id,
-)
-from cookimport.core.progress_messages import format_task_counter
-from cookimport.core.scoring import (
-    build_recipe_scoring_debug_row,
-    recipe_gate_action,
-    score_recipe_likeness,
-    summarize_recipe_likeness,
-)
+from cookimport.core.reporting import compute_file_hash
+from cookimport.core.source_model import normalize_source_blocks
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning, signals
-from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
 from cookimport.parsing.multi_recipe_splitter import (
     MultiRecipeSplitConfig,
     split_candidate_blocks,
 )
 from cookimport.parsing.pattern_flags import (
-    OverlapCandidate,
     apply_candidate_start_trims,
     detect_deterministic_patterns,
-    normalize_title_for_pattern,
     pattern_warning_lines,
-    resolve_overlap_duplicate_candidates,
 )
 from cookimport.parsing.section_detector import (
     SectionKind,
     detect_sections_from_blocks,
 )
-from cookimport.parsing.tips import (
-    build_topic_candidate,
-    extract_tip_candidates,
-    extract_tip_candidates_from_candidate,
-    chunk_standalone_blocks,
-    partition_tip_candidates,
-)
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
-_STANDALONE_ANALYSIS_WORKERS_DEFAULT = 4
-_STANDALONE_ANALYSIS_WORKERS_ENV = "C3IMP_STANDALONE_ANALYSIS_WORKERS"
 _PDF_COLUMN_GAP_RATIO_DEFAULT = 0.12
 
 if TYPE_CHECKING:
     from cookimport.config.run_settings import RunSettings
-
-
-def _get_standalone_analysis_workers() -> int:
-    raw_value = os.environ.get(
-        _STANDALONE_ANALYSIS_WORKERS_ENV,
-        str(_STANDALONE_ANALYSIS_WORKERS_DEFAULT),
-    )
-    try:
-        parsed = int(str(raw_value).strip())
-    except (TypeError, ValueError):
-        logger.warning(
-            "Invalid %s=%r. Falling back to %s.",
-            _STANDALONE_ANALYSIS_WORKERS_ENV,
-            raw_value,
-            _STANDALONE_ANALYSIS_WORKERS_DEFAULT,
-        )
-        return _STANDALONE_ANALYSIS_WORKERS_DEFAULT
-    return max(1, parsed)
 
 
 def _ocr_available() -> bool:
@@ -116,6 +74,55 @@ def _block_to_raw(block: Block, index: int) -> dict[str, Any]:
         if "ocr_confidence" in block.features:
             raw["ocr_confidence"] = block.features["ocr_confidence"]
     return raw
+
+
+def _candidate_range_source_support(
+    candidate_ranges: list[tuple[int, int, float]],
+) -> list[SourceSupport]:
+    support: list[SourceSupport] = []
+    for candidate_index, (start, end, segmentation_score) in enumerate(candidate_ranges):
+        if end <= start:
+            continue
+        support.append(
+            SourceSupport(
+                hintClass="proposal",
+                kind="candidate_recipe_region",
+                referencedBlockIds=[f"b{block_index}" for block_index in range(start, end)],
+                payload={
+                    "candidate_index": candidate_index,
+                    "start_block": start,
+                    "end_block": end - 1,
+                    "segmentation_score": segmentation_score,
+                },
+                provenance={"importer": "pdf", "source": "candidate_detection"},
+            )
+        )
+    return support
+
+
+def _source_blocks_from_pdf_blocks(blocks: list[Block]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, block in enumerate(blocks):
+        rows.append(
+            {
+                "block_id": f"b{index}",
+                "order_index": index,
+                "text": block.text,
+                "source_text": block.text,
+                "location": {
+                    "page": block.page,
+                    "bbox": block.bbox,
+                },
+                "features": {
+                    "type": str(block.type),
+                    "font_size": block.font_size,
+                    "font_weight": block.font_weight,
+                    "alignment": block.alignment,
+                    **(dict(block.features) if isinstance(block.features, dict) else {}),
+                },
+            }
+        )
+    return rows
 
 _INSTRUCTION_LEAD_RE = re.compile(
     r"^\s*(preheat|heat|bring|make|mix|stir|whisk|crush|cook|bake|roast|fry|grill|"
@@ -221,8 +228,6 @@ class PdfImporter:
     ) -> ConversionResult:
         report = ConversionReport()
         recipes: List[RecipeCandidate] = []
-        tip_candidates: List[Any] = []
-        topic_candidates: List[Any] = []
         raw_artifacts: list[RawArtifact] = []
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
@@ -252,9 +257,6 @@ class PdfImporter:
                 doc.close()
                 return ConversionResult(
                     recipes=[],
-                    tips=[],
-                    tipCandidates=[],
-                    topicCandidates=[],
                     rawArtifacts=[],
                     report=report,
                     workbook=path.stem,
@@ -364,276 +366,32 @@ class PdfImporter:
                 int(action.get("candidate_index", -1)): dict(action)
                 for action in pattern_trim_actions
             }
-            accepted_candidate_ranges: list[tuple[int, int, float]] = []
-            rejected_block_details: dict[int, dict[str, Any]] = {}
-            recipe_likeness_results = []
-            recipe_scoring_debug_rows: list[dict[str, Any]] = []
-            rejected_candidate_count = 0
-            candidate_records: list[dict[str, Any]] = []
-            
-            # 3. Extract Fields
-            total_candidates = len(candidates_ranges)
-            for i, (start, end, segmentation_score) in enumerate(candidates_ranges):
-                _notify(f"Extracting candidate {i + 1}/{total_candidates}...")
-                try:
-                    candidate_blocks = all_blocks[start:end]
-                    candidate = self._extract_fields(candidate_blocks)
-                    multi_recipe_meta = (
-                        candidate_multi_recipe_meta[i]
-                        if i < len(candidate_multi_recipe_meta)
-                        else None
-                    )
-                    
-                    # Provenance
-                    extraction_method = "heuristic_pdf_ocr" if ocr_used else "heuristic_pdf"
-                    provenance_builder = ProvenanceBuilder(
-                        source_file=path.name,
-                        source_hash=file_hash,
-                        extraction_method=extraction_method,
-                    )
-
-                    # Determine page range
-                    start_page = candidate_blocks[0].page if candidate_blocks else 0
-                    end_page = candidate_blocks[-1].page if candidate_blocks else 0
-
-                    # Collect OCR confidence for blocks in this candidate
-                    ocr_confidences = [
-                        b.features.get("ocr_confidence")
-                        for b in candidate_blocks
-                        if b.features.get("ocr_confidence") is not None
-                    ]
-                    avg_ocr_confidence = (
-                        sum(ocr_confidences) / len(ocr_confidences)
-                        if ocr_confidences
-                        else None
-                    )
-
-                    location_info: dict[str, Any] = {
-                        "start_block": start,
-                        "end_block": end,
-                        "start_page": start_page,
-                        "end_page": end_page,
-                        "chunk_index": i,
-                        "segmentation_score": segmentation_score,
-                        "pattern_detector_version": pattern_diagnostics.version,
-                    }
-                    candidate_pattern_flags = pattern_diagnostics.flags_for_span(start, end)
-                    candidate_pattern_actions: list[dict[str, Any]] = []
-                    trim_action = pattern_trim_actions_by_candidate.get(i)
-                    if trim_action is not None:
-                        candidate_pattern_actions.append(dict(trim_action))
-                        if "duplicate_title_intro" not in candidate_pattern_flags:
-                            candidate_pattern_flags.append("duplicate_title_intro")
-                    if candidate_pattern_flags:
-                        location_info["pattern_flags"] = sorted(set(candidate_pattern_flags))
-                    if candidate_pattern_actions:
-                        location_info["pattern_actions"] = list(candidate_pattern_actions)
-                    if multi_recipe_meta is not None:
-                        location_info["multi_recipe"] = multi_recipe_meta
-                    if ocr_used:
-                        location_info["ocr_engine"] = "doctr"
-                        if avg_ocr_confidence is not None:
-                            location_info["ocr_confidence"] = round(avg_ocr_confidence, 3)
-                    location_for_debug = dict(location_info)
-
-                    provenance = provenance_builder.build(
-                        confidence_score=0.0,
-                        location=location_info,
-                    )
-                    candidate.provenance = provenance
-                    if multi_recipe_meta is not None and isinstance(candidate.provenance, dict):
-                        candidate.provenance["multi_recipe"] = dict(multi_recipe_meta)
-                    
-                    if not candidate.identifier:
-                        candidate.identifier = generate_recipe_id(
-                            "pdf", file_hash, f"c{i}"
-                        )
-
-                    likeness = score_recipe_likeness(candidate, settings=run_settings)
-                    gate_action = recipe_gate_action(likeness, settings=run_settings)
-
-                    raw_artifacts.append(
-                        RawArtifact(
-                            importer="pdf",
-                            sourceHash=file_hash,
-                            locationId=f"c{i}",
-                            extension="json",
-                            content={
-                                "start_block": start,
-                                "end_block": end,
-                                "start_page": start_page,
-                                "end_page": end_page,
-                                "blocks": [
-                                    _block_to_raw(block, idx)
-                                    for idx, block in enumerate(candidate_blocks, start=start)
-                                ],
-                            },
-                        )
-                    )
-
-                    candidate_records.append(
-                        {
-                            "candidate": candidate,
-                            "candidate_blocks": candidate_blocks,
-                            "start": start,
-                            "end": end,
-                            "start_page": start_page,
-                            "end_page": end_page,
-                            "segmentation_score": segmentation_score,
-                            "location_info": location_info,
-                            "location_for_debug": location_for_debug,
-                            "likeness": likeness,
-                            "gate_action": gate_action,
-                            "candidate_index": i,
-                        }
-                    )
-
-                except Exception as e:
-                    logger.warning(f"Failed to extract candidate {i} in {path}: {e}")
-                    report.warnings.append(f"Failed to parse candidate {i}: {e}")
-
-            overlap_decisions = resolve_overlap_duplicate_candidates(
-                [
-                    OverlapCandidate(
-                        candidate_index=int(record["candidate_index"]),
-                        start_block=int(record["start"]),
-                        end_block=int(record["end"]),
-                        normalized_title=normalize_title_for_pattern(
-                            str(getattr(record["candidate"], "name", "") or "")
-                        ),
-                        score=float(record["likeness"].score),
-                    )
-                    for record in candidate_records
-                ]
-            )
-            overlap_decisions_by_loser = {
-                int(decision.get("loser_candidate_index", -1)): decision
-                for decision in overlap_decisions
-            }
-
-            for record in candidate_records:
-                candidate = record["candidate"]
-                start = int(record["start"])
-                end = int(record["end"])
-                start_page = int(record["start_page"])
-                end_page = int(record["end_page"])
-                segmentation_score = float(record["segmentation_score"])
-                candidate_blocks = record["candidate_blocks"]
-                location_info = dict(record["location_info"])
-                location_for_debug = dict(record["location_for_debug"])
-                candidate_index = int(record["candidate_index"])
-                likeness = record["likeness"]
-                gate_action = str(record["gate_action"])
-
-                overlap_decision = overlap_decisions_by_loser.get(candidate_index)
-                if overlap_decision is not None:
-                    pattern_flags = set(
-                        str(flag).strip()
-                        for flag in location_info.get("pattern_flags", [])
-                        if str(flag).strip()
-                    )
-                    pattern_flags.add("overlap_duplicate_candidate")
-                    pattern_actions = [
-                        dict(action)
-                        for action in location_info.get("pattern_actions", [])
-                        if isinstance(action, dict)
-                    ]
-                    pattern_actions.append(dict(overlap_decision))
-                    location_info["pattern_flags"] = sorted(pattern_flags)
-                    location_info["pattern_actions"] = pattern_actions
-                    location_for_debug["pattern_flags"] = sorted(pattern_flags)
-                    location_for_debug["pattern_actions"] = pattern_actions
-                    if isinstance(candidate.provenance, dict):
-                        location_payload = candidate.provenance.get("location")
-                        if not isinstance(location_payload, dict):
-                            location_payload = {}
-                        location_payload.update(
-                            {
-                                "pattern_detector_version": pattern_diagnostics.version,
-                                "pattern_flags": sorted(pattern_flags),
-                                "pattern_actions": pattern_actions,
-                            }
-                        )
-                        candidate.provenance["location"] = location_payload
-                    likeness = score_recipe_likeness(candidate, settings=run_settings)
-                    forced_features = dict(likeness.features)
-                    forced_features["forced_overlap_duplicate_reject"] = True
-                    forced_reasons = list(likeness.reasons)
-                    if "pattern_overlap_duplicate_reject" not in forced_reasons:
-                        forced_reasons.append("pattern_overlap_duplicate_reject")
-                    likeness = likeness.model_copy(
-                        update={"features": forced_features, "reasons": forced_reasons}
-                    )
-                    gate_action = "reject"
-
-                candidate.recipe_likeness = likeness
-                candidate.confidence = likeness.score
-                if isinstance(candidate.provenance, dict):
-                    candidate.provenance["confidence_score"] = candidate.confidence
-                recipe_likeness_results.append(likeness)
-                recipe_scoring_debug_rows.append(
-                    build_recipe_scoring_debug_row(
-                        candidate=candidate,
-                        result=likeness,
-                        gate_action=gate_action,
-                        candidate_index=candidate_index,
-                        location=location_for_debug,
-                        importer="pdf",
-                        source_hash=file_hash,
-                    )
+            source_support: list[SourceSupport] = []
+            for candidate_index, (start, end, segmentation_score) in enumerate(candidates_ranges):
+                payload: dict[str, Any] = {
+                    "candidate_index": candidate_index,
+                    "start_block": start,
+                    "end_block": end - 1,
+                    "segmentation_score": segmentation_score,
+                    "pattern_detector_version": pattern_diagnostics.version,
+                }
+                trim_action = pattern_trim_actions_by_candidate.get(candidate_index)
+                if trim_action is not None:
+                    payload["pattern_actions"] = [dict(trim_action)]
+                multi_recipe_meta = (
+                    candidate_multi_recipe_meta[candidate_index]
+                    if candidate_index < len(candidate_multi_recipe_meta)
+                    else None
                 )
-
-                if gate_action == "reject":
-                    rejected_candidate_count += 1
-                    for block_idx, block in enumerate(candidate_blocks, start=start):
-                        text = block.text.strip()
-                        if not text:
-                            continue
-                        features = dict(block.features) if isinstance(block.features, dict) else {}
-                        features.update(
-                            {
-                                "source": "rejected_recipe_candidate",
-                                "gate_action": gate_action,
-                                "score": likeness.score,
-                                "tier": likeness.tier.value,
-                            }
-                        )
-                        if location_info.get("pattern_flags"):
-                            features["pattern_flags"] = list(location_info.get("pattern_flags", []))
-                        if location_info.get("pattern_actions"):
-                            features["pattern_actions"] = list(
-                                location_info.get("pattern_actions", [])
-                            )
-                        rejected_block_details[block_idx] = {
-                            "location": {
-                                "start_block": start,
-                                "end_block": end,
-                                "chunk_index": candidate_index,
-                                "start_page": start_page,
-                                "end_page": end_page,
-                            },
-                            "features": features,
-                        }
-                    continue
-
-                accepted_candidate_ranges.append((start, end, segmentation_score))
-                recipes.append(candidate)
-                tip_candidates.extend(
-                    extract_tip_candidates_from_candidate(candidate, overrides=overrides)
-                )
-
-            if recipe_scoring_debug_rows:
-                raw_artifacts.append(
-                    RawArtifact(
-                        importer="pdf",
-                        sourceHash=file_hash,
-                        locationId="recipe_scoring_debug",
-                        extension="jsonl",
-                        content="\n".join(
-                            json.dumps(row, sort_keys=True)
-                            for row in recipe_scoring_debug_rows
-                        ),
-                        metadata={"artifact_type": "recipe_scoring_debug"},
+                if multi_recipe_meta is not None:
+                    payload["multi_recipe"] = dict(multi_recipe_meta)
+                source_support.append(
+                    SourceSupport(
+                        hintClass="proposal",
+                        kind="candidate_recipe_region",
+                        referencedBlockIds=[f"b{block_index}" for block_index in range(start, end)],
+                        payload=payload,
+                        provenance={"importer": "pdf", "source": "candidate_detection"},
                     )
                 )
             raw_artifacts.append(
@@ -645,7 +403,6 @@ class PdfImporter:
                     content={
                         **pattern_diagnostics.to_artifact_content(total_blocks=len(all_blocks)),
                         "candidate_start_trim_actions": pattern_trim_actions,
-                        "overlap_duplicate_resolutions": overlap_decisions,
                     },
                     metadata={
                         "artifact_type": "pattern_diagnostics",
@@ -655,89 +412,22 @@ class PdfImporter:
             )
             for warning in pattern_warning_lines(
                 pattern_diagnostics,
-                overlap_dropped_count=len(overlap_decisions),
+                overlap_dropped_count=0,
             ):
                 if warning not in report.warnings:
                     report.warnings.append(warning)
 
-            _notify("Analyzing standalone knowledge blocks...")
-            (
-                standalone_tips,
-                standalone_topics,
-                standalone_block_count,
-                topic_block_count,
-            ) = self._extract_standalone_tips(
-                all_blocks,
-                accepted_candidate_ranges,
-                path,
-                file_hash,
-                progress_callback=_notify,
-            )
-            tip_candidates.extend(standalone_tips)
-            topic_candidates.extend(standalone_topics)
-
-            covered: set[int] = set()
-            for start, end, _ in accepted_candidate_ranges:
-                covered.update(range(start, end))
-            non_recipe_blocks: list[dict[str, Any]] = []
-            for idx, block in enumerate(all_blocks):
-                if idx in covered or not block.text.strip():
-                    continue
-                base_features = dict(block.features) if isinstance(block.features, dict) else {}
-                payload: dict[str, Any] = {
-                    "index": idx,
-                    "text": block.text,
-                    "features": base_features,
-                }
-                rejected_detail = rejected_block_details.get(idx)
-                if rejected_detail:
-                    payload["features"] = dict(rejected_detail.get("features") or {})
-                    location = rejected_detail.get("location")
-                    if isinstance(location, dict):
-                        payload["location"] = location
-                non_recipe_blocks.append(payload)
-
             _notify("Finalizing PDF extraction results...")
-            tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
-            report.total_recipes = len(recipes)
-            report.total_tips = len(tips)
-            report.total_tip_candidates = len(tip_candidates)
-            report.total_topic_candidates = len(topic_candidates)
-            report.total_general_tips = len(tips)
-            report.total_recipe_specific_tips = len(recipe_specific)
-            report.total_not_tips = len(not_tips)
-            report.recipe_likeness = summarize_recipe_likeness(
-                recipe_likeness_results,
-                rejected_candidate_count,
-                settings=run_settings,
-            )
-            if recipes:
-                report.samples = [{"name": r.name} for r in recipes[:3]]
-            if tips:
-                report.tip_samples = [{"text": tip.text[:80]} for tip in tips[:3]]
-            if topic_candidates:
-                report.topic_samples = [
-                    {"text": topic.text[:80]} for topic in topic_candidates[:3]
-                ]
-            report.total_standalone_blocks = standalone_block_count
-            report.total_standalone_topic_blocks = topic_block_count
-            if standalone_block_count:
-                standalone_coverage = topic_block_count / standalone_block_count
-                report.standalone_topic_coverage = standalone_coverage
-                if standalone_coverage < 0.9:
-                    report.warnings.append(
-                        "Standalone topic coverage low: "
-                        f"{topic_block_count} of {standalone_block_count} blocks "
-                        f"represented ({standalone_coverage:.0%})."
-                    )
+            report.total_recipes = 0
+            report.total_standalone_blocks = 0
+            source_blocks = normalize_source_blocks(_source_blocks_from_pdf_blocks(all_blocks))
 
             _notify("PDF conversion complete.")
             return ConversionResult(
-                recipes=recipes,
-                tips=tips,
-                tipCandidates=tip_candidates,
-                topicCandidates=topic_candidates,
-                nonRecipeBlocks=non_recipe_blocks,
+                recipes=[],
+                sourceBlocks=source_blocks,
+                sourceSupport=source_support,
+                nonRecipeBlocks=[],
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,
@@ -749,8 +439,6 @@ class PdfImporter:
             report.errors.append(str(e))
             return ConversionResult(
                 recipes=[],
-                tips=[],
-                topicCandidates=[],
                 rawArtifacts=[],
                 report=report,
                 workbook=path.stem,
@@ -760,219 +448,6 @@ class PdfImporter:
             self._overrides = None
             self._section_detector_backend = "shared_v1"
             self._pdf_column_gap_ratio = _PDF_COLUMN_GAP_RATIO_DEFAULT
-
-    def _extract_standalone_tips(
-        self,
-        blocks: List[Block],
-        candidate_ranges: List[Tuple[int, int, float]],
-        path: Path,
-        file_hash: str,
-        progress_callback: Callable[[str], None] | None = None,
-    ) -> tuple[List[Any], List[Any], int, int]:
-        def _notify(message: str) -> None:
-            if progress_callback is not None:
-                progress_callback(message)
-
-        covered: set[int] = set()
-        for start, end, _ in candidate_ranges:
-            covered.update(range(start, end))
-
-        tip_candidates: List[Any] = []
-        topic_candidates: List[Any] = []
-        provenance_builder = ProvenanceBuilder(
-            source_file=path.name,
-            source_hash=file_hash,
-            extraction_method="heuristic_pdf_tip",
-        )
-
-        standalone_blocks: list[tuple[int, str]] = []
-        page_lookup: dict[int, int | None] = {}
-        bbox_lookup: dict[int, list[float]] = {}
-        for idx, block in enumerate(blocks):
-            if idx in covered:
-                continue
-            text = block.text.strip()
-            if not text:
-                continue
-            standalone_blocks.append((idx, text))
-            page_lookup[idx] = block.page
-            if block.bbox:
-                bbox_lookup[idx] = block.bbox
-
-        def _analyze_container(
-            container_index: int,
-            container: Any,
-        ) -> tuple[int, list[Any], list[Any], set[int]]:
-            if not container.indices:
-                return (container_index, [], [], set())
-            container_tip_candidates: list[Any] = []
-            container_topic_candidates: list[Any] = []
-            container_topic_block_indices: set[int] = set()
-            start_block = min(container.indices)
-            end_block = max(container.indices)
-            base_location: dict[str, Any] = {
-                "start_block": start_block,
-                "end_block": end_block,
-                "chunk_index": start_block,
-            }
-            page = page_lookup.get(start_block)
-            if page is not None:
-                base_location["page"] = page
-            bbox = bbox_lookup.get(start_block)
-            if bbox:
-                base_location["bbox"] = bbox
-
-            atoms: list[Atom] = []
-            sequence_offset = 0
-            header_block_index: int | None = None
-            if container.header:
-                for idx, text in container.blocks:
-                    if text == container.header:
-                        header_block_index = idx
-                        break
-                if header_block_index is None and container.blocks:
-                    header_block_index = container.blocks[0][0]
-                atoms.append(
-                    Atom(
-                        text=container.header,
-                        kind="header",
-                        source_block_index=(
-                            header_block_index if header_block_index is not None else start_block
-                        ),
-                        sequence=sequence_offset,
-                        container_start=start_block,
-                        container_end=end_block,
-                        container_header=container.header,
-                    )
-                )
-                sequence_offset += 1
-
-            for idx, text in container.blocks:
-                if container.header and text == container.header:
-                    continue
-                block_atoms = split_text_to_atoms(
-                    text,
-                    idx,
-                    sequence_offset=sequence_offset,
-                    container_start=start_block,
-                    container_end=end_block,
-                    container_header=container.header,
-                )
-                atoms.extend(block_atoms)
-                sequence_offset = len(atoms)
-
-            contextualize_atoms(atoms)
-
-            container_tip_index = 0
-            for atom in atoms:
-                location = dict(base_location)
-                location["block_index"] = atom.source_block_index
-                location["atom_index"] = atom.sequence
-                location["atom_kind"] = atom.kind
-
-                provenance = provenance_builder.build(
-                    confidence_score=0.6,
-                    location=location,
-                )
-                if container.header:
-                    provenance["topic_header"] = container.header
-                provenance["atom"] = {
-                    "index": atom.sequence,
-                    "kind": atom.kind,
-                    "block_index": atom.source_block_index,
-                    "context_prev": atom.context_prev,
-                    "context_next": atom.context_next,
-                }
-
-                container_topic_candidates.append(
-                    build_topic_candidate(
-                        atom.text,
-                        provenance=provenance,
-                        source_section="standalone_topic",
-                        header=container.header,
-                        overrides=self._overrides,
-                    )
-                )
-                container_topic_block_indices.add(atom.source_block_index)
-
-                if atom.kind == "header":
-                    continue
-                atom_tips = extract_tip_candidates(
-                    atom.text,
-                    provenance=provenance,
-                    source_section="standalone_topic",
-                    overrides=self._overrides,
-                    tip_index_start=container_tip_index,
-                    header_hint=container.header,
-                )
-                container_tip_candidates.extend(atom_tips)
-                container_tip_index += len(atom_tips)
-            return (
-                container_index,
-                container_tip_candidates,
-                container_topic_candidates,
-                container_topic_block_indices,
-            )
-
-        containers = list(
-            chunk_standalone_blocks(standalone_blocks, overrides=self._overrides)
-        )
-        total_containers = len(containers)
-        topic_block_indices: set[int] = set()
-        if total_containers:
-            _notify(
-                format_task_counter(
-                    "Analyzing standalone knowledge blocks...",
-                    0,
-                    total_containers,
-                    noun="task",
-                )
-            )
-
-        container_results: list[tuple[int, list[Any], list[Any], set[int]]] = []
-        workers = min(total_containers, _get_standalone_analysis_workers())
-        if workers <= 1:
-            for container_index, container in enumerate(containers):
-                container_results.append(_analyze_container(container_index, container))
-                _notify(
-                    format_task_counter(
-                        "Analyzing standalone knowledge blocks...",
-                        container_index + 1,
-                        total_containers,
-                        noun="task",
-                    )
-                )
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(_analyze_container, container_index, container): container_index
-                    for container_index, container in enumerate(containers)
-                }
-                completed = 0
-                for future in as_completed(futures):
-                    container_results.append(future.result())
-                    completed += 1
-                    _notify(
-                        format_task_counter(
-                            "Analyzing standalone knowledge blocks...",
-                            completed,
-                            total_containers,
-                            noun="task",
-                        )
-                    )
-
-        container_results.sort(key=lambda row: row[0])
-        for _, container_tips, container_topics, container_topic_indices in container_results:
-            tip_candidates.extend(container_tips)
-            topic_candidates.extend(container_topics)
-            topic_block_indices.update(container_topic_indices)
-
-        return (
-            tip_candidates,
-            topic_candidates,
-            len(standalone_blocks),
-            len(topic_block_indices),
-        )
 
     def _needs_ocr(self, doc: fitz.Document) -> bool:
         """Check if the PDF needs OCR by examining first few pages."""

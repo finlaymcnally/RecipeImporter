@@ -19,6 +19,7 @@ Schema version history:
     11 – explicit benchmark metric fields (`strict_accuracy`, `macro_f1_excluding_other`)
     12 – CodexFarm benchmark token usage fields (`tokens_*`)
     13 – benchmark semantics fields (`benchmark_variant`, `ai_assistance_profile`)
+    14 – removed retired tip/topic stage metrics from stage records and summary
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "13"
+SCHEMA_VERSION = "14"
 
 
 class RunCategory(str, Enum):
@@ -66,9 +67,7 @@ class StageRecord(BaseModel):
 
     # counts
     recipes: int | None = None
-    tips: int | None = None
-    tip_candidates: int | None = None
-    topic_candidates: int | None = None
+    standalone_blocks: int | None = None
 
     # derived (computed only when safe)
     total_units: int | None = None
@@ -167,7 +166,6 @@ class DashboardSummary(BaseModel):
     total_stage_records: int = 0
     total_benchmark_records: int = 0
     total_recipes: int = 0
-    total_tips: int = 0
     total_runtime_seconds: float | None = None
     latest_stage_timestamp: str | None = None
     latest_benchmark_timestamp: str | None = None

@@ -1,8 +1,8 @@
 # Parsing notes
 
 - `signals.classify_block` accepts optional `ParsingOverrides` (from `.overrides.yaml`) to extend headers/verbs/units and toggle spaCy signals.
-- Tip extraction honors `tipHeaders` and `tipPrefixes` overrides.
-- Tip extraction now requires an explicit advice anchor (strong tip header/prefix, imperative start, diagnostic/benefit cue) and a cooking anchor (dish/ingredient/technique/tool/cooking-method keywords) for standalone tips; first-person narrative is filtered unless paired with advice language. Standalone blocks are grouped into topic containers and split into atomic paragraphs/list items for extraction, with adjacent-atom context preserved in provenance.
+- Internal tip/highlight extraction honors `tipHeaders` and `tipPrefixes` overrides.
+- The remaining `parsing/tips.py` helpers now support chunk-highlight mining and targeted parser tests, not a published stage `tips/` output lane. Standalone advice extraction still requires an explicit advice anchor plus a cooking anchor, and preserved atom context stays in provenance for debugging.
 - Enable spaCy features with `COOKIMPORT_SPACY=1` or `enableSpacy` in overrides (if spaCy + model are installed).
 - Ingredient parsing normalizes whitespace and repairs split fractions (e.g., `3 / 4` or line-broken `3\n/4`) before parsing.
 - Instruction fallback segmentation now lives in `step_segmentation.py` (`instruction_step_segmentation_policy=off|auto|always`, `instruction_step_segmenter=heuristic_v1|pysbd_v1`) and is deterministic by default (`heuristic_v1`).

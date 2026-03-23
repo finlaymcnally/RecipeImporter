@@ -70,44 +70,48 @@ def _install_fake_stage_pipeline(
     split_job: bool = False,
 ) -> None:
     monkeypatch.setattr(cli, "_iter_files", lambda *_args, **_kwargs: [source_path])
+    monkeypatch.setattr(
+        cli,
+        "_merge_source_jobs",
+        lambda *_args, **_kwargs: {
+            "file": source_path.name,
+            "status": "success",
+            "recipes": 1,
+            "tips": 0,
+            "duration": 0.12,
+        },
+    )
     if split_job:
         monkeypatch.setattr(
             cli_worker,
-            "stage_pdf_job",
+            "execute_source_job",
             lambda *_args, **_kwargs: {
                 "status": "success",
                 "file": source_path.name,
                 "recipes": 1,
                 "tips": 0,
                 "duration": 0.12,
-            },
-        )
-        monkeypatch.setattr(
-            cli,
-            "_merge_pdf_jobs",
-            lambda *_args, **_kwargs: {
-                "file": source_path.name,
-                "status": "success",
-                "recipes": 1,
-                "tips": 0,
-                "duration": 0.12,
+                "importer_name": "pdf",
+                "result": None,
             },
         )
     else:
         monkeypatch.setattr(
             cli_worker,
-            "stage_one_file",
+            "execute_source_job",
             lambda *_args, **_kwargs: {
                 "status": "success",
                 "file": source_path.name,
                 "recipes": 1,
                 "tips": 0,
                 "duration": 0.12,
+                "importer_name": "text",
+                "result": None,
             },
         )
     monkeypatch.setattr(
         cli,
-        "_plan_jobs",
+        "plan_source_jobs",
         (
             lambda *_args, **_kwargs: [
                 JobSpec(
@@ -162,13 +166,18 @@ def test_stage_plain_progress_with_env_override(
 
     assert result.exit_code == 0
     assert (
-        "overall jobs 1/1 | imported 1 | active_workers 0 | pending 0 | errors 0"
+        "overall jobs 0/1 | imported 0 | active_workers 0 | pending 1 | errors 0"
         in result.output
     )
     assert (
-        "overall jobs 1/1 | imported 1 | active_workers 0 | pending 0 | errors 0\n"
+        "overall jobs 0/1 | imported 0 | active_workers 0 | pending 1 | errors 0\n"
         "current: simple_text.txt\n"
-        "task: stage task 1/1" in result.output
+        "task: stage task 0/1" in result.output
+    )
+    assert "Merging 1 source job(s) for simple_text.txt..." in result.output
+    assert (
+        "overall jobs 1/1 | imported 1 | active_workers 1 | pending 0 | errors 0"
+        in result.output
     )
     assert "Staged 1 file(s)." in result.output
     assert "[yellow]" not in result.output
@@ -208,7 +217,7 @@ def test_stage_merge_phase_messages_use_shared_snapshot_in_plain_mode(
         "overall jobs 1/1 | imported 1 | active_workers 1 | pending 0 | errors 0"
         in result.output
     )
-    assert "Merging 1 jobs for split_text.pdf..." in result.output
+    assert "Merging 1 source job(s) for split_text.pdf..." in result.output
     assert (
         "overall jobs 1/1 | imported 1 | active_workers 1 | pending 0 | errors 0\n"
         "current: split_text.pdf\n"
@@ -255,7 +264,7 @@ def test_stage_live_progress_updates_use_shared_status_snapshot(
     assert any("overall jobs" in message for message in status_messages)
     assert any("stage task 1/1" in message for message in status_messages)
     assert any(
-        "overall jobs 1/1 | imported 1 | active_workers 0 | pending 0 | errors 0\n"
+        "overall jobs 1/1 | imported 1 | active_workers 1 | pending 0 | errors 0\n"
         "current: simple_text.txt\n"
         "task: stage task 1/1" in message
         for message in status_messages
@@ -307,7 +316,7 @@ def test_stage_live_progress_falls_back_to_plain_when_live_slot_unavailable(
 
     assert result.exit_code == 0
     assert (
-        "overall jobs 1/1 | imported 1 | active_workers 0 | pending 0 | errors 0"
+        "overall jobs 1/1 | imported 1 | active_workers 1 | pending 0 | errors 0"
         in result.output
     )
     assert "Staged 1 file(s)." in result.output

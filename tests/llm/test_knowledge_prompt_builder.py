@@ -25,7 +25,7 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "Usually `knowledge`: a short concept heading such as `How Salt Affects . . .`" in prompt
     assert "per chunk: `cid` chunk id, `b` blocks" in prompt
     assert (
-        "When `c` is non-empty, `r` must contain exactly one row per input chunk, in input order."
+        "The input always contains exactly one owned chunk. When `c` is non-empty, `r` must therefore contain exactly one row for that chunk."
         in prompt
     )
     assert (

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cookimport.core.models import RecipeCandidate, TipCandidate
+from cookimport.core.models import RecipeCandidate
 from cookimport.core.reporting import generate_recipe_id
 from cookimport.staging.pdf_jobs import plan_pdf_page_ranges, reassign_pdf_recipe_ids
 
@@ -15,7 +15,7 @@ def test_plan_pdf_page_ranges_no_split():
     assert ranges == [(0, 40)]
 
 
-def test_reassign_pdf_recipe_ids_updates_order_and_tips():
+def test_reassign_pdf_recipe_ids_updates_order():
     file_hash = "abc123"
     recipe_a = RecipeCandidate(
         name="A",
@@ -32,18 +32,9 @@ def test_reassign_pdf_recipe_ids_updates_order_and_tips():
         identifier="old-c",
         provenance={"location": {"start_block": 1}},
     )
-    tips = [
-        TipCandidate(
-            text="Tip one",
-            sourceRecipeId="old-b",
-            provenance={"@id": "old-b"},
-        ),
-        TipCandidate(text="Tip two", sourceRecipeId="old-a"),
-    ]
 
     ordered, id_map = reassign_pdf_recipe_ids(
         [recipe_a, recipe_b, recipe_c],
-        tips,
         file_hash=file_hash,
     )
 
@@ -59,8 +50,5 @@ def test_reassign_pdf_recipe_ids_updates_order_and_tips():
     assert ordered[1].provenance["location"]["chunk_index"] == 1
     assert ordered[2].provenance["location"]["chunk_index"] == 2
 
-    assert tips[0].source_recipe_id == expected_ids[0]
-    assert tips[0].provenance["@id"] == expected_ids[0]
-    assert tips[1].source_recipe_id == expected_ids[1]
     assert id_map["old-a"] == expected_ids[1]
     assert id_map["old-b"] == expected_ids[0]

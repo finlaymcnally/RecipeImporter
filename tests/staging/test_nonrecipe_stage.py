@@ -106,25 +106,31 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
 
     nonrecipe_payload = json.loads(nonrecipe_path.read_text(encoding="utf-8"))
     knowledge_payload = json.loads(knowledge_path.read_text(encoding="utf-8"))
+    authority_payload = json.loads(
+        (tmp_path / "09_nonrecipe_authority.json").read_text(encoding="utf-8")
+    )
 
-    assert nonrecipe_payload["schema_version"] == "nonrecipe_spans.v4"
-    assert nonrecipe_payload["counts"]["knowledge_spans"] == 1
-    assert nonrecipe_payload["seed_counts"]["knowledge_spans"] == 1
+    assert nonrecipe_payload["schema_version"] == "nonrecipe_seed_routing.v1"
+    assert nonrecipe_payload["counts"]["seed_knowledge_spans"] == 1
     assert nonrecipe_payload["counts"]["review_eligible_blocks"] == 2
     assert nonrecipe_payload["counts"]["review_excluded_blocks"] == 0
-    assert nonrecipe_payload["counts"]["final_authority_blocks"] == 0
-    assert nonrecipe_payload["counts"]["unreviewed_review_eligible_blocks"] == 2
-    assert nonrecipe_payload["authoritative_block_category_by_index"] == {}
-    assert nonrecipe_payload["unreviewed_block_category_by_index"] == {
+    assert nonrecipe_payload["review_eligible_seed_block_category_by_index"] == {
         "0": "other",
         "1": "knowledge",
     }
+    assert authority_payload["schema_version"] == "nonrecipe_authority.v1"
+    assert authority_payload["counts"]["final_authority_blocks"] == 0
+    assert authority_payload["authoritative_block_category_by_index"] == {}
     assert knowledge_payload["pipeline"] == "off"
-    assert knowledge_payload["schema_version"] == "knowledge_outputs.v3"
+    assert knowledge_payload["schema_version"] == "nonrecipe_review_status.v1"
+    assert knowledge_payload["review_status"] == "not_run"
     assert knowledge_payload["counts"]["snippets_written"] == 0
     assert knowledge_payload["counts"]["final_authority_blocks"] == 0
-    assert knowledge_payload["knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"
-    assert knowledge_payload["seed_knowledge_spans"][0]["span_id"] == "nr.knowledge.1.2"
+    assert knowledge_payload["unreviewed_block_category_by_index"] == {
+        "0": "other",
+        "1": "knowledge",
+    }
+    assert knowledge_payload["unreviewed_spans"][1]["span_id"] == "nr.knowledge.1.2"
 
 
 def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal() -> None:
@@ -182,7 +188,9 @@ def test_nonrecipe_stage_writes_review_exclusion_ledger(tmp_path: Path) -> None:
 
     write_nonrecipe_stage_outputs(stage_result, tmp_path)
 
-    payload = json.loads((tmp_path / "08_nonrecipe_spans.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (tmp_path / "08_nonrecipe_seed_routing.json").read_text(encoding="utf-8")
+    )
     ledger_rows = [
         json.loads(line)
         for line in (tmp_path / "08_nonrecipe_review_exclusions.jsonl").read_text(

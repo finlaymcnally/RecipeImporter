@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from cookimport.core.models import HowToStep, RecipeCandidate
+from cookimport.core.models import (
+    AuthoritativeRecipeSemantics,
+    HowToStep,
+    RecipeCandidate,
+)
 from cookimport.parsing.sections import (
     extract_ingredient_sections,
     extract_instruction_sections,
@@ -189,6 +193,136 @@ def _build_ingredient_sections(candidate: RecipeCandidate) -> list[dict[str, Any
         )
 
     return payload
+
+
+def _build_authoritative_instruction_payload(
+    payload: AuthoritativeRecipeSemantics,
+) -> list[object]:
+    if not payload.instructions:
+        return []
+    sectioned = extract_instruction_sections(list(payload.instructions))
+    serialized_steps = [
+        _serialize_instruction_item(text)
+        for text in sectioned.lines_no_headers
+    ]
+    return _group_instruction_steps(
+        serialized_steps,
+        section_keys=sectioned.section_key_by_line,
+        section_display_by_key=sectioned.section_display_by_key,
+    )
+
+
+def _build_authoritative_ingredient_sections(
+    payload: AuthoritativeRecipeSemantics,
+) -> list[dict[str, Any]]:
+    if not payload.ingredients:
+        return []
+    sectioned = extract_ingredient_sections(list(payload.ingredients))
+    if not sectioned.header_hits:
+        return []
+
+    section_lines: dict[str, list[str]] = {}
+    for line, key in zip(sectioned.lines_no_headers, sectioned.section_key_by_line):
+        section_lines.setdefault(key, []).append(line)
+
+    ordered_keys: list[str] = []
+    for key in sectioned.section_key_by_line:
+        if key not in ordered_keys:
+            ordered_keys.append(key)
+
+    rows: list[dict[str, Any]] = []
+    for key in ordered_keys:
+        lines = section_lines.get(key, [])
+        if not lines:
+            continue
+        rows.append(
+            {
+                "name": _section_display_name(key, sectioned.section_display_by_key),
+                "key": key,
+                "recipeIngredient": lines,
+            }
+        )
+    return rows
+
+
+def authoritative_recipe_semantics_to_jsonld(
+    payload: AuthoritativeRecipeSemantics,
+    *,
+    template_candidate: RecipeCandidate | None = None,
+) -> dict[str, Any]:
+    """Project authoritative recipe semantics into schema.org Recipe JSON."""
+    rendered: dict[str, Any] = {
+        "@context": ["https://schema.org", {"recipeimport": "https://recipeimport.local/ns#"}],
+        "@type": "Recipe",
+        "@id": payload.recipe_id,
+        "name": payload.title,
+    }
+
+    if template_candidate is not None:
+        if template_candidate.identifier:
+            rendered["identifier"] = template_candidate.identifier
+        if template_candidate.date_published:
+            rendered["datePublished"] = template_candidate.date_published
+        if template_candidate.image:
+            rendered["image"] = list(template_candidate.image)
+        if template_candidate.recipe_category:
+            rendered["recipeCategory"] = list(template_candidate.recipe_category)
+        if template_candidate.recipe_cuisine:
+            rendered["recipeCuisine"] = list(template_candidate.recipe_cuisine)
+        if template_candidate.cooking_method:
+            rendered["cookingMethod"] = list(template_candidate.cooking_method)
+        if template_candidate.suitable_for_diet:
+            rendered["suitableForDiet"] = list(template_candidate.suitable_for_diet)
+        if template_candidate.author:
+            rendered["author"] = template_candidate.author
+        if template_candidate.publisher:
+            rendered["publisher"] = template_candidate.publisher
+        if template_candidate.date_modified:
+            rendered["dateModified"] = template_candidate.date_modified
+        if template_candidate.credit_text:
+            rendered["creditText"] = template_candidate.credit_text
+        if template_candidate.source_url:
+            rendered["url"] = template_candidate.source_url
+        if template_candidate.is_based_on:
+            rendered["isBasedOn"] = template_candidate.is_based_on
+        if template_candidate.tools:
+            rendered["tool"] = list(template_candidate.tools)
+        if template_candidate.supplies:
+            rendered["supply"] = list(template_candidate.supplies)
+        if template_candidate.nutrition:
+            rendered["nutrition"] = dict(template_candidate.nutrition)
+        if template_candidate.video:
+            rendered["video"] = dict(template_candidate.video)
+        if template_candidate.comments:
+            rendered["comment"] = [
+                comment.model_dump(by_alias=True, exclude_none=True)
+                for comment in template_candidate.comments
+            ]
+        if template_candidate.aggregate_rating:
+            rendered["aggregateRating"] = template_candidate.aggregate_rating.model_dump(
+                by_alias=True,
+                exclude_none=True,
+            )
+
+    if payload.description:
+        rendered["description"] = payload.description
+    if payload.recipe_yield:
+        rendered["recipeYield"] = payload.recipe_yield
+    if payload.ingredients:
+        rendered["recipeIngredient"] = list(payload.ingredients)
+
+    instructions_payload = _build_authoritative_instruction_payload(payload)
+    if instructions_payload:
+        rendered["recipeInstructions"] = instructions_payload
+
+    ingredient_sections = _build_authoritative_ingredient_sections(payload)
+    if ingredient_sections:
+        rendered["recipeimport:ingredientSections"] = ingredient_sections
+
+    if payload.tags:
+        rendered["keywords"] = ", ".join(payload.tags)
+
+    return rendered
 
 
 def recipe_candidate_to_jsonld(

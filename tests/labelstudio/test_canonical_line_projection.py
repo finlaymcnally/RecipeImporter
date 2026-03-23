@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cookimport.labelstudio.canonical_line_projection import (
+    build_line_role_stage_prediction_payload,
     project_line_roles_to_freeform_spans,
     write_line_role_projection_artifacts,
 )
@@ -82,6 +83,7 @@ def test_projection_artifacts_ignore_removed_guardrail_sidecars(tmp_path) -> Non
     assert "do_no_harm_diagnostics_path" not in artifacts
     assert "do_no_harm_changed_rows_path" not in artifacts
 
+
 def test_projection_artifacts_preserve_projected_labels(tmp_path) -> None:
     artifacts = write_line_role_projection_artifacts(
         run_root=tmp_path,
@@ -116,3 +118,45 @@ def test_projection_artifacts_preserve_projected_labels(tmp_path) -> None:
 
     projected_rows = artifacts["projected_spans_path"].read_text(encoding="utf-8").splitlines()
     assert '"label": "OTHER"' in projected_rows[1]
+
+
+def test_stage_projection_payload_aggregates_atomic_rows_by_source_block() -> None:
+    projected_spans = project_line_roles_to_freeform_spans(
+        [
+            CanonicalLineRolePrediction(
+                recipe_id="recipe:0",
+                block_id="b7",
+                block_index=7,
+                atomic_index=0,
+                text="Pancakes",
+                within_recipe_span=True,
+                label="RECIPE_TITLE",
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+            CanonicalLineRolePrediction(
+                recipe_id="recipe:0",
+                block_id="b7",
+                block_index=7,
+                atomic_index=1,
+                text="SERVES 2",
+                within_recipe_span=True,
+                label="YIELD_LINE",
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+        ]
+    )
+    stage_payload = build_line_role_stage_prediction_payload(
+        projected_spans,
+        source_file="book.epub",
+        source_hash="hash",
+        workbook_slug="book",
+    )
+
+    assert stage_payload["block_count"] == 8
+    assert stage_payload["block_labels"]["7"] == "RECIPE_TITLE"
+    assert stage_payload["label_blocks"]["RECIPE_TITLE"] == [7]
+    assert stage_payload["conflicts"] == [
+        {"block_index": 7, "labels": ["RECIPE_TITLE", "YIELD_LINE"]}
+    ]

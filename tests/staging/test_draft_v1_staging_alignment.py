@@ -180,9 +180,6 @@ def test_write_draft_outputs_writes_canonical_draft_shape(tmp_path) -> None:
     )
     result = ConversionResult(
         recipes=[candidate],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
@@ -216,9 +213,6 @@ def test_write_draft_outputs_preserves_canonical_override_shape(tmp_path) -> Non
     )
     result = ConversionResult(
         recipes=[candidate],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
@@ -265,9 +259,6 @@ def test_write_draft_outputs_drops_legacy_override_aliases(tmp_path) -> None:
     )
     result = ConversionResult(
         recipes=[candidate],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),

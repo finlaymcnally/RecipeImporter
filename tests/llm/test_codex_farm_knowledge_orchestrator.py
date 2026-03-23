@@ -1476,8 +1476,15 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.llm_report["review_summary"]["promoted_snippet_count"] >= 1
     assert apply_result.refined_stage_result.block_category_by_index[4] == "knowledge"
     assert apply_result.manifest_path.exists()
-    assert manifest["paths"]["seed_nonrecipe_spans_path"].endswith("08_nonrecipe_spans.json")
-    assert manifest["paths"]["final_knowledge_outputs_path"].endswith("09_knowledge_outputs.json")
+    assert manifest["paths"]["nonrecipe_seed_routing_path"].endswith(
+        "08_nonrecipe_seed_routing.json"
+    )
+    assert manifest["paths"]["nonrecipe_authority_path"].endswith(
+        "09_nonrecipe_authority.json"
+    )
+    assert manifest["paths"]["nonrecipe_review_status_path"].endswith(
+        "09_nonrecipe_review_status.json"
+    )
     assert manifest["counts"]["shards_written"] > 0
     assert manifest["counts"]["seed_nonrecipe_span_count"] == 2
     assert manifest["counts"]["chunks_built_before_pruning"] >= manifest["counts"]["chunks_written"]
@@ -1520,9 +1527,6 @@ def _build_knowledge_orchestrator_artifact_fixture(tmp_path: Path) -> dict[str, 
 
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": 0, "text": "Preface"},
             {"index": 4, "text": "Technique: Whisk constantly."},
@@ -1856,9 +1860,6 @@ def _build_knowledge_worker_cli_fixture(tmp_path: Path) -> dict[str, object]:
     run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=ConversionResult(
             recipes=[],
-            tips=[],
-            tipCandidates=[],
-            topicCandidates=[],
             nonRecipeBlocks=[
                 {"index": 0, "text": "Use low heat to keep the milk from curdling."},
                 {"index": 1, "text": "Stir constantly so the sauce stays smooth and glossy."},
@@ -2222,9 +2223,6 @@ def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
 
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[{"index": 4, "text": "Technique: Whisk constantly."}],
         rawArtifacts=[
             RawArtifact(
@@ -2680,9 +2678,6 @@ def _run_near_miss_repair_fixture(tmp_path: Path) -> dict[str, object]:
 
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": 4, "text": "Technique: Whisk constantly."},
         ],
@@ -2899,9 +2894,6 @@ def test_knowledge_orchestrator_repairs_snippet_copy_outputs_before_poison_skip(
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=ConversionResult(
             recipes=[],
-            tips=[],
-            tipCandidates=[],
-            topicCandidates=[],
             nonRecipeBlocks=[{"index": 4, "text": source_text}],
             rawArtifacts=[
                 RawArtifact(
@@ -3036,9 +3028,6 @@ def test_knowledge_orchestrator_hard_fails_when_snippet_only_repair_still_copies
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=ConversionResult(
             recipes=[],
-            tips=[],
-            tipCandidates=[],
-            topicCandidates=[],
             nonRecipeBlocks=[{"index": 4, "text": source_text}],
             rawArtifacts=[
                 RawArtifact(
@@ -3218,9 +3207,6 @@ def _run_watchdog_killed_summary_fixture(tmp_path: Path) -> dict[str, object]:
 
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": 4, "text": "Technique: Whisk constantly."},
         ],
@@ -3507,9 +3493,6 @@ def _run_taskized_watchdog_failure_fixture(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -3708,9 +3691,6 @@ def _run_cohort_outlier_watchdog_fixture(
 
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": index, "text": (f"Knowledge chunk {index} " + ("X" * 8000))}
             for index in range(4)
@@ -4042,9 +4022,6 @@ def _run_missing_rows_taskization_fixture(
 
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": 4, "text": "Whisk constantly to emulsify sauces."},
             {"index": 5, "text": "Use low heat to avoid curdling."},
@@ -4208,9 +4185,6 @@ def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_me
 
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": 4, "text": "Whisk constantly to emulsify sauces."},
             {"index": 5, "text": "Use low heat to avoid curdling."},
@@ -4319,9 +4293,6 @@ def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Pat
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -4398,9 +4369,6 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -4502,9 +4470,6 @@ def test_knowledge_orchestrator_workspace_workers_do_not_force_heredoc_kills(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -4629,9 +4594,6 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -4757,9 +4719,6 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -4880,9 +4839,6 @@ def _run_multi_chunk_workspace_taskization_fixture(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5050,9 +5006,6 @@ def _run_partial_task_promotion_fixture(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5239,9 +5192,6 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5356,9 +5306,6 @@ def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5460,9 +5407,6 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5582,9 +5526,6 @@ def test_knowledge_orchestrator_rejects_semantically_empty_strong_cue_shard(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5711,9 +5652,6 @@ def _run_valid_and_invalid_shard_mix_fixture(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5873,9 +5811,6 @@ def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warning
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -5985,9 +5920,6 @@ def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(
     )
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",

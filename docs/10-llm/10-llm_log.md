@@ -144,6 +144,90 @@ Anti-loop note:
 - if knowledge workers stop after one or a few valid tasks, do not restore queue spelunking or accept a permission-seeking final message as success; inspect current-task authority/sync first, then the capped auto-resume seam
 - if snippet-copy failures return, do not weaken the validator and do not skip straight to poisoned-worker logic; inspect the shared failure classifier and the narrow repair rung first
 
+## 2026-03-22 recipe workspace spend only stabilized once the repo restored batch finalize as the default loop and failed closed on empty mappings
+
+Problem captured:
+- the first recipe workspace refactor improved trust surfaces, but it accidentally turned `check-current` / `install-current` into the default loop
+- that created a control-flow regression:
+  - repeated sidecar rereads
+  - repeated per-task helper turns
+  - command count and session-token overhead far above the earlier shard-packet path
+- one more compact-contract gap also stayed too permissive: a repaired recipe could still look "non-empty" while carrying an empty mapping with no reason
+
+Durable decisions:
+- keep the good repo-owned trust surfaces:
+  - `SHARD_PACKET.md`
+  - prewritten `scratch/<task_id>.json`
+  - `scratch/_prepared_drafts.json`
+  - current-task sidecars
+- restore the cheap default loop for healthy recipe shards:
+  - read `SHARD_PACKET.md`
+  - trust the prepared drafts
+  - edit drafts directly
+  - run one `finalize-all scratch/` at the end
+- keep `check-current` / `install-current` as recovery/debug tools only, not the normal happy path
+- recipe empty mappings now fail closed when the canonical recipe clearly has real structure:
+  - if there are 2+ non-empty ingredients or 2+ non-empty steps, empty `m` requires a non-empty `mr` reason such as `unclear_alignment`
+  - otherwise the prepared draft should fall back to `fragmentary` instead of pretending success
+
+Evidence worth keeping:
+- the March 22 regression was mechanical, not subjective:
+  - command-execution count jumped from `47` to `113`
+  - command-execution tokens jumped from about `536k` to about `1.33M`
+  - correctness counters still stayed healthy, which proved the regression was the worker loop, not recipe validity
+
+Anti-loop note:
+- if recipe spend rises again, inspect whether worker-facing docs have drifted back toward per-task helper churn or permissive empty-map acceptance before changing prompts, validators, or watchdog policy
+
+## 2026-03-22 line-role and knowledge spend reporting had to fail closed on missing usage instead of publishing fake zeroes
+
+Problem captured:
+- workspace-worker runs could complete useful work without a normal JSON `turn.completed` usage payload, which made downstream summaries liable to publish zero-spend lies or silently undercount line-role cost
+- the missing-usage cases were especially confusing because the worker often had valid `out/*.json` files and only the accounting path was incomplete
+
+Durable decisions:
+- runtime summaries now report explicit token-accounting state:
+  - `token_usage_status=partial|unavailable`
+  - billed-token totals stay blank when real usage is missing
+- the shared direct runner now parses the Codex CLI plain-text `Token usage: ...` footer as a recovery seam when JSON usage is absent
+- completed workspace sessions now wait briefly before teardown so late usage events can still populate normal `workers/*/usage.json`
+- keep raw `stdout.txt` / `stderr.txt` sidecars and per-worker telemetry so missing-usage sessions remain inspectable instead of silently normalized
+
+Evidence worth keeping:
+- the failure mode was not hypothetical: line-role benchmark accounting could lose usage while the worker still produced valid outputs, which would have made prompt-budget summaries and history backfill under-report the real spend
+
+Anti-loop note:
+- if token accounting regresses again, do not coerce missing usage to zero just to keep dashboards full; inspect footer parsing, late-event timing, and worker sidecars first
+
+## 2026-03-22 to 2026-03-23 knowledge runtime simplified around batch-local authority, single-chunk tasks, and utility-first judgment
+
+Problem captured:
+- the knowledge stage had accumulated three different sources of waste and confusion:
+  - current-task loops that encouraged extra turns instead of cheap repo-owned continuation
+  - a multi-chunk packet layer on top of deterministic chunking
+  - a semantic bar that still sounded too much like "cooking-adjacent and true" instead of "durable cooking leverage"
+
+Durable decisions:
+- batch-local repo-owned authority is the cheap path:
+  - `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md` are the first reads
+  - `current_batch.json` is machine-readable batch-local metadata only
+  - `assigned_tasks.json` stays fallback/debug inventory, not the happy-path authority
+- each deterministic knowledge chunk now becomes one shard and one task:
+  - no second semantic packet layer
+  - compatibility-only shard-sizing knobs now warn instead of rebundling
+- the public semantic taxonomy remains binary `knowledge|other`, but the decision boundary is now utility-first and explicitly fail-closed on marginal value
+- accepted outputs must explain that utility judgment with compact reason codes, while richer `utility_profile` cues remain worker-local hints only
+- strong negative utility plus no positive cue can bypass the model entirely as validated repo-owned `other`, but only through the narrow no-LLM fast path
+
+Evidence worth keeping:
+- the March 22 Salt Fat failures showed why this had to change:
+  - mixed memoir/book-framing packets could ride along with one useful sentence
+  - strong-cue scaffolds could masquerade as accepted reviewed-empty work
+  - current-task wording could still spend extra turns even after validation and queue advancement worked
+
+Anti-loop note:
+- if knowledge quality or spend regresses, do not restore semantic packet bundling or broaden the positive class back to generic factuality first; check batch-local authority, one-chunk task truth, and the utility-boundary reason codes
+
 ## 2026-03-21 shared stage-progress contract and summary parity
 
 Problem captured:

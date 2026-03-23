@@ -8,7 +8,7 @@ CLI entrypoints live in
 helpers live in `cookimport/staging/`.
 CLI entrypoints include `cookimport` plus the short alias `C3imp` for interactive
 runs. `C3imp 30` preserves the interactive flow while limiting output to the first
-30 recipes and tips. Batch aliases `import` and `C3import` still run a full import
+30 recipes. Batch aliases `import` and `C3import` still run a full import
 from `data/input` to `data/output`. `cookimport stage --limit 30` also works in
 batch mode.
 
@@ -20,8 +20,8 @@ Run `cookimport inspect <workbook> --write-mapping` to print layout guesses and
 write a mapping stub under `data/output/mappings/`. Run `cookimport stage <folder>`
 to scan a folder and write schema.org Recipe JSON under
 `data/output/<timestamp>/intermediate drafts/` and cookbook3 under
-`data/output/<timestamp>/final drafts/`, plus tip snippets under
-`data/output/<timestamp>/tips/`, raw artifacts under `data/output/<timestamp>/raw/`, and
+`data/output/<timestamp>/final drafts/`, plus sections/chunks/tables under the
+matching staging folders, raw artifacts under `data/output/<timestamp>/raw/`, and
 report JSON files at the run root (`data/output/<timestamp>/<workbook>.excel_import_report.json`).
 During `cookimport stage`, the CLI shows a per-worker status panel that refreshes
 about every 5 seconds with the latest progress message.
@@ -69,11 +69,9 @@ When a run contains only EPUB files, the CLI will automatically raise the worker
 pool to `--epub-split-workers` if it is higher than `--workers`, so EPUB imports
 default to 6 concurrent workers unless you explicitly lower them.
 
-Tip outputs include `sourceRecipeTitle` when the tip is tied to a specific recipe.
-
 Large PDFs can be split into page-range jobs when `--workers > 1`, then merged into a
-single workbook output with sequential recipe IDs and unified tips. Large EPUBs can be
-split into spine-range jobs with `--epub-spine-items-per-job` and merged the same way.
+single workbook output with sequential recipe IDs. Large EPUBs can be split into
+spine-range jobs with `--epub-spine-items-per-job` and merged the same way.
 
 The text importer treats .docx tables with recognized headers as structured
 recipe rows, so Word docs that store recipes in tables retain ingredients and

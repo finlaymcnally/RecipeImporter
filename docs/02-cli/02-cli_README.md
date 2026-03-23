@@ -550,7 +550,7 @@ Options:
 - `--out PATH` (default `data/output`): output root.
 - `--mapping PATH`: explicit mapping config path.
 - `--overrides PATH`: explicit parsing overrides path.
-- `--limit, -n INTEGER>=1`: limit recipes/tips per file.
+- `--limit, -n INTEGER>=1`: limit recipes per file.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
 - `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): page shard size for PDF splitting.
@@ -560,7 +560,7 @@ Options:
 - `--require-process-workers / --allow-worker-fallback` (default allow fallback): fail fast when process workers are unavailable instead of falling back to subprocess/thread/serial.
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
-- `--write-markdown / --no-write-markdown` (default write): write markdown sidecar artifacts (`sections.md`, `tips.md`, `topic_candidates.md`, `chunks.md`, `tables.md`).
+- `--write-markdown / --no-write-markdown` (default write): write markdown sidecar artifacts (`sections.md`, `chunks.md`, `tables.md`).
 - `--epub-extractor TEXT` (default `unstructured`): default-enabled values are `unstructured|beautifulsoup`; `markdown|markitdown` are rejected unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`. Exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default enabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
@@ -1187,7 +1187,6 @@ CLI-relevant environment variables:
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
 - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).
 - `C3IMP_EPUBCHECK_JAR`: optional EPUBCheck jar path used by `cookimport epub validate` when `--jar` is omitted.
-- `C3IMP_STANDALONE_ANALYSIS_WORKERS`: worker count for EPUB/PDF standalone knowledge-block analysis (`>=1`, default `4`).
 - `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS`: unlocks `markdown`/`markitdown` EPUB extractors across stage/prediction/debug command paths when set truthy (`1|true|yes|on`).
 - `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.
 - `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`: optional auto-mode ceiling for `bench quality-run` experiment concurrency (default follows detected CPU count; ignored when `--max-parallel-experiments` is set).

@@ -14,6 +14,27 @@ from cookimport.staging.draft_v1 import (
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
+_PROJECTED_LABEL_PRIORITY: tuple[str, ...] = (
+    "RECIPE_VARIANT",
+    "RECIPE_TITLE",
+    "YIELD_LINE",
+    "TIME_LINE",
+    "HOWTO_SECTION",
+    "INGREDIENT_LINE",
+    "RECIPE_NOTES",
+    "INSTRUCTION_LINE",
+    "KNOWLEDGE",
+)
+_PROJECTED_RECIPE_LOCAL_LABELS: set[str] = {
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+    "RECIPE_NOTES",
+    "RECIPE_VARIANT",
+}
 
 
 class FreeformSpanPrediction(BaseModel):
@@ -67,10 +88,29 @@ def build_line_role_stage_prediction_payload(
     workbook_slug: str,
     notes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    block_labels = {int(row.line_index): str(row.label) for row in spans}
+    labels_by_block: dict[int, list[str]] = {}
+    for row in spans:
+        block_index = int(row.block_index)
+        labels_by_block.setdefault(block_index, []).append(str(row.label))
+
+    block_count = max(labels_by_block.keys(), default=-1) + 1
+    resolved_labels: dict[int, str] = {}
+    conflicts: list[dict[str, Any]] = []
+    for block_index, labels in sorted(labels_by_block.items()):
+        conflict_labels = _projected_conflict_labels(labels)
+        if len(conflict_labels) > 1:
+            conflicts.append(
+                {
+                    "block_index": block_index,
+                    "labels": conflict_labels,
+                }
+            )
+        resolved_labels[block_index] = _resolve_projected_block_label(labels)
+
     label_blocks: dict[str, list[int]] = {label: [] for label in FREEFORM_LABELS}
-    for line_index, label in block_labels.items():
-        label_blocks.setdefault(label, []).append(int(line_index))
+    for block_index in range(block_count):
+        label = resolved_labels.get(block_index, "OTHER")
+        label_blocks.setdefault(label, []).append(block_index)
     for label in label_blocks:
         label_blocks[label].sort()
     return {
@@ -78,13 +118,15 @@ def build_line_role_stage_prediction_payload(
         "source_file": str(source_file),
         "source_hash": str(source_hash or "unknown"),
         "workbook_slug": str(workbook_slug),
-        "block_count": len(block_labels),
-        "block_labels": {str(index): label for index, label in sorted(block_labels.items())},
+        "block_count": block_count,
+        "block_labels": {
+            str(index): resolved_labels.get(index, "OTHER") for index in range(block_count)
+        },
         "label_blocks": label_blocks,
-        "conflicts": [],
+        "conflicts": conflicts,
         "notes": [
             "Projected from canonical line-role predictions.",
-            "block_index in this artifact is canonical line_index over atomic spans.",
+            "block_labels in this artifact are aggregated by source block_index.",
             *[str(note).strip() for note in (notes or []) if str(note).strip()],
         ],
     }
@@ -206,3 +248,27 @@ def _recipe_index_from_recipe_id(recipe_id: str | None) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _projected_conflict_labels(labels: Sequence[str]) -> list[str]:
+    label_set = {
+        str(label or "").strip().upper()
+        for label in labels
+        if str(label or "").strip()
+    }
+    label_set.discard("OTHER")
+    if "KNOWLEDGE" in label_set and any(
+        recipe_label in label_set for recipe_label in _PROJECTED_RECIPE_LOCAL_LABELS
+    ):
+        label_set.discard("KNOWLEDGE")
+    return sorted(label_set)
+
+
+def _resolve_projected_block_label(labels: Sequence[str]) -> str:
+    label_set = set(_projected_conflict_labels(labels))
+    if not label_set:
+        return "OTHER"
+    for label in _PROJECTED_LABEL_PRIORITY:
+        if label in label_set:
+            return label
+    return "OTHER"

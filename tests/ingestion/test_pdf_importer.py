@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import pytest
-import time
 from pathlib import Path
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.blocks import Block
 from cookimport.core.models import RecipeCandidate
-from cookimport.parsing.atoms import Atom
-from cookimport.parsing.tips import TopicContainer
 from cookimport.parsing import signals
 from cookimport.plugins.pdf import PdfImporter
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
@@ -40,14 +37,12 @@ def test_convert_pdf():
 
     result = importer.convert(pdf_path, None)
 
-    assert len(result.recipes) == 1
-    recipe = result.recipes[0]
-
-    assert recipe.name == "PDF Pancakes"
-    assert recipe.recipe_likeness is not None
-    assert recipe.confidence == recipe.recipe_likeness.score
-    assert "1 cup flour" in recipe.ingredients
-    assert "Mix it all." in recipe.instructions
+    assert result.recipes == []
+    assert any("PDF Pancakes" in block.text for block in result.source_blocks)
+    assert any("1 cup flour" in block.text for block in result.source_blocks)
+    assert any(
+        support.kind == "candidate_recipe_region" for support in result.source_support
+    )
 
 
 def test_convert_pdf_pdf_ocr_policy_off_skips_ocr(
@@ -95,12 +90,6 @@ def test_convert_pdf_pdf_ocr_policy_off_skips_ocr(
             instructions=["Mix it all."],
         ),
     )
-    monkeypatch.setattr(
-        importer,
-        "_extract_standalone_tips",
-        lambda *_args, **_kwargs: ([], [], 0, 0),
-    )
-
     class _FakeDoc:
         def __len__(self) -> int:
             return 1
@@ -168,12 +157,6 @@ def test_convert_pdf_pdf_ocr_policy_always_forces_ocr(
             instructions=["Mix it all."],
         ),
     )
-    monkeypatch.setattr(
-        importer,
-        "_extract_standalone_tips",
-        lambda *_args, **_kwargs: ([], [], 0, 0),
-    )
-
     class _FakeDoc:
         def __len__(self) -> int:
             return 1
@@ -243,12 +226,6 @@ def test_convert_pdf_emits_post_candidate_progress(monkeypatch, tmp_path: Path) 
             instructions=["Mix it all."],
         ),
     )
-    monkeypatch.setattr(
-        importer,
-        "_extract_standalone_tips",
-        lambda *_args, **_kwargs: ([], [], 0, 0),
-    )
-
     class _FakeDoc:
         def __init__(self) -> None:
             self._closed = False
@@ -267,9 +244,8 @@ def test_convert_pdf_emits_post_candidate_progress(monkeypatch, tmp_path: Path) 
     progress_messages: list[str] = []
     result = importer.convert(source, None, progress_callback=progress_messages.append)
 
-    assert result.recipes
-    assert any(msg.startswith("Extracting candidate 1/1") for msg in progress_messages)
-    assert "Analyzing standalone knowledge blocks..." in progress_messages
+    assert result.recipes == []
+    assert any(msg.startswith("Segmenting 5 blocks") for msg in progress_messages)
     assert "Finalizing PDF extraction results..." in progress_messages
     assert progress_messages[-1] == "PDF conversion complete."
 
@@ -317,12 +293,6 @@ def test_convert_pdf_emits_pattern_diagnostics_and_trim_actions(
             recipeInstructions=["Bake."],
         ),
     )
-    monkeypatch.setattr(
-        importer,
-        "_extract_standalone_tips",
-        lambda *_args, **_kwargs: ([], [], 0, 0),
-    )
-
     class _FakeDoc:
         def __init__(self) -> None:
             self._closed = False
@@ -340,10 +310,13 @@ def test_convert_pdf_emits_pattern_diagnostics_and_trim_actions(
 
     result = importer.convert(source, None)
 
-    assert len(result.recipes) == 1
-    location = result.recipes[0].provenance["location"]
-    assert location["start_block"] == 6
-    assert location["pattern_actions"]
+    assert result.recipes == []
+    proposal = next(
+        support for support in result.source_support if support.kind == "candidate_recipe_region"
+    )
+    assert proposal.payload["start_block"] == 6
+    assert proposal.payload["pattern_actions"]
+    assert proposal.referenced_block_ids[0] == "b6"
     assert any(
         warning.startswith("pattern_toc_like_cluster_detected:")
         for warning in result.report.warnings
@@ -359,9 +332,9 @@ def test_convert_pdf_emits_pattern_diagnostics_and_trim_actions(
     assert diagnostics_artifact.content["pre_candidate_excluded_indices"] == [0, 1, 2, 3]
     assert diagnostics_artifact.content["candidate_start_trim_actions"]
 
-    non_recipe_text = [row["text"] for row in result.non_recipe_blocks]
-    assert "Table of Contents" in non_recipe_text
-    assert "A short intro sentence." in non_recipe_text
+    source_texts = [block.text for block in result.source_blocks]
+    assert "Table of Contents" in source_texts
+    assert "A short intro sentence." in source_texts
 
 
 def test_convert_pdf_applies_multi_recipe_splitter_postprocessing(
@@ -422,8 +395,6 @@ def test_convert_pdf_applies_multi_recipe_splitter_postprocessing(
             instructions=["1 step"],
         ),
     )
-    monkeypatch.setattr(importer, "_extract_standalone_tips", lambda *_args, **_kwargs: ([], [], 0, 0))
-
     class _FakeDoc:
         def __init__(self) -> None:
             self._closed = False
@@ -448,9 +419,12 @@ def test_convert_pdf_applies_multi_recipe_splitter_postprocessing(
         ),
     )
 
-    assert len(result.recipes) == 2
-    assert result.recipes[0].provenance["multi_recipe"]["split_index"] == 0
-    assert result.recipes[1].provenance["multi_recipe"]["split_index"] == 1
+    proposals = [
+        support for support in result.source_support if support.kind == "candidate_recipe_region"
+    ]
+    assert len(proposals) == 2
+    assert proposals[0].payload["multi_recipe"]["split_index"] == 0
+    assert proposals[1].payload["multi_recipe"]["split_index"] == 1
     assert any(
         artifact.location_id == "multi_recipe_split_trace"
         for artifact in result.raw_artifacts
@@ -470,79 +444,6 @@ def test_inspect_scanned_pdf():
     # Should have warning about OCR
     warnings = inspection.sheets[0].warnings
     assert any("OCR" in w for w in warnings)
-
-
-def test_extract_standalone_tips_parallel_progress_and_order(monkeypatch, tmp_path: Path) -> None:
-    importer = PdfImporter()
-    monkeypatch.setattr(importer, "_overrides", None, raising=False)
-    source = tmp_path / "book.pdf"
-    source.write_bytes(b"%PDF-1.4 dummy")
-    blocks = [
-        Block(text="late", page=0),
-        Block(text="fast", page=0),
-    ]
-    containers = [
-        TopicContainer(indices=[0], blocks=[(0, "late")], header=None),
-        TopicContainer(indices=[1], blocks=[(1, "fast")], header=None),
-    ]
-
-    monkeypatch.setattr(
-        "cookimport.plugins.pdf.chunk_standalone_blocks",
-        lambda *_args, **_kwargs: containers,
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.pdf.split_text_to_atoms",
-        lambda text, block_index, **_kwargs: [
-            Atom(
-                text=text,
-                kind="paragraph",
-                source_block_index=block_index,
-                sequence=0,
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.pdf.contextualize_atoms",
-        lambda atoms: atoms,
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.pdf.build_topic_candidate",
-        lambda text, **_kwargs: {"topic": text},
-    )
-
-    def _fake_extract_tip_candidates(text: str, **_kwargs):
-        if text == "late":
-            time.sleep(0.03)
-        return [{"tip": text}]
-
-    monkeypatch.setattr(
-        "cookimport.plugins.pdf.extract_tip_candidates",
-        _fake_extract_tip_candidates,
-    )
-    monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "2")
-
-    progress_messages: list[str] = []
-    tips, topics, standalone_block_count, topic_block_count = importer._extract_standalone_tips(
-        blocks,
-        [],
-        source,
-        "hash",
-        progress_callback=progress_messages.append,
-    )
-
-    assert standalone_block_count == 2
-    assert topic_block_count == 2
-    assert [tip["tip"] for tip in tips] == ["late", "fast"]
-    assert [topic["topic"] for topic in topics] == ["late", "fast"]
-    assert any(
-        "Analyzing standalone knowledge blocks... task 0/2" in msg
-        for msg in progress_messages
-    )
-    assert any(
-        "Analyzing standalone knowledge blocks... task 2/2" in msg
-        for msg in progress_messages
-    )
-
 
 def test_extract_fields_shared_backend_preserves_for_the_component_headers() -> None:
     importer = PdfImporter()

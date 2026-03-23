@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from cookimport.core.models import RecipeCandidate, TipCandidate
+from cookimport.core.models import RecipeCandidate
 from cookimport.core.reporting import generate_recipe_id
 
 
@@ -41,7 +41,6 @@ def plan_pdf_page_ranges(
 
 def reassign_recipe_ids(
     recipes: list[RecipeCandidate],
-    tip_candidates: list[TipCandidate],
     *,
     file_hash: str,
     importer_name: str,
@@ -71,30 +70,16 @@ def reassign_recipe_ids(
         recipe.provenance = provenance
         ordered.append(recipe)
 
-    if id_map:
-        for tip in tip_candidates:
-            if tip.source_recipe_id and tip.source_recipe_id in id_map:
-                tip.source_recipe_id = id_map[tip.source_recipe_id]
-            provenance = tip.provenance
-            if isinstance(provenance, dict):
-                for key in ("@id", "id"):
-                    value = provenance.get(key)
-                    if value in id_map:
-                        provenance[key] = id_map[value]
-                tip.provenance = provenance
-
     return ordered, id_map
 
 
 def reassign_pdf_recipe_ids(
     recipes: list[RecipeCandidate],
-    tip_candidates: list[TipCandidate],
     *,
     file_hash: str,
 ) -> tuple[list[RecipeCandidate], dict[str, str]]:
     return reassign_recipe_ids(
         recipes,
-        tip_candidates,
         file_hash=file_hash,
         importer_name="pdf",
     )

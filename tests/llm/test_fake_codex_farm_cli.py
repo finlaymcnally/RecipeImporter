@@ -43,9 +43,6 @@ def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
                 provenance={"location": {"start_block": 1, "end_block": 3}},
             )
         ],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
@@ -95,9 +92,6 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
                 provenance={"location": {"start_block": 10, "end_block": 13}},
             ),
         ],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
@@ -135,9 +129,6 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
 def _knowledge_conversion_result(source_path: Path) -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": 0, "text": "Preface"},
             {"index": 4, "text": "Technique: Whisk constantly."},

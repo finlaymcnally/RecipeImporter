@@ -27,18 +27,62 @@ from cookimport.core.reporting import (
     compute_file_hash,
     generate_recipe_id,
 )
-from cookimport.core.scoring import (
-    build_recipe_scoring_debug_row,
-    recipe_gate_action,
-    score_recipe_likeness,
-    summarize_recipe_likeness,
-)
+from cookimport.core.source_model import normalize_source_blocks
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from cookimport.config.run_settings import RunSettings
+
+
+def _paprika_recipe_text(raw_recipe: dict[str, Any]) -> str:
+    name = str(raw_recipe.get("name") or "Untitled").strip()
+    parts = [name]
+    notes = str(raw_recipe.get("notes") or "").strip()
+    if notes:
+        parts.append(notes)
+    prep_time = str(raw_recipe.get("prep_time") or raw_recipe.get("prepTime") or "").strip()
+    if prep_time:
+        parts.append(f"Prep Time: {prep_time}")
+    cook_time = str(raw_recipe.get("cook_time") or raw_recipe.get("cookTime") or "").strip()
+    if cook_time:
+        parts.append(f"Cook Time: {cook_time}")
+    ingredients = str(raw_recipe.get("ingredients") or "").splitlines()
+    ingredients = [line.strip() for line in ingredients if line.strip()]
+    if ingredients:
+        parts.append("Ingredients:")
+        parts.extend(f"- {item}" for item in ingredients)
+    directions = str(raw_recipe.get("directions") or "").splitlines()
+    directions = [line.strip() for line in directions if line.strip()]
+    if directions:
+        parts.append("Instructions:")
+        parts.extend(f"{index}. {item}" for index, item in enumerate(directions, start=1))
+    servings = str(raw_recipe.get("servings") or "").strip()
+    if servings:
+        parts.append(f"Yield: {servings}")
+    source_url = str(raw_recipe.get("source_url") or "").strip()
+    if source_url:
+        parts.append(f"Source URL: {source_url}")
+    return "\n".join(parts)
+
+
+def _candidate_to_source_recipe(candidate: RecipeCandidate) -> dict[str, Any]:
+    return {
+        "name": candidate.name,
+        "notes": candidate.description,
+        "ingredients": "\n".join(item for item in candidate.ingredients if item),
+        "directions": "\n".join(
+            step if isinstance(step, str) else step.text
+            for step in candidate.instructions
+            if (step if isinstance(step, str) else step.text)
+        ),
+        "servings": candidate.recipe_yield,
+        "source_url": candidate.source_url,
+        "prep_time": candidate.prep_time,
+        "cook_time": candidate.cook_time,
+        "total_time": candidate.total_time,
+    }
 
 def _normalize_duration(text: str | None) -> str | None:
     if not text:
@@ -149,146 +193,86 @@ class PaprikaImporter:
         progress_callback: Callable[[str], None] | None = None,
         run_settings: RunSettings | None = None,
     ) -> ConversionResult:
-        """
-        Converts Paprika export into RecipeCandidates.
-        """
         report = ConversionReport(importer_name=self.name, source_file=path.name)
-        recipes: List[RecipeCandidate] = []
         raw_artifacts: List[RawArtifact] = []
         file_hash = compute_file_hash(path) if path.is_file() else "dir_hash"
 
         try:
+            raw_recipe_rows: list[dict[str, Any]] = []
             if path.suffix.lower() == ".paprikarecipes":
-                recipes, raw_artifacts = self._convert_paprikarecipes(path, file_hash, report, progress_callback)
+                zip_recipes, raw_artifacts = self._convert_paprikarecipes(
+                    path,
+                    file_hash,
+                    report,
+                    progress_callback,
+                )
+                raw_recipe_rows.extend(
+                    _candidate_to_source_recipe(candidate) for candidate in zip_recipes
+                )
             elif path.is_dir():
-                # Merge Mode: check for .paprikarecipes files AND html exports in the dir
                 zip_files = list(path.glob("*.paprikarecipes"))
                 has_html = (path / "index.html").exists()
-                
-                zip_recipes: dict[str, RecipeCandidate] = {}
-                html_recipes: dict[str, RecipeCandidate] = {}
-                
+
                 for zf in zip_files:
                     zf_hash = compute_file_hash(zf)
-                    z_recipes, z_artifacts = self._convert_paprikarecipes(zf, zf_hash, report, progress_callback)
+                    z_recipes, z_artifacts = self._convert_paprikarecipes(
+                        zf,
+                        zf_hash,
+                        report,
+                        progress_callback,
+                    )
                     raw_artifacts.extend(z_artifacts)
-                    for r in z_recipes:
-                        # Use source_url or name as key for merging
-                        key = r.source_url or r.name
-                        zip_recipes[key] = r
-                
+                    raw_recipe_rows.extend(
+                        _candidate_to_source_recipe(candidate) for candidate in z_recipes
+                    )
                 if has_html:
-                    h_recipes, h_artifacts = self._convert_html_export(path, file_hash, report, progress_callback)
+                    h_recipes, h_artifacts = self._convert_html_export(
+                        path,
+                        file_hash,
+                        report,
+                        progress_callback,
+                    )
                     raw_artifacts.extend(h_artifacts)
-                    for r in h_recipes:
-                        key = r.source_url or r.name
-                        html_recipes[key] = r
-                
-                # Merge
-                all_keys = set(zip_recipes.keys()) | set(html_recipes.keys())
-                for key in all_keys:
-                    z_rec = zip_recipes.get(key)
-                    h_rec = html_recipes.get(key)
-                    
-                    if z_rec and h_rec:
-                        # Merge logic: Prefer zip for text, HTML for structured fields
-                        # For now, just a simple merge
-                        merged = z_rec.model_copy()
-                        if h_rec.ingredients and len(h_rec.ingredients) >= len(z_rec.ingredients):
-                             merged.ingredients = h_rec.ingredients
-                        if h_rec.prep_time:
-                             merged.prep_time = h_rec.prep_time
-                        if h_rec.cook_time:
-                             merged.cook_time = h_rec.cook_time
-                        if h_rec.recipe_yield:
-                             merged.recipe_yield = h_rec.recipe_yield
-                        if h_rec.image:
-                             merged.image = h_rec.image
-                        recipes.append(merged)
-                    elif z_rec:
-                        recipes.append(z_rec)
-                    elif h_rec:
-                        recipes.append(h_rec)
-            
-            accepted_recipes: list[RecipeCandidate] = []
-            non_recipe_blocks: list[dict[str, Any]] = []
-            recipe_likeness_results = []
-            recipe_scoring_debug_rows: list[dict[str, Any]] = []
-            rejected_candidate_count = 0
-            for index, recipe in enumerate(recipes):
-                likeness = score_recipe_likeness(recipe, settings=run_settings)
-                gate_action = recipe_gate_action(likeness, settings=run_settings)
-                recipe.recipe_likeness = likeness
-                recipe.confidence = likeness.score
-                recipe_likeness_results.append(likeness)
-                recipe_scoring_debug_rows.append(
-                    build_recipe_scoring_debug_row(
-                        candidate=recipe,
-                        result=likeness,
-                        gate_action=gate_action,
-                        candidate_index=index,
-                        importer=self.name,
-                        source_hash=file_hash,
+                    raw_recipe_rows.extend(
+                        _candidate_to_source_recipe(candidate) for candidate in h_recipes
                     )
-                )
 
-                if gate_action == "reject":
-                    rejected_candidate_count += 1
-                    rejected_text = "\n".join(
-                        [
-                            recipe.name,
-                            "Ingredients:",
-                            *recipe.ingredients,
-                            "Instructions:",
-                            *[str(step) for step in recipe.instructions],
-                        ]
-                    ).strip()
-                    if rejected_text:
-                        non_recipe_blocks.append(
-                            {
-                                "index": len(non_recipe_blocks),
-                                "text": rejected_text,
-                                "location": {"chunk_index": index},
-                                "features": {
-                                    "source": "rejected_recipe_candidate",
-                                    "gate_action": gate_action,
-                                    "score": likeness.score,
-                                    "tier": likeness.tier.value,
-                                },
-                            }
-                        )
+            source_blocks: list[dict[str, Any]] = []
+            source_support: list[dict[str, Any]] = []
+            for index, raw_recipe in enumerate(raw_recipe_rows):
+                if not isinstance(raw_recipe, dict):
                     continue
-
-                accepted_recipes.append(recipe)
-
-            if recipe_scoring_debug_rows:
-                raw_artifacts.append(
-                    RawArtifact(
-                        importer=self.name,
-                        sourceHash=file_hash,
-                        locationId="recipe_scoring_debug",
-                        extension="jsonl",
-                        content="\n".join(
-                            json.dumps(row, sort_keys=True)
-                            for row in recipe_scoring_debug_rows
-                        ),
-                        metadata={"artifact_type": "recipe_scoring_debug"},
-                    )
+                block_id = f"b{len(source_blocks)}"
+                source_blocks.append(
+                    {
+                        "block_id": block_id,
+                        "order_index": len(source_blocks),
+                        "text": _paprika_recipe_text(raw_recipe),
+                        "location": {"row_index": index},
+                        "features": {"source_kind": "paprika_recipe"},
+                        "provenance": {"importer": self.name, "source_hash": file_hash},
+                    }
+                )
+                source_support.append(
+                    {
+                        "hintClass": "evidence",
+                        "kind": "paprika_recipe_object",
+                        "referencedBlockIds": [block_id],
+                        "payload": {
+                            "recipe_index": index,
+                            "name": raw_recipe.get("name"),
+                            "recipe": raw_recipe,
+                        },
+                        "provenance": {"importer": self.name, "source": "paprika_export"},
+                    }
                 )
 
-            recipes = accepted_recipes
-            report.total_recipes = len(recipes)
-            report.recipe_likeness = summarize_recipe_likeness(
-                recipe_likeness_results,
-                rejected_candidate_count,
-                settings=run_settings,
-            )
-            if recipes:
-                report.samples = [{"name": r.name} for r in recipes[:3]]
-
+            report.total_recipes = 0
             return ConversionResult(
-                recipes=recipes,
-                nonRecipeBlocks=non_recipe_blocks,
+                recipes=[],
+                sourceBlocks=normalize_source_blocks(source_blocks),
+                sourceSupport=source_support,
+                nonRecipeBlocks=[],
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,

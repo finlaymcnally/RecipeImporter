@@ -8,7 +8,7 @@ from cookimport.cli import app
 from cookimport.core.executor_fallback import ProcessThreadExecutorResolution
 from cookimport.ocr.doctr_engine import resolve_ocr_device
 import pytest
-from tests.fast_stage_pipeline import install_fake_stage_one_file
+from tests.fast_stage_pipeline import install_fake_source_job_stage
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 runner = CliRunner()
@@ -26,7 +26,7 @@ def test_resolve_ocr_device():
         resolve_ocr_device("invalid")
 
 def test_stage_with_performance_flags(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    install_fake_stage_one_file(monkeypatch, importer_name="text")
+    install_fake_source_job_stage(monkeypatch, importer_name="text")
     monkeypatch.setattr(
         cli,
         "resolve_process_thread_executor",
@@ -72,7 +72,7 @@ def test_stage_with_performance_flags(tmp_path, monkeypatch: pytest.MonkeyPatch)
     assert "writing_seconds" in report["timing"]
 
 def test_stage_parallel(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    install_fake_stage_one_file(monkeypatch, importer_name="text")
+    install_fake_source_job_stage(monkeypatch, importer_name="text")
     monkeypatch.setattr(
         cli,
         "resolve_process_thread_executor",
@@ -124,7 +124,7 @@ def test_stage_parallel(tmp_path, monkeypatch: pytest.MonkeyPatch):
 def test_stage_process_pool_permission_error_falls_back_to_thread(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    install_fake_stage_one_file(monkeypatch, importer_name="text")
+    install_fake_source_job_stage(monkeypatch, importer_name="text")
     fixtures_dir = TESTS_FIXTURES_DIR
     input_dir = tmp_path / "input"
     input_dir.mkdir()
@@ -286,7 +286,7 @@ def test_worker_label_keeps_process_only_for_main_thread(
     assert cli_worker._worker_label() == "ForkProcess-2 (2468)"
 
 
-def test_stage_worker_request_dispatches_single_job(
+def test_stage_worker_request_dispatches_source_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -301,8 +301,9 @@ def test_stage_worker_request_dispatches_single_job(
 
     called: dict[str, object] = {}
 
-    def _fake_stage_one_file(*args, **kwargs):  # noqa: ANN002, ANN003
-        called["file_path"] = kwargs.get("file_path")
+    def _fake_execute_source_job(*args, **kwargs):  # noqa: ANN002, ANN003
+        job = kwargs.get("job") or (args[0] if args else None)
+        called["file_path"] = getattr(job, "file_path", None)
         called["display_name"] = kwargs.get("display_name")
         return {
             "file": "example.txt",
@@ -312,12 +313,12 @@ def test_stage_worker_request_dispatches_single_job(
             "duration": 0.1,
         }
 
-    monkeypatch.setattr(cli_worker, "stage_one_file", _fake_stage_one_file)
+    monkeypatch.setattr(cli_worker, "execute_source_job", _fake_execute_source_job)
 
     request_payload = {
         "result_path": str(result_path),
         "job": {
-            "job_kind": "single",
+            "job_kind": "source_job",
             "file_path": str(source_file),
             "out_path": str(out_dir),
             "mapping_config": None,
@@ -326,9 +327,13 @@ def test_stage_worker_request_dispatches_single_job(
             "run_config": {},
             "run_config_hash": "abc",
             "run_config_summary": "summary",
-            "limit": None,
             "epub_extractor": None,
-            "write_markdown": True,
+            "job_index": 0,
+            "job_count": 1,
+            "start_page": None,
+            "end_page": None,
+            "start_spine": None,
+            "end_spine": None,
         },
     }
     request_path.write_text(

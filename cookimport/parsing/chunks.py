@@ -20,7 +20,6 @@ from cookimport.core.models import (
     KnowledgeChunk,
     ParsingOverrides,
     TipTags,
-    TopicCandidate,
 )
 from cookimport.parsing import signals
 from cookimport.parsing import tips as tip_miner
@@ -1056,15 +1055,16 @@ def summarize_chunk_utility_profile(chunk: KnowledgeChunk) -> dict[str, Any]:
             "failure_prevention",
         }.intersection(deduped_positive)
     )
-    strong_negative = bool(
-        {
-            "book_framing_or_marketing",
-            "navigation_or_taxonomy",
-            "memoir_or_voice",
-        }.intersection(deduped_negative)
-    ) or (
-        "rhetorical_heading" in deduped_negative and not deduped_positive
-    )
+    strong_negative = (
+        bool(
+            {
+                "book_framing_or_marketing",
+                "navigation_or_taxonomy",
+                "memoir_or_voice",
+            }.intersection(deduped_negative)
+        )
+        and not deduped_positive
+    ) or ("rhetorical_heading" in deduped_negative and not deduped_positive)
     borderline = bool(deduped_positive and deduped_negative) or (
         "true_but_low_utility" in deduped_negative and not strong_negative
     )
@@ -1504,52 +1504,6 @@ def process_blocks_to_chunks(
         )
 
     return chunks
-
-
-def chunks_from_topic_candidates(
-    topic_candidates: Sequence[TopicCandidate],
-    *,
-    profile: ChunkingProfile | None = None,
-    overrides: ParsingOverrides | None = None,
-) -> list[KnowledgeChunk]:
-    """Convert topic candidates to knowledge chunks.
-
-    This bridges the existing topic candidate extraction with the new
-    chunking system. Topic candidates are converted to blocks, then
-    processed through the full chunking pipeline.
-
-    Note: Prefer using chunks_from_non_recipe_blocks() when raw blocks
-    are available, as it preserves document structure better.
-
-    Args:
-        topic_candidates: List of TopicCandidate objects from conversion.
-        profile: Chunking configuration.
-        overrides: Parsing overrides for tip extraction.
-
-    Returns:
-        List of fully processed KnowledgeChunk objects.
-    """
-    if not topic_candidates:
-        return []
-
-    # Convert topic candidates to blocks
-    blocks: list[Block] = []
-    for i, tc in enumerate(topic_candidates):
-        block = Block(
-            text=tc.text,
-            type=BlockType.TEXT,
-            features={
-                "source_topic_id": tc.identifier,
-                "topic_header": tc.header,
-            },
-        )
-        # Add header information if available
-        if tc.header:
-            block.features["is_header_likely"] = _looks_like_header(tc.header)
-        blocks.append(block)
-
-    return process_blocks_to_chunks(blocks, profile=profile, overrides=overrides)
-
 
 def chunks_from_non_recipe_blocks(
     non_recipe_blocks: Sequence[dict],

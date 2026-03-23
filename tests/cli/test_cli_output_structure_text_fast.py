@@ -7,7 +7,7 @@ import pytest
 from cookimport import cli
 from cookimport.cli import app
 from cookimport.core.executor_fallback import ProcessThreadExecutorResolution
-from tests.fast_stage_pipeline import install_fake_stage_one_file
+from tests.fast_stage_pipeline import install_fake_source_job_stage
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 runner = CliRunner()
@@ -26,7 +26,7 @@ _BASE_FAST_STAGE_ARGS = [
 
 @pytest.fixture(autouse=True)
 def _use_fake_stage_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
-    install_fake_stage_one_file(monkeypatch, importer_name="text")
+    install_fake_source_job_stage(monkeypatch, importer_name="text")
     monkeypatch.setattr(
         cli,
         "resolve_process_thread_executor",
@@ -121,9 +121,7 @@ def test_stage_output_structure(tmp_path):
     assert run_manifest["run_id"] == timestamp_dir.name
     assert run_manifest["artifacts"]["reports"] == [f"{file_slug}.excel_import_report.json"]
 
-    tips_dir = timestamp_dir / "tips" / file_slug
-    assert tips_dir.exists()
-    list(tips_dir.rglob("t*.json"))
+    assert not (timestamp_dir / "tips").exists()
 
     sections_dir = timestamp_dir / "sections" / file_slug
     assert sections_dir.exists()
@@ -160,8 +158,7 @@ def test_stage_no_write_markdown_skips_markdown_sidecars(tmp_path):
 
     assert (timestamp_dir / "sections" / file_slug / "r0.sections.json").exists()
     assert not (timestamp_dir / "sections" / file_slug / "sections.md").exists()
-    assert not (timestamp_dir / "tips" / file_slug / "tips.md").exists()
-    assert not (timestamp_dir / "tips" / file_slug / "topic_candidates.md").exists()
+    assert not (timestamp_dir / "tips").exists()
     assert not list(timestamp_dir.rglob("*.md"))
 
 

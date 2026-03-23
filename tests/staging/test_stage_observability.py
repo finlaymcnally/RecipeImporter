@@ -81,8 +81,9 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
     run_root = tmp_path / "run"
     llm_root = run_root / "raw" / "llm" / "book"
     (llm_root / "knowledge" / "in").mkdir(parents=True)
-    (run_root / "08_nonrecipe_spans.json").write_text("{}", encoding="utf-8")
-    (run_root / "09_knowledge_outputs.json").write_text("{}", encoding="utf-8")
+    (run_root / "08_nonrecipe_seed_routing.json").write_text("{}", encoding="utf-8")
+    (run_root / "09_nonrecipe_authority.json").write_text("{}", encoding="utf-8")
+    (run_root / "09_nonrecipe_review_status.json").write_text("{}", encoding="utf-8")
     _write_json(
         llm_root / KNOWLEDGE_MANIFEST_FILE_NAME,
         {"pipeline_id": "recipe.knowledge.compact.v1"},

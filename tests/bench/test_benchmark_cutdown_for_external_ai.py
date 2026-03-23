@@ -337,13 +337,21 @@ def _write_processed_output_knowledge_artifacts(
     knowledge_call_count: int = 4,
 ) -> None:
     _write_json(
-        processed_output_root / "09_knowledge_outputs.json",
+        processed_output_root / "09_nonrecipe_review_status.json",
         {
             "enabled": True,
             "counts": {
                 "shards_written": knowledge_call_count,
                 "outputs_parsed": knowledge_call_count,
                 "snippets_written": knowledge_call_count * 2,
+            },
+        },
+    )
+    _write_json(
+        processed_output_root / "09_nonrecipe_authority.json",
+        {
+            "counts": {
+                "final_authority_blocks": knowledge_call_count,
             },
         },
     )

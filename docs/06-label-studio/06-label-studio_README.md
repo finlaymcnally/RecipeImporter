@@ -222,7 +222,7 @@ New eval manifests should record the prediction-run root under `artifacts.artifa
 
 Canonical line-role projection note:
 - `line_role_predictions.jsonl` remains the diagnostic/provisional line-role view after any final-authority overwrite that actually exists.
-- `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view and must fail closed for outside-recipe review-eligible rows that remained unreviewed by the knowledge stage.
+- `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view. It aggregates projected canonical rows back to source `block_index`, preserves recipe-local Stage 2 labels there, and must fail closed for outside-recipe review-eligible rows that remained unreviewed by the knowledge stage.
 - In other words, an unreviewed outside-recipe row may still appear as provisional `KNOWLEDGE` in diagnostic artifacts, but benchmark scoring must serialize it as `OTHER` until explicit final non-recipe authority exists.
 
 - upload path (prediction import + eval)
@@ -296,7 +296,7 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/projected_spans.jsonl`
 - `line-role-pipeline/stage_block_predictions.json`
 - `line-role-pipeline/extracted_archive.json`
-Prediction-generation now reuses authoritative recipe-local line-role outputs from the stage-backed label bundle when available, and outside-recipe `KNOWLEDGE` versus `OTHER` comes from the final non-recipe authority that import produced after any enabled refinement step.
+Prediction-generation now reuses authoritative recipe-local line-role outputs from the stage-backed label bundle when available. `projected_spans.jsonl` and `extracted_archive.json` stay line-level reviewer artifacts, while `stage_block_predictions.json` is rebuilt as block-level scoring evidence from those projected rows. Outside-recipe `KNOWLEDGE` versus `OTHER` comes from the final non-recipe authority that import produced after any enabled refinement step.
 Those authoritative and projected line-role rows now carry `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone from this seam.
 Final non-recipe authority is still only a binary outside-recipe seam. It may arbitrate rows already labeled `OTHER` or `KNOWLEDGE`, but it must not collapse clear outside-recipe structural labels such as recipe-tail `RECIPE_NOTES` back into `OTHER`.
 Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.

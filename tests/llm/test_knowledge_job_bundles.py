@@ -793,5 +793,5 @@ def test_build_knowledge_jobs_does_not_mark_mixed_memoir_chunk_as_strong_knowled
         "book_framing_or_marketing",
     ]
     assert metadata["chunk_utility_borderline_by_id"]["book.c0000.nr"] is True
-    assert metadata["chunk_strong_negative_utility_cue_by_id"]["book.c0000.nr"] is True
+    assert metadata["chunk_strong_negative_utility_cue_by_id"]["book.c0000.nr"] is False
     assert metadata["chunk_knowledge_cue_by_id"]["book.c0000.nr"] is False

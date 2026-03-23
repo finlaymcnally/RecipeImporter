@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from cookimport.core.models import ConversionResult, RawArtifact, RecipeCandidate
+from cookimport.core.source_model import source_blocks_to_rows
 from cookimport.labelstudio.models import ArchiveBlock
 
 _SOFT_HYPHEN = "\u00ad"
@@ -109,6 +110,7 @@ def build_extracted_archive(
     result: ConversionResult,
     raw_artifacts: list[RawArtifact],
 ) -> list[ArchiveBlock]:
+    del raw_artifacts
     archive: list[ArchiveBlock] = []
 
     def add_block(index: int, text: str, location: dict[str, object], source: str | None) -> None:
@@ -126,69 +128,18 @@ def build_extracted_archive(
             )
         )
 
-    for artifact in raw_artifacts:
-        artifact_type = artifact.metadata.get("artifact_type") if artifact.metadata else None
-        if artifact_type == "extracted_blocks":
-            blocks = []
-            if isinstance(artifact.content, dict):
-                blocks = artifact.content.get("blocks", [])
-            for block in blocks:
-                if not isinstance(block, dict):
-                    continue
-                index = int(block.get("index", len(archive)))
-                text = str(block.get("text", ""))
-                location = {k: v for k, v in block.items() if k not in {"text", "html"}}
-                add_block(index, text, location, artifact.importer)
-        elif artifact_type == "extracted_text":
-            lines = []
-            if isinstance(artifact.content, dict):
-                lines = artifact.content.get("lines", [])
-            for line in lines:
-                if not isinstance(line, dict):
-                    continue
-                index = int(line.get("index", len(archive)))
-                text = str(line.get("text", ""))
-                add_block(index, text, {"line_index": index}, artifact.importer)
-        elif artifact_type == "extracted_rows":
-            rows = []
-            if isinstance(artifact.content, dict):
-                rows = artifact.content.get("rows", [])
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                index = int(row.get("row_index", len(archive)))
-                location = {
-                    "row_index": row.get("row_index"),
-                    "sheet": row.get("sheet"),
-                }
-                add_block(index, _row_to_text(row), location, artifact.importer)
+    if not result.source_blocks:
+        raise ValueError("Expected canonical source_blocks before building extracted archive.")
 
-    if not archive:
-        for artifact in raw_artifacts:
-            if artifact.metadata:
-                continue
-            content = artifact.content
-            if isinstance(content, dict) and "row" in content:
-                index = int(content.get("row_index", len(archive)))
-                location = {
-                    "row_index": content.get("row_index"),
-                    "sheet": content.get("sheet"),
-                }
-                add_block(index, _row_to_text(content), location, artifact.importer)
-            if isinstance(content, dict) and "blocks" in content:
-                blocks = content.get("blocks", [])
-                for block in blocks:
-                    if not isinstance(block, dict):
-                        continue
-                    index = int(block.get("index", len(archive)))
-                    text = str(block.get("text", ""))
-                    location = {k: v for k, v in block.items() if k not in {"text", "html"}}
-                    add_block(index, text, location, artifact.importer)
-
-    if not archive:
-        for idx, recipe in enumerate(result.recipes):
-            location = _recipe_location(recipe, idx)
-            add_block(idx, _build_recipe_text(recipe), location, "recipe")
+    for block in source_blocks_to_rows(result.source_blocks):
+        index = int(block.get("index", len(archive)))
+        text = str(block.get("text", ""))
+        location = block.get("location")
+        if not isinstance(location, dict):
+            location = {}
+        location = dict(location)
+        location.setdefault("block_id", str(block.get("block_id") or f"block:{index}"))
+        add_block(index, text, location, "source_block")
 
     archive.sort(key=lambda block: block.index)
     return archive

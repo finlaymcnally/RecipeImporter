@@ -6,6 +6,10 @@ from pathlib import Path
 from cookimport.plugins.recipesage import RecipeSageImporter
 
 
+def _source_text(result) -> str:
+    return "\n".join(block.text for block in result.source_blocks)
+
+
 def _write_recipesage_export(path: Path) -> Path:
     payload = {
         "recipes": [
@@ -56,11 +60,10 @@ def test_convert_recipesage(tmp_path):
     )
     result = importer.convert(path, None)
 
-    assert len(result.recipes) == 1
-    recipe = result.recipes[0]
-    assert recipe.name == "Slow Cooker Red Beans And Rice Recipe"
-    assert recipe.recipe_likeness is not None
-    assert recipe.confidence == recipe.recipe_likeness.score
-    assert "1 pound dried red beans" in recipe.ingredients
-    assert len(recipe.instructions) > 0
-    assert recipe.provenance["source_system"] == "recipesage"
+    assert result.recipes == []
+    assert len(result.source_blocks) == 1
+    assert len(result.source_support) == 1
+    assert result.source_support[0].kind == "recipesage_recipe_object"
+    assert "Slow Cooker Red Beans And Rice Recipe" in _source_text(result)
+    assert "1 pound dried red beans" in _source_text(result)
+    assert "Cook on low until tender." in _source_text(result)

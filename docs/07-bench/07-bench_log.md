@@ -851,3 +851,77 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if recipe-correction debug views drift again, inspect compact existing-output parsing and fallback-source selection before changing benchmark scoring or recipe topology metadata
+
+## 22. 2026-03-22 detached Oracle benchmark review converged on explicit dual lanes plus browser-safe model selection
+
+Problem captured:
+- benchmark-side Oracle review had become half-upgraded:
+  - some code still behaved like one generic browser upload
+  - browser model selection could drift through ambiguous GPT aliases and local Oracle defaults
+  - the runtime needed profile-specific prompts and per-lane artifacts, not one shared lane story
+
+Durable decisions:
+- detached benchmark Oracle upload now fans out into two explicit review lanes by default:
+  - `quality`
+  - `token`
+- each lane gets its own launch directory under `upload_bundle_v1/.oracle_upload_runs/<timestamp>-<profile>/` with:
+  - staged lane brief
+  - lane-scoped upload packet files
+  - `oracle_upload.log`
+  - `oracle_upload.json`
+  - `oracle_upload_status.json`
+  - later follow-up artifacts
+- prompt text now lives in two dedicated prompt files, one for each lane, instead of one overloaded benchmark-upload prompt
+- ambiguous GPT browser aliases such as `gpt-5-pro` and `gpt-5` must be normalized to explicit picker targets before invoking Oracle so local wrapper defaults cannot silently remap the run to `GPT-5.4`
+
+Evidence worth keeping:
+- the March 22 browser-model mismatch was real: RecipeImport could log `gpt-5-pro` while Oracle session metadata still showed a `GPT-5.4` picker target because the local wrapper stack remapped the alias
+- the dual-lane split also mattered operationally: quality review and token-spend review needed different briefs, different prompt framing, and separate saved artifacts
+
+Anti-loop note:
+- if Oracle benchmark review drifts again, inspect lane-specific staged artifacts and alias normalization before changing the bundle renderer or restoring one shared review lane
+
+## 23. 2026-03-22 turn-1 Oracle recovery widened beyond explicit timeout handling
+
+Problem captured:
+- turn-1 follow-up recovery originally trusted only two failure shapes:
+  - explicit `assistant-timeout`
+  - dead controller with obviously stale session state
+- real March 22 failures showed two more cases:
+  - the controller PID was gone while the saved session still looked `running`
+  - ChatGPT already showed the turn-1 answer, but Oracle left the lane `running` with a live controller so the worker stayed stuck at `waiting_for_turn_1`
+
+Durable decisions:
+- follow-up recovery now does one bounded `oracle session <id>` reattach for stale-running lanes after a grace period, even when the controller PID is still alive
+- dead-controller stalled sessions remain recoverable too; saved lane state alone is not enough evidence that turn 1 truly failed
+- if `oracle_upload.log` contains both an older timeout marker and a later grounded `Answer:` block, the later grounded answer wins for follow-up decisions
+- same-chat turn 2 must inherit the source run's Oracle home/profile and reuse the resolved turn-1 model unless an explicit override is provided
+
+Evidence worth keeping:
+- the March 22 stalled follow-up sequence demonstrated both families:
+  - a saved run could already contain a visible grounded answer and still remain stuck in `recovering_turn_1`
+  - another run could recover turn 1 correctly and then fail `continue-session` because Oracle stopped using the source session home
+
+Anti-loop note:
+- if benchmark follow-up stalls after a visible turn-1 answer, debug stale-running recovery, recovered-answer precedence, and session-home inheritance before changing request parsing or follow-up bundle generation
+
+## 24. 2026-03-22 canonical-text benchmark reports regained structural segmentation as a first-class contract
+
+Problem captured:
+- canonical-text `eval_report.json` exposed boundary-overlap counts and classification metrics, but it omitted the structural segmentation payload that the paired single-book comparison code expected
+- that left codex-vs-vanilla comparisons stuck at `classification_signal_only` even when structure had actually improved or regressed
+
+Durable decisions:
+- canonical-text eval now serializes the same structural segmentation contract used by stage-block evaluation:
+  - `label_projection=core_structural_v1`
+  - `segmentation.boundaries.overall_micro`
+  - matching error taxonomy fields
+- keep overlap-style `boundary` counts alongside structural `segmentation`; those are complementary diagnostics, not replacements
+- emit canonical boundary-mismatch artifacts (`missed_gold_boundaries.jsonl`, `false_positive_boundaries.jsonl`) so structural regressions are inspectable from canonical runs directly
+
+Evidence worth keeping:
+- the source bug was a report-contract omission, not missing internal data: canonical-text eval was already building aligned gold/pred label sequences suitable for structural boundary scoring
+- once the segmentation payload was restored at the report layer, single-book comparison logic could use the richer attribution without further semantic changes
+
+Anti-loop note:
+- if canonical paired comparisons fall back to `classification_signal_only` again, inspect whether `eval_report.json` actually carries structural `segmentation` before weakening comparison attribution or adding scorer-side heuristics

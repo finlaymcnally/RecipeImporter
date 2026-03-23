@@ -13,14 +13,7 @@ logger = logging.getLogger(__name__)
 
 _REPORT_TOTAL_FIELD_TO_ATTR: tuple[tuple[str, str], ...] = (
     ("totalRecipes", "total_recipes"),
-    ("totalTips", "total_tips"),
-    ("totalTipCandidates", "total_tip_candidates"),
-    ("totalTopicCandidates", "total_topic_candidates"),
     ("totalStandaloneBlocks", "total_standalone_blocks"),
-    ("totalStandaloneTopicBlocks", "total_standalone_topic_blocks"),
-    ("totalGeneralTips", "total_general_tips"),
-    ("totalRecipeSpecificTips", "total_recipe_specific_tips"),
-    ("totalNotTips", "total_not_tips"),
 )
 
 
@@ -46,15 +39,7 @@ def build_authoritative_stage_report(
             "average_confidence",
             "category_confidence",
             "total_recipes",
-            "total_tips",
-            "total_tip_candidates",
-            "total_topic_candidates",
             "total_standalone_blocks",
-            "total_standalone_topic_blocks",
-            "standalone_topic_coverage",
-            "total_general_tips",
-            "total_recipe_specific_tips",
-            "total_not_tips",
             "timing",
             "output_stats",
             "run_config",
@@ -68,26 +53,10 @@ def build_authoritative_stage_report(
 
 
 def _report_counts_from_result(result: ConversionResult) -> dict[str, int]:
-    tips = list(result.tips)
-    tip_candidates = list(result.tip_candidates)
-    topic_candidates = list(result.topic_candidates)
     non_recipe_blocks = list(result.non_recipe_blocks)
-    recipe_specific_count = sum(
-        1 for tip in tip_candidates if str(getattr(tip, "scope", "")).strip() == "recipe_specific"
-    )
-    not_tip_count = sum(
-        1 for tip in tip_candidates if str(getattr(tip, "scope", "")).strip() == "not_tip"
-    )
     return {
         "totalRecipes": len(result.recipes),
-        "totalTips": len(tips),
-        "totalTipCandidates": len(tip_candidates),
-        "totalTopicCandidates": len(topic_candidates),
         "totalStandaloneBlocks": len(non_recipe_blocks),
-        "totalStandaloneTopicBlocks": len(topic_candidates),
-        "totalGeneralTips": len(tips),
-        "totalRecipeSpecificTips": recipe_specific_count,
-        "totalNotTips": not_tip_count,
     }
 
 
@@ -140,13 +109,6 @@ def finalize_report_totals(
 
     for field_alias, attr_name in _REPORT_TOTAL_FIELD_TO_ATTR:
         setattr(report, attr_name, int(expected[field_alias]))
-    standalone_blocks = expected["totalStandaloneBlocks"]
-    if standalone_blocks > 0:
-        report.standalone_topic_coverage = (
-            expected["totalStandaloneTopicBlocks"] / standalone_blocks
-        )
-    else:
-        report.standalone_topic_coverage = None
 
     return diagnostics_payload
 
@@ -322,13 +284,6 @@ def enrich_report_with_stats(
             except (ValueError, TypeError):
                 pass
                 
-    for tip in result.tips:
-        if tip.confidence is not None:
-            scores.append(tip.confidence)
-            if "Tips" not in category_scores:
-                category_scores["Tips"] = []
-            category_scores["Tips"].append(tip.confidence)
-
     if scores:
         report.average_confidence = sum(scores) / len(scores)
         

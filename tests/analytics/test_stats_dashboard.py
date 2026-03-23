@@ -61,18 +61,12 @@ SAMPLE_CSV_ROW1 = _sample_csv_row(
         "writing_seconds": "3.8",
         "ocr_seconds": "0.0",
         "recipes": "20",
-        "tips": "5",
-        "tip_candidates": "3",
-        "topic_candidates": "2",
+        "standalone_blocks": "5",
         "total_units": "30",
         "per_recipe_seconds": "0.275",
-        "per_tip_seconds": "1.1",
-        "per_tip_candidate_seconds": "1.833",
-        "per_topic_candidate_seconds": "2.75",
         "per_unit_seconds": "0.183",
         "output_files": "10",
         "output_bytes": "50000",
-        "knowledge_share": "0.066",
         "dominant_stage": "writing",
         "dominant_stage_seconds": "3.8",
         "dominant_checkpoint": "write_final_seconds",
@@ -93,18 +87,12 @@ SAMPLE_CSV_ROW2 = _sample_csv_row(
         "writing_seconds": "6.1",
         "ocr_seconds": "1.7",
         "recipes": "50",
-        "tips": "10",
-        "tip_candidates": "8",
-        "topic_candidates": "5",
+        "standalone_blocks": "12",
         "total_units": "73",
         "per_recipe_seconds": "0.246",
-        "per_tip_seconds": "1.23",
-        "per_tip_candidate_seconds": "1.5375",
-        "per_topic_candidate_seconds": "2.46",
         "per_unit_seconds": "0.168",
         "output_files": "25",
         "output_bytes": "120000",
-        "knowledge_share": "0.068",
         "dominant_stage": "writing",
         "dominant_stage_seconds": "6.1",
         "dominant_checkpoint": "write_final_seconds",
@@ -156,9 +144,7 @@ SAMPLE_REPORT_JSON = {
     "sourceFile": "test_book.pdf",
     "importerName": "pdf",
     "totalRecipes": 15,
-    "totalTips": 3,
-    "totalTipCandidates": 2,
-    "totalTopicCandidates": 1,
+    "totalStandaloneBlocks": 4,
     "warnings": ["low confidence on sheet 2"],
     "errors": [],
     "timing": {
@@ -1967,7 +1953,7 @@ def _run_benchmark_trend_host_width_drift_harness(
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "13"
+        assert d.schema_version == "14"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -5232,20 +5218,15 @@ class TestBenchmarkCsv:
         old_header = (
             "run_timestamp,run_dir,file_name,report_path,importer_name,"
             "total_seconds,parsing_seconds,writing_seconds,ocr_seconds,"
-            "recipes,tips,tip_candidates,topic_candidates,"
-            "standalone_blocks,standalone_topic_blocks,standalone_topic_coverage,"
-            "total_units,per_recipe_seconds,per_tip_seconds,"
-            "per_tip_candidate_seconds,per_topic_candidate_seconds,per_unit_seconds,"
-            "output_files,output_bytes,knowledge_share,knowledge_heavy,"
+            "recipes,standalone_blocks,total_units,per_recipe_seconds,per_unit_seconds,"
+            "output_files,output_bytes,"
             "dominant_stage,dominant_stage_seconds,dominant_checkpoint,dominant_checkpoint_seconds"
         )
         old_row = (
             "2026-02-10T10:00:00,/some/dir,test.xlsx,,,"
             "5.5,1.2,3.8,0.0,"
-            "20,5,3,2,"
-            ",,,"
-            "30,0.275,1.1,1.833,2.75,0.183,"
-            "10,50000,0.066,,"
+            "20,10,30,0.275,0.183,"
+            "10,50000,"
             "writing,3.8,write_final_seconds,3.5"
         )
         csv_path.write_text(old_header + "\n" + old_row + "\n", encoding="utf-8")

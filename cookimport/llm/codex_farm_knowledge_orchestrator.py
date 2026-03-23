@@ -24,6 +24,11 @@ from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
     refine_nonrecipe_stage_result,
 )
+from cookimport.staging.writer import (
+    NONRECIPE_AUTHORITY_FILE_NAME,
+    NONRECIPE_REVIEW_STATUS_FILE_NAME,
+    NONRECIPE_SEED_ROUTING_FILE_NAME,
+)
 
 from .codex_farm_ids import sanitize_for_filename
 from .codex_farm_knowledge_ingest import (
@@ -1531,8 +1536,15 @@ def run_codex_farm_nonrecipe_knowledge_review(
             },
             "timing": {"total_seconds": elapsed_seconds},
             "paths": {
-                "seed_nonrecipe_spans_path": str(run_root / "08_nonrecipe_spans.json"),
-                "final_knowledge_outputs_path": str(run_root / "09_knowledge_outputs.json"),
+                "nonrecipe_seed_routing_path": str(
+                    run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+                ),
+                "nonrecipe_authority_path": str(
+                    run_root / NONRECIPE_AUTHORITY_FILE_NAME
+                ),
+                "nonrecipe_review_status_path": str(
+                    run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
+                ),
                 "knowledge_in_dir": str(knowledge_in_dir),
                 "knowledge_phase_dir": str(knowledge_stage_dir),
                 "snippets_path": str(write_report.snippets_path),
@@ -1734,8 +1746,13 @@ def _build_noop_knowledge_llm_report(
         },
         "timing": {"total_seconds": 0.0},
         "paths": {
-            "seed_nonrecipe_spans_path": str(run_root / "08_nonrecipe_spans.json"),
-            "final_knowledge_outputs_path": str(run_root / "09_knowledge_outputs.json"),
+            "nonrecipe_seed_routing_path": str(
+                run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+            ),
+            "nonrecipe_authority_path": str(run_root / NONRECIPE_AUTHORITY_FILE_NAME),
+            "nonrecipe_review_status_path": str(
+                run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
+            ),
             "knowledge_in_dir": str(knowledge_in_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
             "manifest_path": str(manifest_path),
@@ -1844,8 +1861,13 @@ def _build_runtime_failed_knowledge_llm_report(
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
-            "seed_nonrecipe_spans_path": str(run_root / "08_nonrecipe_spans.json"),
-            "final_knowledge_outputs_path": str(run_root / "09_knowledge_outputs.json"),
+            "nonrecipe_seed_routing_path": str(
+                run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+            ),
+            "nonrecipe_authority_path": str(run_root / NONRECIPE_AUTHORITY_FILE_NAME),
+            "nonrecipe_review_status_path": str(
+                run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
+            ),
             "knowledge_in_dir": str(knowledge_in_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
             "manifest_path": str(manifest_path),

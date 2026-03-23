@@ -81,8 +81,7 @@ Regression anchors:
 
 Analytics-critical fields:
 - Identity: `runTimestamp`, `sourceFile`, `importerName`
-- Counts: `totalRecipes`, `totalTips`, `totalTipCandidates`, `totalTopicCandidates`
-- Standalone-topic coverage: `totalStandaloneBlocks`, `totalStandaloneTopicBlocks`, `standaloneTopicCoverage`
+- Counts: `totalRecipes`, `totalStandaloneBlocks`
 - Timing: `timing.total_seconds`, `timing.parsing_seconds`, `timing.writing_seconds`, `timing.ocr_seconds`, `timing.checkpoints`
 - Run context: `runConfig`, `runConfigHash`, `runConfigSummary`
 
@@ -100,8 +99,8 @@ History-root rule:
 
 Stage/import rows (`run_category=stage_import` or `labelstudio_import`) keep:
 - Timing fields: `total_seconds`, `parsing_seconds`, `writing_seconds`, `ocr_seconds`
-- Count fields: `recipes`, `tips`, `tip_candidates`, `topic_candidates`, `total_units`
-- Derived fields such as `per_recipe_seconds`, `per_unit_seconds`, knowledge share, and dominant-stage/checkpoint values
+- Count fields: `recipes`, `standalone_blocks`, `total_units`
+- Derived fields such as `per_recipe_seconds`, `per_unit_seconds`, and dominant-stage/checkpoint values
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 
 Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:

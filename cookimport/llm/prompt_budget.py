@@ -561,7 +561,7 @@ def _build_codex_farm_stage_summary(
                     breakdown_totals.get(key),
                     _nonnegative_int(row.get(key)),
                 )
-    if atomic_summaries:
+    if atomic_summaries and not isinstance(telemetry_rows, list):
         token_totals = _aggregate_token_totals_from_summaries(atomic_summaries)
         breakdown_totals = _aggregate_breakdown_totals_from_summaries(atomic_summaries)
 

@@ -56,9 +56,6 @@ def _make_runtime_settings(
 def _make_runtime_conversion_result(block_texts: list[str]) -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[
             {"index": index, "text": text}
             for index, text in enumerate(block_texts)
@@ -198,17 +195,18 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
         for payload in [parse_stage_progress(message)]
         if payload is not None
     ]
+    phase_runtime = apply_result.llm_report["phase_worker_runtime"]
     assert payloads
     assert payloads[0]["stage_label"] == "non-recipe knowledge review"
     assert payloads[0]["task_current"] == 0
-    assert payloads[0]["task_total"] == apply_result.llm_report["review_summary"]["planned_chunk_count"]
+    assert payloads[0]["task_total"] == phase_runtime["task_total"]
     assert int(payloads[0]["worker_total"] or 0) == 4
     assert any(
         any(line.startswith("configured workers: ") for line in (payload.get("detail_lines") or []))
         for payload in payloads
     )
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
-    assert payloads[-1]["task_total"] == apply_result.llm_report["review_summary"]["planned_chunk_count"]
+    assert payloads[-1]["task_total"] == phase_runtime["task_total"]
 
 
 def _run_live_task_packet_progress_fixture(

@@ -5,12 +5,12 @@ import json
 import re
 from pathlib import Path
 
-from cookimport.cli import _merge_split_jobs
+from cookimport.cli import _merge_source_jobs
 from cookimport.core.progress_messages import parse_stage_progress
-from cookimport.core.models import ConversionReport, ConversionResult, RecipeCandidate, TopicCandidate
+from cookimport.core.models import ConversionReport, ConversionResult
 
 
-def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
+def test_merge_source_jobs_reports_main_process_phases(tmp_path: Path) -> None:
     source_path = tmp_path / "source.epub"
     source_path.write_text("fake epub payload", encoding="utf-8")
     out_dir = tmp_path / "out"
@@ -18,24 +18,16 @@ def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
 
     def make_job(job_index: int, start_spine: int) -> dict[str, object]:
         result = ConversionResult(
-            recipes=[
-                RecipeCandidate(
-                    name=f"Recipe {job_index}",
-                    provenance={"location": {"start_spine": start_spine, "start_block": 0}},
-                )
+            recipes=[],
+            sourceBlocks=[
+                {
+                    "blockId": "b0",
+                    "orderIndex": 0,
+                    "text": f"Recipe {job_index}",
+                    "location": {"spine_index": start_spine},
+                }
             ],
-            tips=[],
-            tipCandidates=[],
-            topicCandidates=[
-                TopicCandidate(
-                    text=f"Topic {job_index}",
-                    provenance={"location": {"start_spine": start_spine}},
-                )
-            ],
-            report=ConversionReport(
-                totalStandaloneBlocks=1,
-                totalStandaloneTopicBlocks=1,
-            ),
+            report=ConversionReport(totalStandaloneBlocks=1),
             workbook=source_path.stem,
             workbookPath=str(source_path),
         )
@@ -51,7 +43,7 @@ def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
         }
 
     statuses: list[str] = []
-    merged = _merge_split_jobs(
+    merged = _merge_source_jobs(
         source_path,
         [make_job(0, 0), make_job(1, 1)],
         out_dir,
@@ -80,23 +72,29 @@ def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
     assert all(total == parsed[0][1] for _, total, _ in parsed)
     assert any(message.endswith(": Writing report...") for _, _, message in parsed)
     assert any(message.endswith(": Merging raw artifacts...") for _, _, message in parsed)
+    assert any(
+        message.endswith(": Building authoritative stage outputs...")
+        for _, _, message in parsed
+    )
     normalized_statuses = [
         str((payload or {}).get("message") or message).strip()
         for message in statuses
         for payload in [parse_stage_progress(message)]
     ]
     assert "Generating knowledge chunks..." in normalized_statuses
-    assert "Writing outputs... task 0/9" in normalized_statuses
+    assert any(status.startswith("Writing outputs... task 0/") for status in normalized_statuses)
 
 
 def _output_stats_category_for_path(relative_path: Path) -> str | None:
     if not relative_path.parts:
         return None
-    if relative_path.name == "08_nonrecipe_spans.json":
+    if relative_path.name == "08_nonrecipe_seed_routing.json":
         return "nonRecipe"
     if relative_path.name == "08_nonrecipe_review_exclusions.jsonl":
         return "nonRecipe"
-    if relative_path.name == "09_knowledge_outputs.json":
+    if relative_path.name == "09_nonrecipe_authority.json":
+        return "nonRecipe"
+    if relative_path.name == "09_nonrecipe_review_status.json":
         return "knowledge"
     top = relative_path.parts[0]
     if top == "intermediate drafts":
@@ -105,14 +103,12 @@ def _output_stats_category_for_path(relative_path: Path) -> str | None:
         return "finalDrafts"
     if top == "sections":
         return "sections"
-    if top == "tips":
-        if relative_path.name.startswith("topic_candidates"):
-            return "topicCandidates"
-        return "tips"
     if top == "chunks":
         return "chunks"
     if top == "tables":
         return "tables"
+    if top == "recipe_authority":
+        return "recipeAuthority"
     if top == "raw":
         return "rawArtifacts"
     if top == ".bench":
@@ -134,7 +130,7 @@ def _scan_output_stats(run_root: Path) -> dict[str, dict[str, int]]:
     return scanned
 
 
-def test_merge_split_jobs_output_stats_match_fresh_directory_walk(tmp_path: Path) -> None:
+def test_merge_source_jobs_output_stats_match_fresh_directory_walk(tmp_path: Path) -> None:
     source_path = tmp_path / "source.epub"
     source_path.write_text("fake epub payload", encoding="utf-8")
     out_dir = tmp_path / "out"
@@ -142,24 +138,16 @@ def test_merge_split_jobs_output_stats_match_fresh_directory_walk(tmp_path: Path
 
     def make_job(job_index: int, start_spine: int) -> dict[str, object]:
         result = ConversionResult(
-            recipes=[
-                RecipeCandidate(
-                    name=f"Recipe {job_index}",
-                    provenance={"location": {"start_spine": start_spine, "start_block": 0}},
-                )
+            recipes=[],
+            sourceBlocks=[
+                {
+                    "blockId": "b0",
+                    "orderIndex": 0,
+                    "text": f"Recipe {job_index}",
+                    "location": {"spine_index": start_spine},
+                }
             ],
-            tips=[],
-            tipCandidates=[],
-            topicCandidates=[
-                TopicCandidate(
-                    text=f"Topic {job_index}",
-                    provenance={"location": {"start_spine": start_spine}},
-                )
-            ],
-            report=ConversionReport(
-                totalStandaloneBlocks=1,
-                totalStandaloneTopicBlocks=1,
-            ),
+            report=ConversionReport(totalStandaloneBlocks=1),
             workbook=source_path.stem,
             workbookPath=str(source_path),
         )
@@ -202,7 +190,7 @@ def test_merge_split_jobs_output_stats_match_fresh_directory_walk(tmp_path: Path
             encoding="utf-8",
         )
 
-    merged = _merge_split_jobs(
+    merged = _merge_source_jobs(
         source_path,
         [make_job(0, 0), make_job(1, 1)],
         out_dir,
@@ -215,7 +203,7 @@ def test_merge_split_jobs_output_stats_match_fresh_directory_walk(tmp_path: Path
     assert merged["status"] == "success"
     report_path = out_dir / "source.excel_import_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert "recipeLikeness" in report
+    assert report["totalRecipes"] == 0
     output_stats = report.get("outputStats") or {}
     report_files = output_stats.get("files") or {}
 
@@ -231,7 +219,7 @@ def test_merge_split_jobs_output_stats_match_fresh_directory_walk(tmp_path: Path
     assert report_files["rawArtifacts"]["count"] >= 4
 
 
-def test_merge_split_jobs_preserves_recipe_scoring_debug_artifacts(tmp_path: Path) -> None:
+def test_merge_source_jobs_preserves_recipe_scoring_debug_artifacts(tmp_path: Path) -> None:
     source_path = tmp_path / "source.epub"
     source_path.write_text("fake epub payload", encoding="utf-8")
     out_dir = tmp_path / "out"
@@ -239,15 +227,15 @@ def test_merge_split_jobs_preserves_recipe_scoring_debug_artifacts(tmp_path: Pat
 
     def make_job(job_index: int, start_spine: int) -> dict[str, object]:
         result = ConversionResult(
-            recipes=[
-                RecipeCandidate(
-                    name=f"Recipe {job_index}",
-                    provenance={"location": {"start_spine": start_spine, "start_block": 0}},
-                )
+            recipes=[],
+            sourceBlocks=[
+                {
+                    "blockId": "b0",
+                    "orderIndex": 0,
+                    "text": f"Recipe {job_index}",
+                    "location": {"spine_index": start_spine},
+                }
             ],
-            tips=[],
-            tipCandidates=[],
-            topicCandidates=[],
             report=ConversionReport(),
             workbook=source_path.stem,
             workbookPath=str(source_path),
@@ -280,7 +268,7 @@ def test_merge_split_jobs_preserves_recipe_scoring_debug_artifacts(tmp_path: Pat
             encoding="utf-8",
         )
 
-    merged = _merge_split_jobs(
+    merged = _merge_source_jobs(
         source_path,
         [make_job(0, 0), make_job(1, 1)],
         out_dir,

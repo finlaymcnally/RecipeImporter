@@ -26,8 +26,8 @@ from cookimport.core.timing import TimingStats, measure
 from cookimport.plugins import registry
 # Ensure plugins are registered in workers
 from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika, webschema  # noqa: F401
-from cookimport.staging.import_session import execute_stage_import_session_from_result
-from cookimport.staging.writer import write_raw_artifacts, write_report
+from cookimport.staging.job_planning import JobSpec
+from cookimport.staging.writer import write_raw_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -101,41 +101,25 @@ def _build_progress_reporter(
 def apply_result_limits(
     result: Any,
     recipe_limit: int | None,
-    tip_limit: int | None,
     *,
     limit_label: int | None = None,
-) -> tuple[int, int, bool]:
+) -> tuple[int, bool]:
     original_recipes = len(result.recipes)
-    original_tips = len(result.tips)
 
     if recipe_limit is not None:
         result.recipes = result.recipes[: max(recipe_limit, 0)]
-    if tip_limit is not None:
-        result.tips = result.tips[: max(tip_limit, 0)]
 
     result.report.total_recipes = len(result.recipes)
-    result.report.total_tips = len(result.tips)
-    result.report.total_general_tips = len(result.tips)
-    if result.tip_candidates:
-        result.report.total_tip_candidates = len(result.tip_candidates)
-        result.report.total_recipe_specific_tips = len(
-            [tip for tip in result.tip_candidates if tip.scope == "recipe_specific"]
-        )
-        result.report.total_not_tips = len(
-            [tip for tip in result.tip_candidates if tip.scope == "not_tip"]
-        )
 
-    truncated = len(result.recipes) < original_recipes or len(result.tips) < original_tips
+    truncated = len(result.recipes) < original_recipes
     if truncated:
         parts = []
         if len(result.recipes) < original_recipes:
             parts.append(f"{len(result.recipes)} of {original_recipes} recipes")
-        if len(result.tips) < original_tips:
-            parts.append(f"{len(result.tips)} of {original_tips} tips")
         limit_prefix = f"Limit {limit_label} applied. " if limit_label is not None else "Limit applied. "
         result.report.warnings.append(f"{limit_prefix}Output truncated to {', '.join(parts)}.")
 
-    return len(result.recipes), len(result.tips), truncated
+    return len(result.recipes), truncated
 
 
 def _run_import(
@@ -195,11 +179,10 @@ def _run_import(
 
     return result, file_stats, resolved_mapping
 
-def stage_one_file(
-    file_path: Path,
+def execute_source_job(
+    job: JobSpec,
     out: Path,
     mapping_config: MappingConfig | None,
-    limit: int | None,
     run_dt: dt.datetime,
     progress_queue: Any | None = None,
     display_name: str | None = None,
@@ -207,11 +190,11 @@ def stage_one_file(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
-    write_markdown: bool = True,
 ) -> dict[str, Any]:
-    """Process a single file and return a summary."""
+    """Process one planned source job and return a mergeable payload."""
 
-    display_label = display_name or file_path.name
+    file_path = job.file_path
+    display_label = display_name or job.display_name
     worker_label, _report_progress, stop_event, heartbeat_thread = _build_progress_reporter(
         progress_queue,
         display_label,
@@ -223,6 +206,13 @@ def stage_one_file(
             "file": file_path.name,
             "status": "skipped",
             "reason": "No importer",
+            "importer_name": None,
+            "job_index": job.job_index,
+            "job_count": job.job_count,
+            "start_page": job.start_page,
+            "end_page": job.end_page,
+            "start_spine": job.start_spine,
+            "end_spine": job.end_spine,
             "worker_label": worker_label,
         }
 
@@ -242,132 +232,20 @@ def stage_one_file(
                 mapping_config,
                 _report_progress,
                 run_settings=run_settings,
+                start_page=job.start_page,
+                end_page=job.end_page,
+                start_spine=job.start_spine,
+                end_spine=job.end_spine,
             )
-
-        if limit is not None:
-            apply_result_limits(
-                result,
-                limit,
-                limit,
-                limit_label=limit,
-            )
-
-        session = execute_stage_import_session_from_result(
-            result=result,
-            source_file=file_path,
-            run_root=out,
-            run_dt=run_dt,
-            importer_name=importer.name,
-            run_settings=run_settings,
-            run_config=run_config,
-            run_config_hash=run_config_hash,
-            run_config_summary=run_config_summary,
-            mapping_config=resolved_mapping,
-            write_markdown=write_markdown,
-            progress_callback=_report_progress,
-            timing_stats=file_stats,
-        )
-        result = session.conversion_result
-
-        file_stats.total_seconds = (dt.datetime.now() - start_total).total_seconds()
-        result.report.timing = file_stats.to_dict()
-        write_report(result.report, out, file_path.stem)
-        
-        _report_progress("Done")
-
-        return {
-            "file": file_path.name,
-            "status": "success",
-            "recipes": len(result.recipes),
-            "tips": len(result.tips),
-            "duration": file_stats.total_seconds,
-            "worker_label": worker_label,
-        }
-    except Exception as exc:
-        _report_progress(f"Error: {exc}")
-        # Write error report
-        report = ConversionReport(
-            errors=[str(exc)],
-            sourceFile=str(file_path),
-            importerName=importer.name,
-            runTimestamp=run_dt.isoformat(timespec="seconds"),
-            runConfig=dict(run_config) if run_config is not None else None,
-            runConfigHash=run_config_hash,
-            runConfigSummary=run_config_summary,
-        )
-        write_report(report, out, file_path.stem)
-        return {
-            "file": file_path.name,
-            "status": "error",
-            "reason": str(exc),
-            "worker_label": worker_label,
-        }
-    finally:
-        stop_event.set()
-        if heartbeat_thread.is_alive():
-            heartbeat_thread.join(timeout=0.5)
-
-
-def stage_pdf_job(
-    file_path: Path,
-    out: Path,
-    mapping_config: MappingConfig | None,
-    run_dt: dt.datetime,
-    start_page: int,
-    end_page: int,
-    job_index: int,
-    job_count: int,
-    progress_queue: Any | None = None,
-    display_name: str | None = None,
-    run_config: dict[str, Any] | None = None,
-    run_config_hash: str | None = None,
-    run_config_summary: str | None = None,
-) -> dict[str, Any]:
-    """Process a PDF page-range job and return a mergeable payload."""
-
-    display_label = display_name or file_path.name
-    worker_label, _report_progress, stop_event, heartbeat_thread = _build_progress_reporter(
-        progress_queue,
-        display_label,
-    )
-
-    importer, score = registry.best_importer_for_path(file_path)
-    if importer is None or score <= 0:
-        return {
-            "file": file_path.name,
-            "status": "skipped",
-            "reason": "No importer",
-            "job_index": job_index,
-            "job_count": job_count,
-            "start_page": start_page,
-            "end_page": end_page,
-            "worker_label": worker_label,
-        }
-
-    try:
-        start_total = dt.datetime.now()
-        run_settings = RunSettings.from_dict(
-            project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
-            warn_context="stage run config",
-        )
-        _report_progress("Starting job...")
-        _report_progress("Parsing recipes...")
-        result, file_stats, _ = _run_import(
-            file_path,
-            mapping_config,
-            _report_progress,
-            run_settings=run_settings,
-            start_page=start_page,
-            end_page=end_page,
-        )
 
         workbook_slug = slugify_name(file_path.stem)
-        job_root = out / ".job_parts" / workbook_slug / f"job_{job_index}"
+        job_root = out / ".job_parts" / workbook_slug / f"job_{job.job_index}"
 
         with measure(file_stats, "writing"):
             _report_progress("Writing raw artifacts...")
             write_raw_artifacts(result, job_root)
 
+        _ = resolved_mapping
         result.report.importer_name = importer.name
         if run_config is not None:
             result.report.run_config = dict(run_config)
@@ -382,13 +260,15 @@ def stage_pdf_job(
             "file": file_path.name,
             "status": "success",
             "recipes": len(result.recipes),
-            "tips": len(result.tips),
             "duration": file_stats.total_seconds,
             "timing": file_stats.to_dict(),
-            "job_index": job_index,
-            "job_count": job_count,
-            "start_page": start_page,
-            "end_page": end_page,
+            "importer_name": importer.name,
+            "job_index": job.job_index,
+            "job_count": job.job_count,
+            "start_page": job.start_page,
+            "end_page": job.end_page,
+            "start_spine": job.start_spine,
+            "end_spine": job.end_spine,
             "result": result,
             "worker_label": worker_label,
         }
@@ -398,114 +278,13 @@ def stage_pdf_job(
             "file": file_path.name,
             "status": "error",
             "reason": str(exc),
-            "job_index": job_index,
-            "job_count": job_count,
-            "start_page": start_page,
-            "end_page": end_page,
-            "worker_label": worker_label,
-        }
-    finally:
-        stop_event.set()
-        if heartbeat_thread.is_alive():
-            heartbeat_thread.join(timeout=0.5)
-
-
-def stage_epub_job(
-    file_path: Path,
-    out: Path,
-    mapping_config: MappingConfig | None,
-    run_dt: dt.datetime,
-    start_spine: int,
-    end_spine: int,
-    job_index: int,
-    job_count: int,
-    progress_queue: Any | None = None,
-    display_name: str | None = None,
-    epub_extractor: str | None = None,
-    run_config: dict[str, Any] | None = None,
-    run_config_hash: str | None = None,
-    run_config_summary: str | None = None,
-) -> dict[str, Any]:
-    """Process an EPUB spine-range job and return a mergeable payload."""
-
-    display_label = display_name or file_path.name
-    worker_label, _report_progress, stop_event, heartbeat_thread = _build_progress_reporter(
-        progress_queue,
-        display_label,
-    )
-
-    importer, score = registry.best_importer_for_path(file_path)
-    if importer is None or score <= 0:
-        return {
-            "file": file_path.name,
-            "status": "skipped",
-            "reason": "No importer",
-            "job_index": job_index,
-            "job_count": job_count,
-            "start_spine": start_spine,
-            "end_spine": end_spine,
-            "worker_label": worker_label,
-        }
-
-    try:
-        start_total = dt.datetime.now()
-        run_settings = RunSettings.from_dict(
-            project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
-            warn_context="stage run config",
-        )
-        _report_progress("Starting job...")
-        _report_progress("Parsing recipes...")
-        with _temporary_epub_extractor(epub_extractor):
-            result, file_stats, _ = _run_import(
-                file_path,
-                mapping_config,
-                _report_progress,
-                run_settings=run_settings,
-                start_spine=start_spine,
-                end_spine=end_spine,
-            )
-
-        workbook_slug = slugify_name(file_path.stem)
-        job_root = out / ".job_parts" / workbook_slug / f"job_{job_index}"
-
-        with measure(file_stats, "writing"):
-            _report_progress("Writing raw artifacts...")
-            write_raw_artifacts(result, job_root)
-
-        result.report.importer_name = importer.name
-        if run_config is not None:
-            result.report.run_config = dict(run_config)
-        result.report.run_config_hash = run_config_hash
-        result.report.run_config_summary = run_config_summary
-        result.raw_artifacts = []
-        file_stats.total_seconds = (dt.datetime.now() - start_total).total_seconds()
-
-        _report_progress("Done")
-
-        return {
-            "file": file_path.name,
-            "status": "success",
-            "recipes": len(result.recipes),
-            "tips": len(result.tips),
-            "duration": file_stats.total_seconds,
-            "timing": file_stats.to_dict(),
-            "job_index": job_index,
-            "job_count": job_count,
-            "start_spine": start_spine,
-            "end_spine": end_spine,
-            "result": result,
-            "worker_label": worker_label,
-        }
-    except Exception as exc:
-        _report_progress(f"Error: {exc}")
-        return {
-            "file": file_path.name,
-            "status": "error",
-            "reason": str(exc),
-            "job_index": job_index,
-            "job_count": job_count,
-            "start_spine": start_spine,
-            "end_spine": end_spine,
+            "importer_name": importer.name,
+            "job_index": job.job_index,
+            "job_count": job.job_count,
+            "start_page": job.start_page,
+            "end_page": job.end_page,
+            "start_spine": job.start_spine,
+            "end_spine": job.end_spine,
             "worker_label": worker_label,
         }
     finally:
@@ -531,7 +310,8 @@ def _run_stage_worker_request(request_path: Path) -> int:
 
     file_path = Path(str(job_payload.get("file_path") or "")).expanduser()
     out_path = Path(str(job_payload.get("out_path") or "")).expanduser()
-    display_name = str(job_payload.get("display_name") or "").strip() or file_path.name
+    job = JobSpec.from_payload(job_payload)
+    display_name = str(job_payload.get("display_name") or "").strip() or job.display_name
 
     mapping_payload_raw = job_payload.get("mapping_config")
     mapping_payload = (
@@ -555,52 +335,13 @@ def _run_stage_worker_request(request_path: Path) -> int:
         str(job_payload.get("run_config_summary") or "").strip() or None
     )
 
-    if job_kind == "single":
-        limit_raw = job_payload.get("limit")
-        limit = int(limit_raw) if limit_raw is not None else None
-        write_markdown = bool(job_payload.get("write_markdown", True))
+    if job_kind == "source_job":
         epub_extractor = str(job_payload.get("epub_extractor") or "").strip() or None
-        result = stage_one_file(
-            file_path=file_path,
-            out=out_path,
-            mapping_config=mapping_config,
-            limit=limit,
-            run_dt=run_dt,
-            progress_queue=None,
-            display_name=display_name,
-            epub_extractor=epub_extractor,
-            run_config=run_config,
-            run_config_hash=run_config_hash,
-            run_config_summary=run_config_summary,
-            write_markdown=write_markdown,
-        )
-    elif job_kind == "pdf_split":
-        result = stage_pdf_job(
-            file_path=file_path,
+        result = execute_source_job(
+            job=job,
             out=out_path,
             mapping_config=mapping_config,
             run_dt=run_dt,
-            start_page=int(job_payload.get("start_page") or 0),
-            end_page=int(job_payload.get("end_page") or 0),
-            job_index=int(job_payload.get("job_index") or 0),
-            job_count=int(job_payload.get("job_count") or 1),
-            progress_queue=None,
-            display_name=display_name,
-            run_config=run_config,
-            run_config_hash=run_config_hash,
-            run_config_summary=run_config_summary,
-        )
-    elif job_kind == "epub_split":
-        epub_extractor = str(job_payload.get("epub_extractor") or "").strip() or None
-        result = stage_epub_job(
-            file_path=file_path,
-            out=out_path,
-            mapping_config=mapping_config,
-            run_dt=run_dt,
-            start_spine=int(job_payload.get("start_spine") or 0),
-            end_spine=int(job_payload.get("end_spine") or 0),
-            job_index=int(job_payload.get("job_index") or 0),
-            job_count=int(job_payload.get("job_count") or 1),
             progress_queue=None,
             display_name=display_name,
             epub_extractor=epub_extractor,

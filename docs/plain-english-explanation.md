@@ -12,7 +12,7 @@ a note to AI editors: please do not include code/file referneces here. it is con
 
 4. Other importers are block-first. They first turn the book into one long ordered stream of text blocks, then try to find recipe-shaped regions inside that stream.
 
-5. At this early point, everything is still provisional. The importer is making its best first guess about recipes, tips, topic-like text, and leftover non-recipe text.
+5. At this early point, everything is still provisional. The importer is making its best first guess about recipes and leftover non-recipe text.
 
 6. PDF and EPUB have an extra wrinkle: if the file is large, the program may split it into temporary sub-jobs. Those sub-jobs only do early parsing work.
 
@@ -32,9 +32,9 @@ a note to AI editors: please do not include code/file referneces here. it is con
 
 14. If the importer thought there were recipes but the regrouping step ends up with zero real recipes, the program does not quietly fall back to the importer guess. It stays on the regrouped result and records that mismatch as a warning.
 
-15. Once the accepted recipe spans exist, the program rebuilds recipe candidates from them. It also re-extracts recipe tips from those rebuilt recipes.
+15. Once the accepted recipe spans exist, the program rebuilds recipe candidates from them.
 
-16. That means some information is regenerated after regrouping instead of simply being carried forward from the importer output.
+16. That means recipe structure is regenerated after regrouping instead of simply being carried forward from the importer output.
 
 17. If recipe LLM correction is enabled, it runs now, on the recipe side only.
 
@@ -68,7 +68,7 @@ a note to AI editors: please do not include code/file referneces here. it is con
 
 32. The program writes recipe outputs in two main forms: an intermediate schema-style form and the final cookbook-style form.
 
-33. It also writes sections, tips, topic candidates, chunks, tables, non-recipe authority files, knowledge output files, raw debug artifacts, and run summaries.
+33. It also writes sections, chunks, tables, non-recipe authority files, knowledge output files, raw debug artifacts, and run summaries.
 
 34. Benchmark-style block predictions are produced near the end from the final staged recipes plus the final outside-recipe authority, not from the importer's first guesses.
 
@@ -82,10 +82,9 @@ a note to AI editors: please do not include code/file referneces here. it is con
   - Deterministic label-first still runs even when all LLM pipelines are off.
   NOT A PROBLEM, IMPORTER ISN"T SUPPOSED TO DO ANYTHING
   
-  - “Non-recipe” exists in three different states: importer leftovers, Stage 7 seed routing, and final reviewed authority.
+  - “Non-recipe” exists in two live runtime states now: Stage 7 seed routing and final reviewed authority.
     
-
-  - ConversionResult.non_recipe_blocks changes meaning during the session; it starts as importer leftovers and ends as final Stage 7 authority.
+  - ConversionResult.non_recipe_blocks is a downstream cache populated by the stage session after authoritative outside-recipe ownership exists.
   
   - Recipe Codex and knowledge Codex are refinement layers over repo-owned deterministic scaffolding, not direct final-output writers.
  
@@ -101,8 +100,7 @@ a note to AI editors: please do not include code/file referneces here. it is con
   knowledge final authority.
   HAVE EXECPLANS
 
-  - Recipe tips are recomputed from rebuilt recipes, while topic candidates mostly survive from importer output. That mixed rebuild/carry-forward policy is easy to forget.
- GOING TO REMOVE
+  - Chunk outputs now depend only on final non-recipe authority. If a run has no surviving outside-recipe rows, it should emit no chunks instead of reviving an importer-side fallback.
 
   - The artifact names make it look like 08_nonrecipe_spans.json is purely final truth, but it actually mixes seed routing, excluded junk, reviewed authority, and unreviewed
   review-eligible rows.

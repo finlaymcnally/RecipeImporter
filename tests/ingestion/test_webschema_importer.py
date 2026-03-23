@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
-from cookimport.plugins import registry
-from cookimport.plugins import recipesage, webschema  # noqa: F401
+from cookimport.plugins import recipesage, registry, webschema  # noqa: F401
 from cookimport.plugins.webschema import WebSchemaImporter
 from tests.paths import FIXTURES_DIR
 
@@ -46,16 +45,15 @@ def test_convert_schema_lane_html_with_jsonld() -> None:
     source = FIXTURES_DIR / "webschema" / "html_with_jsonld.html"
 
     result = importer.convert(source, None)
+    source_text = "\n".join(block.text for block in result.source_blocks)
 
-    assert len(result.recipes) == 1
-    recipe = result.recipes[0]
-    assert recipe.name == "Sheet Pan Lemon Chicken"
-    assert "1 lb chicken thighs" in recipe.ingredients
-    assert recipe.recipe_likeness is not None
-    assert recipe.confidence == recipe.recipe_likeness.score
+    assert result.recipes == []
+    assert "Sheet Pan Lemon Chicken" in source_text
+    assert "schema-first extraction" in source_text
+    assert len(result.source_support) == 1
+    assert result.source_support[0].kind == "structured_recipe_object"
     artifact_ids = {artifact.location_id for artifact in result.raw_artifacts}
     assert "schema_extracted" in artifact_ids
-    assert "schema_accepted" in artifact_ids
     assert "source" in artifact_ids
     assert result.report.importer_name == "webschema"
 
@@ -65,18 +63,20 @@ def test_convert_fallback_lane_when_schema_missing() -> None:
     source = FIXTURES_DIR / "webschema" / "html_without_schema.html"
 
     result = importer.convert(source, None)
+    source_text = "\n".join(block.text for block in result.source_blocks)
 
-    assert len(result.recipes) == 1
-    recipe = result.recipes[0]
-    assert recipe.name == "Skillet Zucchini"
-    assert any("zucchini" in line.lower() for line in recipe.ingredients)
+    assert result.recipes == []
+    assert "Skillet Zucchini" in source_text
+    assert "2 zucchini, sliced" in source_text
+    assert "Serve immediately." in source_text
+    assert result.source_support == []
     assert result.report.importer_name == "webschema"
     artifact_ids = {artifact.location_id for artifact in result.raw_artifacts}
-    assert "fallback_text" in artifact_ids
-    assert "fallback_meta" in artifact_ids
+    assert "full_text" in artifact_ids
+    assert "source_text_meta" in artifact_ids
 
 
-def test_schema_only_policy_without_schema_returns_zero_with_warning() -> None:
+def test_schema_only_policy_without_schema_returns_source_blocks_without_support() -> None:
     importer = WebSchemaImporter()
     source = FIXTURES_DIR / "webschema" / "html_without_schema.html"
     run_settings = RunSettings(web_schema_policy="schema_only")
@@ -84,10 +84,8 @@ def test_schema_only_policy_without_schema_returns_zero_with_warning() -> None:
     result = importer.convert(source, None, run_settings=run_settings)
 
     assert result.recipes == []
-    assert any(
-        "web_schema_policy=schema_only" in warning
-        for warning in result.report.warnings
-    )
+    assert result.source_blocks
+    assert result.source_support == []
 
 
 def test_registry_prefers_recipesage_importer_for_recipesage_json(tmp_path: Path) -> None:
@@ -98,4 +96,3 @@ def test_registry_prefers_recipesage_importer_for_recipesage_json(tmp_path: Path
     assert importer is not None
     assert importer.name == "recipesage"
     assert score > 0.9
-

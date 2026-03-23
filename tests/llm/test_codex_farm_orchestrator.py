@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cookimport.cli_worker import stage_one_file
+from cookimport.cli_worker import execute_source_job
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import (
     ConversionReport,
@@ -31,6 +31,8 @@ from cookimport.llm.codex_exec_runner import (
     FakeCodexExecRunner,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
+from cookimport.staging.draft_v1 import authoritative_recipe_semantics_to_draft_v1
+from cookimport.staging.job_planning import JobSpec
 
 
 def _build_conversion_result(source_path: Path) -> ConversionResult:
@@ -47,9 +49,6 @@ def _build_conversion_result(source_path: Path) -> ConversionResult:
                 provenance={"location": {"start_block": 1, "end_block": 5}},
             )
         ],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
@@ -170,11 +169,13 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         ).read_text(encoding="utf-8")
     )
     assert worker_input["r"][0]["rid"] == "urn:recipe:test:toast"
-    assert set(apply_result.intermediate_overrides_by_recipe_id) == {
+    authoritative_payload = apply_result.authoritative_recipe_payloads_by_recipe_id[
         "urn:recipe:test:toast"
-    }
-    assert apply_result.final_overrides_by_recipe_id
-    final_payload = apply_result.final_overrides_by_recipe_id["urn:recipe:test:toast"]
+    ]
+    assert authoritative_payload.title == "Toast"
+    assert authoritative_payload.tags == ["breakfast", "toasted"]
+    assert authoritative_payload.ingredient_step_mapping == {"0": [0], "1": [1]}
+    final_payload = authoritative_recipe_semantics_to_draft_v1(authoritative_payload)
     assert [line["raw_text"] for line in final_payload["steps"][0]["ingredient_lines"]] == [
         "1 slice bread"
     ]
@@ -211,11 +212,7 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         "breakfast",
         "toasted",
     ]
-    assert apply_result.intermediate_overrides_by_recipe_id["urn:recipe:test:toast"]["name"] == "Toast"
-    assert apply_result.intermediate_overrides_by_recipe_id["urn:recipe:test:toast"]["tags"] == [
-        "breakfast",
-        "toasted",
-    ]
+    assert apply_result.updated_conversion_result.recipes[0].name == "Toast"
     assert (apply_result.llm_raw_dir / "recipe_phase_runtime" / "phase_manifest.json").is_file()
 
 
@@ -575,7 +572,7 @@ def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -
     assert stages[1]["pipeline_id"] == SINGLE_CORRECTION_STAGE_PIPELINE_ID
 
 
-def test_stage_one_file_skips_codex_farm_when_pipeline_off(
+def test_execute_source_job_skips_codex_farm_when_pipeline_off(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -595,7 +592,7 @@ def test_stage_one_file_skips_codex_farm_when_pipeline_off(
         return fake_result.model_copy(deep=True), TimingStats(), MappingConfig()
 
     monkeypatch.setattr(
-        "cookimport.staging.import_session.run_codex_farm_recipe_pipeline",
+        "cookimport.staging.pipeline_runtime.run_codex_farm_recipe_pipeline",
         _fake_orchestrator,
     )
     monkeypatch.setattr("cookimport.cli_worker._run_import", _fake_import)
@@ -604,11 +601,10 @@ def test_stage_one_file_skips_codex_farm_when_pipeline_off(
         lambda _path: (SimpleNamespace(name="text"), 1.0),
     )
 
-    response = stage_one_file(
-        source,
+    response = execute_source_job(
+        JobSpec(file_path=source, job_index=0, job_count=1),
         out,
         MappingConfig(),
-        None,
         dt.datetime.now(),
         run_config=RunSettings(llm_recipe_pipeline="off").to_run_config_dict(),
     )
@@ -675,8 +671,7 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
         ).read_text(encoding="utf-8")
     )
 
-    assert apply_result.intermediate_overrides_by_recipe_id == {}
-    assert apply_result.final_overrides_by_recipe_id == {}
+    assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert apply_result.updated_conversion_result.recipes == []
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 0
@@ -760,8 +755,7 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
     )
 
     assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
-    assert apply_result.intermediate_overrides_by_recipe_id == {}
-    assert apply_result.final_overrides_by_recipe_id == {}
+    assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
     assert manifest["counts"]["recipe_correction_ok"] == 0
@@ -851,7 +845,7 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
     assert manifest["counts"]["recipe_correction_error"] == 1
     assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_llm_correct_and_link"] == "error"
     assert manifest["recipes"]["urn:recipe:test:toast"]["build_final_recipe"] == "error"
-    assert apply_result.final_overrides_by_recipe_id == {}
+    assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
 
 
 def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
@@ -940,7 +934,9 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
     assert repair_status["status"] == "repaired"
     assert repair_status["state"] == "completed"
     assert (
-        apply_result.final_overrides_by_recipe_id["urn:recipe:test:toast"]["recipe"]["title"]
+        apply_result.authoritative_recipe_payloads_by_recipe_id[
+            "urn:recipe:test:toast"
+        ].title
         == "Toast"
     )
 

@@ -190,6 +190,59 @@ class NonRecipeStageResult:
             if int(index) in seed_categories
         }
 
+    def authoritative_nonrecipe_spans(self) -> list[NonRecipeSpan]:
+        spans, _, _ = self._spans_for_block_category_map(
+            self.authoritative_block_category_by_index()
+        )
+        return spans
+
+    def authoritative_knowledge_spans(self) -> list[NonRecipeSpan]:
+        _, knowledge_spans, _ = self._spans_for_block_category_map(
+            self.authoritative_block_category_by_index()
+        )
+        return knowledge_spans
+
+    def authoritative_other_spans(self) -> list[NonRecipeSpan]:
+        _, _, other_spans = self._spans_for_block_category_map(
+            self.authoritative_block_category_by_index()
+        )
+        return other_spans
+
+    def unreviewed_nonrecipe_spans(self) -> list[NonRecipeSpan]:
+        spans, _, _ = self._spans_for_block_category_map(
+            self.unreviewed_block_category_by_index()
+        )
+        return spans
+
+    def _spans_for_block_category_map(
+        self,
+        block_category_by_index: Mapping[int, str],
+    ) -> tuple[list[NonRecipeSpan], list[NonRecipeSpan], list[NonRecipeSpan]]:
+        full_blocks_by_index = {
+            int(block_index): {"block_id": block_id}
+            for block_index, block_id in self._block_ids_by_index().items()
+        }
+        return _build_spans_from_categories(
+            full_blocks_by_index=full_blocks_by_index,
+            block_category_by_index=block_category_by_index,
+        )
+
+    def _block_ids_by_index(self) -> dict[int, str]:
+        block_ids_by_index: dict[int, str] = {}
+        for span in (
+            list(self.nonrecipe_spans)
+            + list(self.review_eligible_nonrecipe_spans)
+            + list(self.review_excluded_other_spans)
+            + list(self.seed_nonrecipe_spans or [])
+        ):
+            for block_index, block_id in zip(
+                span.block_indices,
+                span.block_ids,
+                strict=False,
+            ):
+                block_ids_by_index.setdefault(int(block_index), str(block_id))
+        return block_ids_by_index
+
 
 def build_nonrecipe_stage_result(
     *,

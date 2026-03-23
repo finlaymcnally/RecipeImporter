@@ -15,15 +15,11 @@ from cookimport.core.models import (
     RawArtifact,
     RecipeCandidate,
     SheetInspection,
+    SourceSupport,
     WorkbookInspection,
 )
 from cookimport.core.reporting import compute_file_hash, generate_recipe_id
-from cookimport.core.scoring import (
-    build_recipe_scoring_debug_row,
-    recipe_gate_action,
-    score_recipe_likeness,
-    summarize_recipe_likeness,
-)
+from cookimport.core.source_model import normalize_source_blocks
 from cookimport.parsing import cleaning, signals
 from cookimport.parsing.html_schema_extract import extract_schema_recipes_from_html
 from cookimport.parsing.html_text_extract import extract_main_text_from_html
@@ -33,10 +29,6 @@ from cookimport.parsing.schemaorg_ingest import (
     schema_recipe_to_candidate,
 )
 from cookimport.parsing.text_section_extract import extract_sections_from_text_blob
-from cookimport.parsing.tips import (
-    extract_tip_candidates_from_candidate,
-    partition_tip_candidates,
-)
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
@@ -53,6 +45,82 @@ _INSTRUCTION_LEAD_RE = re.compile(
     r"slice|cut|toss|cool|refrigerate|strain|beat|whip|simmer|boil|reduce|cover)\b",
     re.IGNORECASE,
 )
+
+
+def _schema_source_support(schema_objects: list[dict[str, Any]]) -> list[SourceSupport]:
+    support: list[SourceSupport] = []
+    for index, schema_obj in enumerate(schema_objects):
+        support.append(
+            SourceSupport(
+                hintClass="evidence",
+                kind="structured_recipe_object",
+                referencedBlockIds=[],
+                payload={
+                    "schema_index": index,
+                    "type": schema_obj.get("@type"),
+                    "name": schema_obj.get("name"),
+                },
+                provenance={"importer": "webschema", "source": "schema_org"},
+            )
+        )
+    return support
+
+
+def _source_blocks_from_text(
+    text: str,
+    *,
+    source_kind: str,
+    location_key: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line_index, line in enumerate(text.splitlines()):
+        normalized = cleaning.normalize_text(str(line or ""))
+        if not normalized:
+            continue
+        rows.append(
+            {
+                "block_id": f"b{len(rows)}",
+                "order_index": len(rows),
+                "text": normalized,
+                "source_text": str(line),
+                "location": {location_key: line_index},
+                "features": {"source_kind": source_kind},
+            }
+        )
+    return rows
+
+
+def _schema_recipe_text(schema_obj: dict[str, Any], *, fallback_name: str) -> str:
+    name = str(schema_obj.get("name") or fallback_name).strip()
+    parts = [name]
+    description = str(schema_obj.get("description") or "").strip()
+    if description:
+        parts.append(description)
+    ingredients = schema_obj.get("recipeIngredient") or []
+    if isinstance(ingredients, str):
+        ingredients = [ingredients]
+    if ingredients:
+        parts.append("Ingredients:")
+        parts.extend(f"- {item}" for item in ingredients if str(item).strip())
+    instructions = schema_obj.get("recipeInstructions") or []
+    if isinstance(instructions, str):
+        instructions = [instructions]
+    if instructions:
+        parts.append("Instructions:")
+        for index, item in enumerate(instructions, start=1):
+            if isinstance(item, dict):
+                text = str(item.get("text") or "").strip()
+            else:
+                text = str(item).strip()
+            if text:
+                parts.append(f"{index}. {text}")
+    recipe_yield = str(schema_obj.get("recipeYield") or "").strip()
+    if recipe_yield:
+        parts.append(f"Yield: {recipe_yield}")
+    source_url = str(schema_obj.get("url") or schema_obj.get("@id") or "").strip()
+    if source_url:
+        parts.append(f"Source URL: {source_url}")
+    return "\n".join(parts)
 
 
 class WebSchemaImporter:
@@ -105,10 +173,6 @@ class WebSchemaImporter:
         _ = mapping
         report = ConversionReport(importer_name=self.name, source_file=path.name)
         raw_artifacts: list[RawArtifact] = []
-        non_recipe_blocks: list[dict[str, Any]] = []
-        recipe_likeness_results = []
-        recipe_scoring_debug_rows: list[dict[str, Any]] = []
-        rejected_candidate_count = 0
 
         suffix = path.suffix.lower()
         source_hash = compute_file_hash(path)
@@ -153,6 +217,8 @@ class WebSchemaImporter:
         html_text: str | None = None
         html_title_hint: str | None = None
         source_url_hint: str | None = None
+        extracted_source_text: str | None = None
+        extracted_source_meta: dict[str, Any] | None = None
         schema_objects: list[dict[str, Any]] = []
 
         if suffix in _HTML_EXTENSIONS:
@@ -166,6 +232,37 @@ class WebSchemaImporter:
                     locationId="source",
                     extension="html",
                     content=html_text,
+                )
+            )
+            extracted_source_text, extracted_source_meta = extract_main_text_from_html(
+                html_text,
+                extractor=text_extractor,
+            )
+            raw_artifacts.append(
+                RawArtifact(
+                    importer=self.name,
+                    sourceHash=source_hash,
+                    locationId="full_text",
+                    extension="json",
+                    content={
+                        "lines": [
+                            {"index": line_index, "text": line}
+                            for line_index, line in enumerate(
+                                extracted_source_text.splitlines()
+                            )
+                        ],
+                        "text": extracted_source_text,
+                    },
+                    metadata={"artifact_type": "extracted_text"},
+                )
+            )
+            raw_artifacts.append(
+                RawArtifact(
+                    importer=self.name,
+                    sourceHash=source_hash,
+                    locationId="source_text_meta",
+                    extension="json",
+                    content=extracted_source_meta,
                 )
             )
             if schema_policy != "heuristic_only":
@@ -194,80 +291,22 @@ class WebSchemaImporter:
             )
 
         schema_debug_rows: list[dict[str, Any]] = []
-        accepted_schema_recipes: list[RecipeCandidate] = []
         for index, schema_obj in enumerate(schema_objects):
             confidence, reasons = schema_recipe_confidence(
                 schema_obj,
                 min_ingredients=schema_min_ingredients,
                 min_instruction_steps=schema_min_instruction_steps,
             )
-            candidate = schema_recipe_to_candidate(
-                schema_obj,
-                source=str(path),
-                source_url_hint=source_url_hint,
-                confidence=confidence,
-                provenance={
-                    "source_hash": source_hash,
-                    "extraction_method": "webschema_schema",
-                    "location": {"schema_index": index},
-                },
-            )
-            if not candidate.identifier:
-                candidate.identifier = generate_recipe_id(
-                    "webschema", source_hash, f"schema_{index}"
-                )
-
-            likeness = score_recipe_likeness(candidate, settings=run_settings)
-            gate_action = recipe_gate_action(likeness, settings=run_settings)
-            candidate.recipe_likeness = likeness
-            candidate.confidence = likeness.score
-            recipe_likeness_results.append(likeness)
-
-            recipe_scoring_debug_rows.append(
-                build_recipe_scoring_debug_row(
-                    candidate=candidate,
-                    result=likeness,
-                    gate_action=gate_action,
-                    candidate_index=index,
-                    location={"schema_index": index},
-                    importer=self.name,
-                    source_hash=source_hash,
-                )
-            )
-
-            accepted_by_schema_threshold = confidence >= schema_min_confidence
-            accepted_by_gate = gate_action != "reject"
             schema_debug_rows.append(
                 {
                     "index": index,
-                    "name": candidate.name,
+                    "name": schema_obj.get("name"),
                     "confidence": confidence,
                     "reasons": reasons,
                     "schema_threshold": schema_min_confidence,
-                    "accepted_schema_threshold": accepted_by_schema_threshold,
-                    "accepted_gate": accepted_by_gate,
-                    "gate_action": gate_action,
-                    "recipe_likeness_score": likeness.score,
-                    "recipe_likeness_tier": likeness.tier.value,
                     "recipe": schema_obj,
                 }
             )
-
-            if not accepted_by_schema_threshold:
-                continue
-            if gate_action == "reject":
-                rejected_candidate_count += 1
-                rejected_block = _rejected_candidate_block(
-                    candidate,
-                    gate_action=gate_action,
-                    score=likeness.score,
-                    tier=likeness.tier.value,
-                    index_hint=index,
-                )
-                if rejected_block:
-                    non_recipe_blocks.append(rejected_block)
-                continue
-            accepted_schema_recipes.append(candidate)
 
         if schema_debug_rows:
             raw_artifacts.append(
@@ -284,150 +323,49 @@ class WebSchemaImporter:
                     },
                 )
             )
-        if accepted_schema_recipes:
-            raw_artifacts.append(
-                RawArtifact(
-                    importer=self.name,
-                    sourceHash=source_hash,
-                    locationId="schema_accepted",
-                    extension="json",
-                    content=[
-                        recipe.model_dump(by_alias=True, exclude_none=True)
-                        for recipe in accepted_schema_recipes
-                    ],
-                )
+        source_blocks: list[dict[str, Any]] = []
+        if suffix in _HTML_EXTENSIONS:
+            source_blocks = _source_blocks_from_text(
+                extracted_source_text or "",
+                source_kind="html_main_text",
+                location_key="line_index",
             )
-
-        selected_recipes: list[RecipeCandidate]
-        fallback_recipes: list[RecipeCandidate] = []
-        if schema_policy == "heuristic_only":
-            selected_recipes = []
-        elif schema_policy == "schema_only":
-            selected_recipes = list(accepted_schema_recipes)
-            if not selected_recipes:
-                report.warnings.append(
-                    "web_schema_policy=schema_only and no schema recipes passed thresholds."
+            if not source_blocks and html_text is not None:
+                source_blocks = _source_blocks_from_text(
+                    html_text,
+                    source_kind="html_source",
+                    location_key="line_index",
+                )
+        elif schema_objects:
+            for index, schema_obj in enumerate(schema_objects):
+                block_id = f"b{len(source_blocks)}"
+                source_blocks.append(
+                    {
+                        "block_id": block_id,
+                        "order_index": len(source_blocks),
+                        "text": _schema_recipe_text(
+                            schema_obj,
+                            fallback_name=f"Recipe {index + 1}",
+                        ),
+                        "location": {"row_index": index},
+                        "features": {"source_kind": "schema_recipe_object"},
+                        "provenance": {"importer": self.name, "source_hash": source_hash},
+                    }
                 )
         else:
-            selected_recipes = list(accepted_schema_recipes)
-
-        should_run_fallback = (
-            schema_policy in {"heuristic_only", "prefer_schema"}
-            and (schema_policy == "heuristic_only" or not accepted_schema_recipes)
-        )
-        if should_run_fallback:
-            if suffix not in _HTML_EXTENSIONS:
-                report.warnings.append(
-                    "Fallback extraction requested but only HTML/HTM sources support fallback."
-                )
-            elif html_text is not None:
-                if progress_callback:
-                    progress_callback("Running deterministic HTML fallback extraction...")
-                fallback_text, fallback_meta = extract_main_text_from_html(
-                    html_text,
-                    extractor=text_extractor,
-                )
-                raw_artifacts.append(
-                    RawArtifact(
-                        importer=self.name,
-                        sourceHash=source_hash,
-                        locationId="fallback_text",
-                        extension="txt",
-                        content=fallback_text,
-                    )
-                )
-                raw_artifacts.append(
-                    RawArtifact(
-                        importer=self.name,
-                        sourceHash=source_hash,
-                        locationId="fallback_meta",
-                        extension="json",
-                        content=fallback_meta,
-                    )
-                )
-                fallback_candidate = _candidate_from_fallback_text(
-                    fallback_text,
-                    source_path=path,
-                    source_hash=source_hash,
-                    source_url_hint=source_url_hint,
-                    title_hint=html_title_hint,
-                )
-                if fallback_candidate is not None:
-                    likeness = score_recipe_likeness(fallback_candidate, settings=run_settings)
-                    gate_action = recipe_gate_action(likeness, settings=run_settings)
-                    fallback_candidate.recipe_likeness = likeness
-                    fallback_candidate.confidence = likeness.score
-                    recipe_likeness_results.append(likeness)
-                    recipe_scoring_debug_rows.append(
-                        build_recipe_scoring_debug_row(
-                            candidate=fallback_candidate,
-                            result=likeness,
-                            gate_action=gate_action,
-                            candidate_index=len(schema_objects),
-                            location={"fallback": True},
-                            importer=self.name,
-                            source_hash=source_hash,
-                        )
-                    )
-                    if gate_action == "reject":
-                        rejected_candidate_count += 1
-                        rejected_block = _rejected_candidate_block(
-                            fallback_candidate,
-                            gate_action=gate_action,
-                            score=likeness.score,
-                            tier=likeness.tier.value,
-                            index_hint=len(non_recipe_blocks),
-                        )
-                        if rejected_block:
-                            non_recipe_blocks.append(rejected_block)
-                    else:
-                        fallback_recipes.append(fallback_candidate)
-                else:
-                    report.warnings.append("Fallback extraction produced no recipe candidate.")
-
-        if schema_policy == "heuristic_only":
-            selected_recipes = fallback_recipes
-        elif schema_policy == "prefer_schema" and not selected_recipes:
-            selected_recipes = fallback_recipes
-
-        tip_candidates = []
-        for recipe in selected_recipes:
-            tip_candidates.extend(extract_tip_candidates_from_candidate(recipe))
-        tips, recipe_specific, not_tips = partition_tip_candidates(tip_candidates)
-
-        if recipe_scoring_debug_rows:
-            raw_artifacts.append(
-                RawArtifact(
-                    importer=self.name,
-                    sourceHash=source_hash,
-                    locationId="recipe_scoring_debug",
-                    extension="jsonl",
-                    content="\n".join(
-                        json.dumps(row, sort_keys=True)
-                        for row in recipe_scoring_debug_rows
-                    ),
-                    metadata={"artifact_type": "recipe_scoring_debug"},
-                )
+            source_blocks = _source_blocks_from_text(
+                json.dumps(data, indent=2, sort_keys=True) if 'data' in locals() else "",
+                source_kind="json_payload",
+                location_key="line_index",
             )
 
-        report.total_recipes = len(selected_recipes)
-        report.total_tips = len(tips)
-        report.total_tip_candidates = len(tip_candidates)
-        report.total_general_tips = len(tips)
-        report.total_recipe_specific_tips = len(recipe_specific)
-        report.total_not_tips = len(not_tips)
-        report.recipe_likeness = summarize_recipe_likeness(
-            recipe_likeness_results,
-            rejected_candidate_count,
-            settings=run_settings,
-        )
-        report.samples = [{"name": recipe.name} for recipe in selected_recipes[:3]]
+        source_support = _schema_source_support(schema_objects)
 
         return ConversionResult(
-            recipes=selected_recipes,
-            tips=tips,
-            tip_candidates=tip_candidates,
-            nonRecipeBlocks=non_recipe_blocks,
+            recipes=[],
+            sourceBlocks=normalize_source_blocks(source_blocks),
+            sourceSupport=source_support,
+            nonRecipeBlocks=[],
             rawArtifacts=raw_artifacts,
             report=report,
             workbook=path.stem,

@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from cookimport.llm.knowledge_runtime_replay import replay_knowledge_runtime
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
+from cookimport.staging.writer import (
+    NONRECIPE_AUTHORITY_FILE_NAME,
+    NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME,
+    NONRECIPE_REVIEW_STATUS_FILE_NAME,
+    NONRECIPE_SEED_ROUTING_FILE_NAME,
+)
 
 
 STAGE_OBSERVABILITY_SCHEMA_VERSION = "stage_observability.v1"
@@ -1048,9 +1054,19 @@ def build_stage_observability_report(
                     },
                 )
             )
-    nonrecipe_spans_path = run_root / "08_nonrecipe_spans.json"
-    if nonrecipe_spans_path.exists():
+    nonrecipe_seed_routing_path = run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+    nonrecipe_review_exclusions_path = run_root / NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME
+    if nonrecipe_seed_routing_path.exists() or nonrecipe_review_exclusions_path.exists():
         stage_key = "classify_nonrecipe"
+        artifact_paths = {}
+        if nonrecipe_seed_routing_path.exists():
+            artifact_paths["nonrecipe_seed_routing_json"] = (
+                _relative_to(run_root, nonrecipe_seed_routing_path) or ""
+            )
+        if nonrecipe_review_exclusions_path.exists():
+            artifact_paths["nonrecipe_review_exclusions_jsonl"] = (
+                _relative_to(run_root, nonrecipe_review_exclusions_path) or ""
+            )
         stage_rows.setdefault(
             stage_key,
             ObservedStage(
@@ -1059,14 +1075,22 @@ def build_stage_observability_report(
                 stage_artifact_stem=stage_artifact_stem(stage_key),
                 stage_family=stage_family(stage_key),
                 stage_order=stage_order(stage_key),
-                artifact_paths={
-                    "nonrecipe_spans_json": _relative_to(run_root, nonrecipe_spans_path) or ""
-                },
+                artifact_paths=artifact_paths,
             ),
         )
-    knowledge_outputs_path = run_root / "09_knowledge_outputs.json"
-    if knowledge_outputs_path.exists():
+    nonrecipe_authority_path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
+    nonrecipe_review_status_path = run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
+    if nonrecipe_authority_path.exists() or nonrecipe_review_status_path.exists():
         stage_key = "nonrecipe_knowledge_review"
+        artifact_paths = {}
+        if nonrecipe_authority_path.exists():
+            artifact_paths["nonrecipe_authority_json"] = (
+                _relative_to(run_root, nonrecipe_authority_path) or ""
+            )
+        if nonrecipe_review_status_path.exists():
+            artifact_paths["nonrecipe_review_status_json"] = (
+                _relative_to(run_root, nonrecipe_review_status_path) or ""
+            )
         stage_rows.setdefault(
             stage_key,
             ObservedStage(
@@ -1075,9 +1099,7 @@ def build_stage_observability_report(
                 stage_artifact_stem=stage_artifact_stem(stage_key),
                 stage_family=stage_family(stage_key),
                 stage_order=stage_order(stage_key),
-                artifact_paths={
-                    "knowledge_outputs_json": _relative_to(run_root, knowledge_outputs_path) or ""
-                },
+                artifact_paths=artifact_paths,
             ),
         )
     line_role_stage_dir = run_root / "line-role-pipeline" / "runtime" / "line_role"
@@ -1126,7 +1148,6 @@ def build_stage_observability_report(
     for artifact_key, path_name in (
         ("intermediate_drafts_dir", "intermediate drafts"),
         ("final_drafts_dir", "final drafts"),
-        ("tips_dir", "tips"),
         ("chunks_dir", "chunks"),
         ("knowledge_dir", "knowledge"),
         ("bench_dir", ".bench"),

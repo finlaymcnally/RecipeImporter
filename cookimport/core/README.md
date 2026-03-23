@@ -6,3 +6,4 @@
 - `progress_messages` also owns the serialized callback payloads for worker activity and richer stage-progress snapshots, so CLI dashboards can keep worker/stage details without scraping every value back out of plain text.
 - `executor_fallback` centralizes `process -> thread -> serial` executor resolution and shutdown helpers for sandbox-safe parallel fanout paths.
 - `joblib_runtime` applies an early SemLock guard that sets `JOBLIB_MULTIPROCESSING=0` on restricted hosts to suppress repeated joblib serial-mode warnings.
+- `source_model` is the source-normalizer bridge: it normalizes canonical `SourceBlock` / `SourceSupport`, handles merge-safe block/support rebasing, writes `raw/source/<workbook>/source_blocks.jsonl` plus `source_support.json`, and still knows how to rebuild a source model from legacy `extracted_rows` artifacts during the migration.

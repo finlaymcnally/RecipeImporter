@@ -567,3 +567,52 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if a future "quality recovery" fix helps Salt Fat by globally widening knowledge, title, instruction, or variant labels, it is probably recreating the pre-canary problems; use the exact miss families and contrast books instead
+
+## 2026-03-22 outside-recipe semantic authority was split cleanly: line-role routes, Stage 7 records routing, knowledge decides meaning
+
+Problem:
+- outside-recipe `KNOWLEDGE` authority was overlapping across raw line-role output, deterministic Stage 7 projection, and the optional knowledge stage
+- the visible failure was especially confusing on March 22 because raw line-role could already label lesson headings correctly and later staging still rewrote those same rows back to `OTHER`
+
+What stuck:
+- line-role is now routing-only for review-eligible outside-recipe prose:
+  - keep recipe-structure labels
+  - exclude only overwhelming obvious junk through `review_exclusion_reason`
+  - leave plausible lesson prose and concept headings as review-eligible `OTHER`
+- the knowledge stage is now the only semantic owner for review-eligible outside-recipe `KNOWLEDGE` versus `OTHER`
+- Stage 7 keeps explicit routing/final-authority bookkeeping instead of pretending every outside-recipe seed row is already semantically decided
+- downstream scoring/projection must trust explicit final authority only; unreviewed review-eligible seed rows may remain visible as fallback `other`, but they are not reviewed semantic authority
+
+Evidence worth keeping:
+- the March 22 Salt Fat run showed the exact overlap bug mechanically:
+  - raw line-role got headings such as `Balancing Fat` and `WHAT IS ACID?` right
+  - later non-recipe authority projection rewrote those rows to `OTHER`
+- the fix did not require inventing a third public label; the durable contract stayed binary for scored output while making routing metadata explicit
+
+Anti-loop note:
+- if a future fix proposal wants line-role or deterministic Stage 7 to reclaim final semantic `KNOWLEDGE` authority for review-eligible prose, treat that as a regression back toward the overlap bug first
+
+## 2026-03-22 obvious-junk diversion widened, but only for junk families the parser can explain honestly
+
+Problem:
+- once semantic authority moved downstream, the next waste seam was obvious nonrecipe junk that still reached the knowledge stage:
+  - endorsement quote paragraphs
+  - publisher/download/signup boilerplate
+  - ebook registration and similar promo clusters
+- the wrong response would have been to let line-role start deciding usefulness again
+
+What stuck:
+- widening the upstream veto is acceptable only for deterministic junk families:
+  - endorsement quote clusters plus bylines
+  - strong publisher/signup/download boilerplate
+  - patterned publishing/legal metadata
+- keep the veto neighborhood-aware but fail open on mixed packets that still contain plausible teaching prose
+- `review_exclusion_reason` remains the honest explanation seam; stable reason families matter more than a larger taxonomy
+- benchmark/debug reading for this seam should focus on exclusion ledgers and review-routing counts, not on older line-role `KNOWLEDGE` budget artifacts that predate the routing-only contract
+
+Evidence worth keeping:
+- the March 22 baseline still forwarded lines like `Thank you for downloading this Simon & Schuster ebook.` and mailing-list/signup prompts into `knowledge/in/*.json`
+- the useful metric was not "how many line-role `KNOWLEDGE` rows exist"; it was "how many obviously useless rows were excluded before knowledge review"
+
+Anti-loop note:
+- if upstream diversion starts swallowing lesson headings, explanatory prose, or borderline cookbook framing just to cut prompt volume, narrow the junk-family predicates; do not paper over the mistake by changing knowledge-stage semantics

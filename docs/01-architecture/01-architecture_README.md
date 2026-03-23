@@ -2,7 +2,7 @@
 summary: "Code-verified architecture source of truth for current runtime contracts and module boundaries."
 read_when:
   - When you need end-to-end pipeline architecture and module boundaries
-  - When changing output roots, timestamp formats, IDs, split-job behavior, or Label Studio flows
+  - When changing output roots, timestamp formats, IDs, source-job behavior, or Label Studio flows
   - When updating command entrypoints, plugin interfaces, or stage output contracts
 ---
 
@@ -35,7 +35,7 @@ Code verification references:
 Architecture priorities:
 - deterministic outputs first (no mandatory LLM path)
 - stable file/folder conventions for artifacts
-- split-job support for large PDF/EPUB inputs
+- planned source-job support for whole-source and ranged PDF/EPUB inputs
 - reproducible provenance and IDs across reruns/merges
 - side-by-side support for processing output (`data/output`) and annotation/benchmark output (`data/golden`)
 
@@ -44,13 +44,17 @@ Architecture priorities:
 ### Phase 1: Source conversion
 - importers implement `detect`, `inspect`, `convert` via `Importer` protocol (`cookimport/plugins/base.py`).
 - `ImporterRegistry.best_for_path()` picks the highest `detect` score (`cookimport/plugins/registry.py`).
-- conversion produces `ConversionResult` with recipes/tips/topics/non-recipe blocks/raw artifacts/report fields.
+- conversion produces `ConversionResult` with canonical `source_blocks`, optional non-authoritative `source_support`, raw artifacts, and a report.
+- for stage-backed flows, importers are source normalizers only; recipes first exist after the shared label-first authority pass.
 
 ### Phase 2: Output shaping and writing
-- for stage runs, `cookimport/cli.py` orchestrates parallel jobs and final merge for split inputs.
-- worker-side split execution lives in `cookimport/cli_worker.py`.
+- for stage runs, `cookimport/cli.py` always plans one or more source jobs, executes those jobs, and merges them before one shared semantic session.
+- worker-side source-job execution lives in `cookimport/cli_worker.py`.
+- shared source-job planning lives in `cookimport/staging/job_planning.py`.
+- `cookimport/staging/pipeline_runtime.py` now makes the post-import semantic session explicit as five stage-owned runtime steps: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, and `knowledge-final`.
+- `cookimport/staging/import_session.py` remains the composition root, but it now threads stage-owned results instead of treating `ConversionResult` as the only post-import carrier.
 - output-writing primitives live in `cookimport/staging/writer.py`.
-- split merge helpers and recipe-ID reassignment logic live in `cookimport/staging/pdf_jobs.py`.
+- recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_det`, optional `label_llm_correct`, and `group_recipe_spans` artifacts are written under the stage run root and drive downstream stage block predictions.
 - if label-first regrouping yields zero recipes after importer candidates existed, the stage session stays on the authoritative label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently reverting to candidate-first ownership.
 - Stage 7 non-recipe rows now drive table extraction, chunking, and stage-backed Label Studio knowledge counts; `ConversionResult.non_recipe_blocks` is repopulated only afterward as a downstream cache.
@@ -68,7 +72,9 @@ Architecture priorities:
 ### Current authority boundaries
 
 - label-first grouped spans and normalized block labels are the recipe/non-recipe authority boundary for stage-backed flows.
+- `recipe-refine` may improve recipe content, but it may not change recipe ownership decided by `recipe-boundary`.
 - Stage 7 owns outside-recipe classification (`knowledge` vs `other`) for runtime decisions and benchmark evidence.
+- obvious-junk Stage 7 exclusions are final `other` immediately; `knowledge-final` only reviews the remaining review-eligible outside-recipe rows.
 - scalar trust/confidence is no longer part of the label-first line-role contract.
 - line-role Codex escalation now depends on explicit escalation reasons, not score thresholds; that remains an escalation seam, not the main runtime truth boundary.
 - `decided_by` and `reason_tags` are the persisted decision-trace fields on current labeled rows.
@@ -77,7 +83,7 @@ Architecture priorities:
 ### Current recipe LLM contract
 
 - the canonical public recipe pipeline id is `codex-recipe-shard-v1`.
-- the active recipe Codex path is one correction stage that updates an intermediate `RecipeCandidate`, returns `ingredient_step_mapping`, and rebuilds final cookbook drafts locally.
+- the active recipe Codex path now promotes one canonical recipe-semantics payload per accepted recipe span before draft writing. Repo code still validates, normalizes, and writes final files, but later staging code should project from `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` instead of re-deciding recipe meaning from separate override lanes.
 - current semantic recipe-stage observability for new runs uses:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`
@@ -88,7 +94,7 @@ Architecture priorities:
 - Phase 1 established `stage_observability.json` as the one semantic stage index for new runs. Summaries, manifests, prompt exports, and reviewer tooling should read that contract instead of reconstructing stage truth from pass-slot names or raw folder guesses.
 - Phase 2 moved stage-backed flows to label-first authority. `label_det`, optional `label_llm_correct`, and `group_recipe_spans` are written before drafting, and zero-recipe regrouping now writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of restoring importer candidates.
 - Phase 3 collapsed the recipe LLM surface into deterministic build -> one correction/link stage -> deterministic final rebuild. The later shard-runtime cutover changed the execution plumbing and public pipeline id, but it did not change that authority shape.
-- Phase 4 made Stage 7 the outside-recipe ownership seam. `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are the run-level contract, and optional knowledge extraction/refinement is scoped to Stage 7 spans instead of whole-residue mining.
+- Phase 4 made Stage 7 the outside-recipe ownership seam. The live run-level contract is now split across `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, and `09_nonrecipe_review_status.json`, and optional knowledge extraction/refinement is scoped to Stage 7 review-eligible spans instead of whole-residue mining.
 - These phases were destructive migrations, not dual-backbone rollouts. Historical ids and pass-slot names may still appear in logs, plans, or archived fixtures, but new writes should stay on semantic stage rows and current manifests only.
 
 ### Known current debt
@@ -106,7 +112,7 @@ Architecture priorities:
 - the heaviest remaining read-side compatibility seam is `scripts/benchmark_cutdown_for_external_ai.py`; it should stay semantic-stage-first and should not re-teach old numbered-stage topology to new reviewer bundles
 - retired local-LLM modules are still easier to find than to use; most of their remaining coupling is via tests and historical scaffolding rather than the live runtime
 - repo navigation is better than average because the docs tree and fast tests are strong, but architecture understanding still bottlenecks through a few very large coordinators plus cross-package dependencies (`cli`, `labelstudio`, `parsing`, `llm`, `staging`)
-- `cookimport/staging/import_session.py` is the main shared runtime seam, but stage and Label Studio still duplicate some orchestration around it, especially split-job planning; safe refactors still need both top-level call sites checked
+- `cookimport/staging/import_session.py` is still the main shared post-merge runtime seam, but stage and Label Studio keep separate execution/merge callers above it; safe refactors still need both top-level call sites checked
 - cleanup rule:
   - rename current algorithms that still carry `legacy` names
   - delete true compatibility readers once fixtures/artifacts are regenerated
@@ -118,7 +124,7 @@ Architecture priorities:
 Use this mapping when updating architecture-adjacent docs so current contracts stay with the owning section:
 
 - `cookimport/cli.py` and entrypoint wrappers -> `docs/02-cli/`
-- importer registry/plugins + split-job planning/merge -> `docs/03-ingestion/`
+- importer registry/plugins + source-job planning/merge -> `docs/03-ingestion/`
 - ingredient/instruction/step-link/tip/chunk logic -> `docs/04-parsing/`
 - draft conversion + writers + output contracts -> `docs/05-staging/`
 - Label Studio import/export/eval/benchmark workflows -> `docs/06-label-studio/`
@@ -199,13 +205,12 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `<out>/<timestamp>/final drafts/<workbook_slug>/r{index}.json`
 - `<out>/<timestamp>/sections/<workbook_slug>/r{index}.sections.json` (+ `sections.md` when `--write-markdown`)
-- `<out>/<timestamp>/tips/<workbook_slug>/t{index}.json`
-- `<out>/<timestamp>/tips/<workbook_slug>/tips.md`
-- `<out>/<timestamp>/tips/<workbook_slug>/topic_candidates.json` (+ `topic_candidates.md` when topic candidates exist and `--write-markdown`)
 - `<out>/<timestamp>/chunks/<workbook_slug>/c{index}.json` (+ `chunks.md` when chunks exist and `--write-markdown`)
 - `<out>/<timestamp>/tables/<workbook_slug>/tables.jsonl` (+ `tables.md` when `--table-extraction on` and `--write-markdown`)
 - `<out>/<timestamp>/.bench/<workbook_slug>/stage_block_predictions.json`
 - `<out>/<timestamp>/raw/<importer>/<source_hash>/<location_id>.<ext>`
+- `<out>/<timestamp>/raw/source/<workbook_slug>/source_blocks.jsonl`
+- `<out>/<timestamp>/raw/source/<workbook_slug>/source_support.json`
 - `<out>/<timestamp>/<workbook_slug>.excel_import_report.json`
 - `<out>/<timestamp>/run_manifest.json`
 
@@ -225,12 +230,11 @@ References:
 
 ## ID and Provenance Rules
 
-Stage recipe/tip/topic IDs use the `urn:recipeimport:*` namespace.
+Stage recipe IDs use the `urn:recipeimport:*` namespace.
 
 Examples from current code:
 - recipe IDs via helper: `urn:recipeimport:{source_type}:{source_hash}:{location_id}`
 - writer-generated fallback recipe IDs for Excel-like flow: `urn:recipeimport:excel:{file_hash}:{sheet_slug}:r{row_index}`
-- tip/topic IDs similarly use `urn:recipeimport:tip:*` and `urn:recipeimport:topic:*`
 - Label Studio freeform-span export IDs still use `urn:cookimport:freeform_span:*` (older scope-local identifier format).
 
 References:
@@ -238,24 +242,24 @@ References:
 - writer ID assignment: `cookimport/staging/writer.py`
 - freeform span export IDs: `cookimport/labelstudio/export.py`
 
-## Split-Job Architecture
+## Source-Job Architecture
 
-Stage split jobs (`cookimport stage`):
-- planning uses page ranges for PDF and spine ranges for EPUB
-- each worker parses a subset
-- split workers write temporary raw artifacts to:
+Stage source jobs (`cookimport stage`):
+- every run plans one or more `JobSpec` records in `cookimport/staging/job_planning.py`
+- PDFs may use page ranges and EPUBs may use spine ranges; other importers usually plan one whole-source job
+- each worker executes one planned job and writes temporary raw artifacts to:
   - `<out>/<timestamp>/.job_parts/<workbook_slug>/job_<index>/raw/...`
-- split merge rebuilds merged `full_text.json` blocks under `<out>/<timestamp>/raw/<importer>/<source_hash>/full_text.json` when per-job full-text blocks exist
-- merge step combines logical results, reassigns recipe IDs globally, writes final outputs once, then merges raw files into `<out>/<timestamp>/raw/...`
+- main-process merge always rebuilds the first whole-book bundle before semantic processing, including merged `full_text.json` when per-job blocks exist
+- merge combines logical results, reassigns recipe IDs globally, writes final outputs once, then moves raw files into `<out>/<timestamp>/raw/...`
 - `.job_parts` is cleaned after successful merge
 
 Label Studio split jobs (`run_labelstudio_import`):
-- similar parallel conversion split is used when configured
+- the same planner decides whether PDF/EPUB prediction conversion uses one job or many
 - merge rebases block-index-like fields (`start_block`, `end_block`, `block_index`, related variants) by cumulative prior job block counts
 - this is critical so canonical/freeform tasks and evals share one global block coordinate space
 
 References:
-- stage planning/merge/raw merge: `cookimport/cli.py`, `cookimport/cli_worker.py`, `cookimport/staging/pdf_jobs.py`
+- stage planning/merge/raw merge: `cookimport/cli.py`, `cookimport/cli_worker.py`, `cookimport/staging/job_planning.py`, `cookimport/staging/pdf_jobs.py`
 - labelstudio offset/rebase merge: `cookimport/labelstudio/ingest.py`
 
 ## Label Studio Artifact Contract
@@ -359,7 +363,7 @@ When you need the shortest accurate mental model, describe the repo this way:
 - The current runtime is a label-first staging system, not an importer-candidates-first writer pipeline.
 - `cookimport/staging/import_session.py` writes authoritative label artifacts first (`label_det`, optional `label_llm_correct`, `group_recipe_spans`) and only then builds recipe drafts.
 - If importer candidates existed but authoritative regrouping finds zero recipes, the run stays on the label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json`.
-- `08_nonrecipe_spans.json` is the machine-readable authority for outside-recipe `knowledge` vs `other`.
+- `09_nonrecipe_authority.json` is the machine-readable authority for outside-recipe `knowledge` vs `other`; `08_nonrecipe_seed_routing.json` and `09_nonrecipe_review_status.json` answer routing/debugging questions but are not truth surfaces.
 - Stage 7 now has an explicit seed-vs-final authority seam: deterministic non-recipe labels seed the decision, optional knowledge harvest can merge block decisions into the final non-recipe authority, and scored benchmark artifacts should project that final authority rather than the seed view.
 - `stage_observability.json` is the run-level semantic stage index and should be the naming backbone for docs, prompt exports, and reviewer tooling.
 - Inline recipe tags are part of recipe correction plus deterministic normalization; there is no separate live tagging runtime package anymore.

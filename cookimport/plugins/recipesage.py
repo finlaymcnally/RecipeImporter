@@ -17,20 +17,47 @@ from cookimport.core.models import (
 from cookimport.core.reporting import (
     ProvenanceBuilder,
     compute_file_hash,
-    generate_recipe_id,
 )
-from cookimport.core.scoring import (
-    build_recipe_scoring_debug_row,
-    recipe_gate_action,
-    score_recipe_likeness,
-    summarize_recipe_likeness,
-)
+from cookimport.core.source_model import normalize_source_blocks
 from cookimport.plugins import registry
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from cookimport.config.run_settings import RunSettings
+
+
+def _recipesage_recipe_text(raw_recipe: dict[str, Any]) -> str:
+    name = str(raw_recipe.get("name") or "Untitled").strip()
+    parts = [name]
+    description = str(raw_recipe.get("description") or raw_recipe.get("notes") or "").strip()
+    if description:
+        parts.append(description)
+    ingredients = raw_recipe.get("recipeIngredient") or raw_recipe.get("ingredients") or []
+    if isinstance(ingredients, str):
+        ingredients = [line.strip() for line in ingredients.splitlines() if line.strip()]
+    if ingredients:
+        parts.append("Ingredients:")
+        parts.extend(f"- {item}" for item in ingredients if str(item).strip())
+    instructions = raw_recipe.get("recipeInstructions") or raw_recipe.get("instructions") or []
+    if isinstance(instructions, str):
+        instructions = [line.strip() for line in instructions.splitlines() if line.strip()]
+    if instructions:
+        parts.append("Instructions:")
+        for index, item in enumerate(instructions, start=1):
+            if isinstance(item, dict):
+                text = str(item.get("text") or "").strip()
+            else:
+                text = str(item).strip()
+            if text:
+                parts.append(f"{index}. {text}")
+    recipe_yield = str(raw_recipe.get("recipeYield") or raw_recipe.get("yield") or "").strip()
+    if recipe_yield:
+        parts.append(f"Yield: {recipe_yield}")
+    source_url = str(raw_recipe.get("sourceUrl") or raw_recipe.get("url") or "").strip()
+    if source_url:
+        parts.append(f"Source URL: {source_url}")
+    return "\n".join(parts)
 
 class RecipeSageImporter:
     name = "recipesage"
@@ -97,11 +124,7 @@ class RecipeSageImporter:
         progress_callback: Callable[[str], None] | None = None,
         run_settings: RunSettings | None = None,
     ) -> ConversionResult:
-        """
-        Converts RecipeSage export into RecipeCandidates.
-        """
         report = ConversionReport(importer_name=self.name, source_file=path.name)
-        recipes: List[RecipeCandidate] = []
         raw_artifacts: List[RawArtifact] = []
         file_hash = compute_file_hash(path)
 
@@ -120,131 +143,52 @@ class RecipeSageImporter:
                     content=data,
                 )
             )
-
-            provenance_builder = ProvenanceBuilder(
-                source_file=path.name,
-                source_hash=file_hash,
-                extraction_method="recipesage_import",
-            )
-
+            source_blocks: list[dict[str, Any]] = []
+            source_support: list[dict[str, Any]] = []
             total_recipes = len(raw_recipes)
             for i, raw_recipe in enumerate(raw_recipes):
                 if progress_callback and i % 10 == 0:
                     name = raw_recipe.get("name", "Untitled")
                     progress_callback(f"Processing recipe {i + 1}/{total_recipes}: {name}...")
-                try:
-                    # Basic validation
-                    name = raw_recipe.get("name")
-                    if not name:
-                        report.warnings.append(f"Recipe at index {i} missing name, skipping.")
-                        report.missing_field_counts["name"] = report.missing_field_counts.get("name", 0) + 1
-                        continue
-
-                    # Normalize fields
-                    # RecipeCandidate handles most normalization via Pydantic validators
-                    candidate = RecipeCandidate.model_validate(raw_recipe)
-                    
-                    # Ensure context
-                    # (Pydantic model doesn't have @context by default in extra="forbid",
-                    # but schema.org-style exports usually have it. We might need to pop it or allow it.)
-                    
-                    # Add provenance
-                    candidate.provenance = provenance_builder.build(
-                        confidence_score=1.0,
-                        location={"index": i},
-                        extra={"source_system": "recipesage"}
-                    )
-                    
-                    # Ensure stable ID
-                    source_uid = raw_recipe.get("identifier") or str(i)
-                    if not candidate.identifier:
-                        candidate.identifier = generate_recipe_id(
-                            "recipesage", file_hash, f"recipe_{source_uid}"
-                        )
-                    
-                    recipes.append(candidate)
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to normalize recipe {i}: {e}")
-                    report.warnings.append(f"Failed to normalize recipe {i}: {e}")
-
-            accepted_recipes: list[RecipeCandidate] = []
-            non_recipe_blocks: list[dict[str, Any]] = []
-            recipe_likeness_results = []
-            recipe_scoring_debug_rows: list[dict[str, Any]] = []
-            rejected_candidate_count = 0
-            for index, recipe in enumerate(recipes):
-                likeness = score_recipe_likeness(recipe, settings=run_settings)
-                gate_action = recipe_gate_action(likeness, settings=run_settings)
-                recipe.recipe_likeness = likeness
-                recipe.confidence = likeness.score
-                recipe_likeness_results.append(likeness)
-                recipe_scoring_debug_rows.append(
-                    build_recipe_scoring_debug_row(
-                        candidate=recipe,
-                        result=likeness,
-                        gate_action=gate_action,
-                        candidate_index=index,
-                        importer=self.name,
-                        source_hash=file_hash,
-                    )
-                )
-                if gate_action == "reject":
-                    rejected_candidate_count += 1
-                    rejected_text = "\n".join(
-                        [
-                            recipe.name,
-                            "Ingredients:",
-                            *recipe.ingredients,
-                            "Instructions:",
-                            *[str(step) for step in recipe.instructions],
-                        ]
-                    ).strip()
-                    if rejected_text:
-                        non_recipe_blocks.append(
-                            {
-                                "index": len(non_recipe_blocks),
-                                "text": rejected_text,
-                                "location": {"chunk_index": index},
-                                "features": {
-                                    "source": "rejected_recipe_candidate",
-                                    "gate_action": gate_action,
-                                    "score": likeness.score,
-                                    "tier": likeness.tier.value,
-                                },
-                            }
-                        )
+                if not isinstance(raw_recipe, dict):
+                    report.warnings.append(f"Recipe at index {i} is not an object, skipping.")
                     continue
-                accepted_recipes.append(recipe)
-
-            if recipe_scoring_debug_rows:
-                raw_artifacts.append(
-                    RawArtifact(
-                        importer=self.name,
-                        sourceHash=file_hash,
-                        locationId="recipe_scoring_debug",
-                        extension="jsonl",
-                        content="\n".join(
-                            json.dumps(row, sort_keys=True)
-                            for row in recipe_scoring_debug_rows
-                        ),
-                        metadata={"artifact_type": "recipe_scoring_debug"},
-                    )
+                name = str(raw_recipe.get("name") or "").strip()
+                if not name:
+                    report.warnings.append(f"Recipe at index {i} missing name, skipping.")
+                    report.missing_field_counts["name"] = report.missing_field_counts.get("name", 0) + 1
+                    continue
+                block_id = f"b{len(source_blocks)}"
+                source_blocks.append(
+                    {
+                        "block_id": block_id,
+                        "order_index": len(source_blocks),
+                        "text": _recipesage_recipe_text(raw_recipe),
+                        "location": {"row_index": i},
+                        "features": {"source_kind": "recipesage_recipe"},
+                        "provenance": {"importer": self.name, "source_hash": file_hash},
+                    }
+                )
+                source_support.append(
+                    {
+                        "hintClass": "evidence",
+                        "kind": "recipesage_recipe_object",
+                        "referencedBlockIds": [block_id],
+                        "payload": {
+                            "recipe_index": i,
+                            "name": name,
+                            "recipe": raw_recipe,
+                        },
+                        "provenance": {"importer": self.name, "source": "recipesage_export"},
+                    }
                 )
 
-            recipes = accepted_recipes
-            report.total_recipes = len(recipes)
-            report.recipe_likeness = summarize_recipe_likeness(
-                recipe_likeness_results,
-                rejected_candidate_count,
-                settings=run_settings,
-            )
-            if recipes:
-                report.samples = [{"name": r.name} for r in recipes[:3]]
-
+            report.total_recipes = 0
             return ConversionResult(
-                recipes=recipes,
-                nonRecipeBlocks=non_recipe_blocks,
+                recipes=[],
+                sourceBlocks=normalize_source_blocks(source_blocks),
+                sourceSupport=source_support,
+                nonRecipeBlocks=[],
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,

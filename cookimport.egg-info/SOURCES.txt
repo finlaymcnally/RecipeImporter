@@ -78,6 +78,7 @@ cookimport/core/progress_messages.py
 cookimport/core/reporting.py
 cookimport/core/scoring.py
 cookimport/core/slug.py
+cookimport/core/source_model.py
 cookimport/core/timing.py
 cookimport/epubdebug/__init__.py
 cookimport/epubdebug/archive.py
@@ -182,9 +183,11 @@ cookimport/runs/stage_observability.py
 cookimport/staging/__init__.py
 cookimport/staging/draft_v1.py
 cookimport/staging/import_session.py
+cookimport/staging/job_planning.py
 cookimport/staging/jsonld.py
 cookimport/staging/nonrecipe_stage.py
 cookimport/staging/pdf_jobs.py
+cookimport/staging/pipeline_runtime.py
 cookimport/staging/recipe_tag_normalization.py
 cookimport/staging/stage_block_predictions.py
 cookimport/staging/writer.py

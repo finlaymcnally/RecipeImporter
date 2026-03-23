@@ -39,9 +39,6 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
                 provenance={"location": {"start_block": 10, "end_block": 13}},
             ),
         ],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
@@ -308,8 +305,7 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     phase_input_dir = apply_result.llm_raw_dir / "recipe_phase_runtime" / "inputs"
     assert len(list(phase_input_dir.glob("*.json"))) == 2
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
-    assert len(apply_result.intermediate_overrides_by_recipe_id) == 3
-    assert len(apply_result.final_overrides_by_recipe_id) == 3
+    assert len(apply_result.authoritative_recipe_payloads_by_recipe_id) == 3
     assert len(runner.calls) == 1
     assert runner.calls[0]["mode"] == "workspace_worker"
 
@@ -732,7 +728,9 @@ def test_recipe_workspace_promotion_preserves_fragmentary_and_not_a_recipe_outpu
         ).read_text(encoding="utf-8")
     )
 
-    assert sorted(apply_result.final_overrides_by_recipe_id) == ["urn:recipe:test:toast"]
+    assert sorted(apply_result.authoritative_recipe_payloads_by_recipe_id) == [
+        "urn:recipe:test:toast"
+    ]
     assert manifest["recipes"]["urn:recipe:test:tea"]["correction_output_status"] == "fragmentary"
     assert manifest["recipes"]["urn:recipe:test:cereal"]["correction_output_status"] == "not_a_recipe"
     recipe_rows = {row["rid"]: row for row in proposal["payload"]["r"]}

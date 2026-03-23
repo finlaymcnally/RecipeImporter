@@ -21,9 +21,6 @@ def _make_empty_label_first_original_result(
 ) -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
         non_recipe_blocks=list(non_recipe_blocks or []),
         raw_artifacts=[],
         report=ConversionReport(),
@@ -471,9 +468,6 @@ def test_atomize_archive_blocks_ignores_old_recipe_provenance_before_grouping() 
                 "provenance": {"location": {"start_block": 0, "end_block": 1}},
             }
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),

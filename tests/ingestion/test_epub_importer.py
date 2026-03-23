@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import sys
-import time
 import types
 import pytest
 from pathlib import Path
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.blocks import Block
 from cookimport.core.models import RecipeCandidate
-from cookimport.parsing.atoms import Atom
-from cookimport.parsing.tips import TopicContainer
 from cookimport.parsing import signals
 from cookimport.plugins.epub import EpubImporter, _resolve_unstructured_version
 from tests.fixtures.make_epub import make_synthetic_epub
@@ -40,23 +37,13 @@ def test_convert_epub():
         pytest.skip("sample.epub not found")
 
     result = importer.convert(epub_path, None)
-    
-    # We expect 2 recipes: Best Pancakes and Simple Salad
-    assert len(result.recipes) == 2
-    
-    r1 = result.recipes[0]
-    assert r1.name == "Best Pancakes"
-    assert r1.recipe_likeness is not None
-    assert r1.confidence == r1.recipe_likeness.score
-    assert len(r1.ingredients) == 2
-    assert "1 cup flour" in r1.ingredients
-    assert "Mix contents." in r1.instructions
-    
-    r2 = result.recipes[1]
-    assert r2.name == "Simple Salad"
-    assert r2.recipe_likeness is not None
-    assert r2.confidence == r2.recipe_likeness.score
-    assert "Lettuce" in r2.ingredients
+
+    assert result.recipes == []
+    assert any("Best Pancakes" in block.text for block in result.source_blocks)
+    assert any("Simple Salad" in block.text for block in result.source_blocks)
+    assert any(
+        support.kind == "candidate_recipe_region" for support in result.source_support
+    )
 
 
 def test_convert_epub_emits_post_candidate_progress(monkeypatch, tmp_path: Path) -> None:
@@ -93,18 +80,11 @@ def test_convert_epub_emits_post_candidate_progress(monkeypatch, tmp_path: Path)
             instructions=["Mix ingredients."],
         ),
     )
-    monkeypatch.setattr(
-        importer,
-        "_extract_standalone_tips",
-        lambda *_args, **_kwargs: ([], [], 0, 0),
-    )
-
     progress_messages: list[str] = []
     result = importer.convert(source, None, progress_callback=progress_messages.append)
 
-    assert result.recipes
-    assert any(msg.startswith("Extracting candidate 1/1") for msg in progress_messages)
-    assert "Analyzing standalone knowledge blocks..." in progress_messages
+    assert result.recipes == []
+    assert any(msg.startswith("Segmenting 5 blocks") for msg in progress_messages)
     assert "Finalizing EPUB extraction results..." in progress_messages
     assert progress_messages[-1] == "EPUB conversion complete."
 
@@ -152,17 +132,14 @@ def test_convert_epub_emits_pattern_diagnostics_and_trim_actions(
             recipeInstructions=["Bake."],
         ),
     )
-    monkeypatch.setattr(
-        importer,
-        "_extract_standalone_tips",
-        lambda *_args, **_kwargs: ([], [], 0, 0),
-    )
-
     result = importer.convert(source, None)
 
-    assert len(result.recipes) == 1
-    location = result.recipes[0].provenance["location"]
-    assert location["start_block"] == 6
+    assert result.recipes == []
+    proposal = next(
+        support for support in result.source_support if support.kind == "candidate_recipe_region"
+    )
+    assert proposal.payload["start_block"] == 6
+    assert proposal.referenced_block_ids[0] == "b6"
     assert any(
         warning.startswith("pattern_toc_like_cluster_detected:")
         for warning in result.report.warnings
@@ -178,9 +155,9 @@ def test_convert_epub_emits_pattern_diagnostics_and_trim_actions(
     assert diagnostics_artifact.content["pre_candidate_excluded_indices"] == [0, 1, 2, 3]
     assert diagnostics_artifact.content["candidate_start_trim_actions"]
 
-    non_recipe_text = [row["text"] for row in result.non_recipe_blocks]
-    assert "Table of Contents" in non_recipe_text
-    assert "A short intro sentence." in non_recipe_text
+    source_texts = [block.text for block in result.source_blocks]
+    assert "Table of Contents" in source_texts
+    assert "A short intro sentence." in source_texts
 
 
 def test_convert_epub_applies_multi_recipe_splitter_postprocessing(
@@ -245,12 +222,6 @@ def test_convert_epub_applies_multi_recipe_splitter_postprocessing(
             instructions=["1 step"],
         ),
     )
-    monkeypatch.setattr(
-        importer,
-        "_extract_standalone_tips",
-        lambda *_args, **_kwargs: ([], [], 0, 0),
-    )
-
     result = importer.convert(
         source,
         None,
@@ -260,9 +231,12 @@ def test_convert_epub_applies_multi_recipe_splitter_postprocessing(
         ),
     )
 
-    assert len(result.recipes) == 2
-    assert result.recipes[0].provenance["multi_recipe"]["split_index"] == 0
-    assert result.recipes[1].provenance["multi_recipe"]["split_index"] == 1
+    proposals = [
+        support for support in result.source_support if support.kind == "candidate_recipe_region"
+    ]
+    assert len(proposals) == 2
+    assert proposals[0].payload["multi_recipe"]["split_index"] == 0
+    assert proposals[1].payload["multi_recipe"]["split_index"] == 1
     assert any(
         artifact.location_id == "multi_recipe_split_trace"
         for artifact in result.raw_artifacts
@@ -388,249 +362,6 @@ def test_resolve_unstructured_version_handles_module_value(monkeypatch):
     monkeypatch.setattr("cookimport.plugins.epub.importlib_metadata.version", _raise_missing)
     monkeypatch.setitem(sys.modules, "unstructured", package_module)
     assert _resolve_unstructured_version() == "9.9.9"
-
-
-def test_extract_standalone_tips_parallel_progress_and_order(monkeypatch, tmp_path: Path) -> None:
-    importer = EpubImporter()
-    source = tmp_path / "book.epub"
-    source.write_text("dummy", encoding="utf-8")
-    blocks = [Block(text="late"), Block(text="fast")]
-    containers = [
-        TopicContainer(indices=[0], blocks=[(0, "late")], header=None),
-        TopicContainer(indices=[1], blocks=[(1, "fast")], header=None),
-    ]
-
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.chunk_standalone_blocks",
-        lambda *_args, **_kwargs: containers,
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.split_text_to_atoms",
-        lambda text, block_index, **_kwargs: [
-            Atom(
-                text=text,
-                kind="paragraph",
-                source_block_index=block_index,
-                sequence=0,
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.contextualize_atoms",
-        lambda atoms: atoms,
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.build_topic_candidate",
-        lambda text, **_kwargs: {"topic": text},
-    )
-
-    def _fake_extract_tip_candidates(text: str, **_kwargs):
-        if text == "late":
-            time.sleep(0.03)
-        return [{"tip": text}]
-
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.extract_tip_candidates",
-        _fake_extract_tip_candidates,
-    )
-    monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "2")
-
-    progress_messages: list[str] = []
-    tips, topics, standalone_block_count, topic_block_count = importer._extract_standalone_tips(
-        blocks,
-        [],
-        source,
-        "hash",
-        progress_callback=progress_messages.append,
-    )
-
-    assert standalone_block_count == 2
-    assert topic_block_count == 2
-    assert [tip["tip"] for tip in tips] == ["late", "fast"]
-    assert [topic["topic"] for topic in topics] == ["late", "fast"]
-    assert any(
-        "Analyzing standalone knowledge blocks... task 0/2" in msg
-        for msg in progress_messages
-    )
-    assert any(
-        "Analyzing standalone knowledge blocks... task 2/2" in msg
-        for msg in progress_messages
-    )
-
-
-def test_extract_standalone_tips_filters_noise_and_tracks_split_diagnostics(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    importer = EpubImporter()
-    source = tmp_path / "book.epub"
-    source.write_text("dummy", encoding="utf-8")
-    long_intro = (
-        "I remember those early afternoons and I always thought this quiet routine "
-        "was enough to teach me patience and curiosity in a way nothing else could. "
-        "I remember those early afternoons and I always thought this quiet routine "
-        "was enough to teach me patience and curiosity in a way nothing else could."
-    )
-    long_actionable = " ".join(
-        [
-            "Salt early for flavor.",
-            "Keep the pan hot for browning.",
-            "Let the meat rest before slicing.",
-        ]
-        * 12
-    )
-    blocks = [
-        Block(text="Table of Contents"),
-        Block(text="Simple Soup"),
-        Block(text=long_intro),
-        Block(text=long_actionable),
-    ]
-
-    captured_blocks: dict[str, list[tuple[int, str]]] = {}
-
-    def _fake_chunk_standalone_blocks(raw_blocks, **_kwargs):
-        rows = list(raw_blocks)
-        captured_blocks["rows"] = rows
-        return [
-            TopicContainer(indices=[idx], blocks=[(idx, text)], header=None)
-            for idx, text in rows
-        ]
-
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.chunk_standalone_blocks",
-        _fake_chunk_standalone_blocks,
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.split_text_to_atoms",
-        lambda text, block_index, **_kwargs: [
-            Atom(
-                text=text,
-                kind="paragraph",
-                source_block_index=block_index,
-                sequence=0,
-            )
-        ],
-    )
-    monkeypatch.setattr("cookimport.plugins.epub.contextualize_atoms", lambda atoms: atoms)
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.build_topic_candidate",
-        lambda text, **_kwargs: {"topic": text},
-    )
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.extract_tip_candidates",
-        lambda text, **_kwargs: [{"tip": text}],
-    )
-    monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "1")
-
-    tips, topics, standalone_block_count, _topic_block_count = importer._extract_standalone_tips(
-        blocks,
-        [],
-        source,
-        "hash",
-        accepted_recipe_titles=["Simple Soup"],
-    )
-
-    assert standalone_block_count == 4
-    assert len(tips) == len(topics)
-    assert len(captured_blocks["rows"]) > 1
-
-    diagnostics = importer._standalone_filter_diagnostics
-    assert diagnostics["candidate_standalone_block_count"] == 4
-    assert diagnostics["analyzed_standalone_block_count"] == len(captured_blocks["rows"])
-    assert diagnostics["filter_reason_counts"]["toc_noise"] == 1
-    assert diagnostics["filter_reason_counts"]["duplicate_title_carryover"] == 1
-    assert diagnostics["filter_reason_counts"]["intro_narrative"] == 1
-    assert diagnostics["long_split_source_blocks"] == 1
-    assert diagnostics["long_split_segments_added"] >= 1
-
-
-def test_extract_standalone_tips_seaandsmoke_slice_improves_with_filtering(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "book.epub"
-    source.write_text("dummy", encoding="utf-8")
-    seaandsmoke_narrative = (
-        "This chapter was something of a turning point in my own work, an embodiment "
-        "of my style and the kind of stories that I like to tell. "
-        "After coming to the island and working with top-notch fishermen, I realized "
-        "there is a disconnect between chefs and commercial fishermen and I kept writing "
-        "down those lessons for years before this chapter came together."
-    )
-    control_actionable = (
-        "When you smoke fish over low heat, keep the temperature steady, salt early, "
-        "and rest the fillet before serving so moisture redistributes and texture stays tender."
-    )
-    blocks = [
-        Block(text=seaandsmoke_narrative),
-        Block(text=control_actionable),
-    ]
-
-    def _install_atom_stubs() -> None:
-        monkeypatch.setattr(
-            "cookimport.plugins.epub.chunk_standalone_blocks",
-            lambda raw_blocks, **_kwargs: [
-                TopicContainer(indices=[idx], blocks=[(idx, text)], header=None)
-                for idx, text in list(raw_blocks)
-            ],
-        )
-        monkeypatch.setattr(
-            "cookimport.plugins.epub.split_text_to_atoms",
-            lambda text, block_index, **_kwargs: [
-                Atom(
-                    text=text,
-                    kind="paragraph",
-                    source_block_index=block_index,
-                    sequence=0,
-                )
-            ],
-        )
-        monkeypatch.setattr("cookimport.plugins.epub.contextualize_atoms", lambda atoms: atoms)
-        monkeypatch.setattr(
-            "cookimport.plugins.epub.build_topic_candidate",
-            lambda text, **_kwargs: {"topic": text},
-        )
-        monkeypatch.setattr(
-            "cookimport.plugins.epub.extract_tip_candidates",
-            lambda text, **_kwargs: [{"tip": text}],
-        )
-        monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "1")
-
-    importer_filtered = EpubImporter()
-    _install_atom_stubs()
-    filtered_tips, filtered_topics, _filtered_total, _filtered_topic_blocks = (
-        importer_filtered._extract_standalone_tips(
-            blocks,
-            [],
-            source,
-            "hash",
-        )
-    )
-    filtered_diag = dict(importer_filtered._standalone_filter_diagnostics)
-    assert filtered_diag["filter_reason_counts"]["intro_narrative"] == 1
-    assert len(filtered_tips) == 1
-    assert len(filtered_topics) == 1
-
-    importer_unfiltered = EpubImporter()
-    _install_atom_stubs()
-    monkeypatch.setattr(
-        "cookimport.plugins.epub.classify_standalone_topic_filter_reason",
-        lambda _text: None,
-    )
-    unfiltered_tips, unfiltered_topics, _unfiltered_total, _unfiltered_topic_blocks = (
-        importer_unfiltered._extract_standalone_tips(
-            blocks,
-            [],
-            source,
-            "hash",
-        )
-    )
-    unfiltered_diag = dict(importer_unfiltered._standalone_filter_diagnostics)
-
-    assert unfiltered_diag["filtered_block_count"] < filtered_diag["filtered_block_count"]
-    assert len(unfiltered_tips) > len(filtered_tips)
-    assert len(unfiltered_topics) > len(filtered_topics)
-
 
 def test_backtrack_for_title_prefers_earliest_title_block():
     importer = EpubImporter()

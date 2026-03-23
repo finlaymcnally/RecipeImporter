@@ -8,6 +8,10 @@ from pathlib import Path
 from cookimport.plugins.paprika import PaprikaImporter
 
 
+def _source_text(result) -> str:
+    return "\n".join(block.text for block in result.source_blocks)
+
+
 def _write_paprika_recipe(path: Path) -> Path:
     recipe_data = {
         "name": "Broccoli Cheese Soup",
@@ -50,14 +54,13 @@ def test_convert_paprika_file(tmp_path):
     path = _write_paprika_recipe(tmp_path / "Broccoli Cheese Soup1.paprikarecipes")
     result = importer.convert(path, None)
 
-    assert len(result.recipes) == 1
-    recipe = result.recipes[0]
-    assert recipe.name == "Broccoli Cheese Soup"
-    assert recipe.recipe_likeness is not None
-    assert recipe.confidence == recipe.recipe_likeness.score
-    assert any("broccoli" in ing.lower() for ing in recipe.ingredients)
-    assert len(recipe.instructions) > 0
-    assert recipe.provenance["extraction_method"] == "paprikarecipes_zip"
+    assert result.recipes == []
+    assert len(result.source_blocks) == 1
+    assert len(result.source_support) == 1
+    assert result.source_support[0].kind == "paprika_recipe_object"
+    assert "Broccoli Cheese Soup" in _source_text(result)
+    assert "broccoli" in _source_text(result).lower()
+    assert "simmer" in _source_text(result).lower()
 
 
 def test_convert_paprika_html(tmp_path):
@@ -83,11 +86,11 @@ def test_convert_paprika_html(tmp_path):
         encoding="utf-8",
     )
     result = importer.convert(tmp_path, None)
-    assert len(result.recipes) == 1
-    recipe = result.recipes[0]
-    assert recipe.name == "Paprika HTML Recipe"
-    assert recipe.recipe_likeness is not None
-    assert recipe.confidence == recipe.recipe_likeness.score
+    assert result.recipes == []
+    assert len(result.source_blocks) == 1
+    assert "Paprika HTML Recipe" in _source_text(result)
+    assert "1 cup flour" in _source_text(result)
+    assert "Mix" in _source_text(result)
 
 
 def test_normalize_duration():

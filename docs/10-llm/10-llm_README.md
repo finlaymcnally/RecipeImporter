@@ -23,6 +23,7 @@ Settings and command boundary:
 Primary entrypoints:
 
 - `cookimport/staging/import_session.py` for stage/import runs
+- `cookimport/staging/pipeline_runtime.py` for the stage-owned `recipe-refine` and `knowledge-final` wrappers that call the recipe and knowledge Codex surfaces from the five-stage runtime
 - `cookimport/labelstudio/ingest.py` for prediction-run and Label Studio benchmark/import flows
 - `cookimport/entrypoint.py` for saved-settings import passthrough
 
@@ -172,10 +173,11 @@ Recipe runtime note:
 - recipe worker roots now also carry `worker_manifest.json`, and the shared worker prompt tells the worker to prefer the named local files first without treating bounded local orientation as off-contract by itself
 - recipe and line-role helper CLIs now keep the old `scaffold` / `check` / `install` verbs as compatibility fallbacks, but the cheap recipe happy path is once again batch draft editing plus one `finalize-all` pass rather than a per-task helper loop. Line-role still treats `prepare` / `prepare-all` as fallback/debug draft generation, while recipe now also prewrites those same drafts before the workspace worker starts, keeps `prepare-all` as a regeneration fallback, writes a smaller `scratch/_prepared_drafts.json` with draft/output paths plus short title hints and `current_task_id`, exposes `current|next|check-current|install-current`, and exposes `stamp-status` for bulk terminal-status stamping before `finalize-all`.
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
-- deterministic code still builds the intermediate `RecipeCandidate`, Codex still emits `ingredient_step_mapping` plus raw `selected_tags`, and deterministic code still rebuilds the final cookbook3 draft locally, but validated model-selected tags now remain authoritative instead of inheriting deterministic seed tags after the fact
+- deterministic code still validates and normalizes recipe outputs locally, but the live promotion seam is now one canonical `AuthoritativeRecipeSemantics` payload per recipe. Codex still emits compact `ingredient_step_mapping` plus raw `selected_tags`, and promotion now records the merged semantic result under `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` before intermediate/final drafts are written.
+- `CodexFarmApplyResult` now exposes only the canonical `authoritative_recipe_payloads_by_recipe_id` map plus the updated conversion result and recipe-stage telemetry; the older intermediate/final override maps are no longer part of the live orchestrator result contract.
 - the model-facing recipe shard now includes a compact candidate-quality hint `q` alongside weak deterministic parse hint `h`, and each recipe result now carries compact status fields (`st`, `sr`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits but only `repaired` results promote into final recipe outputs
 - recipe tag guidance is now recipe-local rather than purely global: single-candidate recipe shards carry a richer `recipe_tagging_guide.v3` with both the broader category catalog and a filtered `tg.s[*]` candidate label surface derived from the current recipe text/hints
-- the authoritative recipe contract is now: `recipe_phase_runtime/inputs/*.json` immutable shard payloads, worker-local `workers/*/out/*.json` compact task outputs, `recipe_phase_runtime/proposals/*.json` validated shard proposals, then deterministic promotion into staged outputs; recipe task rows now include `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path` so the workspace helper installs only to the declared local output path; `recipe_correction_audit/` remains only the per-recipe human/debug summary surface
+- the authoritative recipe contract is now: `recipe_phase_runtime/inputs/*.json` immutable shard payloads, worker-local `workers/*/out/*.json` compact task outputs, `recipe_phase_runtime/proposals/*.json` validated shard proposals, then deterministic promotion into `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` plus staged outputs; recipe task rows now include `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path` so the workspace helper installs only to the declared local output path; `recipe_correction_audit/` remains only the per-recipe human/debug summary surface
 - file-backed validity is authoritative for recipe workspace workers: if `workers/*/out/*.json` validates, a prose or markdown closing message is telemetry only and does not downgrade the task into a malformed result
 - recipe worker shard folders now also write `prompt.txt`, `events.jsonl`, `usage.json`, `last_message.json`, and `cost_breakdown.json`, so prompt-preview and actual-cost reporting can talk about the same visible request/response surface
 - recipe worker shard folders now also write `workspace_manifest.json`, and near-miss invalid recipe shard outputs get one repo-owned repair pass with `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, `repair_workspace_manifest.json`, and `repair_status.json`
@@ -184,8 +186,10 @@ Recipe runtime note:
 
 Knowledge-stage writes:
 
-- `data/output/<ts>/08_nonrecipe_spans.json`
-- `data/output/<ts>/09_knowledge_outputs.json`
+- `data/output/<ts>/08_nonrecipe_seed_routing.json`
+- `data/output/<ts>/08_nonrecipe_review_exclusions.jsonl`
+- `data/output/<ts>/09_nonrecipe_authority.json`
+- `data/output/<ts>/09_nonrecipe_review_status.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
@@ -200,7 +204,7 @@ Knowledge-stage writes:
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
-`08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are now the machine-readable outside-span contract. They preserve Stage 7 seed routing, the practical fallback category map, explicit final-authority block indices/categories, and the refinement report that explains any Codex changes or unreviewed seed-kept rows. `snippets.jsonl` remains reviewer-facing evidence only.
+`08_nonrecipe_seed_routing.json` is the deterministic Stage 7 routing artifact. `09_nonrecipe_authority.json` is the final machine-readable truth surface for outside-recipe `knowledge` versus `other`. `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. `snippets.jsonl` remains reviewer-facing evidence only.
 
 Knowledge runtime note:
 - the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
@@ -218,8 +222,9 @@ Knowledge runtime note:
 - the knowledge validator now also rejects low-trust semantic packet shapes such as non-grounded snippet bodies, full-chunk snippet echoes, and substantial verbatim copies of one evidence quote, while deterministic salvage stays narrow to trailing `EOF` and obvious shell-wrapper suffix noise after a valid JSON object
 - the helper/runtime seam for those failures is now shared: `tools/knowledge_worker.py check`, local install gating, and the orchestrator all reuse the same validator classification, so snippet-copy-only failures are recognized as narrow near misses instead of three different failure families
 - the knowledge semantic boundary is now explicitly utility-first: `knowledge` means durable cooking leverage, not just something cooking-adjacent that happens to be true. Worker-local hints can summarize utility cues such as cause/effect, troubleshooting, substitution, storage/safety, framing, memoir, navigation, and true-but-low-utility filler, while the billed shard payload remains raw block text plus mechanically true structure only
+- accepted knowledge semantic outputs now carry a compact operator-facing `reason_code` vocabulary. Positive reasons include `technique_or_mechanism`, `diagnostic_or_troubleshooting`, `reference_or_definition`, and `substitution_storage_or_safety`; negative reasons include `book_framing_or_marketing`, `memoir_or_scene_setting`, `navigation_or_chapter_taxonomy`, `decorative_heading_only`, `true_but_low_utility`, and `not_cooking_knowledge`. `utility_profile` can stay more granular, but it is a worker-local hint surface only and never semantic authority by itself.
 - the knowledge prompt/worker contract now also treats short conceptual headings as keepable when they directly introduce useful explanatory blocks in the same owned chunk; decorative or menu-like headings still stay `other`
-- the authoritative knowledge contract is now: `knowledge/in/*.json` immutable single-chunk shard payloads, worker-local semantic task-result candidates under `workers/*/out/*.json`, `knowledge/proposals/*.json` validated repo-serialized shard proposals, then deterministic promotion into `08_nonrecipe_spans.json`, `09_knowledge_outputs.json`, and reviewer-facing knowledge artifacts
+- the authoritative knowledge contract is now: `knowledge/in/*.json` immutable single-chunk shard payloads, worker-local semantic task-result candidates under `workers/*/out/*.json`, `knowledge/proposals/*.json` validated repo-serialized shard proposals, then deterministic promotion into `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, `09_nonrecipe_review_status.json`, and reviewer-facing knowledge artifacts
 - valid knowledge worker task files remain authoritative even if the workspace session ends with no final assistant message; `final_agent_message_state` is still recorded in telemetry/live-status for debugging, but follow-up recovery only keys off file-level validation failure
 - direct workspace-worker telemetry is now fail-closed on token accounting too: if a workspace session shows real work but no usable Codex usage payload, the runtime summary records `token_usage_status=partial|unavailable` and blanks billed-token totals instead of publishing literal zero spend
 - invalid but near-miss knowledge outputs now get one repo-owned repair attempt at task scope; task/shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, while proposal/status payloads record whether repair was attempted and whether the final validated output came from that repair pass

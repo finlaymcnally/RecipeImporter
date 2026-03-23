@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from cookimport import __version__
 from cookimport.core.models import (
+    AuthoritativeRecipeSemantics,
     ChunkHighlight,
     ChunkLane,
     ConversionReport,
@@ -20,9 +21,7 @@ from cookimport.core.models import (
     KnowledgeChunk,
     RawArtifact,
     RecipeCandidate,
-    TipCandidate,
     TipTags,
-    TopicCandidate,
 )
 from cookimport.parsing.label_source_of_truth import (
     LabelFirstStageResult,
@@ -35,16 +34,20 @@ from cookimport.parsing.step_segmentation import (
     DEFAULT_INSTRUCTION_STEP_SEGMENTER,
     segment_instruction_steps,
 )
-from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
-from cookimport.staging.jsonld import recipe_candidate_to_jsonld
+from cookimport.staging.draft_v1 import (
+    authoritative_recipe_semantics_to_draft_v1,
+    recipe_candidate_to_draft_v1,
+)
+from cookimport.staging.jsonld import (
+    authoritative_recipe_semantics_to_jsonld,
+    recipe_candidate_to_jsonld,
+)
 from cookimport.staging.stage_block_predictions import build_stage_block_predictions
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 _OUTPUT_CATEGORY_INTERMEDIATE = "intermediateDrafts"
 _OUTPUT_CATEGORY_FINAL = "finalDrafts"
-_OUTPUT_CATEGORY_TIPS = "tips"
-_OUTPUT_CATEGORY_TOPIC_CANDIDATES = "topicCandidates"
 _OUTPUT_CATEGORY_CHUNKS = "chunks"
 _OUTPUT_CATEGORY_TABLES = "tables"
 _OUTPUT_CATEGORY_RAW = "rawArtifacts"
@@ -52,6 +55,12 @@ _OUTPUT_CATEGORY_SECTIONS = "sections"
 _OUTPUT_CATEGORY_BENCH = "benchArtifacts"
 _OUTPUT_CATEGORY_NONRECIPE = "nonRecipe"
 _OUTPUT_CATEGORY_KNOWLEDGE = "knowledge"
+_OUTPUT_CATEGORY_RECIPE_AUTHORITY = "recipeAuthority"
+
+NONRECIPE_SEED_ROUTING_FILE_NAME = "08_nonrecipe_seed_routing.json"
+NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME = "08_nonrecipe_review_exclusions.jsonl"
+NONRECIPE_AUTHORITY_FILE_NAME = "09_nonrecipe_authority.json"
+NONRECIPE_REVIEW_STATUS_FILE_NAME = "09_nonrecipe_review_status.json"
 
 _IO_PACE_EVERY_WRITES_ENV = "COOKIMPORT_IO_PACE_EVERY_WRITES"
 _IO_PACE_SLEEP_MS_ENV = "COOKIMPORT_IO_PACE_SLEEP_MS"
@@ -312,56 +321,6 @@ def _ensure_candidate_id(
     return stable_id
 
 
-def _resolve_tip_index(provenance: dict[str, Any]) -> int | None:
-    for key in ("tip_index", "tipIndex", "tip"):
-        if key in provenance:
-            try:
-                return int(provenance[key])
-            except (TypeError, ValueError):
-                return None
-    return None
-
-
-def _ensure_tip_id(
-    tip: TipCandidate,
-    file_hash: str,
-    sheet_slug: str,
-    row_index: int,
-    tip_index: int,
-) -> str:
-    provenance = tip.provenance or {}
-    existing = provenance.get("@id") or provenance.get("id") or tip.identifier
-    if existing:
-        tip.identifier = str(existing)
-        return tip.identifier
-    stable_id = f"urn:recipeimport:tip:{file_hash}:{sheet_slug}:t{row_index}:{tip_index}"
-    tip.identifier = stable_id
-    provenance["@id"] = stable_id
-    provenance.setdefault("converter_version", __version__)
-    tip.provenance = provenance
-    return stable_id
-
-
-def _ensure_topic_id(
-    topic: TopicCandidate,
-    file_hash: str,
-    sheet_slug: str,
-    row_index: int,
-    topic_index: int,
-) -> str:
-    provenance = topic.provenance or {}
-    existing = provenance.get("@id") or provenance.get("id") or topic.identifier
-    if existing:
-        topic.identifier = str(existing)
-        return topic.identifier
-    stable_id = f"urn:recipeimport:topic:{file_hash}:{sheet_slug}:tc{row_index}:{topic_index}"
-    topic.identifier = stable_id
-    provenance["@id"] = stable_id
-    provenance.setdefault("converter_version", __version__)
-    topic.provenance = provenance
-    return stable_id
-
-
 def _ensure_source(results: ConversionResult, candidate: RecipeCandidate) -> None:
     if not candidate.source:
         if results.workbook_path:
@@ -375,6 +334,8 @@ def write_intermediate_outputs(
     out_dir: Path,
     *,
     output_stats: OutputStats | None = None,
+    authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]]
+    | None = None,
     schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     instruction_step_options: Mapping[str, Any] | None = None,
 ) -> None:
@@ -401,6 +362,23 @@ def write_intermediate_outputs(
             jsonld = dict(override_payload)
         elif hasattr(override_payload, "model_dump"):
             jsonld = override_payload.model_dump(mode="json", by_alias=True, exclude_none=True)
+        elif authoritative_payloads_by_recipe_id is not None:
+            authoritative_payload = authoritative_payloads_by_recipe_id.get(candidate.identifier)
+            if authoritative_payload is not None:
+                semantics = (
+                    authoritative_payload
+                    if isinstance(authoritative_payload, AuthoritativeRecipeSemantics)
+                    else AuthoritativeRecipeSemantics.model_validate(authoritative_payload)
+                )
+                jsonld = authoritative_recipe_semantics_to_jsonld(
+                    semantics,
+                    template_candidate=candidate,
+                )
+            else:
+                jsonld = recipe_candidate_to_jsonld(
+                    candidate,
+                    instruction_step_options=instruction_step_options,
+                )
         else:
             jsonld = recipe_candidate_to_jsonld(
                 candidate,
@@ -421,6 +399,8 @@ def write_draft_outputs(
     out_dir: Path,
     *,
     output_stats: OutputStats | None = None,
+    authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]]
+    | None = None,
     draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     ingredient_parser_options: Mapping[str, Any] | None = None,
     instruction_step_options: Mapping[str, Any] | None = None,
@@ -461,6 +441,25 @@ def write_draft_outputs(
                 draft.pop(legacy_alias_key, None)
         elif hasattr(override_payload, "model_dump"):
             draft = override_payload.model_dump(mode="json", by_alias=True, exclude_none=True)
+        elif authoritative_payloads_by_recipe_id is not None:
+            authoritative_payload = authoritative_payloads_by_recipe_id.get(recipe_id)
+            if authoritative_payload is not None:
+                semantics = (
+                    authoritative_payload
+                    if isinstance(authoritative_payload, AuthoritativeRecipeSemantics)
+                    else AuthoritativeRecipeSemantics.model_validate(authoritative_payload)
+                )
+                draft = authoritative_recipe_semantics_to_draft_v1(
+                    semantics,
+                    ingredient_parser_options=ingredient_parser_options,
+                    instruction_step_options=instruction_step_options,
+                )
+            else:
+                draft = recipe_candidate_to_draft_v1(
+                    candidate,
+                    ingredient_parser_options=ingredient_parser_options,
+                    instruction_step_options=instruction_step_options,
+                )
         else:
             draft = recipe_candidate_to_draft_v1(
                 candidate,
@@ -566,6 +565,8 @@ def write_section_outputs(
     output_stats: OutputStats | None = None,
     write_markdown: bool = True,
     instruction_step_options: Mapping[str, Any] | None = None,
+    authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]]
+    | None = None,
 ) -> None:
     """Write grouped ingredient/step section artifacts per recipe."""
     sections_dir = out_dir / "sections" / workbook_slug
@@ -579,12 +580,33 @@ def write_section_outputs(
         ]
 
     for index, candidate in enumerate(candidates):
-        ingredient_sections = extract_ingredient_sections(candidate.ingredients)
-        instruction_texts = _effective_instruction_texts(
-            candidate,
-            instruction_step_options=instruction_step_options,
+        recipe_id = (
+            candidate.provenance.get("@id")
+            or candidate.provenance.get("id")
+            or candidate.identifier
+            or f"r{index}"
         )
-        instruction_sections = extract_instruction_sections(instruction_texts)
+        authoritative_payload = None
+        if authoritative_payloads_by_recipe_id is not None:
+            authoritative_payload = authoritative_payloads_by_recipe_id.get(str(recipe_id))
+        if authoritative_payload is not None:
+            semantics = (
+                authoritative_payload
+                if isinstance(authoritative_payload, AuthoritativeRecipeSemantics)
+                else AuthoritativeRecipeSemantics.model_validate(authoritative_payload)
+            )
+            ingredient_sections = extract_ingredient_sections(list(semantics.ingredients))
+            instruction_sections = extract_instruction_sections(list(semantics.instructions))
+            recipe_title = semantics.title
+            recipe_id = semantics.recipe_id
+        else:
+            ingredient_sections = extract_ingredient_sections(candidate.ingredients)
+            instruction_texts = _effective_instruction_texts(
+                candidate,
+                instruction_step_options=instruction_step_options,
+            )
+            instruction_sections = extract_instruction_sections(instruction_texts)
+            recipe_title = candidate.name
 
         ingredient_by_key: dict[str, list[str]] = {}
         for line, key in zip(
@@ -624,15 +646,9 @@ def write_section_outputs(
                 }
             )
 
-        recipe_id = (
-            candidate.provenance.get("@id")
-            or candidate.provenance.get("id")
-            or candidate.identifier
-            or f"r{index}"
-        )
         payload = {
             "recipe_id": recipe_id,
-            "title": candidate.name,
+            "title": recipe_title,
             "sections": section_entries,
         }
         section_json_path = sections_dir / f"r{index}.sections.json"
@@ -644,7 +660,7 @@ def write_section_outputs(
         )
 
         if markdown_lines is not None:
-            markdown_lines.append(f"## r{index}: {candidate.name}")
+            markdown_lines.append(f"## r{index}: {recipe_title}")
             if not section_entries:
                 markdown_lines.append("")
                 markdown_lines.append("(No section groups detected.)")
@@ -678,292 +694,36 @@ def write_section_outputs(
         )
 
 
-def write_tip_outputs(
-    results: ConversionResult,
-    out_dir: Path,
+def write_authoritative_recipe_semantics(
     *,
+    payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]],
+    out_path: Path,
+    workbook_slug: str,
+    refinement_mode: str,
     output_stats: OutputStats | None = None,
-    write_markdown: bool = True,
-) -> None:
-    """Write tip/knowledge outputs.
-
-    Output path: {out_dir}/t{index}.json
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    general_tips = [
-        tip for tip in results.tips if tip.scope == "general" and tip.standalone
-    ]
-    for index, tip in enumerate(general_tips):
-        provenance = tip.provenance or {}
-        sheet_name = _resolve_sheet_name(provenance)
-        row_index = _resolve_row_index(provenance)
-        tip_index = _resolve_tip_index(provenance)
-        if tip_index is None:
-            tip_index = index
-        sheet_slug = _slugify(sheet_name)
-        file_hash = _resolve_file_hash(results, provenance)
-
-        _ensure_tip_id(tip, file_hash, sheet_slug, row_index, tip_index)
-
-        payload = tip.model_dump(by_alias=True, exclude_none=True)
-        out_path = out_dir / f"t{index}.json"
-        _write_json_payload(
-            payload,
-            out_path,
-            output_stats=output_stats,
-            category=_OUTPUT_CATEGORY_TIPS,
+) -> Path:
+    rows: list[dict[str, Any]] = []
+    for recipe_id in sorted(payloads_by_recipe_id):
+        payload = payloads_by_recipe_id[recipe_id]
+        semantics = (
+            payload
+            if isinstance(payload, AuthoritativeRecipeSemantics)
+            else AuthoritativeRecipeSemantics.model_validate(payload)
         )
-
-    if not write_markdown:
-        return
-
-    summary_path = out_dir / "tips.md"
-    if general_tips:
-        lines = ["# Tip Summary", ""]
-        for group in _group_tip_summaries(general_tips):
-            indices = ", ".join(group["indices"])
-            anchor_text = _format_tip_anchors(
-                _collect_tip_anchors(group["tips"])  # type: ignore[arg-type]
-            )
-            header = f"- {indices}{anchor_text}"
-            lines.append(header)
-            group_header = group.get("header")
-            if group_header:
-                lines.append(f"  {group_header}")
-            for tip_text in group["texts"]:
-                lines.append(f"  {tip_text}")
-        _write_text_payload(
-            "\n".join(lines).strip() + "\n",
-            summary_path,
-            output_stats=output_stats,
-            category=_OUTPUT_CATEGORY_TIPS,
-        )
-    else:
-        _write_text_payload(
-            "# Tip Summary\n\n(No tips generated.)\n",
-            summary_path,
-            output_stats=output_stats,
-            category=_OUTPUT_CATEGORY_TIPS,
-        )
-
-
-def write_topic_candidate_outputs(
-    results: ConversionResult,
-    out_dir: Path,
-    *,
-    output_stats: OutputStats | None = None,
-    write_markdown: bool = True,
-) -> None:
-    """Write topic-candidate outputs for evaluation and LLM prefiltering.
-
-    Output path: {out_dir}/topic_candidates.json, {out_dir}/topic_candidates.md
-    """
-    if not results.topic_candidates:
-        return
-    out_dir.mkdir(parents=True, exist_ok=True)
-    payloads: list[dict[str, Any]] = []
-    for index, topic in enumerate(results.topic_candidates):
-        provenance = topic.provenance or {}
-        sheet_name = _resolve_sheet_name(provenance)
-        row_index = _resolve_row_index(provenance)
-        topic_index = _resolve_tip_index(provenance)
-        if topic_index is None:
-            topic_index = index
-        sheet_slug = _slugify(sheet_name)
-        file_hash = _resolve_file_hash(results, provenance)
-        _ensure_topic_id(topic, file_hash, sheet_slug, row_index, topic_index)
-        payloads.append(topic.model_dump(by_alias=True, exclude_none=True))
-
-    json_path = out_dir / "topic_candidates.json"
+        rows.append(semantics.model_dump(mode="json", by_alias=True, exclude_none=True))
     _write_json_payload(
-        payloads,
-        json_path,
+        {
+            "schema_version": "authoritative_recipe_payloads.v1",
+            "workbook_slug": workbook_slug,
+            "refinement_mode": refinement_mode,
+            "recipe_count": len(rows),
+            "recipes": rows,
+        },
+        out_path,
         output_stats=output_stats,
-        category=_OUTPUT_CATEGORY_TOPIC_CANDIDATES,
+        category=_OUTPUT_CATEGORY_RECIPE_AUTHORITY,
     )
-
-    if not write_markdown:
-        return
-
-    lines = [
-        "# Topic Candidates",
-        "",
-        "_These are standalone atom-level snippets captured before tip classification. Use for evaluation/LLM prefiltering._",
-        "",
-    ]
-    for index, topic in enumerate(results.topic_candidates):
-        anchors = _format_tip_anchors(_collect_tip_anchors([topic]))
-        provenance = topic.provenance or {}
-        atom_meta = provenance.get("atom") if isinstance(provenance, dict) else None
-        atom_kind = None
-        if isinstance(atom_meta, dict):
-            atom_kind = atom_meta.get("kind")
-        kind_suffix = f" ({atom_kind})" if atom_kind else ""
-        lines.append(f"- tc{index}{anchors}{kind_suffix}")
-        header = _normalize_topic_header(topic.header or provenance.get("topic_header"))
-        if header and header != topic.text:
-            lines.append(f"  {header}")
-        lines.append(f"  {topic.text}")
-        if isinstance(atom_meta, dict):
-            context_prev = _truncate_context(atom_meta.get("context_prev"))
-            context_next = _truncate_context(atom_meta.get("context_next"))
-            if context_prev:
-                lines.append(f"  prev: {context_prev}")
-            if context_next:
-                lines.append(f"  next: {context_next}")
-    md_path = out_dir / "topic_candidates.md"
-    _write_text_payload(
-        "\n".join(lines).strip() + "\n",
-        md_path,
-        output_stats=output_stats,
-        category=_OUTPUT_CATEGORY_TOPIC_CANDIDATES,
-    )
-
-
-_GENERIC_TIP_HEADERS = {
-    "tip",
-    "tips",
-    "note",
-    "notes",
-    "hint",
-    "hints",
-    "pro tip",
-    "pro tips",
-}
-
-
-def _normalize_topic_header(header: Any) -> str | None:
-    if not header:
-        return None
-    cleaned = str(header).strip()
-    if not cleaned:
-        return None
-    if cleaned.lower() in _GENERIC_TIP_HEADERS:
-        return None
-    return cleaned
-
-
-def _truncate_context(value: Any, limit: int = 140) -> str | None:
-    if not value:
-        return None
-    cleaned = " ".join(str(value).split())
-    if not cleaned:
-        return None
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: max(limit - 3, 0)] + "..."
-
-
-def _group_tip_summaries(tips: list[TipCandidate]) -> list[dict[str, object]]:
-    groups: list[dict[str, object]] = []
-    current: dict[str, object] | None = None
-    for index, tip in enumerate(tips):
-        key = _tip_summary_key(tip)
-        if current is None or current["key"] != key:
-            header = _tip_summary_header(tip)
-            current = {
-                "key": key,
-                "indices": [f"t{index}"],
-                "texts": [tip.text],
-                "tips": [tip],
-                "header": header,
-            }
-            groups.append(current)
-        else:
-            current["indices"].append(f"t{index}")
-            current["texts"].append(tip.text)
-            current["tips"].append(tip)
-    return groups
-
-
-def _tip_summary_key(tip: TipCandidate) -> tuple:
-    provenance = tip.provenance or {}
-    location = provenance.get("location", {}) if isinstance(provenance, dict) else {}
-    header = _tip_summary_header(tip)
-    block_index = location.get("block_index")
-    start_block = location.get("start_block")
-    end_block = location.get("end_block")
-    chunk_index = location.get("chunk_index")
-    return (
-        tip.source_recipe_id,
-        block_index,
-        start_block,
-        end_block,
-        chunk_index,
-        header,
-    )
-
-
-def _tip_summary_header(tip: TipCandidate) -> str | None:
-    provenance = tip.provenance or {}
-    header = (
-        provenance.get("topic_header")
-        or provenance.get("topicHeader")
-        or provenance.get("tip_header")
-        or provenance.get("tipHeader")
-    )
-    if not header:
-        return None
-    cleaned = str(header).strip()
-    if not cleaned:
-        return None
-    if cleaned.lower() in _GENERIC_TIP_HEADERS:
-        return None
-    return cleaned
-
-
-def _collect_tip_anchors(tips: list[TipCandidate | TopicCandidate]) -> dict[str, list[str]]:
-    anchors = {
-        "dishes": [],
-        "ingredients": [],
-        "techniques": [],
-        "cooking_methods": [],
-        "tools": [],
-    }
-
-    def add_unique(target: list[str], values: list[str]) -> None:
-        for value in values:
-            if value not in target:
-                target.append(value)
-
-    for tip in tips:
-        tags = tip.tags
-        add_unique(anchors["dishes"], list(tags.dishes))
-        ingredient_values = (
-            list(tags.meats)
-            + list(tags.vegetables)
-            + list(tags.herbs)
-            + list(tags.spices)
-            + list(tags.dairy)
-            + list(tags.grains)
-            + list(tags.legumes)
-            + list(tags.fruits)
-            + list(tags.sweeteners)
-            + list(tags.oils_fats)
-        )
-        add_unique(anchors["ingredients"], ingredient_values)
-        add_unique(anchors["techniques"], list(tags.techniques))
-        add_unique(anchors["cooking_methods"], list(tags.cooking_methods))
-        add_unique(anchors["tools"], list(tags.tools))
-
-    return anchors
-
-
-def _format_tip_anchors(anchors: dict[str, list[str]]) -> str:
-    parts: list[str] = []
-    if anchors.get("dishes"):
-        parts.append(f"dish: {', '.join(anchors['dishes'])}")
-    if anchors.get("ingredients"):
-        parts.append(f"ingredients: {', '.join(anchors['ingredients'])}")
-    if anchors.get("techniques"):
-        parts.append(f"techniques: {', '.join(anchors['techniques'])}")
-    if anchors.get("cooking_methods"):
-        parts.append(f"methods: {', '.join(anchors['cooking_methods'])}")
-    if anchors.get("tools"):
-        parts.append(f"tools: {', '.join(anchors['tools'])}")
-    if not parts:
-        return ""
-    return " [" + "; ".join(parts) + "]"
+    return out_path
 
 
 def write_raw_artifacts(
@@ -1179,138 +939,126 @@ def write_nonrecipe_stage_outputs(
     *,
     output_stats: OutputStats | None = None,
 ) -> Path:
-    path = output_dir / "08_nonrecipe_spans.json"
-    exclusion_ledger_path = output_dir / "08_nonrecipe_review_exclusions.jsonl"
+    path = write_nonrecipe_seed_routing_artifact(
+        stage_result,
+        output_dir,
+        output_stats=output_stats,
+    )
+    write_nonrecipe_review_exclusions_ledger(
+        stage_result,
+        output_dir,
+        output_stats=output_stats,
+    )
+    return path
+
+
+def _block_id_for_stage_result(
+    stage_result: NonRecipeStageResult,
+    block_index: int,
+) -> str:
+    for span in (
+        list(stage_result.nonrecipe_spans)
+        + list(stage_result.review_eligible_nonrecipe_spans)
+        + list(stage_result.review_excluded_other_spans)
+    ):
+        for candidate_index, block_id in zip(span.block_indices, span.block_ids, strict=False):
+            if int(candidate_index) == int(block_index):
+                return str(block_id)
+    return f"b{int(block_index)}"
+
+
+def _serialize_nonrecipe_span(span: Any) -> dict[str, Any]:
+    return {
+        "span_id": span.span_id,
+        "category": span.category,
+        "block_start_index": span.block_start_index,
+        "block_end_index": span.block_end_index,
+        "block_indices": list(span.block_indices),
+        "block_ids": list(span.block_ids),
+    }
+
+
+def _knowledge_counts_for_block_map(block_category_by_index: Mapping[int, str]) -> dict[str, int]:
+    return {
+        "knowledge_blocks": sum(
+            1 for category in block_category_by_index.values() if category == "knowledge"
+        ),
+        "other_blocks": sum(
+            1 for category in block_category_by_index.values() if category == "other"
+        ),
+    }
+
+
+def write_nonrecipe_seed_routing_artifact(
+    stage_result: NonRecipeStageResult,
+    output_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    path = output_dir / NONRECIPE_SEED_ROUTING_FILE_NAME
     seed_nonrecipe_spans = list(stage_result.seed_nonrecipe_spans or [])
     seed_knowledge_spans = list(stage_result.seed_knowledge_spans or [])
     seed_other_spans = list(stage_result.seed_other_spans or [])
     seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
-    authoritative_block_category_by_index = (
-        stage_result.authoritative_block_category_by_index()
-    )
-    unreviewed_block_category_by_index = stage_result.unreviewed_block_category_by_index()
     payload = {
-        "schema_version": "nonrecipe_spans.v4",
+        "schema_version": "nonrecipe_seed_routing.v1",
         "counts": {
-            "nonrecipe_spans": len(stage_result.nonrecipe_spans),
-            "knowledge_spans": len(stage_result.knowledge_spans),
-            "other_spans": len(stage_result.other_spans),
-            "knowledge_blocks": sum(
-                1 for category in stage_result.block_category_by_index.values()
-                if category == "knowledge"
-            ),
-            "other_blocks": sum(
-                1 for category in stage_result.block_category_by_index.values()
-                if category == "other"
-            ),
+            "seed_nonrecipe_spans": len(seed_nonrecipe_spans),
+            "seed_knowledge_spans": len(seed_knowledge_spans),
+            "seed_other_spans": len(seed_other_spans),
+            **_knowledge_counts_for_block_map(seed_block_category_by_index),
             "review_eligible_nonrecipe_spans": len(stage_result.review_eligible_nonrecipe_spans),
             "review_eligible_other_spans": len(stage_result.review_eligible_other_spans),
             "review_excluded_other_spans": len(stage_result.review_excluded_other_spans),
             "review_eligible_blocks": len(stage_result.review_eligible_block_indices),
             "review_excluded_blocks": len(stage_result.review_excluded_block_indices),
-            "final_authority_blocks": len(stage_result.final_authority_block_indices),
-            "unreviewed_review_eligible_blocks": len(
-                stage_result.unreviewed_review_eligible_block_indices
-            ),
             "warnings": len(stage_result.warnings),
         },
-        "seed_counts": {
-            "nonrecipe_spans": len(seed_nonrecipe_spans),
-            "knowledge_spans": len(seed_knowledge_spans),
-            "other_spans": len(seed_other_spans),
-            "knowledge_blocks": sum(
-                1 for category in seed_block_category_by_index.values()
-                if category == "knowledge"
-            ),
-            "other_blocks": sum(
-                1 for category in seed_block_category_by_index.values()
-                if category == "other"
-            ),
-        },
         "warnings": list(stage_result.warnings),
-        "authority_mode": str(
-            stage_result.refinement_report.get("authority_mode")
-            or "deterministic_seed_only"
-        ),
-        "scored_effect": str(
-            stage_result.refinement_report.get("scored_effect")
-            or "seed_only"
-        ),
         "review_routing_by_block": {
             str(index): route
             for index, route in sorted(stage_result.review_routing_by_block.items())
         },
         "review_eligible_block_indices": list(stage_result.review_eligible_block_indices),
         "review_excluded_block_indices": list(stage_result.review_excluded_block_indices),
-        "final_authority_block_indices": list(stage_result.final_authority_block_indices),
-        "unreviewed_review_eligible_block_indices": list(
-            stage_result.unreviewed_review_eligible_block_indices
-        ),
         "review_exclusion_reason_by_block": {
             str(index): reason
             for index, reason in sorted(stage_result.review_exclusion_reason_by_block.items())
-        },
-        "block_category_by_index": {
-            str(index): category
-            for index, category in sorted(stage_result.block_category_by_index.items())
         },
         "seed_block_category_by_index": {
             str(index): category
             for index, category in sorted(seed_block_category_by_index.items())
         },
-        "authoritative_block_category_by_index": {
+        "review_eligible_seed_block_category_by_index": {
             str(index): category
-            for index, category in sorted(authoritative_block_category_by_index.items())
+            for index, category in sorted(
+                stage_result.review_eligible_seed_block_category_by_index().items()
+            )
         },
-        "unreviewed_block_category_by_index": {
-            str(index): category
-            for index, category in sorted(unreviewed_block_category_by_index.items())
-        },
-        "spans": [
-            {
-                "span_id": span.span_id,
-                "category": span.category,
-                "block_start_index": span.block_start_index,
-                "block_end_index": span.block_end_index,
-                "block_indices": list(span.block_indices),
-                "block_ids": list(span.block_ids),
-            }
-            for span in stage_result.nonrecipe_spans
-        ],
         "seed_spans": [
-            {
-                "span_id": span.span_id,
-                "category": span.category,
-                "block_start_index": span.block_start_index,
-                "block_end_index": span.block_end_index,
-                "block_indices": list(span.block_indices),
-                "block_ids": list(span.block_ids),
-            }
+            _serialize_nonrecipe_span(span)
             for span in seed_nonrecipe_spans
         ],
+        "seed_knowledge_spans": [
+            _serialize_nonrecipe_span(span)
+            for span in seed_knowledge_spans
+        ],
+        "seed_other_spans": [
+            _serialize_nonrecipe_span(span)
+            for span in seed_other_spans
+        ],
         "review_eligible_spans": [
-            {
-                "span_id": span.span_id,
-                "category": span.category,
-                "block_start_index": span.block_start_index,
-                "block_end_index": span.block_end_index,
-                "block_indices": list(span.block_indices),
-                "block_ids": list(span.block_ids),
-            }
+            _serialize_nonrecipe_span(span)
             for span in stage_result.review_eligible_nonrecipe_spans
         ],
         "review_excluded_other_spans": [
-            {
-                "span_id": span.span_id,
-                "category": span.category,
-                "block_start_index": span.block_start_index,
-                "block_end_index": span.block_end_index,
-                "block_indices": list(span.block_indices),
-                "block_ids": list(span.block_ids),
-            }
+            _serialize_nonrecipe_span(span)
             for span in stage_result.review_excluded_other_spans
         ],
-        "refinement_report": dict(stage_result.refinement_report),
+        "block_preview_by_index": {
+            str(index): preview
+            for index, preview in sorted(stage_result.block_preview_by_index.items())
+        },
     }
     _write_json_payload(
         payload,
@@ -1318,6 +1066,16 @@ def write_nonrecipe_stage_outputs(
         output_stats=output_stats,
         category=_OUTPUT_CATEGORY_NONRECIPE,
     )
+    return path
+
+
+def write_nonrecipe_review_exclusions_ledger(
+    stage_result: NonRecipeStageResult,
+    output_dir: Path,
+    *,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    exclusion_ledger_path = output_dir / NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME
     exclusion_rows = [
         {
             "block_index": int(block_index),
@@ -1340,25 +1098,91 @@ def write_nonrecipe_stage_outputs(
         output_stats=output_stats,
         category=_OUTPUT_CATEGORY_NONRECIPE,
     )
-    return path
-
-
-def _block_id_for_stage_result(
-    stage_result: NonRecipeStageResult,
-    block_index: int,
-) -> str:
-    for span in (
-        list(stage_result.nonrecipe_spans)
-        + list(stage_result.review_eligible_nonrecipe_spans)
-        + list(stage_result.review_excluded_other_spans)
-    ):
-        for candidate_index, block_id in zip(span.block_indices, span.block_ids, strict=False):
-            if int(candidate_index) == int(block_index):
-                return str(block_id)
-    return f"b{int(block_index)}"
+    return exclusion_ledger_path
 
 
 def write_knowledge_outputs_artifact(
+    *,
+    run_root: Path,
+    stage_result: NonRecipeStageResult,
+    llm_report: Mapping[str, Any] | None,
+    snippet_records: list[dict[str, Any]] | None,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    write_nonrecipe_authority_artifact(
+        run_root=run_root,
+        stage_result=stage_result,
+        output_stats=output_stats,
+    )
+    return write_nonrecipe_review_status_artifact(
+        run_root=run_root,
+        stage_result=stage_result,
+        llm_report=llm_report,
+        snippet_records=snippet_records,
+        output_stats=output_stats,
+    )
+
+
+def write_nonrecipe_authority_artifact(
+    *,
+    run_root: Path,
+    stage_result: NonRecipeStageResult,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
+    authoritative_block_category_by_index = (
+        stage_result.authoritative_block_category_by_index()
+    )
+    authoritative_spans = stage_result.authoritative_nonrecipe_spans()
+    authoritative_knowledge_spans = stage_result.authoritative_knowledge_spans()
+    authoritative_other_spans = stage_result.authoritative_other_spans()
+    payload = {
+        "schema_version": "nonrecipe_authority.v1",
+        "authority_mode": str(
+            stage_result.refinement_report.get("authority_mode")
+            or "deterministic_seed_only"
+        ),
+        "scored_effect": str(
+            stage_result.refinement_report.get("scored_effect")
+            or "seed_only"
+        ),
+        "counts": {
+            "authoritative_nonrecipe_spans": len(authoritative_spans),
+            "authoritative_knowledge_spans": len(authoritative_knowledge_spans),
+            "authoritative_other_spans": len(authoritative_other_spans),
+            "final_authority_blocks": len(stage_result.final_authority_block_indices),
+            **_knowledge_counts_for_block_map(authoritative_block_category_by_index),
+            "warnings": len(stage_result.warnings),
+        },
+        "final_authority_block_indices": list(stage_result.final_authority_block_indices),
+        "authoritative_block_category_by_index": {
+            str(index): category
+            for index, category in sorted(authoritative_block_category_by_index.items())
+        },
+        "authoritative_spans": [
+            _serialize_nonrecipe_span(span)
+            for span in authoritative_spans
+        ],
+        "authoritative_knowledge_spans": [
+            _serialize_nonrecipe_span(span)
+            for span in authoritative_knowledge_spans
+        ],
+        "authoritative_other_spans": [
+            _serialize_nonrecipe_span(span)
+            for span in authoritative_other_spans
+        ],
+        "warnings": list(stage_result.warnings),
+    }
+    _write_json_payload(
+        payload,
+        path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_NONRECIPE,
+    )
+    return path
+
+
+def write_nonrecipe_review_status_artifact(
     *,
     run_root: Path,
     stage_result: NonRecipeStageResult,
@@ -1374,35 +1198,36 @@ def write_knowledge_outputs_artifact(
                 str(key): raw_counts.get(key)
                 for key in raw_counts
             }
-    path = run_root / "09_knowledge_outputs.json"
-    seed_nonrecipe_spans = list(stage_result.seed_nonrecipe_spans or [])
-    seed_knowledge_spans = list(stage_result.seed_knowledge_spans or [])
-    seed_other_spans = list(stage_result.seed_other_spans or [])
-    seed_block_category_by_index = dict(stage_result.seed_block_category_by_index or {})
-    authoritative_block_category_by_index = (
-        stage_result.authoritative_block_category_by_index()
-    )
+    path = run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
     unreviewed_block_category_by_index = stage_result.unreviewed_block_category_by_index()
+    review_excluded_index_set = {
+        int(index) for index in stage_result.review_excluded_block_indices
+    }
+    reviewed_block_indices = sorted(
+        int(index)
+        for index in stage_result.final_authority_block_indices
+        if int(index) not in review_excluded_index_set
+    )
+    changed_block_indices = [
+        int(row.get("block_index"))
+        for row in (stage_result.refinement_report.get("changed_blocks") or [])
+        if isinstance(row, dict) and row.get("block_index") is not None
+    ]
+    review_status = str((llm_report or {}).get("review_status") or "").strip()
+    if not review_status:
+        review_status = "not_run" if not bool((llm_report or {}).get("enabled")) else "unknown"
     payload = {
-        "schema_version": "knowledge_outputs.v3",
+        "schema_version": "nonrecipe_review_status.v1",
         "input_mode": str(
             (llm_report or {}).get("input_mode")
             or "stage7_review_eligible_nonrecipe_spans"
         ),
+        "review_status": review_status,
+        "stage_status": str((llm_report or {}).get("stage_status") or ""),
         "counts": {
-            "nonrecipe_spans": len(stage_result.nonrecipe_spans),
-            "knowledge_spans": len(stage_result.knowledge_spans),
-            "other_spans": len(stage_result.other_spans),
-            "knowledge_blocks": sum(
-                1 for category in stage_result.block_category_by_index.values()
-                if category == "knowledge"
-            ),
-            "other_blocks": sum(
-                1 for category in stage_result.block_category_by_index.values()
-                if category == "other"
-            ),
             "review_eligible_blocks": len(stage_result.review_eligible_block_indices),
             "review_excluded_blocks": len(stage_result.review_excluded_block_indices),
+            "reviewed_blocks": len(reviewed_block_indices),
             "final_authority_blocks": len(stage_result.final_authority_block_indices),
             "unreviewed_review_eligible_blocks": len(
                 stage_result.unreviewed_review_eligible_block_indices
@@ -1414,19 +1239,6 @@ def write_knowledge_outputs_artifact(
             "snippets_written": int(counts.get("snippets_written") or 0),
             "decisions_applied": int(counts.get("decisions_applied") or 0),
             "changed_blocks": int(counts.get("changed_blocks") or 0),
-        },
-        "seed_counts": {
-            "nonrecipe_spans": len(seed_nonrecipe_spans),
-            "knowledge_spans": len(seed_knowledge_spans),
-            "other_spans": len(seed_other_spans),
-            "knowledge_blocks": sum(
-                1 for category in seed_block_category_by_index.values()
-                if category == "knowledge"
-            ),
-            "other_blocks": sum(
-                1 for category in seed_block_category_by_index.values()
-                if category == "other"
-            ),
         },
         "reason_code_counts": dict(
             ((llm_report or {}).get("refinement_report") or {}).get("reason_code_counts") or {}
@@ -1451,47 +1263,31 @@ def write_knowledge_outputs_artifact(
             or stage_result.refinement_report.get("scored_effect")
             or "seed_only"
         ),
-        "knowledge_spans": [
-            {
-                "span_id": span.span_id,
-                "block_start_index": span.block_start_index,
-                "block_end_index": span.block_end_index,
-                "block_indices": list(span.block_indices),
-                "block_ids": list(span.block_ids),
-            }
-            for span in stage_result.knowledge_spans
-        ],
-        "seed_knowledge_spans": [
-            {
-                "span_id": span.span_id,
-                "block_start_index": span.block_start_index,
-                "block_end_index": span.block_end_index,
-                "block_indices": list(span.block_indices),
-                "block_ids": list(span.block_ids),
-            }
-            for span in seed_knowledge_spans
-        ],
         "artifact_paths": dict((llm_report or {}).get("paths") or {}),
         "missing_chunk_ids": list((llm_report or {}).get("missing_chunk_ids") or []),
+        "review_summary": dict((llm_report or {}).get("review_summary") or {}),
         "review_routing_by_block": {
             str(index): route
             for index, route in sorted(stage_result.review_routing_by_block.items())
         },
-        "final_authority_block_indices": list(stage_result.final_authority_block_indices),
+        "review_eligible_block_indices": list(stage_result.review_eligible_block_indices),
+        "review_excluded_block_indices": list(stage_result.review_excluded_block_indices),
+        "reviewed_block_indices": reviewed_block_indices,
         "unreviewed_review_eligible_block_indices": list(
             stage_result.unreviewed_review_eligible_block_indices
         ),
-        "authoritative_block_category_by_index": {
-            str(index): category
-            for index, category in sorted(authoritative_block_category_by_index.items())
-        },
         "unreviewed_block_category_by_index": {
             str(index): category
             for index, category in sorted(unreviewed_block_category_by_index.items())
         },
+        "unreviewed_spans": [
+            _serialize_nonrecipe_span(span)
+            for span in stage_result.unreviewed_nonrecipe_spans()
+        ],
+        "changed_block_indices": changed_block_indices,
         "warnings": list(stage_result.warnings),
         "refinement_report": dict(stage_result.refinement_report),
-        "snippets": list(snippet_records or []),
+        "snippets_written": len(snippet_records or []),
     }
     _write_json_payload(
         payload,

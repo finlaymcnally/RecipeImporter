@@ -46,7 +46,7 @@ Active importer families:
 - RecipeSage
 - webschema
 
-Importer conversion returns a `ConversionResult` with recipe candidates, tips, topic candidates, non-recipe material, raw artifacts, and a conversion report.
+Importer conversion returns a `ConversionResult` with recipe candidates, optional chunks, non-recipe material, raw artifacts, and a conversion report.
 
 ### 2.2 Label-first staging is now the authority boundary
 

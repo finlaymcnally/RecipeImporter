@@ -16,6 +16,10 @@ from cookimport.core.models import (
     RecipeCandidate,
 )
 from cookimport.core.reporting import ProvenanceBuilder, generate_recipe_id
+from cookimport.core.source_model import (
+    resolve_conversion_source_model,
+    source_blocks_to_rows,
+)
 from cookimport.labelstudio.archive import build_extracted_archive
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
@@ -28,10 +32,6 @@ from cookimport.parsing.canonical_line_roles import (
     label_atomic_lines_with_baseline,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
-from cookimport.parsing.tips import (
-    extract_tip_candidates_from_candidate,
-    partition_tip_candidates,
-)
 
 _RECIPE_LOCAL_LABELS = {
     "RECIPE_TITLE",
@@ -366,17 +366,11 @@ def build_conversion_result_from_label_spans(
         report.warnings.append(label_warning)
 
     recipes: list[RecipeCandidate] = []
-    tip_candidates: list[Any] = []
     provenance_builder = ProvenanceBuilder(
         source_file=source_file.name,
         source_hash=source_hash,
         extraction_method="label_first_stage2",
     )
-    overrides = None
-    if run_settings is not None:
-        raw_overrides = getattr(run_settings, "parsing_overrides", None)
-        if isinstance(raw_overrides, dict):
-            overrides = raw_overrides
 
     accepted_recipe_spans: list[RecipeSpan] = []
     decision_by_span_id = {row.span_id: row for row in span_decisions}
@@ -427,12 +421,9 @@ def build_conversion_result_from_label_spans(
                 warnings=list(span.warnings),
                 escalation_reasons=list(span.escalation_reasons),
                 decision_notes=list(span.decision_notes),
-            )
+        )
         )
         recipes.append(recipe)
-        tip_candidates.extend(
-            extract_tip_candidates_from_candidate(recipe, overrides=overrides)
-        )
 
     accepted_span_ids = {row.span_id for row in accepted_recipe_spans}
     for decision in span_decisions:
@@ -457,13 +448,11 @@ def build_conversion_result_from_label_spans(
         if int(row.source_block_index) not in block_ids_in_recipe
     ]
 
-    tips, _recipe_specific, _not_tips = partition_tip_candidates(tip_candidates)
     updated_result = ConversionResult(
         source=original_result.source,
         recipes=recipes,
-        tips=tips,
-        tip_candidates=list(tip_candidates),
-        topic_candidates=list(original_result.topic_candidates),
+        source_blocks=list(original_result.source_blocks),
+        source_support=list(original_result.source_support),
         chunks=list(original_result.chunks),
         non_recipe_blocks=non_recipe_blocks,
         raw_artifacts=list(original_result.raw_artifacts),
@@ -672,35 +661,11 @@ def _archive_block_rows(
     conversion_result: ConversionResult,
     full_blocks: Sequence[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    if full_blocks:
-        rows: list[dict[str, Any]] = []
-        for fallback_index, block in enumerate(full_blocks):
-            if not isinstance(block, dict):
-                continue
-            row = dict(block)
-            row.setdefault("index", fallback_index)
-            row.setdefault("block_id", f"block:{row['index']}")
-            rows.append(row)
-        rows.sort(key=lambda row: int(row.get("index", 0)))
-        return rows
-
-    archive = build_extracted_archive(
+    resolved_blocks, _resolved_support = resolve_conversion_source_model(
         conversion_result,
-        list(conversion_result.raw_artifacts),
+        full_blocks=full_blocks,
     )
-    rows: list[dict[str, Any]] = []
-    for block in archive:
-        rows.append(
-            {
-                "index": int(block.index),
-                "block_id": str(block.location.get("block_id") or f"block:{block.index}"),
-                "text": str(block.text or ""),
-                "location": dict(block.location or {}),
-                "source_kind": block.source_kind,
-            }
-        )
-    rows.sort(key=lambda row: int(row.get("index", 0)))
-    return rows
+    return source_blocks_to_rows(resolved_blocks)
 
 
 def _atomize_archive_blocks(

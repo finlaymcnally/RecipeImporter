@@ -3,7 +3,12 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from cookimport.core.models import HowToStep, RecipeCandidate, RecipeComment
+from cookimport.core.models import (
+    AuthoritativeRecipeSemantics,
+    HowToStep,
+    RecipeCandidate,
+    RecipeComment,
+)
 from cookimport.parsing.ingredients import (
     normalize_ingredient_parser_options,
     parse_ingredient_line,
@@ -414,6 +419,59 @@ def _convert_instruction(instruction: str | HowToStep) -> str:
     return str(instruction)
 
 
+def _candidate_source_block_indices(candidate: RecipeCandidate) -> list[int]:
+    provenance = candidate.provenance if isinstance(candidate.provenance, Mapping) else {}
+    explicit = provenance.get("block_indices")
+    if isinstance(explicit, list):
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for item in explicit:
+            try:
+                rendered = int(item)
+            except (TypeError, ValueError):
+                continue
+            if rendered in seen:
+                continue
+            seen.add(rendered)
+            normalized.append(rendered)
+        return normalized
+    location = provenance.get("location")
+    if not isinstance(location, Mapping):
+        return []
+    try:
+        start = int(location.get("start_block"))
+        end = int(location.get("end_block"))
+    except (TypeError, ValueError):
+        return []
+    if end < start:
+        return []
+    return list(range(start, end + 1))
+
+
+def _mapping_from_assignment_debug(debug: Any) -> dict[str, list[int]]:
+    assignments = getattr(debug, "assignments", None)
+    if not isinstance(assignments, list):
+        return {}
+    mapping: dict[str, list[int]] = {}
+    for assignment in assignments:
+        ingredient_index = getattr(assignment, "ingredient_index", None)
+        if not isinstance(ingredient_index, int) or ingredient_index < 0:
+            continue
+        assigned_steps = getattr(assignment, "assigned_steps", None)
+        if not isinstance(assigned_steps, list):
+            continue
+        normalized_steps: list[int] = []
+        seen_steps: set[int] = set()
+        for step_index in assigned_steps:
+            if not isinstance(step_index, int) or step_index < 0 or step_index in seen_steps:
+                continue
+            seen_steps.add(step_index)
+            normalized_steps.append(step_index)
+        if normalized_steps:
+            mapping[str(ingredient_index)] = normalized_steps
+    return mapping
+
+
 def _resolve_instruction_step_segmentation_options(
     options: Mapping[str, Any] | None,
 ) -> tuple[str, str]:
@@ -439,6 +497,247 @@ def _resolve_instruction_step_segmentation_options(
         )
     ).strip().lower().replace("-", "_")
     return (policy, segmenter)
+
+
+def build_authoritative_recipe_semantics(
+    candidate: RecipeCandidate,
+    *,
+    semantic_authority: str,
+    ingredient_parser_options: Mapping[str, Any] | None = None,
+    instruction_step_options: Mapping[str, Any] | None = None,
+    ingredient_step_mapping_override: Mapping[str, Any] | None = None,
+    ingredient_step_mapping_reason: str | None = None,
+) -> AuthoritativeRecipeSemantics:
+    recipe_title = candidate.name.strip() if candidate.name else ""
+    if not recipe_title:
+        recipe_title = _UNTITLED_RECIPE_TITLE
+
+    notes: list[str] = []
+    if candidate.source_url:
+        notes.append(f"Source: {candidate.source_url}")
+    notes.extend(extract_recipe_specific_notes(candidate))
+
+    raw_instructions = candidate.instructions or ["See original recipe for details."]
+    instruction_texts = [_convert_instruction(instr) for instr in raw_instructions]
+    segmentation_policy, segmentation_backend = _resolve_instruction_step_segmentation_options(
+        instruction_step_options
+    )
+    instruction_texts = segment_instruction_steps(
+        instruction_texts,
+        policy=segmentation_policy,
+        backend=segmentation_backend,
+    )
+    variants, instruction_texts = _split_variants(instruction_texts)
+    instruction_sections = extract_instruction_sections(instruction_texts)
+    instruction_texts = instruction_sections.lines_no_headers
+    if not instruction_texts:
+        instruction_texts = ["See original recipe for details."]
+
+    parser_options = normalize_ingredient_parser_options(ingredient_parser_options)
+    all_ingredient_lines = [
+        _convert_ingredient(ing, parser_options=parser_options)
+        for ing in candidate.ingredients
+    ]
+    ingredient_section_key_by_line = _derive_ingredient_section_keys(all_ingredient_lines)
+    step_section_key_by_step = instruction_sections.section_key_by_line or [
+        _DEFAULT_SECTION_KEY
+        for _ in instruction_texts
+    ]
+
+    if isinstance(ingredient_step_mapping_override, Mapping):
+        normalized_mapping = _normalize_mapping_override(
+            ingredient_step_mapping_override,
+            ingredient_count=len(all_ingredient_lines),
+            step_count=len(instruction_texts),
+        )
+        ingredient_step_mapping = {
+            str(ingredient_index): list(step_indexes)
+            for ingredient_index, step_indexes in normalized_mapping.items()
+            if step_indexes
+        }
+    else:
+        _, assignment_debug = assign_ingredient_lines_to_steps(
+            instruction_texts,
+            all_ingredient_lines,
+            ingredient_section_key_by_line=ingredient_section_key_by_line,
+            step_section_key_by_step=step_section_key_by_step,
+            debug=True,
+        )
+        ingredient_step_mapping = _mapping_from_assignment_debug(assignment_debug)
+
+    recipe_id = str(
+        candidate.provenance.get("@id")
+        or candidate.provenance.get("id")
+        or candidate.identifier
+        or ""
+    ).strip()
+    if not recipe_id:
+        recipe_id = f"untitled:{recipe_title.lower().replace(' ', '_')}"
+
+    return AuthoritativeRecipeSemantics(
+        recipeId=recipe_id,
+        semanticAuthority=semantic_authority,
+        sourceBlockIndices=_candidate_source_block_indices(candidate),
+        title=recipe_title,
+        ingredients=list(candidate.ingredients),
+        instructions=instruction_texts,
+        description=candidate.description,
+        notes=notes,
+        recipeYield=candidate.recipe_yield,
+        variants=variants,
+        tags=list(candidate.tags),
+        ingredientStepMapping=ingredient_step_mapping,
+        ingredientStepMappingReason=ingredient_step_mapping_reason,
+        source=_normalize_nonempty_text(candidate.source),
+        confidence=candidate.confidence,
+        provenance=dict(candidate.provenance),
+    )
+
+
+def _yield_candidate_from_authoritative_semantics(
+    payload: AuthoritativeRecipeSemantics,
+) -> RecipeCandidate:
+    return RecipeCandidate(
+        name=payload.title,
+        recipeIngredient=list(payload.ingredients),
+        recipeInstructions=list(payload.instructions),
+        description=payload.description,
+        recipeYield=payload.recipe_yield,
+        comment=[RecipeComment(text=text) for text in payload.notes],
+    )
+
+
+def authoritative_recipe_semantics_to_draft_v1(
+    payload: AuthoritativeRecipeSemantics,
+    *,
+    ingredient_parser_options: Mapping[str, Any] | None = None,
+    instruction_step_options: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    recipe_meta: dict[str, Any] = {
+        "title": payload.title,
+        "description": payload.description,
+        "notes": "\n".join(payload.notes) if payload.notes else None,
+        "confidence": payload.confidence,
+    }
+    if payload.tags:
+        recipe_meta["tags"] = list(payload.tags)
+    if payload.variants:
+        recipe_meta["variants"] = list(payload.variants)
+
+    yield_fields = derive_yield_fields(
+        _yield_candidate_from_authoritative_semantics(payload),
+        payload=instruction_step_options,
+    )
+    yield_debug = yield_fields.pop("_p6_yield_debug", None)
+    recipe_meta.update(yield_fields)
+
+    parser_options = normalize_ingredient_parser_options(ingredient_parser_options)
+    all_ingredient_lines = [
+        _convert_ingredient(ing, parser_options=parser_options)
+        for ing in payload.ingredients
+    ]
+    step_ingredient_lines, assigned_indices = _build_step_lines_from_mapping_override(
+        all_ingredient_lines=all_ingredient_lines,
+        mapping_override=payload.ingredient_step_mapping,
+        step_count=len(payload.instructions),
+    )
+
+    instruction_parse_options = normalize_instruction_parse_options(instruction_step_options)
+    emit_p6_metadata_debug = _resolve_p6_emit_metadata_debug(instruction_step_options)
+    p6_step_debug: list[dict[str, Any]] = []
+    total_step_time_seconds = 0
+    max_oven_temp_f: int | None = None
+    steps_data: list[dict[str, Any]] = []
+    for idx, text in enumerate(payload.instructions):
+        step_ingredients_raw = step_ingredient_lines[idx] if idx < len(step_ingredient_lines) else []
+        step_ingredients = _sanitize_staging_lines(step_ingredients_raw)
+        instr_meta = parse_instruction(text, options=instruction_parse_options)
+        step_entry: dict[str, Any] = {
+            "instruction": text,
+            "ingredient_lines": step_ingredients,
+        }
+        if instr_meta.total_time_seconds is not None:
+            step_entry["time_seconds"] = instr_meta.total_time_seconds
+            total_step_time_seconds += instr_meta.total_time_seconds
+        if instr_meta.temperature is not None:
+            step_entry["temperature"] = instr_meta.temperature
+            step_entry["temperature_unit"] = instr_meta.temperature_unit
+        if instr_meta.temperature_items:
+            step_entry["temperature_items"] = [
+                {
+                    "value": item.value,
+                    "unit": item.unit,
+                    "value_f": item.value_f,
+                    "original_text": item.original_text,
+                    "is_oven_like": item.is_oven_like,
+                }
+                for item in instr_meta.temperature_items
+            ]
+
+        step_max = max_oven_temp_f_from_temperature_items(instr_meta.temperature_items)
+        if step_max is not None:
+            if max_oven_temp_f is None:
+                max_oven_temp_f = step_max
+            else:
+                max_oven_temp_f = max(max_oven_temp_f, step_max)
+
+        if emit_p6_metadata_debug:
+            p6_step_debug.append(
+                {
+                    "step_index": idx,
+                    "instruction": text,
+                    "time_seconds": instr_meta.total_time_seconds,
+                    "time_items": [
+                        {
+                            "seconds": item.seconds,
+                            "original_text": item.original_text,
+                        }
+                        for item in instr_meta.time_items
+                    ],
+                    "temperature_items": step_entry.get("temperature_items", []),
+                }
+            )
+
+        steps_data.append(step_entry)
+
+    unassigned_raw = [
+        line
+        for idx, line in enumerate(all_ingredient_lines)
+        if idx not in assigned_indices and line.get("quantity_kind") != "section_header"
+    ]
+    unassigned = _sanitize_staging_lines(unassigned_raw)
+    if unassigned:
+        steps_data.insert(
+            0,
+            {
+                "instruction": "Gather and prepare ingredients.",
+                "ingredient_lines": unassigned,
+            },
+        )
+
+    if total_step_time_seconds > 0:
+        recipe_meta["cook_time_seconds"] = total_step_time_seconds
+    if max_oven_temp_f is not None:
+        recipe_meta["max_oven_temp_f"] = max_oven_temp_f
+
+    rendered: dict[str, Any] = {
+        "schema_v": 1,
+        "source": _normalize_nonempty_text(payload.source),
+        "recipe": recipe_meta,
+        "steps": steps_data,
+    }
+    if emit_p6_metadata_debug:
+        rendered["_p6_debug"] = {
+            "time_backend": instruction_parse_options.time_backend,
+            "time_total_strategy": instruction_parse_options.time_total_strategy,
+            "temperature_backend": instruction_parse_options.temperature_backend,
+            "temperature_unit_backend": instruction_parse_options.temperature_unit_backend,
+            "ovenlike_mode": instruction_parse_options.ovenlike_mode,
+            "yield_debug": yield_debug,
+            "max_oven_temp_f": max_oven_temp_f,
+            "steps": p6_step_debug,
+        }
+    return rendered
 
 
 def _resolve_p6_emit_metadata_debug(options: Mapping[str, Any] | None) -> bool:
@@ -517,191 +816,16 @@ def recipe_candidate_to_draft_v1(
     ingredient_step_mapping_reason: str | None = None,
 ) -> dict[str, Any]:
     """Convert a RecipeCandidate into cookbook3 format (internal model: RecipeDraftV1)."""
-
-    recipe_title = candidate.name.strip() if candidate.name else ""
-    if not recipe_title:
-        recipe_title = _UNTITLED_RECIPE_TITLE
-
-    # 1. Prepare Recipe object
-    notes_parts = []
-    if candidate.source_url:
-        notes_parts.append(f"Source: {candidate.source_url}")
-    recipe_notes = extract_recipe_specific_notes(candidate)
-    if recipe_notes:
-        notes_parts.extend(recipe_notes)
-    notes_val = "\n".join(notes_parts) if notes_parts else None
-
-    yield_fields = derive_yield_fields(candidate, payload=instruction_step_options)
-    yield_debug = yield_fields.pop("_p6_yield_debug", None)
-
-    recipe_meta: dict[str, Any] = {
-        "title": recipe_title,
-        "description": candidate.description,
-        "notes": notes_val,
-        "confidence": candidate.confidence,
-        **yield_fields,
-    }
-    if candidate.tags:
-        recipe_meta["tags"] = list(candidate.tags)
-
-    # 2. Prepare Steps & Ingredients
-    # Strategy: Assign ingredients to steps with deterministic matching.
-    
-    # Convert all ingredients
-    parser_options = normalize_ingredient_parser_options(ingredient_parser_options)
-    all_ingredient_lines = [
-        _convert_ingredient(ing, parser_options=parser_options)
-        for ing in candidate.ingredients
-    ]
-
-    # Convert all instructions
-    steps_data: list[dict[str, Any]] = []
-
-    raw_instructions = candidate.instructions
-    if not raw_instructions:
-        # If no instructions, create a dummy one so output has a step.
-        raw_instructions = ["See original recipe for details."]
-
-    instruction_texts = [_convert_instruction(instr) for instr in raw_instructions]
-    segmentation_policy, segmentation_backend = _resolve_instruction_step_segmentation_options(
-        instruction_step_options
+    semantics = build_authoritative_recipe_semantics(
+        candidate,
+        semantic_authority="candidate_projection",
+        ingredient_parser_options=ingredient_parser_options,
+        instruction_step_options=instruction_step_options,
+        ingredient_step_mapping_override=ingredient_step_mapping_override,
+        ingredient_step_mapping_reason=ingredient_step_mapping_reason,
     )
-    instruction_texts = segment_instruction_steps(
-        instruction_texts,
-        policy=segmentation_policy,
-        backend=segmentation_backend,
+    return authoritative_recipe_semantics_to_draft_v1(
+        semantics,
+        ingredient_parser_options=ingredient_parser_options,
+        instruction_step_options=instruction_step_options,
     )
-    variants, instruction_texts = _split_variants(instruction_texts)
-    if variants:
-        recipe_meta["variants"] = variants
-
-    instruction_sections = extract_instruction_sections(instruction_texts)
-    instruction_texts = instruction_sections.lines_no_headers
-    step_section_key_by_step = instruction_sections.section_key_by_line
-
-    if not instruction_texts:
-        instruction_texts = ["See original recipe for details."]
-        step_section_key_by_step = [_DEFAULT_SECTION_KEY]
-
-    ingredient_section_key_by_line = _derive_ingredient_section_keys(all_ingredient_lines)
-
-    if isinstance(ingredient_step_mapping_override, Mapping):
-        step_ingredient_lines, assigned_indices = _build_step_lines_from_mapping_override(
-            all_ingredient_lines=all_ingredient_lines,
-            mapping_override=ingredient_step_mapping_override,
-            step_count=len(instruction_texts),
-        )
-        assignment_debug = None
-    else:
-        step_ingredient_lines, assignment_debug = assign_ingredient_lines_to_steps(
-            instruction_texts,
-            all_ingredient_lines,
-            ingredient_section_key_by_line=ingredient_section_key_by_line,
-            step_section_key_by_step=step_section_key_by_step,
-            debug=True,
-        )
-        assigned_indices = {
-            assignment.ingredient_index
-            for assignment in assignment_debug.assignments
-            if assignment.assigned_steps
-        }
-
-    instruction_parse_options = normalize_instruction_parse_options(instruction_step_options)
-    emit_p6_metadata_debug = _resolve_p6_emit_metadata_debug(instruction_step_options)
-    p6_step_debug: list[dict[str, Any]] = []
-    total_step_time_seconds = 0
-    max_oven_temp_f: int | None = None
-    for idx, text in enumerate(instruction_texts):
-        step_ingredients_raw = step_ingredient_lines[idx] if idx < len(step_ingredient_lines) else []
-        step_ingredients = _sanitize_staging_lines(step_ingredients_raw)
-
-        # Extract time/temperature metadata from instruction text
-        instr_meta = parse_instruction(text, options=instruction_parse_options)
-        step_entry: dict[str, Any] = {
-            "instruction": text,
-            "ingredient_lines": step_ingredients,
-        }
-        if instr_meta.total_time_seconds is not None:
-            step_entry["time_seconds"] = instr_meta.total_time_seconds
-            total_step_time_seconds += instr_meta.total_time_seconds
-        if instr_meta.temperature is not None:
-            step_entry["temperature"] = instr_meta.temperature
-            step_entry["temperature_unit"] = instr_meta.temperature_unit
-        if instr_meta.temperature_items:
-            step_entry["temperature_items"] = [
-                {
-                    "value": item.value,
-                    "unit": item.unit,
-                    "value_f": item.value_f,
-                    "original_text": item.original_text,
-                    "is_oven_like": item.is_oven_like,
-                }
-                for item in instr_meta.temperature_items
-            ]
-
-        step_max = max_oven_temp_f_from_temperature_items(instr_meta.temperature_items)
-        if step_max is not None:
-            if max_oven_temp_f is None:
-                max_oven_temp_f = step_max
-            else:
-                max_oven_temp_f = max(max_oven_temp_f, step_max)
-
-        if emit_p6_metadata_debug:
-            p6_step_debug.append(
-                {
-                    "step_index": idx,
-                    "instruction": text,
-                    "time_seconds": instr_meta.total_time_seconds,
-                    "time_items": [
-                        {
-                            "seconds": item.seconds,
-                            "original_text": item.original_text,
-                        }
-                        for item in instr_meta.time_items
-                    ],
-                    "temperature_items": step_entry.get("temperature_items", []),
-                }
-            )
-
-        steps_data.append(step_entry)
-
-    # Find any ingredients that weren't assigned to any step
-    unassigned_raw = [
-        line for idx, line in enumerate(all_ingredient_lines)
-        if idx not in assigned_indices
-        and line.get("quantity_kind") != "section_header"
-    ]
-    unassigned = _sanitize_staging_lines(unassigned_raw)
-
-    # If there are unassigned ingredients, insert a prep step at the beginning
-    if unassigned:
-        prep_step: dict[str, Any] = {
-            "instruction": "Gather and prepare ingredients.",
-            "ingredient_lines": unassigned,
-        }
-        steps_data.insert(0, prep_step)
-
-    # Compute cook_time from step times if not already present
-    if total_step_time_seconds > 0 and not candidate.cook_time:
-        recipe_meta["cook_time_seconds"] = total_step_time_seconds
-    if max_oven_temp_f is not None:
-        recipe_meta["max_oven_temp_f"] = max_oven_temp_f
-
-    payload: dict[str, Any] = {
-        "schema_v": 1,
-        "source": _normalize_nonempty_text(candidate.source),
-        "recipe": recipe_meta,
-        "steps": steps_data,
-    }
-    if emit_p6_metadata_debug:
-        payload["_p6_debug"] = {
-            "time_backend": instruction_parse_options.time_backend,
-            "time_total_strategy": instruction_parse_options.time_total_strategy,
-            "temperature_backend": instruction_parse_options.temperature_backend,
-            "temperature_unit_backend": instruction_parse_options.temperature_unit_backend,
-            "ovenlike_mode": instruction_parse_options.ovenlike_mode,
-            "yield_debug": yield_debug,
-            "max_oven_temp_f": max_oven_temp_f,
-            "steps": p6_step_debug,
-        }
-    return payload

@@ -27,7 +27,6 @@ from cookimport.labelstudio.ingest import (
     _write_authoritative_line_role_artifacts,
     generate_pred_run_artifacts,
     _merge_parallel_results,
-    _plan_parallel_convert_jobs,
     _write_processed_outputs,
     run_labelstudio_import,
 )
@@ -41,6 +40,7 @@ from cookimport.parsing.label_source_of_truth import (
 from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
+from cookimport.staging.job_planning import JobSpec, plan_source_job
 from cookimport.staging.import_session import StageImportSessionResult
 
 
@@ -172,9 +172,13 @@ def _make_label_first_result(
                     provenance={"location": {"start_block": 0, "end_block": 4}},
                 )
             ],
-            tips=[],
-            tip_candidates=[],
-            topic_candidates=[],
+            sourceBlocks=[
+                {"blockId": "b0", "orderIndex": 0, "text": "Pancakes"},
+                {"blockId": "b1", "orderIndex": 1, "text": "SERVES 2"},
+                {"blockId": "b2", "orderIndex": 2, "text": "1 cup flour"},
+                {"blockId": "b3", "orderIndex": 3, "text": "Whisk batter"},
+                {"blockId": "b4", "orderIndex": 4, "text": "NOTE: Keep warm"},
+            ],
             non_recipe_blocks=[],
             raw_artifacts=raw_artifacts,
             report=ConversionReport(),
@@ -220,9 +224,13 @@ def _make_label_first_result(
 def _make_empty_conversion_result(source: Path) -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "Pancakes"},
+            {"blockId": "b1", "orderIndex": 1, "text": "SERVES 2"},
+            {"blockId": "b2", "orderIndex": 2, "text": "1 cup flour"},
+            {"blockId": "b3", "orderIndex": 3, "text": "Mix ingredients."},
+            {"blockId": "b4", "orderIndex": 4, "text": "Salt strengthens flavor."},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -291,9 +299,10 @@ def _make_projection_conversion_result(
 ) -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": f"b{index}", "orderIndex": index, "text": text}
+            for index, text in enumerate(block_texts)
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
@@ -339,6 +348,12 @@ def _install_projection_generate_pred_run_artifacts_mocks(
     monkeypatch.setattr(
         "cookimport.staging.import_session.build_label_first_stage_result",
         lambda **_kwargs: label_first_result,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "cookimport.staging.pipeline_runtime.build_label_first_stage_result",
+        lambda **_kwargs: label_first_result,
+        raising=False,
     )
     if execute_stage_import_session_from_result is not None:
         monkeypatch.setattr(
@@ -353,7 +368,7 @@ def _install_split_import_mocks(
     fake_result: ConversionResult,
     processed_root: Path,
     task_count: int,
-    planned_jobs: list[dict[str, object]],
+    planned_jobs: list[JobSpec],
     process_pool_executor: object | None = None,
     thread_pool_executor: object | None = None,
 ) -> None:
@@ -390,7 +405,7 @@ def _install_split_import_mocks(
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
+        "cookimport.labelstudio.ingest.plan_source_job",
         lambda *_args, **_kwargs: planned_jobs,
     )
     if process_pool_executor is not None:
@@ -523,9 +538,6 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
                         provenance={"location": {"start_block": 0, "end_block": 1}},
                     )
                 ],
-                tips=[],
-                tipCandidates=[],
-                topicCandidates=[],
                 nonRecipeBlocks=[],
                 rawArtifacts=[
                     RawArtifact(
@@ -567,16 +579,15 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
         )
 
 
-def test_plan_parallel_convert_jobs_pdf_splits(monkeypatch) -> None:
+def test_plan_source_job_pdf_splits(monkeypatch) -> None:
     path = Path("sample.pdf")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._resolve_pdf_page_count",
+        "cookimport.staging.job_planning.resolve_pdf_page_count",
         lambda _path: 120,
     )
 
-    jobs = _plan_parallel_convert_jobs(
+    jobs = plan_source_job(
         path,
-        workers=2,
         pdf_split_workers=4,
         epub_split_workers=1,
         pdf_pages_per_job=50,
@@ -584,22 +595,21 @@ def test_plan_parallel_convert_jobs_pdf_splits(monkeypatch) -> None:
     )
 
     assert len(jobs) == 3
-    assert jobs[0]["start_page"] == 0
-    assert jobs[1]["start_page"] == 40
-    assert jobs[2]["start_page"] == 80
-    assert jobs[0]["start_spine"] is None
+    assert jobs[0].start_page == 0
+    assert jobs[1].start_page == 40
+    assert jobs[2].start_page == 80
+    assert jobs[0].start_spine is None
 
 
-def test_plan_parallel_convert_jobs_epub_markitdown_disables_split(monkeypatch) -> None:
+def test_plan_source_job_epub_markitdown_disables_split(monkeypatch) -> None:
     path = Path("sample.epub")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._resolve_epub_spine_count",
+        "cookimport.staging.job_planning.resolve_epub_spine_count",
         lambda _path: 120,
     )
 
-    jobs = _plan_parallel_convert_jobs(
+    jobs = plan_source_job(
         path,
-        workers=2,
         pdf_split_workers=1,
         epub_split_workers=4,
         pdf_pages_per_job=50,
@@ -608,20 +618,19 @@ def test_plan_parallel_convert_jobs_epub_markitdown_disables_split(monkeypatch) 
     )
 
     assert len(jobs) == 1
-    assert jobs[0]["start_spine"] is None
-    assert jobs[0]["end_spine"] is None
+    assert jobs[0].start_spine is None
+    assert jobs[0].end_spine is None
 
 
-def test_plan_parallel_convert_jobs_epub_unstructured_uses_split(monkeypatch) -> None:
+def test_plan_source_job_epub_unstructured_uses_split(monkeypatch) -> None:
     path = Path("sample.epub")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._resolve_epub_spine_count",
+        "cookimport.staging.job_planning.resolve_epub_spine_count",
         lambda _path: 120,
     )
 
-    jobs = _plan_parallel_convert_jobs(
+    jobs = plan_source_job(
         path,
-        workers=2,
         pdf_split_workers=1,
         epub_split_workers=4,
         pdf_pages_per_job=50,
@@ -630,8 +639,8 @@ def test_plan_parallel_convert_jobs_epub_unstructured_uses_split(monkeypatch) ->
     )
 
     assert len(jobs) > 1
-    assert jobs[0]["start_spine"] == 0
-    assert jobs[-1]["end_spine"] == 120
+    assert jobs[0].start_spine == 0
+    assert jobs[-1].end_spine == 120
 
 
 def test_split_phase_slot_gate_emits_wait_acquire_release(
@@ -669,16 +678,12 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
     source.write_text("source", encoding="utf-8")
 
     job_a = ConversionResult(
-        recipes=[
-            RecipeCandidate(
-                name="Later",
-                identifier="old-later",
-                provenance={"location": {"start_page": 9, "start_block": 20}},
-            )
+        recipes=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "a"},
+            {"blockId": "b1", "orderIndex": 1, "text": "b"},
+            {"blockId": "b2", "orderIndex": 2, "text": "c"},
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
         non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
@@ -702,16 +707,11 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
         workbook_path=str(source),
     )
     job_b = ConversionResult(
-        recipes=[
-            RecipeCandidate(
-                name="Earlier",
-                identifier="old-earlier",
-                provenance={"location": {"start_page": 1, "start_block": 1}},
-            )
+        recipes=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "x"},
+            {"blockId": "b1", "orderIndex": 1, "text": "y"},
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
         non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
@@ -743,19 +743,15 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
         ],
     )
 
-    assert len(merged.recipes) == 2
-    assert merged.recipes[0].name == "Earlier"
-    assert merged.recipes[1].name == "Later"
-    assert merged.recipes[0].identifier != "old-earlier"
-    assert merged.recipes[1].identifier != "old-later"
-    assert merged.recipes[1].provenance["location"]["start_block"] == 22
+    assert merged.recipes == []
+    assert [block.text for block in merged.source_blocks] == ["x", "y", "a", "b", "c"]
+    assert [block.order_index for block in merged.source_blocks] == [0, 1, 2, 3, 4]
+    assert [block.block_id for block in merged.source_blocks] == ["b0", "b1", "b2", "b3", "b4"]
     assert len(merged.raw_artifacts) == 2
     shifted = next(artifact for artifact in merged.raw_artifacts if artifact.source_hash == "hash-a")
     shifted_indices = [block["index"] for block in shifted.content["blocks"]]
     assert shifted_indices == [2, 3, 4]
-    assert merged.report.total_recipes == 2
-    assert merged.report.total_tip_candidates == 0
-    assert merged.report.total_topic_candidates == 0
+    assert merged.report.total_recipes == 0
     assert merged.report.total_standalone_blocks == 0
 
 
@@ -775,18 +771,16 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
                 identifier="urn:recipeimport:test:soup",
             )
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "Simple Soup"},
+            {"blockId": "b1", "orderIndex": 1, "text": "1 cup stock"},
+            {"blockId": "b2", "orderIndex": 2, "text": "Heat stock."},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(
             total_recipes=9,
-            total_tips=8,
-            total_tip_candidates=7,
-            total_topic_candidates=6,
             total_standalone_blocks=5,
-            total_standalone_topic_blocks=4,
         ),
         workbook="book",
         workbook_path=str(source),
@@ -807,12 +801,11 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
     authority_mismatch_path = (
         run_root / "group_recipe_spans" / "book" / "authority_mismatch.json"
     )
-    assert authority_mismatch_path.exists()
+    assert not authority_mismatch_path.exists()
 
     report_path = run_root / "book.excel_import_report.json"
     payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["totalRecipes"] == 0
-    assert payload["totalTips"] == 0
+    assert payload["totalRecipes"] == 1
     assert not any(
         "report_total_mismatch_detected" in warning
         for warning in payload.get("warnings", [])
@@ -835,18 +828,16 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_ex
                 identifier="urn:recipeimport:test:soup",
             )
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "Simple Soup"},
+            {"blockId": "b1", "orderIndex": 1, "text": "1 cup stock"},
+            {"blockId": "b2", "orderIndex": 2, "text": "Heat stock."},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(
             total_recipes=0,
-            total_tips=0,
-            total_tip_candidates=0,
-            total_topic_candidates=0,
             total_standalone_blocks=0,
-            total_standalone_topic_blocks=0,
         ),
         workbook="book",
         workbook_path=str(source),
@@ -882,9 +873,11 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_im
                 identifier="urn:recipeimport:test:soup",
             )
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "Simple Soup"},
+            {"blockId": "b1", "orderIndex": 1, "text": "1 cup stock"},
+            {"blockId": "b2", "orderIndex": 2, "text": "Heat stock."},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -921,9 +914,9 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
 
     fake_result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "hello"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -959,8 +952,8 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
 
     monkeypatch.setattr("cookimport.labelstudio.ingest.registry.get_importer", lambda _name: FakeImporter())
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
-        lambda *_args, **_kwargs: [{"job_index": 0, "start_page": None, "end_page": None, "start_spine": None, "end_spine": None}],
+        "cookimport.labelstudio.ingest.plan_source_job",
+        lambda *_args, **_kwargs: [JobSpec(file_path=source, job_index=0, job_count=1)],
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.build_extracted_archive",
@@ -1043,27 +1036,9 @@ def test_run_labelstudio_import_split_workers_emit_worker_activity(
         processed_root=processed_root,
         task_count=5,
         planned_jobs=[
-            {
-                "job_index": 0,
-                "start_page": None,
-                "end_page": None,
-                "start_spine": 0,
-                "end_spine": 10,
-            },
-            {
-                "job_index": 1,
-                "start_page": None,
-                "end_page": None,
-                "start_spine": 10,
-                "end_spine": 20,
-            },
-            {
-                "job_index": 2,
-                "start_page": None,
-                "end_page": None,
-                "start_spine": 20,
-                "end_spine": 30,
-            },
+            JobSpec(file_path=source, job_index=0, job_count=3, start_spine=0, end_spine=10),
+            JobSpec(file_path=source, job_index=1, job_count=3, start_spine=10, end_spine=20),
+            JobSpec(file_path=source, job_index=2, job_count=3, start_spine=20, end_spine=30),
         ],
         process_pool_executor=ThreadPoolExecutor,
     )
@@ -1132,27 +1107,9 @@ def test_run_labelstudio_import_split_workers_fallback_to_thread_on_process_deni
         processed_root=processed_root,
         task_count=5,
         planned_jobs=[
-            {
-                "job_index": 0,
-                "start_page": None,
-                "end_page": None,
-                "start_spine": 0,
-                "end_spine": 10,
-            },
-            {
-                "job_index": 1,
-                "start_page": None,
-                "end_page": None,
-                "start_spine": 10,
-                "end_spine": 20,
-            },
-            {
-                "job_index": 2,
-                "start_page": None,
-                "end_page": None,
-                "start_spine": 20,
-                "end_spine": 30,
-            },
+            JobSpec(file_path=source, job_index=0, job_count=3, start_spine=0, end_spine=10),
+            JobSpec(file_path=source, job_index=1, job_count=3, start_spine=10, end_spine=20),
+            JobSpec(file_path=source, job_index=2, job_count=3, start_spine=20, end_spine=30),
         ],
         process_pool_executor=BrokenProcessPoolExecutor,
         thread_pool_executor=TrackingThreadPoolExecutor,
@@ -1358,9 +1315,9 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
 
     fake_result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "hello"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -1480,9 +1437,9 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
 
     fake_result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "hello"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -1503,16 +1460,8 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._plan_parallel_convert_jobs",
-        lambda *_args, **_kwargs: [
-            {
-                "job_index": 0,
-                "start_page": None,
-                "end_page": None,
-                "start_spine": None,
-                "end_spine": None,
-            }
-        ],
+        "cookimport.labelstudio.ingest.plan_source_job",
+        lambda *_args, **_kwargs: [JobSpec(file_path=source, job_index=0, job_count=1)],
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.build_extracted_archive",
@@ -1576,9 +1525,9 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
 
     fake_result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "hello"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -1882,7 +1831,7 @@ def _build_authoritative_atomic_projection_fixture(tmp_path: Path) -> dict[str, 
     }
 
 
-def test_authoritative_line_role_artifacts_project_atomic_stage_predictions(
+def test_authoritative_line_role_artifacts_aggregate_stage_payload_by_source_block(
     tmp_path: Path,
 ) -> None:
     fixture = _build_authoritative_atomic_projection_fixture(tmp_path)
@@ -1891,11 +1840,10 @@ def test_authoritative_line_role_artifacts_project_atomic_stage_predictions(
     assert isinstance(stage_payload, dict)
     assert isinstance(summary, dict)
 
-    assert stage_payload["block_count"] == 3
+    assert stage_payload["block_count"] == 2
     assert stage_payload["block_labels"] == {
         "0": "RECIPE_TITLE",
-        "1": "YIELD_LINE",
-        "2": "INGREDIENT_LINE",
+        "1": "INGREDIENT_LINE",
     }
     assert summary["span_count"] == 3
 
@@ -2381,9 +2329,9 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
 
     fake_result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "Example line"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -2521,9 +2469,11 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
                 provenance={"location": {"start_block": 99, "end_block": 99}},
             )
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "Toast"},
+            {"blockId": "b1", "orderIndex": 1, "text": "1 slice bread"},
+            {"blockId": "b2", "orderIndex": 2, "text": "Toast the bread."},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -2538,8 +2488,6 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
     def _fake_run_codex_farm_recipe_pipeline(**_kwargs):
         return SimpleNamespace(
             updated_conversion_result=updated_result.model_copy(deep=True),
-            intermediate_overrides_by_recipe_id={},
-            final_overrides_by_recipe_id={},
             llm_report={"enabled": True, "pipeline": "codex-recipe-shard-v1"},
         )
 
@@ -2781,9 +2729,10 @@ def test_prepare_extracted_archive_matches_legacy_payload(tmp_path: Path) -> Non
     ]
     result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "First block", "location": {"page": 1}},
+            {"blockId": "b1", "orderIndex": 1, "text": "Second block", "location": {"page": 1}},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=raw_artifacts,
         report=ConversionReport(),
@@ -2827,9 +2776,9 @@ def test_generate_pred_run_artifacts_markdown_toggle_keeps_stage_predictions_ide
                 provenance={"location": {"start_block": 0}},
             )
         ],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "Recipe"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
@@ -2923,9 +2872,17 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
 
     fake_result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "block 0"},
+            {"blockId": "b1", "orderIndex": 1, "text": "block 1"},
+            {"blockId": "b2", "orderIndex": 2, "text": "block 2"},
+            {"blockId": "b3", "orderIndex": 3, "text": "block 3"},
+            {"blockId": "b4", "orderIndex": 4, "text": "block 4"},
+            {"blockId": "b5", "orderIndex": 5, "text": "block 5"},
+            {"blockId": "b6", "orderIndex": 6, "text": "block 6"},
+            {"blockId": "b7", "orderIndex": 7, "text": "block 7"},
+            {"blockId": "b8", "orderIndex": 8, "text": "block 8"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
@@ -3015,9 +2972,17 @@ def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_withou
 
     fake_result = ConversionResult(
         recipes=[],
-        tips=[],
-        tip_candidates=[],
-        topic_candidates=[],
+        sourceBlocks=[
+            {"blockId": "b0", "orderIndex": 0, "text": "block 0"},
+            {"blockId": "b1", "orderIndex": 1, "text": "block 1"},
+            {"blockId": "b2", "orderIndex": 2, "text": "block 2"},
+            {"blockId": "b3", "orderIndex": 3, "text": "block 3"},
+            {"blockId": "b4", "orderIndex": 4, "text": "block 4"},
+            {"blockId": "b5", "orderIndex": 5, "text": "block 5"},
+            {"blockId": "b6", "orderIndex": 6, "text": "block 6"},
+            {"blockId": "b7", "orderIndex": 7, "text": "block 7"},
+            {"blockId": "b8", "orderIndex": 8, "text": "block 8"},
+        ],
         non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),

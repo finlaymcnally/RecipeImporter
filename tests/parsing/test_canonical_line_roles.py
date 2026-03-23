@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import cookimport.llm.canonical_line_role_prompt as canonical_line_role_prompt_module
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.canonical_line_role_prompt import (
@@ -3462,6 +3463,40 @@ def test_canonical_line_role_file_prompt_renders_front_matter_navigation_guidanc
     assert "Packet mode: front_matter_navigation (confidence: high)" in prompt
     assert "front matter, navigation, or table-of-contents material" in prompt
     assert "Do not over-structure recipe-name lists" in prompt
+
+
+def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        canonical_line_role_prompt_module,
+        "_INLINE_TEMPLATE_PATH",
+        Path("/tmp/does-not-exist-line-role.prompt.md"),
+    )
+    targets = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:lesson:1",
+            block_index=1,
+            atomic_index=0,
+            text="Balancing Fat",
+            within_recipe_span=False,
+            rule_tags=[],
+        )
+    ]
+
+    prompt = build_canonical_line_role_prompt(targets)
+
+    assert "Outside recipes, useful lesson prose still stays review-eligible `OTHER`" in prompt
+    assert (
+        "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay review-eligible `OTHER`"
+        in prompt
+    )
+    assert "Line: `Gentle Cooking Methods`\n    Label: `OTHER`" in prompt
+    assert (
+        "Line: `Foods that are too dry can be corrected with a bit more fat.`\n    Label: `OTHER`"
+        in prompt
+    )
 
 
 def test_line_role_packet_context_marks_lesson_heading_packet_as_conservative_knowledge() -> None:

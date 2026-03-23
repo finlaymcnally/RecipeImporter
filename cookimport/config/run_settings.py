@@ -19,6 +19,9 @@ from cookimport.epub_extractor_names import (
     is_policy_locked_epub_extractor_name,
     normalize_epub_extractor_name,
 )
+from cookimport.staging.job_planning import (
+    compute_effective_workers_for_sources as compute_effective_workers,
+)
 
 logger = logging.getLogger(__name__)
 _UI_REQUIRED_KEYS = ("ui_group", "ui_label", "ui_order")
@@ -1774,29 +1777,6 @@ def summarize_run_config_payload(
             rendered = str(value)
         parts.append(f"{key}={rendered}")
     return " | ".join(parts)
-
-
-def compute_effective_workers(
-    *,
-    workers: int,
-    epub_split_workers: int,
-    epub_extractor: str | EpubExtractor = EpubExtractor.unstructured,
-    file_paths: Sequence[Path] | None = None,
-    all_epub: bool | None = None,
-) -> int:
-    effective_all_epub = bool(all_epub)
-    if all_epub is None and file_paths is not None:
-        effective_all_epub = bool(file_paths) and all(
-            path.suffix.lower() == ".epub" for path in file_paths
-        )
-    selected_extractor = _normalized_value(epub_extractor)
-    if (
-        effective_all_epub
-        and selected_extractor != EpubExtractor.markitdown.value
-        and epub_split_workers > workers
-    ):
-        return epub_split_workers
-    return workers
 
 
 def build_run_settings(

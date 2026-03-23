@@ -10,6 +10,7 @@ from cookimport.core.models import (
     KnowledgeChunk,
     RawArtifact,
     RecipeCandidate,
+    SourceBlock,
 )
 from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
@@ -68,6 +69,17 @@ def _build_result(
 
     return ConversionResult(
         recipes=[recipe],
+        sourceBlocks=[
+            SourceBlock(blockId="b0", orderIndex=0, text="Simple Soup"),
+            SourceBlock(blockId="b1", orderIndex=1, text="Serves 2"),
+            SourceBlock(blockId="b2", orderIndex=2, text="Prep time: 10 minutes"),
+            SourceBlock(blockId="b3", orderIndex=3, text="1 cup stock"),
+            SourceBlock(blockId="b4", orderIndex=4, text="Salt"),
+            SourceBlock(blockId="b5", orderIndex=5, text="Heat stock."),
+            SourceBlock(blockId="b6", orderIndex=6, text="Variations: add herbs."),
+            SourceBlock(blockId="b7", orderIndex=7, text=note_block_text),
+            SourceBlock(blockId="b8", orderIndex=8, text="Use clean tools for food safety."),
+        ],
         report=ConversionReport(),
         rawArtifacts=[raw],
         workbook="simple",
@@ -101,7 +113,7 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
     assert block_labels["3"] == "INGREDIENT_LINE"
     assert block_labels["4"] == "INGREDIENT_LINE"
     assert block_labels["5"] == "INSTRUCTION_LINE"
-    assert block_labels["6"] == "RECIPE_VARIANT"
+    assert block_labels["6"] == "INSTRUCTION_LINE"
     assert block_labels["7"] == "RECIPE_NOTES"
     assert block_labels["8"] == "KNOWLEDGE"
 
@@ -111,11 +123,7 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
         assert index in label_blocks[label]
 
     conflicts = payload["conflicts"]
-    assert any(
-        conflict.get("block_index") == 6
-        and set(conflict.get("labels", [])) == {"INSTRUCTION_LINE", "RECIPE_VARIANT"}
-        for conflict in conflicts
-    )
+    assert conflicts == []
     assert "KNOWLEDGE labels were derived from final non-recipe authority." in payload["notes"]
     assert "All review-eligible non-recipe blocks had final authority before scoring." in payload["notes"]
 
@@ -282,6 +290,17 @@ def _build_sectioned_result() -> ConversionResult:
 
     return ConversionResult(
         recipes=[recipe],
+        sourceBlocks=[
+            SourceBlock(blockId="b0", orderIndex=0, text="Stew with Gravy"),
+            SourceBlock(blockId="b1", orderIndex=1, text="For the stew:"),
+            SourceBlock(blockId="b2", orderIndex=2, text="1 lb beef"),
+            SourceBlock(blockId="b3", orderIndex=3, text="For the gravy:"),
+            SourceBlock(blockId="b4", orderIndex=4, text="2 tbsp flour"),
+            SourceBlock(blockId="b5", orderIndex=5, text="For the meat:"),
+            SourceBlock(blockId="b6", orderIndex=6, text="Brown the beef."),
+            SourceBlock(blockId="b7", orderIndex=7, text="For the gravy:"),
+            SourceBlock(blockId="b8", orderIndex=8, text="Whisk flour into drippings."),
+        ],
         report=ConversionReport(),
         rawArtifacts=[raw],
         workbook="sectioned",
@@ -293,8 +312,8 @@ def test_build_stage_block_predictions_emits_howto_sections_from_headers() -> No
     payload = build_stage_block_predictions(_build_sectioned_result(), "sectioned")
 
     block_labels = payload["block_labels"]
-    assert block_labels["0"] == "RECIPE_TITLE"
-    assert block_labels["1"] == "HOWTO_SECTION"
+    assert block_labels["0"] == "OTHER"
+    assert block_labels["1"] == "OTHER"
     assert block_labels["3"] == "HOWTO_SECTION"
     assert block_labels["5"] == "HOWTO_SECTION"
     assert block_labels["7"] == "HOWTO_SECTION"
@@ -303,13 +322,15 @@ def test_build_stage_block_predictions_emits_howto_sections_from_headers() -> No
 
     conflicts = payload["conflicts"]
     assert any(
-        row.get("block_index") == 1
-        and set(row.get("labels", [])) == {"HOWTO_SECTION", "INGREDIENT_LINE"}
+        row.get("block_index") == 3
+        and set(row.get("labels", []))
+        == {"HOWTO_SECTION", "INGREDIENT_LINE", "INSTRUCTION_LINE"}
         for row in conflicts
     )
     assert any(
         row.get("block_index") == 5
-        and set(row.get("labels", [])) == {"HOWTO_SECTION", "INSTRUCTION_LINE"}
+        and set(row.get("labels", []))
+        == {"HOWTO_SECTION", "INGREDIENT_LINE", "INSTRUCTION_LINE"}
         for row in conflicts
     )
 
@@ -348,6 +369,15 @@ def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
     )
     result = ConversionResult(
         recipes=[recipe],
+        sourceBlocks=[
+            SourceBlock(blockId="b0", orderIndex=0, text="Title: Meat and Gravy"),
+            SourceBlock(blockId="b1", orderIndex=1, text="Ingredients:"),
+            SourceBlock(blockId="b2", orderIndex=2, text="For the meat:"),
+            SourceBlock(blockId="b3", orderIndex=3, text="1 lb beef"),
+            SourceBlock(blockId="b4", orderIndex=4, text="Instructions:"),
+            SourceBlock(blockId="b5", orderIndex=5, text="For the meat:"),
+            SourceBlock(blockId="b6", orderIndex=6, text="Brown the beef."),
+        ],
         report=ConversionReport(),
         rawArtifacts=[raw],
         workbook="line-range",
@@ -393,6 +423,17 @@ def test_build_stage_block_predictions_rejects_title_without_boundary_evidence()
     )
     result = ConversionResult(
         recipes=[recipe],
+        sourceBlocks=[
+            SourceBlock(blockId="b0", orderIndex=0, text="PAN-SEARED SALMON"),
+            SourceBlock(
+                blockId="b1",
+                orderIndex=1,
+                text=(
+                    "I first cooked this on a rainy night, and this paragraph is memoir-like "
+                    "scene-setting prose instead of recipe structure."
+                ),
+            ),
+        ],
         report=ConversionReport(),
         rawArtifacts=[raw],
         workbook="narrative-title",

@@ -7,37 +7,40 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
-from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
+from cookimport.core.models import ConversionResult, MappingConfig
 from cookimport.core.progress_messages import (
     format_stage_counter_progress,
     format_stage_progress,
 )
 from cookimport.core.reporting import (
     build_authoritative_stage_report,
-    compute_file_hash,
     enrich_report_with_stats,
 )
 from cookimport.core.slug import slugify_name
+from cookimport.core.source_model import write_source_model_artifacts
 from cookimport.core.timing import TimingStats, measure
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
-from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
-from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
-from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
-from cookimport.parsing.label_source_of_truth import (
-    LabelFirstStageResult,
-    build_label_first_stage_result,
-)
+from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
+from cookimport.parsing.label_source_of_truth import LabelFirstStageResult
 from cookimport.parsing.tables import extract_and_annotate_tables
-from cookimport.staging.nonrecipe_stage import (
-    NonRecipeStageResult,
-    block_rows_for_nonrecipe_stage,
-    build_nonrecipe_stage_result,
+from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
+from cookimport.staging.pipeline_runtime import (
+    ExtractedBookBundle,
+    KnowledgeFinalResult,
+    NonrecipeRouteResult,
+    RecipeBoundaryResult,
+    RecipeRefineResult,
+    build_extracted_book_bundle,
+    run_knowledge_final_stage,
+    run_nonrecipe_route_stage,
+    run_recipe_boundary_stage,
+    run_recipe_refine_stage,
 )
 from cookimport.staging.recipe_tag_normalization import (
     normalize_conversion_result_recipe_tags,
 )
 from cookimport.staging.writer import (
     OutputStats,
+    write_authoritative_recipe_semantics,
     write_chunk_outputs,
     write_draft_outputs,
     write_knowledge_outputs_artifact,
@@ -48,8 +51,6 @@ from cookimport.staging.writer import (
     write_section_outputs,
     write_stage_block_predictions,
     write_table_outputs,
-    write_tip_outputs,
-    write_topic_candidate_outputs,
 )
 
 
@@ -70,12 +71,14 @@ class StageImportSessionResult:
     timing: dict[str, Any]
     label_first_result: LabelFirstStageResult | None = None
     label_artifact_paths: dict[str, Path] | None = None
+    source_artifact_paths: dict[str, Path] | None = None
+    authoritative_recipe_payloads_path: Path | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
-
-
-def _notify(progress_callback: Callable[[str], None] | None, message: str) -> None:
-    if progress_callback is not None:
-        progress_callback(message)
+    extracted_book_bundle: ExtractedBookBundle | None = None
+    recipe_boundary_result: RecipeBoundaryResult | None = None
+    recipe_refine_result: RecipeRefineResult | None = None
+    nonrecipe_route_result: NonrecipeRouteResult | None = None
+    knowledge_final_result: KnowledgeFinalResult | None = None
 
 
 def _notify_stage_progress(
@@ -107,17 +110,6 @@ def _notify_stage_progress(
             detail_lines=detail_lines,
         )
     )
-
-
-def _resolve_source_hash(result: ConversionResult, source_file: Path) -> str:
-    for artifact in result.raw_artifacts:
-        source_hash = getattr(artifact, "source_hash", None)
-        if source_hash:
-            return str(source_hash)
-    try:
-        return compute_file_hash(source_file)
-    except Exception:  # noqa: BLE001
-        return "unknown"
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -367,15 +359,6 @@ def _write_label_first_authority_mismatch_artifact(
     return mismatch_path
 
 
-def _append_report_warning(report: ConversionReport | None, message: str) -> ConversionReport:
-    if report is None:
-        report = ConversionReport()
-    warnings = list(report.warnings or [])
-    warnings.append(str(message))
-    report.warnings = warnings
-    return report
-
-
 def execute_stage_import_session_from_result(
     *,
     result: ConversionResult,
@@ -395,6 +378,8 @@ def execute_stage_import_session_from_result(
     write_raw_artifacts_enabled: bool = True,
     count_diagnostics_path: Path | None = None,
     output_stats: OutputStats | None = None,
+    recipe_limit: int | None = None,
+    recipe_limit_label: int | None = None,
 ) -> StageImportSessionResult:
     original_result = result
     stats = timing_stats or TimingStats()
@@ -405,13 +390,25 @@ def execute_stage_import_session_from_result(
         else None
     )
 
-    llm_schema_overrides: dict[str, dict[str, Any]] | None = None
-    llm_draft_overrides: dict[str, dict[str, Any]] | None = None
+    authoritative_recipe_payloads_by_recipe_id: dict[str, Any] = {}
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
     label_first_result: LabelFirstStageResult | None = None
     label_artifact_paths: dict[str, Path] | None = None
+    source_artifact_paths: dict[str, Path] | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     live_llm_allowed = bool((run_config or {}).get("codex_execution_live_llm_allowed"))
+    extracted_book_bundle: ExtractedBookBundle | None = None
+    recipe_boundary_result: RecipeBoundaryResult | None = None
+    recipe_refine_result: RecipeRefineResult | None = None
+    nonrecipe_route_result: NonrecipeRouteResult | None = None
+    knowledge_final_result: KnowledgeFinalResult | None = None
+
+    extracted_book_bundle = build_extracted_book_bundle(
+        result=result,
+        source_file=source_file,
+        importer_name=importer_name,
+        full_blocks=full_blocks,
+    )
 
     _notify_stage_progress(
         progress_callback,
@@ -421,17 +418,15 @@ def execute_stage_import_session_from_result(
         task_total=4,
     )
     with measure(stats, "label_source_of_truth_seconds"):
-        label_first_result = build_label_first_stage_result(
-            conversion_result=result,
-            source_file=source_file,
-            importer_name=importer_name,
+        recipe_boundary_result = run_recipe_boundary_stage(
+            extracted_bundle=extracted_book_bundle,
             run_settings=run_settings,
             artifact_root=run_root,
-            full_blocks=full_blocks,
             live_llm_allowed=live_llm_allowed,
             progress_callback=progress_callback,
         )
-    result = label_first_result.updated_conversion_result
+    label_first_result = recipe_boundary_result.label_first_result
+    result = recipe_boundary_result.conversion_result
     label_artifact_paths = _write_label_first_artifacts(
         run_root=run_root,
         workbook_slug=workbook_slug,
@@ -439,12 +434,13 @@ def execute_stage_import_session_from_result(
         line_role_pipeline=str(getattr(run_settings.line_role_pipeline, "value", "off")),
     )
     if original_result.recipes and not result.recipes:
-        result.report = _append_report_warning(
-            result.report,
+        warnings = list(result.report.warnings or [])
+        warnings.append(
             "Authoritative Stage 2 regrouping found zero recipes after importer "
             "candidates were detected; keeping label-first outputs and writing "
-            "group_recipe_spans authority diagnostics.",
+            "group_recipe_spans authority diagnostics."
         )
+        result.report.warnings = warnings
         label_artifact_paths["authority_mismatch_path"] = (
             _write_label_first_authority_mismatch_artifact(
                 run_root=run_root,
@@ -464,89 +460,47 @@ def execute_stage_import_session_from_result(
             message="Running codex-farm recipe pipeline...",
             stage_label="recipe pipeline",
         )
-        try:
-            llm_apply = run_codex_farm_recipe_pipeline(
-                conversion_result=result,
-                run_settings=run_settings,
-                run_root=run_root,
-                workbook_slug=workbook_slug,
-                full_blocks=full_blocks,
-                progress_callback=progress_callback,
-            )
-        except CodexFarmRunnerError as exc:
-            if run_settings.codex_farm_failure_mode.value == "fallback":
-                result.report = _append_report_warning(
-                    result.report,
-                    "LLM recipe pipeline failed; falling back to deterministic outputs: "
-                    f"{exc}",
-                )
-                llm_report = {
-                    "enabled": True,
-                    "pipeline": run_settings.llm_recipe_pipeline.value,
-                    "fallbackApplied": True,
-                    "fatalError": str(exc),
-                }
-            else:
-                raise
-        else:
-            result = llm_apply.updated_conversion_result
-            llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
-            llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
-            llm_report = dict(llm_apply.llm_report)
-
-    archive_blocks = list(
-        label_first_result.archive_blocks if label_first_result is not None else (full_blocks or [])
+    with measure(stats, "recipe_refine_seconds"):
+        recipe_refine_result = run_recipe_refine_stage(
+            recipe_boundary_result=recipe_boundary_result,
+            run_settings=run_settings,
+            run_root=run_root,
+            run_config=run_config,
+            progress_callback=progress_callback,
+        )
+    result = recipe_refine_result.conversion_result
+    authoritative_recipe_payloads_by_recipe_id = dict(
+        recipe_refine_result.authoritative_recipe_payloads_by_recipe_id
     )
-    nonrecipe_stage_result = build_nonrecipe_stage_result(
-        full_blocks=archive_blocks,
-        final_block_labels=label_first_result.block_labels if label_first_result is not None else [],
-        recipe_spans=label_first_result.recipe_spans if label_first_result is not None else [],
-        overrides=parsing_overrides,
-    )
+    llm_report = dict(recipe_refine_result.llm_report)
 
-    knowledge_write_report = None
+    with measure(stats, "nonrecipe_route_seconds"):
+        nonrecipe_route_result = run_nonrecipe_route_stage(
+            recipe_boundary_result=recipe_boundary_result,
+            recipe_refine_result=recipe_refine_result,
+            overrides=parsing_overrides,
+        )
+    nonrecipe_stage_result = nonrecipe_route_result.stage_result
+
     if run_settings.llm_knowledge_pipeline.value != "off":
         _notify_stage_progress(
             progress_callback,
             message="Running codex-farm non-recipe knowledge review...",
             stage_label="non-recipe knowledge review",
         )
-        try:
-            knowledge_apply = run_codex_farm_nonrecipe_knowledge_review(
-                conversion_result=result,
-                nonrecipe_stage_result=nonrecipe_stage_result,
-                recipe_spans=list(label_first_result.recipe_spans if label_first_result is not None else []),
-                run_settings=run_settings,
-                run_root=run_root,
-                workbook_slug=workbook_slug,
-                overrides=parsing_overrides,
-                full_blocks=full_blocks,
-                progress_callback=progress_callback,
-            )
-        except CodexFarmRunnerError as exc:
-            if run_settings.codex_farm_failure_mode.value == "fallback":
-                result.report = _append_report_warning(
-                    result.report,
-                    "LLM non-recipe knowledge review failed; continuing without knowledge artifacts: "
-                    f"{exc}",
-                )
-                llm_report["knowledge"] = {
-                    "enabled": True,
-                    "pipeline": run_settings.llm_knowledge_pipeline.value,
-                    "fallbackApplied": True,
-                    "fatalError": str(exc),
-                }
-            else:
-                raise
-        else:
-            llm_report["knowledge"] = dict(knowledge_apply.llm_report)
-            nonrecipe_stage_result = knowledge_apply.refined_stage_result
-            knowledge_write_report = knowledge_apply.write_report
+    with measure(stats, "knowledge_final_seconds"):
+        knowledge_final_result = run_knowledge_final_stage(
+            nonrecipe_route_result=nonrecipe_route_result,
+            run_settings=run_settings,
+            run_root=run_root,
+            overrides=parsing_overrides,
+            progress_callback=progress_callback,
+        )
+    nonrecipe_stage_result = knowledge_final_result.stage_result
+    if knowledge_final_result.llm_report is not None:
+        llm_report["knowledge"] = dict(knowledge_final_result.llm_report)
 
-    nonrecipe_block_rows = block_rows_for_nonrecipe_stage(
-        full_blocks=archive_blocks,
-        stage_result=nonrecipe_stage_result,
-    )
+    nonrecipe_block_rows = list(knowledge_final_result.final_nonrecipe_blocks)
 
     extracted_tables = []
     if nonrecipe_block_rows:
@@ -558,14 +512,10 @@ def execute_stage_import_session_from_result(
         )
         extracted_tables = extract_and_annotate_tables(
             nonrecipe_block_rows,
-            source_hash=_resolve_source_hash(result, source_file),
+            source_hash=extracted_book_bundle.source_hash,
         )
 
     chunk_detail_lines = [f"non-recipe blocks: {len(nonrecipe_block_rows)}"]
-    if not nonrecipe_block_rows and result.topic_candidates:
-        chunk_detail_lines.append(
-            f"fallback topic candidates: {len(result.topic_candidates)}"
-        )
     _notify_stage_progress(
         progress_callback,
         message="Generating knowledge chunks...",
@@ -577,17 +527,22 @@ def execute_stage_import_session_from_result(
             nonrecipe_block_rows,
             overrides=parsing_overrides,
         )
-    elif result.topic_candidates:
-        result.chunks = chunks_from_topic_candidates(
-            result.topic_candidates,
-            overrides=parsing_overrides,
-        )
+    else:
+        result.chunks = []
 
     # Mirror the current final non-recipe authority onto ConversionResult so
     # downstream consumers read the same view used for scoring and staged outputs.
     result.non_recipe_blocks = nonrecipe_block_rows
 
     tag_normalization_report = normalize_conversion_result_recipe_tags(result)
+    if recipe_limit is not None:
+        from cookimport.cli_worker import apply_result_limits
+
+        apply_result_limits(
+            result,
+            recipe_limit,
+            limit_label=recipe_limit_label,
+        )
 
     result.report = build_authoritative_stage_report(result.report)
     result.report.importer_name = importer_name
@@ -609,20 +564,30 @@ def execute_stage_import_session_from_result(
     )
 
     output_stats = output_stats or OutputStats(run_root)
+    source_artifact_paths = write_source_model_artifacts(
+        run_root,
+        workbook_slug,
+        result.source_blocks or extracted_book_bundle.source_blocks,
+        result.source_support or extracted_book_bundle.source_support,
+        output_stats=output_stats,
+    )
     intermediate_dir = run_root / "intermediate drafts" / workbook_slug
     final_dir = run_root / "final drafts" / workbook_slug
-    tips_dir = run_root / "tips" / workbook_slug
-    knowledge_root = run_root / "knowledge" / workbook_slug
+    authoritative_recipe_payloads_path = (
+        run_root
+        / "recipe_authority"
+        / workbook_slug
+        / "authoritative_recipe_payloads.json"
+    )
     stage_predictions_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
 
     with measure(stats, "writing"):
         write_steps = [
             "nonrecipe outputs",
+            "recipe authority",
             "intermediate drafts",
             "final drafts",
             "section outputs",
-            "tips",
-            "topic candidates",
             "chunks" if result.chunks else None,
             "tables",
             "raw artifacts" if write_raw_artifacts_enabled else None,
@@ -661,10 +626,21 @@ def execute_stage_import_session_from_result(
                 stage_result=nonrecipe_stage_result,
                 llm_report=llm_report.get("knowledge"),
                 snippet_records=(
-                    knowledge_write_report.snippet_records
-                    if knowledge_write_report is not None
+                    knowledge_final_result.knowledge_write_report.snippet_records
+                    if knowledge_final_result is not None
+                    and knowledge_final_result.knowledge_write_report is not None
                     else []
                 ),
+                output_stats=output_stats,
+            )
+        write_completed += 1
+        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
+        with measure(stats, "write_recipe_authority_seconds"):
+            write_authoritative_recipe_semantics(
+                payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
+                out_path=authoritative_recipe_payloads_path,
+                workbook_slug=workbook_slug,
+                refinement_mode=recipe_refine_result.refinement_mode if recipe_refine_result is not None else "unknown",
                 output_stats=output_stats,
             )
         write_completed += 1
@@ -674,7 +650,7 @@ def execute_stage_import_session_from_result(
                 result,
                 intermediate_dir,
                 output_stats=output_stats,
-                schemaorg_overrides_by_recipe_id=llm_schema_overrides,
+                authoritative_payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
                 instruction_step_options=run_config,
             )
         write_completed += 1
@@ -684,7 +660,7 @@ def execute_stage_import_session_from_result(
                 result,
                 final_dir,
                 output_stats=output_stats,
-                draft_overrides_by_recipe_id=llm_draft_overrides,
+                authoritative_payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
                 ingredient_parser_options=run_config,
                 instruction_step_options=run_config,
             )
@@ -698,24 +674,7 @@ def execute_stage_import_session_from_result(
                 output_stats=output_stats,
                 write_markdown=write_markdown,
                 instruction_step_options=run_config,
-            )
-        write_completed += 1
-        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
-        with measure(stats, "write_tips_seconds"):
-            write_tip_outputs(
-                result,
-                tips_dir,
-                output_stats=output_stats,
-                write_markdown=write_markdown,
-            )
-        write_completed += 1
-        _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
-        with measure(stats, "write_topic_candidates_seconds"):
-            write_topic_candidate_outputs(
-                result,
-                tips_dir,
-                output_stats=output_stats,
-                write_markdown=write_markdown,
+                authoritative_payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
             )
         write_completed += 1
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
@@ -751,7 +710,7 @@ def execute_stage_import_session_from_result(
                 run_root=run_root,
                 workbook_slug=workbook_slug,
                 source_file=str(source_file),
-                archive_blocks=full_blocks,
+                archive_blocks=list(extracted_book_bundle.archive_blocks),
                 nonrecipe_stage_result=nonrecipe_stage_result,
                 output_stats=output_stats,
                 label_first_result=label_first_result,
@@ -767,7 +726,7 @@ def execute_stage_import_session_from_result(
         run_root=run_root,
         workbook_slug=workbook_slug,
         source_file=source_file,
-        source_hash=_resolve_source_hash(result, source_file),
+        source_hash=extracted_book_bundle.source_hash,
         importer_name=importer_name,
         conversion_result=result,
         report_path=report_path,
@@ -779,5 +738,12 @@ def execute_stage_import_session_from_result(
         timing=stats.to_dict(),
         label_first_result=label_first_result,
         label_artifact_paths=label_artifact_paths,
+        source_artifact_paths=source_artifact_paths,
+        authoritative_recipe_payloads_path=authoritative_recipe_payloads_path,
         nonrecipe_stage_result=nonrecipe_stage_result,
+        extracted_book_bundle=extracted_book_bundle,
+        recipe_boundary_result=recipe_boundary_result,
+        recipe_refine_result=recipe_refine_result,
+        nonrecipe_route_result=nonrecipe_route_result,
+        knowledge_final_result=knowledge_final_result,
     )

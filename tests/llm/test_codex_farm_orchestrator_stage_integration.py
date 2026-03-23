@@ -24,9 +24,6 @@ def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
                 provenance={"location": {"start_block": 1, "end_block": 3}},
             )
         ],
-        tips=[],
-        tipCandidates=[],
-        topicCandidates=[],
         nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(

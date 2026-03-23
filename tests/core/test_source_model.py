@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from cookimport.core.models import (
+    ConversionReport,
+    ConversionResult,
+    RawArtifact,
+    SourceBlock,
+    SourceSupport,
+)
+from cookimport.core.source_model import (
+    build_source_model_from_legacy_result,
+    normalize_source_support,
+    write_source_model_artifacts,
+)
+from cookimport.parsing.label_source_of_truth import build_label_first_stage_result
+from cookimport.config.run_settings import RunSettings
+
+
+def test_build_source_model_from_legacy_result_uses_extracted_rows() -> None:
+    result = ConversionResult(
+        rawArtifacts=[
+            RawArtifact(
+                importer="excel",
+                sourceHash="hash-123",
+                locationId="full_rows",
+                extension="json",
+                content={
+                    "rows": [
+                        {
+                            "sheet": "Sheet1",
+                            "row_index": 3,
+                            "headers": ["Name", "Ingredients"],
+                            "row": ["Cake", "Flour"],
+                        }
+                    ]
+                },
+                metadata={"artifact_type": "extracted_rows"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="/tmp/book.xlsx",
+    )
+
+    blocks, support = build_source_model_from_legacy_result(result)
+
+    assert [block.order_index for block in blocks] == [3]
+    assert blocks[0].block_id == "b3"
+    assert "Name: Cake" in blocks[0].text
+    assert "Ingredients: Flour" in blocks[0].text
+    assert support == []
+
+
+def test_normalize_source_support_forces_non_authoritative_metadata() -> None:
+    [support] = normalize_source_support(
+        [
+            {
+                "hintClass": "proposal",
+                "kind": "candidate_recipe_region",
+                "referencedBlockIds": ["b0"],
+                "payload": {"reason": "heading"},
+                "metadata": {"authoritative": True, "source": "test"},
+            }
+        ]
+    )
+
+    assert support.metadata == {"authoritative": False, "source": "test"}
+
+
+def test_source_support_does_not_create_recipe_authority(tmp_path: Path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("Technique note", encoding="utf-8")
+    result = ConversionResult(
+        sourceBlocks=[
+            SourceBlock(
+                blockId="b0",
+                orderIndex=0,
+                text="Technique note",
+                sourceText="Technique note",
+                location={"line_index": 0},
+            )
+        ],
+        sourceSupport=[
+            SourceSupport(
+                hintClass="proposal",
+                kind="candidate_recipe_region",
+                referencedBlockIds=["b0"],
+                payload={"reason": "structured export says recipe"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath=str(source),
+    )
+
+    stage_result = build_label_first_stage_result(
+        conversion_result=result,
+        source_file=source,
+        importer_name="text",
+        run_settings=RunSettings.from_dict({}, warn_context="test"),
+        live_llm_allowed=False,
+    )
+
+    assert stage_result.updated_conversion_result.recipes == []
+    assert [row["index"] for row in stage_result.updated_conversion_result.non_recipe_blocks] == [0]
+    assert stage_result.updated_conversion_result.non_recipe_blocks[0]["text"] == "Technique note"
+
+
+def test_write_source_model_artifacts_writes_expected_files(tmp_path: Path) -> None:
+    paths = write_source_model_artifacts(
+        tmp_path,
+        "book",
+        [
+            SourceBlock(
+                blockId="b0",
+                orderIndex=0,
+                text="Title",
+                sourceText="Title",
+                location={"line_index": 0},
+            )
+        ],
+        [
+            SourceSupport(
+                hintClass="evidence",
+                kind="structured_recipe_object",
+                referencedBlockIds=["b0"],
+                payload={"name": "Title"},
+            )
+        ],
+    )
+
+    assert paths["source_blocks_path"] == tmp_path / "raw" / "source" / "book" / "source_blocks.jsonl"
+    assert paths["source_support_path"] == tmp_path / "raw" / "source" / "book" / "source_support.json"
+    assert paths["source_blocks_path"].is_file()
+    assert paths["source_support_path"].is_file()
+    assert '"blockId": "b0"' in paths["source_blocks_path"].read_text(encoding="utf-8")
+    assert '"authoritative": false' in paths["source_support_path"].read_text(encoding="utf-8")

@@ -1051,16 +1051,12 @@ def _collect_from_csv(
                     )
 
                     recipes = _safe_int(row.get("recipes"))
-                    tips = _safe_int(row.get("tips"))
-                    tip_candidates = _safe_int(row.get("tip_candidates"))
-                    topic_candidates = _safe_int(row.get("topic_candidates"))
+                    standalone_blocks = _safe_int(row.get("standalone_blocks"))
                     total_seconds = _safe_float(row.get("total_seconds"))
 
                     total_units = _safe_int(row.get("total_units"))
-                    if total_units is None and all(
-                        v is not None for v in (recipes, tips, tip_candidates, topic_candidates)
-                    ):
-                        total_units = recipes + tips + tip_candidates + topic_candidates
+                    if total_units is None:
+                        total_units = recipes
 
                     per_recipe = _safe_float(row.get("per_recipe_seconds"))
                     if per_recipe is None:
@@ -1161,9 +1157,7 @@ def _collect_from_csv(
                         writing_seconds=_safe_float(row.get("writing_seconds")),
                         ocr_seconds=_safe_float(row.get("ocr_seconds")),
                         recipes=recipes,
-                        tips=tips,
-                        tip_candidates=tip_candidates,
-                        topic_candidates=topic_candidates,
+                        standalone_blocks=standalone_blocks,
                         total_units=total_units,
                         per_recipe_seconds=per_recipe,
                         per_unit_seconds=per_unit,
@@ -1665,13 +1659,9 @@ def _collect_stage_from_reports(
                 timing.get("total_seconds") or timing.get("totalSeconds")
             )
             recipes = _safe_int(data.get("totalRecipes"))
-            tips = _safe_int(data.get("totalTips"))
-            tip_candidates = _safe_int(data.get("totalTipCandidates"))
-            topic_candidates = _safe_int(data.get("totalTopicCandidates"))
+            standalone_blocks = _safe_int(data.get("totalStandaloneBlocks"))
 
-            total_units = None
-            if all(v is not None for v in (recipes, tips, tip_candidates, topic_candidates)):
-                total_units = recipes + tips + tip_candidates + topic_candidates
+            total_units = recipes
 
             source_file = data.get("sourceFile")
             file_name = (
@@ -1754,9 +1744,7 @@ def _collect_stage_from_reports(
                     timing.get("ocr_seconds") or timing.get("ocrSeconds")
                 ),
                 recipes=recipes,
-                tips=tips,
-                tip_candidates=tip_candidates,
-                topic_candidates=topic_candidates,
+                standalone_blocks=standalone_blocks,
                 total_units=total_units,
                 per_recipe_seconds=_safe_div(total_seconds, recipes),
                 per_unit_seconds=_safe_div(total_seconds, total_units),
@@ -2108,7 +2096,6 @@ def _build_summary(
     benchmark_records: list[BenchmarkRecord],
 ) -> DashboardSummary:
     total_recipes = 0
-    total_tips = 0
     total_runtime = 0.0
     has_runtime = False
     latest_stage_ts: str | None = None
@@ -2117,8 +2104,6 @@ def _build_summary(
     for r in stage_records:
         if r.recipes is not None:
             total_recipes += r.recipes
-        if r.tips is not None:
-            total_tips += r.tips
         if r.total_seconds is not None:
             total_runtime += r.total_seconds
             has_runtime = True
@@ -2161,7 +2146,6 @@ def _build_summary(
         total_stage_records=len(stage_records),
         total_benchmark_records=len(benchmark_records),
         total_recipes=total_recipes,
-        total_tips=total_tips,
         total_runtime_seconds=total_runtime if has_runtime else None,
         latest_stage_timestamp=latest_stage_ts,
         latest_benchmark_timestamp=latest_bench_ts,

@@ -33,8 +33,8 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 
 2. `cookimport/staging/writer.py`
 - `write_draft_outputs(...)` writes final draft JSON payloads under `r{index}.json`.
-- Accepts `draft_overrides_by_recipe_id` so LLM pass outputs can replace deterministic conversion output.
-- `write_intermediate_outputs(...)` writes schema.org intermediates and shares override plumbing for recipe-correction payloads.
+- Primarily projects from `authoritative_payloads_by_recipe_id`; the explicit `draft_overrides_by_recipe_id` / `schemaorg_overrides_by_recipe_id` parameters remain only as narrow helper/test seams.
+- `write_intermediate_outputs(...)` writes schema.org intermediates and shares the same canonical-payload-first behavior.
 
 3. `cookimport/core/models.py`
 - Defines internal `RecipeDraftV1`, `RecipeDraftRecipeMeta`, and `RecipeDraftStep` models used by runtime validation and type boundaries.
@@ -43,7 +43,7 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 - Defines the live merged-repair LLM contract envelopes (`MergedRecipeRepairInput` / `MergedRecipeRepairOutput`) used by the recipe correction stage.
 
 5. `cookimport/llm/codex_farm_orchestrator.py`
-- Normalizes recipe-correction payloads, validates rebuilt `RecipeDraftV1` outputs, and forwards validated overrides into writer output paths.
+- Normalizes recipe-correction payloads, validates rebuilt `RecipeDraftV1` outputs, and promotes canonical `AuthoritativeRecipeSemantics` payloads for downstream staging writers.
 
 6. `cookimport/staging/jsonld.py`
 - Deterministic converter for schema.org intermediate recipe payloads used by `write_intermediate_outputs(...)`.

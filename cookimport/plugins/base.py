@@ -10,7 +10,12 @@ if TYPE_CHECKING:
 
 
 class Importer(Protocol):
-    """Interface for source-specific importers."""
+    """Interface for source-specific importers.
+
+    Importers are source normalizers: they expose canonical ordered source blocks
+    and optional non-authoritative source support. Downstream shared stages own
+    recipe versus non-recipe truth.
+    """
 
     name: str
 
