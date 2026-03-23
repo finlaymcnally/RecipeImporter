@@ -19,8 +19,6 @@ ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
 ORACLE_BROWSER_MODEL_STRATEGY = "select"
 ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")
 ORACLE_BROWSER_PROFILE_DIR = str(Path(ORACLE_HOME_DIR) / "browser-profile")
-ORACLE_LEGACY_HOME_DIR = str(Path.home() / ".oracle")
-ORACLE_LEGACY_BROWSER_PROFILE_DIR = str(Path(ORACLE_LEGACY_HOME_DIR) / "browser-profile")
 ORACLE_TEST_MODEL = os.environ.get(
     "ORACLE_TEST_MODEL",
     os.environ.get(
@@ -1004,19 +1002,7 @@ def _resolve_oracle_browser_profile_dir(*, env: dict[str, str] | None = None) ->
     explicit_profile = str(source_env.get("ORACLE_BROWSER_PROFILE_DIR") or "").strip()
     if explicit_profile:
         return Path(explicit_profile).expanduser()
-
-    current_profile = Path(ORACLE_BROWSER_PROFILE_DIR).expanduser()
-    legacy_profile = Path(ORACLE_LEGACY_BROWSER_PROFILE_DIR).expanduser()
-    candidates = [current_profile, legacy_profile]
-    ranked = sorted(
-        ((profile_dir, _profile_signal_mtime(profile_dir)) for profile_dir in candidates),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-    for profile_dir, signal in ranked:
-        if signal > 0:
-            return profile_dir
-    return current_profile
+    return Path(ORACLE_BROWSER_PROFILE_DIR).expanduser()
 
 
 def _oracle_browser_env() -> dict[str, str]:

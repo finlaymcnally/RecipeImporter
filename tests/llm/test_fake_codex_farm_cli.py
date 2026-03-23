@@ -327,7 +327,6 @@ def test_recipe_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "recipe_worker_count": 1,
-            "recipe_shard_target_recipes": 2,
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
         }
@@ -347,9 +346,9 @@ def test_recipe_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     assert status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
     assert sorted(path.name for path in (worker_root / "out").glob("*.json")) == [
-        "recipe-shard-0000-r0000-r0001.task-001.json",
-        "recipe-shard-0000-r0000-r0001.task-002.json",
-        "recipe-shard-0001-r0002-r0002.json",
+        "recipe-shard-0000-r0000-r0000.json",
+        "recipe-shard-0001-r0001-r0001.json",
+        "recipe-shard-0002-r0002-r0002.json",
     ]
 
 
@@ -431,7 +430,7 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
 
     assert manifest["stage_status"] == "completed"
     assert manifest["counts"]["shards_written"] >= 1
-    assert manifest["counts"]["validated_shards"] >= 1
+    assert manifest["counts"]["invalid_shards"] == 0
     assert proposals
     assert (phase_dir / "phase_manifest.json").exists()
     assert (phase_dir / "worker_assignments.json").exists()
@@ -448,7 +447,6 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 2,
             "knowledge_worker_count": 1,
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),

@@ -66,10 +66,6 @@ def normalize_knowledge_reason_code(value: object) -> str | None:
     return _REASON_CODE_ALIASES.get(cleaned, cleaned)
 
 
-def default_legacy_knowledge_reason_code(*, is_useful: bool) -> str:
-    return "technique_or_mechanism" if is_useful else "not_cooking_knowledge"
-
-
 class EvidencePointerV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -442,44 +438,3 @@ def serialize_canonical_knowledge_packet(
             for chunk_result in result.chunk_results
         ],
     }
-
-
-def semantic_result_from_canonical_bundle(
-    bundle: KnowledgeBundleOutputV2,
-) -> KnowledgePacketSemanticResultV1:
-    return KnowledgePacketSemanticResultV1.model_validate(
-        {
-            "packet_id": bundle.bundle_id,
-            "chunk_results": [
-                {
-                    "chunk_id": result.chunk_id,
-                    "is_useful": result.is_useful,
-                    "block_decisions": [
-                        {
-                            "block_index": decision.block_index,
-                            "category": decision.category,
-                            "reviewer_category": decision.reviewer_category,
-                        }
-                        for decision in result.block_decisions
-                    ],
-                    "snippets": [
-                        {
-                            "body": snippet.body,
-                            "evidence": [
-                                {
-                                    "block_index": evidence.block_index,
-                                    "quote": evidence.quote,
-                                }
-                                for evidence in snippet.evidence
-                            ],
-                        }
-                        for snippet in result.snippets
-                    ],
-                    "reason_code": default_legacy_knowledge_reason_code(
-                        is_useful=bool(result.is_useful)
-                    ),
-                }
-                for result in bundle.chunk_results
-            ],
-        }
-    )

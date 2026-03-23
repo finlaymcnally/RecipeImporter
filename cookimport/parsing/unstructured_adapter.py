@@ -165,10 +165,10 @@ def _resolve_options(options: UnstructuredHtmlOptions | None) -> UnstructuredHtm
         )
 
     preprocess_mode = str(options.preprocess_mode).strip().lower()
-    if preprocess_mode not in {"none", "br_split_v1", "semantic_v1"}:
+    if preprocess_mode not in {"none", "br_split_v1"}:
         raise ValueError(
             "Invalid Unstructured preprocess_mode. "
-            "Expected one of: none, br_split_v1, semantic_v1."
+            "Expected one of: none, br_split_v1."
         )
 
     return UnstructuredHtmlOptions(

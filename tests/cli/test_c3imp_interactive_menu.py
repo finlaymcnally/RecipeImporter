@@ -556,7 +556,7 @@ def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
             "line_role_pipeline": "codex-line-role-shard-v1",
             "atomic_block_splitter": "atomic-v1",
             "epub_unstructured_html_parser_version": "v2",
-            "epub_unstructured_preprocess_mode": "semantic_v1",
+            "epub_unstructured_preprocess_mode": "br_split_v1",
         },
         warn_context="test qualitysuite winner settings",
     )
@@ -783,10 +783,8 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
     assert selected is not None
     assert prompt_messages == [
         "Recipe correction shard count for this run:",
-        "Non-recipe knowledge review shard count for this run:",
     ]
     assert selected.recipe_prompt_target_count == 3
-    assert selected.knowledge_prompt_target_count == 6
     assert selected.line_role_prompt_target_count == 5
 
 
@@ -835,11 +833,9 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
     assert prompt_messages == [
         "Block labelling shard count for this run:",
         "Recipe correction shard count for this run:",
-        "Non-recipe knowledge review shard count for this run:",
     ]
     assert selected.line_role_prompt_target_count == 10
     assert selected.recipe_prompt_target_count == 5
-    assert selected.knowledge_prompt_target_count == 10
 
 
 def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:
@@ -870,7 +866,6 @@ def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_
     assert prompt_messages == ["Block labelling shard count for this run:"]
     assert result.recipe_prompt_target_count == selected_settings.recipe_prompt_target_count
     assert result.line_role_prompt_target_count == 4
-    assert result.knowledge_prompt_target_count == selected_settings.knowledge_prompt_target_count
 
 
 def test_prompt_codex_prompt_target_count_caps_interactive_choice_at_20() -> None:
@@ -1221,7 +1216,7 @@ def test_qualitysuite_winner_run_settings_roundtrip(tmp_path) -> None:
         {
             "epub_extractor": "unstructured",
             "epub_unstructured_html_parser_version": "v2",
-            "epub_unstructured_preprocess_mode": "semantic_v1",
+            "epub_unstructured_preprocess_mode": "br_split_v1",
         },
         warn_context="test qualitysuite winner roundtrip",
     )
@@ -1346,7 +1341,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
         "epub_extractor": "beautifulsoup",
         "epub_unstructured_html_parser_version": "v2",
         "epub_unstructured_skip_headers_footers": True,
-        "epub_unstructured_preprocess_mode": "semantic_v1",
+        "epub_unstructured_preprocess_mode": "br_split_v1",
         "llm_recipe_pipeline": "off",
         "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
         "codex_farm_pipeline_knowledge": "recipe.knowledge.custom.v9",
@@ -1377,7 +1372,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_extractor"] == "beautifulsoup"
     assert captured["epub_unstructured_html_parser_version"] == "v2"
     assert captured["epub_unstructured_skip_headers_footers"] is True
-    assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"
+    assert captured["epub_unstructured_preprocess_mode"] == "br_split_v1"
     assert captured["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 42

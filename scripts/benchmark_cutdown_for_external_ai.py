@@ -7445,16 +7445,16 @@ def _upload_bundle_build_knowledge_summary(
             else {}
         )
         processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
-        knowledge_outputs_path = (
-            processed_output_dir / "09_knowledge_outputs.json"
-            if processed_output_dir is not None
-            else None
-        )
-        knowledge_outputs = (
-            _upload_bundle_load_json_object(knowledge_outputs_path)
-            if isinstance(knowledge_outputs_path, Path) and knowledge_outputs_path.is_file()
-            else {}
-        )
+        knowledge_outputs: dict[str, Any] = {}
+        if processed_output_dir is not None:
+            for candidate in (
+                processed_output_dir / "09_knowledge_outputs.json",
+                processed_output_dir / "09_nonrecipe_review_status.json",
+            ):
+                if not candidate.is_file():
+                    continue
+                knowledge_outputs = _upload_bundle_load_json_object(candidate)
+                break
         llm_payload = (
             pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
         )

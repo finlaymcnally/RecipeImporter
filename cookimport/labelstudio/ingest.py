@@ -414,10 +414,10 @@ def _normalize_unstructured_html_parser_version(value: str) -> str:
 
 def _normalize_unstructured_preprocess_mode(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"none", "br_split_v1", "semantic_v1"}:
+    if normalized not in {"none", "br_split_v1"}:
         raise ValueError(
             "Invalid epub_unstructured_preprocess_mode. "
-            "Expected one of: none, br_split_v1, semantic_v1."
+            "Expected one of: none, br_split_v1."
         )
     return normalized
 
@@ -1590,7 +1590,6 @@ def generate_pred_run_artifacts(
     atomic_block_splitter: str = "off",
     line_role_pipeline: str = "off",
     line_role_prompt_target_count: int = 5,
-    knowledge_prompt_target_count: int = 5,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
@@ -1777,7 +1776,6 @@ def generate_pred_run_artifacts(
         atomic_block_splitter=atomic_block_splitter,
         line_role_pipeline=line_role_pipeline,
         line_role_prompt_target_count=line_role_prompt_target_count,
-        knowledge_prompt_target_count=knowledge_prompt_target_count,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
@@ -3478,7 +3476,6 @@ def run_labelstudio_import(
     llm_knowledge_pipeline: str = "off",
     recipe_prompt_target_count: int = 5,
     line_role_prompt_target_count: int = 5,
-    knowledge_prompt_target_count: int = 5,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
@@ -3589,7 +3586,6 @@ def run_labelstudio_import(
         llm_knowledge_pipeline=llm_knowledge_pipeline,
         recipe_prompt_target_count=recipe_prompt_target_count,
         line_role_prompt_target_count=line_role_prompt_target_count,
-        knowledge_prompt_target_count=knowledge_prompt_target_count,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,

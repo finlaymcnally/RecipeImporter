@@ -18,7 +18,6 @@ def _run_single_book_codex_enabled_fixture(
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "recipe_prompt_target_count": 10,
             "line_role_prompt_target_count": 5,
-            "knowledge_prompt_target_count": 5,
         },
         warn_context="test codex-enabled",
     )
@@ -130,7 +129,7 @@ def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
     assert [call["recipe_prompt_target_count"] for call in benchmark_calls] == [10, 10]
     assert [call["line_role_prompt_target_count"] for call in benchmark_calls] == [5, 5]
-    assert [call["knowledge_prompt_target_count"] for call in benchmark_calls] == [5, 5]
+    assert all("knowledge_prompt_target_count" not in call for call in benchmark_calls)
     assert [call["single_book_split_cache_mode"] for call in benchmark_calls] == [
         "auto",
         "auto",

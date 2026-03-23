@@ -65,7 +65,6 @@ _SURFACE_CONFIG_BY_KEY = {
         "worker_key": "recipe_worker_count",
     },
     "knowledge": {
-        "prompt_target_key": "knowledge_prompt_target_count",
         "worker_key": "knowledge_worker_count",
     },
     "line_role": {

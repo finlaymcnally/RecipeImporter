@@ -61,9 +61,6 @@ _DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
 _DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-shard-v1"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
-_DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 1
-_DEFAULT_KNOWLEDGE_SHARD_TARGET_CHUNKS = 12
-
 
 def _serialize_compact_prompt_json(payload: Any) -> str:
     return json.dumps(
@@ -116,10 +113,7 @@ def write_prompt_preview_for_existing_run(
     atomic_block_splitter: str = "off",
     recipe_worker_count: int | None = None,
     recipe_prompt_target_count: int | None = None,
-    recipe_shard_target_recipes: int | None = None,
     knowledge_worker_count: int | None = None,
-    knowledge_prompt_target_count: int | None = None,
-    knowledge_shard_target_chunks: int | None = None,
     line_role_worker_count: int | None = None,
     line_role_prompt_target_count: int | None = None,
     line_role_shard_target_lines: int | None = None,
@@ -131,11 +125,6 @@ def write_prompt_preview_for_existing_run(
         recipe_prompt_target_count
         if recipe_prompt_target_count is not None
         else _coerce_int(context.run_config.get("recipe_prompt_target_count"))
-    )
-    resolved_knowledge_prompt_target_count = (
-        knowledge_prompt_target_count
-        if knowledge_prompt_target_count is not None
-        else _coerce_int(context.run_config.get("knowledge_prompt_target_count"))
     )
     resolved_line_role_prompt_target_count = (
         line_role_prompt_target_count
@@ -161,9 +150,6 @@ def write_prompt_preview_for_existing_run(
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
             prompt_target_count=resolved_recipe_prompt_target_count,
-            shard_target_recipes=recipe_shard_target_recipes
-            if recipe_shard_target_recipes is not None
-            else _coerce_int(context.run_config.get("recipe_shard_target_recipes")),
         )
         stage_plans["recipe_llm_correct_and_link"] = _build_direct_shard_phase_plan(
             stage_key="recipe_llm_correct_and_link",
@@ -195,10 +181,6 @@ def write_prompt_preview_for_existing_run(
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
             context_blocks=codex_farm_knowledge_context_blocks,
-            target_prompt_count=resolved_knowledge_prompt_target_count,
-            target_chunks_per_shard=knowledge_shard_target_chunks
-            if knowledge_shard_target_chunks is not None
-            else _coerce_int(context.run_config.get("knowledge_shard_target_chunks")),
         )
         stage_plans["nonrecipe_knowledge_review"] = _build_direct_shard_phase_plan(
             stage_key="nonrecipe_knowledge_review",
@@ -301,10 +283,7 @@ def write_prompt_preview_for_existing_run(
         "preview_settings": {
             "recipe_worker_count": recipe_worker_count,
             "recipe_prompt_target_count": resolved_recipe_prompt_target_count,
-            "recipe_shard_target_recipes": recipe_shard_target_recipes,
             "knowledge_worker_count": knowledge_worker_count,
-            "knowledge_prompt_target_count": resolved_knowledge_prompt_target_count,
-            "knowledge_shard_target_chunks": knowledge_shard_target_chunks,
             "line_role_worker_count": line_role_worker_count,
             "line_role_prompt_target_count": resolved_line_role_prompt_target_count,
             "line_role_shard_target_lines": line_role_shard_target_lines,
@@ -432,7 +411,6 @@ def _build_recipe_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     prompt_target_count: int | None,
-    shard_target_recipes: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
@@ -502,7 +480,6 @@ def _build_recipe_preview_rows(
         model_override=model_override,
         reasoning_effort_override=reasoning_effort_override,
         prompt_target_count=prompt_target_count,
-        shard_target_recipes=shard_target_recipes,
         recipe_inputs=recipe_inputs,
     )
 
@@ -517,28 +494,11 @@ def _build_recipe_shard_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     prompt_target_count: int | None,
-    shard_target_recipes: int | None,
     recipe_inputs: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    if shard_target_recipes is None:
-        shard_groups: list[list[Mapping[str, Any]]] = [
-            [row] for row in recipe_inputs
-        ]
-    else:
-        requested_shard_count = resolve_shard_count(
-            total_items=len(recipe_inputs),
-            prompt_target_count=prompt_target_count,
-            items_per_shard=shard_target_recipes,
-            default_items_per_shard=shard_target_recipes,
-        )
-        shard_groups = [
-            list(group)
-            for group in partition_contiguous_items(
-                recipe_inputs,
-                shard_count=requested_shard_count,
-            )
-        ]
+    del prompt_target_count
+    shard_groups: list[list[Mapping[str, Any]]] = [[row] for row in recipe_inputs]
     for index, shard_rows in enumerate(shard_groups, start=1):
         if not shard_rows:
             continue
@@ -625,8 +585,6 @@ def _build_knowledge_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     context_blocks: int,
-    target_prompt_count: int | None,
-    target_chunks_per_shard: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
@@ -652,8 +610,6 @@ def _build_knowledge_preview_rows(
         source_hash=context.source_hash,
         out_dir=in_dir,
         context_blocks=context_blocks,
-        target_prompt_count=target_prompt_count,
-        target_chunks_per_shard=target_chunks_per_shard,
     )
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):

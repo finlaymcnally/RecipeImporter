@@ -103,142 +103,69 @@ def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() 
     }
 
 
-def test_normalize_knowledge_worker_payload_rewrites_known_semantic_category_aliases() -> None:
-    payload, metadata = normalize_knowledge_worker_payload(
-        {
-            "packet_id": "book.ks0099.nr.task-002",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0100.nr",
-                    "is_useful": True,
-                    "reason_code": "technique_or_mechanism",
-                    "block_decisions": [
-                        {"block_index": 8, "category": "content"},
-                        {"block_index": 9, "category": "heading"},
-                        {
-                            "block_index": 10,
-                            "category": "noise",
-                            "reviewer_category": "front_matter",
-                        },
-                    ],
-                    "snippets": [
-                        {
-                            "body": "Use enough salt to wake up the stew.",
-                            "evidence": [
-                                {
-                                    "block_index": 8,
-                                    "quote": "Use enough salt to wake up the stew.",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-    )
-
-    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
-    assert metadata["reason_code_by_chunk_id"] == {
-        "book.c0100.nr": "technique_or_mechanism"
-    }
-    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
-    assert metadata["useful_reason_code_counts"] == {"technique_or_mechanism": 1}
-    assert metadata["other_reason_code_counts"] == {}
-    assert metadata["semantic_category_alias_rewrites"] == {
-        "content": 1,
-        "heading": 1,
-        "noise": 1,
-    }
-    assert metadata["semantic_category_alias_rewrite_count"] == 3
-    assert payload == {
-        "v": "2",
-        "bid": "book.ks0099.nr.task-002",
-        "r": [
+def test_normalize_knowledge_worker_payload_rejects_removed_semantic_category_aliases() -> None:
+    with pytest.raises(ValueError, match="semantic packet result v1 contract"):
+        normalize_knowledge_worker_payload(
             {
-                "cid": "book.c0100.nr",
-                "u": True,
-                "d": [
-                    {"i": 8, "c": "knowledge", "rc": "knowledge"},
-                    {"i": 9, "c": "other", "rc": "decorative_heading"},
-                    {"i": 10, "c": "other", "rc": "front_matter"},
-                ],
-                "s": [
+                "packet_id": "book.ks0099.nr.task-002",
+                "chunk_results": [
                     {
-                        "b": "Use enough salt to wake up the stew.",
-                        "e": [
+                        "chunk_id": "book.c0100.nr",
+                        "is_useful": True,
+                        "reason_code": "technique_or_mechanism",
+                        "block_decisions": [
+                            {"block_index": 8, "category": "content"},
+                            {"block_index": 9, "category": "heading"},
                             {
-                                "i": 8,
-                                "q": "Use enough salt to wake up the stew.",
+                                "block_index": 10,
+                                "category": "noise",
+                                "reviewer_category": "front_matter",
+                            },
+                        ],
+                        "snippets": [
+                            {
+                                "body": "Use enough salt to wake up the stew.",
+                                "evidence": [
+                                    {
+                                        "block_index": 8,
+                                        "quote": "Use enough salt to wake up the stew.",
+                                    }
+                                ],
                             }
                         ],
                     }
                 ],
             }
-        ],
-    }
+        )
 
 
-def test_normalize_knowledge_worker_payload_canonical_bundle_compat_preserves_reason_counts() -> None:
-    payload, metadata = normalize_knowledge_worker_payload(
-        {
-            "v": "2",
-            "bid": "book.ks0099.nr",
-            "r": [
-                {
-                    "cid": "book.c0099.nr",
-                    "u": True,
-                    "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
-                    "s": [
-                        {
-                            "b": "Keep whisking.",
-                            "e": [{"i": 4, "q": "Keep whisking"}],
-                        }
-                    ],
-                },
-                {
-                    "cid": "book.c0100.nr",
-                    "u": False,
-                    "d": [{"i": 5, "c": "other", "rc": "other"}],
-                    "s": [],
-                },
-            ],
-        }
-    )
-
-    assert metadata["worker_output_contract"] == "canonical_bundle_v2_compat"
-    assert metadata["reason_code_by_chunk_id"] == {
-        "book.c0099.nr": "technique_or_mechanism",
-        "book.c0100.nr": "not_cooking_knowledge",
-    }
-    assert metadata["reason_code_counts"] == {
-        "not_cooking_knowledge": 1,
-        "technique_or_mechanism": 1,
-    }
-    assert metadata["useful_reason_code_counts"] == {"technique_or_mechanism": 1}
-    assert metadata["other_reason_code_counts"] == {"not_cooking_knowledge": 1}
-    assert payload == {
-        "v": "2",
-        "bid": "book.ks0099.nr",
-        "r": [
+def test_normalize_knowledge_worker_payload_rejects_removed_canonical_bundle_contract() -> None:
+    with pytest.raises(ValueError, match="semantic packet result v1 contract"):
+        normalize_knowledge_worker_payload(
             {
-                "cid": "book.c0099.nr",
-                "u": True,
-                "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
-                "s": [
+                "v": "2",
+                "bid": "book.ks0099.nr",
+                "r": [
                     {
-                        "b": "Keep whisking.",
-                        "e": [{"i": 4, "q": "Keep whisking"}],
-                    }
+                        "cid": "book.c0099.nr",
+                        "u": True,
+                        "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                        "s": [
+                            {
+                                "b": "Keep whisking.",
+                                "e": [{"i": 4, "q": "Keep whisking"}],
+                            }
+                        ],
+                    },
+                    {
+                        "cid": "book.c0100.nr",
+                        "u": False,
+                        "d": [{"i": 5, "c": "other", "rc": "other"}],
+                        "s": [],
+                    },
                 ],
-            },
-            {
-                "cid": "book.c0100.nr",
-                "u": False,
-                "d": [{"i": 5, "c": "other", "rc": "other"}],
-                "s": [],
-            },
-        ],
-    }
+            }
+        )
 
 
 def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> None:
@@ -267,7 +194,7 @@ def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> Non
     assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
 
 
-def test_validate_knowledge_shard_output_rewrites_known_semantic_category_aliases() -> None:
+def test_validate_knowledge_shard_output_rejects_removed_semantic_category_aliases() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
         ShardManifestEntryV1(
             shard_id="book.ks0099.nr.task-002",
@@ -305,11 +232,9 @@ def test_validate_knowledge_shard_output_rewrites_known_semantic_category_aliase
         },
     )
 
-    assert valid is True
-    assert errors == ()
-    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
-    assert metadata["semantic_category_alias_rewrites"] == {"content": 2}
-    assert metadata["semantic_category_alias_rewrite_count"] == 2
+    assert valid is False
+    assert errors == ("schema_invalid",)
+    assert "semantic packet result v1 contract" in metadata["parse_error"]
 
 
 def test_classify_knowledge_validation_failure_marks_snippet_copy_only_near_miss() -> None:
@@ -361,19 +286,19 @@ def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> Non
             metadata={"owned_block_indices": [4, 5]},
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0000.nr",
+            "packet_id": "book.ks0000.nr",
             "chunk_results": [
                 {
                     "chunk_id": "book.c0000.nr",
                     "is_useful": True,
                     "block_decisions": [{"block_index": 4, "category": "knowledge"}],
-                        "snippets": [
-                            {
-                                "body": "Keep whisking.",
-                                "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
-                            }
-                        ],
+                    "snippets": [
+                        {
+                            "body": "Keep whisking.",
+                            "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
+                        }
+                    ],
+                    "reason_code": "technique_or_mechanism",
                 }
             ],
         },
@@ -392,8 +317,7 @@ def test_validate_knowledge_shard_output_rejects_empty_result_array_for_owned_ch
             metadata={"owned_block_indices": [40, 41]},
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0003.nr",
+            "packet_id": "book.ks0003.nr",
             "chunk_results": [],
         },
     )
@@ -412,8 +336,7 @@ def test_validate_knowledge_shard_output_rejects_synthetic_processing_error_chun
             metadata={"owned_block_indices": [4]},
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0001.nr",
+            "packet_id": "book.ks0001.nr",
             "chunk_results": [
                 {
                     "chunk_id": "processing_error",
@@ -425,6 +348,7 @@ def test_validate_knowledge_shard_output_rejects_synthetic_processing_error_chun
                             "evidence": [{"block_index": 0, "quote": "bad"}],
                         }
                     ],
+                    "reason_code": "technique_or_mechanism",
                 }
             ],
         },
@@ -453,14 +377,14 @@ def test_validate_knowledge_shard_output_requires_exact_block_decision_coverage(
             },
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0002.nr",
+            "packet_id": "book.ks0002.nr",
             "chunk_results": [
                 {
                     "chunk_id": "book.c0002.nr",
                     "is_useful": False,
                     "block_decisions": [{"block_index": 8, "category": "other"}],
                     "snippets": [],
+                    "reason_code": "not_cooking_knowledge",
                 }
             ],
         },
@@ -813,8 +737,7 @@ def test_validate_knowledge_shard_output_rejects_cross_chunk_evidence() -> None:
             },
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0004.nr",
+            "packet_id": "book.ks0004.nr",
             "chunk_results": [
                 {
                     "chunk_id": "book.c0004.nr",
@@ -829,6 +752,7 @@ def test_validate_knowledge_shard_output_rejects_cross_chunk_evidence() -> None:
                             "evidence": [{"block_index": 99, "quote": "bad pointer"}],
                         }
                     ],
+                    "reason_code": "technique_or_mechanism",
                 }
             ],
         },
@@ -855,8 +779,7 @@ def test_validate_knowledge_shard_output_rejects_semantic_all_false_empty_shard(
             },
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0005.nr",
+            "packet_id": "book.ks0005.nr",
             "chunk_results": [
                 {
                     "chunk_id": "book.c0005.nr",
@@ -866,6 +789,7 @@ def test_validate_knowledge_shard_output_rejects_semantic_all_false_empty_shard(
                         {"block_index": 21, "category": "other"},
                     ],
                     "snippets": [],
+                    "reason_code": "not_cooking_knowledge",
                 }
             ],
         },
@@ -902,8 +826,7 @@ def test_validate_knowledge_shard_output_allows_true_all_other_front_matter() ->
             },
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0006.nr",
+            "packet_id": "book.ks0006.nr",
             "chunk_results": [
                 {
                     "chunk_id": "book.c0006.nr",
@@ -913,6 +836,7 @@ def test_validate_knowledge_shard_output_allows_true_all_other_front_matter() ->
                         {"block_index": 31, "category": "other"},
                     ],
                     "snippets": [],
+                    "reason_code": "not_cooking_knowledge",
                 }
             ],
         },
@@ -932,14 +856,14 @@ def test_validate_knowledge_shard_output_requires_useful_rows_to_include_snippet
             metadata={"owned_block_indices": [40], "chunk_block_indices_by_id": {"book.c0007.nr": [40]}},
         ),
         {
-            "bundle_version": "2",
-            "bundle_id": "book.ks0007.nr",
+            "packet_id": "book.ks0007.nr",
             "chunk_results": [
                 {
                     "chunk_id": "book.c0007.nr",
                     "is_useful": True,
                     "block_decisions": [{"block_index": 40, "category": "knowledge"}],
                     "snippets": [],
+                    "reason_code": "technique_or_mechanism",
                 }
             ],
         },

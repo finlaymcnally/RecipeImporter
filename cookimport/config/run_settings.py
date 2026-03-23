@@ -32,9 +32,6 @@ RUN_SETTING_CONTRACT_PRODUCT = "product"
 RUN_SETTING_CONTRACT_OPERATOR = "operator"
 RUN_SETTING_CONTRACT_BENCHMARK_LAB = "benchmark_lab"
 RUN_SETTING_CONTRACT_INTERNAL = "internal"
-_RUN_SETTING_CONTRACT_ALIASES = {
-    "public": RUN_SETTING_CONTRACT_PRODUCT,
-}
 BENCHMARK_LAB_RUN_SETTING_NAMES = (
     "epub_unstructured_html_parser_version",
     "epub_unstructured_skip_headers_footers",
@@ -126,7 +123,6 @@ _SUMMARY_ORDER = (
     "llm_recipe_pipeline",
     "recipe_prompt_target_count",
     "recipe_worker_count",
-    "recipe_shard_target_recipes",
     "recipe_shard_max_turns",
     "atomic_block_splitter",
     "line_role_pipeline",
@@ -135,9 +131,7 @@ _SUMMARY_ORDER = (
     "line_role_shard_target_lines",
     "line_role_shard_max_turns",
     "llm_knowledge_pipeline",
-    "knowledge_prompt_target_count",
     "knowledge_worker_count",
-    "knowledge_shard_target_chunks",
     "knowledge_shard_max_turns",
     "codex_farm_recipe_mode",
     "codex_farm_cmd",
@@ -189,7 +183,6 @@ class UnstructuredHtmlParserVersion(str, Enum):
 class UnstructuredPreprocessMode(str, Enum):
     none = "none"
     br_split_v1 = "br_split_v1"
-    semantic_v1 = "semantic_v1"
 
 
 class OcrDevice(str, Enum):
@@ -533,7 +526,7 @@ class RunSettings(BaseModel):
         ),
     )
     epub_unstructured_preprocess_mode: UnstructuredPreprocessMode = Field(
-        default=UnstructuredPreprocessMode.semantic_v1,
+        default=UnstructuredPreprocessMode.br_split_v1,
         json_schema_extra=_ui_meta(
             group="Extraction",
             label="Unstructured EPUB Preprocess",
@@ -981,9 +974,7 @@ class RunSettings(BaseModel):
             label="Recipe Shard Count",
             order=110,
             description=(
-                "Preferred recipe worker-session count when explicit recipe worker count is unset. "
-                "The default recipe runtime now writes one candidate-owned shard per recipe unless "
-                "`recipe_shard_target_recipes` explicitly opts back into bundling."
+                "Preferred recipe worker-session count when explicit recipe worker count is unset."
             ),
             step=1,
             minimum=1,
@@ -1002,23 +993,6 @@ class RunSettings(BaseModel):
             step=1,
             minimum=1,
             maximum=256,
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    recipe_shard_target_recipes: int | None = Field(
-        default=None,
-        ge=1,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Recipe Shard Target",
-            order=110,
-            description=(
-                "Optional legacy opt-out from single-candidate recipe shards. "
-                "Set this only when you intentionally want multi-recipe bundling."
-            ),
-            step=1,
-            minimum=1,
-            maximum=1024,
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
@@ -1131,23 +1105,6 @@ class RunSettings(BaseModel):
             ),
         ),
     )
-    knowledge_prompt_target_count: int | None = Field(
-        default=5,
-        ge=1,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Knowledge Review Shard Count",
-            order=115,
-            description=(
-                "Compatibility-only knowledge planning knob. "
-                "The current knowledge planner ignores this and warns because it now emits one shard per deterministic chunk."
-            ),
-            step=1,
-            minimum=1,
-            maximum=256,
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
     knowledge_worker_count: int | None = Field(
         default=None,
         ge=1,
@@ -1159,23 +1116,6 @@ class RunSettings(BaseModel):
             step=1,
             minimum=1,
             maximum=256,
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    knowledge_shard_target_chunks: int | None = Field(
-        default=None,
-        ge=1,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Knowledge Shard Target",
-            order=115,
-            description=(
-                "Compatibility-only knowledge planning knob. "
-                "The current knowledge planner ignores this and warns because it now emits one shard per deterministic chunk."
-            ),
-            step=1,
-            minimum=1,
-            maximum=4096,
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
@@ -1699,7 +1639,6 @@ def _normalize_run_setting_contract(
             else RUN_SETTING_CONTRACT_PRODUCT
         )
     normalized = str(contract).strip().lower()
-    normalized = _RUN_SETTING_CONTRACT_ALIASES.get(normalized, normalized)
     allowed = {
         RUN_SETTING_CONTRACT_FULL,
         RUN_SETTING_CONTRACT_PRODUCT,
@@ -1793,7 +1732,7 @@ def build_run_settings(
     epub_unstructured_skip_headers_footers: bool = True,
     epub_unstructured_preprocess_mode: (
         str | UnstructuredPreprocessMode
-    ) = UnstructuredPreprocessMode.semantic_v1,
+    ) = UnstructuredPreprocessMode.br_split_v1,
     ocr_device: str | OcrDevice,
     pdf_ocr_policy: str | PdfOcrPolicy = PdfOcrPolicy.auto,
     ocr_batch_size: int,
@@ -1852,7 +1791,6 @@ def build_run_settings(
     line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
     line_role_prompt_target_count: int | None = 5,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
-    knowledge_prompt_target_count: int | None = 5,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -1957,11 +1895,6 @@ def build_run_settings(
                 else None
             ),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
-            "knowledge_prompt_target_count": (
-                int(knowledge_prompt_target_count)
-                if knowledge_prompt_target_count is not None
-                else None
-            ),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_model": (

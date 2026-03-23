@@ -62,7 +62,7 @@ def apply_bucket1_fixed_behavior_metadata(
 _TOP_TIER_PARSER_STACK_PATCH: dict[str, Any] = {
     "epub_extractor": "unstructured",
     "epub_unstructured_html_parser_version": "v1",
-    "epub_unstructured_preprocess_mode": "semantic_v1",
+    "epub_unstructured_preprocess_mode": "br_split_v1",
     "epub_unstructured_skip_headers_footers": True,
     "multi_recipe_splitter": "rules_v1",
     "pdf_ocr_policy": "off",

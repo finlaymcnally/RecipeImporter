@@ -973,7 +973,7 @@ Problem captured:
 
 Durable decisions:
 - keep strict schema-pack regression coverage for nested required fields; the `rc` omission bug was a real live structured-output failure, not a test-only nit
-- `knowledge_prompt_target_count` must remain a soft planning target even though recipe and line-role honor literal requested shard counts
+- knowledge planning is fixed to one deterministic chunk per shard; only worker count remains operator-tunable there
 - keep hard knowledge bundle safety caps for chunk count, char count, locality, and table isolation
 - remove the low-signal deterministic prefilter and keep chunk-level semantic hints out of the billed payload
 - use bounded recovery instead of validator leniency:

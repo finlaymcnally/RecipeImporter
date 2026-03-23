@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from cookimport.core.models import (
     ConversionReport,
     ConversionResult,
@@ -10,15 +12,15 @@ from cookimport.core.models import (
     SourceSupport,
 )
 from cookimport.core.source_model import (
-    build_source_model_from_legacy_result,
     normalize_source_support,
+    resolve_conversion_source_model,
     write_source_model_artifacts,
 )
 from cookimport.parsing.label_source_of_truth import build_label_first_stage_result
 from cookimport.config.run_settings import RunSettings
 
 
-def test_build_source_model_from_legacy_result_uses_extracted_rows() -> None:
+def test_resolve_conversion_source_model_rejects_legacy_extracted_rows_only() -> None:
     result = ConversionResult(
         rawArtifacts=[
             RawArtifact(
@@ -44,13 +46,8 @@ def test_build_source_model_from_legacy_result_uses_extracted_rows() -> None:
         workbookPath="/tmp/book.xlsx",
     )
 
-    blocks, support = build_source_model_from_legacy_result(result)
-
-    assert [block.order_index for block in blocks] == [3]
-    assert blocks[0].block_id == "b3"
-    assert "Name: Cake" in blocks[0].text
-    assert "Ingredients: Flour" in blocks[0].text
-    assert support == []
+    with pytest.raises(ValueError, match="Stage input is missing canonical source blocks"):
+        resolve_conversion_source_model(result)
 
 
 def test_normalize_source_support_forces_non_authoritative_metadata() -> None:

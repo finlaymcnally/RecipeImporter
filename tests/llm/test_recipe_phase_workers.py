@@ -197,7 +197,6 @@ def _run_multi_recipe_phase_fixture(tmp_path: Path) -> dict[str, object]:
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_worker_count": 1,
-            "recipe_shard_target_recipes": 2,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -242,7 +241,7 @@ def _run_multi_recipe_phase_fixture(tmp_path: Path) -> dict[str, object]:
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
     proposal = json.loads(
         (
-            runtime_dir / "proposals" / "recipe-shard-0000-r0000-r0001.json"
+            runtime_dir / "proposals" / "recipe-shard-0000-r0000-r0000.json"
         ).read_text(encoding="utf-8")
     )
     return {
@@ -274,36 +273,34 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     task_manifest = fixture["task_manifest"]
     runner = fixture["runner"]
 
-    assert manifest["counts"]["recipe_shards_total"] == 2
+    assert manifest["counts"]["recipe_shards_total"] == 3
     assert manifest["counts"]["recipe_workers_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 3
     assert manifest["counts"]["build_final_recipe_ok"] == 3
     assert manifest["process_runs"]["recipe_correction"]["runtime_mode"] == "direct_codex_exec_v1"
 
     assert phase_manifest["worker_count"] == 1
-    assert phase_manifest["shard_count"] == 2
+    assert phase_manifest["shard_count"] == 3
     assert phase_manifest["runtime_mode"] == "direct_codex_exec_v1"
     assert worker_assignments[0]["worker_id"] == "worker-001"
-    assert len(worker_assignments[0]["shard_ids"]) == 2
-    assert len(shard_manifest) == 2
+    assert len(worker_assignments[0]["shard_ids"]) == 3
+    assert len(shard_manifest) == 3
     assert [row["task_id"] for row in task_manifest] == [
-        "recipe-shard-0000-r0000-r0001.task-001",
-        "recipe-shard-0000-r0000-r0001.task-002",
-        "recipe-shard-0001-r0002-r0002",
+        "recipe-shard-0000-r0000-r0000",
+        "recipe-shard-0001-r0001-r0001",
+        "recipe-shard-0002-r0002-r0002",
     ]
     assert [row["parent_shard_id"] for row in task_manifest] == [
-        "recipe-shard-0000-r0000-r0001",
-        "recipe-shard-0000-r0000-r0001",
-        "recipe-shard-0001-r0002-r0002",
+        "recipe-shard-0000-r0000-r0000",
+        "recipe-shard-0001-r0001-r0001",
+        "recipe-shard-0002-r0002-r0002",
     ]
-    assert shard_manifest[0]["owned_ids"] == [
-        "urn:recipe:test:toast",
-        "urn:recipe:test:tea",
-    ]
-    assert shard_manifest[1]["owned_ids"] == ["urn:recipe:test:cereal"]
+    assert shard_manifest[0]["owned_ids"] == ["urn:recipe:test:toast"]
+    assert shard_manifest[1]["owned_ids"] == ["urn:recipe:test:tea"]
+    assert shard_manifest[2]["owned_ids"] == ["urn:recipe:test:cereal"]
 
     phase_input_dir = apply_result.llm_raw_dir / "recipe_phase_runtime" / "inputs"
-    assert len(list(phase_input_dir.glob("*.json"))) == 2
+    assert len(list(phase_input_dir.glob("*.json"))) == 3
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert len(apply_result.authoritative_recipe_payloads_by_recipe_id) == 3
     assert len(runner.calls) == 1
@@ -383,8 +380,9 @@ def test_recipe_phase_runtime_writes_current_task_and_scratch_scaffolding(
         worker_root / "SHARD_PACKET.md"
     ).read_text(encoding="utf-8")
     assert (worker_root / "scratch" / "_prepared_drafts.json").exists()
-    assert (worker_root / "scratch" / "recipe-shard-0000-r0000-r0001.task-001.json").exists()
-    assert (worker_root / "scratch" / "recipe-shard-0000-r0000-r0001.task-002.json").exists()
+    assert (worker_root / "scratch" / "recipe-shard-0000-r0000-r0000.json").exists()
+    assert (worker_root / "scratch" / "recipe-shard-0001-r0001-r0001.json").exists()
+    assert (worker_root / "scratch" / "recipe-shard-0002-r0002-r0002.json").exists()
 
 
 def test_recipe_phase_runtime_writes_output_contract_outputs_and_proposal(
@@ -402,14 +400,15 @@ def test_recipe_phase_runtime_writes_output_contract_outputs_and_proposal(
     assert (worker_root / "examples" / "valid_fragmentary_task_output.json").exists()
     assert (worker_root / "examples" / "valid_not_a_recipe_task_output.json").exists()
     assert (worker_root / "tools" / "recipe_worker.py").exists()
-    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-001.md").exists()
-    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-002.md").exists()
-    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json").exists()
-    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.task-002.json").exists()
-    assert (worker_root / "out" / "recipe-shard-0001-r0002-r0002.json").exists()
+    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0000.md").exists()
+    assert (worker_root / "hints" / "recipe-shard-0001-r0001-r0001.md").exists()
+    assert (worker_root / "hints" / "recipe-shard-0002-r0002-r0002.md").exists()
+    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0000.json").exists()
+    assert (worker_root / "out" / "recipe-shard-0001-r0001-r0001.json").exists()
+    assert (worker_root / "out" / "recipe-shard-0002-r0002-r0002.json").exists()
     assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is True
-    assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
+    assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 1
 
 
 def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
@@ -422,7 +421,6 @@ def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
-            "recipe_shard_target_recipes": 2,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -444,8 +442,8 @@ def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
         ).read_text(encoding="utf-8")
     )
 
-    assert phase_manifest["shard_count"] == 2
-    assert phase_manifest["worker_count"] == 2
+    assert phase_manifest["shard_count"] == 3
+    assert phase_manifest["worker_count"] == 3
 
 
 def test_recipe_phase_runtime_forwards_structured_progress(
@@ -470,7 +468,6 @@ def test_recipe_phase_runtime_forwards_structured_progress(
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_worker_count": 2,
-            "recipe_shard_target_recipes": 2,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -502,17 +499,17 @@ def test_recipe_phase_runtime_forwards_structured_progress(
     assert int(payloads[0]["worker_total"] or 0) >= 1
     assert int(payloads[0]["worker_running"] or 0) >= 1
     assert any(
-        str(line) == "completed shards: 0/2"
+        str(line) == "completed shards: 0/3"
         for line in (payloads[0].get("detail_lines") or [])
     )
     assert any(
-        str(task).startswith("recipe-shard-0000-r0000-r0001.task-001")
+        str(task).startswith("recipe-shard-0000-r0000-r0000")
         for task in (payloads[0].get("active_tasks") or [])
     )
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"]
     assert any(payload.get("worker_completed") == 2 for payload in payloads)
     assert any(payload.get("followup_label") == "shard finalization" for payload in payloads)
-    assert any(payload.get("followup_total") == 2 for payload in payloads)
+    assert any(payload.get("followup_total") == 3 for payload in payloads)
     assert any(
         (payload.get("artifact_counts") or {}).get("repair_attempted") is not None
         for payload in payloads
@@ -551,9 +548,9 @@ def test_recipe_prompt_target_count_controls_shard_count_when_single_recipe_shar
         if line.strip()
     ]
 
-    assert phase_manifest["shard_count"] == 2
+    assert phase_manifest["shard_count"] == 3
     assert phase_manifest["worker_count"] == 2
-    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]
+    assert [len(shard["owned_ids"]) for shard in shard_manifest] == [1, 1, 1]
 
 
 def test_recipe_workspace_worker_with_valid_files_and_prose_final_message_stays_valid(
@@ -567,7 +564,6 @@ def test_recipe_workspace_worker_with_valid_files_and_prose_final_message_stays_
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_worker_count": 1,
-            "recipe_shard_target_recipes": 2,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -616,7 +612,6 @@ def test_recipe_workspace_worker_with_valid_files_and_no_final_message_stays_val
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_worker_count": 1,
-            "recipe_shard_target_recipes": 2,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -692,7 +687,6 @@ def test_recipe_workspace_promotion_preserves_fragmentary_and_not_a_recipe_outpu
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_worker_count": 1,
-            "recipe_shard_target_recipes": 3,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -719,12 +713,20 @@ def test_recipe_workspace_promotion_preserves_fragmentary_and_not_a_recipe_outpu
     manifest = json.loads(
         (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
     )
-    proposal = json.loads(
+    tea_proposal = json.loads(
         (
             apply_result.llm_raw_dir
             / "recipe_phase_runtime"
             / "proposals"
-            / "recipe-shard-0000-r0000-r0002.json"
+            / "recipe-shard-0001-r0001-r0001.json"
+        ).read_text(encoding="utf-8")
+    )
+    cereal_proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0002-r0002-r0002.json"
         ).read_text(encoding="utf-8")
     )
 
@@ -733,9 +735,10 @@ def test_recipe_workspace_promotion_preserves_fragmentary_and_not_a_recipe_outpu
     ]
     assert manifest["recipes"]["urn:recipe:test:tea"]["correction_output_status"] == "fragmentary"
     assert manifest["recipes"]["urn:recipe:test:cereal"]["correction_output_status"] == "not_a_recipe"
-    recipe_rows = {row["rid"]: row for row in proposal["payload"]["r"]}
-    assert recipe_rows["urn:recipe:test:tea"]["st"] == "fragmentary"
-    assert recipe_rows["urn:recipe:test:cereal"]["st"] == "not_a_recipe"
+    assert tea_proposal["payload"]["r"][0]["rid"] == "urn:recipe:test:tea"
+    assert tea_proposal["payload"]["r"][0]["st"] == "fragmentary"
+    assert cereal_proposal["payload"]["r"][0]["rid"] == "urn:recipe:test:cereal"
+    assert cereal_proposal["payload"]["r"][0]["st"] == "not_a_recipe"
 
 
 def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(

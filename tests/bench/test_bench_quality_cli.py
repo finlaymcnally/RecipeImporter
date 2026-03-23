@@ -513,7 +513,7 @@ def test_bench_quality_leaderboard_saves_qualitysuite_winner_profile(
         "winner_run_settings": {
             "epub_extractor": "unstructured",
             "epub_unstructured_html_parser_version": "v2",
-            "epub_unstructured_preprocess_mode": "semantic_v1",
+            "epub_unstructured_preprocess_mode": "br_split_v1",
             "llm_recipe_pipeline": "off",
         },
         "winner": {
@@ -572,4 +572,4 @@ def test_bench_quality_leaderboard_saves_qualitysuite_winner_profile(
     settings = captured["settings"]
     assert settings.epub_extractor.value == "unstructured"
     assert settings.epub_unstructured_html_parser_version.value == "v2"
-    assert settings.epub_unstructured_preprocess_mode.value == "semantic_v1"
+    assert settings.epub_unstructured_preprocess_mode.value == "br_split_v1"

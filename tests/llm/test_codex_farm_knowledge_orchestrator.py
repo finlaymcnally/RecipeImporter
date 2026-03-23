@@ -37,10 +37,14 @@ def _semantic_packet_output(
     chunk_id: str,
     block_indices: list[int],
     useful: bool = True,
+    category: str | None = None,
+    reviewer_category: str | None = None,
+    reason_code: str | None = None,
     snippet_body: str = "Use steady whisking to emulsify.",
     evidence_quote: str = "Whisk constantly to emulsify sauces.",
 ) -> dict[str, object]:
     resolved_block_indices = block_indices or [1]
+    resolved_category = category or ("knowledge" if useful else "other")
     return {
         "packet_id": packet_id,
         "chunk_results": [
@@ -48,10 +52,17 @@ def _semantic_packet_output(
                 "chunk_id": chunk_id,
                 "is_useful": useful,
                 "block_decisions": [
-                    {
-                        "block_index": block_index,
-                        "category": "knowledge" if useful else "other",
-                    }
+                    dict(
+                        {
+                            "block_index": block_index,
+                            "category": resolved_category,
+                        },
+                        **(
+                            {"reviewer_category": reviewer_category}
+                            if reviewer_category is not None
+                            else {}
+                        ),
+                    )
                     for block_index in resolved_block_indices
                 ],
                 "snippets": (
@@ -69,10 +80,8 @@ def _semantic_packet_output(
                     if useful
                     else []
                 ),
-                "reason_code": (
-                    "technique_or_mechanism"
-                    if useful
-                    else "not_cooking_knowledge"
+                "reason_code": reason_code or (
+                    "technique_or_mechanism" if useful else "not_cooking_knowledge"
                 ),
             }
         ],
@@ -205,6 +214,7 @@ class _PrematureKnowledgeQueueStopRunner(FakeCodexExecRunner):
                         {
                             "chunk_id": str(chunk_row["cid"]),
                             "is_useful": True,
+                            "reason_code": "technique_or_mechanism",
                             "block_decisions": [
                                 {
                                     "block_index": int(block["i"]),
@@ -873,7 +883,7 @@ def test_knowledge_workspace_watchdog_marks_stable_outputs_incomplete_without_qu
         expected_workspace_output_paths=[output_path],
     )
     output_path.write_text(
-        json.dumps({"v": "2", "bid": "book.ks0000.nr", "r": []}),
+        json.dumps({"packet_id": "book.ks0000.nr", "chunk_results": []}),
         encoding="utf-8",
     )
 
@@ -1218,7 +1228,7 @@ def test_evaluate_knowledge_response_accepts_semantic_packet_with_trailing_eof()
     }
 
 
-def test_evaluate_knowledge_response_keeps_reason_counts_for_canonical_bundle_input() -> None:
+def test_evaluate_knowledge_response_rejects_canonical_bundle_input() -> None:
     payload, validation_errors, validation_metadata, proposal_status = (
         knowledge_module._evaluate_knowledge_response(  # noqa: SLF001
             shard=ShardManifestEntryV1(
@@ -1267,46 +1277,10 @@ def test_evaluate_knowledge_response_keeps_reason_counts_for_canonical_bundle_in
         )
     )
 
-    assert proposal_status == "validated"
-    assert validation_errors == ()
-    assert validation_metadata["worker_output_contract"] == "canonical_bundle_v2_compat"
-    assert validation_metadata["reason_code_counts"] == {
-        "not_cooking_knowledge": 1,
-        "technique_or_mechanism": 1,
-    }
-    assert validation_metadata["useful_reason_code_counts"] == {
-        "technique_or_mechanism": 1
-    }
-    assert validation_metadata["other_reason_code_counts"] == {
-        "not_cooking_knowledge": 1
-    }
-    assert validation_metadata["reason_code_by_chunk_id"] == {
-        "book.c0000.nr": "technique_or_mechanism",
-        "book.c0001.nr": "not_cooking_knowledge",
-    }
-    assert payload == {
-        "v": "2",
-        "bid": "book.ks0000.nr",
-        "r": [
-            {
-                "cid": "book.c0000.nr",
-                "u": True,
-                "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
-                "s": [
-                    {
-                        "b": "Use steady whisking to emulsify.",
-                        "e": [{"i": 4, "q": "Whisk constantly to emulsify sauces."}],
-                    }
-                ],
-            },
-            {
-                "cid": "book.c0001.nr",
-                "u": False,
-                "d": [{"i": 5, "c": "other", "rc": "other"}],
-                "s": [],
-            },
-        ],
-    }
+    assert proposal_status == "invalid"
+    assert payload is None
+    assert validation_errors == ("schema_invalid",)
+    assert "semantic packet result v1 contract" in validation_metadata["parse_error"]
 
 
 def test_knowledge_workspace_task_runtime_entries_add_ordered_queue_metadata() -> None:
@@ -2214,7 +2188,6 @@ def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -2669,7 +2642,6 @@ def _run_near_miss_repair_fixture(tmp_path: Path) -> dict[str, object]:
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -2702,26 +2674,15 @@ def _run_near_miss_repair_fixture(tmp_path: Path) -> dict[str, object]:
 
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: (
-            {
-                "v": "2",
-                "bid": payload["shard_id"],
-                "r": [
-                    {
-                        "cid": chunk_id,
-                        "u": True,
-                        "d": [{"i": 4, "c": "knowledge"}],
-                        "s": [
-                            {
-                                "b": "Technique note: whisk constantly to keep the mixture smooth.",
-                                "e": [{"i": 4, "q": "Technique: Whisk constantly."}],
-                            }
-                        ],
-                    }
-                    for chunk_id in payload.get("owned_ids", [])
-                ],
-            }
+            _semantic_packet_output(
+                packet_id=str(payload["shard_id"]),
+                chunk_id=str(payload["owned_ids"][0]),
+                block_indices=[4],
+                snippet_body="Technique note: whisk constantly to keep the mixture smooth.",
+                evidence_quote="Technique: Whisk constantly.",
+            )
             if payload and payload.get("repair_mode") == "knowledge"
-            else {"v": "2", "bid": payload["bid"], "r": []}
+            else {"packet_id": str(payload["bid"]), "chunk_results": []}
         )
     )
 
@@ -2850,7 +2811,6 @@ def test_knowledge_orchestrator_repairs_snippet_copy_outputs_before_poison_skip(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -2993,7 +2953,6 @@ def test_knowledge_orchestrator_hard_fails_when_snippet_only_repair_still_copies
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -3136,11 +3095,14 @@ def test_preflight_knowledge_shard_rejects_missing_model_facing_chunks() -> None
 
 def test_knowledge_watchdog_retry_uses_bounded_timeout(tmp_path: Path) -> None:
     runner = FakeCodexExecRunner(
-        output_builder=lambda payload: {
-            "v": "2",
-            "bid": str((payload or {}).get("bid") or "book.ks0000.nr"),
-            "r": [],
-        }
+        output_builder=lambda payload: _semantic_packet_output(
+            packet_id=str((payload or {}).get("bid") or "book.ks0000.nr"),
+            chunk_id=str(_payload_chunks_or_fallback(dict(payload or {}))[0]["cid"]),
+            block_indices=[
+                int(_payload_chunks_or_fallback(dict(payload or {}))[0]["b"][0]["i"])
+            ],
+            evidence_quote=str(_payload_chunks_or_fallback(dict(payload or {}))[0]["b"][0]["t"]),
+        )
     )
     worker_root = tmp_path / "worker-001"
     worker_root.mkdir(parents=True, exist_ok=True)
@@ -3198,7 +3160,6 @@ def _run_watchdog_killed_summary_fixture(tmp_path: Path) -> dict[str, object]:
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -3485,7 +3446,6 @@ def _run_taskized_watchdog_failure_fixture(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -3654,7 +3614,6 @@ def _run_cohort_outlier_watchdog_fixture(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 4,
             "knowledge_worker_count": 4,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
@@ -3720,9 +3679,9 @@ def _run_cohort_outlier_watchdog_fixture(
 
     def _valid_payload(payload: dict[str, object] | None) -> dict[str, object]:
         if payload is None:
-            return {"v": "2", "bid": "missing", "r": []}
-        bundle_id = str(payload.get("bid") or payload.get("shard_id") or "missing")
-        chunk_rows: list[dict[str, object]] = []
+            return {"packet_id": "missing", "chunk_results": []}
+        packet_id = str(payload.get("bid") or payload.get("shard_id") or "missing")
+        chunk_results: list[dict[str, object]] = []
         authoritative_input = payload.get("authoritative_input") or {}
         chunk_payloads = payload.get("c") or authoritative_input.get("c") or []
         for chunk in chunk_payloads:
@@ -3736,43 +3695,34 @@ def _run_cohort_outlier_watchdog_fixture(
             block_index = int((first_block or {}).get("i") or 0)
             block_text = str((first_block or {}).get("t") or "").strip()
             grounded_excerpt = block_text[:80].strip() or f"Knowledge chunk {block_index}"
-            chunk_rows.append(
-                {
-                    "cid": chunk_id,
-                    "u": True,
-                    "d": [{"i": block_index, "c": "knowledge"}],
-                    "s": [
-                        {
-                            "b": f"Technique note for {chunk_id}",
-                            "e": [{"i": block_index, "q": grounded_excerpt}],
-                        }
-                    ],
-                }
+            chunk_results.append(
+                _semantic_packet_output(
+                    packet_id=packet_id,
+                    chunk_id=chunk_id,
+                    block_indices=[block_index],
+                    snippet_body=f"Technique note for {chunk_id}",
+                    evidence_quote=grounded_excerpt,
+                )["chunk_results"][0]
             )
-        if not chunk_rows:
+        if not chunk_results:
             for owned_id in payload.get("owned_ids", []) or []:
                 chunk_id = str(owned_id or "").strip()
                 if not chunk_id:
                     continue
                 match = re.search(r"(\d+)", chunk_id)
                 block_index = int(match.group(1)) if match is not None else 0
-                chunk_rows.append(
-                    {
-                        "cid": chunk_id,
-                        "u": True,
-                        "d": [{"i": block_index, "c": "knowledge"}],
-                        "s": [
-                            {
-                                "b": f"Technique note for {chunk_id}",
-                                "e": [{"i": block_index, "q": f"Knowledge chunk {block_index}"}],
-                            }
-                        ],
-                    }
+                chunk_results.append(
+                    _semantic_packet_output(
+                        packet_id=packet_id,
+                        chunk_id=chunk_id,
+                        block_indices=[block_index],
+                        snippet_body=f"Technique note for {chunk_id}",
+                        evidence_quote=f"Knowledge chunk {block_index}",
+                    )["chunk_results"][0]
                 )
         return {
-            "v": "2",
-            "bid": bundle_id,
-            "r": chunk_rows,
+            "packet_id": packet_id,
+            "chunk_results": chunk_results,
         }
 
     class _OutlierRetryRunner(FakeCodexExecRunner):
@@ -3991,7 +3941,6 @@ def _run_missing_rows_taskization_fixture(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -4048,8 +3997,8 @@ def _run_missing_rows_taskization_fixture(
 
     def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
         if payload is None:
-            return {"v": "2", "bid": "missing", "r": []}
-        bundle_id = str(payload.get("bid") or "")
+            return {"packet_id": "missing", "chunk_results": []}
+        packet_id = str(payload.get("bid") or "")
         chunks = (
             _payload_chunks_or_fallback(payload)
             if payload.get("c")
@@ -4064,23 +4013,15 @@ def _run_missing_rows_taskization_fixture(
             ]
         )
         return {
-            "v": "2",
-            "bid": bundle_id,
-            "r": [
-                {
-                    "cid": chunk["cid"],
-                    "u": True,
-                    "d": [
-                        {"i": block["i"], "c": "knowledge", "rc": "knowledge"}
-                        for block in blocks
-                    ],
-                    "s": [
-                        {
-                            "b": "Whisk to emulsify the sauce.",
-                            "e": [{"i": blocks[0]["i"], "q": blocks[0]["t"]}],
-                        }
-                    ],
-                }
+            "packet_id": packet_id,
+            "chunk_results": [
+                _semantic_packet_output(
+                    packet_id=packet_id,
+                    chunk_id=str(chunk["cid"]),
+                    block_indices=[int(block["i"]) for block in blocks],
+                    snippet_body="Whisk to emulsify the sauce.",
+                    evidence_quote=str(blocks[0]["t"]),
+                )["chunk_results"][0]
                 for chunk in chunks
                 for blocks in [list(chunk["b"])]
             ],
@@ -4175,7 +4116,6 @@ def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_me
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "knowledge_worker_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
@@ -4211,7 +4151,7 @@ def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_me
 
     def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
         if payload is None:
-            return {"v": "2", "bid": "missing", "r": []}
+            return {"packet_id": "missing", "chunk_results": []}
         bundle_id = str(payload.get("bid") or "")
         chunks = _payload_chunks_or_fallback(payload)
         chunk = chunks[0]
@@ -4584,7 +4524,6 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 2,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_workspace_root": str(workspace_root),
@@ -4709,7 +4648,6 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 2,
             "knowledge_worker_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
@@ -4830,7 +4768,6 @@ def _run_multi_chunk_workspace_taskization_fixture(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "knowledge_worker_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
@@ -4997,7 +4934,6 @@ def _run_partial_task_promotion_fixture(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 1,
             "knowledge_worker_count": 1,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
@@ -5033,44 +4969,27 @@ def _run_partial_task_promotion_fixture(
     def _task_output(payload: dict[str, object]) -> dict[str, object]:
         task_id = str(payload["bid"])
         chunk_rows = _payload_chunks_or_fallback(payload)
-        if task_id in {"book.ks0000.nr", "book.ks0001.nr"}:
-            chunk = chunk_rows[0]
-            block = chunk["b"][0]
-            return {
-                "v": "2",
-                "bid": task_id,
-                "r": [
-                    {
-                        "cid": chunk["cid"],
-                        "u": True,
-                        "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
-                        "s": [
-                            {
-                                "b": (
-                                    "Whisk constantly."
-                                    if task_id == "book.ks0000.nr"
-                                    else "Serve immediately while the sauce is glossy."
-                                ),
-                                "e": [{"i": block["i"], "q": str(block["t"])}],
-                            }
-                        ],
-                    }
-                ],
-            }
         chunk = chunk_rows[0]
         block = chunk["b"][0]
-        return {
-            "v": "2",
-            "bid": task_id,
-            "r": [
-                {
-                    "cid": chunk["cid"],
-                    "u": True,
-                    "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
-                    "s": [{"b": "...", "e": [{"i": block["i"], "q": str(block["t"])}]}],
-                }
-            ],
-        }
+        if task_id in {"book.ks0000.nr", "book.ks0001.nr"}:
+            return _semantic_packet_output(
+                packet_id=task_id,
+                chunk_id=str(chunk["cid"]),
+                block_indices=[int(block["i"])],
+                snippet_body=(
+                    "Whisk constantly."
+                    if task_id == "book.ks0000.nr"
+                    else "Serve immediately while the sauce is glossy."
+                ),
+                evidence_quote=str(block["t"]),
+            )
+        return _semantic_packet_output(
+            packet_id=task_id,
+            chunk_id=str(chunk["cid"]),
+            block_indices=[int(block["i"])],
+            snippet_body="...",
+            evidence_quote=str(block["t"]),
+        )
 
     runner = FakeCodexExecRunner(output_builder=_task_output)
 
@@ -5211,23 +5130,13 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
         workbookPath="book.txt",
     )
     runner = FakeCodexExecRunner(
-        output_builder=lambda payload: {
-            "v": "2",
-            "bid": payload["bid"],
-            "r": [
-                {
-                    "cid": _payload_chunks_or_fallback(payload)[0]["cid"],
-                    "u": True,
-                    "d": [{"i": 8, "c": "knowledge", "rc": "knowledge"}],
-                    "s": [
-                        {
-                            "b": "Acid slows browning.",
-                            "e": [{"i": 8, "q": "acid slows browning"}],
-                        }
-                    ],
-                }
-            ],
-        }
+        output_builder=lambda payload: _semantic_packet_output(
+            packet_id=str(payload["bid"]),
+            chunk_id=str(_payload_chunks_or_fallback(payload)[0]["cid"]),
+            block_indices=[8],
+            snippet_body="Acid slows browning.",
+            evidence_quote="acid slows browning",
+        )
     )
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
@@ -5321,18 +5230,15 @@ def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
         workbookPath="book.txt",
     )
     runner = FakeCodexExecRunner(
-        output_builder=lambda payload: {
-            "v": "2",
-            "bid": payload["bid"],
-            "r": [
-                {
-                    "cid": _payload_chunks_or_fallback(payload)[0]["cid"],
-                    "u": False,
-                    "d": [{"i": 4, "c": "other", "rc": "chapter_taxonomy"}],
-                    "s": [],
-                }
-            ],
-        }
+        output_builder=lambda payload: _semantic_packet_output(
+            packet_id=str(payload["bid"]),
+            chunk_id=str(_payload_chunks_or_fallback(payload)[0]["cid"]),
+            block_indices=[4],
+            useful=False,
+            category="other",
+            reviewer_category="chapter_taxonomy",
+            reason_code="navigation_or_chapter_taxonomy",
+        )
     )
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
@@ -5426,23 +5332,13 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
         workbookPath="book.txt",
     )
     runner = FakeCodexExecRunner(
-        output_builder=lambda payload: {
-            "v": "2",
-            "bid": payload["bid"],
-            "r": [
-                {
-                    "cid": _payload_chunks_or_fallback(payload)[0]["cid"],
-                    "u": True,
-                    "d": [{"i": 99, "c": "knowledge"}],
-                    "s": [
-                        {
-                            "b": "Invalid output.",
-                            "e": [{"i": 99, "q": "bad"}],
-                        }
-                    ],
-                }
-            ],
-        }
+        output_builder=lambda payload: _semantic_packet_output(
+            packet_id=str(payload["bid"]),
+            chunk_id=str(_payload_chunks_or_fallback(payload)[0]["cid"]),
+            block_indices=[99],
+            snippet_body="Invalid output.",
+            evidence_quote="bad",
+        )
     )
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
@@ -5541,18 +5437,15 @@ def test_knowledge_orchestrator_rejects_semantically_empty_strong_cue_shard(
         workbookPath="book.txt",
     )
     runner = FakeCodexExecRunner(
-        output_builder=lambda payload: {
-            "v": "2",
-            "bid": payload["bid"],
-            "r": [
-                {
-                    "cid": _payload_chunks_or_fallback(payload)[0]["cid"],
-                    "u": False,
-                    "d": [{"i": 4, "c": "other", "rc": "other"}],
-                    "s": [],
-                }
-            ],
-        }
+        output_builder=lambda payload: _semantic_packet_output(
+            packet_id=str(payload["bid"]),
+            chunk_id=str(_payload_chunks_or_fallback(payload)[0]["cid"]),
+            block_indices=[4],
+            useful=False,
+            category="other",
+            reviewer_category="other",
+            reason_code="not_cooking_knowledge",
+        )
     )
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
@@ -5644,7 +5537,6 @@ def _run_valid_and_invalid_shard_mix_fixture(
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_shard_target_chunks": 2,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -5675,29 +5567,23 @@ def _run_valid_and_invalid_shard_mix_fixture(
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: (
             {
-                "v": "2",
-                "bid": payload["bid"],
-                "r": [
-                    {
-                        "cid": chunk["cid"],
-                        "u": True,
-                        "d": [{"i": block["i"], "c": "knowledge", "rc": "knowledge"}],
-                        "s": [
-                            {
-                                "b": "Use the block as durable cooking guidance.",
-                                "e": [{"i": block["i"], "q": block["t"]}],
-                            }
-                        ],
-                    }
+                "packet_id": str(payload["bid"]),
+                "chunk_results": [
+                    _semantic_packet_output(
+                        packet_id=str(payload["bid"]),
+                        chunk_id=str(chunk["cid"]),
+                        block_indices=[int(block["i"])],
+                        snippet_body="Use the block as durable cooking guidance.",
+                        evidence_quote=str(block["t"]),
+                    )["chunk_results"][0]
                     for chunk in _payload_chunks_or_fallback(payload)
                     for block in chunk["b"][:1]
                 ],
             }
             if str(payload["bid"]).startswith("book.ks0000.nr")
             else {
-                "v": "2",
-                "bid": payload["bid"],
-                "r": [],
+                "packet_id": str(payload["bid"]),
+                "chunk_results": [],
             }
         )
     )
@@ -5802,7 +5688,6 @@ def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warning
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "knowledge_prompt_target_count": 5,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -5872,11 +5757,7 @@ def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warning
     assert apply_result.llm_report["counts"]["shards_written"] == 10
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 10
     assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 10
-    assert apply_result.llm_report["planning_warnings"]
-    assert any(
-        "ignored `knowledge_prompt_target_count`" in warning
-        for warning in apply_result.llm_report["planning_warnings"]
-    )
+    assert apply_result.llm_report["planning_warnings"] == []
 
 
 def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(

@@ -213,7 +213,7 @@ Decision/outcome preserved:
 - Keep four mutually exclusive extractor modes in runtime: `unstructured`, `beautifulsoup`, `markdown`, `markitdown`.
 - Keep `parser` / `skiphf` / `pre` as unstructured-only controls.
 - Preserve split-job boundary contract: `markitdown` remains whole-book only; other explicit extractors can split by spine ranges.
-- Keep separate run labels for `semantic_v1` and `br_split_v1` even while behavior is currently the same.
+- Keep one honest preprocess label in runtime and docs: `br_split_v1`.
 
 Anti-loop notes:
 - Do not attribute non-unstructured behavior changes to unstructured-only knobs.

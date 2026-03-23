@@ -784,7 +784,7 @@ def _run_offline_prediction_stage_fixture(
             "epub_extractor": "unstructured",
             "epub_unstructured_html_parser_version": "v1",
             "epub_unstructured_skip_headers_footers": True,
-            "epub_unstructured_preprocess_mode": "semantic_v1",
+            "epub_unstructured_preprocess_mode": "br_split_v1",
             "ocr_device": "auto",
             "pdf_ocr_policy": "auto",
             "ocr_batch_size": 1,

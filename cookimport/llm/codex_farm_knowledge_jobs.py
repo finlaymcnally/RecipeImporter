@@ -70,8 +70,6 @@ def build_knowledge_jobs(
     source_hash: str,
     out_dir: Path,
     context_blocks: int = 2,
-    target_prompt_count: int | None = None,
-    target_chunks_per_shard: int | None = None,
     overrides: ParsingOverrides | None = None,
     skip_suggested_lanes: Sequence[str] = (),
 ) -> KnowledgeJobBuildReport:
@@ -169,10 +167,7 @@ def build_knowledge_jobs(
                 str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else suggested_lane
             )
             chunk_counter += 1
-    planning_warnings = _single_chunk_task_warnings(
-        target_prompt_count=target_prompt_count,
-        target_chunks_per_shard=target_chunks_per_shard,
-    )
+    planning_warnings: list[str] = []
     for prepared_chunk in sorted(
         all_prepared_chunks,
         key=lambda chunk: chunk.absolute_indices[0],
@@ -288,27 +283,6 @@ def build_knowledge_jobs(
         planning_warnings=planning_warnings,
         shard_entries=shard_entries,
     )
-
-
-def _single_chunk_task_warnings(
-    *,
-    target_prompt_count: int | None,
-    target_chunks_per_shard: int | None,
-) -> list[str]:
-    warnings: list[str] = []
-    if target_prompt_count is not None:
-        warnings.append(
-            "Knowledge planner ignored `knowledge_prompt_target_count` because the stage "
-            "now emits one shard per deterministic chunk."
-        )
-    if target_chunks_per_shard is not None:
-        warnings.append(
-            "Knowledge planner ignored `knowledge_shard_target_chunks` because the stage "
-            "now emits one shard per deterministic chunk."
-        )
-    return warnings
-
-
 def _prepare_full_blocks_by_index(
     blocks: Sequence[Mapping[str, Any]],
 ) -> dict[int, dict[str, Any]]:

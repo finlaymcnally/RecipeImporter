@@ -153,7 +153,6 @@ _ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS = (
     "mixed_content",
 )
 _RECIPE_GUARDRAIL_REPORT_SCHEMA_VERSION = "recipe_codex_guardrail_report.v1"
-_DEFAULT_RECIPE_SHARD_TARGET_RECIPES = 1
 _STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
 
 
@@ -536,19 +535,6 @@ def _build_prepared_recipe_input(
     )
 
 
-def _shard_target_recipe_count(run_settings: RunSettings) -> int:
-    if run_settings.recipe_shard_target_recipes is None:
-        return 1
-    try:
-        value = int(
-            run_settings.recipe_shard_target_recipes
-            or _DEFAULT_RECIPE_SHARD_TARGET_RECIPES
-        )
-    except (TypeError, ValueError):
-        value = _DEFAULT_RECIPE_SHARD_TARGET_RECIPES
-    return max(1, value)
-
-
 def _requested_recipe_worker_count(run_settings: RunSettings) -> int | None:
     candidate = run_settings.recipe_worker_count
     if candidate is None:
@@ -632,7 +618,7 @@ def _build_recipe_shard_plans(
     requested_shard_count = resolve_shard_count(
         total_items=len(prepared_inputs),
         prompt_target_count=run_settings.recipe_prompt_target_count,
-        items_per_shard=run_settings.recipe_shard_target_recipes,
+        items_per_shard=1,
         default_items_per_shard=1,
     )
     plans: list[_RecipeShardPlan] = []
@@ -4020,7 +4006,6 @@ def _run_single_correction_recipe_pipeline(
                 "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
                 "recipe_worker_count": run_settings.recipe_worker_count,
                 "recipe_prompt_target_count": run_settings.recipe_prompt_target_count,
-                "recipe_shard_target_recipes": run_settings.recipe_shard_target_recipes,
             },
             runtime_metadata={
                 "workbook_slug": workbook_slug,
@@ -4277,7 +4262,7 @@ def _build_single_correction_execution_plan(
     requested_shard_count = resolve_shard_count(
         total_items=len(states),
         prompt_target_count=run_settings.recipe_prompt_target_count,
-        items_per_shard=run_settings.recipe_shard_target_recipes,
+        items_per_shard=1,
         default_items_per_shard=1,
     )
     shard_groups = partition_contiguous_items(
@@ -4327,7 +4312,6 @@ def _build_single_correction_execution_plan(
         "pipeline": SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
         "recipe_count": len(states),
         "recipe_prompt_target_count": run_settings.recipe_prompt_target_count,
-        "recipe_shard_target_recipes": _shard_target_recipe_count(run_settings),
         "worker_count": _recipe_worker_count(
             run_settings,
             shard_count=len(planned_shards),

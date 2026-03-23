@@ -361,27 +361,6 @@ def _parse_created_run_line(stderr_line: str) -> dict[str, int | str] | None:
     return {"run_id": run_id, "total_tasks": total_tasks}
 
 
-def _parse_legacy_run_progress_line(stderr_line: str) -> dict[str, Any] | None:
-    line = str(stderr_line or "").strip()
-    match = _CODEX_FARM_LEGACY_RUN_PROGRESS_PATTERN.match(line)
-    if match is None:
-        return None
-    run_id = str(match.group("run_id") or "").strip()
-    if not run_id:
-        return None
-    try:
-        counts = {
-            "queued": int(match.group("queued")),
-            "running": int(match.group("running")),
-            "done": int(match.group("done")),
-            "error": int(match.group("error")),
-            "canceled": int(match.group("canceled")),
-        }
-    except (TypeError, ValueError):
-        return None
-    return {"run_id": run_id, "counts": counts}
-
-
 def _format_created_run_progress_message(
     *,
     payload: Mapping[str, Any],
@@ -406,8 +385,6 @@ def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
         if _parse_progress_event(raw_line) is not None:
             continue
         if _parse_created_run_line(raw_line) is not None:
-            continue
-        if _parse_legacy_run_progress_line(raw_line) is not None:
             continue
         lines.append(raw_line.rstrip("\r\n"))
     return lines
@@ -1388,8 +1365,6 @@ class SubprocessCodexFarmRunner:
                                 pipeline_id=pipeline_id,
                             )
                         )
-                        return True
-                    if _parse_legacy_run_progress_line(line) is not None:
                         return True
                     return False
                 if progress_payload.get("event") == "run_started" and progress_payload.get("run_id"):

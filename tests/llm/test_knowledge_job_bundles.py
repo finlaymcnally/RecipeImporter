@@ -379,18 +379,13 @@ def test_build_knowledge_jobs_ignores_requested_prompt_target_and_warns(
         source_hash="hash123",
         out_dir=in_dir,
         context_blocks=0,
-        target_prompt_count=5,
     )
 
     payloads = _load_all_jobs(in_dir)
     assert report.shards_written == 10
     assert len(payloads) == 10
     assert all(len(payload["c"]) == 1 for payload in payloads)
-    assert report.planning_warnings
-    assert any(
-        "ignored `knowledge_prompt_target_count`" in warning
-        for warning in report.planning_warnings
-    )
+    assert report.planning_warnings == []
 
 
 def test_build_knowledge_jobs_still_writes_one_chunk_tasks_when_prompt_target_is_set(
@@ -436,18 +431,13 @@ def test_build_knowledge_jobs_still_writes_one_chunk_tasks_when_prompt_target_is
         source_hash="hash123",
         out_dir=in_dir,
         context_blocks=0,
-        target_prompt_count=2,
     )
 
     payloads = _load_all_jobs(in_dir)
     assert report.shards_written == 6
     assert len(payloads) == 6
     assert all(len(payload["c"]) == 1 for payload in payloads)
-    assert report.planning_warnings
-    assert any(
-        "ignored `knowledge_prompt_target_count`" in warning
-        for warning in report.planning_warnings
-    )
+    assert report.planning_warnings == []
 
 
 def test_build_knowledge_jobs_warns_when_requested_shard_count_exceeds_chunk_count(
@@ -499,18 +489,13 @@ def test_build_knowledge_jobs_warns_when_requested_shard_count_exceeds_chunk_cou
         source_hash="hash123",
         out_dir=in_dir,
         context_blocks=0,
-        target_prompt_count=5,
     )
 
     payloads = _load_all_jobs(in_dir)
     assert report.shards_written == 2
     assert len(payloads) == 2
     assert all(len(payload["c"]) == 1 for payload in payloads)
-    assert any(
-        "ignored `knowledge_prompt_target_count`"
-        in warning
-        for warning in report.planning_warnings
-    )
+    assert report.planning_warnings == []
 
 
 def test_build_knowledge_jobs_omits_chunk_hint_objects_from_model_payload(

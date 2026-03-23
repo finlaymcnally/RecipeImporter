@@ -22,14 +22,11 @@ def normalize_epub_html_for_unstructured(html: str, *, mode: str) -> str:
 
 def _normalize_mode(mode: str) -> str:
     selected_mode = mode.strip().lower()
-    if selected_mode == "semantic_v1":
-        # Temporary alias while semantic_v1 evolves.
-        return "br_split_v1"
     if selected_mode in {"none", "br_split_v1"}:
         return selected_mode
     raise ValueError(
         f"Unsupported EPUB HTML normalize mode: {mode!r}. "
-        "Expected one of: none, br_split_v1, semantic_v1."
+        "Expected one of: none, br_split_v1."
     )
 
 

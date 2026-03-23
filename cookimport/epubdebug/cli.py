@@ -87,10 +87,10 @@ def _normalize_html_parser_version(value: str) -> str:
 
 def _normalize_preprocess_mode(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"none", "br_split_v1", "semantic_v1"}:
+    if normalized not in {"none", "br_split_v1"}:
         _fail(
             f"Invalid EPUB Unstructured preprocess mode: {value!r}. "
-            "Expected one of: none, br_split_v1, semantic_v1."
+            "Expected one of: none, br_split_v1."
         )
     return normalized
 
@@ -643,7 +643,7 @@ def debug_epub_blocks(
     preprocess_mode: str = typer.Option(
         "br_split_v1",
         "--preprocess-mode",
-        help="Unstructured preprocess mode: none, br_split_v1, semantic_v1.",
+        help="Unstructured preprocess mode: none, br_split_v1.",
     ),
     force: bool = typer.Option(
         False,
@@ -746,7 +746,7 @@ def debug_epub_candidates(
     preprocess_mode: str = typer.Option(
         "br_split_v1",
         "--preprocess-mode",
-        help="Unstructured preprocess mode: none, br_split_v1, semantic_v1.",
+        help="Unstructured preprocess mode: none, br_split_v1.",
     ),
     force: bool = typer.Option(
         False,
@@ -907,4 +907,3 @@ def validate_epub(
         int(payload["java_exit_code"]) != 0 or int(payload["error_count"]) > 0
     ):
         raise typer.Exit(1)
-

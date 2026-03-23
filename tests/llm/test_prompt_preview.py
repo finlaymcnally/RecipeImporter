@@ -322,7 +322,7 @@ def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"] == {
-        "knowledge_interaction_count": 1,
+        "knowledge_interaction_count": 2,
         "line_role_interaction_count": 1,
         "recipe_interaction_count": 1,
     }
@@ -336,6 +336,12 @@ def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
         "line_role_pipeline": "codex-line-role-shard-v1",
     }
     phase_plans = manifest["phase_plans"]
+    assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 2
+    assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 2
+    assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_knowledge_review"]["shards"]] == [
+        ["fixturebook.c0000.nr"],
+        ["fixturebook.c0001.nr"],
+    ]
     assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shards"][0]["owned_ids"] == [
@@ -377,7 +383,11 @@ def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
     return {
         "out_dir": out_dir,
         "manifest": manifest,
-        "full_prompt_rows": {row["stage_key"]: row for row in full_prompt_rows},
+        "full_prompt_rows": full_prompt_rows,
+        "rows_by_stage": {
+            stage_key: [row for row in full_prompt_rows if row["stage_key"] == stage_key]
+            for stage_key in {row["stage_key"] for row in full_prompt_rows}
+        },
         "recipe_input_payload": recipe_input_payload,
         "budget_summary": budget_summary,
     }
@@ -388,7 +398,7 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
     manifest = fixture["manifest"]
 
     assert manifest["counts"] == {
-        "knowledge_interaction_count": 1,
+        "knowledge_interaction_count": 2,
         "line_role_interaction_count": 1,
         "recipe_interaction_count": 1,
     }
@@ -402,6 +412,12 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
         "line_role_pipeline": "codex-line-role-shard-v1",
     }
     phase_plans = manifest["phase_plans"]
+    assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 2
+    assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 2
+    assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_knowledge_review"]["shards"]] == [
+        ["fixturebook.c0000.nr"],
+        ["fixturebook.c0001.nr"],
+    ]
     assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shards"][0]["owned_ids"] == [
@@ -422,15 +438,16 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
 
 def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path) -> None:
     fixture = _run_prompt_preview_fixture(tmp_path)
-    full_prompt_rows = fixture["full_prompt_rows"]
+    rows_by_stage = fixture["rows_by_stage"]
     recipe_input_payload = fixture["recipe_input_payload"]
 
-    assert set(full_prompt_rows) == {
+    assert set(rows_by_stage) == {
         "line_role",
         "nonrecipe_knowledge_review",
         "recipe_llm_correct_and_link",
     }
-    recipe_row = full_prompt_rows["recipe_llm_correct_and_link"]
+    assert len(rows_by_stage["nonrecipe_knowledge_review"]) == 2
+    recipe_row = rows_by_stage["recipe_llm_correct_and_link"][0]
     assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
     assert "authoritative recipe spans" not in recipe_row["rendered_prompt_text"]
     assert "triage each owned candidate first" in recipe_row["rendered_prompt_text"]
@@ -453,20 +470,30 @@ def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path)
 def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path) -> None:
     fixture = _run_prompt_preview_fixture(tmp_path)
     out_dir = fixture["out_dir"]
-    full_prompt_rows = fixture["full_prompt_rows"]
+    rows_by_stage = fixture["rows_by_stage"]
 
-    knowledge_row = full_prompt_rows["nonrecipe_knowledge_review"]
-    assert "Only mechanically true structure is provided." in knowledge_row["rendered_prompt_text"]
-    assert "compact minified JSON on a single line" in knowledge_row["rendered_prompt_text"]
-    assert knowledge_row["request_input_payload"]["v"] == "2"
-    assert [chunk["cid"] for chunk in knowledge_row["request_input_payload"]["c"]] == [
+    knowledge_rows = sorted(
+        rows_by_stage["nonrecipe_knowledge_review"],
+        key=lambda row: row["call_id"],
+    )
+    assert len(knowledge_rows) == 2
+    assert all(
+        "Only mechanically true structure is provided." in row["rendered_prompt_text"]
+        for row in knowledge_rows
+    )
+    assert all(
+        "compact minified JSON on a single line" in row["rendered_prompt_text"]
+        for row in knowledge_rows
+    )
+    assert all(row["request_input_payload"]["v"] == "2" for row in knowledge_rows)
+    assert [chunk["cid"] for row in knowledge_rows for chunk in row["request_input_payload"]["c"]] == [
         "fixturebook.c0000.nr",
         "fixturebook.c0001.nr",
     ]
-    assert knowledge_row["request_input_payload"]["c"][0]["b"][0]["i"] == 2
-    assert knowledge_row["request_input_payload"]["c"][1]["b"][0]["i"] == 3
+    assert knowledge_rows[0]["request_input_payload"]["c"][0]["b"][0]["i"] == 2
+    assert knowledge_rows[1]["request_input_payload"]["c"][0]["b"][0]["i"] == 3
 
-    line_role_row = full_prompt_rows["line_role"]
+    line_role_row = rows_by_stage["line_role"][0]
     assert "You are reviewing deterministic canonical line-role labels" in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
     assert '<BEGIN_AUTHORITATIVE_ROWS>\n[0, "L' in line_role_row["rendered_prompt_text"]
@@ -519,7 +546,7 @@ def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> N
     assert (out_dir / "line-role-pipeline" / "in" / "line_role_input_0001.json").is_file()
     assert (out_dir / "line-role-pipeline" / "debug_in" / "line_role_input_0001.json").is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
-    assert budget_summary["totals"]["call_count"] == 3
+    assert budget_summary["totals"]["call_count"] == 4
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
     assert budget_summary["totals"]["estimated_request_chars_total"] >= budget_summary["totals"]["prompt_chars_total"]
     assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
@@ -529,9 +556,9 @@ def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> N
     assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
     assert line_role_budget["task_prompt_chars_total"] > 0
     knowledge_budget = budget_summary["by_stage"]["nonrecipe_knowledge_review"]
-    assert knowledge_budget["worker_count"] == 1
-    assert knowledge_budget["shard_count"] == 1
-    assert knowledge_budget["owned_ids_per_shard"]["avg"] == 2.0
+    assert knowledge_budget["worker_count"] == 2
+    assert knowledge_budget["shard_count"] == 2
+    assert knowledge_budget["owned_ids_per_shard"]["avg"] == 1.0
     assert budget_summary["estimation_method"]["type"] == "structural_prompt_tokenization"
     assert budget_summary["estimation_method"]["mode"] == "predictive"
     assert budget_summary["totals"]["estimated_total_tokens"] is not None
@@ -599,9 +626,11 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
     assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
     assert "LIVE canonical text" not in recipe_row["request_input_text"]
     assert recipe_row["recipe_id"] == "urn:recipe:test:r0"
-    knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review")
-    assert "Live knowledge block." not in knowledge_row["request_input_text"]
-    assert [chunk["cid"] for chunk in knowledge_row["request_input_payload"]["c"]] == [
+    knowledge_rows = [
+        row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review"
+    ]
+    assert all("Live knowledge block." not in row["request_input_text"] for row in knowledge_rows)
+    assert [chunk["cid"] for row in knowledge_rows for chunk in row["request_input_payload"]["c"]] == [
         "fixturebook.c0000.nr",
         "fixturebook.c0001.nr",
     ]
@@ -995,14 +1024,12 @@ def test_cf_debug_preview_shard_sweep_writes_experiment_summaries(tmp_path: Path
                 {
                     "name": "narrow",
                     "recipe_worker_count": 1,
-                    "recipe_shard_target_recipes": 1,
                     "line_role_worker_count": 1,
                     "line_role_shard_target_lines": 2,
                 },
                 {
                     "name": "wider",
                     "recipe_worker_count": 2,
-                    "recipe_shard_target_recipes": 1,
                     "line_role_worker_count": 2,
                     "line_role_shard_target_lines": 1,
                 },

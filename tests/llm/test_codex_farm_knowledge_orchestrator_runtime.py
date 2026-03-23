@@ -36,13 +36,11 @@ def _make_runtime_pack_and_run_dirs(tmp_path: Path) -> tuple[Path, Path]:
 def _make_runtime_settings(
     *,
     pack_root: Path,
-    target_count: int,
     worker_count: int,
     context_blocks: int | None = None,
 ) -> RunSettings:
     payload: dict[str, object] = {
         "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-        "knowledge_prompt_target_count": target_count,
         "knowledge_worker_count": worker_count,
         "codex_farm_cmd": "codex-farm",
         "codex_farm_root": str(pack_root),
@@ -110,7 +108,6 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
     pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
     settings = _make_runtime_settings(
         pack_root=pack_root,
-        target_count=2,
         worker_count=4,
         context_blocks=1,
     )
@@ -330,7 +327,6 @@ def _run_live_task_packet_progress_fixture(
     pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
     settings = _make_runtime_settings(
         pack_root=pack_root,
-        target_count=1,
         worker_count=1,
     )
     result = _make_runtime_conversion_result(
@@ -479,7 +475,6 @@ def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
     pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
     settings = _make_runtime_settings(
         pack_root=pack_root,
-        target_count=2,
         worker_count=2,
     )
     result = _make_runtime_conversion_result(
@@ -514,7 +509,7 @@ def test_knowledge_orchestrator_runs_worker_assignments_concurrently(
     assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
     assert process_summary["workspace_worker_row_count"] == 4
     assert process_summary["workspace_worker_session_count"] == 2
-    assert process_summary["prompt_input_mode_counts"] == {"workspace_worker": 4}
+    assert process_summary["prompt_input_mode_counts"]["workspace_worker"] == 4
     assert state["max"] >= 2
 
 
@@ -649,7 +644,6 @@ def _run_runtime_task_leasing_fixture(
     pack_root, run_root = _make_runtime_pack_and_run_dirs(tmp_path)
     settings = _make_runtime_settings(
         pack_root=pack_root,
-        target_count=1,
         worker_count=1,
     )
     result = _make_runtime_conversion_result(

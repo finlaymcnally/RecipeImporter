@@ -384,7 +384,7 @@ ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV = (
 )
 ALL_METHOD_UNSTRUCTURED_HTML_PARSER_VERSIONS = ("v1", "v2")
 ALL_METHOD_UNSTRUCTURED_SKIP_HEADERS_FOOTERS = (False, True)
-ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES = ("none", "br_split_v1", "semantic_v1")
+ALL_METHOD_UNSTRUCTURED_PREPROCESS_MODES = ("none", "br_split_v1")
 ALL_METHOD_WEBSCHEMA_POLICIES = ("prefer_schema", "schema_only", "heuristic_only")
 ALL_METHOD_MAX_INFLIGHT_DEFAULT = 4
 ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 4
@@ -1008,7 +1008,7 @@ def _load_settings() -> Dict[str, Any]:
         "epub_extractor": "unstructured",
         "epub_unstructured_html_parser_version": "v1",
         "epub_unstructured_skip_headers_footers": True,
-        "epub_unstructured_preprocess_mode": "semantic_v1",
+        "epub_unstructured_preprocess_mode": "br_split_v1",
         "web_schema_extractor": "builtin_jsonld",
         "web_schema_normalizer": "simple",
         "web_html_text_extractor": "bs4",
@@ -1565,7 +1565,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 questionary.Choice(
                     (
                         "Unstructured EPUB Preprocess: "
-                        f"{current_settings.get('epub_unstructured_preprocess_mode', 'semantic_v1')} - none/br_split_v1/semantic_v1"
+                        f"{current_settings.get('epub_unstructured_preprocess_mode', 'br_split_v1')} - none/br_split_v1"
                     ),
                     value="epub_unstructured_preprocess_mode",
                 ),
@@ -2012,14 +2012,14 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         elif choice == "epub_unstructured_preprocess_mode":
             val = _menu_select(
                 "Select EPUB HTML preprocess mode before Unstructured:",
-                choices=["none", "br_split_v1", "semantic_v1"],
+                choices=["none", "br_split_v1"],
                 default=current_settings.get(
                     "epub_unstructured_preprocess_mode",
-                    "semantic_v1",
+                    "br_split_v1",
                 ),
                 menu_help=(
                     "none keeps raw HTML; br_split_v1 splits BR-separated paragraphs "
-                    "into block tags; semantic_v1 currently aliases br_split_v1."
+                    "into block tags."
                 ),
             )
             if val and val != BACK_ACTION:
@@ -8963,10 +8963,10 @@ def _normalize_unstructured_html_parser_version(value: str) -> str:
 
 def _normalize_unstructured_preprocess_mode(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"none", "br_split_v1", "semantic_v1"}:
+    if normalized not in {"none", "br_split_v1"}:
         _fail(
             f"Invalid EPUB Unstructured preprocess mode: {value!r}. "
-            "Expected one of: none, br_split_v1, semantic_v1."
+            "Expected one of: none, br_split_v1."
         )
     return normalized
 
@@ -13423,8 +13423,8 @@ def _run_offline_benchmark_prediction_stage(
     )
     selected_preprocess_mode = str(
         prediction_generation_kwargs.get("epub_unstructured_preprocess_mode")
-        or "semantic_v1"
-    ).strip().lower() or "semantic_v1"
+        or "br_split_v1"
+    ).strip().lower() or "br_split_v1"
     write_markdown = bool(prediction_generation_kwargs.get("write_markdown"))
     write_label_studio_tasks = bool(
         prediction_generation_kwargs.get("write_label_studio_tasks")
@@ -23520,10 +23520,10 @@ def stage(
         help="Enable Unstructured skip_headers_and_footers for EPUB HTML partitioning.",
     ),
     epub_unstructured_preprocess_mode: str = typer.Option(
-        "semantic_v1",
+        "br_split_v1",
         "--epub-unstructured-preprocess-mode",
         hidden=True,
-        help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
+        help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1.",
     ),
     section_detector_backend: str = typer.Option(
         "shared_v1",
@@ -23776,13 +23776,6 @@ def stage(
         "--llm-knowledge-pipeline",
         help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
     ),
-    knowledge_prompt_target_count: int = typer.Option(
-        5,
-        "--knowledge-prompt-target-count",
-        min=1,
-        hidden=True,
-        help="Internal: preferred knowledge shard count for Codex-backed stage runs.",
-    ),
     allow_codex: bool = typer.Option(
         False,
         "--allow-codex/--no-allow-codex",
@@ -23935,9 +23928,6 @@ def stage(
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     recipe_prompt_target_count = _unwrap_typer_option_default(recipe_prompt_target_count)
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
-    knowledge_prompt_target_count = _unwrap_typer_option_default(
-        knowledge_prompt_target_count
-    )
     allow_codex = _unwrap_typer_option_default(allow_codex)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
@@ -24159,7 +24149,6 @@ def stage(
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         recipe_prompt_target_count=recipe_prompt_target_count,
         llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
-        knowledge_prompt_target_count=knowledge_prompt_target_count,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
@@ -27052,7 +27041,7 @@ def debug_epub_extract(
         "--preprocess-mode",
         help=(
             "Single-run preprocess mode when --variants is not set "
-            "(none, br_split_v1, semantic_v1)."
+            "(none, br_split_v1)."
         ),
     ),
     skip_headers_footers: bool = typer.Option(
@@ -27498,8 +27487,8 @@ def labelstudio_benchmark(
     )] = True,
     epub_unstructured_preprocess_mode: Annotated[str, typer.Option(
         "--epub-unstructured-preprocess-mode",
-        help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
-    )] = "semantic_v1",
+        help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1.",
+    )] = "br_split_v1",
     section_detector_backend: Annotated[str, typer.Option(
         "--section-detector-backend",
         hidden=True,
@@ -27714,12 +27703,6 @@ def labelstudio_benchmark(
         min=1,
         hidden=True,
         help="Internal: preferred line-role shard count for Codex-backed benchmark runs.",
-    )] = 5,
-    knowledge_prompt_target_count: Annotated[int, typer.Option(
-        "--knowledge-prompt-target-count",
-        min=1,
-        hidden=True,
-        help="Internal: preferred knowledge shard count for Codex-backed benchmark runs.",
     )] = 5,
     allow_codex: Annotated[bool, typer.Option(
         "--allow-codex/--no-allow-codex",
@@ -28310,7 +28293,6 @@ def labelstudio_benchmark(
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
                                 line_role_prompt_target_count=line_role_prompt_target_count,
-                                knowledge_prompt_target_count=knowledge_prompt_target_count,
                                 codex_farm_cmd=codex_farm_cmd,
                                 codex_farm_model=selected_codex_farm_model,
                                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -28427,7 +28409,6 @@ def labelstudio_benchmark(
                             atomic_block_splitter=selected_atomic_block_splitter,
                             line_role_pipeline=selected_line_role_pipeline,
                             line_role_prompt_target_count=line_role_prompt_target_count,
-                            knowledge_prompt_target_count=knowledge_prompt_target_count,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_model=selected_codex_farm_model,
                             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -29214,7 +29195,6 @@ def labelstudio_benchmark(
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
         "recipe_prompt_target_count": recipe_prompt_target_count,
         "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
-        "knowledge_prompt_target_count": knowledge_prompt_target_count,
         "atomic_block_splitter": selected_atomic_block_splitter,
         "line_role_pipeline": selected_line_role_pipeline,
         "line_role_prompt_target_count": line_role_prompt_target_count,

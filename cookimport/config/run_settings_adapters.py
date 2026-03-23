@@ -36,7 +36,6 @@ _STAGE_BENCHMARK_LAB_FIELDS = (
 )
 _STAGE_INTERNAL_FIELDS = (
     "recipe_prompt_target_count",
-    "knowledge_prompt_target_count",
     "multi_recipe_splitter",
     "multi_recipe_min_ingredient_lines",
     "multi_recipe_min_instruction_lines",

@@ -166,9 +166,9 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - checked block labelling no longer auto-enables `atomic_block_splitter`; it preserves the current/default setting, which is now `off` unless explicitly overridden elsewhere
   - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
 - after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
-  - import asks only for the enabled recipe/knowledge counts
-  - benchmark and all-method Codex menus ask in runtime stage order: block-labelling, recipe correction, then knowledge review
-  - these map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
+  - import asks only for recipe correction shard count
+  - benchmark and all-method Codex menus ask in runtime stage order: block-labelling, then recipe correction
+  - these map directly to `recipe_prompt_target_count` and `line_role_prompt_target_count`
   - the interactive chooser now caps each per-step prompt/shard count at `20`
   - the stage and benchmark adapter/CLI seams now preserve those values into the live run config, so an interactive `10 / 5 / 5` choice no longer falls back to the default `5 / 5 / 5` at execution time
   - `recipe_prompt_target_count` now means requested recipe shard count on the live runtime path; it is no longer reinterpreted as a worker-session target
@@ -193,7 +193,7 @@ Resolved profile families:
     `atomic_block_splitter=off`,
     `epub_extractor=unstructured`,
     `epub_unstructured_html_parser_version=v1`,
-    `epub_unstructured_preprocess_mode=semantic_v1`,
+    `epub_unstructured_preprocess_mode=br_split_v1`,
     `epub_unstructured_skip_headers_footers=true`,
     `multi_recipe_splitter=rules_v1`,
     `pdf_ocr_policy=off`,
@@ -203,7 +203,7 @@ Resolved profile families:
     compact codex stage ids, pattern hints off, current skip-on-success policy on).
 - `Vanilla automatic top-tier`:
   - built-in fully vanilla baseline with Codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`),
-  - current top-tier parsing baseline pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`,
+  - current top-tier parsing baseline pinned to `unstructured + v1 + br_split_v1 + skip_headers=true`,
   - deterministic parsing knobs pinned to `shared_v1 + rules_v1 + always + heuristic_v1 + pdf_ocr_policy=off`,
   - compact codex pass ids remain pinned even when recipe codex is off.
 
@@ -232,7 +232,7 @@ The post-Bucket-2 product contract now has two public layers:
 - `epub_extractor` (default `unstructured`)
 - benchmark-lab: `epub_unstructured_html_parser_version` (default `v1`)
 - benchmark-lab: `epub_unstructured_skip_headers_footers` (default `true`)
-- benchmark-lab: `epub_unstructured_preprocess_mode` (default `semantic_v1`)
+- benchmark-lab: `epub_unstructured_preprocess_mode` (default `br_split_v1`)
 - `web_schema_extractor` (default `builtin_jsonld`)
 - benchmark-lab: `web_schema_normalizer` (default `simple`)
 - benchmark-lab: `web_html_text_extractor` (default `bs4`)
@@ -273,7 +273,7 @@ What each setting affects:
 - `epub_extractor`: runtime extractor choice via `C3IMP_EPUB_EXTRACTOR` (default-enabled choices: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` are policy-locked off unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
-- `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
+- `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none` or `br_split_v1`).
 - Tables are always extracted during stage and benchmark prediction generation, and the old `table_extraction` key is accepted only when normalizing older saved payloads.
 - Bucket 1 fixed behavior is recorded as `bucket1_fixed_behavior_version` in new run configs. Old payloads may still carry older hidden keys such as `section_detector_backend`, `multi_recipe_trace`, or instruction-step fallback settings, but new runs do not expose them as operator choices.
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
@@ -564,7 +564,7 @@ Options:
 - `--epub-extractor TEXT` (default `unstructured`): default-enabled values are `unstructured|beautifulsoup`; `markdown|markitdown` are rejected unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`. Exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default enabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
-- `--epub-unstructured-preprocess-mode TEXT` (default `semantic_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `--recipe-scorer-backend TEXT` (default `heuristic_v1`): recipe-likeness scorer backend.
 - `--recipe-score-gold-min FLOAT` (default `0.75`): minimum score for `gold` tier.
 - `--recipe-score-silver-min FLOAT` (default `0.55`): minimum score for `silver` tier.
@@ -642,7 +642,7 @@ Subcommands:
 - `cookimport epub inspect PATH [--out OUTDIR] [--json] [--force]`
 - `cookimport epub dump PATH --spine-index N [--format xhtml|plain] --out OUTDIR [--open] [--force]`
 - `cookimport epub unpack PATH --out OUTDIR [--only-spine] [--force]`
-- `cookimport epub blocks PATH --out OUTDIR [--extractor unstructured|beautifulsoup|markdown|markitdown] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode none|br_split_v1|semantic_v1] [--force]`
+- `cookimport epub blocks PATH --out OUTDIR [--extractor unstructured|beautifulsoup|markdown|markitdown] [--start-spine N] [--end-spine M] [--html-parser-version v1|v2] [--skip-headers-footers] [--preprocess-mode none|br_split_v1] [--force]`
 - `cookimport epub candidates PATH --out OUTDIR [--extractor ...] [--start-spine N] [--end-spine M] [--html-parser-version ...] [--skip-headers-footers] [--preprocess-mode ...] [--force]`
 - `cookimport epub validate PATH [--jar PATH] [--out OUTDIR] [--strict] [--force]`
 
@@ -972,7 +972,7 @@ Options:
 - `--epub-extractor TEXT` (default `unstructured`): default-enabled values are `unstructured|beautifulsoup`; `markdown|markitdown` are rejected unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`. Exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
 - `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default enabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
-- `--epub-unstructured-preprocess-mode TEXT` (default `semantic_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `--recipe-scorer-backend TEXT` (default `heuristic_v1`): recipe-likeness scorer backend.
 - `--recipe-score-gold-min FLOAT` (default `0.75`): minimum score for `gold` tier.
 - `--recipe-score-silver-min FLOAT` (default `0.55`): minimum score for `silver` tier.
@@ -1185,7 +1185,7 @@ CLI-relevant environment variables:
 - `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch read at runtime by the EPUB importer (default-enabled: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
 - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`: unstructured HTML parser version (`v1` or `v2`) for EPUB extraction.
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
-- `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`, `semantic_v1`).
+- `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`: EPUB HTML preprocess mode before Unstructured (`none`, `br_split_v1`).
 - `C3IMP_EPUBCHECK_JAR`: optional EPUBCheck jar path used by `cookimport epub validate` when `--jar` is omitted.
 - `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS`: unlocks `markdown`/`markitdown` EPUB extractors across stage/prediction/debug command paths when set truthy (`1|true|yes|on`).
 - `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS`: include optional markdown-based extractors in all-method permutations when set to `1`.

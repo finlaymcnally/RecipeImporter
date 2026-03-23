@@ -15,9 +15,6 @@ _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
 _TIMESTAMP_DIR_RE = re.compile(
     r"^(?P<ts>\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2})(?:$|[-_].+)$"
 )
-_LEGACY_TIMESTAMP_DIR_RE = re.compile(
-    r"^(?P<ts>\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})(?:$|[-_].+)$"
-)
 _KEEP_SENTINEL_PREFIXES = (".gc_keep",)
 _KEEP_SENTINEL_EXACT = (".keep", ".pinned", "KEEP", "PINNED")
 
@@ -403,16 +400,7 @@ def _parse_run_timestamp(name: str) -> tuple[str, dt.datetime] | None:
         except ValueError:
             return None
 
-    legacy_match = _LEGACY_TIMESTAMP_DIR_RE.match(name)
-    if legacy_match is None:
-        return None
-    ts = legacy_match.group("ts")
-    try:
-        parsed = dt.datetime.strptime(ts, "%Y-%m-%d-%H-%M-%S")
-    except ValueError:
-        return None
-    normalized = parsed.strftime("%Y-%m-%d_%H.%M.%S")
-    return (normalized, parsed)
+    return None
 
 
 def _directory_size(path: Path) -> int:

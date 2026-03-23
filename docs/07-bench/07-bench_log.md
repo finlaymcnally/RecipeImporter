@@ -118,6 +118,22 @@ Durable decisions:
 
 - `quality-discover` prefers curated CUTDOWN ids first, then representative fallback
 - experiments schema v2 expands `levers[]` into baseline plus lever-isolated runs
+
+## 7. 2026-03-23 upload-bundle knowledge-layout fallback refresh
+
+Problem captured:
+
+- upload-bundle cutdown discovery still looked for the older processed-output knowledge summary filename
+- current single-book knowledge outputs now expose counts in `09_nonrecipe_review_status.json`
+
+Durable decisions:
+
+- `scripts/benchmark_cutdown_for_external_ai.py` now treats `09_nonrecipe_review_status.json` as a valid processed-output knowledge summary source alongside any older `09_knowledge_outputs.json` path
+- prompt/manifest discovery stays unchanged; only the counts/status fallback was widened to match the current repo layout
+
+Anti-loop note:
+
+- if knowledge bundle rows show prompts/manifests present but zero `shards_written` / `outputs_parsed`, inspect processed-output filename discovery before changing bundle math
 - `run_settings_patch` keys are validated against `RunSettings`
 - if process workers are unavailable, QualitySuite preserves useful concurrency through fallback worker paths instead of silently collapsing into a useless serial loop
 - split-slot/resource-guard throughput controls are mirrored across scheduler paths

@@ -61,7 +61,6 @@ _CODEX_REASONING_EFFORT_ORDER = (
 _CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
     "recipe": ("recipe_prompt_target_count", "Recipe correction"),
     "line_role": ("line_role_prompt_target_count", "Block labelling"),
-    "knowledge": ("knowledge_prompt_target_count", "Non-recipe knowledge review"),
 }
 
 
@@ -554,6 +553,8 @@ def _choose_interactive_codex_prompt_targets(
         contract=RUN_SETTING_CONTRACT_FULL,
     )
     for step_id in selected_step_ids:
+        if step_id not in _CODEX_SURFACE_PROMPT_TARGET_FIELDS:
+            continue
         field_name, label = _CODEX_SURFACE_PROMPT_TARGET_FIELDS[step_id]
         current_value = getattr(selected_settings, field_name, None)
         resolved_default = int(current_value) if current_value is not None else 5

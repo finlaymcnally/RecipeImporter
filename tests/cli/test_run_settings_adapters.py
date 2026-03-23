@@ -92,7 +92,6 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
         llm_recipe_pipeline="codex-recipe-shard-v1",
         llm_knowledge_pipeline="codex-knowledge-shard-v1",
         recipe_prompt_target_count=9,
-        knowledge_prompt_target_count=4,
     )
 
     kwargs = build_stage_call_kwargs_from_run_settings(
@@ -105,7 +104,7 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
     )
 
     assert kwargs["recipe_prompt_target_count"] == 9
-    assert kwargs["knowledge_prompt_target_count"] == 4
+    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
 
 
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
@@ -207,7 +206,6 @@ def test_build_benchmark_call_kwargs_propagates_codex_prompt_targets() -> None:
         llm_knowledge_pipeline="codex-knowledge-shard-v1",
         recipe_prompt_target_count=10,
         line_role_prompt_target_count=5,
-        knowledge_prompt_target_count=7,
     )
 
     kwargs = build_benchmark_call_kwargs_from_run_settings(
@@ -222,7 +220,7 @@ def test_build_benchmark_call_kwargs_propagates_codex_prompt_targets() -> None:
 
     assert kwargs["recipe_prompt_target_count"] == 10
     assert kwargs["line_role_prompt_target_count"] == 5
-    assert kwargs["knowledge_prompt_target_count"] == 7
+    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
 
 
 def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -> None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 import re
 from pathlib import Path
@@ -8,22 +7,12 @@ from typing import Any, Mapping, Sequence
 
 from .phase_worker_runtime import ShardManifestEntryV1
 from .codex_farm_knowledge_models import (
-    KnowledgeBundleOutputV2,
-    KnowledgeChunkResultV2,
     KnowledgePacketSemanticResultV1,
+    KnowledgeBundleOutputV2,
     ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
-    ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
     ALLOWED_KNOWLEDGE_REASON_CODES,
-    default_legacy_knowledge_reason_code,
-    semantic_result_from_canonical_bundle,
     serialize_canonical_knowledge_packet,
 )
-
-_SEMANTIC_CATEGORY_ALIAS_DEFAULTS: dict[str, tuple[str, str]] = {
-    "content": ("knowledge", "knowledge"),
-    "noise": ("other", "endorsement_or_marketing"),
-    "heading": ("other", "decorative_heading"),
-}
 _KNOWLEDGE_SNIPPET_COPY_VALIDATION_ERRORS = frozenset(
     {
         "semantic_snippet_echoes_full_chunk",
@@ -59,89 +48,17 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
 def normalize_knowledge_worker_payload(
     payload: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    payload_dict, alias_metadata = _normalize_semantic_category_aliases(dict(payload))
-    semantic_parse_error: Exception | None = None
     try:
-        semantic_result = KnowledgePacketSemanticResultV1.model_validate(payload_dict)
+        semantic_result = KnowledgePacketSemanticResultV1.model_validate(dict(payload))
     except Exception as exc:  # noqa: BLE001
-        semantic_parse_error = exc
-    else:
-        return serialize_canonical_knowledge_packet(semantic_result), {
-            "worker_output_contract": "semantic_packet_result_v1",
-            **_knowledge_reason_metadata(semantic_result),
-            **alias_metadata,
-        }
-
-    try:
-        canonical_bundle = KnowledgeBundleOutputV2.model_validate(payload_dict)
-    except Exception as exc:  # noqa: BLE001
-        if semantic_parse_error is None:
-            raise
         raise ValueError(
-            "worker output did not match the semantic task-result contract or the "
-            f"canonical bundle compatibility contract: semantic={semantic_parse_error}; "
-            f"canonical={exc}"
+            "worker output did not match the semantic packet result v1 contract: "
+            f"{exc}"
         ) from exc
-    semantic_result = semantic_result_from_canonical_bundle(canonical_bundle)
     return serialize_canonical_knowledge_packet(semantic_result), {
-        "worker_output_contract": "canonical_bundle_v2_compat",
+        "worker_output_contract": "semantic_packet_result_v1",
         **_knowledge_reason_metadata(semantic_result),
-        **alias_metadata,
     }
-
-
-def _normalize_semantic_category_aliases(
-    payload: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    chunk_results = payload.get("chunk_results")
-    if not isinstance(chunk_results, list):
-        return payload, {}
-
-    normalized_payload = deepcopy(payload)
-    rewrite_counts: dict[str, int] = {}
-    missing_reason_count = 0
-    semantic_packet_shape = "packet_id" in normalized_payload
-    for chunk_result in normalized_payload.get("chunk_results") or []:
-        if not isinstance(chunk_result, dict):
-            continue
-        reason_code = str(chunk_result.get("reason_code") or "").strip()
-        if semantic_packet_shape and not reason_code:
-            chunk_result["reason_code"] = default_legacy_knowledge_reason_code(
-                is_useful=bool(chunk_result.get("is_useful"))
-            )
-            missing_reason_count += 1
-        block_decisions = chunk_result.get("block_decisions")
-        if not isinstance(block_decisions, list):
-            continue
-        for decision in block_decisions:
-            if not isinstance(decision, dict):
-                continue
-            category = str(decision.get("category") or "").strip()
-            if category not in _SEMANTIC_CATEGORY_ALIAS_DEFAULTS:
-                continue
-            normalized_category, default_reviewer_category = (
-                _SEMANTIC_CATEGORY_ALIAS_DEFAULTS[category]
-            )
-            if normalized_category not in ALLOWED_KNOWLEDGE_FINAL_CATEGORIES:
-                continue
-            decision["category"] = normalized_category
-            reviewer_category = decision.get("reviewer_category")
-            if reviewer_category is None or (
-                isinstance(reviewer_category, str) and not reviewer_category.strip()
-            ):
-                if default_reviewer_category in ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES:
-                    decision["reviewer_category"] = default_reviewer_category
-            rewrite_counts[category] = rewrite_counts.get(category, 0) + 1
-
-    if not rewrite_counts and missing_reason_count <= 0:
-        return payload, {}
-    metadata: dict[str, Any] = {}
-    if rewrite_counts:
-        metadata["semantic_category_alias_rewrites"] = dict(sorted(rewrite_counts.items()))
-        metadata["semantic_category_alias_rewrite_count"] = sum(rewrite_counts.values())
-    if missing_reason_count > 0:
-        metadata["legacy_missing_reason_code_count"] = missing_reason_count
-    return normalized_payload, metadata
 
 
 def _knowledge_reason_metadata(

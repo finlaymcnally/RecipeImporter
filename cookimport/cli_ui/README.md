@@ -23,7 +23,7 @@ Interactive run-settings UI helpers.
 - `off` resolves `Vanilla automatic top-tier`.
 - `CodexFarm` profile keeps the winner-preferred resolver path (quality-suite winner settings first, otherwise built-in top-tier baseline), then harmonizes the full top-tier contract:
   - `llm_knowledge_pipeline=codex-knowledge-shard-v1`, `line_role_pipeline=codex-line-role-shard-v1`, `atomic_block_splitter=off`
-  - parsing stack pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`
+  - parsing stack pinned to `unstructured + v1 + br_split_v1 + skip_headers=true`
   - deterministic parsing knobs pinned to `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`
   - recipe routing is fixed to the shard-v1 pipeline; only model/reasoning overrides remain operator-adjustable
 - `Vanilla` profile uses the same top-tier parsing stack with every Codex surface off (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`).

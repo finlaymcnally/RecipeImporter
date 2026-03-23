@@ -107,33 +107,33 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             quote = block_text[:80].strip() or "evidence"
             chunk_results.append(
                 {
-                    "cid": chunk_id,
-                    "u": True,
-                    "d": [
+                    "chunk_id": chunk_id,
+                    "is_useful": True,
+                    "block_decisions": [
                         {
-                            "i": int(knowledge_input_block_index(block) or 0),
-                            "c": "knowledge",
+                            "block_index": int(knowledge_input_block_index(block) or 0),
+                            "category": "knowledge",
                         }
                         for block in chunk_blocks
                         if isinstance(block, dict)
                     ],
-                    "s": [
+                    "snippets": [
                         {
-                            "b": "Fake knowledge snippet.",
-                            "e": [
+                            "body": "Fake knowledge snippet.",
+                            "evidence": [
                                 {
-                                    "i": block_index,
-                                    "q": quote,
+                                    "block_index": block_index,
+                                    "quote": quote,
                                 }
                             ],
                         }
                     ],
+                    "reason_code": "technique_or_mechanism",
                 }
             )
         return {
-            "v": "2",
-            "bid": knowledge_input_bundle_id(payload),
-            "r": chunk_results,
+            "packet_id": knowledge_input_bundle_id(payload),
+            "chunk_results": chunk_results,
         }
     if pipeline_id == "line-role.canonical.v1":
         atomic_indices = _extract_atomic_indices(payload)

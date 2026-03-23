@@ -27,8 +27,8 @@ Preserved finding:
 - interactive Codex prompt-target choices were easy to misapply because benchmark prompts asked for counts in a non-runtime order and adapter plumbing could drop the selected values before the live run config was built
 
 Current rule:
-- interactive benchmark Codex counts are asked in runtime order: `line_role`, `recipe`, `knowledge`
-- stage/import and benchmark adapters must preserve `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count` into live `RunSettings`
+- interactive benchmark Codex counts are asked in runtime order: `line_role`, `recipe`
+- stage/import and benchmark adapters must preserve `recipe_prompt_target_count` and `line_role_prompt_target_count` into live `RunSettings`
 - `recipe_prompt_target_count` now means requested recipe shard count, not preferred worker-session count
 
 Anti-loop note:

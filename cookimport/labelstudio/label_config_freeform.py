@@ -16,31 +16,11 @@ FREEFORM_LABELS: tuple[str, ...] = (
     "OTHER",
 )
 FREEFORM_ALLOWED_LABELS = frozenset(FREEFORM_LABELS)
-FREEFORM_LABEL_ALIASES: dict[str, str] = {
-    "TIME": "TIME_LINE",
-    "YIELD": "YIELD_LINE",
-    "NOTE": "RECIPE_NOTES",
-    "NOTES": "RECIPE_NOTES",
-    "RECIPE_NOTE": "RECIPE_NOTES",
-    "VARIANT": "RECIPE_VARIANT",
-    "TIP": "KNOWLEDGE",
-    "TIPS": "KNOWLEDGE",
-    "NARRATIVE": "OTHER",
-    "HOWTOSECTION": "HOWTO_SECTION",
-    "HOWTOSECTIONS": "HOWTO_SECTION",
-    "HOWTO_SECTIONS": "HOWTO_SECTION",
-    "HOW_TO_SECTION": "HOWTO_SECTION",
-    "HOW_TO_SECTIONS": "HOWTO_SECTION",
-    "SECTION_HEADER": "HOWTO_SECTION",
-    "SECTION_HEADERS": "HOWTO_SECTION",
-}
 
 
 def normalize_freeform_label(raw: str) -> str:
     """Normalize user/LLM freeform labels to canonical Label Studio values."""
-    normalized = raw.strip().upper().replace("-", "_").replace(" ", "_")
-    normalized = FREEFORM_LABEL_ALIASES.get(normalized, normalized)
-    return normalized
+    return raw.strip().upper().replace("-", "_").replace(" ", "_")
 
 
 def build_freeform_label_config() -> str:

@@ -131,7 +131,7 @@ def _write_prediction_run(
                     "text": "1 cup flour (raw block)",
                     "location": {
                         "features": {
-                            "unstructured_preprocess_mode": "semantic_v1",
+                                "unstructured_preprocess_mode": "br_split_v1",
                             "unstructured_stable_key": "block-1",
                         }
                     },
@@ -141,7 +141,7 @@ def _write_prediction_run(
                     "text": "Chef note (raw block)",
                     "location": {
                         "features": {
-                            "unstructured_preprocess_mode": "semantic_v1",
+                                "unstructured_preprocess_mode": "br_split_v1",
                             "unstructured_stable_key": "block-3",
                         }
                     },

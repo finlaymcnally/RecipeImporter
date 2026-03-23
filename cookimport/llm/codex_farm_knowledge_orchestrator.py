@@ -309,7 +309,7 @@ def _build_deterministic_knowledge_bypass_candidate(
     canonical_payload, normalization_metadata = normalize_knowledge_worker_payload(semantic_payload)
     valid, validation_errors, validation_metadata = validate_knowledge_shard_output(
         shard,
-        canonical_payload,
+        semantic_payload,
     )
     if not valid:
         logger.warning(
@@ -504,14 +504,14 @@ def _aggregate_knowledge_task_payloads(
     task_id_by_chunk_id: dict[str, str] = {}
     accepted_task_ids: list[str] = []
     for task_id, payload in task_payloads_by_task_id.items():
-        rows = payload.get("r") if isinstance(payload, Mapping) else None
+        rows = payload.get("chunk_results") if isinstance(payload, Mapping) else None
         if not isinstance(rows, list):
             continue
         accepted_task_ids.append(task_id)
         for row in rows:
             if not isinstance(row, Mapping):
                 continue
-            chunk_id = str(row.get("cid") or "").strip()
+            chunk_id = str(row.get("chunk_id") or "").strip()
             if not chunk_id:
                 continue
             result_rows_by_chunk_id[chunk_id] = dict(row)
@@ -557,9 +557,8 @@ def _aggregate_knowledge_task_payloads(
         },
     }
     return {
-        "v": "2",
-        "bid": shard.shard_id,
-        "r": output_rows,
+        "packet_id": shard.shard_id,
+        "chunk_results": output_rows,
     }, metadata
 
 
@@ -1259,8 +1258,6 @@ def run_codex_farm_nonrecipe_knowledge_review(
         source_hash=_resolve_source_hash(conversion_result),
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
-        target_prompt_count=run_settings.knowledge_prompt_target_count,
-        target_chunks_per_shard=run_settings.knowledge_shard_target_chunks,
         overrides=overrides,
     )
     for warning in build_report.planning_warnings:
@@ -1319,9 +1316,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             output_schema_path=Path(output_schema_path) if output_schema_path else None,
             settings={
                 "llm_knowledge_pipeline": run_settings.llm_knowledge_pipeline.value,
-                "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_worker_count": run_settings.knowledge_worker_count,
-                "knowledge_shard_target_chunks": run_settings.knowledge_shard_target_chunks,
                 "knowledge_shard_max_turns": run_settings.knowledge_shard_max_turns,
                 "codex_farm_pipeline_knowledge": pipeline_id,
             },
@@ -5601,6 +5596,7 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                     validation_errors = repair_errors
                     validation_metadata = dict(repair_metadata or {})
                     proposal_status = repair_proposal_status
+                    active_response_text = repair_run_result.response_text
                     _write_json(
                         {
                             "attempted": True,
@@ -5712,9 +5708,12 @@ def _run_knowledge_workspace_worker_assignment_taskized_v1(
                     task_id=task_manifest.shard_id,
                 )
             if payload is not None and proposal_status == "validated":
+                semantic_payload, _ = _load_knowledge_response_json_object(
+                    str(active_response_text or "")
+                )
                 task_payloads_by_shard_id.setdefault(parent_shard_id, {})[
                     task_manifest.shard_id
-                ] = payload
+                ] = semantic_payload
 
         for shard in runnable_shards:
             if interruption_requested is not None and interruption_requested.is_set():
@@ -6106,7 +6105,7 @@ def _evaluate_knowledge_response(
         return None, ("schema_invalid",), {"parse_error": str(exc)}, "invalid"
     valid, validation_errors, validation_metadata = validate_knowledge_shard_output(
         shard,
-        payload,
+        parsed_payload,
     )
     validation_metadata = {
         **dict(validation_metadata or {}),

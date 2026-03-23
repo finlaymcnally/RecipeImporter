@@ -561,7 +561,6 @@ def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -
     )
 
     assert plan["pipeline"] == SINGLE_CORRECTION_RECIPE_PIPELINE_ID
-    assert plan["recipe_shard_target_recipes"] >= 1
     assert len(plan["planned_shards"]) == 1
     stages = plan["planned_tasks"][0]["planned_stages"]
     assert [stage["stage_key"] for stage in stages] == [
@@ -1300,7 +1299,7 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
-    ).model_copy(update={"recipe_worker_count": 1, "recipe_shard_target_recipes": 2})
+    ).model_copy(update={"recipe_worker_count": 1})
 
     class _PackedRetryRunner(FakeCodexExecRunner):
         def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
@@ -1390,13 +1389,14 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
     assert [call["mode"] for call in runner.calls] == [
         "workspace_worker",
         "structured_prompt",
+        "structured_prompt",
     ]
     process_summary = apply_result.llm_report["process_runs"]["recipe_correction"][
         "telemetry_report"
     ]["summary"]
-    assert process_summary["structured_followup_call_count"] == 1
+    assert process_summary["structured_followup_call_count"] == 2
     assert process_summary["watchdog_killed_shard_count"] == 0
-    assert process_summary["watchdog_recovered_shard_count"] == 1
+    assert process_summary["watchdog_recovered_shard_count"] == 2
 
     shard_root = (
         apply_result.llm_raw_dir
@@ -1404,7 +1404,7 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
         / "workers"
         / "worker-001"
         / "shards"
-        / "recipe-shard-0000-r0000-r0001"
+        / "recipe-shard-0000-r0000-r0000"
     )
     status_payload = json.loads((shard_root / "status.json").read_text(encoding="utf-8"))
     retry_status = json.loads(
@@ -1428,10 +1428,11 @@ def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker
     assert [call["mode"] for call in runner.calls] == [
         "workspace_worker",
         "structured_prompt",
+        "structured_prompt",
     ]
-    assert process_summary["structured_followup_call_count"] == 1
+    assert process_summary["structured_followup_call_count"] == 2
     assert process_summary["watchdog_killed_shard_count"] == 0
-    assert process_summary["watchdog_recovered_shard_count"] == 1
+    assert process_summary["watchdog_recovered_shard_count"] == 2
 
 
 def test_orchestrator_marks_packed_watchdog_retry_mode_in_status_artifacts(

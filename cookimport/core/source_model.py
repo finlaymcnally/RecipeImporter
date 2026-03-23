@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import ConversionResult, SourceBlock, SourceSupport
 
 _RAW_OUTPUT_CATEGORY = "rawArtifacts"
-_BLOCK_ID_RE = re.compile(r"^(?:b|block:)(\d+)$")
 _SOURCE_BLOCK_KNOWN_KEYS = {
     "block_id",
     "blockId",
@@ -126,90 +124,6 @@ def normalize_source_support(
     return normalized
 
 
-def _render_legacy_row_text(row_payload: Mapping[str, Any]) -> str:
-    headers = row_payload.get("headers")
-    row = row_payload.get("row")
-    if isinstance(headers, Sequence) and not isinstance(headers, (str, bytes)) and isinstance(
-        row, Sequence
-    ) and not isinstance(row, (str, bytes)):
-        parts: list[str] = []
-        for header, value in zip(headers, row, strict=False):
-            header_text = str(header or "").strip()
-            value_text = str(value or "").strip()
-            if not value_text:
-                continue
-            if header_text:
-                parts.append(f"{header_text}: {value_text}")
-            else:
-                parts.append(value_text)
-        if parts:
-            return " | ".join(parts)
-    if isinstance(row, Sequence) and not isinstance(row, (str, bytes)):
-        parts = [str(value or "").strip() for value in row]
-        parts = [part for part in parts if part]
-        if parts:
-            return " | ".join(parts)
-    text = str(row_payload.get("text") or "").strip()
-    if text:
-        return text
-    return ""
-
-
-def build_source_model_from_legacy_result(
-    result: ConversionResult,
-) -> tuple[list[SourceBlock], list[SourceSupport]]:
-    if result.source_blocks:
-        return (
-            normalize_source_blocks(result.source_blocks),
-            normalize_source_support(result.source_support),
-        )
-
-    legacy_blocks: list[dict[str, Any]] = []
-    for artifact in result.raw_artifacts:
-        metadata = dict(getattr(artifact, "metadata", {}) or {})
-        if str(metadata.get("artifact_type") or "").strip() != "extracted_rows":
-            continue
-        content = getattr(artifact, "content", None)
-        rows = content.get("rows") if isinstance(content, Mapping) else None
-        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
-            continue
-        for fallback_index, row_payload in enumerate(rows):
-            if not isinstance(row_payload, Mapping):
-                continue
-            row_index = _coerce_int(row_payload.get("row_index"))
-            if row_index is None:
-                row_index = len(legacy_blocks) if fallback_index < 0 else fallback_index
-            text = _render_legacy_row_text(row_payload)
-            if not text:
-                continue
-            location = {
-                key: row_payload[key]
-                for key in sorted(_LOCATION_KEYS | {"layout", "headers"})
-                if key in row_payload and row_payload[key] is not None
-            }
-            features = {
-                "source_kind": "legacy_extracted_row",
-            }
-            if row_payload.get("layout") is not None:
-                features["layout"] = row_payload["layout"]
-            legacy_blocks.append(
-                {
-                    "block_id": _default_block_id(row_index),
-                    "order_index": row_index,
-                    "text": text,
-                    "source_text": text,
-                    "location": location,
-                    "features": features,
-                    "provenance": {
-                        "importer": getattr(artifact, "importer", None),
-                        "source_hash": getattr(artifact, "source_hash", None),
-                        "legacy_artifact_type": "extracted_rows",
-                    },
-                }
-            )
-    return (normalize_source_blocks(legacy_blocks), normalize_source_support(result.source_support))
-
-
 def source_blocks_to_rows(
     blocks: Sequence[SourceBlock | Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -255,9 +169,6 @@ def resolve_conversion_source_model(
         )
     if full_blocks:
         return (normalize_source_blocks(full_blocks), normalize_source_support(result.source_support))
-    legacy_blocks, legacy_support = build_source_model_from_legacy_result(result)
-    if legacy_blocks:
-        return (legacy_blocks, legacy_support)
     raise ValueError("Stage input is missing canonical source blocks.")
 
 

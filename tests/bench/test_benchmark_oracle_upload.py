@@ -355,29 +355,22 @@ def test_oracle_browser_upload_defaults_to_explicit_pro_selection() -> None:
     assert oracle_upload.ORACLE_DEFAULT_MODEL == "gpt-5-pro"
 
 
-def test_resolve_oracle_browser_profile_dir_prefers_most_recent_populated_profile(
+def test_resolve_oracle_browser_profile_dir_uses_current_profile_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     current_profile = tmp_path / "current" / "browser-profile"
-    legacy_profile = tmp_path / "legacy" / "browser-profile"
     (current_profile / "Default").mkdir(parents=True, exist_ok=True)
-    (legacy_profile / "Default").mkdir(parents=True, exist_ok=True)
     current_cookie = current_profile / "Default" / "Cookies"
-    legacy_cookie = legacy_profile / "Default" / "Cookies"
     current_cookie.write_text("current", encoding="utf-8")
-    legacy_cookie.write_text("legacy", encoding="utf-8")
     current_mtime = 1_700_000_000
-    legacy_mtime = current_mtime + 100
     os.utime(current_cookie, (current_mtime, current_mtime))
-    os.utime(legacy_cookie, (legacy_mtime, legacy_mtime))
 
     monkeypatch.setattr(oracle_upload, "ORACLE_BROWSER_PROFILE_DIR", str(current_profile))
-    monkeypatch.setattr(oracle_upload, "ORACLE_LEGACY_BROWSER_PROFILE_DIR", str(legacy_profile))
 
     resolved = oracle_upload._resolve_oracle_browser_profile_dir(env={})
 
-    assert resolved == legacy_profile
+    assert resolved == current_profile
 
 
 def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -> None:
