@@ -21,6 +21,8 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "durable cooking leverage" in prompt
     assert "materially improve a cook's future decisions, diagnosis, or technique" in prompt
     assert "technically true but low-value" in prompt
+    assert "keep that heading with the useful body instead of forcing it to `other` as decoration" in prompt
+    assert "Usually `knowledge`: a short concept heading such as `How Salt Affects . . .`" in prompt
     assert "per chunk: `cid` chunk id, `b` blocks" in prompt
     assert (
         "When `c` is non-empty, `r` must contain exactly one row per input chunk, in input order."

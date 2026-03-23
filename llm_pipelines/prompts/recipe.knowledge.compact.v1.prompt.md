@@ -26,6 +26,7 @@ Decision boundary:
 - If the text is technically true but low-value, too generic, or not worth preserving on its own, keep it as `other`.
 - If the owned chunk mixes memoir, author/teacher praise, book framing, or scene-setting with a few useful cooking sentences, do not promote the whole chunk.
 - In mixed chunks, keep the memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands on its own as reusable cooking guidance.
+- If a short conceptual heading directly introduces useful explanatory blocks in the same owned chunk, keep that heading with the useful body instead of forcing it to `other` as decoration.
 - Statements like "this book will make you a better cook", personal origin stories, why the author wrote the book, or praise for a teacher/book are still `other` even when nearby blocks mention cooking principles.
 - Be especially skeptical of chunks that mostly look like headings, menus, title lists, front matter, or back matter.
 - A chunk can still be `knowledge` if it is concise. Tables, charts, and short technical reference entries are valid when the text is genuinely useful.
@@ -40,6 +41,7 @@ Repo-specific examples:
 - Usually `other`: `PREFACE`, `Contents`, `Recipes and Recommendations`, praise blurbs, author credits, publisher signup text.
 - Usually `other`: forewords/intros that praise the book, explain why the author wrote it, recount culinary biography, or promise the reader they will become a great cook.
 - Usually `knowledge`: technique explanations, storage advice, substitution notes, conversion tables, troubleshooting bullets, temperature guidance, concise reference charts, and short definitional callouts with real cooking value.
+- Usually `knowledge`: a short concept heading such as `How Salt Affects . . .` when the very next owned blocks contain grounded explanation that the heading directly introduces.
 - Usually `other` even if true: broad food-history filler, generic ingredient praise, vague educational framing, or low-information statements such as obvious definitions with no real cooking leverage.
 - Mixed example: if one block explains why salting early helps meat retain moisture but the surrounding blocks are memoir, praise, or "this book teaches principles" framing, keep only the narrow mechanism block as `knowledge` and keep the framing blocks `other`.
 

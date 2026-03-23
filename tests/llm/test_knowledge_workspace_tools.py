@@ -87,6 +87,13 @@ def test_contract_examples_prefer_representative_knowledge_chunk() -> None:
     assert examples["valid_all_other_framing_packet.json"]["chunk_results"][0]["reason_code"] == (
         "book_framing_or_marketing"
     )
+    heading_row = examples["valid_heading_with_useful_body_packet.json"]["chunk_results"][0]
+    assert heading_row["reason_code"] == "technique_or_mechanism"
+    assert [row["category"] for row in heading_row["block_decisions"]] == [
+        "knowledge",
+        "knowledge",
+    ]
+    assert heading_row["block_decisions"][0]["reviewer_category"] == "knowledge"
 
 
 def test_scaffold_task_payload_marks_strong_cue_packets_as_review_required() -> None:

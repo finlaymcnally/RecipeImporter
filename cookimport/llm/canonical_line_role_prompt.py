@@ -41,27 +41,32 @@ Tie-break precedence (highest to lowest):
 Negative rules (must-not-do):
 - Never label a quantity/unit ingredient line as `KNOWLEDGE`.
 - Never label an imperative instruction sentence as `KNOWLEDGE`.
-- Use `KNOWLEDGE` only for explicit explanatory/reference prose, not ordinary recipe structure.
+- Use `KNOWLEDGE` only for recipe-local explanatory/reference prose, not ordinary recipe structure.
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
 - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
-- If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `KNOWLEDGE` or `OTHER`, not `INSTRUCTION_LINE`.
+- If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer review-eligible `OTHER`, not `INSTRUCTION_LINE`.
+- Outside recipes, useful lesson prose still stays review-eligible `OTHER`; the later knowledge stage decides semantic `KNOWLEDGE` versus `OTHER`.
+- Short declarative teaching lines about reusable cooking rules should still stay review-eligible `OTHER` in this stage.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
-- If `span_code` is `N` (outside recipe), default to `OTHER` unless the line clearly teaches reusable cooking explanation/reference prose; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
+- If `span_code` is `N` (outside recipe), default to review-eligible `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
 - If a row is plausible under its current deterministic label, leave it there.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the entire line is a short heading-shaped header.
 - A `Variations` heading and its immediately following alternate-version lines usually stay `RECIPE_VARIANT` until the variant run ends.
-- Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `KNOWLEDGE` or `OTHER`.
-- If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `KNOWLEDGE` or `OTHER`, not `HOWTO_SECTION`.
-- Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `KNOWLEDGE` when surrounding rows are explanatory prose.
+- Short `Variation` / `Variations` follow-up lines such as `To add a little heat ...` or `To evoke the flavors ...` usually stay `RECIPE_VARIANT`.
+- Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually review-eligible `OTHER`.
+- If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer review-eligible `OTHER`, not `HOWTO_SECTION`.
+- Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay review-eligible `OTHER` when surrounding rows are explanatory prose.
+- A lone question-style topic heading such as `What is Heat?` should stay `OTHER` unless nearby rows clearly teach that concept.
+- Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` stay `OTHER` until nearby rows prove one live recipe.
 - First-person narrative or memoir prose is usually `OTHER`, not recipe structure.
-- Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`, not `KNOWLEDGE`.
-- Use optional `review_exclusion_reason` only on rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
+- Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`; only overwhelming obvious junk should also get `review_exclusion_reason`.
+- Use optional `review_exclusion_reason` only on outside-recipe rows labeled `OTHER` when the text is overwhelmingly obvious junk that should skip knowledge review.
 - Allowed `review_exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.
-- If outside-recipe prose seems useful but not recipe-local, keep it `OTHER` and leave `review_exclusion_reason` empty so the knowledge stage can review it.
+- If outside-recipe prose seems genuinely useful but not recipe-local, still label it `OTHER` and leave `review_exclusion_reason` empty so the knowledge stage can decide.
 - Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk and may use `review_exclusion_reason`.
 
 Few-shot examples:
@@ -85,7 +90,7 @@ Few-shot examples:
    Line: `NOTE: Cooled hollandaise can break if reheated too fast.`
    Label: `RECIPE_NOTES`
 
-6) Context: explanatory cookbook prose
+6) Context: inside recipe explanatory prose
    Line: `Copper pans conduct heat quickly and evenly, so temperature changes show up fast.`
    Label: `KNOWLEDGE`
 
@@ -103,7 +108,7 @@ Few-shot examples:
 
 10) Context: cookbook concept heading introducing explanatory prose
     Line: `Cooking Acids`
-    Label: `KNOWLEDGE`
+    Label: `OTHER`
 
 11) Context: front matter or navigation heading
     Line: `Acknowledgments`
@@ -119,10 +124,18 @@ Few-shot examples:
 
 14) Context: outside recipe, lesson heading with explanatory prose nearby
     Line: `Gentle Cooking Methods`
-    Label: `KNOWLEDGE`
+    Label: `OTHER`
 
 15) Context: outside recipe, memoir or narrative prose
     Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`
+    Label: `OTHER`
+
+16) Context: outside recipe, reusable lesson prose with brief first-person framing
+    Line: `Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what.`
+    Label: `OTHER`
+
+17) Context: outside recipe, short declarative lesson line in a knowledge cluster
+    Line: `Foods that are too dry can be corrected with a bit more fat.`
     Label: `OTHER`
 
 RETURN FORMAT (STRICT JSON ONLY)

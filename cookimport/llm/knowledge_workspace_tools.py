@@ -1396,6 +1396,39 @@ def build_knowledge_workspace_contract_examples(
             }
         ],
     }
+    heading_example = {
+        "packet_id": "utility-contrast-heading-body",
+        "chunk_results": [
+            {
+                "chunk_id": "utility-heading-body",
+                "is_useful": True,
+                "block_decisions": [
+                    {
+                        "block_index": 71,
+                        "category": "knowledge",
+                        "reviewer_category": "knowledge",
+                    },
+                    {
+                        "block_index": 72,
+                        "category": "knowledge",
+                        "reviewer_category": "knowledge",
+                    },
+                ],
+                "snippets": [
+                    {
+                        "body": "Salt helps food taste more like itself and seasons it more evenly when applied early.",
+                        "evidence": [
+                            {
+                                "block_index": 72,
+                                "quote": "Salt helps food taste more like itself and seasons it more evenly when applied early.",
+                            }
+                        ],
+                    }
+                ],
+                "reason_code": "technique_or_mechanism",
+            }
+        ],
+    }
     navigation_example = {
         "packet_id": "utility-contrast-navigation",
         "chunk_results": [
@@ -1419,6 +1452,7 @@ def build_knowledge_workspace_contract_examples(
         "invalid_echo_packet.json": invalid_example,
         "valid_all_other_low_utility_packet.json": low_utility_example,
         "valid_all_other_framing_packet.json": framing_example,
+        "valid_heading_with_useful_body_packet.json": heading_example,
         "valid_all_other_navigation_packet.json": navigation_example,
     }
 
@@ -1444,6 +1478,11 @@ def build_knowledge_workspace_contract_markdown(
     )
     framing_example = json.dumps(
         dict(examples.get("valid_all_other_framing_packet.json") or {}),
+        indent=2,
+        sort_keys=True,
+    )
+    heading_example = json.dumps(
+        dict(examples.get("valid_heading_with_useful_body_packet.json") or {}),
         indent=2,
         sort_keys=True,
     )
@@ -1484,6 +1523,7 @@ def build_knowledge_workspace_contract_markdown(
             "- Would saving this materially improve a cook's future decisions, diagnosis, or technique?",
             "- Does it explain cause and effect, sensory judgment, troubleshooting, ingredient behavior, substitution, storage, safety, or durable technique?",
             "- If the text is technically true but generic or low-value, keep it `other`.",
+            "- If a short conceptual heading directly introduces useful explanatory blocks in the same chunk, keep that heading with the useful body rather than demoting it to decoration.",
             "",
             "Snippet rules:",
             "- Good snippet: a short grounded claim such as `Use low heat to prevent curdling.` supported by one or two short evidence quotes.",
@@ -1506,6 +1546,9 @@ def build_knowledge_workspace_contract_markdown(
             "",
             "Valid all-`other` framing example:",
             framing_example,
+            "",
+            "Valid heading-plus-useful-body example:",
+            heading_example,
             "",
             "Valid all-`other` navigation example:",
             navigation_example,
