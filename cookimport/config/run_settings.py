@@ -25,6 +25,7 @@ from cookimport.config.run_settings_contracts import (
     RUN_SETTING_CONTRACT_PRODUCT,
     RUN_SETTING_SURFACE_INTERNAL,
     RUN_SETTING_SURFACE_PUBLIC,
+    configure_run_setting_contracts,
     project_run_config_payload,
     run_setting_surface,
     summarize_run_config_payload,
@@ -1407,6 +1408,20 @@ class RunSettingUiSpec:
     step: int = 1
     minimum: int | None = None
     maximum: int | None = None
+
+
+configure_run_setting_contracts(
+    ordered_field_names=tuple(RunSettings.model_fields),
+    surface_by_field_name={
+        field_name: str(
+            dict(field.json_schema_extra or {}).get(
+                "run_setting_surface",
+                RUN_SETTING_SURFACE_PUBLIC,
+            )
+        )
+        for field_name, field in RunSettings.model_fields.items()
+    },
+)
 
 
 def _unwrap_optional(annotation: Any) -> Any:

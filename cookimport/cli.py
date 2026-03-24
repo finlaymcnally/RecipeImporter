@@ -3,6 +3,7 @@ from __future__ import annotations
 import cProfile
 import csv
 import datetime as dt
+import functools
 import hashlib
 import importlib.util
 import io
@@ -334,12 +335,34 @@ def _rebuild_cli_apps_from_command_packages() -> None:
     root_app.add_typer(epub_app, name="epub")
 
     _sync_cli_command_module_globals()
-    interactive_commands.register_callback(root_app)
-    stage_commands.register(root_app)
-    labelstudio_commands.register(root_app)
-    analytics_commands.register(root_app)
-    bench_commands.register(bench_group)
-    compare_control_commands.register(compare_group)
+    interactive_exports = interactive_commands.register_callback(root_app)
+    stage_exports = stage_commands.register(root_app)
+    labelstudio_exports = labelstudio_commands.register(root_app)
+    analytics_exports = analytics_commands.register(root_app)
+    bench_exports = bench_commands.register(bench_group)
+    compare_control_exports = compare_control_commands.register(compare_group)
+
+    def _compat_export(fn: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(fn)
+        def _wrapped(*args: Any, **kwargs: Any) -> Any:
+            _sync_cli_command_module_globals()
+            return fn(*args, **kwargs)
+
+        return _wrapped
+
+    for export_group in (
+        interactive_exports,
+        stage_exports,
+        labelstudio_exports,
+        analytics_exports,
+        bench_exports,
+        compare_control_exports,
+    ):
+        for name, value in export_group.items():
+            if callable(value):
+                globals()[name] = _compat_export(value)
+            else:
+                globals()[name] = value
 
     app = root_app
     bench_app = bench_group

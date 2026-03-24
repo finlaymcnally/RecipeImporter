@@ -29,6 +29,7 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 - [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed `cookimport/cli_commands/` still does not exist, while [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py) remains a 31,477-line CLI/root coordinator with top-level, bench, compare-control, and interactive ownership still co-located.
 - [x] (2026-03-23 17:51 EDT) Created `cookimport/cli_commands/` with extracted command-family modules and folder-local notes; kept the legacy `cookimport/cli.py` runtime wiring in place for now because the current CLI test suite still monkeypatches deep old-module command names.
 - [x] (2026-03-23 18:31 EDT) Finished the active cutover: `cookimport/cli.py` now rebuilds the public Typer apps from `cookimport/cli_commands/`, the command modules resync current legacy-module globals before dispatch so CLI monkeypatch tests stay valid, and the CLI docs/folder notes now describe `cli.py` as the composition root rather than the command owner.
+- [x] (2026-03-23 20:40 EDT) Redirected the legacy direct-call surface on `cookimport.cli` back to `cookimport/cli_commands/`: each command-family module now returns its registered public callables, and `cookimport/cli.py` re-exports sync wrappers so tests and helper code that still patch `cookimport.cli.<command>` hit the command-package implementation rather than stale in-file copies.
 
 - [x] Create the new `cookimport/cli_commands/` package and establish one module per command family.
 - [x] Move the `stage` command implementation behind the new package while keeping `cookimport.cli:app` stable.
@@ -78,9 +79,9 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 
 ## Outcomes & Retrospective
 
-This plan is still current and still pending. The live tree has improved a few adjacent seams, such as shared job planning, but `cookimport/cli.py` remains the dominant command-family coordination bottleneck.
+This plan is materially closer to done than the initial extraction audit suggested. The public Typer tree and the legacy direct-call compatibility surface on `cookimport.cli` are now both sourced from `cookimport/cli_commands/`, which means stage/bench/analytics/Label Studio command edits can start in the command-family modules instead of the old root file.
 
-The main lesson from re-auditing is unchanged: the right success metric is not line count alone. It is whether a contributor can make a stage-only or bench-only change without reading unrelated command families.
+The remaining debt is dead legacy command bodies still present in `cookimport/cli.py`. They are no longer the active runtime or direct-call owner, but the file is still larger than this plan’s ideal end state and should eventually have those stale copies deleted outright.
 
 ## Context and Orientation
 

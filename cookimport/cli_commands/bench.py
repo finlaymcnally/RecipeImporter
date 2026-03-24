@@ -10,7 +10,7 @@ globals().update(
 )
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> dict[str, object]:
     @app.command("oracle-upload")
     def bench_oracle_upload(
         path: Path = typer.Argument(
@@ -1843,3 +1843,21 @@ def register(app: typer.Typer) -> None:
             f"{float((report or {}).get('macro_f1_excluding_other') or 0.0):.3f}",
             fg=typer.colors.CYAN,
         )
+
+    return {
+        "bench_oracle_upload": bench_oracle_upload,
+        "bench_oracle_followup": bench_oracle_followup,
+        "bench_oracle_autofollowup_worker": bench_oracle_autofollowup_worker,
+        "bench_speed_discover": bench_speed_discover,
+        "bench_speed_run": bench_speed_run,
+        "bench_speed_compare": bench_speed_compare,
+        "bench_gc": bench_gc,
+        "bench_pin": bench_pin,
+        "bench_unpin": bench_unpin,
+        "bench_quality_discover": bench_quality_discover,
+        "bench_quality_run": bench_quality_run,
+        "bench_quality_lightweight_series": bench_quality_lightweight_series,
+        "bench_quality_compare": bench_quality_compare,
+        "bench_quality_leaderboard": bench_quality_leaderboard,
+        "bench_eval_stage": bench_eval_stage,
+    }

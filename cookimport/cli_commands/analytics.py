@@ -10,7 +10,7 @@ globals().update(
 )
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> dict[str, object]:
     @app.command("perf-report")
     def perf_report(
         run_dir: Path | None = typer.Option(
@@ -283,3 +283,9 @@ def register(app: typer.Typer) -> None:
                 output_root=refresh_output_root,
                 reason="benchmark-csv-backfill write",
             )
+
+    return {
+        "perf_report": perf_report,
+        "stats_dashboard": stats_dashboard,
+        "benchmark_csv_backfill": benchmark_csv_backfill,
+    }

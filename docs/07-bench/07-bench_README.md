@@ -80,6 +80,7 @@ Important current constraints:
 - `bench quality-run` is deterministic-only. It rejects `--include-codex-farm`, Codex CLI overrides, and requested settings that enable live Codex recipe or knowledge surfaces.
 - `bench speed-run --include-codex-farm` is still allowed, but it requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and is blocked in agent-run shells.
 - `bench quality-run` and `bench speed-run` both support crash-safe resume via `--resume-run-dir`.
+- `cookimport/bench/quality_runner.py` is now only the public compatibility facade; active QualitySuite runtime ownership lives under `cookimport/bench/qualitysuite/`.
 - `bench quality-run` emits `agent_compare_control/` by default. `bench quality-compare` does the same for comparisons.
 - `bench quality-discover` prefers curated CUTDOWN ids first:
   - `saltfatacidheatcutdown`

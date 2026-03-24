@@ -10,7 +10,7 @@ globals().update(
 )
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> dict[str, object]:
     @app.command()
     def inspect(
         path: Path = typer.Argument(..., help="Workbook file to inspect."),
@@ -3166,3 +3166,12 @@ def register(app: typer.Typer) -> None:
                     f"External-AI upload bundle: {upload_bundle_dir}",
                     fg=typer.colors.CYAN,
                 )
+
+    return {
+        "inspect": inspect,
+        "labelstudio_import": labelstudio_import,
+        "labelstudio_export": labelstudio_export,
+        "labelstudio_eval": labelstudio_eval,
+        "debug_epub_extract": debug_epub_extract,
+        "labelstudio_benchmark": labelstudio_benchmark,
+    }

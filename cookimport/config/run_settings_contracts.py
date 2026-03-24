@@ -88,14 +88,37 @@ _SUMMARY_ORDER = (
     "codex_farm_failure_mode",
 )
 
+_CONFIGURED_RUN_SETTING_NAMES: tuple[str, ...] = ()
+_CONFIGURED_RUN_SETTING_SURFACES: dict[str, str] = {}
+
+
+def configure_run_setting_contracts(
+    *,
+    ordered_field_names: tuple[str, ...],
+    surface_by_field_name: Mapping[str, str],
+) -> None:
+    global _CONFIGURED_RUN_SETTING_NAMES, _CONFIGURED_RUN_SETTING_SURFACES
+
+    _CONFIGURED_RUN_SETTING_NAMES = tuple(ordered_field_names)
+    _CONFIGURED_RUN_SETTING_SURFACES = {
+        str(name): str(surface).strip().lower() or RUN_SETTING_SURFACE_PUBLIC
+        for name, surface in surface_by_field_name.items()
+    }
+
+
+def _require_configured_run_setting_names() -> tuple[str, ...]:
+    if not _CONFIGURED_RUN_SETTING_NAMES:
+        raise RuntimeError(
+            "Run-setting contracts are not configured. "
+            "Import cookimport.config.run_settings before using this module."
+        )
+    return _CONFIGURED_RUN_SETTING_NAMES
+
 
 def run_setting_surface(field_name: str) -> str:
-    from cookimport.config.run_settings import RunSettings
-
-    field = RunSettings.model_fields[field_name]
-    extra = dict(field.json_schema_extra or {})
+    _require_configured_run_setting_names()
     surface = str(
-        extra.get("run_setting_surface", RUN_SETTING_SURFACE_PUBLIC)
+        _CONFIGURED_RUN_SETTING_SURFACES.get(field_name, RUN_SETTING_SURFACE_PUBLIC)
     ).strip().lower()
     if surface == RUN_SETTING_SURFACE_INTERNAL:
         return RUN_SETTING_SURFACE_INTERNAL
@@ -103,21 +126,17 @@ def run_setting_surface(field_name: str) -> str:
 
 
 def public_run_setting_names() -> tuple[str, ...]:
-    from cookimport.config.run_settings import RunSettings
-
     return tuple(
         name
-        for name in RunSettings.model_fields
+        for name in _require_configured_run_setting_names()
         if run_setting_surface(name) == RUN_SETTING_SURFACE_PUBLIC
     )
 
 
 def internal_run_setting_names() -> tuple[str, ...]:
-    from cookimport.config.run_settings import RunSettings
-
     return tuple(
         name
-        for name in RunSettings.model_fields
+        for name in _require_configured_run_setting_names()
         if run_setting_surface(name) == RUN_SETTING_SURFACE_INTERNAL
     )
 
@@ -168,10 +187,8 @@ def normalize_run_setting_contract(
 
 
 def run_setting_names_for_contract(contract: str) -> tuple[str, ...]:
-    from cookimport.config.run_settings import RunSettings
-
     if contract == RUN_SETTING_CONTRACT_FULL:
-        return tuple(RunSettings.model_fields)
+        return _require_configured_run_setting_names()
     if contract == RUN_SETTING_CONTRACT_PRODUCT:
         return product_run_setting_names()
     if contract == RUN_SETTING_CONTRACT_OPERATOR:
@@ -189,8 +206,6 @@ def project_run_config_payload(
     include_internal: bool | None = True,
     contract: str | None = None,
 ) -> dict[str, Any]:
-    from cookimport.config.run_settings import RunSettings
-
     if payload is None:
         return {}
     normalized_contract = normalize_run_setting_contract(
@@ -200,7 +215,7 @@ def project_run_config_payload(
     allowed_names = set(run_setting_names_for_contract(normalized_contract))
     return {
         name: payload[name]
-        for name in RunSettings.model_fields
+        for name in _require_configured_run_setting_names()
         if name in allowed_names and name in payload
     }
 

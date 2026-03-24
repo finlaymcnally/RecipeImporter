@@ -30,6 +30,7 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
 - [x] (2026-03-23 17:16 EDT) Verified adapter-driven runtime assembly is already the normal path in [cookimport/entrypoint.py](/home/mcnal/projects/recipeimport/cookimport/entrypoint.py), [cookimport/bench/speed_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/speed_runner.py), and several CLI helper paths in [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py).
 - [x] (2026-03-23 17:51 EDT) Added `cookimport/config/run_settings_contracts.py`, moved the contract/projection helpers there, and updated the active callers/tests that still imported those helpers from `run_settings.py`.
 - [x] (2026-03-23 18:31 EDT) Finished the remaining high-traffic caller migration for the current tree: leaderboard, interactive run-settings flow, analytics summary paths, Label Studio ingest, and quality-run reporting now import the contract/projection helpers from `run_settings_contracts.py`, and the config/docs/tests teach that smaller config surface first.
+- [x] (2026-03-23 20:35 EDT) Finished the last boundary gap: `run_settings_contracts.py` is now configured from `RunSettings` field metadata instead of importing `RunSettings` directly, so the contracts module is truly model-agnostic in the final tree while the projection helpers still preserve canonical field order.
 
 - [x] Create `cookimport/config/run_settings_contracts.py` and move the contract names and projection helpers there as the only import home.
 - [x] Finish migrating the remaining high-traffic callers so adapters and contract helpers are the ordinary path everywhere they should be (completed: entrypoint, speed suite, leaderboard, interactive summaries, analytics summaries, Label Studio ingest, and quality-run reporting paths).
@@ -85,9 +86,9 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
 
 ## Outcomes & Retrospective
 
-This plan is now partially landed. The runtime-adapter half of the design is real in the current tree, but the contract/projection half is still concentrated in [cookimport/config/run_settings.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings.py), and several summary-style callers still rely on direct payload projection rather than a smaller dedicated contracts home.
+This plan is complete in the current tree. `run_settings_contracts.py` now owns the contract names and projection helpers, active callers import that module directly, and the contracts layer no longer imports `RunSettings`. Instead, `run_settings.py` registers the canonical ordered field list and public/internal surface metadata at import time.
 
-The key implementation lesson so far is that the repo did not need a new abstraction to prove adapter ownership. It needed a smaller second step that moves contract constants and projection helpers out of the model file without undoing the adapter seam that already works.
+The main implementation lesson is that the repo did not need a new runtime abstraction. It needed one strict handshake between the persistence model and the contracts layer so the contracts module could stay model-agnostic without losing canonical field order or drifting from the live field metadata.
 
 ## Context and Orientation
 

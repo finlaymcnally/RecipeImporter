@@ -10,7 +10,7 @@ globals().update(
 )
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> dict[str, object]:
     @app.command("discovery-preferences")
     def compare_control_discovery_preferences(
         output_root: Path = typer.Option(
@@ -731,3 +731,10 @@ def register(app: typer.Typer) -> None:
             if request_id is not None:
                 response["id"] = request_id
             typer.echo(json.dumps(response, sort_keys=True))
+
+    return {
+        "compare_control_discovery_preferences": compare_control_discovery_preferences,
+        "compare_control_dashboard_state": compare_control_dashboard_state,
+        "compare_control_run": compare_control_run,
+        "compare_control_agent": compare_control_agent,
+    }

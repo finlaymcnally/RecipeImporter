@@ -10,7 +10,7 @@ globals().update(
 )
 
 
-def register_callback(app: typer.Typer) -> None:
+def register_callback(app: typer.Typer) -> dict[str, object]:
     @app.callback()
     def main(ctx: typer.Context) -> None:
         """Recipe Import - Convert source files to schema.org Recipe JSON and cookbook3 outputs."""
@@ -29,3 +29,5 @@ def register_callback(app: typer.Typer) -> None:
                 _interactive_mode(limit=limit)
             finally:
                 _INTERACTIVE_CLI_ACTIVE.reset(interactive_mode_token)
+
+    return {"main": main}

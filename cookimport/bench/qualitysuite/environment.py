@@ -14,6 +14,15 @@ for _module in (_planning, _summary):
     )
 
 
+def _notify_progress(
+    progress_callback: ProgressCallback | None,
+    message: str,
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(message)
+
+
 def _running_in_wsl() -> bool:
     if os.getenv("WSL_DISTRO_NAME") or os.getenv("WSL_INTEROP"):
         return True

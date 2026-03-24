@@ -10,7 +10,7 @@ globals().update(
 )
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> dict[str, object]:
     @app.command()
     def stage(
         path: Path = typer.Argument(..., help="File or folder containing source files."),
@@ -1778,3 +1778,5 @@ def register(app: typer.Typer) -> None:
                 typer.secho(f"- {message}", fg=typer.colors.YELLOW)
 
         return out
+
+    return {"stage": stage}

@@ -5,6 +5,7 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 ## Run Settings Source of Truth
 
 - `cookimport/config/run_settings.py` is the canonical definition of per-run knobs (`RunSettings`), UI metadata, summary rendering, and stable hash generation.
+- `cookimport/config/run_settings_contracts.py` is the canonical projection/contract layer and is configured from `RunSettings` field metadata at import time; it must not import `RunSettings` directly.
 - `cookimport/config/codex_decision.py` is the single source of truth for Codex-backed surface classification, top-tier profile contract patches, paired benchmark Codex/vanilla contracts, and command-boundary approval metadata.
 - `cookimport/config/run_settings_adapters.py` is the canonical mapping from `RunSettings` to `stage(...)` / `labelstudio_benchmark(...)` kwargs; avoid duplicating field-by-field mapping in CLI or speed-suite callers.
 - When a run-setting value changes source-job capability (for example `epub_extractor=markitdown`), update `cookimport/staging/job_planning.py` (`plan_source_job(...)`, `plan_source_jobs(...)`, `compute_effective_workers_for_sources(...)`) together.
