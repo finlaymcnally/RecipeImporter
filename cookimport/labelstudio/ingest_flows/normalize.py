@@ -75,9 +75,9 @@ def _normalize_codex_farm_failure_mode(value: str) -> str:
 
 def _normalize_codex_farm_recipe_mode(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
-    if normalized in {"", "extract", "default"}:
+    if normalized in {"", "extract"}:
         return "extract"
-    if normalized in {"benchmark", "line-label", "line-labels"}:
+    if normalized == "benchmark":
         return "benchmark"
     raise ValueError(
         "Invalid codex_farm_recipe_mode. Expected one of: extract, benchmark."

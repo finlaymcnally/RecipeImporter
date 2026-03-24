@@ -191,11 +191,11 @@ def _cache_worker(
         while time.monotonic() < deadline:
             if wait_path.exists():
                 break
-            time.sleep(0.01)
+            time.sleep(0.001)
         else:
             raise RuntimeError("timed out waiting for primary worker lock signal")
 
-    cache = CanonicalAlignmentDiskCache(Path(cache_dir), wait_seconds=120, poll_seconds=0.01)
+    cache = CanonicalAlignmentDiskCache(Path(cache_dir), wait_seconds=120, poll_seconds=0.001)
     computed = False
     lock_acquired = False
     cache_hit_before = False
@@ -336,7 +336,7 @@ def test_canonical_alignment_disk_cache_single_compute_under_concurrency(
             "cache_key": cache_key,
             "signatures": signatures,
             "result_path": str(first_result_path),
-            "hold_seconds": 0.3,
+            "hold_seconds": 0.05,
             "ready_path": str(ready_path),
         },
     )
@@ -393,7 +393,7 @@ def test_canonical_alignment_disk_cache_lock_recovers_dead_owner_without_age_wai
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_key, _signatures = _cache_test_key_and_signatures()
-    cache = CanonicalAlignmentDiskCache(cache_dir, wait_seconds=5, poll_seconds=0.01)
+    cache = CanonicalAlignmentDiskCache(cache_dir, wait_seconds=5, poll_seconds=0.001)
 
     lock_path = cache.lock_path_for_key(cache_key)
     lock_path.parent.mkdir(parents=True, exist_ok=True)

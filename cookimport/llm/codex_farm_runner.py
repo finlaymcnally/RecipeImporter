@@ -336,14 +336,6 @@ def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
 _CODEX_FARM_CREATED_RUN_PATTERN = re.compile(
     r"^Created run (?P<run_id>\S+) with (?P<total_tasks>-?\d+) tasks$"
 )
-_CODEX_FARM_LEGACY_RUN_PROGRESS_PATTERN = re.compile(
-    r"^run=(?P<run_id>\S+)\s+"
-    r"queued=(?P<queued>-?\d+)\s+"
-    r"running=(?P<running>-?\d+)\s+"
-    r"done=(?P<done>-?\d+)\s+"
-    r"error=(?P<error>-?\d+)\s+"
-    r"canceled=(?P<canceled>-?\d+)$"
-)
 
 
 def _parse_created_run_line(stderr_line: str) -> dict[str, int | str] | None:

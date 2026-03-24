@@ -1,12 +1,28 @@
 from __future__ import annotations
 
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
 import typer
 
-from cookimport.cli_support import *  # noqa: F401,F403
-from cookimport import cli_support as _cli
-
-globals().update(
-    {name: getattr(_cli, name) for name in dir(_cli) if not name.startswith("__")}
+from cookimport.cli_support import (
+    DEFAULT_GOLDEN,
+    DEFAULT_OUTPUT,
+    _fail,
+    _unwrap_typer_option_default,
+)
+from cookimport.cli_support.compare_control import (
+    _clean_compare_control_string_list,
+    _compare_control_dispatch_action,
+    _compare_control_ui_state_path_for_dashboard,
+    _load_compare_control_dashboard_ui_state_payload,
+    _normalize_compare_control_dashboard_chart_layout,
+    _normalize_compare_control_dashboard_combined_axis_mode,
+    _normalize_compare_control_discovery_prefs_for_dashboard,
+    _resolve_compare_control_dashboard_dir,
+    _write_compare_control_dashboard_ui_state_payload,
 )
 
 
@@ -732,9 +748,11 @@ def register(app: typer.Typer) -> dict[str, object]:
                 response["id"] = request_id
             typer.echo(json.dumps(response, sort_keys=True))
 
-    return {
+    exports = {
         "compare_control_discovery_preferences": compare_control_discovery_preferences,
         "compare_control_dashboard_state": compare_control_dashboard_state,
         "compare_control_run": compare_control_run,
         "compare_control_agent": compare_control_agent,
     }
+    globals().update(exports)
+    return exports

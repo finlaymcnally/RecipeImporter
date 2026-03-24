@@ -12,7 +12,7 @@ This document is the current source of truth for implemented Label Studio behavi
 
 Code surfaces (primary):
 
-- `cookimport/labelstudio/ingest.py` (public compatibility facade for stable import paths)
+- `cookimport/labelstudio/ingest.py` (zero-magic public re-export for import entrypoints; patch internals in `ingest_flows/` instead of here)
 - `cookimport/labelstudio/ingest_support.py` (shared helper surface consumed by the flow package)
 - `cookimport/labelstudio/ingest_flows/` (offline prediction-run, upload, normalization, split-merge, and artifact ownership)
 - `cookimport/labelstudio/export.py`
@@ -40,7 +40,7 @@ Label-first runtime seam used by benchmark/import flows:
 
 - `cookimport/parsing/label_source_of_truth.py`
 - `cookimport/parsing/recipe_span_grouping.py`
-- `cookimport/staging/import_session.py` (public compatibility seam)
+- `cookimport/staging/import_session.py` (honest top-level re-export for the shared session entrypoint/result types)
 - `cookimport/staging/import_session_contracts.py` (shared public result dataclass/types for the session flows)
 - `cookimport/staging/import_session_flows/` (shared stage-session runtime ownership)
 

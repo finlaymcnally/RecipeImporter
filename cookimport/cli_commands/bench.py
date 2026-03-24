@@ -2,11 +2,60 @@ from __future__ import annotations
 
 import typer
 
-from cookimport.cli_support import *  # noqa: F401,F403
-from cookimport import cli_support as _cli
-
-globals().update(
-    {name: getattr(_cli, name) for name in dir(_cli) if not name.startswith("__")}
+from cookimport.cli_support import (
+    Annotated,
+    Any,
+    DEFAULT_BENCH_QUALITY_COMPARISONS,
+    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_EXPERIMENTS,
+    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_PROFILE,
+    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_SERIES,
+    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS,
+    DEFAULT_BENCH_QUALITY_RUNS,
+    DEFAULT_BENCH_QUALITY_SUITES,
+    DEFAULT_BENCH_SPEED_COMPARISONS,
+    DEFAULT_BENCH_SPEED_RUNS,
+    DEFAULT_BENCH_SPEED_SUITES,
+    DEFAULT_GOLDEN,
+    DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO,
+    DEFAULT_INPUT,
+    DEFAULT_OUTPUT,
+    Path,
+    QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE,
+    REPO_ROOT,
+    RUN_SETTING_CONTRACT_FULL,
+    RunSettings,
+    _enforce_live_bench_speed_codex_guardrails,
+    _ensure_codex_farm_cmd_available,
+    _fail,
+    _golden_benchmark_root,
+    _load_settings,
+    _normalize_gold_adaptation_mode,
+    _parse_quality_discover_formats,
+    _print_codex_decision,
+    _print_oracle_followup_summary,
+    _print_oracle_upload_summary,
+    _processing_timeseries_history_path,
+    _resolve_all_method_codex_choice,
+    _resolve_speedsuite_codex_farm_confirmation,
+    _run_settings_payload_from_settings,
+    _run_with_progress_status,
+    _unwrap_typer_option_default,
+    _write_qualitysuite_agent_bridge_bundle_for_compare,
+    _write_qualitysuite_agent_bridge_bundle_for_run,
+    dt,
+    evaluate_stage_blocks,
+    history_root_for_output,
+    json,
+    normalize_codex_reasoning_effort,
+    os,
+    project_run_config_payload,
+    resolve_codex_execution_policy,
+    resolve_oracle_benchmark_bundle,
+    resolve_oracle_benchmark_review_profiles,
+    run_oracle_benchmark_followup,
+    run_oracle_benchmark_followup_background_worker,
+    run_oracle_benchmark_upload,
+    save_qualitysuite_winner_run_settings,
 )
 
 
@@ -1855,7 +1904,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             fg=typer.colors.CYAN,
         )
 
-    return {
+    exports = {
         "bench_oracle_upload": bench_oracle_upload,
         "bench_oracle_followup": bench_oracle_followup,
         "bench_oracle_autofollowup_worker": bench_oracle_autofollowup_worker,
@@ -1872,3 +1921,5 @@ def register(app: typer.Typer) -> dict[str, object]:
         "bench_quality_leaderboard": bench_quality_leaderboard,
         "bench_eval_stage": bench_eval_stage,
     }
+    globals().update(exports)
+    return exports

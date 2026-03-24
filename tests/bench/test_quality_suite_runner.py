@@ -819,11 +819,11 @@ def test_run_quality_suite_parallelizes_experiments_and_preserves_summary_order(
             if len(started) >= 2:
                 both_started.set()
 
-        assert both_started.wait(timeout=0.5)
+        assert both_started.wait(timeout=0.2)
         if experiment_id == "baseline":
-            time.sleep(0.06)
+            time.sleep(0.02)
         else:
-            time.sleep(0.01)
+            time.sleep(0.002)
 
         source_report = (
             root_output_dir

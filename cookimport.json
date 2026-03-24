@@ -1,23 +1,4 @@
 {
-  "workers": 10,
-  "pdf_split_workers": 10,
-  "epub_split_workers": 10,
-  "all_method_max_parallel_sources": 4,
-  "all_method_max_inflight_pipelines": 4,
-  "all_method_max_split_phase_slots": 4,
-  "all_method_max_eval_tail_pipelines": 4,
-  "all_method_wing_backlog_target": 4,
-  "all_method_config_timeout_seconds": 600,
-  "all_method_retry_failed_configs": 0,
-  "all_method_smart_scheduler": true,
-  "epub_extractor": "unstructured",
-  "ocr_device": "auto",
-  "ocr_batch_size": 1,
-  "codex_farm_cmd": "/home/mcnal/projects/shared/CodexFarm/.venv/bin/codex-farm",
-  "pdf_pages_per_job": 50,
-  "epub_spine_items_per_job": 10,
-  "warm_models": false,
-  "output_dir": "/home/mcnal/projects/recipeimport/data/output",
   "label_studio_url": "http://localhost:8080",
-  "label_studio_api_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6ODA3ODQxMTY3NSwiaWF0IjoxNzcxMjExNjc1LCJqdGkiOiJkZTk0NWUxNTA1NjM0MGE2YWY5MTQzZGYwNDhlNjAyMyIsInVzZXJfaWQiOiIxIn0.TPkjLgYr96F97ak4DZqV5nYB_DIAzNu55YSNm_UnA9I"
+  "label_studio_api_key": "new-key"
 }

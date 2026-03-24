@@ -10,6 +10,7 @@ from cookimport.cli_support import *  # noqa: F401,F403
 from cookimport.cli_support import _sync_cli_command_module_globals as _raw_sync_cli_compat_state
 from cookimport import cli_support as _runtime
 
+
 def _compat_export(
     fn: Callable[..., Any],
     _sync: Callable[[], None] = _raw_sync_cli_compat_state,
@@ -19,6 +20,7 @@ def _compat_export(
         _sync()
         return fn(*args, **kwargs)
 
+    setattr(_wrapped, "_codex_cli_compat_export", True)
     return _wrapped
 
 
@@ -54,7 +56,7 @@ def _wrap_typer_callbacks(typer_app: typer.Typer) -> None:
         _wrap_typer_callbacks(group_info.typer_instance)
 
 
-def _rebuild_cli_apps_from_command_packages() -> None:
+def _rebuild_cli_apps_from_command_packages() -> tuple[typer.Typer, typer.Typer, typer.Typer]:
     from cookimport.cli_commands import (
         analytics as analytics_commands,
         bench as bench_commands,
@@ -63,8 +65,6 @@ def _rebuild_cli_apps_from_command_packages() -> None:
         labelstudio as labelstudio_commands,
         stage as stage_commands,
     )
-
-    global app, bench_app, compare_control_app
 
     root_app = typer.Typer(add_completion=False, invoke_without_command=True)
     bench_group = typer.Typer(name="bench", help="Offline benchmark suite tools.")
@@ -96,6 +96,7 @@ def _rebuild_cli_apps_from_command_packages() -> None:
         for name, value in export_group.items():
             globals()[name] = _compat_export(value) if callable(value) else value
 
+    global app, bench_app, compare_control_app
     app = root_app
     bench_app = bench_group
     compare_control_app = compare_group
@@ -103,9 +104,20 @@ def _rebuild_cli_apps_from_command_packages() -> None:
     _runtime.bench_app = bench_group
     _runtime.compare_control_app = compare_group
     _publish_runtime_compat_exports()
+    for export_group in (
+        interactive_exports,
+        stage_exports,
+        labelstudio_exports,
+        analytics_exports,
+        bench_exports,
+        compare_control_exports,
+    ):
+        for name, value in export_group.items():
+            globals()[name] = _compat_export(value) if callable(value) else value
+    return root_app, bench_group, compare_group
 
 
-_rebuild_cli_apps_from_command_packages()
+app, bench_app, compare_control_app = _rebuild_cli_apps_from_command_packages()
 
 
 if __name__ == "__main__":

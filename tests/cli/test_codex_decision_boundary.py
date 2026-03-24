@@ -28,7 +28,7 @@ def test_stage_requires_allow_codex(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_commands.stage._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.stage(
@@ -54,7 +54,7 @@ def test_stage_requires_allow_codex_for_merged_recipe_pipeline(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_commands.stage._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.stage(
@@ -85,7 +85,7 @@ def test_labelstudio_import_requires_allow_codex(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_commands.labelstudio._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.labelstudio_import(
@@ -112,7 +112,7 @@ def test_labelstudio_import_prelabel_requires_allow_codex(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_commands.labelstudio._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.labelstudio_import(
@@ -154,7 +154,7 @@ def test_labelstudio_benchmark_requires_allow_codex(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_commands.labelstudio._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.labelstudio_benchmark(
@@ -186,8 +186,8 @@ def test_labelstudio_benchmark_requires_benchmark_codex_confirmation(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
-    monkeypatch.setattr(cli, "_is_agent_execution_environment", lambda: False)
+    monkeypatch.setattr("cookimport.cli_support._fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_support._is_agent_execution_environment", lambda: False)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.labelstudio_benchmark(
@@ -220,8 +220,8 @@ def test_labelstudio_benchmark_live_codex_blocked_in_agent_environment(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
-    monkeypatch.setattr(cli, "_is_agent_execution_environment", lambda: True)
+    monkeypatch.setattr("cookimport.cli_support._fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_support._is_agent_execution_environment", lambda: True)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.labelstudio_benchmark(
@@ -250,8 +250,8 @@ def test_labelstudio_benchmark_live_codex_interactive_mode_bypasses_agent_block(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
-    monkeypatch.setattr(cli, "_is_agent_execution_environment", lambda: True)
+    monkeypatch.setattr("cookimport.cli_support._fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli_support._is_agent_execution_environment", lambda: True)
     interactive_token = cli._INTERACTIVE_CLI_ACTIVE.set(True)
 
     try:

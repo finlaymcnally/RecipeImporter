@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 
-from cookimport.cli_support import *  # noqa: F401,F403
-from cookimport import cli_support as _cli
-
-globals().update(
-    {name: getattr(_cli, name) for name in dir(_cli) if not name.startswith("__")}
+from cookimport.cli_support import (
+    DEFAULT_GOLDEN,
+    DEFAULT_HISTORY,
+    DEFAULT_OUTPUT,
+    _fail,
+    _unwrap_typer_option_default,
 )
+from cookimport.cli_support.dashboard import _refresh_dashboard_after_history_write
 
 
 def register(app: typer.Typer) -> dict[str, object]:
@@ -284,8 +288,10 @@ def register(app: typer.Typer) -> dict[str, object]:
                 reason="benchmark-csv-backfill write",
             )
 
-    return {
+    exports = {
         "perf_report": perf_report,
         "stats_dashboard": stats_dashboard,
         "benchmark_csv_backfill": benchmark_csv_backfill,
     }
+    globals().update(exports)
+    return exports

@@ -6,16 +6,11 @@ from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, MappingConfig
-from cookimport.core.reporting import (
-    build_authoritative_stage_report,
-    enrich_report_with_stats,
-)
+from cookimport.core.reporting import build_authoritative_stage_report
 from cookimport.core.slug import slugify_name
 from cookimport.core.source_model import write_source_model_artifacts
 from cookimport.core.timing import TimingStats, measure
-from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
 from cookimport.parsing.label_source_of_truth import LabelFirstStageResult
-from cookimport.parsing.tables import extract_and_annotate_tables
 from cookimport.staging.import_session_contracts import StageImportSessionResult
 from cookimport.staging.import_session_flows.authority import (
     _write_label_first_artifacts,
@@ -32,26 +27,18 @@ from cookimport.staging.pipeline_runtime import (
     build_extracted_book_bundle,
     run_knowledge_final_stage,
     run_nonrecipe_route_stage,
-    run_recipe_boundary_stage,
     run_recipe_refine_stage,
 )
 from cookimport.staging.recipe_tag_normalization import (
     normalize_conversion_result_recipe_tags,
 )
-from cookimport.staging.writer import (
-    OutputStats,
-    write_authoritative_recipe_semantics,
-    write_chunk_outputs,
-    write_draft_outputs,
-    write_knowledge_outputs_artifact,
-    write_intermediate_outputs,
-    write_nonrecipe_stage_outputs,
-    write_raw_artifacts,
-    write_report,
-    write_section_outputs,
-    write_stage_block_predictions,
-    write_table_outputs,
-)
+from cookimport.staging.writer import OutputStats
+
+
+def _runtime():
+    from cookimport.staging import import_session as runtime
+
+    return runtime
 
 
 def execute_stage_import_session_from_result(
@@ -76,6 +63,7 @@ def execute_stage_import_session_from_result(
     recipe_limit: int | None = None,
     recipe_limit_label: int | None = None,
 ) -> StageImportSessionResult:
+    runtime = _runtime()
     original_result = result
     stats = timing_stats or TimingStats()
     workbook_slug = slugify_name(source_file.stem)
@@ -113,7 +101,7 @@ def execute_stage_import_session_from_result(
         task_total=4,
     )
     with measure(stats, "label_source_of_truth_seconds"):
-        recipe_boundary_result = run_recipe_boundary_stage(
+        recipe_boundary_result = runtime.run_recipe_boundary_stage(
             extracted_bundle=extracted_book_bundle,
             run_settings=run_settings,
             artifact_root=run_root,
@@ -205,7 +193,7 @@ def execute_stage_import_session_from_result(
             stage_label="extracting knowledge tables",
             detail_lines=[f"non-recipe blocks: {len(nonrecipe_block_rows)}"],
         )
-        extracted_tables = extract_and_annotate_tables(
+        extracted_tables = runtime.extract_and_annotate_tables(
             nonrecipe_block_rows,
             source_hash=extracted_book_bundle.source_hash,
         )
@@ -218,7 +206,7 @@ def execute_stage_import_session_from_result(
         detail_lines=chunk_detail_lines,
     )
     if nonrecipe_block_rows:
-        result.chunks = chunks_from_non_recipe_blocks(
+        result.chunks = runtime.chunks_from_non_recipe_blocks(
             nonrecipe_block_rows,
             overrides=parsing_overrides,
         )
@@ -251,7 +239,7 @@ def execute_stage_import_session_from_result(
     }
     result.report.llm_codex_farm = llm_report
     result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
-    enrich_report_with_stats(
+    runtime.enrich_report_with_stats(
         result.report,
         result,
         source_file,
@@ -311,12 +299,12 @@ def execute_stage_import_session_from_result(
 
         _notify_write_progress(write_steps[0] if write_steps else None)
         with measure(stats, "write_nonrecipe_seconds"):
-            write_nonrecipe_stage_outputs(
+            runtime.write_nonrecipe_stage_outputs(
                 nonrecipe_stage_result,
                 run_root,
                 output_stats=output_stats,
             )
-            write_knowledge_outputs_artifact(
+            runtime.write_knowledge_outputs_artifact(
                 run_root=run_root,
                 stage_result=nonrecipe_stage_result,
                 llm_report=llm_report.get("knowledge"),
@@ -331,7 +319,7 @@ def execute_stage_import_session_from_result(
         write_completed += 1
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_recipe_authority_seconds"):
-            write_authoritative_recipe_semantics(
+            runtime.write_authoritative_recipe_semantics(
                 payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
                 out_path=authoritative_recipe_payloads_path,
                 workbook_slug=workbook_slug,
@@ -341,7 +329,7 @@ def execute_stage_import_session_from_result(
         write_completed += 1
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_intermediate_seconds"):
-            write_intermediate_outputs(
+            runtime.write_intermediate_outputs(
                 result,
                 intermediate_dir,
                 output_stats=output_stats,
@@ -351,7 +339,7 @@ def execute_stage_import_session_from_result(
         write_completed += 1
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_final_seconds"):
-            write_draft_outputs(
+            runtime.write_draft_outputs(
                 result,
                 final_dir,
                 output_stats=output_stats,
@@ -362,7 +350,7 @@ def execute_stage_import_session_from_result(
         write_completed += 1
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_sections_seconds"):
-            write_section_outputs(
+            runtime.write_section_outputs(
                 run_root,
                 workbook_slug,
                 result.recipes,
@@ -375,7 +363,7 @@ def execute_stage_import_session_from_result(
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         if result.chunks:
             with measure(stats, "write_chunks_seconds"):
-                write_chunk_outputs(
+                runtime.write_chunk_outputs(
                     result.chunks,
                     run_root / "chunks" / workbook_slug,
                     output_stats=output_stats,
@@ -384,7 +372,7 @@ def execute_stage_import_session_from_result(
             write_completed += 1
             _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_tables_seconds"):
-            write_table_outputs(
+            runtime.write_table_outputs(
                 run_root,
                 workbook_slug,
                 extracted_tables,
@@ -396,11 +384,11 @@ def execute_stage_import_session_from_result(
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         if write_raw_artifacts_enabled:
             with measure(stats, "write_raw_seconds"):
-                write_raw_artifacts(result, run_root, output_stats=output_stats)
+                runtime.write_raw_artifacts(result, run_root, output_stats=output_stats)
             write_completed += 1
             _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_stage_block_predictions_seconds"):
-            write_stage_block_predictions(
+            runtime.write_stage_block_predictions(
                 results=result,
                 run_root=run_root,
                 workbook_slug=workbook_slug,
@@ -415,7 +403,7 @@ def execute_stage_import_session_from_result(
 
     if output_stats.file_counts:
         result.report.output_stats = output_stats.to_report()
-    report_path = write_report(result.report, run_root, source_file.stem)
+    report_path = runtime.write_report(result.report, run_root, source_file.stem)
 
     return StageImportSessionResult(
         run_root=run_root,

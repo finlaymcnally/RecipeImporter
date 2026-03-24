@@ -14,6 +14,7 @@ from cookimport.labelstudio.howto_section import (
     resolve_howto_label_sets_by_index,
 )
 from cookimport.labelstudio.label_config_freeform import (
+    FREEFORM_ALLOWED_LABELS,
     normalize_freeform_label as _normalize_config_freeform_label,
 )
 
@@ -95,6 +96,8 @@ def load_gold_freeform_ranges(path: Path) -> list[LabeledRange]:
         if not label or source_file is None:
             continue
         normalized_label = _normalize_freeform_label(str(label))
+        if normalized_label not in FREEFORM_ALLOWED_LABELS:
+            raise ValueError(f"Invalid freeform label in {path}: {label!r}")
         touched_indices = _extract_block_indices(payload)
         if not touched_indices:
             continue

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from cookimport.labelstudio.eval_freeform import (
     LabeledRange,
     attach_recipe_count_diagnostics,
@@ -211,16 +213,18 @@ def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
     ) in config
 
 
-def test_normalize_freeform_label_maps_historical_howto_alias() -> None:
+def test_normalize_freeform_label_keeps_only_canonical_spelling_variants() -> None:
     assert normalize_freeform_label("HowToSection") == "HOWTO_SECTION"
     assert normalize_freeform_label("HOWTO_SECTION") == "HOWTO_SECTION"
-    assert normalize_freeform_label("TIP") == "KNOWLEDGE"
-    assert normalize_freeform_label("NOTES") == "RECIPE_NOTES"
-    assert normalize_freeform_label("NOTE") == "RECIPE_NOTES"
-    assert normalize_freeform_label("VARIANT") == "RECIPE_VARIANT"
-    assert normalize_freeform_label("NARRATIVE") == "OTHER"
-    assert normalize_freeform_label("YIELD") == "YIELD_LINE"
-    assert normalize_freeform_label("TIME") == "TIME_LINE"
+    assert normalize_freeform_label("recipe title") == "RECIPE_TITLE"
+    assert normalize_freeform_label("recipe-notes") == "RECIPE_NOTES"
+    assert normalize_freeform_label("TIP") == "TIP"
+    assert normalize_freeform_label("NOTES") == "NOTES"
+    assert normalize_freeform_label("NOTE") == "NOTE"
+    assert normalize_freeform_label("VARIANT") == "VARIANT"
+    assert normalize_freeform_label("NARRATIVE") == "NARRATIVE"
+    assert normalize_freeform_label("YIELD") == "YIELD"
+    assert normalize_freeform_label("TIME") == "TIME"
 
 
 def test_eval_freeform_maps_howto_section_to_neighboring_structural_label(tmp_path) -> None:
@@ -1316,7 +1320,7 @@ def test_eval_freeform_prefers_recipe_title_over_recipe_block(tmp_path) -> None:
     assert title["recall"] == 1.0
 
 
-def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
+def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
     gold_path = tmp_path / "gold_aliases.jsonl"
     gold_path.write_text(
         "\n".join(
@@ -1390,15 +1394,8 @@ def test_eval_freeform_backcompat_label_aliases(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    gold = load_gold_freeform_ranges(gold_path)
-    assert len(gold) == 7
-    assert gold[0].label == "KNOWLEDGE"
-    assert gold[1].label == "RECIPE_NOTES"
-    assert gold[2].label == "RECIPE_NOTES"
-    assert gold[3].label == "RECIPE_VARIANT"
-    assert gold[4].label == "OTHER"
-    assert gold[5].label == "YIELD_LINE"
-    assert gold[6].label == "TIME_LINE"
+    with pytest.raises(ValueError, match="Invalid freeform label"):
+        load_gold_freeform_ranges(gold_path)
 
 
 def _run_freeform_yield_time_additive_fixture(tmp_path) -> dict[str, object]:

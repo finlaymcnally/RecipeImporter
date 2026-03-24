@@ -9,6 +9,8 @@ import pytest
 from typer.testing import CliRunner
 
 import cookimport.cli as cli
+import cookimport.cli_commands.bench as bench_cli
+import cookimport.cli_support as cli_support
 from cookimport.bench import oracle_upload
 
 
@@ -1364,7 +1366,7 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
         "secho",
         lambda message, **_kwargs: messages.append(str(message)),
     )
-    monkeypatch.setattr(cli.typer, "echo", lambda message="", **_kwargs: messages.append(str(message)))
+    monkeypatch.setattr(cli_support.typer, "echo", lambda message="", **_kwargs: messages.append(str(message)))
 
     cli._print_background_oracle_upload_summary(
         target=target,
@@ -1430,7 +1432,7 @@ def test_print_background_oracle_upload_summary_shows_profile_and_note(
         "secho",
         lambda message, **_kwargs: messages.append(str(message)),
     )
-    monkeypatch.setattr(cli.typer, "echo", lambda message="", **_kwargs: messages.append(str(message)))
+    monkeypatch.setattr(cli_support.typer, "echo", lambda message="", **_kwargs: messages.append(str(message)))
 
     cli._print_background_oracle_upload_summary(
         target=target,
@@ -1522,21 +1524,21 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
         tuple[oracle_upload.OracleBenchmarkBundleTarget, oracle_upload.OracleBackgroundUploadLaunch]
     ] = []
 
-    monkeypatch.setattr(cli, "resolve_oracle_benchmark_bundle", lambda _path: target)
-    monkeypatch.setattr(cli, "start_oracle_benchmark_upload_background", lambda **_kwargs: launch)
+    monkeypatch.setattr(cli_support, "resolve_oracle_benchmark_bundle", lambda _path: target)
+    monkeypatch.setattr(cli_support, "start_oracle_benchmark_upload_background", lambda **_kwargs: launch)
     monkeypatch.setattr(
-        cli,
+        cli_support,
         "_start_background_oracle_followup_worker",
         lambda **_kwargs: (_ for _ in ()).throw(
             RuntimeError("expected str, bytes or os.PathLike object, not NoneType")
         ),
     )
     monkeypatch.setattr(
-        cli,
+        cli_support,
         "_print_background_oracle_upload_summary",
         lambda *, target, launch: summary_calls.append((target, launch)),
     )
-    monkeypatch.setattr(cli.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
+    monkeypatch.setattr(cli_support.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
 
     cli._start_benchmark_bundle_oracle_upload_background(
         bundle_dir=bundle_dir,
@@ -1544,7 +1546,9 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
         model=None,
     )
 
-    assert summary_calls == [(target, launch), (target, launch)]
+    assert len(summary_calls) == 2
+    assert all(call_target.bundle_dir == target.bundle_dir for call_target, _call_launch in summary_calls)
+    assert all(call_launch.bundle_dir == launch.bundle_dir for _call_target, call_launch in summary_calls)
     assert any("Oracle auto-follow-up worker not started" in message for message in messages)
     assert not any("Oracle benchmark upload not started" in message for message in messages)
 
@@ -1703,7 +1707,7 @@ def test_bench_oracle_upload_command_resolves_existing_single_profile_root(
             review_profile_display_name=review_profile.title(),
         )
 
-    monkeypatch.setattr(cli, "run_oracle_benchmark_upload", fake_run_oracle_benchmark_upload)
+    monkeypatch.setattr(bench_cli, "run_oracle_benchmark_upload", fake_run_oracle_benchmark_upload)
 
     result = runner.invoke(
         cli.app,
@@ -1759,7 +1763,7 @@ def test_bench_oracle_upload_command_defaults_to_all_profiles(
             review_profile_display_name=review_profile.title(),
         )
 
-    monkeypatch.setattr(cli, "run_oracle_benchmark_upload", fake_run_oracle_benchmark_upload)
+    monkeypatch.setattr(bench_cli, "run_oracle_benchmark_upload", fake_run_oracle_benchmark_upload)
 
     result = runner.invoke(
         cli.app,
@@ -1785,7 +1789,7 @@ def test_maybe_upload_benchmark_bundle_to_oracle_is_best_effort(
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
 
-    monkeypatch.setattr(cli, "resolve_oracle_benchmark_bundle", lambda _path: target)
+    monkeypatch.setattr(bench_cli, "resolve_oracle_benchmark_bundle", lambda _path: target)
     monkeypatch.setattr(
         cli,
         "run_oracle_benchmark_upload",

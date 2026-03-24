@@ -257,11 +257,11 @@ def _install_basic_generate_pred_run_artifacts_mocks(
             return fake_result
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: archive_blocks,
     )
     if patch_parsing_archive:
@@ -270,15 +270,15 @@ def _install_basic_generate_pred_run_artifacts_mocks(
             lambda *_args, **_kwargs: archive_blocks,
         )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash",
         lambda _path: source_hash,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: coverage_payload
         or {
             "extracted_chars": 100,
@@ -287,7 +287,7 @@ def _install_basic_generate_pred_run_artifacts_mocks(
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
     )
 
@@ -342,13 +342,8 @@ def _install_projection_generate_pred_run_artifacts_mocks(
         patch_parsing_archive=patch_parsing_archive,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_label_first_stage_result",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_label_first_stage_result",
         lambda **_kwargs: label_first_result,
-    )
-    monkeypatch.setattr(
-        "cookimport.staging.import_session.build_label_first_stage_result",
-        lambda **_kwargs: label_first_result,
-        raising=False,
     )
     monkeypatch.setattr(
         "cookimport.staging.pipeline_runtime.build_label_first_stage_result",
@@ -357,7 +352,7 @@ def _install_projection_generate_pred_run_artifacts_mocks(
     )
     if execute_stage_import_session_from_result is not None:
         monkeypatch.setattr(
-            "cookimport.labelstudio.ingest.execute_stage_import_session_from_result",
+            "cookimport.labelstudio.ingest_flows.prediction_run.execute_stage_import_session_from_result",
             execute_stage_import_session_from_result,
         )
 
@@ -401,11 +396,11 @@ def _install_split_import_mocks(
             self.uploaded_batches.append(len(tasks))
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.plan_source_job",
+        "cookimport.labelstudio.ingest_flows.prediction_run.plan_source_job",
         lambda *_args, **_kwargs: planned_jobs,
     )
     if process_pool_executor is not None:
@@ -419,35 +414,35 @@ def _install_split_import_mocks(
             thread_pool_executor,
         )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._parallel_convert_worker",
+        "cookimport.labelstudio.ingest_flows.prediction_run._parallel_convert_worker",
         lambda *_args, **_kwargs: ("fake", fake_result),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._merge_parallel_results",
+        "cookimport.labelstudio.ingest_flows.prediction_run._merge_parallel_results",
         lambda *_args, **_kwargs: fake_result,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash",
         lambda _path: "hash",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_processed_outputs",
+        "cookimport.labelstudio.ingest_flows.prediction_run._write_processed_outputs",
         lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [
             {"data": {"segment_id": f"seg-{i}"}} for i in range(task_count)
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 1000,
             "segment_chars": 950,
@@ -455,11 +450,11 @@ def _install_split_import_mocks(
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.LabelStudioClient",
+        "cookimport.labelstudio.ingest_flows.upload.LabelStudioClient",
         FakeLabelStudioClient,
     )
 
@@ -561,11 +556,11 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
             )
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash",
         lambda _path: "hash",
     )
 
@@ -655,10 +650,10 @@ def test_split_phase_slot_gate_emits_wait_acquire_release(
         return attempts["count"] >= 3
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._try_acquire_file_lock_nonblocking",
+        "cookimport.labelstudio.ingest_flows.split_cache._try_acquire_file_lock_nonblocking",
         fake_try_lock,
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.time.sleep", lambda *_: None)
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.split_cache.time.sleep", lambda *_: None)
 
     with _acquire_split_phase_slot(
         slots=2,
@@ -950,30 +945,30 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
         def import_tasks(self, _project_id: int, tasks):
             self.uploaded_batches.append(len(tasks))
 
-    monkeypatch.setattr("cookimport.labelstudio.ingest.registry.get_importer", lambda _name: FakeImporter())
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer", lambda _name: FakeImporter())
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.plan_source_job",
+        "cookimport.labelstudio.ingest_flows.prediction_run.plan_source_job",
         lambda *_args, **_kwargs: [JobSpec(file_path=source, job_index=0, job_count=1)],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             SimpleNamespace(index=0, text="hello", location={"block_index": 0}, source_kind="raw")
         ],
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash", lambda _path: "hash")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_processed_outputs",
+        "cookimport.labelstudio.ingest_flows.prediction_run._write_processed_outputs",
         lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [
             {"data": {"segment_id": f"seg-{i}"}} for i in range(401)
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 1000,
             "segment_chars": 950,
@@ -981,10 +976,10 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.LabelStudioClient", FakeLabelStudioClient)
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.upload.LabelStudioClient", FakeLabelStudioClient)
 
     progress_messages: list[str] = []
     run_labelstudio_import(
@@ -1162,18 +1157,18 @@ def _run_prelabel_task_progress_fixture(
         source_hash="hash",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [
             {"data": {"segment_id": "seg-1"}},
             {"data": {"segment_id": "seg-2"}},
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._build_prelabel_provider",
+        "cookimport.labelstudio.ingest_flows.prediction_run._build_prelabel_provider",
         lambda **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.preflight_codex_model_access",
+        "cookimport.labelstudio.ingest_flows.prediction_run.preflight_codex_model_access",
         lambda **_kwargs: None,
     )
     seen_granularity: list[str] = []
@@ -1203,7 +1198,7 @@ def _run_prelabel_task_progress_fixture(
         }
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.prelabel_freeform_task",
+        "cookimport.labelstudio.ingest_flows.prediction_run.prelabel_freeform_task",
         _fake_prelabel,
     )
 
@@ -1340,11 +1335,11 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
     ]
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             SimpleNamespace(
                 index=0,
@@ -1355,15 +1350,15 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash",
         lambda _path: "hash",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: tasks,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 100,
             "chunked_chars": 90,
@@ -1371,15 +1366,15 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks_in, **_kwargs: tasks_in,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._build_prelabel_provider",
+        "cookimport.labelstudio.ingest_flows.prediction_run._build_prelabel_provider",
         lambda **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.preflight_codex_model_access",
+        "cookimport.labelstudio.ingest_flows.prediction_run.preflight_codex_model_access",
         lambda **_kwargs: None,
     )
 
@@ -1391,7 +1386,7 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
         raise RuntimeError("HTTP 429 Too Many Requests: rate limit exceeded")
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.prelabel_freeform_task",
+        "cookimport.labelstudio.ingest_flows.prediction_run.prelabel_freeform_task",
         _fake_prelabel,
     )
 
@@ -1456,15 +1451,15 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
             return fake_result
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.plan_source_job",
+        "cookimport.labelstudio.ingest_flows.prediction_run.plan_source_job",
         lambda *_args, **_kwargs: [JobSpec(file_path=source, job_index=0, job_count=1)],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             SimpleNamespace(
                 index=0,
@@ -1475,19 +1470,19 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash",
         lambda _path: "hash",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_processed_outputs",
+        "cookimport.labelstudio.ingest_flows.prediction_run._write_processed_outputs",
         lambda **_kwargs: output_dir / "processed",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 100,
             "segment_chars": 90,
@@ -1495,7 +1490,7 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
     )
 
@@ -1544,11 +1539,11 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
             return fake_result
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             ArchiveBlock(
                 index=0,
@@ -1580,13 +1575,13 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
             )
         ],
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash", lambda _path: "hash")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 100,
             "segment_chars": 90,
@@ -1594,7 +1589,7 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
     )
 
@@ -2367,11 +2362,11 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
         return predictions, predictions
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             ArchiveBlock(
                 index=0,
@@ -2393,18 +2388,18 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_label_first_stage_result",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_label_first_stage_result",
         lambda **_kwargs: _make_label_first_result(
             source=source,
             raw_artifacts=[],
         ),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_file_hash",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash",
         lambda _path: "hash-123",
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run._build_line_role_candidates_from_archive",
         lambda **_kwargs: [
             AtomicLineCandidate(
                 recipe_id="recipe:0",
@@ -2417,11 +2412,11 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 100,
             "chunked_chars": 90,
@@ -2429,7 +2424,7 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
@@ -2506,18 +2501,18 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
         ],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_label_first_stage_result",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_label_first_stage_result",
         lambda **_kwargs: _make_label_first_result(
             source=source,
             raw_artifacts=[],
         ),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.run_codex_farm_recipe_pipeline",
+        "cookimport.labelstudio.ingest_flows.prediction_run.run_codex_farm_recipe_pipeline",
         _fake_run_codex_farm_recipe_pipeline,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_authoritative_line_role_artifacts",
+        "cookimport.labelstudio.ingest_flows.prediction_run._write_authoritative_line_role_artifacts",
         lambda **_kwargs: (
             authoritative_calls.append(1) or {
                 "line_role_predictions_path": tmp_path / "line_role_predictions.jsonl",
@@ -2590,7 +2585,7 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
         patch_parsing_archive=True,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run._build_line_role_candidates_from_archive",
         lambda **_kwargs: [
             AtomicLineCandidate(
                 recipe_id="recipe:0",
@@ -2693,7 +2688,7 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
         )
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.execute_stage_import_session_from_result",
+        "cookimport.labelstudio.ingest_flows.prediction_run.execute_stage_import_session_from_result",
         _fake_execute_stage_import_session_from_result,
     )
 
@@ -2804,16 +2799,16 @@ def test_generate_pred_run_artifacts_markdown_toggle_keeps_stage_predictions_ide
             return fake_result
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash", lambda _path: "hash")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
         lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 100,
             "segment_chars": 90,
@@ -2821,7 +2816,7 @@ def test_generate_pred_run_artifacts_markdown_toggle_keeps_stage_predictions_ide
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
     )
 
@@ -2899,11 +2894,11 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
             return fake_result
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             ArchiveBlock(
                 index=i,
@@ -2914,9 +2909,9 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
             for i in range(9)
         ],
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash", lambda _path: "hash")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 100,
             "chunked_chars": 90,
@@ -2924,7 +2919,7 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks_in, **_kwargs: tasks_in,
     )
 
@@ -2999,11 +2994,11 @@ def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_withou
             return fake_result
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.registry.get_importer",
+        "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.build_extracted_archive",
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
         lambda *_args, **_kwargs: [
             ArchiveBlock(
                 index=i,
@@ -3014,9 +3009,9 @@ def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_withou
             for i in range(9)
         ],
     )
-    monkeypatch.setattr("cookimport.labelstudio.ingest.compute_file_hash", lambda _path: "hash")
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.prediction_run.compute_file_hash", lambda _path: "hash")
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
         lambda *_args, **_kwargs: {
             "extracted_chars": 100,
             "chunked_chars": 90,
@@ -3024,7 +3019,7 @@ def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_withou
         },
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
         lambda tasks_in, **_kwargs: tasks_in,
     )
 
@@ -3126,11 +3121,11 @@ def test_run_labelstudio_import_falls_back_to_post_import_annotations(
             return {"id": len(self.created_annotations)}
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        "cookimport.labelstudio.ingest_flows.upload.generate_pred_run_artifacts",
         lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.LabelStudioClient",
+        "cookimport.labelstudio.ingest_flows.upload.LabelStudioClient",
         FakeLabelStudioClient,
     )
 
@@ -3191,11 +3186,11 @@ def test_run_labelstudio_import_can_upload_prelabels_as_predictions(
             return {"task_count": len(payload)}
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        "cookimport.labelstudio.ingest_flows.upload.generate_pred_run_artifacts",
         lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.LabelStudioClient",
+        "cookimport.labelstudio.ingest_flows.upload.LabelStudioClient",
         FakeLabelStudioClient,
     )
 
@@ -3258,11 +3253,11 @@ def test_run_labelstudio_import_skips_resume_manifest_when_project_is_new(
             return {"task_count": len(payload)}
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        "cookimport.labelstudio.ingest_flows.upload.generate_pred_run_artifacts",
         lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.LabelStudioClient",
+        "cookimport.labelstudio.ingest_flows.upload.LabelStudioClient",
         FakeLabelStudioClient,
     )
 
@@ -3326,11 +3321,11 @@ def test_run_labelstudio_import_scope_mismatch_auto_dedupes_project_for_benchmar
             return {"task_count": len(payload)}
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.generate_pred_run_artifacts",
+        "cookimport.labelstudio.ingest_flows.upload.generate_pred_run_artifacts",
         lambda **_kwargs: _fake_pred_result(tmp_path, tasks),
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.LabelStudioClient",
+        "cookimport.labelstudio.ingest_flows.upload.LabelStudioClient",
         FakeLabelStudioClient,
     )
 

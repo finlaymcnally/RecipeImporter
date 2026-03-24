@@ -95,7 +95,7 @@ def test_benchmark_csv_backfill_cli_dry_run_does_not_write(
     def fake_stats_dashboard(**kwargs):
         captured_dashboard_calls.append(kwargs)
 
-    monkeypatch.setattr("cookimport.cli.stats_dashboard", fake_stats_dashboard)
+    monkeypatch.setattr("cookimport.cli_commands.analytics.stats_dashboard", fake_stats_dashboard)
 
     result = runner.invoke(
         app,
@@ -131,7 +131,7 @@ def test_benchmark_csv_backfill_cli_writes_updates(
     def fake_stats_dashboard(**kwargs):
         captured_dashboard.update(kwargs)
 
-    monkeypatch.setattr("cookimport.cli.stats_dashboard", fake_stats_dashboard)
+    monkeypatch.setattr("cookimport.cli_commands.analytics.stats_dashboard", fake_stats_dashboard)
 
     result = runner.invoke(
         app,
@@ -190,7 +190,7 @@ def test_benchmark_csv_backfill_cli_backfills_codex_runtime_config(
         processed_report,
         include_codex_runtime=True,
     )
-    monkeypatch.setattr("cookimport.cli.stats_dashboard", lambda **_: None)
+    monkeypatch.setattr("cookimport.cli_commands.analytics.stats_dashboard", lambda **_: None)
 
     result = runner.invoke(
         app,

@@ -194,8 +194,7 @@ def _run_bench_quality_run_fixture(
         return (run_root / "agent_compare_control", None)
 
     monkeypatch.setattr(
-        cli,
-        "_write_qualitysuite_agent_bridge_bundle_for_run",
+        "cookimport.cli._write_qualitysuite_agent_bridge_bundle_for_run",
         _fake_bridge_for_run,
     )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
@@ -206,6 +205,7 @@ def _run_bench_quality_run_fixture(
         out_dir=tmp_path / "runs",
         resume_run_dir=run_root,
         base_run_settings_file=base_settings_file,
+        qualitysuite_agent_bridge=True,
     )
     return {
         "captured": captured,
@@ -267,7 +267,7 @@ def test_bench_quality_run_rejects_missing_resume_run_dir(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_quality_run(
@@ -292,7 +292,7 @@ def test_bench_quality_run_rejects_include_codex_farm(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_quality_run(
@@ -317,7 +317,7 @@ def test_bench_quality_run_rejects_codex_farm_model_override(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_quality_run(
@@ -342,7 +342,7 @@ def test_bench_quality_lightweight_series_is_disabled(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
 
     gold_root = tmp_path / "gold"
     input_root = tmp_path / "input"
@@ -377,7 +377,7 @@ def test_bench_quality_lightweight_series_disabled_before_resume_validation(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_quality_lightweight_series(
@@ -417,8 +417,7 @@ def test_bench_quality_compare_fail_on_regression_exits(
         lambda _payload: "report",
     )
     monkeypatch.setattr(
-        cli,
-        "_write_qualitysuite_agent_bridge_bundle_for_compare",
+        "cookimport.cli._write_qualitysuite_agent_bridge_bundle_for_compare",
         lambda **_kwargs: (out_dir / "agent_compare_control", None),
     )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
@@ -470,8 +469,7 @@ def test_bench_quality_compare_forwards_selection_and_mismatch_flags(
         return (tmp_path / "comparisons" / "agent_compare_control", None)
 
     monkeypatch.setattr(
-        cli,
-        "_write_qualitysuite_agent_bridge_bundle_for_compare",
+        "cookimport.cli._write_qualitysuite_agent_bridge_bundle_for_compare",
         _fake_bridge_for_compare,
     )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
@@ -487,6 +485,7 @@ def test_bench_quality_compare_forwards_selection_and_mismatch_flags(
         source_success_rate_drop_max=0.0,
         fail_on_regression=False,
         allow_settings_mismatch=True,
+        qualitysuite_agent_bridge=True,
         qualitysuite_agent_bridge_since_days=14,
     )
 
@@ -553,8 +552,7 @@ def test_bench_quality_leaderboard_saves_qualitysuite_winner_profile(
         captured["settings"] = settings
 
     monkeypatch.setattr(
-        cli,
-        "save_qualitysuite_winner_run_settings",
+        "cookimport.cli.save_qualitysuite_winner_run_settings",
         _fake_save_qualitysuite_winner_run_settings,
     )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)

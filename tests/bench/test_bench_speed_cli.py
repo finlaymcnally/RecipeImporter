@@ -358,7 +358,7 @@ def test_bench_speed_run_rejects_missing_resume_run_dir(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_speed_run(
@@ -385,7 +385,7 @@ def test_bench_speed_run_requires_codex_farm_confirmation(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_speed_run(
@@ -460,10 +460,7 @@ def test_bench_speed_run_passes_codex_farm_confirmation_to_runner(
         "cookimport.cli._resolve_all_method_codex_choice",
         lambda _include: (True, None),
     )
-    monkeypatch.setattr(
-        "cookimport.cli._is_agent_execution_environment",
-        lambda: False,
-    )
+    monkeypatch.setattr("cookimport.cli._is_agent_execution_environment", lambda: False)
 
     def _fake_run_speed_suite(
         _suite,
@@ -515,7 +512,7 @@ def test_bench_speed_run_blocks_codex_farm_in_agent_environment(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
     monkeypatch.setattr("cookimport.cli._is_agent_execution_environment", lambda: True)
 
     with pytest.raises(typer.Exit) as excinfo:

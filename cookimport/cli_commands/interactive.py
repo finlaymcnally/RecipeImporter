@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import os
+
 import typer
 
-from cookimport.cli_support import *  # noqa: F401,F403
-from cookimport import cli_support as _cli
-
-globals().update(
-    {name: getattr(_cli, name) for name in dir(_cli) if not name.startswith("__")}
+from cookimport.cli_support import (
+    _INTERACTIVE_CLI_ACTIVE,
+    _interactive_mode,
 )
 
 
@@ -14,8 +14,6 @@ def register_callback(app: typer.Typer) -> dict[str, object]:
     @app.callback()
     def main(ctx: typer.Context) -> None:
         """Recipe Import - Convert source files to schema.org Recipe JSON and cookbook3 outputs."""
-        if "_sync_cli_command_module_globals" in globals():
-            _sync_cli_command_module_globals()
         if ctx.invoked_subcommand is None:
             limit_value = os.getenv("C3IMP_LIMIT")
             limit = None
@@ -30,4 +28,6 @@ def register_callback(app: typer.Typer) -> dict[str, object]:
             finally:
                 _INTERACTIVE_CLI_ACTIVE.reset(interactive_mode_token)
 
-    return {"main": main}
+    exports = {"main": main}
+    globals().update(exports)
+    return exports

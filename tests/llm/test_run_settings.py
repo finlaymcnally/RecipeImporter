@@ -174,19 +174,10 @@ def test_build_run_settings_accepts_codex_prompt_targets() -> None:
     assert settings.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
 
 
-def test_run_settings_accepts_codex_farm_recipe_mode_aliases() -> None:
-    assert (
-        RunSettings.from_dict({"codex_farm_recipe_mode": "line-label"}).codex_farm_recipe_mode
-        == "benchmark"
-    )
-    assert (
-        RunSettings.from_dict({"codex_farm_recipe_mode": "line-labels"}).codex_farm_recipe_mode
-        == "benchmark"
-    )
-    assert (
-        RunSettings.from_dict({"codex_farm_recipe_mode": "default"}).codex_farm_recipe_mode
-        == "extract"
-    )
+def test_run_settings_rejects_removed_codex_farm_recipe_mode_aliases() -> None:
+    for removed in ("line-label", "line-labels", "default"):
+        with pytest.raises(ValueError, match="Invalid codex_farm_recipe_mode"):
+            RunSettings.from_dict({"codex_farm_recipe_mode": removed})
 
 
 def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:

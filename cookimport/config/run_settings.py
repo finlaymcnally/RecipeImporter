@@ -1230,9 +1230,9 @@ class RunSettings(BaseModel):
     @classmethod
     def _normalize_codex_farm_recipe_mode(cls, value: Any) -> str | CodexFarmRecipeMode:
         normalized = str(value or "").strip().lower().replace("_", "-")
-        if normalized in {"", "extract", "default"}:
+        if normalized in {"", "extract"}:
             return CodexFarmRecipeMode.extract.value
-        if normalized in {"benchmark", "line-label", "line-labels"}:
+        if normalized == "benchmark":
             return CodexFarmRecipeMode.benchmark.value
         raise ValueError(
             "Invalid codex_farm_recipe_mode. Expected one of: extract, benchmark."

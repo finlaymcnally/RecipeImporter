@@ -55,16 +55,16 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Split-job helpers: range planning and post-merge recipe ID reassignment by source order.
 - `cookimport/cli_worker.py`
   - Main single-file stage flow uses writer functions.
-- `cookimport/cli.py`
-  - Multi-job merge flow for split PDF/EPUB runs; offsets split block provenance, writes merged outputs, merges per-job raw artifacts, and emits run-level manifest/index artifacts.
+- `cookimport/cli_commands/stage.py`
+  - Stage command owner for multi-job merge flow; offsets split block provenance, writes merged outputs, merges per-job raw artifacts, and emits run-level manifest/index artifacts with helpers from `cookimport/cli_support/stage.py`.
 - `cookimport/runs/manifest.py`
   - Defines/stores `run_manifest.json` written by stage/pred-run flows for source identity + artifact indexing.
 - `cookimport/labelstudio/ingest.py`
-  - Public compatibility facade for Label Studio ingest import paths.
+  - Honest top-level re-export for Label Studio ingest entrypoints; prediction/upload internals live under `ingest_flows/`.
 - `cookimport/labelstudio/ingest_support.py`
   - Shared helper surface used by `ingest_flows/` and mirrored back through the public ingest facade for tests.
 - `cookimport/staging/import_session.py`
-  - Public shared stage-session compatibility seam.
+  - Honest top-level re-export for the shared stage-session entrypoint/result types.
 - `cookimport/staging/import_session_contracts.py`
   - Shared public result dataclass/types used by `import_session_flows/` and the public session facade.
 - `cookimport/staging/import_session_flows/`
@@ -72,7 +72,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 
 Progress telemetry note:
 
-- `cookimport/staging/import_session.py` now emits structured stage-progress snapshots for label-first authority building, knowledge chunk generation, and multi-step output writing, so stage/benchmark spinners and `processing_timeseries.jsonl` retain more than a single status line during those phases.
+- `cookimport/staging/import_session_flows/output_stage.py` emits structured stage-progress snapshots for label-first authority building, knowledge chunk generation, and multi-step output writing, so stage/benchmark spinners and `processing_timeseries.jsonl` retain more than a single status line during those phases.
 - The shared stage session now runs through explicit five-stage runtime objects before writing: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, `knowledge-final`.
 
 ## Canonical Naming Conventions (User-Facing)
@@ -150,9 +150,9 @@ Outside run root (`.history/` for repo-local output roots):
 
 Code pointers (prefer these over line numbers, which drift often):
 
-- `cookimport/cli_worker.py` (`execute_source_job`) writes per-job raw artifacts, and `cookimport/cli.py` (`_merge_source_jobs`) assembles the merged book and invokes staging writers once.
+- `cookimport/cli_worker.py` (`execute_source_job`) writes per-job raw artifacts, and `cookimport/cli_commands/stage.py` (`stage`) plus `cookimport/cli_support/stage.py` (`_merge_source_jobs`) assemble the merged book and invoke staging writers once.
 - `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_stage_block_predictions`, `write_report`) implements the file layout above.
-- `cookimport/cli.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) adds run-level index/summary/manifest artifacts.
+- `cookimport/cli_commands/stage.py` plus `cookimport/cli_support/stage.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) add run-level index/summary/manifest artifacts.
 - `cookimport/runs/stage_observability.py` is the canonical run-level stage model/writer used by summaries and manifests.
 
 Tags embedding note:

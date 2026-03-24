@@ -7,10 +7,14 @@ read_when:
 
 # CLI Section Reference
 
-Public CLI entrypoint wiring still lives in `cookimport/cli.py`, but that file is now only the thin Typer composition root plus the historical compatibility surface. Shared helper state lives in `cookimport/cli_support.py`, and active command-family ownership lives in `cookimport/cli_commands/`.
-`cookimport.cli` re-exports compatibility wrappers for command callables and helper functions so direct-call helpers and monkeypatch-heavy tests keep one public import surface while the implementation stays in `cookimport/cli_commands/`.
+Public CLI entrypoint wiring still lives in `cookimport/cli.py`, and that file is now only the thin Typer composition root plus direct command/helper exports. Shared helper state lives in the private package `cookimport/cli_support/`, and active command-family ownership lives in `cookimport/cli_commands/`.
+`cookimport.cli` no longer republishes compatibility wrappers or runtime sync shims. Patch tests and helpers at `cookimport.cli_commands.<family>` or the specific helper owner under `cookimport.cli_support`, not at the root CLI module.
 Use this doc as the CLI reference and open `cookimport/cli_commands/<family>.py` before treating `cookimport/cli.py` as the implementation owner.
 For beginner interactive usage, start with `README.md` in the project root.
+
+Current package note:
+- the first real private support homes are `cookimport/cli_support/interactive.py`, `cookimport/cli_support/settings.py`, `cookimport/cli_support/dashboard.py`, and `cookimport/cli_support/compare_control.py`
+- `cookimport/cli_support/__init__.py` is now the explicit internal export hub for shared CLI helpers; it is broad, but it is no longer a callback-sync compatibility relay
 
 ## Entry Points
 

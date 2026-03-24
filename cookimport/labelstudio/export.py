@@ -18,7 +18,6 @@ from cookimport.runs import RunManifest, RunSource, write_run_manifest
 
 logger = logging.getLogger(__name__)
 _RECIPE_HEADER_LABEL = "RECIPE_TITLE"
-_LEGACY_SCOPES = {"pipeline", "canonical-blocks"}
 _SUPPORTED_SCOPE = "freeform-spans"
 
 
@@ -392,7 +391,7 @@ def _build_freeform_span_id(
 
 def _infer_scope_from_project_payload(project: dict[str, Any]) -> str | None:
     explicit_scope = str(project.get("task_scope", "")).strip()
-    if explicit_scope in _LEGACY_SCOPES | {_SUPPORTED_SCOPE}:
+    if explicit_scope:
         return explicit_scope
 
     label_config = str(project.get("label_config", "") or "")
