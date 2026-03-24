@@ -259,16 +259,6 @@ from cookimport.staging.writer import (
     write_table_outputs,
 )
 
-app = typer.Typer(add_completion=False, invoke_without_command=True)
-bench_app = typer.Typer(name="bench", help="Offline benchmark suite tools.")
-compare_control_app = typer.Typer(
-    name="compare-control",
-    help="Backend Compare & Control analytics for CLI and agent workflows.",
-)
-app.add_typer(bench_app)
-app.add_typer(compare_control_app, name="compare-control")
-
-from cookimport.epubdebug.cli import epub_app  # noqa: E402
 from cookimport.paths import (
     GOLDEN_BENCHMARK_ROOT,
     GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT,
@@ -281,7 +271,6 @@ from cookimport.paths import (
     history_csv_for_output,
     history_root_for_output,
 )
-app.add_typer(epub_app, name="epub")
 console = Console()
 logger = logging.getLogger(__name__)
 
@@ -702,116 +691,6 @@ from .settings import (
     _run_settings_payload_from_settings,
     _save_settings,
 )
-
-
-@contextmanager
-def _sync_cli_command_module_globals() -> Iterable[None]:
-    compat_module = sys.modules.get("cookimport.cli")
-    runtime_module = sys.modules[__name__]
-    if compat_module is None or compat_module is runtime_module:
-        yield
-        return
-
-    missing = object()
-    sync_names: dict[str, Any] = {}
-    for name, value in compat_module.__dict__.items():
-        if name.startswith("__") or name in {"_runtime"}:
-            continue
-        runtime_value = getattr(runtime_module, name, missing)
-        if value is runtime_value:
-            continue
-        if getattr(value, "_codex_cli_compat_export", False):
-            continue
-        sync_names[name] = value
-    command_module_names = (
-        "cookimport.cli_support.bench",
-        "cookimport.cli_support.bench_compare",
-        "cookimport.cli_support.compare_control",
-        "cookimport.cli_support.dashboard",
-        "cookimport.cli_support.interactive",
-        "cookimport.cli_support.interactive_flow",
-        "cookimport.cli_support.progress",
-        "cookimport.cli_support.settings",
-        "cookimport.cli_support.settings_flow",
-        "cookimport.cli_support.stage",
-        "cookimport.cli_commands.analytics",
-        "cookimport.cli_commands.bench",
-        "cookimport.cli_commands.compare_control",
-        "cookimport.cli_commands.interactive",
-        "cookimport.cli_commands.labelstudio",
-        "cookimport.cli_commands.stage",
-    )
-    target_modules = [runtime_module]
-    for module_name in command_module_names:
-        command_module = sys.modules.get(module_name)
-        if command_module is not None:
-            target_modules.append(command_module)
-
-    original_values: list[tuple[Any, str, Any]] = []
-    runtime_state_names_to_skip = {
-        "_LIVE_STATUS_SLOT_ACTIVE",
-    }
-    try:
-        for module in target_modules:
-            for name, value in sync_names.items():
-                original_values.append(
-                    (module, name, getattr(module, name, missing))
-                )
-                setattr(module, name, value)
-        for module in target_modules:
-            if module is runtime_module:
-                continue
-            module_name = str(getattr(module, "__name__", ""))
-            if not module_name.startswith("cookimport.cli_support."):
-                continue
-            for name, runtime_value in runtime_module.__dict__.items():
-                if (
-                    name.startswith("__")
-                    or name in sync_names
-                    or name in runtime_state_names_to_skip
-                ):
-                    continue
-                module_value = getattr(module, name, missing)
-                if module_value is runtime_value:
-                    continue
-                if getattr(runtime_value, "_codex_cli_compat_export", False):
-                    continue
-                original_values.append((module, name, module_value))
-                setattr(module, name, runtime_value)
-        yield
-    finally:
-        for module, name, original_value in reversed(original_values):
-            if original_value is missing:
-                try:
-                    delattr(module, name)
-                except AttributeError:
-                    pass
-            else:
-                setattr(module, name, original_value)
-
-
-
-
-
-
-
-
-@app.callback()
-def main(ctx: typer.Context) -> None:
-    """Recipe Import - Convert source files to schema.org Recipe JSON and cookbook3 outputs."""
-    if ctx.invoked_subcommand is None:
-        limit_value = os.getenv("C3IMP_LIMIT")
-        limit = None
-        if limit_value:
-            try:
-                limit = int(limit_value)
-            except ValueError:
-                limit = None
-        interactive_mode_token = _INTERACTIVE_CLI_ACTIVE.set(True)
-        try:
-            _interactive_mode(limit=limit)
-        finally:
-            _INTERACTIVE_CLI_ACTIVE.reset(interactive_mode_token)
 
 
 def _fail(message: str) -> None:

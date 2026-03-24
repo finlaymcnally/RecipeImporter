@@ -328,7 +328,7 @@ def test_single_book_comparison_artifacts_trigger_starter_pack(
         )
         return starter_dir
 
-    monkeypatch.setattr(cli, "_write_single_book_starter_pack", _fake_starter_pack_writer)
+    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack", _fake_starter_pack_writer)
 
     comparison_paths = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-02_12.34.56",
@@ -412,7 +412,7 @@ def test_single_book_comparison_includes_codex_runtime_from_llm_manifest_fallbac
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(cli, "default_codex_reasoning_effort", lambda cmd=None: "high")
+    _patch_cli_attr(monkeypatch, "default_codex_reasoning_effort", lambda cmd=None: "high")
 
     session_root = tmp_path / "single-book-benchmark"
     codex_eval_output_dir = session_root / "codexfarm"

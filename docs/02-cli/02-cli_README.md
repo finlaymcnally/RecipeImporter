@@ -7,8 +7,8 @@ read_when:
 
 # CLI Section Reference
 
-Public CLI entrypoint wiring still lives in `cookimport/cli.py`, and that file is now the thin Typer composition root plus the historical direct-call/monkeypatch compatibility surface. Shared helper state lives in the private package `cookimport/cli_support/`, and active command-family ownership lives in `cookimport/cli_commands/`.
-`cookimport.cli` does still republish compatibility wrappers and a scoped runtime sync shim so legacy tests and helper entrypoints can keep patching the root module without permanently mutating private owners. Prefer patching `cookimport.cli_commands.<family>` or the specific helper owner under `cookimport.cli_support` when you are changing one domain deliberately, but keep the root surface working.
+Public CLI entrypoint wiring still lives in `cookimport/cli.py`, and that file is now a plain Typer composition root. Shared helper state lives in the private package `cookimport/cli_support/`, and active command-family ownership lives in `cookimport/cli_commands/`.
+`cookimport.cli` still re-exports the shared helper/direct-call surface once at import time, but it no longer wraps callbacks or syncs patched globals back into owner modules at runtime. Prefer patching `cookimport.cli_commands.<family>` or the specific helper owner under `cookimport.cli_support` when you are changing one domain deliberately.
 Use this doc as the CLI reference and open `cookimport/cli_commands/<family>.py` before treating `cookimport/cli.py` as the implementation owner.
 For beginner interactive usage, start with `README.md` in the project root.
 
@@ -19,7 +19,7 @@ Current package note:
 - `cookimport/cli_support/settings_flow.py` now owns the interactive settings screen, and `cookimport/cli_support/interactive_flow.py` owns the main guided menu loop
 - `cookimport/cli_support/stage.py` now owns the shared stage manifest/merge/report helpers that were previously buried at the end of the root support file
 - `cookimport/cli_commands/stage.py`, `cookimport/cli_commands/bench.py`, and `cookimport/cli_commands/labelstudio.py` now use explicit `cli_support` imports instead of `from cookimport.cli_support import *`
-- `cookimport/cli_support/__init__.py` is now the small internal export hub for shared CLI helpers plus the scoped `cookimport.cli` compatibility relay, not the implementation owner of benchmark/settings/interactive flows
+- `cookimport/cli_support/__init__.py` is now the small internal export hub for shared CLI helpers, not the Typer composition root and not a runtime compatibility relay
 
 ## Entry Points
 

@@ -30,6 +30,7 @@ Current benchmark handoff model:
 - `upload_bundle_v1` is the primary external-review packet
 - follow-up requests should produce additive `followup_dataN/` packets, not replacement bundle formats
 - shard-based recipe runtimes must reconcile per-recipe ownership from shard payload recipe ids and raw `recipe_manifest.json`; shard call ids are not recipe ids for upload-bundle span/stage summaries
+- `cookimport/cli_support/bench.py` is now only the benchmark facade; start in `bench_single_book.py`, `bench_single_profile.py`, `bench_all_method.py`, `bench_oracle.py`, `bench_artifacts.py`, or `bench_cache.py` depending on the workflow you are changing
 
 ## 2. Active Command Surface
 

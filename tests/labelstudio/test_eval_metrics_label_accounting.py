@@ -111,19 +111,13 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
     gold_spans.write_text("{}\n", encoding="utf-8")
     output_dir = tmp_path / "eval"
 
-    monkeypatch.setattr(
-        cli,
-        "load_predicted_labeled_ranges",
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges",
         lambda *_args, **_kwargs: [],
     )
-    monkeypatch.setattr(
-        cli,
-        "load_gold_freeform_ranges",
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges",
         lambda *_args, **_kwargs: [],
     )
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
+    _patch_cli_attr(monkeypatch, "evaluate_predicted_vs_freeform",
         lambda *_args, **_kwargs: {
             "report": {
                 "counts": {
@@ -139,14 +133,10 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(
-        cli,
-        "format_freeform_eval_report_md",
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md",
         lambda *_args, **_kwargs: "# report\n",
     )
-    monkeypatch.setattr(
-        cli,
-        "_load_pred_run_recipe_context",
+    _patch_cli_attr(monkeypatch, "_load_pred_run_recipe_context",
         lambda *_args, **_kwargs: SimpleNamespace(
             recipes=0,
             source_file="demo.epub",
@@ -169,9 +159,7 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
         "cookimport.analytics.perf_report.history_path",
         lambda *_args, **_kwargs: tmp_path / "history.csv",
     )
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **_kwargs: None,
     )
     captured_manifest: dict[str, object] = {}
@@ -180,7 +168,7 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
         captured_manifest["run_config"] = kwargs.get("run_config")
         captured_manifest["artifacts"] = kwargs.get("artifacts")
 
-    monkeypatch.setattr(cli, "_write_eval_run_manifest", _capture_manifest)
+    _patch_cli_attr(monkeypatch, "_write_eval_run_manifest", _capture_manifest)
 
     cli.labelstudio_eval(
         pred_run=pred_run,

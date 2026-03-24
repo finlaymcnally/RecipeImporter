@@ -1,1 +1,1 @@
-Private knowledge-stage package. Start with `reporting.py` for manifest/telemetry writers, then `__init__.py` for the remaining planning/runtime facade while recovery and promotion helpers are still being cut out.
+Private knowledge-stage package. Start with `planning.py` for task/manifests, `runtime.py` for live worker orchestration, `recovery.py` for retries/watchdogs, `promotion.py` for normalization/finalization, and `reporting.py` for manifest/telemetry writers. `__init__.py` is now the small package seam behind `codex_farm_knowledge_orchestrator.py`.

@@ -56,7 +56,7 @@ def test_plan_all_method_source_jobs_tail_pair_interleaves_heavy_and_light(
             variant_count=1,
         )
 
-    monkeypatch.setattr(cli, "_estimate_all_method_source_cost", fake_estimate)
+    _patch_cli_attr(monkeypatch, "_estimate_all_method_source_cost", fake_estimate)
 
     discovery_plans = cli._plan_all_method_source_jobs(
         target_variants=targets,
@@ -116,9 +116,7 @@ def test_plan_all_method_source_jobs_shards_heavy_sources(
         )
     ]
 
-    monkeypatch.setattr(
-        cli,
-        "_estimate_all_method_source_cost",
+    _patch_cli_attr(monkeypatch, "_estimate_all_method_source_cost",
         lambda **_kwargs: cli._AllMethodSourceEstimate(
             estimated_seconds=3000.0,
             estimate_basis="test",
@@ -210,7 +208,7 @@ def test_plan_all_method_global_work_items_tail_pair_interleaves_sharded_sources
             variant_count=len(variants),
         )
 
-    monkeypatch.setattr(cli, "_estimate_all_method_source_cost", fake_estimate)
+    _patch_cli_attr(monkeypatch, "_estimate_all_method_source_cost", fake_estimate)
 
     work_items = cli._plan_all_method_global_work_items(
         target_variants=target_variants,
@@ -349,7 +347,7 @@ def test_resolve_all_method_scheduler_runtime_auto_eval_tail_respects_source_par
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
-    monkeypatch.setattr(cli, "_system_total_memory_bytes", lambda: 64 * 1024 * 1024 * 1024)
+    _patch_cli_attr(monkeypatch, "_system_total_memory_bytes", lambda: 64 * 1024 * 1024 * 1024)
     runtime = cli._resolve_all_method_scheduler_runtime(
         total_variants=40,
         max_inflight_pipelines=4,
@@ -370,7 +368,7 @@ def test_resolve_all_method_scheduler_runtime_caps_split_slots_with_resource_gua
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
-    monkeypatch.setattr(cli, "_system_total_memory_bytes", lambda: 64 * 1024 * 1024 * 1024)
+    _patch_cli_attr(monkeypatch, "_system_total_memory_bytes", lambda: 64 * 1024 * 1024 * 1024)
     runtime = cli._resolve_all_method_scheduler_runtime(
         total_variants=40,
         max_inflight_pipelines=8,
@@ -468,7 +466,7 @@ def test_resolve_all_method_split_worker_cap_uses_cpu_and_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli.os, "cpu_count", lambda: 17)
-    monkeypatch.setattr(cli, "_system_total_memory_bytes", lambda: 8 * 1024 * 1024 * 1024)
+    _patch_cli_attr(monkeypatch, "_system_total_memory_bytes", lambda: 8 * 1024 * 1024 * 1024)
 
     cap, guard = cli._resolve_all_method_split_worker_cap(
         split_phase_slots=4,

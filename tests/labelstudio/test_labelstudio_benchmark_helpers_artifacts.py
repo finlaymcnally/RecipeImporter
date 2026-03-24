@@ -1363,7 +1363,7 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
         encoding="utf-8",
     )
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    monkeypatch.setattr(cli, "default_codex_reasoning_effort", lambda cmd=None: None)
+    _patch_cli_attr(monkeypatch, "default_codex_reasoning_effort", lambda cmd=None: None)
 
     pred_run = tmp_path / "prediction-run"
     pred_run.mkdir(parents=True, exist_ok=True)

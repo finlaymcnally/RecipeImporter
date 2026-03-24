@@ -18,6 +18,9 @@ from pathlib import Path
 import pytest
 
 import cookimport.cli as cli
+import cookimport.cli_commands.labelstudio as labelstudio_cli
+import cookimport.cli_support as cli_support
+import cookimport.cli_support.interactive_flow as interactive_flow
 from cookimport.bench.prediction_records import (
     make_prediction_record,
     read_prediction_records,
@@ -39,6 +42,16 @@ from cookimport.labelstudio.ingest import (
 )
 
 
+def _patch_cli_attr(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: object,
+) -> None:
+    for module in (cli, cli_support, labelstudio_cli, interactive_flow):
+        if hasattr(module, name):
+            monkeypatch.setattr(module, name, value)
+
+
 @pytest.fixture(autouse=True)
 def _force_helper_oracle_test_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     test_model = (
@@ -56,8 +69,8 @@ def _force_helper_oracle_test_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     # Default benchmark-helper tests should never open a live Oracle browser chat.
     # Tests that need launch assertions override this stub explicitly.
-    monkeypatch.setattr(
-        cli,
+    _patch_cli_attr(
+        monkeypatch,
         "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
@@ -190,21 +203,21 @@ def _install_noop_benchmark_eval_mocks(
     *,
     capture_csv: dict[str, object] | None = None,
 ) -> None:
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
+    _patch_cli_attr(
+        monkeypatch,
         "evaluate_predicted_vs_freeform",
         lambda *_args, **_kwargs: _empty_freeform_eval_result(),
     )
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
-    monkeypatch.setattr(
-        cli,
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
+    _patch_cli_attr(
+        monkeypatch,
         "evaluate_stage_blocks",
         lambda **_kwargs: _empty_stage_block_eval_result(),
     )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
     if capture_csv is None:
         monkeypatch.setattr(
             "cookimport.analytics.perf_report.append_benchmark_csv",

@@ -8,11 +8,23 @@ import pytest
 
 from cookimport import cli
 from cookimport import cli_worker
+import cookimport.cli_commands.stage as stage_cli
+import cookimport.cli_support.progress as progress_cli
 from cookimport.cli import JobSpec
 from cookimport.core.executor_fallback import ProcessThreadExecutorResolution
 
 
 runner = CliRunner()
+
+
+def _patch_stage_attr(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: object,
+) -> None:
+    for module in (cli, stage_cli, progress_cli):
+        if hasattr(module, name):
+            monkeypatch.setattr(module, name, value)
 
 
 class _StatusConsoleSink:
@@ -69,9 +81,9 @@ def _install_fake_stage_pipeline(
     *,
     split_job: bool = False,
 ) -> None:
-    monkeypatch.setattr(cli, "_iter_files", lambda *_args, **_kwargs: [source_path])
-    monkeypatch.setattr(
-        cli,
+    _patch_stage_attr(monkeypatch, "_iter_files", lambda *_args, **_kwargs: [source_path])
+    _patch_stage_attr(
+        monkeypatch,
         "_merge_source_jobs",
         lambda *_args, **_kwargs: {
             "file": source_path.name,
@@ -109,8 +121,8 @@ def _install_fake_stage_pipeline(
                 "result": None,
             },
         )
-    monkeypatch.setattr(
-        cli,
+    _patch_stage_attr(
+        monkeypatch,
         "plan_source_jobs",
         (
             lambda *_args, **_kwargs: [
@@ -126,8 +138,8 @@ def _install_fake_stage_pipeline(
             else [JobSpec(file_path=source_path, job_index=0, job_count=1)]
         ),
     )
-    monkeypatch.setattr(
-        cli,
+    _patch_stage_attr(
+        monkeypatch,
         "resolve_process_thread_executor",
         lambda **_kwargs: ProcessThreadExecutorResolution(
             backend="serial",
@@ -144,7 +156,7 @@ def test_stage_plain_progress_with_env_override(
     source_file = tmp_path / "simple_text.txt"
     source_file.write_text("hello world", encoding="utf-8")
     output_root = tmp_path / "output"
-    monkeypatch.setattr(cli, "console", _PlainConsole())
+    _patch_stage_attr(monkeypatch, "console", _PlainConsole())
     _install_fake_stage_pipeline(monkeypatch, source_file)
 
     result = runner.invoke(
@@ -192,7 +204,7 @@ def test_stage_merge_phase_messages_use_shared_snapshot_in_plain_mode(
     source_file = tmp_path / "split_text.pdf"
     source_file.write_text("hello world", encoding="utf-8")
     output_root = tmp_path / "output"
-    monkeypatch.setattr(cli, "console", _PlainConsole())
+    _patch_stage_attr(monkeypatch, "console", _PlainConsole())
     _install_fake_stage_pipeline(monkeypatch, source_file, split_job=True)
 
     result = runner.invoke(
@@ -240,7 +252,11 @@ def test_stage_live_progress_updates_use_shared_status_snapshot(
 
     status_messages: list[str] = []
     printed_messages: list[str] = []
-    monkeypatch.setattr(cli, "console", _LiveConsole(status_messages, printed_messages))
+    _patch_stage_attr(
+        monkeypatch,
+        "console",
+        _LiveConsole(status_messages, printed_messages),
+    )
     _install_fake_stage_pipeline(monkeypatch, source_file)
 
     result = runner.invoke(
@@ -293,8 +309,8 @@ def test_stage_live_progress_falls_back_to_plain_when_live_slot_unavailable(
     def _deny_live_slot(_slot_limit: int):
         yield False
 
-    monkeypatch.setattr(cli, "_acquire_live_status_slot", _deny_live_slot)
-    monkeypatch.setattr(cli, "console", _PlainConsole())
+    _patch_stage_attr(monkeypatch, "_acquire_live_status_slot", _deny_live_slot)
+    _patch_stage_attr(monkeypatch, "console", _PlainConsole())
     _install_fake_stage_pipeline(monkeypatch, source_file)
 
     result = runner.invoke(

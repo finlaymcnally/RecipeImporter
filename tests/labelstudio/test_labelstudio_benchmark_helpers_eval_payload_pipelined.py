@@ -43,7 +43,7 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 0.4},
         }
-    monkeypatch.setattr(cli, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
 
     def _fake_ensure_canonical_gold_artifacts(*, export_root: Path):
         assert export_root == gold_export_root
@@ -53,9 +53,7 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
             "canonical_span_labels_path": canonical_spans_path,
         }
 
-    monkeypatch.setattr(
-        cli,
-        "ensure_canonical_gold_artifacts",
+    _patch_cli_attr(monkeypatch, "ensure_canonical_gold_artifacts",
         _fake_ensure_canonical_gold_artifacts,
     )
 
@@ -91,8 +89,8 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
             "false_positive_preds": [],
         }
 
-    monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_evaluate_canonical_text)
-    monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "evaluate_canonical_text", _fake_evaluate_canonical_text)
+    _patch_cli_attr(monkeypatch, "format_canonical_eval_report_md", lambda *_: "report")
     _install_noop_benchmark_eval_mocks(monkeypatch)
 
     eval_root = tmp_path / "eval-pipelined"
@@ -123,9 +121,7 @@ def _run_pipelined_streaming_fixture(
         prediction_run=prediction_run,
         source_file=source_file,
     )
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -146,9 +142,7 @@ def _run_pipelined_streaming_fixture(
             consumer_saw_first_record.set()
         return row
 
-    monkeypatch.setattr(
-        cli,
-        "_prediction_record_stage_row",
+    _patch_cli_attr(monkeypatch, "_prediction_record_stage_row",
         _wrapped_prediction_record_stage_row,
     )
 
@@ -185,7 +179,7 @@ def _run_pipelined_streaming_fixture(
         )
         producer_finished.set()
 
-    monkeypatch.setattr(cli, "predict_stage", _streaming_predict_stage)
+    _patch_cli_attr(monkeypatch, "predict_stage", _streaming_predict_stage)
 
     captured_eval: dict[str, object] = {}
 
@@ -217,8 +211,8 @@ def _run_pipelined_streaming_fixture(
         }
 
     _install_noop_benchmark_eval_mocks(monkeypatch)
-    monkeypatch.setattr(cli, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
 
     eval_root = tmp_path / "eval-pipelined-streaming"
     cli.labelstudio_benchmark(
@@ -281,9 +275,7 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
         prediction_run=prediction_run,
         source_file=source_file,
     )
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -313,11 +305,9 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
             predict_meta=predict_meta,
         )
 
-    monkeypatch.setattr(cli, "predict_stage", _invalid_streaming_predict_stage)
+    _patch_cli_attr(monkeypatch, "predict_stage", _invalid_streaming_predict_stage)
     _install_noop_benchmark_eval_mocks(monkeypatch)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Evaluation should not run when streaming consumer fails.")
         ),
@@ -367,9 +357,7 @@ def _run_canonical_text_pipelined_fixture(
             "extracted_archive_path": str(line_role_paths["extracted_archive_path"]),
         },
     )
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -378,9 +366,7 @@ def _run_canonical_text_pipelined_fixture(
             "extracted_archive_path": line_role_paths["extracted_archive_path"],
         },
     )
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Canonical mode should not call stage-block evaluator.")
         ),
@@ -436,11 +422,9 @@ def _run_canonical_text_pipelined_fixture(
             "false_positive_preds": [],
         }
 
-    monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_eval_canonical_text)
-    monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        cli,
-        "ensure_canonical_gold_artifacts",
+    _patch_cli_attr(monkeypatch, "evaluate_canonical_text", _fake_eval_canonical_text)
+    _patch_cli_attr(monkeypatch, "format_canonical_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "ensure_canonical_gold_artifacts",
         lambda *, export_root: {
             "canonical_text_path": export_root / "canonical_text.txt",
             "canonical_span_labels_path": export_root / "canonical_span_labels.jsonl",
@@ -553,9 +537,7 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
 
     monkeypatch.setenv("COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS", "0.001")
     monkeypatch.setenv("COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N", "5")
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -564,9 +546,7 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
             "extracted_archive_path": prediction_run / "extracted_archive.json",
         },
     )
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Canonical mode should not call stage-block evaluator.")
         ),
@@ -596,11 +576,9 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
             "false_positive_preds": [],
         }
 
-    monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_eval_canonical_text)
-    monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(
-        cli,
-        "ensure_canonical_gold_artifacts",
+    _patch_cli_attr(monkeypatch, "evaluate_canonical_text", _fake_eval_canonical_text)
+    _patch_cli_attr(monkeypatch, "format_canonical_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "ensure_canonical_gold_artifacts",
         lambda *, export_root: {
             "canonical_text_path": export_root / "canonical_text.txt",
             "canonical_span_labels_path": export_root / "canonical_span_labels.jsonl",
@@ -666,11 +644,9 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
             "run_config_summary": "workers=1",
         },
     )
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "evaluate_predicted_vs_freeform",
         lambda *_args, **_kwargs: {
             "report": {
                 "counts": {
@@ -694,11 +670,9 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -724,7 +698,7 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
 
     captured_csv: dict[str, object] = {}
 
@@ -736,9 +710,7 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
         _capture_append,
     )
 
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",

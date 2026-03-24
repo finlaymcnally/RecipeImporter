@@ -25,8 +25,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
         block_labels={},
     )
 
-    monkeypatch.setattr(
-        cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
     )
     _install_noop_benchmark_eval_mocks(monkeypatch)
 
@@ -45,7 +44,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
             "extracted_archive_path": prediction_run / "extracted_archive.json",
         }
 
-    monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
+    _patch_cli_attr(monkeypatch, "run_labelstudio_import", fake_run_labelstudio_import)
 
     processed_root = tmp_path / "output"
     eval_root = tmp_path / "2026-03-03_10.20.00"
@@ -80,16 +79,12 @@ def _run_eval_output_dir_prediction_fixture(
         },
     )
 
-    monkeypatch.setattr(
-        cli,
-        "_resolve_labelstudio_settings",
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings",
         lambda *_: (_ for _ in ()).throw(
             AssertionError("No-upload mode must not resolve Label Studio credentials.")
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "run_labelstudio_import",
+    _patch_cli_attr(monkeypatch, "run_labelstudio_import",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("No-upload mode must not call run_labelstudio_import.")
         ),
@@ -152,7 +147,7 @@ def _run_eval_output_dir_prediction_fixture(
             "run_config_summary": "selective retry summary",
         }
 
-    monkeypatch.setattr(cli, "generate_pred_run_artifacts", fake_generate_pred_run_artifacts)
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts", fake_generate_pred_run_artifacts)
 
     eval_root = (
         tmp_path
@@ -281,9 +276,7 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
             "recipe_count": 7,
         },
     )
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -352,23 +345,17 @@ def _run_predictions_in_evaluate_only_fixture(
         ],
     )
 
-    monkeypatch.setattr(
-        cli,
-        "_resolve_labelstudio_settings",
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings",
         lambda *_: (_ for _ in ()).throw(
             AssertionError("Evaluate-only mode must not resolve Label Studio credentials.")
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Evaluate-only mode must not regenerate prediction artifacts.")
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "run_labelstudio_import",
+    _patch_cli_attr(monkeypatch, "run_labelstudio_import",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Evaluate-only mode must not upload prediction artifacts.")
         ),
@@ -403,8 +390,8 @@ def _run_predictions_in_evaluate_only_fixture(
             "false_positive_preds": [],
         }
 
-    monkeypatch.setattr(cli, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: None,
@@ -544,8 +531,8 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
             "false_positive_preds": [],
         }
 
-    monkeypatch.setattr(cli, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: None,
@@ -648,9 +635,7 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
         extracted_rows=[{"index": 0, "text": "Sample title"}],
         block_labels={"0": "RECIPE_TITLE"},
     )
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -661,9 +646,7 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
         },
     )
     _install_noop_benchmark_eval_mocks(monkeypatch)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: {
             "report": {
                 **_empty_stage_block_eval_result()["report"],
@@ -725,9 +708,7 @@ def _run_offline_prediction_stage_fixture(
         extracted_rows=[{"index": 0, "text": "Sample title"}],
         block_labels={"0": "RECIPE_TITLE"},
     )
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -737,18 +718,14 @@ def _run_offline_prediction_stage_fixture(
             "timing": {"prediction_seconds": 1.25},
         },
     )
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "internal skip-evaluation mode must not run stage-block evaluation."
             )
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "evaluate_canonical_text",
+    _patch_cli_attr(monkeypatch, "evaluate_canonical_text",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "internal skip-evaluation mode must not run canonical evaluation."
@@ -967,10 +944,8 @@ def _run_interrupt_partial_artifacts_fixture(
             "timing": {"prediction_seconds": 1.25},
         }
 
-    monkeypatch.setattr(cli, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
+    _patch_cli_attr(monkeypatch, "evaluate_stage",
         lambda **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
 

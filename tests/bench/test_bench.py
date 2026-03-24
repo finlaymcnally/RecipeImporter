@@ -10,6 +10,9 @@ import pytest
 import typer
 
 import cookimport.cli as cli
+import cookimport.cli_commands.bench as bench_cli
+import cookimport.cli_support.bench_all_method as bench_all_method
+import cookimport.cli_support.progress as progress_cli
 from cookimport.bench.report import aggregate_metrics, format_suite_report_md
 from cookimport.bench.speed_runner import SpeedScenario
 from cookimport.bench.speed_suite import SpeedSuite as BenchSpeedSuite, SpeedTarget
@@ -19,6 +22,16 @@ from cookimport.bench.quality_suite import (
 )
 from cookimport.bench.noise import consolidate_predictions, dedupe_predictions, gate_noise
 from cookimport.bench.cost import estimate_llm_costs, write_escalation_queue
+
+
+def _patch_bench_cli_attr(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: object,
+) -> None:
+    for module in (cli, bench_cli, bench_all_method, progress_cli):
+        if hasattr(module, name):
+            monkeypatch.setattr(module, name, value)
 
 
 # ---------------------------------------------------------------------------

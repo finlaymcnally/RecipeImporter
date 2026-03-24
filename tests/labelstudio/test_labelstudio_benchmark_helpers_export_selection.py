@@ -18,12 +18,20 @@ def test_interactive_labelstudio_export_routes_to_export_command(
     def fake_menu_select(*_args, **_kwargs):
         return next(menu_answers)
 
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
-    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", selected_output)
-    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
-    monkeypatch.setattr(cli, "_select_export_project", lambda **_: ("Bench Project", "freeform-spans"))
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "_load_settings", lambda: {})
+    _patch_cli_attr(monkeypatch, "_menu_select", fake_menu_select)
+    _patch_cli_attr(
+        monkeypatch,
+        "_golden_pulled_from_labelstudio_root",
+        lambda: selected_output / "pulled-from-labelstudio",
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_interactive_labelstudio_settings",
+        lambda *_: ("http://example", "api-key"),
+    )
+    _patch_cli_attr(monkeypatch, "_select_export_project", lambda **_: ("Bench Project", "freeform-spans"))
     monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
     monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
 
@@ -33,7 +41,7 @@ def test_interactive_labelstudio_export_routes_to_export_command(
         captured.update(kwargs)
         return {"summary_path": selected_output / "summary.json"}
 
-    monkeypatch.setattr(cli, "run_labelstudio_export", fake_run_labelstudio_export)
+    _patch_cli_attr(monkeypatch, "run_labelstudio_export", fake_run_labelstudio_export)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
@@ -60,17 +68,23 @@ def test_interactive_labelstudio_export_selects_project_before_export(
         events.append("select_project")
         return "Bench Project", None
 
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
-    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", selected_output)
-    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
-    monkeypatch.setattr(cli, "_select_export_project", fake_select_export_project)
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "_load_settings", lambda: {})
+    _patch_cli_attr(monkeypatch, "_menu_select", fake_menu_select)
+    _patch_cli_attr(
+        monkeypatch,
+        "_golden_pulled_from_labelstudio_root",
+        lambda: selected_output / "pulled-from-labelstudio",
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_interactive_labelstudio_settings",
+        lambda *_: ("http://example", "api-key"),
+    )
+    _patch_cli_attr(monkeypatch, "_select_export_project", fake_select_export_project)
     monkeypatch.setenv("LABEL_STUDIO_URL", "http://localhost:8080")
     monkeypatch.setenv("LABEL_STUDIO_API_KEY", "key")
-    monkeypatch.setattr(
-        cli,
-        "run_labelstudio_export",
+    _patch_cli_attr(monkeypatch, "run_labelstudio_export",
         lambda **_kwargs: {"summary_path": selected_output / "summary.json"},
     )
 
@@ -95,9 +109,9 @@ def test_select_export_project_returns_detected_scope(
                 {"title": "Alpha"},
             ]
 
-    monkeypatch.setattr(cli, "LabelStudioClient", FakeClient)
-    monkeypatch.setattr(cli, "_discover_manifest_project_scopes", lambda *_: {"Alpha": "pipeline"})
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: "Alpha")
+    _patch_cli_attr(monkeypatch, "LabelStudioClient", FakeClient)
+    _patch_cli_attr(monkeypatch, "_discover_manifest_project_scopes", lambda *_: {"Alpha": "pipeline"})
+    _patch_cli_attr(monkeypatch, "_menu_select", lambda *_args, **_kwargs: "Alpha")
 
     selected, scope = cli._select_export_project(
         label_studio_url="http://example",
@@ -127,9 +141,9 @@ def test_select_export_project_name_uses_project_list(
         assert _kwargs["choices"][2].title == "beta [type: unknown]"
         return "beta"
 
-    monkeypatch.setattr(cli, "LabelStudioClient", FakeClient)
-    monkeypatch.setattr(cli, "_discover_manifest_project_scopes", lambda *_: {"Alpha": "pipeline"})
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    _patch_cli_attr(monkeypatch, "LabelStudioClient", FakeClient)
+    _patch_cli_attr(monkeypatch, "_discover_manifest_project_scopes", lambda *_: {"Alpha": "pipeline"})
+    _patch_cli_attr(monkeypatch, "_menu_select", fake_menu_select)
 
     selected = cli._select_export_project_name(
         label_studio_url="http://example",
@@ -153,13 +167,11 @@ def test_select_export_project_name_prefers_manifest_scope_over_payload_inferenc
         assert _kwargs["choices"][1].title == "Alpha [type: canonical-blocks]"
         return "Alpha"
 
-    monkeypatch.setattr(cli, "LabelStudioClient", FakeClient)
-    monkeypatch.setattr(
-        cli,
-        "_discover_manifest_project_scopes",
+    _patch_cli_attr(monkeypatch, "LabelStudioClient", FakeClient)
+    _patch_cli_attr(monkeypatch, "_discover_manifest_project_scopes",
         lambda *_: {"Alpha": "canonical-blocks"},
     )
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    _patch_cli_attr(monkeypatch, "_menu_select", fake_menu_select)
 
     selected = cli._select_export_project_name(
         label_studio_url="http://example",
@@ -177,8 +189,8 @@ def test_select_export_project_name_falls_back_to_manual_on_client_error(
         def list_projects(self):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(cli, "LabelStudioClient", RaisingClient)
-    monkeypatch.setattr(cli, "_prompt_manual_project_name", lambda: "Typed Name")
+    _patch_cli_attr(monkeypatch, "LabelStudioClient", RaisingClient)
+    _patch_cli_attr(monkeypatch, "_prompt_manual_project_name", lambda: "Typed Name")
 
     selected = cli._select_export_project_name(
         label_studio_url="http://example",

@@ -23,7 +23,7 @@ def _legacy_prediction_stage_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
             extractor=str(prediction_generation_kwargs.get("epub_extractor") or "unstructured"),
         )
 
-    monkeypatch.setattr(cli, "_run_offline_benchmark_prediction_stage", _fake_prediction_stage)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage", _fake_prediction_stage)
 
 
 def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts(
@@ -53,7 +53,7 @@ def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts(
             prediction_seconds=1.5,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
     root_output_dir = tmp_path / "all-method"
     scratch_root = root_output_dir / ".scratch"
@@ -172,7 +172,7 @@ def test_run_all_method_prediction_once_reuses_across_runtime_only_setting_chang
             prediction_seconds=1.5,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
     root_output_dir = tmp_path / "all-method"
     scratch_root = root_output_dir / ".scratch"
@@ -269,7 +269,7 @@ def test_run_all_method_prediction_once_misses_reuse_when_prediction_shape_chang
             prediction_seconds=1.5,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
     root_output_dir = tmp_path / "all-method"
     scratch_root = root_output_dir / ".scratch"
@@ -344,7 +344,7 @@ def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts_acros
             prediction_seconds=1.5,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
     shared_prediction_reuse_cache = tmp_path / "shared-prediction-reuse-cache"
     scheduler_events_dir = tmp_path / "events"
@@ -426,7 +426,7 @@ def test_run_all_method_prediction_once_reuse_falls_back_when_hardlink_unavailab
             prediction_seconds=1.5,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
     def _failing_link(_src: str, _dst: str, *args, **kwargs) -> None:
         raise OSError("simulated hardlink failure")
@@ -558,7 +558,7 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
             ),
         )
 
-    monkeypatch.setattr(cli, "_run_offline_benchmark_prediction_stage", fake_prediction_stage)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage", fake_prediction_stage)
 
     root_output_dir = tmp_path / "all-method"
     scratch_root = root_output_dir / ".scratch"

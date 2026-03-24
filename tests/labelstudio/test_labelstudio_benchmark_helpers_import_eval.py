@@ -25,10 +25,8 @@ def test_labelstudio_import_prints_processing_time(
 ) -> None:
     source = tmp_path / "book.epub"
     source.write_text("dummy", encoding="utf-8")
-    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
-    monkeypatch.setattr(
-        cli,
-        "_run_labelstudio_import_with_status",
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    _patch_cli_attr(monkeypatch, "_run_labelstudio_import_with_status",
         lambda **_kwargs: {
             "project_name": "book",
             "project_id": 1,
@@ -67,10 +65,8 @@ def test_labelstudio_import_prints_prelabel_failure_summary(
 ) -> None:
     source = tmp_path / "book.epub"
     source.write_text("dummy", encoding="utf-8")
-    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
-    monkeypatch.setattr(
-        cli,
-        "_run_labelstudio_import_with_status",
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    _patch_cli_attr(monkeypatch, "_run_labelstudio_import_with_status",
         lambda **_kwargs: {
             "project_name": "book",
             "project_id": 1,
@@ -124,10 +120,8 @@ def test_labelstudio_import_prints_prelabel_token_usage_with_reasoning(
 ) -> None:
     source = tmp_path / "book.epub"
     source.write_text("dummy", encoding="utf-8")
-    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
-    monkeypatch.setattr(
-        cli,
-        "_run_labelstudio_import_with_status",
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    _patch_cli_attr(monkeypatch, "_run_labelstudio_import_with_status",
         lambda **_kwargs: {
             "project_name": "book",
             "project_id": 1,
@@ -191,14 +185,10 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
 ) -> None:
     source = tmp_path / "book.epub"
     source.write_text("dummy", encoding="utf-8")
-    monkeypatch.setattr(
-        cli,
-        "_resolve_labelstudio_settings",
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings",
         lambda *_: ("http://example", "api-key"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_run_labelstudio_import_with_status",
+    _patch_cli_attr(monkeypatch, "_run_labelstudio_import_with_status",
         lambda **kwargs: kwargs["run_import"](lambda _message: None),
     )
     captured: dict[str, object] = {}
@@ -213,7 +203,7 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
             "run_root": tmp_path / "out",
         }
 
-    monkeypatch.setattr(cli, "run_labelstudio_import", _fake_run_labelstudio_import)
+    _patch_cli_attr(monkeypatch, "run_labelstudio_import", _fake_run_labelstudio_import)
     monkeypatch.setattr(cli.typer, "secho", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
 
@@ -262,7 +252,7 @@ def test_discover_freeform_gold_exports_includes_golden_root(
     exports.mkdir(parents=True, exist_ok=True)
     golden_path = exports / "freeform_span_labels.jsonl"
     golden_path.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
 
     discovered = cli._discover_freeform_gold_exports(output_root)
     assert golden_path in discovered
@@ -279,7 +269,7 @@ def test_display_gold_export_path_relative_to_golden_root(
         / "exports"
         / "freeform_span_labels.jsonl"
     )
-    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
 
     display = cli._display_gold_export_path(path, output_root)
     assert display == "dinnerfor2cutdown"
@@ -350,7 +340,7 @@ def test_infer_source_file_from_gold_row_uses_default_input(
     input_root.mkdir(parents=True, exist_ok=True)
     source = input_root / "book.epub"
     source.write_text("x", encoding="utf-8")
-    monkeypatch.setattr(cli, "DEFAULT_INPUT", input_root)
+    _patch_cli_attr(monkeypatch, "DEFAULT_INPUT", input_root)
 
     run_root = tmp_path / "run"
     exports = run_root / "exports"
@@ -374,27 +364,19 @@ def test_resolve_benchmark_gold_and_source_auto_uses_inferred_source(
     inferred_source.parent.mkdir(parents=True, exist_ok=True)
     inferred_source.write_text("x", encoding="utf-8")
 
-    monkeypatch.setattr(
-        cli,
-        "_infer_source_file_from_freeform_gold",
+    _patch_cli_attr(monkeypatch, "_infer_source_file_from_freeform_gold",
         lambda _path: inferred_source,
     )
-    monkeypatch.setattr(
-        cli,
-        "_prompt_confirm",
+    _patch_cli_attr(monkeypatch, "_prompt_confirm",
         lambda *_args, **_kwargs: pytest.fail("should not confirm inferred source"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_menu_select",
+    _patch_cli_attr(monkeypatch, "_menu_select",
         lambda *_args, **_kwargs: pytest.fail("should not prompt for source selection"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_list_importable_files",
+    _patch_cli_attr(monkeypatch, "_list_importable_files",
         lambda *_args, **_kwargs: pytest.fail("should not list importable files"),
     )
-    monkeypatch.setattr(cli, "_require_importer", lambda *_args, **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "_require_importer", lambda *_args, **_kwargs: None)
 
     resolved = cli._resolve_benchmark_gold_and_source(
         gold_spans=gold_path,
@@ -415,24 +397,18 @@ def test_resolve_benchmark_gold_and_source_prompts_when_inference_missing(
     selected_source.parent.mkdir(parents=True, exist_ok=True)
     selected_source.write_text("x", encoding="utf-8")
 
-    monkeypatch.setattr(cli, "_infer_source_file_from_freeform_gold", lambda _path: None)
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_args, **_kwargs: [selected_source])
-    monkeypatch.setattr(
-        cli,
-        "_menu_select",
+    _patch_cli_attr(monkeypatch, "_infer_source_file_from_freeform_gold", lambda _path: None)
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_args, **_kwargs: [selected_source])
+    _patch_cli_attr(monkeypatch, "_menu_select",
         lambda *_args, **_kwargs: selected_source,
     )
-    monkeypatch.setattr(
-        cli,
-        "_prompt_confirm",
+    _patch_cli_attr(monkeypatch, "_prompt_confirm",
         lambda *_args, **_kwargs: pytest.fail("should not confirm when inference is missing"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_prompt_text",
+    _patch_cli_attr(monkeypatch, "_prompt_text",
         lambda *_args, **_kwargs: pytest.fail("should not prompt for custom source path"),
     )
-    monkeypatch.setattr(cli, "_require_importer", lambda *_args, **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "_require_importer", lambda *_args, **_kwargs: None)
 
     resolved = cli._resolve_benchmark_gold_and_source(
         gold_spans=gold_path,
@@ -483,9 +459,9 @@ def test_labelstudio_eval_direct_call_uses_real_defaults(
     gold_spans.write_text("{}\n", encoding="utf-8")
     output_dir = tmp_path / "eval"
 
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "# report")
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "# report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: None,
@@ -498,7 +474,7 @@ def test_labelstudio_eval_direct_call_uses_real_defaults(
         captured["force_source_match"] = force_source_match
         return {"report": {}, "missed_gold": [], "false_positive_preds": []}
 
-    monkeypatch.setattr(cli, "evaluate_predicted_vs_freeform", fake_eval)
+    _patch_cli_attr(monkeypatch, "evaluate_predicted_vs_freeform", fake_eval)
 
     cli.labelstudio_eval(
         pred_run=pred_run,
@@ -590,12 +566,10 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
     gold_spans.write_text("{}\n", encoding="utf-8")
     output_dir = tmp_path / "eval"
 
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "# report")
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "# report")
+    _patch_cli_attr(monkeypatch, "evaluate_predicted_vs_freeform",
         lambda *_args, **_kwargs: {
             "report": {},
             "missed_gold": [],
@@ -619,7 +593,7 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         _capture_append,
     )
-    monkeypatch.setattr(cli, "stats_dashboard", lambda **kwargs: captured_dashboard.update(kwargs))
+    _patch_cli_attr(monkeypatch, "stats_dashboard", lambda **kwargs: captured_dashboard.update(kwargs))
 
     cli.labelstudio_eval(
         pred_run=pred_run,

@@ -26,8 +26,8 @@ def test_resolve_all_method_targets_uses_segment_manifest_when_gold_rows_empty(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_path])
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [source])
+    _patch_cli_attr(monkeypatch, "_discover_freeform_gold_exports", lambda *_: [gold_path])
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [source])
 
     matched, unmatched = cli._resolve_all_method_targets(tmp_path)
 
@@ -61,12 +61,10 @@ def test_resolve_all_method_targets_returns_matched_and_unmatched(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(
-        cli,
-        "_discover_freeform_gold_exports",
+    _patch_cli_attr(monkeypatch, "_discover_freeform_gold_exports",
         lambda *_: [matched_gold, missing_hint_gold, missing_input_gold],
     )
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [source])
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [source])
 
     matched, unmatched = cli._resolve_all_method_targets(tmp_path)
 
@@ -375,14 +373,12 @@ def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
     gold_path.parent.mkdir(parents=True, exist_ok=True)
     gold_path.write_text("{}\n", encoding="utf-8")
 
-    monkeypatch.setattr(
-        cli,
-        "_resolve_benchmark_gold_and_source",
+    _patch_cli_attr(monkeypatch, "_resolve_benchmark_gold_and_source",
         lambda **_kwargs: (gold_path, source),
     )
-    monkeypatch.setattr(cli, "_resolve_all_method_markdown_extractors_choice", lambda: False)
-    monkeypatch.setattr(cli, "_all_method_optional_module_available", lambda *_: True)
-    monkeypatch.setattr(cli, "_ensure_codex_farm_cmd_available", lambda *_args, **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_markdown_extractors_choice", lambda: False)
+    _patch_cli_attr(monkeypatch, "_all_method_optional_module_available", lambda *_: True)
+    _patch_cli_attr(monkeypatch, "_ensure_codex_farm_cmd_available", lambda *_args, **_kwargs: None)
 
     menu_answers = iter(["single"])
 
@@ -391,7 +387,7 @@ def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
             return next(menu_answers)
         pytest.fail(f"Unexpected menu prompt: {prompt}")
 
-    monkeypatch.setattr(cli, "_menu_select", _fake_menu_select)
+    _patch_cli_attr(monkeypatch, "_menu_select", _fake_menu_select)
 
     prompt_messages: list[str] = []
 
@@ -405,7 +401,7 @@ def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
             pytest.fail("should use shared CodexFarm process menu")
         pytest.fail(f"Unexpected confirm prompt: {message}")
 
-    monkeypatch.setattr(cli, "_prompt_confirm", _fake_prompt_confirm)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", _fake_prompt_confirm)
 
     shared_surface_calls: list[tuple[str, ...]] = []
 
@@ -430,15 +426,11 @@ def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
         ai_settings_calls.append(dict(kwargs))
         return kwargs["selected_settings"]
 
-    monkeypatch.setattr(
-        cli,
-        "choose_interactive_codex_surfaces",
+    _patch_cli_attr(monkeypatch, "choose_interactive_codex_surfaces",
         _fake_choose_interactive_codex_surfaces,
         raising=False,
     )
-    monkeypatch.setattr(
-        cli,
-        "choose_codex_ai_settings",
+    _patch_cli_attr(monkeypatch, "choose_codex_ai_settings",
         _fake_choose_codex_ai_settings,
         raising=False,
     )
@@ -461,7 +453,7 @@ def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
             )
         ]
 
-    monkeypatch.setattr(cli, "_build_all_method_target_variants", _fake_build_all_method_target_variants)
+    _patch_cli_attr(monkeypatch, "_build_all_method_target_variants", _fake_build_all_method_target_variants)
 
     cli._interactive_all_method_benchmark(
         selected_benchmark_settings=_benchmark_test_run_settings(

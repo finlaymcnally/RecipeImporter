@@ -12,6 +12,10 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from cookimport import cli
+import cookimport.cli_commands.stage as stage_cli
+import cookimport.cli_support as cli_support
+import cookimport.cli_support.interactive_flow as interactive_flow
+import cookimport.cli_support.settings_flow as settings_flow
 from cookimport.cli_ui import run_settings_flow
 from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
@@ -22,6 +26,26 @@ from cookimport.paths import history_root_for_output
 from cookimport import entrypoint
 
 REMOVED_EXTRACTOR_VALUE = "leg" "acy"
+
+
+def _patch_interactive_attr(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: object,
+) -> None:
+    for module in (cli, cli_support, interactive_flow, settings_flow):
+        if hasattr(module, name):
+            monkeypatch.setattr(module, name, value)
+
+
+def _patch_stage_attr(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: object,
+) -> None:
+    for module in (cli, stage_cli):
+        if hasattr(module, name):
+            monkeypatch.setattr(module, name, value)
 
 
 def test_menu_shortcuts_assign_numeric_keys():
@@ -48,8 +72,8 @@ def test_interactive_main_menu_includes_generate_dashboard(monkeypatch):
             captured_choice_values.append(str(choice.value))
         return "exit"
 
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    _patch_interactive_attr(monkeypatch, "_menu_select", fake_menu_select)
+    _patch_interactive_attr(monkeypatch, "_list_importable_files", lambda *_: [])
 
     with pytest.raises(typer.Exit):
         cli._interactive_mode()
@@ -114,8 +138,8 @@ def test_interactive_main_menu_does_not_include_epub_race_when_epub_available(
             captured_choice_values.append(str(choice.value))
         return "exit"
 
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [epub_path])
+    _patch_interactive_attr(monkeypatch, "_menu_select", fake_menu_select)
+    _patch_interactive_attr(monkeypatch, "_list_importable_files", lambda *_: [epub_path])
 
     with pytest.raises(typer.Exit):
         cli._interactive_mode()
@@ -224,7 +248,7 @@ def test_load_settings_preserves_stale_sequence_matcher_key(
         json.dumps({"benchmark_sequence_matcher": "fallback"}, sort_keys=True),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
     settings = cli._load_settings()
 
     assert settings["benchmark_sequence_matcher"] == "fallback"
@@ -235,7 +259,7 @@ def test_load_settings_includes_expanded_operator_defaults(
     tmp_path,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
-    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
 
     settings = cli._load_settings()
 
@@ -260,7 +284,7 @@ def test_settings_menu_includes_expanded_operator_defaults(monkeypatch: pytest.M
             captured_choice_values.append(str(choice.value))
         return "back"
 
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+    _patch_interactive_attr(monkeypatch, "_menu_select", fake_menu_select)
 
     cli._settings_menu(cli._load_settings())
 
@@ -305,15 +329,23 @@ def test_settings_menu_can_update_new_operator_defaults(monkeypatch: pytest.Monk
     password_answers = iter(["fresh-key"])
     saved_snapshots: list[dict[str, object]] = []
 
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
-    monkeypatch.setattr(cli, "_prompt_text", lambda *_args, **_kwargs: next(text_answers))
-    monkeypatch.setattr(
-        cli,
+    _patch_interactive_attr(
+        monkeypatch,
+        "_menu_select",
+        lambda *_args, **_kwargs: next(menu_answers),
+    )
+    _patch_interactive_attr(
+        monkeypatch,
+        "_prompt_text",
+        lambda *_args, **_kwargs: next(text_answers),
+    )
+    _patch_interactive_attr(
+        monkeypatch,
         "_prompt_password",
         lambda *_args, **_kwargs: next(password_answers),
     )
-    monkeypatch.setattr(
-        cli,
+    _patch_interactive_attr(
+        monkeypatch,
         "_save_settings",
         lambda payload: saved_snapshots.append(dict(payload)),
     )
@@ -338,7 +370,7 @@ def test_run_settings_payload_filter_rejects_removed_removed_epub_extractor_valu
         json.dumps({"epub_extractor": REMOVED_EXTRACTOR_VALUE}, sort_keys=True),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
     settings = cli._load_settings()
 
     with pytest.raises(Exception):
@@ -357,7 +389,7 @@ def test_run_settings_payload_filter_rejects_removed_auto_epub_extractor(
         json.dumps({"epub_extractor": "auto"}, sort_keys=True),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
     settings = cli._load_settings()
 
     with pytest.raises(Exception):
@@ -1305,15 +1337,15 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
         captured.update(kwargs)
         return tmp_path / "out" / "2026-02-23_13.00.00"
 
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
-    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
-    monkeypatch.setattr(
-        cli,
+    _patch_interactive_attr(monkeypatch, "_load_settings", lambda: {})
+    _patch_interactive_attr(monkeypatch, "_list_importable_files", lambda *_: [selected_file])
+    _patch_interactive_attr(monkeypatch, "_menu_select", fake_menu_select)
+    _patch_interactive_attr(
+        monkeypatch,
         "choose_run_settings",
         lambda **kwargs: choose_kwargs.update(kwargs) or selected_settings,
     )
-    monkeypatch.setattr(cli, "stage", fake_stage)
+    _patch_stage_attr(monkeypatch, "stage", fake_stage)
 
     with pytest.raises(typer.Exit):
         cli._interactive_mode()
@@ -1383,7 +1415,7 @@ def test_stage_direct_call_uses_plain_defaults(monkeypatch: pytest.MonkeyPatch, 
     source_file.write_text("hello", encoding="utf-8")
     output_root = tmp_path / "output"
 
-    monkeypatch.setattr(cli, "_iter_files", lambda _path: [])
+    _patch_stage_attr(monkeypatch, "_iter_files", lambda _path: [])
 
     run_folder = cli.stage(path=source_file, out=output_root)
 

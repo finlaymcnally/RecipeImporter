@@ -210,7 +210,7 @@ def test_run_with_progress_status_defaults_to_plain_for_agent_env(
 
     monkeypatch.setenv("CODEX_CI", "1")
     monkeypatch.delenv("COOKIMPORT_PLAIN_PROGRESS", raising=False)
-    monkeypatch.setattr(cli, "console", _GuardConsole())
+    _patch_cli_attr(monkeypatch, "console", _GuardConsole())
     plain_messages: list[str] = []
     monkeypatch.setattr(
         cli.typer,
@@ -271,7 +271,7 @@ def test_run_with_progress_status_agent_plain_default_allows_explicit_live_overr
     capture = _CaptureConsole()
     monkeypatch.setenv("CODEX_CI", "1")
     monkeypatch.setenv("COOKIMPORT_PLAIN_PROGRESS", "0")
-    monkeypatch.setattr(cli, "console", capture)
+    _patch_cli_attr(monkeypatch, "console", capture)
 
     def _run(update_progress):
         update_progress("Quality suite task 1/2")
@@ -326,7 +326,7 @@ def test_run_with_progress_status_falls_back_to_plain_when_live_slots_are_full(
             return _FakeStatus(self.messages)
 
     capture = _CaptureConsole()
-    monkeypatch.setattr(cli, "console", capture)
+    _patch_cli_attr(monkeypatch, "console", capture)
     monkeypatch.setenv("COOKIMPORT_PLAIN_PROGRESS", "0")
     monkeypatch.setenv("COOKIMPORT_LIVE_STATUS_SLOTS", "1")
     plain_messages: list[str] = []
@@ -1326,7 +1326,7 @@ def test_run_with_progress_status_clamps_live_box_width_to_terminal(
             return _FakeStatus(self.messages)
 
     capture = _CaptureConsole()
-    monkeypatch.setattr(cli, "console", capture)
+    _patch_cli_attr(monkeypatch, "console", capture)
 
     long_task = (
         "r0011_urn_recipeimport_epub_"
@@ -1393,7 +1393,7 @@ def test_run_with_progress_status_wraps_long_lines_and_uses_larger_spinner(
             return _FakeStatus(self.messages)
 
     capture = _CaptureConsole()
-    monkeypatch.setattr(cli, "console", capture)
+    _patch_cli_attr(monkeypatch, "console", capture)
     tail_token = "codex-dashboard-tail-token-visible"
 
     def _run(update_progress):
@@ -1454,7 +1454,7 @@ def test_run_with_progress_status_preserves_eta_when_live_line_is_truncated(
             return _FakeStatus(self.messages)
 
     capture = _CaptureConsole()
-    monkeypatch.setattr(cli, "console", capture)
+    _patch_cli_attr(monkeypatch, "console", capture)
 
     long_task = (
         "r0017_urn_recipeimport_epub_"
@@ -1523,7 +1523,7 @@ def test_run_with_progress_status_humanizes_codex_stage_in_live_panel(
             return _FakeStatus(self.messages)
 
     capture = _CaptureConsole()
-    monkeypatch.setattr(cli, "console", capture)
+    _patch_cli_attr(monkeypatch, "console", capture)
 
     def _run(update_progress):
         update_progress(

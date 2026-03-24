@@ -43,11 +43,9 @@ def _run_prune_after_csv_fixture(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "evaluate_predicted_vs_freeform",
         lambda *_args, **_kwargs: {
             "report": {
                 "counts": {
@@ -71,11 +69,9 @@ def _run_prune_after_csv_fixture(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -101,14 +97,12 @@ def _run_prune_after_csv_fixture(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
 
     processed_run_root = tmp_path / "output" / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
     processed_run_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": processed_run_root,
@@ -144,7 +138,7 @@ def _run_prune_after_csv_fixture(
             suppress_output_prune=suppress_output_prune,
         )
 
-    monkeypatch.setattr(cli, "_prune_benchmark_outputs", _prune_with_order)
+    _patch_cli_attr(monkeypatch, "_prune_benchmark_outputs", _prune_with_order)
 
     eval_root = (
         tmp_path
@@ -233,11 +227,9 @@ def _run_interactive_prune_fixture(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "evaluate_predicted_vs_freeform",
         lambda *_args, **_kwargs: {
             "report": {
                 "counts": {
@@ -261,11 +253,9 @@ def _run_interactive_prune_fixture(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -291,14 +281,12 @@ def _run_interactive_prune_fixture(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
 
     processed_run_root = tmp_path / "output" / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
     processed_run_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(
-        cli,
-        "generate_pred_run_artifacts",
+    _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
             "run_root": prediction_run,
             "processed_run_root": processed_run_root,
@@ -327,7 +315,7 @@ def _run_interactive_prune_fixture(
             }
         )
 
-    monkeypatch.setattr(cli, "_prune_benchmark_outputs", _capture_prune)
+    _patch_cli_attr(monkeypatch, "_prune_benchmark_outputs", _capture_prune)
 
     eval_root = (
         tmp_path
@@ -396,14 +384,11 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     )
 
     monkeypatch.setenv("C3IMP_EPUB_EXTRACTOR", "unstructured")
-    monkeypatch.setattr(
-        cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
     )
-    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
-    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
-        "evaluate_predicted_vs_freeform",
+    _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "evaluate_predicted_vs_freeform",
         lambda *_args, **_kwargs: {
             "report": {
                 "counts": {
@@ -423,11 +408,9 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
-    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
-    monkeypatch.setattr(
-        cli,
-        "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
+    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -453,7 +436,7 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
             "false_positive_preds": [],
         },
     )
-    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
 
     captured: dict[str, object] = {}
 
@@ -471,7 +454,7 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
             "extracted_archive_path": prediction_run / "extracted_archive.json",
         }
 
-    monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
+    _patch_cli_attr(monkeypatch, "run_labelstudio_import", fake_run_labelstudio_import)
 
     cli.labelstudio_benchmark(
         gold_spans=gold_spans,

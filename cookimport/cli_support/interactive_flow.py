@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import sys
 
 runtime = sys.modules["cookimport.cli_support"]
@@ -18,6 +19,16 @@ globals().update(
         if not name.startswith("__")
     }
 )
+
+
+def _stats_dashboard_command():
+    analytics_commands = importlib.import_module("cookimport.cli_commands.analytics")
+    return getattr(analytics_commands, "stats_dashboard")
+
+
+def _stage_command():
+    stage_commands = importlib.import_module("cookimport.cli_commands.stage")
+    return getattr(stage_commands, "stage")
 
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
@@ -92,7 +103,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 f"Generating dashboard from {output_folder}...",
                 fg=typer.colors.CYAN,
             )
-            stats_dashboard(
+            _stats_dashboard_command()(
                 output_root=output_folder,
                 golden_root=DEFAULT_GOLDEN,
                 out_dir=history_root_for_output(output_folder) / "dashboard",
@@ -183,9 +194,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             )
 
             if selection == "all":
-                run_folder = stage(path=input_folder, **common_args)
+                run_folder = _stage_command()(path=input_folder, **common_args)
             else:
-                run_folder = stage(path=selection, **common_args)
+                run_folder = _stage_command()(path=selection, **common_args)
 
             typer.secho(f"\nOutputs written to: {run_folder}", fg=typer.colors.CYAN)
             continue

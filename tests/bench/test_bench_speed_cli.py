@@ -82,9 +82,9 @@ def test_bench_speed_run_wires_runner(
         "cookimport.bench.speed_runner.parse_speed_scenarios",
         lambda _raw: [SpeedScenario.STAGE_IMPORT],
     )
-    monkeypatch.setattr("cookimport.cli._load_settings", lambda: {})
+    monkeypatch.setattr("cookimport.cli_commands.bench._load_settings", lambda: {})
     monkeypatch.setattr(
-        "cookimport.cli._run_with_progress_status",
+        "cookimport.cli_commands.bench._run_with_progress_status",
         lambda *, run, **_kwargs: run(lambda _message: None),
     )
 
@@ -204,7 +204,7 @@ def test_bench_speed_run_rejects_stale_run_settings_file_keys(
         lambda _raw: [SpeedScenario.STAGE_IMPORT],
     )
     monkeypatch.setattr(
-        "cookimport.cli._run_with_progress_status",
+        "cookimport.cli_commands.bench._run_with_progress_status",
         lambda *, run, **_kwargs: run(lambda _message: None),
     )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
@@ -267,9 +267,9 @@ def test_bench_speed_run_forwards_parallel_and_resume_options(
         "cookimport.bench.speed_runner.parse_speed_scenarios",
         lambda _raw: [SpeedScenario.STAGE_IMPORT],
     )
-    monkeypatch.setattr("cookimport.cli._load_settings", lambda: {})
+    monkeypatch.setattr("cookimport.cli_commands.bench._load_settings", lambda: {})
     monkeypatch.setattr(
-        "cookimport.cli._run_with_progress_status",
+        "cookimport.cli_commands.bench._run_with_progress_status",
         lambda *, run, **_kwargs: run(lambda _message: None),
     )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
@@ -358,7 +358,7 @@ def test_bench_speed_run_rejects_missing_resume_run_dir(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
+    _patch_bench_cli_attr(monkeypatch, "_fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_speed_run(
@@ -385,7 +385,7 @@ def test_bench_speed_run_requires_codex_farm_confirmation(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
+    _patch_bench_cli_attr(monkeypatch, "_fail", _fake_fail)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_speed_run(
@@ -447,20 +447,20 @@ def test_bench_speed_run_passes_codex_farm_confirmation_to_runner(
         "cookimport.bench.speed_runner.parse_speed_scenarios",
         lambda _raw: [SpeedScenario.STAGE_IMPORT],
     )
-    monkeypatch.setattr("cookimport.cli._load_settings", lambda: {})
+    monkeypatch.setattr("cookimport.cli_commands.bench._load_settings", lambda: {})
     monkeypatch.setattr(
-        "cookimport.cli._run_with_progress_status",
+        "cookimport.cli_commands.bench._run_with_progress_status",
         lambda *, run, **_kwargs: run(lambda _message: None),
     )
     monkeypatch.setattr(
-        "cookimport.cli._ensure_codex_farm_cmd_available",
+        "cookimport.cli_commands.bench._ensure_codex_farm_cmd_available",
         lambda _cmd: None,
     )
     monkeypatch.setattr(
-        "cookimport.cli._resolve_all_method_codex_choice",
+        "cookimport.cli_commands.bench._resolve_all_method_codex_choice",
         lambda _include: (True, None),
     )
-    monkeypatch.setattr("cookimport.cli._is_agent_execution_environment", lambda: False)
+    monkeypatch.setattr(progress_cli, "_is_agent_execution_environment", lambda: False)
 
     def _fake_run_speed_suite(
         _suite,
@@ -512,8 +512,8 @@ def test_bench_speed_run_blocks_codex_farm_in_agent_environment(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr("cookimport.cli._fail", _fake_fail)
-    monkeypatch.setattr("cookimport.cli._is_agent_execution_environment", lambda: True)
+    _patch_bench_cli_attr(monkeypatch, "_fail", _fake_fail)
+    monkeypatch.setattr(progress_cli, "_is_agent_execution_environment", lambda: True)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_speed_run(

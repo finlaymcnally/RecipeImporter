@@ -68,23 +68,17 @@ def _run_single_book_codex_enabled_fixture(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **kwargs: refresh_calls.append(kwargs),
     )
 
-    monkeypatch.setattr(
-        cli,
-        "_write_single_book_starter_pack",
+    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("starter pack should not run by default for single-book")
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
@@ -222,12 +216,10 @@ def test_interactive_single_book_preserves_selected_codex_recipe_pipeline(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
-    monkeypatch.setattr(cli, "_write_single_book_starter_pack", lambda **_kwargs: None)
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
@@ -283,12 +275,10 @@ def test_interactive_single_book_preserves_selected_atomic_splitter_across_varia
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
-    monkeypatch.setattr(cli, "_write_single_book_starter_pack", lambda **_kwargs: None)
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
@@ -361,9 +351,7 @@ def test_interactive_single_book_uses_book_slug_in_session_root_when_source_sele
             return True
 
     monkeypatch.setattr(cli.sys, "stdin", _FakeStdin())
-    monkeypatch.setattr(
-        cli,
-        "_resolve_benchmark_gold_and_source",
+    _patch_cli_attr(monkeypatch, "_resolve_benchmark_gold_and_source",
         lambda **_kwargs: (gold_spans, source_file),
     )
 
@@ -383,7 +371,7 @@ def test_interactive_single_book_uses_book_slug_in_session_root_when_source_sele
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
     completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -438,27 +426,19 @@ def test_interactive_single_book_codex_disabled_runs_only_vanilla_and_skips_comp
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **kwargs: refresh_calls.append(kwargs),
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_single_book_starter_pack",
+    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("starter pack should not run for vanilla-only single-book")
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_start_benchmark_bundle_oracle_upload_background",
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
 
@@ -532,20 +512,14 @@ def test_interactive_single_book_fully_vanilla_still_uses_vanilla_slug(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_start_benchmark_bundle_oracle_upload_background",
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
 
@@ -603,20 +577,14 @@ def test_interactive_single_book_hybrid_run_uses_profile_slug_not_vanilla(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_start_benchmark_bundle_oracle_upload_background",
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
 
@@ -694,11 +662,9 @@ def test_interactive_single_book_markdown_enabled_writes_one_top_level_summary(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
-    monkeypatch.setattr(
-        cli,
-        "_write_single_book_starter_pack",
+    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("starter pack should not run by default")
         ),
@@ -758,10 +724,8 @@ def test_interactive_single_book_starts_background_oracle_upload(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **_kwargs: None,
     )
 
@@ -770,15 +734,11 @@ def test_interactive_single_book_starts_background_oracle_upload(
         / "single-book-benchmark"
         / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **_kwargs: session_bundle_dir,
     )
     launch_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        cli,
-        "_start_benchmark_bundle_oracle_upload_background",
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
         lambda **kwargs: launch_calls.append(dict(kwargs)),
     )
 
@@ -823,10 +783,8 @@ def test_interactive_single_book_writes_capped_high_level_upload_bundle(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **_kwargs: None,
     )
 
@@ -841,10 +799,8 @@ def test_interactive_single_book_writes_capped_high_level_upload_bundle(
         upload_bundle_calls.append(dict(kwargs))
         return session_bundle_dir
 
-    monkeypatch.setattr(cli, "_write_benchmark_upload_bundle", _fake_write_benchmark_upload_bundle)
-    monkeypatch.setattr(
-        cli,
-        "_start_benchmark_bundle_oracle_upload_background",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle", _fake_write_benchmark_upload_bundle)
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
 
@@ -882,17 +838,13 @@ def test_interactive_single_book_codex_failure_returns_unsuccessful_without_comp
         benchmark_calls.append(kwargs)
         raise cli.typer.Exit(2)
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_write_single_book_starter_pack",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("starter pack should not run when codex variant fails")
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 

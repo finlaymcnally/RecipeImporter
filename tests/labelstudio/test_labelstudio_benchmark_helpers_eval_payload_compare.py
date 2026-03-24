@@ -12,8 +12,8 @@ globals().update({
 def test_labelstudio_benchmark_direct_call_uses_real_defaults(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "k"))
-    monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings", lambda *_: ("http://example", "k"))
+    _patch_cli_attr(monkeypatch, "_discover_freeform_gold_exports", lambda *_: [])
     with pytest.raises(cli.typer.Exit):
         cli.labelstudio_benchmark(output_dir=tmp_path / "empty-golden")
 
@@ -442,7 +442,7 @@ def test_labelstudio_benchmark_action_compare_dispatches_to_compare_helper(
         captured.update(kwargs)
         return {"overall": {"verdict": "PASS"}}
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark_compare", fake_compare)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark_compare", fake_compare)
 
     cli.labelstudio_benchmark(
         action="compare",

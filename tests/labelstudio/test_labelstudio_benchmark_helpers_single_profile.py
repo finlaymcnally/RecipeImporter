@@ -15,32 +15,26 @@ def test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     menu_answers = iter(["labelstudio_benchmark", "all_matched_books", "exit"])
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    _patch_cli_attr(monkeypatch, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "_load_settings", lambda: {})
     chosen_settings = cli.RunSettings.from_dict(
         {
             "epub_extractor": "beautifulsoup",
         },
         warn_context="test single-profile chooser",
     )
-    monkeypatch.setattr(
-        cli,
-        "choose_run_settings",
+    _patch_cli_attr(monkeypatch, "choose_run_settings",
         lambda **_kwargs: chosen_settings,
     )
-    monkeypatch.setattr(
-        cli,
-        "_resolve_interactive_labelstudio_settings",
+    _patch_cli_attr(monkeypatch, "_resolve_interactive_labelstudio_settings",
         lambda _settings: (_ for _ in ()).throw(
             AssertionError(
                 "Single-profile all-matched mode should not resolve Label Studio credentials."
             )
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "_interactive_all_method_benchmark",
+    _patch_cli_attr(monkeypatch, "_interactive_all_method_benchmark",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "Single-profile all-matched mode should not route to all-method runner."
@@ -49,9 +43,7 @@ def test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner(
     )
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        cli,
-        "_interactive_single_profile_all_matched_benchmark",
+    _patch_cli_attr(monkeypatch, "_interactive_single_profile_all_matched_benchmark",
         lambda **kwargs: captured.update(kwargs) or True,
     )
 
@@ -73,32 +65,26 @@ def test_interactive_benchmark_single_profile_selected_matched_mode_routes_to_ru
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     menu_answers = iter(["labelstudio_benchmark", "selected_matched_books", "exit"])
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
+    _patch_cli_attr(monkeypatch, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "_load_settings", lambda: {})
     chosen_settings = cli.RunSettings.from_dict(
         {
             "epub_extractor": "beautifulsoup",
         },
         warn_context="test single-profile selected chooser",
     )
-    monkeypatch.setattr(
-        cli,
-        "choose_run_settings",
+    _patch_cli_attr(monkeypatch, "choose_run_settings",
         lambda **_kwargs: chosen_settings,
     )
-    monkeypatch.setattr(
-        cli,
-        "_resolve_interactive_labelstudio_settings",
+    _patch_cli_attr(monkeypatch, "_resolve_interactive_labelstudio_settings",
         lambda _settings: (_ for _ in ()).throw(
             AssertionError(
                 "Single-profile selected mode should not resolve Label Studio credentials."
             )
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "_interactive_all_method_benchmark",
+    _patch_cli_attr(monkeypatch, "_interactive_all_method_benchmark",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "Single-profile selected mode should not route to all-method runner."
@@ -107,9 +93,7 @@ def test_interactive_benchmark_single_profile_selected_matched_mode_routes_to_ru
     )
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        cli,
-        "_interactive_single_profile_all_matched_benchmark",
+    _patch_cli_attr(monkeypatch, "_interactive_single_profile_all_matched_benchmark",
         lambda **kwargs: captured.update(kwargs) or True,
     )
 
@@ -156,12 +140,10 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
             gold_display="gold-b",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
 
     benchmark_eval_output = tmp_path / "golden" / "2026-02-28_03.30.00"
     processed_output_root = tmp_path / "processed"
@@ -171,9 +153,7 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
     )
 
     benchmark_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        cli,
-        "labelstudio_benchmark",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
     )
 
@@ -236,12 +216,10 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
             gold_display="gold-b",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_02.30.00"
     processed_output_root = tmp_path / "processed"
@@ -272,10 +250,8 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
             )
             progress_callback("Evaluating predictions... task 2/2")
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", _fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", _fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
     captured_status: dict[str, object] = {}
@@ -290,11 +266,9 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
         captured_status["snapshots"] = snapshots
         return run_callable(snapshots.append)
 
-    monkeypatch.setattr(cli, "_run_with_progress_status", _fake_run_with_progress_status)
+    _patch_cli_attr(monkeypatch, "_run_with_progress_status", _fake_run_with_progress_status)
     refresh_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        cli,
-        "_refresh_dashboard_after_history_write",
+    _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **kwargs: refresh_calls.append(dict(kwargs)),
     )
 
@@ -385,12 +359,10 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
             gold_display="gold-a",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_11.11.11"
     processed_output_root = tmp_path / "processed"
@@ -406,15 +378,11 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     )
 
     benchmark_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        cli,
-        "labelstudio_benchmark",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
     )
 
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
@@ -516,27 +484,23 @@ def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bu
             gold_display="gold-b",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_10.00.00"
     processed_output_root = tmp_path / "processed"
     selected_settings = _benchmark_test_run_settings()
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", lambda **_kwargs: None)
     upload_bundle_calls: list[dict[str, object]] = []
 
     def _fake_write_benchmark_upload_bundle(**kwargs):
         upload_bundle_calls.append(dict(kwargs))
         return kwargs.get("output_dir")
 
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         _fake_write_benchmark_upload_bundle,
     )
 
@@ -591,18 +555,16 @@ def test_interactive_single_profile_uploads_only_group_oracle_bundle(
             gold_display="gold-b",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-05_23.01.17"
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict({}, warn_context="test oracle group upload")
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", lambda **_kwargs: None)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", lambda **_kwargs: None)
 
     group_bundle_dir = (
         benchmark_eval_output
@@ -617,15 +579,11 @@ def test_interactive_single_profile_uploads_only_group_oracle_bundle(
             return group_bundle_dir
         return output_dir
 
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         _fake_write_benchmark_upload_bundle,
     )
     launch_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        cli,
-        "_start_benchmark_bundle_oracle_upload_background",
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
         lambda **kwargs: launch_calls.append(dict(kwargs)),
     )
 
@@ -675,18 +633,14 @@ def test_interactive_single_profile_selected_matched_benchmark_runs_selected_tar
             gold_display="gold-b",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
     selection_answers = iter([1, "__run_selected__"])
-    monkeypatch.setattr(
-        cli,
-        "_menu_select",
+    _patch_cli_attr(monkeypatch, "_menu_select",
         lambda *_args, **_kwargs: next(selection_answers),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
 
     benchmark_eval_output = tmp_path / "golden" / "2026-02-28_03.30.00"
     processed_output_root = tmp_path / "processed"
@@ -696,9 +650,7 @@ def test_interactive_single_profile_selected_matched_benchmark_runs_selected_tar
     )
 
     benchmark_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        cli,
-        "labelstudio_benchmark",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
     )
 
@@ -755,9 +707,7 @@ def test_interactive_single_profile_selected_matched_uses_concise_book_labels(
             gold_display="thefoodlabcutdown",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
     observed_titles: list[str] = []
@@ -769,7 +719,7 @@ def test_interactive_single_profile_selected_matched_uses_concise_book_labels(
                 observed_titles.append(title)
         return cli.BACK_ACTION
 
-    monkeypatch.setattr(cli, "_menu_select", _fake_menu_select)
+    _patch_cli_attr(monkeypatch, "_menu_select", _fake_menu_select)
 
     completed = cli._interactive_single_profile_all_matched_benchmark(
         selected_benchmark_settings=cli.RunSettings.from_dict(
@@ -818,18 +768,14 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
             gold_display="gold-b",
         ),
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
     selection_answers = iter([1, "__run_selected__"])
-    monkeypatch.setattr(
-        cli,
-        "_menu_select",
+    _patch_cli_attr(monkeypatch, "_menu_select",
         lambda *_args, **_kwargs: next(selection_answers),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_11.22.22"
     processed_output_root = tmp_path / "processed"
@@ -839,14 +785,10 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
     )
 
     benchmark_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        cli,
-        "labelstudio_benchmark",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
     )
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
 
@@ -890,20 +832,14 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
             gold_display="gold-a",
         )
     ]
-    monkeypatch.setattr(
-        cli,
-        "_resolve_all_method_targets",
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
         lambda _output_dir: (targets, []),
     )
-    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(
-        cli,
-        "_write_benchmark_upload_bundle",
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
-    monkeypatch.setattr(
-        cli,
-        "_start_benchmark_bundle_oracle_upload_background",
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
 
@@ -920,7 +856,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
             raise RuntimeError(failure_text)
         return None
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", _fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", _fake_labelstudio_benchmark)
 
     captured_messages: list[str] = []
     monkeypatch.setattr(

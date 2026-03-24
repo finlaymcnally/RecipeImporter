@@ -68,10 +68,8 @@ def test_run_all_method_benchmark_writes_ranked_summary(
             total_seconds=total_seconds,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_run_offline_benchmark_prediction_stage",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage",
         lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
             fake_labelstudio_benchmark=fake_labelstudio_benchmark,
             prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
@@ -184,10 +182,8 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
             with state_lock:
                 active_count -= 1
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_run_offline_benchmark_prediction_stage",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage",
         lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
             fake_labelstudio_benchmark=fake_labelstudio_benchmark,
             prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
@@ -200,7 +196,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
             ),
         ),
     )
-    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    _patch_cli_attr(monkeypatch, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
         gold_spans_path=gold_spans,
@@ -284,10 +280,8 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
             score=score,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_run_offline_benchmark_prediction_stage",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage",
         lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
             fake_labelstudio_benchmark=fake_labelstudio_benchmark,
             prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
@@ -300,7 +294,7 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
             ),
         ),
     )
-    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    _patch_cli_attr(monkeypatch, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
         gold_spans_path=gold_spans,
@@ -394,10 +388,8 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
             score=score,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_run_offline_benchmark_prediction_stage",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage",
         lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
             fake_labelstudio_benchmark=fake_labelstudio_benchmark,
             prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
@@ -410,7 +402,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
             ),
         ),
     )
-    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    _patch_cli_attr(monkeypatch, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
         gold_spans_path=gold_spans,
@@ -513,10 +505,8 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
             score=score,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_run_offline_benchmark_prediction_stage",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage",
         lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
             fake_labelstudio_benchmark=fake_labelstudio_benchmark,
             prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
@@ -529,7 +519,7 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
             ),
         ),
     )
-    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    _patch_cli_attr(monkeypatch, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     fixed_report = cli._run_all_method_benchmark(
         gold_spans_path=gold_spans,
@@ -631,10 +621,8 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
             score=0.7,
         )
 
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_run_offline_benchmark_prediction_stage",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage",
         lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
             fake_labelstudio_benchmark=fake_labelstudio_benchmark,
             prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
@@ -647,7 +635,7 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
             ),
         ),
     )
-    monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
+    _patch_cli_attr(monkeypatch, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
         gold_spans_path=gold_spans,
@@ -730,7 +718,7 @@ def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_wor
         def __init__(self, *_args, **_kwargs) -> None:
             raise PermissionError("denied")
 
-    monkeypatch.setattr(cli, "ProcessPoolExecutor", BrokenExecutor)
+    _patch_cli_attr(monkeypatch, "ProcessPoolExecutor", BrokenExecutor)
 
     call_count = 0
 
@@ -753,10 +741,8 @@ def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_wor
         )
 
     messages: list[str] = []
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
-    monkeypatch.setattr(
-        cli,
-        "_run_offline_benchmark_prediction_stage",
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "_run_offline_benchmark_prediction_stage",
         lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
             fake_labelstudio_benchmark=fake_labelstudio_benchmark,
             prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
