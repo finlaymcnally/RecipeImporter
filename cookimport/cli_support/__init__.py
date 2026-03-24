@@ -748,6 +748,9 @@ def _sync_cli_command_module_globals() -> Iterable[None]:
             target_modules.append(command_module)
 
     original_values: list[tuple[Any, str, Any]] = []
+    runtime_state_names_to_skip = {
+        "_LIVE_STATUS_SLOT_ACTIVE",
+    }
     try:
         for module in target_modules:
             for name, value in sync_names.items():
@@ -762,7 +765,11 @@ def _sync_cli_command_module_globals() -> Iterable[None]:
             if not module_name.startswith("cookimport.cli_support."):
                 continue
             for name, runtime_value in runtime_module.__dict__.items():
-                if name.startswith("__"):
+                if (
+                    name.startswith("__")
+                    or name in sync_names
+                    or name in runtime_state_names_to_skip
+                ):
                     continue
                 module_value = getattr(module, name, missing)
                 if module_value is runtime_value:
@@ -1759,15 +1766,6 @@ _PROGRESS_STAGE_COUNTER_SUFFIX_RE = re.compile(
 
 
 
-@contextmanager
-
-
-
-
-
-
-
-
 @dataclass
 class _HostCpuUtilizationSampler:
     source: str = "proc_stat_linux"
@@ -1844,23 +1842,6 @@ class _ProcessingTimeseriesWriter:
             self._last_snapshot = snapshot
             self._last_write_monotonic = now_monotonic
             self.row_count += 1
-
-
-
-
-
-
-
-
-@contextmanager
-
-
-@contextmanager
-
-
-@contextmanager
-
-
 def _notify_progress_callback(
     progress_callback: Callable[[str], None] | None,
     message: str,
@@ -2120,25 +2101,41 @@ def _attach_freeform_recipe_count_context(
 
 
 
-_progress_module = importlib.import_module(f"{__name__}.progress")
+
+def _load_support_submodule(module_basename: str) -> Any:
+    full_name = f"{__name__}.{module_basename}"
+    module_path = Path(__file__).with_name(f"{module_basename}.py")
+    existing = sys.modules.get(full_name)
+    if existing is not None and getattr(existing, "__file__", None) == str(module_path):
+        return existing
+    module_spec = importlib.util.spec_from_file_location(full_name, module_path)
+    if module_spec is None or module_spec.loader is None:
+        raise RuntimeError(f"unable to load cli_support submodule {full_name} from {module_path}")
+    module = importlib.util.module_from_spec(module_spec)
+    sys.modules[full_name] = module
+    module_spec.loader.exec_module(module)
+    return module
+
+
+_progress_module = _load_support_submodule("progress")
 for _progress_name in _progress_module.__all__:
     globals()[_progress_name] = getattr(_progress_module, _progress_name)
 del _progress_module
 del _progress_name
 
-_bench_module = importlib.import_module(f"{__name__}.bench")
+_bench_module = _load_support_submodule("bench")
 for _bench_name in _bench_module.__all__:
     globals()[_bench_name] = getattr(_bench_module, _bench_name)
 del _bench_module
 del _bench_name
 
-_settings_flow_module = importlib.import_module(f"{__name__}.settings_flow")
+_settings_flow_module = _load_support_submodule("settings_flow")
 for _settings_flow_name in _settings_flow_module.__all__:
     globals()[_settings_flow_name] = getattr(_settings_flow_module, _settings_flow_name)
 del _settings_flow_module
 del _settings_flow_name
 
-_interactive_flow_module = importlib.import_module(f"{__name__}.interactive_flow")
+_interactive_flow_module = _load_support_submodule("interactive_flow")
 for _interactive_flow_name in _interactive_flow_module.__all__:
     globals()[_interactive_flow_name] = getattr(_interactive_flow_module, _interactive_flow_name)
 del _interactive_flow_module

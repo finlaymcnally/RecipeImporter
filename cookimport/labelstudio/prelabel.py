@@ -1346,6 +1346,21 @@ def _coerce_selection_items(payload: Any) -> list[dict[str, Any]]:
     return [payload]
 
 
+_PRELABEL_SELECTION_LABEL_ALIASES = {
+    "YIELD": "YIELD_LINE",
+    "TIME": "TIME_LINE",
+    "TIP": "KNOWLEDGE",
+    "NOTES": "RECIPE_NOTES",
+    "NOTE": "RECIPE_NOTES",
+    "VARIANT": "RECIPE_VARIANT",
+}
+
+
+def _normalize_prelabel_selection_label(raw: str) -> str:
+    normalized = normalize_freeform_label(raw)
+    return _PRELABEL_SELECTION_LABEL_ALIASES.get(normalized, normalized)
+
+
 def parse_block_label_output(raw: str) -> list[dict[str, Any]]:
     """Parse model output into `{block_index, label}` records."""
     payload = extract_first_json_value(raw)
@@ -1361,7 +1376,7 @@ def parse_block_label_output(raw: str) -> list[dict[str, Any]]:
             block_index = int(block_index_raw)
         except (TypeError, ValueError):
             continue
-        label = normalize_freeform_label(str(label_raw))
+        label = _normalize_prelabel_selection_label(str(label_raw))
         key = (block_index, label)
         if key in seen:
             continue
@@ -1392,7 +1407,7 @@ def parse_span_label_output(raw: str) -> list[dict[str, Any]]:
         label_raw = item.get("label") or item.get("tag") or item.get("category")
         if not label_raw:
             continue
-        label = normalize_freeform_label(str(label_raw))
+        label = _normalize_prelabel_selection_label(str(label_raw))
         start_raw = item.get("start")
         end_raw = item.get("end")
         if start_raw is not None and end_raw is not None:

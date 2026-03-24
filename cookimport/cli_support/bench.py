@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from cookimport import cli_support as runtime
+import sys
+
+runtime = sys.modules["cookimport.cli_support"]
 
 # Snapshot the already-initialized root support namespace so the moved
 # benchmark helpers can keep their historical unqualified references.
 globals().update(
-    {name: value for name, value in vars(runtime).items() if name != "__builtins__"}
+    {
+        name: value
+        for name, value in vars(runtime).items()
+        if not name.startswith("__")
+    }
 )
 
 def _write_single_book_starter_pack(*, session_root: Path) -> Path | None:
@@ -13391,6 +13397,8 @@ def _sum_token_usage(
 def _load_single_book_codex_farm_runtime(
     eval_output_dir: Path,
 ) -> dict[str, Any] | None:
+    from cookimport.cli_support.bench_compare import _resolve_artifact_path
+
     manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
     if not isinstance(manifest_payload, dict):
         return None

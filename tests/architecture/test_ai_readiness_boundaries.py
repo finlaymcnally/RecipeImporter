@@ -72,8 +72,8 @@ def test_package_owner_modules_exist_for_split_domains() -> None:
 def test_cli_support_root_stays_a_small_facade() -> None:
     cli_support_text = _read("cookimport/cli_support/__init__.py")
 
-    assert "from . import progress as _progress_module" in cli_support_text
-    assert "from . import bench as _bench_module" in cli_support_text
-    assert "from . import settings_flow as _settings_flow_module" in cli_support_text
-    assert "from . import interactive_flow as _interactive_flow_module" in cli_support_text
+    assert '_load_support_submodule("progress")' in cli_support_text
+    assert '_load_support_submodule("bench")' in cli_support_text
+    assert '_load_support_submodule("settings_flow")' in cli_support_text
+    assert '_load_support_submodule("interactive_flow")' in cli_support_text
     assert len(cli_support_text.splitlines()) <= 2500

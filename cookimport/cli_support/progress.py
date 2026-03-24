@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from cookimport import cli_support as runtime
+import sys
+
+runtime = sys.modules["cookimport.cli_support"]
 
 # Snapshot the fully initialized root support namespace so these moved
 # flow/progress helpers can keep their historical unqualified references.
 globals().update(
-    {name: value for name, value in vars(runtime).items() if name != "__builtins__"}
+    {
+        name: value
+        for name, value in vars(runtime).items()
+        if not name.startswith("__")
+    }
 )
 
 def _extract_progress_counter(message: str) -> tuple[int, int] | None:
@@ -339,6 +345,7 @@ def _effective_live_status_slots() -> int:
         return _normalize_live_status_slots(override)
     return _read_live_status_slots_from_env()
 
+@contextmanager
 def _acquire_live_status_slot(slot_limit: int) -> Iterable[bool]:
     global _LIVE_STATUS_SLOT_ACTIVE
     normalized_limit = _normalize_live_status_slots(slot_limit)
@@ -1621,6 +1628,7 @@ def _run_with_progress_status(
                 ticker.join(timeout=max(0.2, float(tick_seconds) * 2))
                 _emit_timeseries(event="finished", force=True)
 
+@contextmanager
 def _benchmark_progress_overrides(
     *,
     progress_callback: Callable[[str], None] | None = None,
@@ -1654,6 +1662,7 @@ def _benchmark_progress_overrides(
         _BENCHMARK_SUPPRESS_OUTPUT_PRUNE.reset(output_prune_token)
         _BENCHMARK_LIVE_STATUS_SLOTS.reset(live_slots_token)
 
+@contextmanager
 def _benchmark_split_phase_overrides(
     *,
     split_phase_slots: int | None = None,
@@ -1674,6 +1683,7 @@ def _benchmark_split_phase_overrides(
         _BENCHMARK_SPLIT_PHASE_GATE_DIR.reset(gate_dir_token)
         _BENCHMARK_SPLIT_PHASE_STATUS_LABEL.reset(label_token)
 
+@contextmanager
 def _benchmark_scheduler_event_overrides(
     *,
     scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,

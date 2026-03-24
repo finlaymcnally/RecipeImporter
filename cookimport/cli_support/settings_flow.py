@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from cookimport import cli_support as runtime
+import sys
+
+runtime = sys.modules["cookimport.cli_support"]
 
 # Snapshot the fully initialized root support namespace so these moved
 # flow/progress helpers can keep their historical unqualified references.
 globals().update(
-    {name: value for name, value in vars(runtime).items() if name != "__builtins__"}
+    {
+        name: value
+        for name, value in vars(runtime).items()
+        if not name.startswith("__")
+    }
 )
 
 def _settings_menu(current_settings: Dict[str, Any]) -> None:

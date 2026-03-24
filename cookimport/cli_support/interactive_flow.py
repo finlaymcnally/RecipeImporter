@@ -1,11 +1,22 @@
 from __future__ import annotations
 
-from cookimport import cli_support as runtime
+import sys
+
+runtime = sys.modules["cookimport.cli_support"]
+from cookimport.cli_support.bench import (
+    INTERACTIVE_BENCHMARK_MODE_ALL_MATCHED_BOOKS,
+    INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS,
+    INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK,
+)
 
 # Snapshot the fully initialized root support namespace so these moved
 # flow/progress helpers can keep their historical unqualified references.
 globals().update(
-    {name: value for name, value in vars(runtime).items() if name != "__builtins__"}
+    {
+        name: value
+        for name, value in vars(runtime).items()
+        if not name.startswith("__")
+    }
 )
 
 def _interactive_mode(*, limit: int | None = None) -> None:
