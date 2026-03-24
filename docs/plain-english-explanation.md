@@ -8,7 +8,7 @@ a note to AI editors: please do not include code/file references here. it is con
 
 Every `cookimport stage` run starts by creating a new timestamped output folder and deciding how much parallel work to use.
 
-The run settings also lock in the big behavior choices up front: how many workers to use, whether PDF or EPUB inputs may be split into multiple source jobs, whether recipe Codex is on, whether knowledge Codex is on, how ingredient parsing should behave, whether markdown sidecars should be written, and similar knobs that affect the whole run.
+The run settings also lock in the big behavior choices up front: how many workers to use, how source jobs should be planned, whether line-role Codex review is on, whether recipe Codex is on, whether knowledge Codex is on, how ingredient parsing should behave, whether markdown sidecars should be written, and similar knobs that affect the whole run.
 
 Then the importer registry looks at each input file and picks the importer that seems most appropriate for that source type.
 
@@ -24,6 +24,7 @@ The important business rule here is that all of those importers now converge on 
 - a report
 
 Some importers may also make early guesses about recipes or non-recipe text, but those guesses are not the final truth. Importers are source normalizers first. The shared stage session later decides what is really a recipe and what is really meaningful outside-recipe knowledge.
+> [3] I thought I removed all of this?
 
 ## What importers are really doing
 
@@ -42,7 +43,7 @@ The program also keeps raw artifacts from this phase so later debugging can answ
 
 That raw preservation is important because a lot of later business logic assumes the source model is already honest and complete enough to support authoritative regrouping.
 
-PDF and EPUB inputs have one extra wrinkle: the program may split them into source jobs. Those jobs only do the early conversion work. Afterward the program merges those job results back into one whole-book bundle, fixes indexes and recipe IDs, rebuilds the full text view, and only then runs the shared semantic session.
+Every source now runs through planned source jobs. For many inputs that plan contains one whole-source job. For larger PDFs or EPUBs it may contain multiple ranged jobs. Either way, those jobs only do the early conversion work. Afterward the program merges the job results back into one whole-book bundle, fixes indexes and recipe IDs, rebuilds the full text view, and only then runs the shared semantic session.
 
 ## Split jobs and merge
 
@@ -101,26 +102,34 @@ At this point the program is asking practical classification questions like:
 - is this line an ingredient line
 - is this line an instruction line
 - is this line note-like
-- is this line clearly outside a recipe
-- is this line ambiguous enough to need later review
+- is this line clearly outside a recipe 
+> [5] what is this
+- is this line ambiguous enough to need later review 
+> [6] what is this
 
 The deterministic pass is important even when LLMs are available. It gives the system a reproducible first pass, creates artifact trails, and establishes a baseline that the later optional Codex step can refine instead of replacing from scratch.
 
 If line-role Codex review is enabled, `label_llm_correct` can refine those labels. Even then, the repo-owned validation and cleanup logic is still the final gate on whether those corrections count.
+> [7] the corrections should always count. how does the gate decide?
 
 After labeling, `group_recipe_spans` groups accepted lines back into recipe spans.
+> [8] why "back into"
 
 This is the main authority handoff in the system. Importer recipes are not the final truth anymore. The accepted grouped spans are.
+> [9] dont need notes about what used to be
 
 A grouped span usually needs a title anchor to count as a real recipe. Structured-looking text without a convincing title can still be rejected as a pseudo-recipe.
 
 That title-anchor rule exists because cookbook sources often contain recipe-shaped junk: tables of contents, index-like blocks, sidebars, ingredient-like shopping notes, or small structured fragments that look recipe-ish but are not actually real recipes.
 
 So `recipe-boundary` is not just grouping. It is also a rejection stage. It throws away titleless pseudo-recipes, weak spans, and other false positives instead of treating every structured cluster as a valid recipe.
+> [10] what happens to them
 
 If an importer thought there were recipes but `group_recipe_spans` ends up with zero accepted recipes, the program does not quietly fall back to the importer guess. It stays on the label-first result and records that mismatch as an authority problem.
+> [11] there shouldn't be anything about importer guesses, this was supposed to be cleaned out
 
 That is a strong business decision. The program would rather surface a mismatch than quietly reintroduce early importer authority that the shared stage just rejected.
+> [12] there shouldn't be anything about importer guesses, this was supposed to be cleaned out
 
 By the end of `recipe-boundary`, the program knows:
 
@@ -131,13 +140,13 @@ By the end of `recipe-boundary`, the program knows:
 
 ## `recipe-refine`
 
-Once accepted recipe spans exist, the program rebuilds recipe candidates from those spans instead of simply carrying importer candidates forward.
+Once accepted recipe spans exist, the program assembles one recipe object for each accepted span.
 
-This means recipe structure is regenerated after authoritative grouping. The program is no longer trusting the importer’s original recipe objects as the final source of truth.
+`recipe-boundary` decides which lines and blocks belong to a recipe. `recipe-refine` then turns that accepted span into actual recipe structure.
 
 Now the recipe side becomes a semantic shaping problem.
 
-The system rebuilds recipe candidates and then works through the common recipe business logic:
+The system works through the common recipe business logic:
 
 - title normalization
 - ingredient line parsing
@@ -150,13 +159,13 @@ The system rebuilds recipe candidates and then works through the common recipe b
 - note handling
 - variant handling
 
-This is where a lot of the practical cookbook-specific cleanup happens. The program is trying to take source text that may be messy, inconsistent, or only partially structured and turn it into one coherent recipe representation.
+This is where the program turns the accepted recipe span into one coherent recipe representation. The label stage has already done the ownership and line-role work; this stage does the recipe assembly and normalization work that turns those labeled spans into recipe data.
 
 If recipe Codex is enabled, this is the stage that runs it. The public recipe pipeline name is `codex-recipe-shard-v1`.
 
 That Codex step is a refinement pass, not the final writer.
 
-Its job is to improve recipe semantics inside the boundaries already accepted by `recipe-boundary`. It can help with things like cleaner recipe structure, better note placement, better ingredient-step links, and tag suggestions, but it is not allowed to reopen recipe ownership.
+Its job is to improve recipe semantics inside the boundaries already accepted by `recipe-boundary`. In practice it is looking at the stage-owned recipe payload generated from those accepted spans, not reopening recipe ownership. It can help with things like cleaner recipe structure, better note placement, better ingredient-step links, and tag suggestions.
 
 Tags live inside this same recipe-refine path now. There is no separate tags subsystem anymore. The recipe correction prompt may emit raw selected tags, then deterministic normalization cleans them up and the final recipe stores them as `recipe.tags`.
 
@@ -176,6 +185,7 @@ Those are not casual exports. They are the program’s normalized statement of w
 ## `nonrecipe-route`
 
 After recipe ownership is settled, everything outside the accepted recipe spans goes into `nonrecipe-route`. This is the runtime step most people have been informally calling Stage 7.
+> [19] who? what people? why are there no stages 1 - 6?
 
 This stage creates the first real outside-recipe routing map.
 
@@ -184,11 +194,18 @@ Its job is not to perfectly understand all surviving prose. Its job is to do the
 It decides:
 
 - which outside-recipe rows are obvious junk
+> [20] it doesn't decide aything it literally just routes them, the label_llm_correct decided this
 - which rows are clearly final `other`
+> [21] is this not the same as obvious junk? how is it deciding? deterministic things should NOT be deciding
 - which rows are still plausible knowledge candidates
+> [22] how is it deciding? deterministic things should NOT be deciding
 - which rows are review-eligible and should stay in play for later `knowledge-final`
+> [23] how is it deciding? deterministic things should NOT be deciding
+
+> [24] this step just routes off the junk labelled in the labelling step. it shouldn't do muhc more than that. i dont even really know why  it exists
 
 Some material becomes final immediately here: navigation, publishing junk, endorsements, page furniture, and similar noise can be excluded right away as final `other`.
+> [25] it doesn't decide aything it literally just routes them, the label_llm_correct decided this
 
 That matters because cookbook sources are full of outside-recipe text that is not equally valuable. Some of it is clearly worthless for downstream use. Some of it might be useful cooking knowledge. Some of it is ambiguous and should not be finalized too early.
 
@@ -202,7 +219,9 @@ By the end of `nonrecipe-route`, the program has three practical buckets:
 
 - excluded rows that are done forever
 - seed-kept rows that are still only provisional
+> [26] what is this
 - the review-status setup for whatever has to go through the last semantic gate
+> [27] what is this
 
 This stage also matters because later chunk generation, table extraction, Label Studio knowledge counts, and benchmark evidence are not supposed to revive importer leftovers or old side lanes. They are supposed to follow the stage-owned outside-recipe path.
 
@@ -211,14 +230,19 @@ This stage also matters because later chunk generation, table extraction, Label 
 `knowledge-final` is the last authority step for outside-recipe meaning.
 
 If knowledge review is off, the program keeps the `nonrecipe-route` result and moves on.
+> [28] its basically pointless for vanilla / deterministic only to even try to do KNOWLEDGE vs OTHER to be honest. its pure subtle decision making based on judgement/context
 
 If knowledge review is on, the public knowledge pipeline name is `codex-knowledge-shard-v1`.
 
 Before that reviewer sees anything, the program chunks the surviving review-eligible outside-recipe text into local pieces. The reviewer works on those chunks, not on the entire book at once.
+> [29] is this true? I thought i changed this
 
 That chunking matters for business logic, not just token control. The program wants the reviewer to judge bounded local passages with grounded context instead of making vague whole-book judgments.
+> [30] I mostly want the LLM to do this, to group the knowledge by topic so it's not just a bunch of sentences
+> [31] we also need to tag the knowledge, same way/same tags as the recipes!
 
 The reviewer returns block-level keep-or-reject style decisions plus grounded evidence. Those decisions are then validated and promoted back into the stage-owned authority model.
+> [32] evidence?
 
 Those worker decisions refine the seed routing into the final outside-recipe authority.
 
@@ -243,6 +267,7 @@ Sections come from the finalized recipe side.
 Chunks come from final outside-recipe authority only. That is a deliberate business rule. If no final outside-recipe rows survive, the correct answer is no chunks, not a fallback to some older importer-side guess.
 
 Table extraction also follows the authoritative staged view instead of acting like a parallel semantic universe.
+> [33] going to have to do more work here eventually. i dont think we're done with the knowledge section by a long shot
 
 At this point the run may also write reviewer-facing sidecars like markdown summaries, knowledge snippets, and raw debugging artifacts that help explain what happened without changing any final authority decision.
 
@@ -276,20 +301,6 @@ The run also writes the report and observability story that later tools use to i
 - what stage summaries and mismatch warnings were produced
 
 So the end of the run is not just "write recipes." It is "write recipes, write the outside-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later."
-
-## The simplest honest summary
-
-The plainest version of the business logic is this:
-
-First the program converts the source into a canonical book model.
-
-Then it decides recipe boundaries authoritatively with a label-first pipeline.
-
-Then it refines the accepted recipes into normalized recipe semantics and final recipe drafts.
-
-Then it routes all remaining outside-recipe text, immediately throws away obvious junk, and optionally sends the harder surviving passages through one last knowledge review stage.
-
-Then it writes every final artifact from those stage-owned decisions instead of from importer guesses.
 
 # Hidden Layers
 

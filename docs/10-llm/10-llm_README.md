@@ -52,7 +52,7 @@ Recipe CodexFarm path:
 
 Other active Codex-backed surfaces:
 
-- Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`, `cookimport/llm/knowledge_prompt_builder.py`
+- Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py` (thin public facade), `cookimport/llm/knowledge_stage/` (active planning/runtime/reporting owner), `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`, `cookimport/llm/knowledge_prompt_builder.py`
 - the knowledge stage now keeps two small runtime ledgers beside the normal manifests: `task_status.jsonl` records per-packet attempt/terminal state, while `stage_status.json` records stage finalization and interruption attribution. `knowledge_stage_summary.json` is the canonical post-run summary view over those ledgers. Interrupted runs should still leave partial `phase_manifest.json`, `promotion_report.json`, `telemetry.json`, and `failures.json` beside those status files.
 - recipe and canonical line-role stage roots now also write compact post-run summaries beside their runtime artifacts: `recipe_stage_summary.json` under `raw/llm/<workbook>/recipe_phase_runtime/` and `line_role_stage_summary.json` under `line-role-pipeline/runtime/line_role/`
 - canonical line-role runtime telemetry now preserves missing token usage as unavailable instead of coercing it to zero, so `telemetry_summary.json`, `prompt_budget_summary.json`, and benchmark-history token backfill can fail closed on partial usage
@@ -60,7 +60,7 @@ Other active Codex-backed surfaces:
 - when repo supervision decides a workspace-worker session is `completed` or `completed_with_failures`, the shared runner now waits briefly before terminating the subprocess so late `turn.completed` usage can still arrive and populate the normal worker `usage.json` artifacts
 - the line-role and knowledge success watchdogs no longer stop a worker the instant outputs stabilize; they now wait for one post-finalize / post-install completion signal, or a short quiet period, before asking the runner to terminate the session
 - line-role and knowledge worker roots now also save raw `stdout.txt` / `stderr.txt` sidecars when the direct-exec subprocess emitted text, which makes missing-usage sessions inspectable from the artifact tree
-- Canonical line-role: `cookimport/parsing/canonical_line_roles.py`, `cookimport/llm/canonical_line_role_prompt.py`, `cookimport/llm/codex_exec_runner.py`
+- Canonical line-role: `cookimport/parsing/canonical_line_roles/`, `cookimport/llm/canonical_line_role_prompt.py`, `cookimport/llm/codex_exec_runner.py`
 - Freeform prelabel: `cookimport/labelstudio/prelabel.py`
 - Prompt/debug artifact export: `cookimport/llm/prompt_artifacts.py`
 

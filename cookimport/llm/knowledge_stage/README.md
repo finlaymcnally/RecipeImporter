@@ -1,0 +1,1 @@
+Private knowledge-stage package. Start with `reporting.py` for manifest/telemetry writers, then `__init__.py` for the remaining planning/runtime facade while recovery and promotion helpers are still being cut out.

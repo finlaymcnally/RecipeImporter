@@ -49,6 +49,7 @@ Primary modules:
 - `cookimport/analytics/dashboard_schema.py`
 - `cookimport/analytics/dashboard_render.py` (public facade)
 - `cookimport/analytics/dashboard_renderers/` (asset/page/template ownership)
+  - `templates.py` is now a tiny facade over `html_shell.py`, `style_asset.py`, and `script_asset.py`
 - `cookimport/analytics/compare_control_engine.py`
 - `cookimport/analytics/benchmark_timing.py`
 - `cookimport/paths.py`

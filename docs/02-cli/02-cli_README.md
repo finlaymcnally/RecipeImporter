@@ -14,9 +14,12 @@ For beginner interactive usage, start with `README.md` in the project root.
 
 Current package note:
 - the first real private support homes are `cookimport/cli_support/interactive.py`, `cookimport/cli_support/settings.py`, `cookimport/cli_support/dashboard.py`, and `cookimport/cli_support/compare_control.py`
+- `cookimport/cli_support/bench.py` now owns the benchmark-heavy private surface: single-book helpers, all-method planning/runtime/reporting, and Oracle/upload bundle support
+- `cookimport/cli_support/progress.py` now owns shared live-status rendering, telemetry, and benchmark progress override helpers
+- `cookimport/cli_support/settings_flow.py` now owns the interactive settings screen, and `cookimport/cli_support/interactive_flow.py` owns the main guided menu loop
 - `cookimport/cli_support/stage.py` now owns the shared stage manifest/merge/report helpers that were previously buried at the end of the root support file
 - `cookimport/cli_commands/stage.py`, `cookimport/cli_commands/bench.py`, and `cookimport/cli_commands/labelstudio.py` now use explicit `cli_support` imports instead of `from cookimport.cli_support import *`
-- `cookimport/cli_support/__init__.py` is now the explicit internal export hub for shared CLI helpers plus the scoped `cookimport.cli` compatibility relay
+- `cookimport/cli_support/__init__.py` is now the small internal export hub for shared CLI helpers plus the scoped `cookimport.cli` compatibility relay, not the implementation owner of benchmark/settings/interactive flows
 
 ## Entry Points
 

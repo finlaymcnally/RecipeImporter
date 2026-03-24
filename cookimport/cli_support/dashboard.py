@@ -38,9 +38,15 @@ def _refresh_dashboard_after_history_write(
         )
         return
     try:
+        from cookimport import cli as cli_module
         from cookimport.cli_commands import analytics as analytics_commands
 
-        analytics_commands.stats_dashboard(
+        dashboard_runner = getattr(
+            cli_module,
+            "stats_dashboard",
+            analytics_commands.stats_dashboard,
+        )
+        dashboard_runner(
             output_root=resolved_output_root,
             golden_root=golden_root or runtime.DEFAULT_GOLDEN,
             out_dir=resolved_dashboard_out_dir,
