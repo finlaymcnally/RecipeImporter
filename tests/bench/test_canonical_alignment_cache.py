@@ -328,7 +328,8 @@ def test_canonical_alignment_disk_cache_single_compute_under_concurrency(
     first_result_path = tmp_path / "worker1.json"
     second_result_path = tmp_path / "worker2.json"
 
-    context = mp.get_context("spawn")
+    start_method = "fork" if "fork" in mp.get_all_start_methods() else "spawn"
+    context = mp.get_context(start_method)
     worker1 = context.Process(
         target=_cache_worker,
         kwargs={

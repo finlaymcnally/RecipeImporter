@@ -25,6 +25,17 @@ def _force_non_wsl_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_process_pool_probe_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Most tests only care about how runtime metadata propagates after the probe.
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (True, None),
+    )
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
