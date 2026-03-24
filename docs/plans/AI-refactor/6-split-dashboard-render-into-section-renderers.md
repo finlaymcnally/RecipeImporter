@@ -26,12 +26,15 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 18:08 EDT) Authored this standalone dashboard-render decomposition ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes moved helpers and renderers from `dashboard_render.py` instead of preserving a broad facade.
 - [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed `cookimport/analytics/dashboard_renderers/` still does not exist, while [cookimport/analytics/dashboard_render.py](/home/mcnal/projects/recipeimport/cookimport/analytics/dashboard_render.py) remains a 14,535-line renderer with embedded assets and all-method page rendering still co-located.
-- [ ] Create a `cookimport/analytics/dashboard_renderers/` package with clear page/section ownership.
-- [ ] Move asset and shell-writing concerns out of `dashboard_render.py`.
-- [ ] Move all-method grouping and page rendering into dedicated modules.
-- [ ] Move diagnostics and previous-runs section rendering into dedicated modules.
-- [ ] Cut `dashboard_render.py` down to the smallest product-facing entrypoint surface and delete moved helper exports and render bodies.
-- [ ] Add or update analytics-domain tests and docs for the new ownership map.
+- [x] (2026-03-23 17:51 EDT) Added `cookimport/analytics/dashboard_renderers/`, moved the active renderer implementation there, and cut `cookimport/analytics/dashboard_render.py` down to a thin public facade while keeping the dashboard tests green.
+- [x] (2026-03-23 18:31 EDT) Updated the analytics docs and folder-local note so the renderer package is now taught as the implementation owner and `dashboard_render.py` is documented only as the public facade.
+
+- [x] Create a `cookimport/analytics/dashboard_renderers/` package with clear page/section ownership.
+- [x] Move asset and shell-writing concerns out of `dashboard_render.py`.
+- [x] Move all-method grouping and page rendering into dedicated modules.
+- [x] Move diagnostics and previous-runs section rendering into dedicated modules.
+- [x] Cut `dashboard_render.py` down to the smallest product-facing entrypoint surface and delete moved helper exports and render bodies.
+- [x] Add or update analytics-domain tests and docs for the new ownership map.
 
 ## Surprises & Discoveries
 

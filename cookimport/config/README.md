@@ -2,7 +2,7 @@ Run-configuration source of truth.
 Detailed run-settings contracts live in `cookimport/config/CONVENTIONS.md`.
 
 - `run_settings.py` defines canonical `RunSettings` used for interactive run selection, report `runConfig`, and analytics hashes/summaries.
-  - Contract helpers now split that schema into `operator`, `benchmark_lab`, and `raw/full` projections so summaries/docs can stay smaller without breaking old payload loading.
+  - `run_settings_contracts.py` is now the contract/projection owner for `operator`, `benchmark_lab`, and `raw/full` payload views.
   - Includes deterministic instruction fallback segmentation knobs (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) shared by stage + benchmark prediction paths.
   - Includes Priority 6 parsing knobs (`p6_time_*`, `p6_temperature_*`, `p6_ovenlike_mode`, `p6_yield_mode`, `p6_emit_metadata_debug`) shared by stage + benchmark prediction paths.
 - `codex_decision.py` is the shared Codex policy layer for top-tier profile patches, paired benchmark Codex/vanilla contracts, command-boundary approval checks, and persisted decision metadata.

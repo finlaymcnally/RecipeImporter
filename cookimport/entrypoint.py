@@ -3,9 +3,9 @@ from __future__ import annotations
 import sys
 
 from cookimport.cli import DEFAULT_INPUT, DEFAULT_OUTPUT, _fail, _load_settings, app, stage
-from cookimport.config.run_settings import (
+from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings_contracts import (
     RUN_SETTING_CONTRACT_FULL,
-    RunSettings,
     project_run_config_payload,
 )
 from cookimport.config.run_settings_adapters import (

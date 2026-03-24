@@ -71,20 +71,22 @@ from cookimport.config.codex_decision import (
 from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
 )
+from cookimport.config.run_settings_contracts import (
+    RUN_SETTING_CONTRACT_FULL,
+    project_run_config_payload,
+    summarize_run_config_payload,
+)
 from cookimport.config.run_settings import (
     KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
     LINE_ROLE_PIPELINE_SHARD_V1,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
-    RUN_SETTING_CONTRACT_FULL,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
     normalize_line_role_pipeline_value,
     normalize_llm_knowledge_pipeline_value,
     normalize_llm_recipe_pipeline_value,
-    project_run_config_payload,
-    summarize_run_config_payload,
 )
 from cookimport.config.run_settings_adapters import (
     build_benchmark_call_kwargs_from_run_settings,
@@ -280,6 +282,68 @@ from cookimport.paths import (
 app.add_typer(epub_app, name="epub")
 console = Console()
 logger = logging.getLogger(__name__)
+
+
+def _sync_cli_command_module_globals() -> None:
+    from cookimport import cli as compat_cli
+    from cookimport.cli_commands import (
+        analytics as analytics_commands,
+        bench as bench_commands,
+        compare_control as compare_control_commands,
+        interactive as interactive_commands,
+        labelstudio as labelstudio_commands,
+        stage as stage_commands,
+    )
+
+    modules = (
+        analytics_commands,
+        bench_commands,
+        compare_control_commands,
+        interactive_commands,
+        labelstudio_commands,
+        stage_commands,
+    )
+    for module in modules:
+        for name, value in module.__dict__.items():
+            if name.startswith("__"):
+                continue
+            if hasattr(compat_cli, name):
+                setattr(module, name, getattr(compat_cli, name))
+
+
+def _rebuild_cli_apps_from_command_packages() -> None:
+    from cookimport.cli_commands import (
+        analytics as analytics_commands,
+        bench as bench_commands,
+        compare_control as compare_control_commands,
+        interactive as interactive_commands,
+        labelstudio as labelstudio_commands,
+        stage as stage_commands,
+    )
+
+    global app, bench_app, compare_control_app
+
+    root_app = typer.Typer(add_completion=False, invoke_without_command=True)
+    bench_group = typer.Typer(name="bench", help="Offline benchmark suite tools.")
+    compare_group = typer.Typer(
+        name="compare-control",
+        help="Backend Compare & Control analytics for CLI and agent workflows.",
+    )
+    root_app.add_typer(bench_group)
+    root_app.add_typer(compare_group, name="compare-control")
+    root_app.add_typer(epub_app, name="epub")
+
+    _sync_cli_command_module_globals()
+    interactive_commands.register_callback(root_app)
+    stage_commands.register(root_app)
+    labelstudio_commands.register(root_app)
+    analytics_commands.register(root_app)
+    bench_commands.register(bench_group)
+    compare_control_commands.register(compare_group)
+
+    app = root_app
+    bench_app = bench_group
+    compare_control_app = compare_group
 
 DEFAULT_INPUT = INPUT_ROOT
 DEFAULT_OUTPUT = OUTPUT_ROOT
@@ -24628,9 +24692,10 @@ def stage(
                         job.file_path.name,
                         f"Merge done ({merged['duration']:.2f}s)",
                     )
+                    merged_tips = int(merged.get("tips") or 0)
                     _emit_stage_message(
                         f"[green]✔ {merged['file']}: {merged['recipes']} recipes, "
-                        f"merge {merged['duration']:.2f}s[/green]",
+                        f"{merged_tips} tips (merge {merged['duration']:.2f}s)[/green]",
                         fg=typer.colors.GREEN,
                     )
                 except Exception as exc:
@@ -31471,6 +31536,9 @@ def bench_eval_stage(
         f"{float((report or {}).get('macro_f1_excluding_other') or 0.0):.3f}",
         fg=typer.colors.CYAN,
     )
+
+
+_rebuild_cli_apps_from_command_packages()
 
 
 if __name__ == "__main__":

@@ -28,11 +28,14 @@ This plan is standalone. It does not depend on a parent ExecPlan. It replaces th
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a cutover migration: new contracts owner, updated imports, and no lingering compatibility re-exports once the refactor is complete.
 - [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed [cookimport/config/run_settings_adapters.py](/home/mcnal/projects/recipeimport/cookimport/config/run_settings_adapters.py) is now documented as the canonical mapping layer in [cookimport/config/README.md](/home/mcnal/projects/recipeimport/cookimport/config/README.md) and [cookimport/config/CONVENTIONS.md](/home/mcnal/projects/recipeimport/cookimport/config/CONVENTIONS.md).
 - [x] (2026-03-23 17:16 EDT) Verified adapter-driven runtime assembly is already the normal path in [cookimport/entrypoint.py](/home/mcnal/projects/recipeimport/cookimport/entrypoint.py), [cookimport/bench/speed_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/speed_runner.py), and several CLI helper paths in [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py).
-- [ ] Create `cookimport/config/run_settings_contracts.py` and move the contract names and projection helpers there as the only import home.
-- [ ] Finish migrating the remaining high-traffic callers so adapters and contract helpers are the ordinary path everywhere they should be (completed: entrypoint, speed suite, and several CLI benchmark/stage helpers; remaining: summary-heavy and config-projection-heavy callers such as leaderboard, interactive summaries, and quality-run reporting paths).
-- [ ] Migrate major callers that still hand-project payloads to the authoritative contract helpers instead of ad hoc field selection.
-- [ ] Add narrow tests proving product, operator, benchmark-lab, and internal boundaries.
-- [ ] Update CLI and architecture docs so they teach the smaller config surfaces first.
+- [x] (2026-03-23 17:51 EDT) Added `cookimport/config/run_settings_contracts.py`, moved the contract/projection helpers there, and updated the active callers/tests that still imported those helpers from `run_settings.py`.
+- [x] (2026-03-23 18:31 EDT) Finished the remaining high-traffic caller migration for the current tree: leaderboard, interactive run-settings flow, analytics summary paths, Label Studio ingest, and quality-run reporting now import the contract/projection helpers from `run_settings_contracts.py`, and the config/docs/tests teach that smaller config surface first.
+
+- [x] Create `cookimport/config/run_settings_contracts.py` and move the contract names and projection helpers there as the only import home.
+- [x] Finish migrating the remaining high-traffic callers so adapters and contract helpers are the ordinary path everywhere they should be (completed: entrypoint, speed suite, leaderboard, interactive summaries, analytics summaries, Label Studio ingest, and quality-run reporting paths).
+- [x] Migrate major callers that still hand-project payloads to the authoritative contract helpers instead of ad hoc field selection.
+- [x] Add narrow tests proving product, operator, benchmark-lab, and internal boundaries.
+- [x] Update CLI and architecture docs so they teach the smaller config surfaces first.
 
 ## Surprises & Discoveries
 

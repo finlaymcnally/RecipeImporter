@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.paths import history_csv_for_output
-from cookimport.config.run_settings import summarize_run_config_payload
+from cookimport.config.run_settings_contracts import summarize_run_config_payload
 
 from .benchmark_semantics import (
     ai_assistance_profile_for_record,

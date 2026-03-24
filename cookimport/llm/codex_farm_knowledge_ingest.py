@@ -49,7 +49,9 @@ def normalize_knowledge_worker_payload(
     payload: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
-        semantic_result = KnowledgePacketSemanticResultV1.model_validate(dict(payload))
+        semantic_payload = _normalize_legacy_semantic_payload(dict(payload))
+        semantic_payload = _apply_legacy_reason_code_defaults(semantic_payload)
+        semantic_result = KnowledgePacketSemanticResultV1.model_validate(semantic_payload)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(
             "worker output did not match the semantic packet result v1 contract: "
@@ -88,6 +90,44 @@ def _knowledge_reason_metadata(
     if other_reason_code_counts:
         metadata["all_other_reason_code_counts"] = dict(sorted(other_reason_code_counts.items()))
     return metadata
+
+
+def _apply_legacy_reason_code_defaults(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk_results = payload.get("chunk_results")
+    if not isinstance(chunk_results, list):
+        return payload
+
+    normalized_chunk_results: list[Any] = []
+    changed = False
+    for chunk_result in chunk_results:
+        if not isinstance(chunk_result, dict):
+            normalized_chunk_results.append(chunk_result)
+            continue
+        normalized_chunk_result = dict(chunk_result)
+        if normalized_chunk_result.get("reason_code") in (None, ""):
+            normalized_chunk_result["reason_code"] = (
+                "technique_or_mechanism"
+                if bool(normalized_chunk_result.get("is_useful"))
+                else "not_cooking_knowledge"
+            )
+            changed = True
+        normalized_chunk_results.append(normalized_chunk_result)
+
+    if not changed:
+        return payload
+
+    normalized_payload = dict(payload)
+    normalized_payload["chunk_results"] = normalized_chunk_results
+    return normalized_payload
+
+
+def _normalize_legacy_semantic_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_payload = dict(payload)
+    if "packet_id" not in normalized_payload and normalized_payload.get("bundle_id"):
+        normalized_payload["packet_id"] = normalized_payload.get("bundle_id")
+    normalized_payload.pop("bundle_version", None)
+    normalized_payload.pop("bundle_id", None)
+    return normalized_payload
 
 
 def validate_knowledge_shard_output(

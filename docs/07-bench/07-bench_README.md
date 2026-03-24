@@ -447,7 +447,7 @@ Primary benchmark modules:
 - `cookimport/bench/canonical_alignment_cache.py`: shared canonical alignment cache
 - `cookimport/bench/prediction_records.py`: replay record schema/helpers
 - `cookimport/bench/speed_suite.py`, `speed_runner.py`, `speed_compare.py`: SpeedSuite
-- `cookimport/bench/quality_suite.py`, `quality_runner.py`, `quality_compare.py`, `quality_leaderboard.py`: QualitySuite
+- `cookimport/bench/quality_suite.py`, `cookimport/bench/qualitysuite/`, `quality_runner.py`, `quality_compare.py`, `quality_leaderboard.py`: QualitySuite
 - `cookimport/bench/artifact_gc.py`: benchmark retention and pruning
 - `cookimport/bench/oracle_upload.py`: Oracle upload wrapper for existing bundles
 - `cookimport/bench/followup_bundle.py`: follow-up packet helpers used by `cf-debug`

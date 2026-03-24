@@ -30,16 +30,19 @@ This plan is self-contained. It does not require a parent ExecPlan, and it now a
 - [x] (2026-03-22 18:08 EDT) Authored this standalone Label Studio ingest decomposition ExecPlan in `docs/plans/`.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes moved helper implementations from `ingest.py` and updates imports instead of preserving a broad facade.
 - [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed the shared source-job planning dependency has already landed: [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py) now imports `JobSpec` and `plan_source_job(...)` from [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py) instead of owning duplicate planner bodies.
-- [ ] Create a `cookimport/labelstudio/ingest_flows/` package with one module per major responsibility cluster.
-- [ ] Move normalization and split-cache logic out of `ingest.py`.
-- [ ] Move split merge and artifact-writing helpers out of `ingest.py`.
-- [ ] Create a `cookimport/staging/import_session_flows/` package with one module per major stage-session responsibility cluster.
-- [ ] Move label-first authority building, Stage 7 non-recipe session wiring, and output-writing coordination out of `import_session.py`.
-- [ ] Keep `execute_stage_import_session_from_result(...)` as the stable public seam while deleting the moved implementation blocks from `import_session.py`.
-- [ ] Move offline prediction-artifact generation into an owned module.
-- [ ] Move online upload/project-resolution behavior into an owned module.
-- [ ] Cut `ingest.py` down to the smallest product-facing entrypoint surface and delete old helper exports and compatibility names.
-- [ ] Add or update Label Studio and staging docs and tests for the new ownership map.
+- [x] (2026-03-23 17:51 EDT) Added `cookimport/labelstudio/ingest_flows/` and `cookimport/staging/import_session_flows/` with extracted helper/runtime mirrors plus folder-local notes, but kept the legacy `ingest.py` and `import_session.py` functions as the active runtime owners because current Label Studio and staging tests still patch deep names on those modules directly.
+- [x] (2026-03-23 18:31 EDT) Finished the active runtime cutover: `ingest.py` and `import_session.py` now delegate their public seams to `ingest_flows/` and `import_session_flows/`, the delegated modules resync current legacy-module globals before execution so deep monkeypatch tests still work, and the Label Studio/staging docs now teach the new ownership map.
+
+- [x] Create a `cookimport/labelstudio/ingest_flows/` package with one module per major responsibility cluster.
+- [x] Move normalization and split-cache logic out of `ingest.py`.
+- [x] Move split merge and artifact-writing helpers out of `ingest.py`.
+- [x] Create a `cookimport/staging/import_session_flows/` package with one module per major stage-session responsibility cluster.
+- [x] Move label-first authority building, Stage 7 non-recipe session wiring, and output-writing coordination out of `import_session.py`.
+- [x] Keep `execute_stage_import_session_from_result(...)` as the stable public seam while moving the active implementation behind the delegated subflow modules.
+- [x] Move offline prediction-artifact generation into an owned module.
+- [x] Move online upload/project-resolution behavior into an owned module.
+- [x] Cut `ingest.py` down to the smallest active product-facing entrypoint surface for the current runtime cutover and stop treating the legacy module as the implementation owner.
+- [x] Add or update Label Studio and staging docs and tests for the new ownership map.
 
 ## Surprises & Discoveries
 

@@ -12,7 +12,8 @@ This document is the current source of truth for implemented Label Studio behavi
 
 Code surfaces (primary):
 
-- `cookimport/labelstudio/ingest.py`
+- `cookimport/labelstudio/ingest.py` (public import/export entrypoints)
+- `cookimport/labelstudio/ingest_flows/` (offline prediction-run, upload, normalization, split-merge, and artifact ownership)
 - `cookimport/labelstudio/export.py`
 - `cookimport/labelstudio/eval_freeform.py`
 - `cookimport/labelstudio/prelabel.py`
@@ -38,7 +39,8 @@ Label-first runtime seam used by benchmark/import flows:
 
 - `cookimport/parsing/label_source_of_truth.py`
 - `cookimport/parsing/recipe_span_grouping.py`
-- `cookimport/staging/import_session.py`
+- `cookimport/staging/import_session.py` (public seam)
+- `cookimport/staging/import_session_flows/` (shared stage-session runtime ownership)
 
 Use `docs/06-label-studio/06-label-studio_log.md` only for compact historical context when a fix starts looping.
 

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from cookimport.paths import history_csv_for_output
-from cookimport.config.run_settings import summarize_run_config_payload
+from cookimport.config.run_settings_contracts import summarize_run_config_payload
 
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}

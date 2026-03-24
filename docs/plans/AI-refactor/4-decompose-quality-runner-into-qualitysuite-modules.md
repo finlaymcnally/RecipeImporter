@@ -27,12 +27,15 @@ This plan is self-contained. It does not require a parent ExecPlan, but it is in
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats split: the final state deletes old helper imports and internal compatibility re-exports instead of keeping `quality_runner.py` as a broad facade.
 - [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed deterministic suite discovery, manifest IO, and `QualitySuite` / `QualityTarget` ownership already live in [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py), with dedicated coverage in [tests/bench/test_quality_suite_discovery.py](/home/mcnal/projects/recipeimport/tests/bench/test_quality_suite_discovery.py).
 - [x] (2026-03-23 17:16 EDT) Verified [cookimport/bench/quality_runner.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_runner.py) still owns runtime, resume, executor, summary, and worker CLI concerns and remains a 3,148-line coordination surface.
-- [ ] Create the remaining `cookimport/bench/qualitysuite/` runtime package behind the already-landed [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py) module.
-- [ ] Move experiment expansion and runtime-resolution logic out of `quality_runner.py`.
-- [ ] Move environment/executor decision logic and subprocess worker plumbing out of `quality_runner.py`.
-- [ ] Move checkpoint/resume persistence and summary/report rendering out of `quality_runner.py`.
-- [ ] Cut `quality_runner.py` down to the smallest product-facing entrypoint surface and delete old helper exports and internal compatibility names.
-- [ ] Add or update bench-domain tests and docs so the new QualitySuite ownership map is explicit.
+- [x] (2026-03-23 17:51 EDT) Added `cookimport/bench/qualitysuite/` with shared/planning/environment/persistence/summary/runtime/worker CLI modules and folder-local notes, but kept `quality_runner.py` as the active runtime owner because current benchmark tests still monkeypatch deep helper names on that legacy module.
+- [x] (2026-03-23 18:31 EDT) Finished the active QualitySuite cutover: the public `quality_runner.py` entrypoints now delegate to `cookimport/bench/qualitysuite/`, the package owns runtime/planning/persistence/summary/worker CLI behavior, and the bench docs/tests now point readers at the package as the implementation home.
+
+- [x] Create the remaining `cookimport/bench/qualitysuite/` runtime package behind the already-landed [cookimport/bench/quality_suite.py](/home/mcnal/projects/recipeimport/cookimport/bench/quality_suite.py) module.
+- [x] Move experiment expansion and runtime-resolution logic out of `quality_runner.py`.
+- [x] Move environment/executor decision logic and subprocess worker plumbing out of `quality_runner.py`.
+- [x] Move checkpoint/resume persistence and summary/report rendering out of `quality_runner.py`.
+- [x] Cut `quality_runner.py` down to the smallest active product-facing entrypoint surface for the current runtime cutover and stop treating the legacy file as the implementation owner.
+- [x] Add or update bench-domain tests and docs so the new QualitySuite ownership map is explicit.
 
 ## Surprises & Discoveries
 

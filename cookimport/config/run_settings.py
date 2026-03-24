@@ -19,34 +19,22 @@ from cookimport.epub_extractor_names import (
     is_policy_locked_epub_extractor_name,
     normalize_epub_extractor_name,
 )
+from cookimport.config.run_settings_contracts import (
+    RUN_SETTING_CONTRACT_BENCHMARK_LAB,
+    RUN_SETTING_CONTRACT_OPERATOR,
+    RUN_SETTING_CONTRACT_PRODUCT,
+    RUN_SETTING_SURFACE_INTERNAL,
+    RUN_SETTING_SURFACE_PUBLIC,
+    project_run_config_payload,
+    run_setting_surface,
+    summarize_run_config_payload,
+)
 from cookimport.staging.job_planning import (
     compute_effective_workers_for_sources as compute_effective_workers,
 )
 
 logger = logging.getLogger(__name__)
 _UI_REQUIRED_KEYS = ("ui_group", "ui_label", "ui_order")
-RUN_SETTING_SURFACE_PUBLIC = "public"
-RUN_SETTING_SURFACE_INTERNAL = "internal"
-RUN_SETTING_CONTRACT_FULL = "full"
-RUN_SETTING_CONTRACT_PRODUCT = "product"
-RUN_SETTING_CONTRACT_OPERATOR = "operator"
-RUN_SETTING_CONTRACT_BENCHMARK_LAB = "benchmark_lab"
-RUN_SETTING_CONTRACT_INTERNAL = "internal"
-BENCHMARK_LAB_RUN_SETTING_NAMES = (
-    "epub_unstructured_html_parser_version",
-    "epub_unstructured_skip_headers_footers",
-    "epub_unstructured_preprocess_mode",
-    "web_schema_normalizer",
-    "web_html_text_extractor",
-    "web_schema_min_confidence",
-    "web_schema_min_ingredients",
-    "web_schema_min_instruction_steps",
-    "atomic_block_splitter",
-    "line_role_pipeline",
-    "codex_farm_recipe_mode",
-    "codex_farm_model",
-    "codex_farm_reasoning_effort",
-)
 BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "multi_recipe_splitter",
     "multi_recipe_min_ingredient_lines",
@@ -74,74 +62,6 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "codex_farm_failure_mode",
     "ocr_device",
     "ocr_batch_size",
-)
-_SUMMARY_ORDER = (
-    "epub_extractor",
-    "epub_unstructured_html_parser_version",
-    "epub_unstructured_skip_headers_footers",
-    "epub_unstructured_preprocess_mode",
-    "multi_recipe_splitter",
-    "multi_recipe_min_ingredient_lines",
-    "multi_recipe_min_instruction_lines",
-    "multi_recipe_for_the_guardrail",
-    "web_schema_extractor",
-    "web_schema_normalizer",
-    "web_html_text_extractor",
-    "web_schema_policy",
-    "web_schema_min_confidence",
-    "web_schema_min_ingredients",
-    "web_schema_min_instruction_steps",
-    "ingredient_text_fix_backend",
-    "ingredient_pre_normalize_mode",
-    "ingredient_packaging_mode",
-    "ingredient_parser_backend",
-    "ingredient_unit_canonicalizer",
-    "ingredient_missing_unit_policy",
-    "p6_time_backend",
-    "p6_time_total_strategy",
-    "p6_temperature_backend",
-    "p6_temperature_unit_backend",
-    "p6_ovenlike_mode",
-    "p6_yield_mode",
-    "recipe_scorer_backend",
-    "recipe_score_gold_min",
-    "recipe_score_silver_min",
-    "recipe_score_bronze_min",
-    "recipe_score_min_ingredient_lines",
-    "recipe_score_min_instruction_lines",
-    "pdf_column_gap_ratio",
-    "pdf_ocr_policy",
-    "ocr_device",
-    "ocr_batch_size",
-    "workers",
-    "effective_workers",
-    "pdf_split_workers",
-    "epub_split_workers",
-    "pdf_pages_per_job",
-    "epub_spine_items_per_job",
-    "warm_models",
-    "llm_recipe_pipeline",
-    "recipe_prompt_target_count",
-    "recipe_worker_count",
-    "recipe_shard_max_turns",
-    "atomic_block_splitter",
-    "line_role_pipeline",
-    "line_role_prompt_target_count",
-    "line_role_worker_count",
-    "line_role_shard_target_lines",
-    "line_role_shard_max_turns",
-    "llm_knowledge_pipeline",
-    "knowledge_worker_count",
-    "knowledge_shard_max_turns",
-    "codex_farm_recipe_mode",
-    "codex_farm_cmd",
-    "codex_farm_model",
-    "codex_farm_reasoning_effort",
-    "codex_farm_context_blocks",
-    "codex_farm_knowledge_context_blocks",
-    "codex_farm_failure_mode",
-    "mapping_path",
-    "overrides_path",
 )
 
 RECIPE_CODEX_FARM_PIPELINE_SHARD_V1 = "codex-recipe-shard-v1"
@@ -1580,142 +1500,6 @@ def _normalized_value(value: Any) -> str:
     if isinstance(value, Enum):
         return str(value.value).strip().lower()
     return str(value).strip().lower()
-
-
-def run_setting_surface(field_name: str) -> str:
-    field = RunSettings.model_fields[field_name]
-    extra = dict(field.json_schema_extra or {})
-    surface = str(
-        extra.get("run_setting_surface", RUN_SETTING_SURFACE_PUBLIC)
-    ).strip().lower()
-    if surface == RUN_SETTING_SURFACE_INTERNAL:
-        return RUN_SETTING_SURFACE_INTERNAL
-    return RUN_SETTING_SURFACE_PUBLIC
-
-
-def public_run_setting_names() -> tuple[str, ...]:
-    return tuple(
-        name
-        for name in RunSettings.model_fields
-        if run_setting_surface(name) == RUN_SETTING_SURFACE_PUBLIC
-    )
-
-
-def internal_run_setting_names() -> tuple[str, ...]:
-    return tuple(
-        name
-        for name in RunSettings.model_fields
-        if run_setting_surface(name) == RUN_SETTING_SURFACE_INTERNAL
-    )
-
-
-def product_run_setting_names() -> tuple[str, ...]:
-    return public_run_setting_names()
-
-
-def benchmark_lab_run_setting_names() -> tuple[str, ...]:
-    public_names = set(public_run_setting_names())
-    return tuple(
-        name for name in BENCHMARK_LAB_RUN_SETTING_NAMES if name in public_names
-    )
-
-
-def ordinary_operator_run_setting_names() -> tuple[str, ...]:
-    benchmark_lab_names = set(benchmark_lab_run_setting_names())
-    return tuple(
-        name for name in public_run_setting_names() if name not in benchmark_lab_names
-    )
-
-
-def _normalize_run_setting_contract(
-    *,
-    include_internal: bool | None,
-    contract: str | None,
-) -> str:
-    if contract is None:
-        return (
-            RUN_SETTING_CONTRACT_FULL
-            if include_internal
-            else RUN_SETTING_CONTRACT_PRODUCT
-        )
-    normalized = str(contract).strip().lower()
-    allowed = {
-        RUN_SETTING_CONTRACT_FULL,
-        RUN_SETTING_CONTRACT_PRODUCT,
-        RUN_SETTING_CONTRACT_OPERATOR,
-        RUN_SETTING_CONTRACT_BENCHMARK_LAB,
-        RUN_SETTING_CONTRACT_INTERNAL,
-    }
-    if normalized not in allowed:
-        allowed_list = ", ".join(sorted(allowed))
-        raise ValueError(
-            f"Unknown run-setting contract {contract!r}. Expected one of: {allowed_list}."
-        )
-    return normalized
-
-
-def _run_setting_names_for_contract(contract: str) -> tuple[str, ...]:
-    if contract == RUN_SETTING_CONTRACT_FULL:
-        return tuple(RunSettings.model_fields)
-    if contract == RUN_SETTING_CONTRACT_PRODUCT:
-        return product_run_setting_names()
-    if contract == RUN_SETTING_CONTRACT_OPERATOR:
-        return ordinary_operator_run_setting_names()
-    if contract == RUN_SETTING_CONTRACT_BENCHMARK_LAB:
-        return benchmark_lab_run_setting_names()
-    if contract == RUN_SETTING_CONTRACT_INTERNAL:
-        return internal_run_setting_names()
-    raise ValueError(f"Unhandled run-setting contract: {contract}")
-
-
-def project_run_config_payload(
-    payload: Mapping[str, Any] | None,
-    *,
-    include_internal: bool | None = True,
-    contract: str | None = None,
-) -> dict[str, Any]:
-    if payload is None:
-        return {}
-    normalized_contract = _normalize_run_setting_contract(
-        include_internal=include_internal,
-        contract=contract,
-    )
-    allowed_names = set(_run_setting_names_for_contract(normalized_contract))
-    return {
-        name: payload[name]
-        for name in RunSettings.model_fields
-        if name in allowed_names and name in payload
-    }
-
-
-def summarize_run_config_payload(
-    payload: Mapping[str, Any] | None,
-    *,
-    include_internal: bool = False,
-    contract: str | None = None,
-) -> str:
-    projected = project_run_config_payload(
-        payload,
-        include_internal=include_internal,
-        contract=contract,
-    )
-    ordered_names = [
-        name
-        for name in _SUMMARY_ORDER
-        if name in projected
-    ]
-    remaining_names = [name for name in projected if name not in ordered_names]
-    parts: list[str] = []
-    for key in (*ordered_names, *remaining_names):
-        value = projected[key]
-        if key.endswith("_path"):
-            value = Path(str(value)).name
-        if isinstance(value, bool):
-            rendered = "true" if value else "false"
-        else:
-            rendered = str(value)
-        parts.append(f"{key}={rendered}")
-    return " | ".join(parts)
 
 
 def build_run_settings(

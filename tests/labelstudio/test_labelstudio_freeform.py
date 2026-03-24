@@ -17,6 +17,7 @@ from cookimport.labelstudio.freeform_tasks import (
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_LABELS,
     build_freeform_label_config,
+    normalize_freeform_label,
 )
 
 
@@ -208,6 +209,18 @@ def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
         "Focus: $focus_block_range | Context before: $context_before_block_range | "
         "Context after: $context_after_block_range"
     ) in config
+
+
+def test_normalize_freeform_label_maps_historical_howto_alias() -> None:
+    assert normalize_freeform_label("HowToSection") == "HOWTO_SECTION"
+    assert normalize_freeform_label("HOWTO_SECTION") == "HOWTO_SECTION"
+    assert normalize_freeform_label("TIP") == "KNOWLEDGE"
+    assert normalize_freeform_label("NOTES") == "RECIPE_NOTES"
+    assert normalize_freeform_label("NOTE") == "RECIPE_NOTES"
+    assert normalize_freeform_label("VARIANT") == "RECIPE_VARIANT"
+    assert normalize_freeform_label("NARRATIVE") == "OTHER"
+    assert normalize_freeform_label("YIELD") == "YIELD_LINE"
+    assert normalize_freeform_label("TIME") == "TIME_LINE"
 
 
 def test_eval_freeform_maps_howto_section_to_neighboring_structural_label(tmp_path) -> None:

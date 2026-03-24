@@ -72,6 +72,7 @@ def build_knowledge_jobs(
     context_blocks: int = 2,
     overrides: ParsingOverrides | None = None,
     skip_suggested_lanes: Sequence[str] = (),
+    target_chunks_per_shard: int = 1,
 ) -> KnowledgeJobBuildReport:
     """Write knowledge-stage job bundles to out_dir and return a build report.
 
@@ -85,6 +86,7 @@ def build_knowledge_jobs(
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
+    shard_chunk_limit = max(1, int(target_chunks_per_shard))
     recipe_spans_payload = [
         SpanV1(
             start=int(span.start_block_index),
@@ -168,14 +170,18 @@ def build_knowledge_jobs(
             )
             chunk_counter += 1
     planning_warnings: list[str] = []
-    for prepared_chunk in sorted(
+    sorted_prepared_chunks = sorted(
         all_prepared_chunks,
         key=lambda chunk: chunk.absolute_indices[0],
-    ):
+    )
+    for bundle_start in range(0, len(sorted_prepared_chunks), shard_chunk_limit):
+        prepared_chunks = sorted_prepared_chunks[
+            bundle_start : bundle_start + shard_chunk_limit
+        ]
         bundle_id = f"{workbook_slug}.ks{bundle_counter:04d}.nr"
         bundle_payload = _build_bundle_job_payload(
             bundle_id=bundle_id,
-            prepared_chunks=[prepared_chunk],
+            prepared_chunks=prepared_chunks,
             full_blocks_by_index=full_blocks_by_index,
             recipe_spans_payload=recipe_spans_payload,
             context_blocks=context_blocks,
@@ -191,10 +197,27 @@ def build_knowledge_jobs(
             bundle_payload_json,
             out_dir / f"{bundle_id}.json",
         )
-        owned_chunk_ids = (prepared_chunk.payload.chunk_id,)
-        owned_block_indices = tuple(sorted(int(index) for index in prepared_chunk.absolute_indices))
-        source_span_id = str(prepared_chunk.source_span_id).strip()
-        source_span_ids = (source_span_id,) if source_span_id else ()
+        owned_chunk_ids = tuple(chunk.payload.chunk_id for chunk in prepared_chunks)
+        owned_block_indices = tuple(
+            sorted(
+                {
+                    int(index)
+                    for chunk in prepared_chunks
+                    for index in chunk.absolute_indices
+                }
+            )
+        )
+        source_span_ids = tuple(
+            sorted(
+                {
+                    source_span_id
+                    for chunk in prepared_chunks
+                    for source_span_id in [str(chunk.source_span_id).strip()]
+                    if source_span_id
+                }
+            )
+        )
+        char_count = sum(int(chunk.char_count) for chunk in prepared_chunks)
         shard_entries.append(
             ShardManifestEntryV1(
                 shard_id=bundle_id,
@@ -205,58 +228,84 @@ def build_knowledge_jobs(
                     "ordered_chunk_ids": list(owned_chunk_ids),
                     "owned_block_indices": list(owned_block_indices),
                     "source_span_ids": list(source_span_ids),
-                    "chunk_count": 1,
-                    "char_count": int(prepared_chunk.char_count),
-                    "table_heavy": bool(prepared_chunk.has_table_content),
+                    "chunk_count": len(prepared_chunks),
+                    "char_count": char_count,
+                    "table_heavy": any(
+                        bool(chunk.has_table_content) for chunk in prepared_chunks
+                    ),
                     "context_blocks": max(0, int(context_blocks)),
                     "chunk_block_indices_by_id": {
-                        prepared_chunk.payload.chunk_id: list(prepared_chunk.absolute_indices)
+                        chunk.payload.chunk_id: list(chunk.absolute_indices)
+                        for chunk in prepared_chunks
                     },
                     "chunk_seed_stage_category_by_id": (
                         {
-                            prepared_chunk.payload.chunk_id: prepared_chunk.seed_stage_category
+                            chunk.payload.chunk_id: chunk.seed_stage_category
+                            for chunk in prepared_chunks
+                            if chunk.seed_stage_category is not None
                         }
-                        if prepared_chunk.seed_stage_category is not None
+                        if any(
+                            chunk.seed_stage_category is not None
+                            for chunk in prepared_chunks
+                        )
                         else {}
                     ),
                     "chunk_lane_by_id": (
-                        {prepared_chunk.payload.chunk_id: prepared_chunk.suggested_lane}
-                        if prepared_chunk.suggested_lane is not None
+                        {
+                            chunk.payload.chunk_id: chunk.suggested_lane
+                            for chunk in prepared_chunks
+                            if chunk.suggested_lane is not None
+                        }
+                        if any(
+                            chunk.suggested_lane is not None
+                            for chunk in prepared_chunks
+                        )
                         else {}
                     ),
                     "chunk_title_by_id": (
-                        {prepared_chunk.payload.chunk_id: prepared_chunk.title}
-                        if prepared_chunk.title is not None
+                        {
+                            chunk.payload.chunk_id: chunk.title
+                            for chunk in prepared_chunks
+                            if chunk.title is not None
+                        }
+                        if any(chunk.title is not None for chunk in prepared_chunks)
                         else {}
                     ),
                     "chunk_has_heading_by_id": {
-                        prepared_chunk.payload.chunk_id: bool(prepared_chunk.has_heading)
+                        chunk.payload.chunk_id: bool(chunk.has_heading)
+                        for chunk in prepared_chunks
                     },
                     "chunk_has_table_hint_by_id": {
-                        prepared_chunk.payload.chunk_id: bool(prepared_chunk.has_table_content)
+                        chunk.payload.chunk_id: bool(chunk.has_table_content)
+                        for chunk in prepared_chunks
                     },
                     "chunk_knowledge_cue_by_id": {
-                        prepared_chunk.payload.chunk_id: bool(prepared_chunk.knowledge_cue)
+                        chunk.payload.chunk_id: bool(chunk.knowledge_cue)
+                        for chunk in prepared_chunks
                     },
                     "chunk_utility_positive_cues_by_id": {
-                        prepared_chunk.payload.chunk_id: list(
-                            prepared_chunk.utility_profile.get("positive_cues") or []
+                        chunk.payload.chunk_id: list(
+                            chunk.utility_profile.get("positive_cues") or []
                         )
+                        for chunk in prepared_chunks
                     },
                     "chunk_utility_negative_cues_by_id": {
-                        prepared_chunk.payload.chunk_id: list(
-                            prepared_chunk.utility_profile.get("negative_cues") or []
+                        chunk.payload.chunk_id: list(
+                            chunk.utility_profile.get("negative_cues") or []
                         )
+                        for chunk in prepared_chunks
                     },
                     "chunk_utility_borderline_by_id": {
-                        prepared_chunk.payload.chunk_id: bool(
-                            prepared_chunk.utility_profile.get("borderline")
+                        chunk.payload.chunk_id: bool(
+                            chunk.utility_profile.get("borderline")
                         )
+                        for chunk in prepared_chunks
                     },
                     "chunk_strong_negative_utility_cue_by_id": {
-                        prepared_chunk.payload.chunk_id: bool(
-                            prepared_chunk.utility_profile.get("strong_negative_cue")
+                        chunk.payload.chunk_id: bool(
+                            chunk.utility_profile.get("strong_negative_cue")
                         )
+                        for chunk in prepared_chunks
                     },
                 },
             )

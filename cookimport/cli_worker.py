@@ -14,9 +14,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from cookimport.config.run_settings import (
+from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings_contracts import (
     RUN_SETTING_CONTRACT_FULL,
-    RunSettings,
     project_run_config_payload,
 )
 from cookimport.core.models import ConversionReport, MappingConfig

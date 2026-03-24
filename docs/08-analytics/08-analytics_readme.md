@@ -47,7 +47,8 @@ Primary modules:
 - `cookimport/analytics/perf_report.py`
 - `cookimport/analytics/dashboard_collect.py`
 - `cookimport/analytics/dashboard_schema.py`
-- `cookimport/analytics/dashboard_render.py`
+- `cookimport/analytics/dashboard_render.py` (public facade)
+- `cookimport/analytics/dashboard_renderers/` (asset/page/template ownership)
 - `cookimport/analytics/compare_control_engine.py`
 - `cookimport/analytics/benchmark_timing.py`
 - `cookimport/paths.py`

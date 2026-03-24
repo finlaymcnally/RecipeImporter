@@ -27,12 +27,15 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 - [x] (2026-03-22 17:30 EDT) Tightened scope and validation after re-checking the live CLI registration tree, including the already-external `epub` sub-app and the need for signature-preservation tests during extraction.
 - [x] (2026-03-22 19:05 EDT) Reworked the plan into a burn-the-boats cutover: `cookimport/cli.py` stays only as the public composition root, with moved command implementations deleted from the old file instead of left behind as wrappers.
 - [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed `cookimport/cli_commands/` still does not exist, while [cookimport/cli.py](/home/mcnal/projects/recipeimport/cookimport/cli.py) remains a 31,477-line CLI/root coordinator with top-level, bench, compare-control, and interactive ownership still co-located.
-- [ ] Create the new `cookimport/cli_commands/` package and establish one module per command family.
-- [ ] Move the `stage` command implementation behind the new package while keeping `cookimport.cli:app` stable.
-- [ ] Move the Label Studio command family behind the new package.
-- [ ] Move analytics, compare-control, and bench command families behind the new package.
-- [ ] Move interactive-mode orchestration behind the new package while preserving current behavior and `cli_ui` integration.
-- [ ] Add or update CLI boundary tests and CLI docs for the new ownership map.
+- [x] (2026-03-23 17:51 EDT) Created `cookimport/cli_commands/` with extracted command-family modules and folder-local notes; kept the legacy `cookimport/cli.py` runtime wiring in place for now because the current CLI test suite still monkeypatches deep old-module command names.
+- [x] (2026-03-23 18:31 EDT) Finished the active cutover: `cookimport/cli.py` now rebuilds the public Typer apps from `cookimport/cli_commands/`, the command modules resync current legacy-module globals before dispatch so CLI monkeypatch tests stay valid, and the CLI docs/folder notes now describe `cli.py` as the composition root rather than the command owner.
+
+- [x] Create the new `cookimport/cli_commands/` package and establish one module per command family.
+- [x] Move the `stage` command implementation behind the new package while keeping `cookimport.cli:app` stable.
+- [x] Move the Label Studio command family behind the new package.
+- [x] Move analytics, compare-control, and bench command families behind the new package.
+- [x] Move interactive-mode orchestration behind the new package while preserving current behavior and `cli_ui` integration.
+- [x] Add or update CLI boundary tests and CLI docs for the new ownership map.
 
 ## Surprises & Discoveries
 

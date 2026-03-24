@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import pytest
 
+from cookimport.config.run_settings_contracts import (
+    benchmark_lab_run_setting_names,
+    internal_run_setting_names,
+    ordinary_operator_run_setting_names,
+    public_run_setting_names,
+    summarize_run_config_payload,
+)
 from cookimport.config.run_settings import (
     BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES,
     KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
     LINE_ROLE_PIPELINE_SHARD_V1,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RunSettings,
-    benchmark_lab_run_setting_names,
     build_run_settings,
     compute_effective_workers,
-    internal_run_setting_names,
-    ordinary_operator_run_setting_names,
-    public_run_setting_names,
     run_settings_ui_specs,
-    summarize_run_config_payload,
 )
 
 REMOVED_EXTRACTOR_VALUE = "leg" "acy"

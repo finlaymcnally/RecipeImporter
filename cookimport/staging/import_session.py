@@ -81,6 +81,53 @@ class StageImportSessionResult:
     knowledge_final_result: KnowledgeFinalResult | None = None
 
 
+def _import_session_reporting_module():
+    from cookimport.staging.import_session_flows import reporting
+
+    return reporting
+
+
+def _import_session_authority_module():
+    from cookimport.staging.import_session_flows import authority
+
+    return authority
+
+
+def _import_session_output_stage_module():
+    from cookimport.staging.import_session_flows import output_stage
+
+    return output_stage
+
+
+def _sync_import_session_flow_module(module: Any, *, exclude_names: set[str] | None = None) -> None:
+    excluded = set(exclude_names or ())
+    for name, value in globals().items():
+        if name.startswith("__") or name in excluded:
+            continue
+        setattr(module, name, value)
+
+
+def _sync_import_session_reporting_compat() -> None:
+    _sync_import_session_flow_module(
+        _import_session_reporting_module(),
+        exclude_names={"_notify_stage_progress"},
+    )
+
+
+def _sync_import_session_authority_compat() -> None:
+    _sync_import_session_flow_module(
+        _import_session_authority_module(),
+        exclude_names={"_write_label_first_artifacts"},
+    )
+
+
+def _sync_import_session_output_stage_compat() -> None:
+    _sync_import_session_flow_module(
+        _import_session_output_stage_module(),
+        exclude_names={"execute_stage_import_session_from_result"},
+    )
+
+
 def _notify_stage_progress(
     progress_callback: Callable[[str], None] | None,
     *,
@@ -90,6 +137,15 @@ def _notify_stage_progress(
     task_total: int | None = None,
     detail_lines: list[str] | None = None,
 ) -> None:
+    _sync_import_session_reporting_compat()
+    return _import_session_reporting_module()._notify_stage_progress(
+        progress_callback,
+        message=message,
+        stage_label=stage_label,
+        task_current=task_current,
+        task_total=task_total,
+        detail_lines=detail_lines,
+    )
     if progress_callback is None:
         return
     if task_current is not None and task_total is not None:
@@ -142,6 +198,13 @@ def _write_label_first_artifacts(
     label_first_result: LabelFirstStageResult,
     line_role_pipeline: str,
 ) -> dict[str, Path]:
+    _sync_import_session_authority_compat()
+    return _import_session_authority_module()._write_label_first_artifacts(
+        run_root=run_root,
+        workbook_slug=workbook_slug,
+        label_first_result=label_first_result,
+        line_role_pipeline=line_role_pipeline,
+    )
     det_lines_path = run_root / "label_det" / workbook_slug / "labeled_lines.jsonl"
     det_blocks_path = run_root / "label_det" / workbook_slug / "block_labels.json"
     final_lines_path = run_root / "label_llm_correct" / workbook_slug / "labeled_lines.jsonl"
@@ -381,6 +444,28 @@ def execute_stage_import_session_from_result(
     recipe_limit: int | None = None,
     recipe_limit_label: int | None = None,
 ) -> StageImportSessionResult:
+    _sync_import_session_output_stage_compat()
+    return _import_session_output_stage_module().execute_stage_import_session_from_result(
+        result=result,
+        source_file=source_file,
+        run_root=run_root,
+        run_dt=run_dt,
+        importer_name=importer_name,
+        run_settings=run_settings,
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
+        mapping_config=mapping_config,
+        write_markdown=write_markdown,
+        progress_callback=progress_callback,
+        timing_stats=timing_stats,
+        full_blocks=full_blocks,
+        write_raw_artifacts_enabled=write_raw_artifacts_enabled,
+        count_diagnostics_path=count_diagnostics_path,
+        output_stats=output_stats,
+        recipe_limit=recipe_limit,
+        recipe_limit_label=recipe_limit_label,
+    )
     original_result = result
     stats = timing_stats or TimingStats()
     workbook_slug = slugify_name(source_file.stem)

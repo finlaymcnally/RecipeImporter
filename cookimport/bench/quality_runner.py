@@ -33,9 +33,9 @@ from cookimport.config.codex_decision import (
     codex_execution_policy_metadata,
     resolve_codex_execution_policy,
 )
-from cookimport.config.run_settings import (
+from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings_contracts import (
     RUN_SETTING_CONTRACT_FULL,
-    RunSettings,
     project_run_config_payload,
 )
 from cookimport.core.progress_messages import format_task_counter
@@ -279,6 +279,38 @@ class _ResolvedExperiment:
     run_settings: RunSettings
     all_method_runtime_patch: dict[str, Any]
     all_method_runtime: dict[str, Any]
+
+
+def _qualitysuite_runtime_module():
+    from cookimport.bench.qualitysuite import runtime
+
+    return runtime
+
+
+def _qualitysuite_worker_cli_module():
+    from cookimport.bench.qualitysuite import worker_cli
+
+    return worker_cli
+
+
+def _sync_qualitysuite_runtime_compat() -> None:
+    runtime = _qualitysuite_runtime_module()
+    worker_cli = _qualitysuite_worker_cli_module()
+    from cookimport.bench.qualitysuite import environment
+
+    runtime._running_in_wsl = _running_in_wsl
+    runtime._resolve_quality_experiment_executor_mode = (
+        _resolve_quality_experiment_executor_mode
+    )
+    runtime._run_single_experiment = _run_single_experiment
+    runtime._run_single_experiment_via_subprocess = (
+        _run_single_experiment_via_subprocess
+    )
+    worker_cli._run_single_experiment = _run_single_experiment
+    environment._running_in_wsl = _running_in_wsl
+    environment._resolve_quality_experiment_executor_mode = (
+        _resolve_quality_experiment_executor_mode
+    )
 
 
 def _running_in_wsl() -> bool:
@@ -550,88 +582,23 @@ def _run_single_experiment_via_subprocess(
     include_deterministic_sweeps: bool,
     require_process_workers: bool,
 ) -> QualityExperimentResult:
-    request_path = experiment_root / _QUALITY_EXPERIMENT_WORKER_REQUEST_FILENAME
-    result_path = experiment_root / _QUALITY_EXPERIMENT_WORKER_RESULT_FILENAME
-    payload = {
-        "experiment_id": experiment.id,
-        "suite_targets": [
-            target.model_dump() if hasattr(target, "model_dump") else dict(target)
-            for target in suite_targets
-        ],
-        "run_root": str(run_root),
-        "experiment_root": str(experiment_root),
-        "run_settings_payload": experiment.run_settings.to_run_config_dict(),
-        "all_method_runtime": dict(experiment.all_method_runtime),
-        "include_markdown_extractors": bool(include_markdown_extractors),
-        "include_codex_farm_requested": bool(include_codex_farm_requested),
-        "include_codex_effective": bool(include_codex_effective),
-        "canonical_alignment_cache_root": str(canonical_alignment_cache_root),
-        "prediction_reuse_cache_root": str(prediction_reuse_cache_root),
-        "search_strategy": str(search_strategy or "exhaustive"),
-        "race_probe_targets": int(race_probe_targets),
-        "race_mid_targets": int(race_mid_targets),
-        "race_keep_ratio": float(race_keep_ratio),
-        "race_finalists": int(race_finalists),
-        "include_deterministic_sweeps": bool(include_deterministic_sweeps),
-        "require_process_workers": bool(require_process_workers),
-        "result_path": str(result_path),
-    }
-    request_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-    command = [
-        sys.executable,
-        "-m",
-        "cookimport.bench.quality_runner",
-        _QUALITY_EXPERIMENT_WORKER_REQUEST_ARG,
-        str(request_path),
-    ]
-    completed = subprocess.run(
-        command,
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    parsed_result: QualityExperimentResult | None = None
-    if result_path.exists():
-        try:
-            parsed_result = QualityExperimentResult.model_validate(
-                _load_json_dict(result_path)
-            )
-        except Exception as exc:  # noqa: BLE001
-            parsed_result = QualityExperimentResult(
-                id=experiment.id,
-                status="failed",
-                error=f"Invalid subprocess worker result payload: {exc}",
-                run_settings_hash=experiment.run_settings.stable_hash(),
-                run_settings_summary=experiment.run_settings.summary(),
-            )
-
-    if completed.returncode == 0 and parsed_result is not None:
-        return parsed_result
-
-    stdout_tail = _truncate_subprocess_text(str(completed.stdout or ""))
-    stderr_tail = _truncate_subprocess_text(str(completed.stderr or ""))
-    error_parts = [
-        f"Subprocess experiment worker exited non-zero ({completed.returncode})."
-    ]
-    if stderr_tail:
-        error_parts.append(f"stderr: {stderr_tail}")
-    if stdout_tail:
-        error_parts.append(f"stdout: {stdout_tail}")
-    if parsed_result is not None and parsed_result.error:
-        error_parts.append(f"worker_error: {parsed_result.error}")
-    error_message = " ".join(error_parts).strip()
-    return QualityExperimentResult(
-        id=experiment.id,
-        status="failed",
-        error=error_message,
-        run_settings_hash=experiment.run_settings.stable_hash(),
-        run_settings_summary=experiment.run_settings.summary(),
+    return _qualitysuite_worker_cli_module()._run_single_experiment_via_subprocess(
+        experiment=experiment,
+        suite_targets=suite_targets,
+        run_root=run_root,
+        experiment_root=experiment_root,
+        include_markdown_extractors=include_markdown_extractors,
+        include_codex_farm_requested=include_codex_farm_requested,
+        include_codex_effective=include_codex_effective,
+        canonical_alignment_cache_root=canonical_alignment_cache_root,
+        prediction_reuse_cache_root=prediction_reuse_cache_root,
+        search_strategy=search_strategy,
+        race_probe_targets=race_probe_targets,
+        race_mid_targets=race_mid_targets,
+        race_keep_ratio=race_keep_ratio,
+        race_finalists=race_finalists,
+        include_deterministic_sweeps=include_deterministic_sweeps,
+        require_process_workers=require_process_workers,
     )
 
 
@@ -943,6 +910,27 @@ def run_quality_suite(
     resume_run_dir: Path | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
+    _sync_qualitysuite_runtime_compat()
+    return _qualitysuite_runtime_module().run_quality_suite(
+        suite,
+        out_dir,
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy=search_strategy,
+        race_probe_targets=race_probe_targets,
+        race_mid_targets=race_mid_targets,
+        race_keep_ratio=race_keep_ratio,
+        race_finalists=race_finalists,
+        include_deterministic_sweeps_requested=include_deterministic_sweeps_requested,
+        include_codex_farm_requested=include_codex_farm_requested,
+        codex_farm_confirmed=codex_farm_confirmed,
+        codex_farm_model=codex_farm_model,
+        codex_farm_reasoning_effort=codex_farm_reasoning_effort,
+        max_parallel_experiments=max_parallel_experiments,
+        require_process_workers=require_process_workers,
+        resume_run_dir=resume_run_dir,
+        progress_callback=progress_callback,
+    )
     search_strategy_clean = str(search_strategy or "exhaustive").strip().lower()
     if search_strategy_clean not in _SUPPORTED_SEARCH_STRATEGIES:
         supported = ", ".join(sorted(_SUPPORTED_SEARCH_STRATEGIES))
@@ -3134,6 +3122,8 @@ def _build_worker_cli_parser() -> argparse.ArgumentParser:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    _sync_qualitysuite_runtime_compat()
+    return _qualitysuite_worker_cli_module()._main(argv)
     parser = _build_worker_cli_parser()
     args = parser.parse_args(argv)
     request_path_raw = str(getattr(args, "experiment_worker_request", "") or "").strip()

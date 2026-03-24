@@ -22,17 +22,19 @@ from cookimport.epub_extractor_names import (
     is_policy_locked_epub_extractor_name,
     normalize_epub_extractor_name,
 )
+from cookimport.config.run_settings_contracts import (
+    RUN_SETTING_CONTRACT_FULL,
+    project_run_config_payload,
+    summarize_run_config_payload,
+)
 from cookimport.config.run_settings import (
     KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
-    RUN_SETTING_CONTRACT_FULL,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
     normalize_llm_knowledge_pipeline_value,
-    project_run_config_payload,
-    summarize_run_config_payload,
 )
 from cookimport.config.codex_decision import (
     apply_bucket1_fixed_behavior_metadata,
@@ -161,6 +163,74 @@ SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION = "single_book_split_cache.v1"
 SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = 120.0
 SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = 0.25
+
+
+def _ingest_artifacts_module():
+    from cookimport.labelstudio.ingest_flows import artifacts
+
+    return artifacts
+
+
+def _ingest_prediction_run_module():
+    from cookimport.labelstudio.ingest_flows import prediction_run
+
+    return prediction_run
+
+
+def _ingest_split_merge_module():
+    from cookimport.labelstudio.ingest_flows import split_merge
+
+    return split_merge
+
+
+def _ingest_upload_module():
+    from cookimport.labelstudio.ingest_flows import upload
+
+    return upload
+
+
+def _sync_ingest_module_globals(module: Any, *, exclude_names: set[str] | None = None) -> None:
+    excluded = set(exclude_names or ())
+    for name, value in globals().items():
+        if name.startswith("__") or name in excluded:
+            continue
+        setattr(module, name, value)
+
+
+def _sync_ingest_artifacts_compat() -> None:
+    _sync_ingest_module_globals(
+        _ingest_artifacts_module(),
+        exclude_names={
+            "_path_for_manifest",
+            "_write_manifest_best_effort",
+            "_write_processed_outputs",
+            "_write_authoritative_line_role_artifacts",
+            "_build_scored_line_role_projection_spans",
+        },
+    )
+
+
+def _sync_ingest_prediction_run_compat() -> None:
+    _sync_ingest_module_globals(
+        _ingest_prediction_run_module(),
+        exclude_names={"generate_pred_run_artifacts"},
+    )
+
+
+def _sync_ingest_split_merge_compat() -> None:
+    _sync_ingest_module_globals(
+        _ingest_split_merge_module(),
+        exclude_names={"_merge_parallel_results"},
+    )
+
+
+def _sync_ingest_upload_compat() -> None:
+    _sync_ingest_module_globals(
+        _ingest_upload_module(),
+        exclude_names={"run_labelstudio_import"},
+    )
+
+
 def _normalize_single_book_split_cache_mode(value: str | None) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     if normalized in {"", "off", "none", "disabled", "false", "0"}:
@@ -1003,6 +1073,12 @@ def _write_manifest_best_effort(
     *,
     notify: Callable[[str], None] | None = None,
 ) -> None:
+    _sync_ingest_artifacts_compat()
+    return _ingest_artifacts_module()._write_manifest_best_effort(
+        run_root,
+        manifest,
+        notify=notify,
+    )
     try:
         write_run_manifest(run_root, manifest)
     except Exception as exc:  # noqa: BLE001
@@ -1027,6 +1103,21 @@ def _write_processed_outputs(
     llm_codex_farm: dict[str, Any] | None = None,
     write_markdown: bool = True,
 ) -> Path:
+    _sync_ingest_artifacts_compat()
+    return _ingest_artifacts_module()._write_processed_outputs(
+        result=result,
+        path=path,
+        run_dt=run_dt,
+        output_root=output_root,
+        importer_name=importer_name,
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
+        schemaorg_overrides_by_recipe_id=schemaorg_overrides_by_recipe_id,
+        draft_overrides_by_recipe_id=draft_overrides_by_recipe_id,
+        llm_codex_farm=llm_codex_farm,
+        write_markdown=write_markdown,
+    )
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
     run_root.mkdir(parents=True, exist_ok=True)
@@ -1063,6 +1154,15 @@ def _write_authoritative_line_role_artifacts(
     label_first_result: LabelFirstStageResult,
     nonrecipe_stage_result: NonRecipeStageResult | None = None,
 ) -> tuple[dict[str, Path], dict[str, Any]]:
+    _sync_ingest_artifacts_compat()
+    return _ingest_artifacts_module()._write_authoritative_line_role_artifacts(
+        run_root=run_root,
+        source_file=source_file,
+        source_hash=source_hash,
+        workbook_slug=workbook_slug,
+        label_first_result=label_first_result,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
     pipeline_dir = run_root / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1488,6 +1588,12 @@ def _merge_parallel_results(
     importer_name: str,
     job_results: list[dict[str, Any]],
 ) -> ConversionResult:
+    _sync_ingest_split_merge_compat()
+    return _ingest_split_merge_module()._merge_parallel_results(
+        path,
+        importer_name,
+        job_results,
+    )
     ordered_jobs = sorted(job_results, key=_job_sort_key)
     merged_source_blocks: list[Any] = []
     merged_source_support: list[Any] = []
@@ -1631,6 +1737,113 @@ def generate_pred_run_artifacts(
     run_root_override: Path | str | None = None,
     mirror_stage_artifacts_into_run_root: bool = True,
 ) -> dict[str, Any]:
+    _sync_ingest_artifacts_compat()
+    _sync_ingest_prediction_run_compat()
+    return _ingest_prediction_run_module().generate_pred_run_artifacts(
+        path=path,
+        output_dir=output_dir,
+        pipeline=pipeline,
+        segment_blocks=segment_blocks,
+        segment_overlap=segment_overlap,
+        segment_focus_blocks=segment_focus_blocks,
+        target_task_count=target_task_count,
+        limit=limit,
+        sample=sample,
+        workers=workers,
+        pdf_split_workers=pdf_split_workers,
+        epub_split_workers=epub_split_workers,
+        pdf_pages_per_job=pdf_pages_per_job,
+        epub_spine_items_per_job=epub_spine_items_per_job,
+        epub_extractor=epub_extractor,
+        epub_unstructured_html_parser_version=epub_unstructured_html_parser_version,
+        epub_unstructured_skip_headers_footers=epub_unstructured_skip_headers_footers,
+        epub_unstructured_preprocess_mode=epub_unstructured_preprocess_mode,
+        ocr_device=ocr_device,
+        pdf_ocr_policy=pdf_ocr_policy,
+        ocr_batch_size=ocr_batch_size,
+        pdf_column_gap_ratio=pdf_column_gap_ratio,
+        warm_models=warm_models,
+        section_detector_backend=section_detector_backend,
+        multi_recipe_splitter=multi_recipe_splitter,
+        multi_recipe_trace=multi_recipe_trace,
+        multi_recipe_min_ingredient_lines=multi_recipe_min_ingredient_lines,
+        multi_recipe_min_instruction_lines=multi_recipe_min_instruction_lines,
+        multi_recipe_for_the_guardrail=multi_recipe_for_the_guardrail,
+        instruction_step_segmentation_policy=instruction_step_segmentation_policy,
+        instruction_step_segmenter=instruction_step_segmenter,
+        web_schema_extractor=web_schema_extractor,
+        web_schema_normalizer=web_schema_normalizer,
+        web_html_text_extractor=web_html_text_extractor,
+        web_schema_policy=web_schema_policy,
+        web_schema_min_confidence=web_schema_min_confidence,
+        web_schema_min_ingredients=web_schema_min_ingredients,
+        web_schema_min_instruction_steps=web_schema_min_instruction_steps,
+        ingredient_text_fix_backend=ingredient_text_fix_backend,
+        ingredient_pre_normalize_mode=ingredient_pre_normalize_mode,
+        ingredient_packaging_mode=ingredient_packaging_mode,
+        ingredient_parser_backend=ingredient_parser_backend,
+        ingredient_unit_canonicalizer=ingredient_unit_canonicalizer,
+        ingredient_missing_unit_policy=ingredient_missing_unit_policy,
+        p6_time_backend=p6_time_backend,
+        p6_time_total_strategy=p6_time_total_strategy,
+        p6_temperature_backend=p6_temperature_backend,
+        p6_temperature_unit_backend=p6_temperature_unit_backend,
+        p6_ovenlike_mode=p6_ovenlike_mode,
+        p6_yield_mode=p6_yield_mode,
+        p6_emit_metadata_debug=p6_emit_metadata_debug,
+        recipe_scorer_backend=recipe_scorer_backend,
+        recipe_score_gold_min=recipe_score_gold_min,
+        recipe_score_silver_min=recipe_score_silver_min,
+        recipe_score_bronze_min=recipe_score_bronze_min,
+        recipe_score_min_ingredient_lines=recipe_score_min_ingredient_lines,
+        recipe_score_min_instruction_lines=recipe_score_min_instruction_lines,
+        llm_recipe_pipeline=llm_recipe_pipeline,
+        llm_knowledge_pipeline=llm_knowledge_pipeline,
+        recipe_prompt_target_count=recipe_prompt_target_count,
+        atomic_block_splitter=atomic_block_splitter,
+        line_role_pipeline=line_role_pipeline,
+        line_role_prompt_target_count=line_role_prompt_target_count,
+        codex_farm_cmd=codex_farm_cmd,
+        codex_farm_model=codex_farm_model,
+        codex_farm_reasoning_effort=codex_farm_reasoning_effort,
+        codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pipeline_knowledge=codex_farm_pipeline_knowledge,
+        codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
+        codex_farm_recipe_mode=codex_farm_recipe_mode,
+        codex_farm_failure_mode=codex_farm_failure_mode,
+        processed_output_root=processed_output_root,
+        write_markdown=write_markdown,
+        write_label_studio_tasks=write_label_studio_tasks,
+        split_phase_slots=split_phase_slots,
+        split_phase_gate_dir=split_phase_gate_dir,
+        split_phase_status_label=split_phase_status_label,
+        single_book_split_cache_mode=single_book_split_cache_mode,
+        single_book_split_cache_dir=single_book_split_cache_dir,
+        single_book_split_cache_key=single_book_split_cache_key,
+        single_book_split_cache_force=single_book_split_cache_force,
+        prelabel=prelabel,
+        prelabel_provider=prelabel_provider,
+        codex_cmd=codex_cmd,
+        codex_model=codex_model,
+        codex_reasoning_effort=codex_reasoning_effort,
+        prelabel_timeout_seconds=prelabel_timeout_seconds,
+        prelabel_cache_dir=prelabel_cache_dir,
+        prelabel_workers=prelabel_workers,
+        prelabel_granularity=prelabel_granularity,
+        prelabel_allow_partial=prelabel_allow_partial,
+        prelabel_track_token_usage=prelabel_track_token_usage,
+        allow_codex=allow_codex,
+        codex_execution_policy=codex_execution_policy,
+        codex_command_context=codex_command_context,
+        benchmark_variant=benchmark_variant,
+        scheduler_event_callback=scheduler_event_callback,
+        progress_callback=progress_callback,
+        run_manifest_kind=run_manifest_kind,
+        run_root_override=run_root_override,
+        mirror_stage_artifacts_into_run_root=mirror_stage_artifacts_into_run_root,
+    )
     """Generate benchmark/import artifacts offline (no Label Studio credentials needed).
 
     Performs extraction, conversion, task generation and writes all artifacts to disk.
@@ -3514,6 +3727,115 @@ def run_labelstudio_import(
     run_root_override: Path | str | None = None,
     mirror_stage_artifacts_into_run_root: bool = True,
 ) -> dict[str, Any]:
+    _sync_ingest_artifacts_compat()
+    _sync_ingest_prediction_run_compat()
+    _sync_ingest_upload_compat()
+    return _ingest_upload_module().run_labelstudio_import(
+        path=path,
+        output_dir=output_dir,
+        pipeline=pipeline,
+        project_name=project_name,
+        segment_blocks=segment_blocks,
+        segment_overlap=segment_overlap,
+        segment_focus_blocks=segment_focus_blocks,
+        target_task_count=target_task_count,
+        overwrite=overwrite,
+        resume=resume,
+        label_studio_url=label_studio_url,
+        label_studio_api_key=label_studio_api_key,
+        limit=limit,
+        sample=sample,
+        progress_callback=progress_callback,
+        workers=workers,
+        pdf_split_workers=pdf_split_workers,
+        epub_split_workers=epub_split_workers,
+        pdf_pages_per_job=pdf_pages_per_job,
+        epub_spine_items_per_job=epub_spine_items_per_job,
+        epub_extractor=epub_extractor,
+        epub_unstructured_html_parser_version=epub_unstructured_html_parser_version,
+        epub_unstructured_skip_headers_footers=epub_unstructured_skip_headers_footers,
+        epub_unstructured_preprocess_mode=epub_unstructured_preprocess_mode,
+        ocr_device=ocr_device,
+        pdf_ocr_policy=pdf_ocr_policy,
+        ocr_batch_size=ocr_batch_size,
+        pdf_column_gap_ratio=pdf_column_gap_ratio,
+        warm_models=warm_models,
+        section_detector_backend=section_detector_backend,
+        multi_recipe_splitter=multi_recipe_splitter,
+        multi_recipe_trace=multi_recipe_trace,
+        multi_recipe_min_ingredient_lines=multi_recipe_min_ingredient_lines,
+        multi_recipe_min_instruction_lines=multi_recipe_min_instruction_lines,
+        multi_recipe_for_the_guardrail=multi_recipe_for_the_guardrail,
+        instruction_step_segmentation_policy=instruction_step_segmentation_policy,
+        instruction_step_segmenter=instruction_step_segmenter,
+        web_schema_extractor=web_schema_extractor,
+        web_schema_normalizer=web_schema_normalizer,
+        web_html_text_extractor=web_html_text_extractor,
+        web_schema_policy=web_schema_policy,
+        web_schema_min_confidence=web_schema_min_confidence,
+        web_schema_min_ingredients=web_schema_min_ingredients,
+        web_schema_min_instruction_steps=web_schema_min_instruction_steps,
+        ingredient_text_fix_backend=ingredient_text_fix_backend,
+        ingredient_pre_normalize_mode=ingredient_pre_normalize_mode,
+        ingredient_packaging_mode=ingredient_packaging_mode,
+        ingredient_parser_backend=ingredient_parser_backend,
+        ingredient_unit_canonicalizer=ingredient_unit_canonicalizer,
+        ingredient_missing_unit_policy=ingredient_missing_unit_policy,
+        p6_time_backend=p6_time_backend,
+        p6_time_total_strategy=p6_time_total_strategy,
+        p6_temperature_backend=p6_temperature_backend,
+        p6_temperature_unit_backend=p6_temperature_unit_backend,
+        p6_ovenlike_mode=p6_ovenlike_mode,
+        p6_yield_mode=p6_yield_mode,
+        p6_emit_metadata_debug=p6_emit_metadata_debug,
+        recipe_scorer_backend=recipe_scorer_backend,
+        recipe_score_gold_min=recipe_score_gold_min,
+        recipe_score_silver_min=recipe_score_silver_min,
+        recipe_score_bronze_min=recipe_score_bronze_min,
+        recipe_score_min_ingredient_lines=recipe_score_min_ingredient_lines,
+        recipe_score_min_instruction_lines=recipe_score_min_instruction_lines,
+        llm_recipe_pipeline=llm_recipe_pipeline,
+        llm_knowledge_pipeline=llm_knowledge_pipeline,
+        recipe_prompt_target_count=recipe_prompt_target_count,
+        line_role_prompt_target_count=line_role_prompt_target_count,
+        codex_farm_cmd=codex_farm_cmd,
+        codex_farm_model=codex_farm_model,
+        codex_farm_reasoning_effort=codex_farm_reasoning_effort,
+        codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pipeline_knowledge=codex_farm_pipeline_knowledge,
+        codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
+        codex_farm_recipe_mode=codex_farm_recipe_mode,
+        codex_farm_failure_mode=codex_farm_failure_mode,
+        codex_execution_policy=codex_execution_policy,
+        processed_output_root=processed_output_root,
+        split_phase_slots=split_phase_slots,
+        split_phase_gate_dir=split_phase_gate_dir,
+        split_phase_status_label=split_phase_status_label,
+        single_book_split_cache_mode=single_book_split_cache_mode,
+        single_book_split_cache_dir=single_book_split_cache_dir,
+        single_book_split_cache_key=single_book_split_cache_key,
+        single_book_split_cache_force=single_book_split_cache_force,
+        prelabel=prelabel,
+        prelabel_provider=prelabel_provider,
+        codex_cmd=codex_cmd,
+        codex_model=codex_model,
+        codex_reasoning_effort=codex_reasoning_effort,
+        prelabel_timeout_seconds=prelabel_timeout_seconds,
+        prelabel_cache_dir=prelabel_cache_dir,
+        prelabel_workers=prelabel_workers,
+        prelabel_granularity=prelabel_granularity,
+        prelabel_upload_as=prelabel_upload_as,
+        prelabel_allow_partial=prelabel_allow_partial,
+        prelabel_track_token_usage=prelabel_track_token_usage,
+        scheduler_event_callback=scheduler_event_callback,
+        auto_project_name_on_scope_mismatch=auto_project_name_on_scope_mismatch,
+        allow_codex=allow_codex,
+        allow_labelstudio_write=allow_labelstudio_write,
+        run_root_override=run_root_override,
+        mirror_stage_artifacts_into_run_root=mirror_stage_artifacts_into_run_root,
+    )
     def _notify(message: str) -> None:
         _notify_progress_callback(progress_callback, message)
 

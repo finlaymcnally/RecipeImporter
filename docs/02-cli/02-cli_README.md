@@ -7,8 +7,8 @@ read_when:
 
 # CLI Section Reference
 
-Primary command wiring lives in `cookimport/cli.py`.
-Use this file as the source-of-truth CLI reference for coding/agent context.
+Public CLI entrypoint wiring still lives in `cookimport/cli.py`, but active command-family ownership now lives in `cookimport/cli_commands/`.
+Use this doc as the CLI reference and open `cookimport/cli_commands/<family>.py` before treating `cookimport/cli.py` as the implementation owner.
 For beginner interactive usage, start with `README.md` in the project root.
 
 ## Entry Points
