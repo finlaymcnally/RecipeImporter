@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from cookimport.labelstudio.ingest import *  # noqa: F401,F403
-from cookimport.labelstudio import ingest as _ingest
-
-globals().update(
-    {name: getattr(_ingest, name) for name in dir(_ingest) if not name.startswith("__")}
+from cookimport.epub_extractor_names import (
+    EPUB_EXTRACTOR_CANONICAL_SET,
+    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
+    epub_extractor_choices_for_help,
+    is_policy_locked_epub_extractor_name,
+    normalize_epub_extractor_name,
+)
+from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
+    RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
 )
 
 

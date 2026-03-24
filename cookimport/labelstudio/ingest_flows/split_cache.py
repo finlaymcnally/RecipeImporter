@@ -1,11 +1,25 @@
 from __future__ import annotations
 
-from cookimport.labelstudio.ingest import *  # noqa: F401,F403
-from cookimport.labelstudio import ingest as _ingest
+import datetime as dt
+import json
+import os
+import re
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Callable, Iterable
 
-globals().update(
-    {name: getattr(_ingest, name) for name in dir(_ingest) if not name.startswith("__")}
-)
+from cookimport.labelstudio.ingest_support import _notify_progress_callback
+
+try:  # pragma: no cover - Windows fallback keeps behavior deterministic.
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
+SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION = "single_book_split_cache.v1"
+SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
+SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = 120.0
+SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = 0.25
 
 
 def _normalize_single_book_split_cache_mode(value: str | None) -> str:
@@ -176,6 +190,8 @@ def _emit_split_phase_status(
         return
     print(cleaned)
 
+
+@contextmanager
 def _acquire_split_phase_slot(
     *,
     slots: int,

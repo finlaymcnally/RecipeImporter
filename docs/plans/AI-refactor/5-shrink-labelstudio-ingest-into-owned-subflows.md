@@ -32,6 +32,7 @@ This plan is self-contained. It does not require a parent ExecPlan, and it now a
 - [x] (2026-03-23 17:16 EDT) Re-audited the live tree and confirmed the shared source-job planning dependency has already landed: [cookimport/labelstudio/ingest.py](/home/mcnal/projects/recipeimport/cookimport/labelstudio/ingest.py) now imports `JobSpec` and `plan_source_job(...)` from [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py) instead of owning duplicate planner bodies.
 - [x] (2026-03-23 17:51 EDT) Added `cookimport/labelstudio/ingest_flows/` and `cookimport/staging/import_session_flows/` with extracted helper/runtime mirrors plus folder-local notes, but kept the legacy `ingest.py` and `import_session.py` functions as the active runtime owners because current Label Studio and staging tests still patch deep names on those modules directly.
 - [x] (2026-03-23 18:31 EDT) Finished the active runtime cutover: `ingest.py` and `import_session.py` now delegate their public seams to `ingest_flows/` and `import_session_flows/`, the delegated modules resync current legacy-module globals before execution so deep monkeypatch tests still work, and the Label Studio/staging docs now teach the new ownership map.
+- [x] (2026-03-23 21:06 EDT) Finished the purge: `ingest.py` and `import_session.py` are now thin public compatibility facades, `ingest_support.py` and `import_session_contracts.py` keep the remaining shared helper/public type surfaces, the flow packages own the runtime implementation instead of the public roots, and labelstudio/staging/cli/bench validation passed from that end state.
 
 - [x] Create a `cookimport/labelstudio/ingest_flows/` package with one module per major responsibility cluster.
 - [x] Move normalization and split-cache logic out of `ingest.py`.
@@ -96,9 +97,9 @@ This plan is self-contained. It does not require a parent ExecPlan, and it now a
 
 ## Outcomes & Retrospective
 
-This plan is still largely outstanding, but one important dependency is now complete: shared source-job planning has already moved out into [cookimport/staging/job_planning.py](/home/mcnal/projects/recipeimport/cookimport/staging/job_planning.py). The remaining work is the decomposition of the still-broad Label Studio ingest and shared stage-session coordinators.
+This plan is complete in the current tree. The public import paths on `cookimport.labelstudio.ingest` and `cookimport.staging.import_session` remain stable, but those files are now only compatibility facades. Shared helper/public-type state moved behind `ingest_support.py` and `import_session_contracts.py`, and the real workflow ownership lives in `ingest_flows/` and `import_session_flows/`.
 
-The main planning lesson is that both files already contain coherent support clusters. The work is to make those clusters first-class owners, not to invent a new runtime model.
+The main lesson was the same one as the CLI/QualitySuite purge: stable public import paths do not require a broad public implementation owner. A private runtime layer plus explicit sync wrappers was enough to preserve monkeypatch-heavy tests while finally shrinking the public coordinators.
 
 ## Context and Orientation
 

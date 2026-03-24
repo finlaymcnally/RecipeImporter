@@ -6,6 +6,7 @@ Durable low-noise and modularity contracts live in `tests/CONVENTIONS.md`.
 
 For agent/day-to-day loops, do not run raw `pytest` directly because it can become a long-running full-suite loop. Use `./scripts/test-suite.sh` domain batches instead: `smoke`, `domain <domain>`, `all-fast`, `fast`, and `full` only when intentionally required.
 `make test-smoke`, `make test-fast`, `make test-domain DOMAIN=<domain>`, `make test-all-fast`, and `make test-full` are equivalent entry points.
+Bench Oracle and `cf-debug` fast tests now use tiny synthetic `upload_bundle_v1` fixtures under `tmp_path`; do not reintroduce copied large benchmark roots into routine fast slices.
 
 ## Folder Layout
 

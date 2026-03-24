@@ -30,6 +30,7 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 - [x] (2026-03-23 17:51 EDT) Created `cookimport/cli_commands/` with extracted command-family modules and folder-local notes; kept the legacy `cookimport/cli.py` runtime wiring in place for now because the current CLI test suite still monkeypatches deep old-module command names.
 - [x] (2026-03-23 18:31 EDT) Finished the active cutover: `cookimport/cli.py` now rebuilds the public Typer apps from `cookimport/cli_commands/`, the command modules resync current legacy-module globals before dispatch so CLI monkeypatch tests stay valid, and the CLI docs/folder notes now describe `cli.py` as the composition root rather than the command owner.
 - [x] (2026-03-23 20:40 EDT) Redirected the legacy direct-call surface on `cookimport.cli` back to `cookimport/cli_commands/`: each command-family module now returns its registered public callables, and `cookimport/cli.py` re-exports sync wrappers so tests and helper code that still patch `cookimport.cli.<command>` hit the command-package implementation rather than stale in-file copies.
+- [x] (2026-03-23 21:06 EDT) Finished the purge: `cookimport/cli.py` is now only a thin composition root plus compatibility wrappers, `cookimport/cli_support.py` holds the shared helper surface, the command-family modules no longer import the public root, and CLI/bench/labelstudio domain validation all passed from that end state.
 
 - [x] Create the new `cookimport/cli_commands/` package and establish one module per command family.
 - [x] Move the `stage` command implementation behind the new package while keeping `cookimport.cli:app` stable.
@@ -79,9 +80,9 @@ This plan is self-contained. It does not require a parent ExecPlan. It replaces 
 
 ## Outcomes & Retrospective
 
-This plan is materially closer to done than the initial extraction audit suggested. The public Typer tree and the legacy direct-call compatibility surface on `cookimport.cli` are now both sourced from `cookimport/cli_commands/`, which means stage/bench/analytics/Label Studio command edits can start in the command-family modules instead of the old root file.
+This plan is complete in the current tree. `cookimport/cli.py` is now the thin public composition root and compatibility surface, `cookimport/cli_support.py` keeps the shared helper state, and the active command-family implementation lives under `cookimport/cli_commands/`.
 
-The remaining debt is dead legacy command bodies still present in `cookimport/cli.py`. They are no longer the active runtime or direct-call owner, but the file is still larger than this plan’s ideal end state and should eventually have those stale copies deleted outright.
+The main lesson was that the old public import surface did not require keeping the old root as an implementation owner. Sync wrappers around the real command modules were enough to preserve monkeypatch-heavy tests while deleting the stale command bodies from the public root.
 
 ## Context and Orientation
 

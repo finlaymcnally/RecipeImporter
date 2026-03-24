@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.bench.oracle_benchmark_support import build_minimal_upload_bundle
 
 from cookimport.bench.oracle_followup import (
     ORACLE_AUTO_FOLLOWUP_STATUS_NAME,
@@ -22,18 +23,23 @@ from cookimport.bench.oracle_upload import (
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_BUNDLE = (
-    REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-21_11.17.08/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
-)
-
-
 def _copy_sample_bundle_root(destination_root: Path) -> Path:
-    shutil.copytree(SAMPLE_BUNDLE.parent, destination_root)
-    copied_bundle_dir = destination_root / "upload_bundle_v1"
-    shutil.rmtree(copied_bundle_dir / ".oracle_upload_runs", ignore_errors=True)
-    return copied_bundle_dir
+    return build_minimal_upload_bundle(
+        destination_root,
+        source_slug="saltfatacidheatcutdown",
+        source_key="saltfatacidheatcutdown",
+        recipe_rows=[
+            {
+                "recipe_id": (
+                    "urn:recipeimport:epub:"
+                    "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:"
+                    "label_span_4"
+                ),
+                "delta_codex_minus_baseline": 0.0,
+                "changed_lines_codex_vs_vanilla": 0,
+            }
+        ],
+    )
 
 
 def test_parse_requested_followup_text_reads_structured_asks() -> None:

@@ -13,11 +13,16 @@ from typing import Callable
 
 from cookimport.bench.quality_suite import QualitySuite
 from cookimport.bench.qualitysuite import environment as _environment
+from cookimport.bench.qualitysuite import planning as _planning
 from cookimport.bench.qualitysuite import runtime as _runtime
 from cookimport.bench.qualitysuite import worker_cli as _worker_cli
 from cookimport.bench.qualitysuite.environment import (
     _resolve_quality_experiment_executor_mode,
     _running_in_wsl,
+)
+from cookimport.bench.qualitysuite.planning import (
+    _expand_experiments,
+    _load_experiment_file,
 )
 from cookimport.bench.qualitysuite.runtime import (
     _resolve_quality_alignment_cache_root,
@@ -53,6 +58,10 @@ def _sync_qualitysuite_runtime_compat() -> None:
     _environment._resolve_quality_experiment_executor_mode = (
         _resolve_quality_experiment_executor_mode
     )
+    _runtime._load_experiment_file = _load_experiment_file
+    _runtime._expand_experiments = _expand_experiments
+    _planning._load_experiment_file = _load_experiment_file
+    _planning._expand_experiments = _expand_experiments
 
 
 def run_quality_suite(

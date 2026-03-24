@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import typer
 
-from cookimport.cli import *  # noqa: F401,F403
-from cookimport import cli as _cli
+from cookimport.cli_support import *  # noqa: F401,F403
+from cookimport import cli_support as _cli
 
 globals().update(
     {name: getattr(_cli, name) for name in dir(_cli) if not name.startswith("__")}
 )
+
+
+def _format_size_compact(num_bytes: int) -> str:
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+    value = float(num_bytes)
+    for unit in ("KB", "MB", "GB", "TB"):
+        value /= 1024.0
+        if value < 1024.0 or unit == "TB":
+            return f"{value:.1f} {unit}"
+    return f"{num_bytes} B"
 
 
 def register(app: typer.Typer) -> dict[str, object]:

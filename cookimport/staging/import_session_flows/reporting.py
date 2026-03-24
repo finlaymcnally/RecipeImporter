@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from cookimport.staging.import_session import *  # noqa: F401,F403
-from cookimport.staging import import_session as _import_session
+from typing import Callable
 
-globals().update(
-    {
-        name: getattr(_import_session, name)
-        for name in dir(_import_session)
-        if not name.startswith("__")
-    }
+from cookimport.core.progress_messages import (
+    format_stage_counter_progress,
+    format_stage_progress,
 )
 
 

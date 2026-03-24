@@ -15,6 +15,12 @@ from cookimport.bench import oracle_upload
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _speed_up_background_oracle_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(oracle_upload, "ORACLE_BACKGROUND_SESSION_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(oracle_upload, "ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS", 0.0)
+
+
 def _make_bundle(
     bundle_dir: Path,
     *,

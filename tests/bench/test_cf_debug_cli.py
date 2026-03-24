@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 from typer.testing import CliRunner
+
+from tests.bench.oracle_benchmark_support import (
+    DEFAULT_SOURCE_KEY,
+    build_minimal_upload_bundle,
+)
 
 from cookimport.cf_debug_cli import app
 from cookimport.bench import followup_bundle
@@ -12,25 +16,8 @@ from cookimport.bench import followup_bundle
 
 runner = CliRunner()
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_BUNDLE = (
-    REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-20_11.00.44/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
-)
-KNOWLEDGE_SAMPLE_BUNDLE = (
-    REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-20_11.00.44/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
-)
-KNOWLEDGE_SOURCE_KEY = (
-    "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
-)
-SPARSE_SINGLE_PROFILE_BUNDLE = (
-    REPO_ROOT
-    / "data/golden/benchmark-vs-golden/2026-03-20_11.00.44/single-book-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
-)
-SPARSE_SINGLE_PROFILE_SOURCE_KEY = (
-    "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
-)
+KNOWLEDGE_SOURCE_KEY = DEFAULT_SOURCE_KEY
+SPARSE_SINGLE_PROFILE_SOURCE_KEY = DEFAULT_SOURCE_KEY
 
 
 def _read_json(path: Path) -> dict[str, object]:
@@ -77,165 +64,25 @@ class _FakeFollowupContext:
         ]
 
 
+def _make_sample_bundle(tmp_path: Path) -> Path:
+    return build_minimal_upload_bundle(
+        tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown",
+        source_slug="saltfatacidheatcutdown",
+        source_key=SPARSE_SINGLE_PROFILE_SOURCE_KEY,
+    )
+
+
 def _make_current_knowledge_bundle(tmp_path: Path, *, enabled: bool = True) -> Path:
-    copied_root = tmp_path / "single-profile-benchmark"
-    shutil.copytree(KNOWLEDGE_SAMPLE_BUNDLE.parent, copied_root)
-    run_dir = copied_root / "line_role_only"
-    prompts_dir = run_dir / "prompts"
-    prompts_dir.mkdir(parents=True, exist_ok=True)
-    knowledge_prompt_path = prompts_dir / "prompt_nonrecipe_knowledge_review.txt"
-    knowledge_prompt_path.write_text("knowledge prompt body\n", encoding="utf-8")
-    prompt_samples_path = prompts_dir / "prompt_type_samples_from_full_prompt_log.md"
-    prompt_samples_path.write_text(
-        "# Prompt samples\n\n## knowledge (Knowledge)\n\ncall_id: `fixture-knowledge`\n",
-        encoding="utf-8",
+    return build_minimal_upload_bundle(
+        tmp_path / "single-profile-benchmark",
+        source_slug="saltfatacidheatcutdown",
+        source_key=KNOWLEDGE_SOURCE_KEY,
+        codex_output_subdir="line_role_only",
+        baseline_output_subdir=None,
+        include_knowledge=True,
+        knowledge_output_subdir="line_role_only",
+        knowledge_enabled=enabled,
     )
-    prediction_run_dir = run_dir / "prediction-run"
-    prediction_run_dir.mkdir(parents=True, exist_ok=True)
-    prompt_budget_path = prediction_run_dir / "prompt_budget_summary.json"
-    prompt_budget_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "prompt_budget_summary.v1",
-                "by_stage": {"knowledge": {"call_count": 1, "tokens_total": 1234}},
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    knowledge_manifest_path = (
-        prediction_run_dir / "raw" / "llm" / "fixture-slug" / "knowledge_manifest.json"
-    )
-    knowledge_manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    knowledge_manifest_path.write_text(
-        json.dumps({"pipeline_id": "recipe.knowledge.compact.v1"}, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    bundle_dir = copied_root / "upload_bundle_v1"
-    index_path = bundle_dir / "upload_bundle_index.json"
-    index_payload = _read_json(index_path)
-    index_payload["source_dir"] = str(copied_root)
-    analysis = index_payload.setdefault("analysis", {})
-    knowledge_summary = dict(analysis.get("knowledge", {}) or {})
-    run_diagnostics = index_payload.get("run_diagnostics")
-    if isinstance(run_diagnostics, list) and run_diagnostics:
-        updated_runs: list[dict[str, object]] = []
-        for raw_row in run_diagnostics:
-            if not isinstance(raw_row, dict):
-                continue
-            row = dict(raw_row)
-            row["output_subdir"] = "line_role_only"
-            row["run_id"] = "line_role_only"
-            row["source_key"] = KNOWLEDGE_SOURCE_KEY
-            updated_runs.append(row)
-        index_payload["run_diagnostics"] = updated_runs
-    if isinstance(knowledge_summary, dict):
-        knowledge_summary["schema_version"] = "upload_bundle_knowledge.v1"
-        rows = knowledge_summary.get("rows")
-        if isinstance(rows, list) and rows:
-            row = dict(rows[0])
-            row["output_subdir"] = "line_role_only"
-            row["enabled"] = enabled
-            row["pipeline"] = "codex-knowledge-shard-v1"
-            row["pipeline_id"] = "recipe.knowledge.compact.v1"
-            row["llm_knowledge_pipeline"] = "codex-knowledge-shard-v1"
-            row["knowledge_call_count"] = 1
-            row["knowledge_token_total"] = 1234
-            row["prompt_knowledge_status"] = "written"
-            row["knowledge_manifest_status"] = "written"
-            row["prompt_samples_status"] = "written"
-            row["prompt_budget_summary_status"] = "written"
-            row["prompt_knowledge_in_bundle"] = True
-            row["knowledge_manifest_in_bundle"] = True
-            row["prompt_samples_in_bundle"] = True
-            row["prompt_budget_summary_in_bundle"] = True
-            row["shards_written"] = 1
-            row["outputs_parsed"] = 1
-            row["snippets_written"] = 1
-            row["source_key"] = KNOWLEDGE_SOURCE_KEY
-            knowledge_summary["rows"] = [row]
-        knowledge_summary["enabled_run_count"] = 1 if enabled else 0
-        analysis["knowledge"] = knowledge_summary
-    navigation = (index_payload.get("navigation") or {})
-    row_locators = (navigation.get("row_locators") or {})
-    knowledge_rows = row_locators.get("knowledge_by_run")
-    if isinstance(knowledge_rows, list):
-        for row in knowledge_rows:
-            if not isinstance(row, dict):
-                continue
-            row["output_subdir"] = "line_role_only"
-            row["source_key"] = KNOWLEDGE_SOURCE_KEY
-            row["prompt_samples_md"] = {
-                "path": "line_role_only/prompts/prompt_type_samples_from_full_prompt_log.md",
-                "payload_row": 999001,
-            }
-            row["prompt_knowledge_txt"] = {
-                "path": "line_role_only/prompts/prompt_nonrecipe_knowledge_review.txt",
-                "payload_row": 999002,
-            }
-            row["knowledge_manifest_json"] = {
-                "path": "line_role_only/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json",
-                "payload_row": 999003,
-            }
-            row["prompt_budget_summary_json"] = {
-                "path": "line_role_only/prediction-run/prompt_budget_summary.json",
-                "payload_row": 999004,
-            }
-    index_payload["navigation"]["row_locators"] = row_locators
-    index_path.write_text(
-        json.dumps(index_payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    payload_path = bundle_dir / "upload_bundle_payload.jsonl"
-    payload_rows = _read_jsonl(payload_path)
-    payload_rows.extend(
-        [
-            {
-                "path": "line_role_only/prompts/prompt_type_samples_from_full_prompt_log.md",
-                "content_type": "text",
-                "category": "run_artifact",
-                "run_subdir": "line_role_only",
-                "bytes": prompt_samples_path.stat().st_size,
-                "sha256": "fixture-prompt-samples",
-                "content_text": prompt_samples_path.read_text(encoding="utf-8"),
-            },
-            {
-                "path": "line_role_only/prompts/prompt_nonrecipe_knowledge_review.txt",
-                "content_type": "text",
-                "category": "run_artifact",
-                "run_subdir": "line_role_only",
-                "bytes": knowledge_prompt_path.stat().st_size,
-                "sha256": "fixture-knowledge-prompt",
-                "content_text": knowledge_prompt_path.read_text(encoding="utf-8"),
-            },
-            {
-                "path": "line_role_only/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json",
-                "content_type": "json",
-                "category": "run_artifact",
-                "run_subdir": "line_role_only",
-                "bytes": knowledge_manifest_path.stat().st_size,
-                "sha256": "fixture-knowledge-manifest",
-                "content_json": json.loads(knowledge_manifest_path.read_text(encoding="utf-8")),
-            },
-            {
-                "path": "line_role_only/prediction-run/prompt_budget_summary.json",
-                "content_type": "json",
-                "category": "run_artifact",
-                "run_subdir": "line_role_only",
-                "bytes": prompt_budget_path.stat().st_size,
-                "sha256": "fixture-prompt-budget",
-                "content_json": json.loads(prompt_budget_path.read_text(encoding="utf-8")),
-            },
-        ]
-    )
-    payload_path.write_text(
-        "".join(json.dumps(row, sort_keys=True) + "\n" for row in payload_rows),
-        encoding="utf-8",
-    )
-    return bundle_dir
 
 
 def test_default_line_role_followup_ask_prefers_negative_recipe_regression() -> None:
@@ -326,13 +173,14 @@ def test_default_line_role_followup_ask_falls_back_to_highest_signal_recipe_when
 
 
 def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> None:
+    sample_bundle = _make_sample_bundle(tmp_path)
     out_path = tmp_path / "followup_request.json"
     result = runner.invoke(
         app,
         [
             "request-template",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--out",
             str(out_path),
         ],
@@ -354,12 +202,13 @@ def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> Non
 
 
 def test_select_cases_is_byte_stable_for_same_arguments(tmp_path: Path) -> None:
+    sample_bundle = _make_sample_bundle(tmp_path)
     out_path = tmp_path / "selectors.json"
     line_range = f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628:657"
     args = [
         "select-cases",
         "--bundle",
-        str(SAMPLE_BUNDLE),
+        str(sample_bundle),
         "--stage",
         "line_role",
         "--include-line-range",
@@ -389,13 +238,14 @@ def test_select_cases_is_byte_stable_for_same_arguments(tmp_path: Path) -> None:
 
 
 def test_select_cases_accepts_legacy_hyphen_line_range_syntax(tmp_path: Path) -> None:
+    sample_bundle = _make_sample_bundle(tmp_path)
     out_path = tmp_path / "selectors.json"
     result = runner.invoke(
         app,
         [
             "select-cases",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--stage",
             "line_role",
             "--include-line-range",
@@ -417,6 +267,7 @@ def test_select_cases_accepts_legacy_hyphen_line_range_syntax(tmp_path: Path) ->
 
 
 def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
+    sample_bundle = _make_sample_bundle(tmp_path)
     selectors_path = tmp_path / "selectors.json"
     line_range = f"{SPARSE_SINGLE_PROFILE_SOURCE_KEY}:628:657"
     select_result = runner.invoke(
@@ -424,7 +275,7 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
         [
             "select-cases",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--stage",
             "line_role",
             "--include-line-range",
@@ -441,7 +292,7 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
         [
             "pack",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--selectors",
             str(selectors_path),
             "--out",
@@ -476,13 +327,14 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
 
 
 def test_structure_report_writes_bundle_wide_structure_split(tmp_path: Path) -> None:
+    sample_bundle = _make_sample_bundle(tmp_path)
     out_path = tmp_path / "structure_report.json"
     result = runner.invoke(
         app,
         [
             "structure-report",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--out",
             str(out_path),
         ],
@@ -505,13 +357,14 @@ def test_structure_report_writes_bundle_wide_structure_split(tmp_path: Path) -> 
 
 
 def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None:
+    sample_bundle = _make_sample_bundle(tmp_path)
     template_path = tmp_path / "template.json"
     template_result = runner.invoke(
         app,
         [
             "request-template",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--out",
             str(template_path),
         ],
@@ -522,7 +375,7 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
     request_path = tmp_path / "followup_request.json"
     request_payload = {
         "schema_version": "cf.followup_request.v1",
-        "bundle_dir": str(SAMPLE_BUNDLE),
+        "bundle_dir": str(sample_bundle),
         "bundle_sha256": template_payload["bundle_sha256"],
         "request_id": "followup_data1_request",
         "request_summary": "Answer two targeted follow-up asks from the web AI.",
@@ -569,7 +422,7 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
         [
             "build-followup",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--request",
             str(request_path),
             "--out",
@@ -605,10 +458,11 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
 
 
 def test_build_followup_can_write_structure_report_without_case_exports(tmp_path: Path) -> None:
+    sample_bundle = _make_sample_bundle(tmp_path)
     request_path = tmp_path / "structure_followup_request.json"
     request_payload = {
         "schema_version": "cf.followup_request.v1",
-        "bundle_dir": str(SAMPLE_BUNDLE),
+        "bundle_dir": str(sample_bundle),
         "request_id": "followup_structure_request",
         "request_summary": "Write the bundle-wide structure split only.",
         "requester_context": {
@@ -640,7 +494,7 @@ def test_build_followup_can_write_structure_report_without_case_exports(tmp_path
         [
             "build-followup",
             "--bundle",
-            str(SAMPLE_BUNDLE),
+            str(sample_bundle),
             "--request",
             str(request_path),
             "--out",
@@ -689,13 +543,14 @@ def test_request_template_includes_knowledge_example_when_bundle_has_knowledge(
 def test_request_template_for_sparse_bundle_builds_without_missing_case_ids(
     tmp_path: Path,
 ) -> None:
+    sparse_bundle = _make_sample_bundle(tmp_path)
     template_path = tmp_path / "sparse_followup_request.json"
     template_result = runner.invoke(
         app,
         [
             "request-template",
             "--bundle",
-            str(SPARSE_SINGLE_PROFILE_BUNDLE),
+            str(sparse_bundle),
             "--out",
             str(template_path),
         ],
@@ -711,7 +566,7 @@ def test_request_template_for_sparse_bundle_builds_without_missing_case_ids(
         [
             "build-followup",
             "--bundle",
-            str(SPARSE_SINGLE_PROFILE_BUNDLE),
+            str(sparse_bundle),
             "--request",
             str(template_path),
             "--out",

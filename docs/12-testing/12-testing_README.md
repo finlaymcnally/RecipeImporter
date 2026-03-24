@@ -84,6 +84,7 @@ Current layout exceptions and intentional split seams:
 - tests that assert exact line-role shard ids, proposal filenames, or worker assignments must opt out of the default `line_role_prompt_target_count=5`; `codex_batch_size=1` alone no longer means one line per shard
 - Small live Codex env/import helpers should keep one direct non-slow regression test even when broader slow integration coverage already exists.
 - CLI path-resolution tests should prefer synthesizing the minimal artifact contract they need under `tmp_path` instead of depending on repo-local sample benchmark roots.
+- Bench Oracle / follow-up / `cf-debug` tests should prefer tiny synthetic `upload_bundle_v1` fixtures under `tmp_path`; copying large checked-in benchmark roots is reserved for an explicit slow realism slice only.
 - When one test starts mixing giant fixture setup, one command/helper invocation, and several unrelated output families, split it into file-local builders plus narrower tests before adding more assertions. Prefer domain-local support modules and helper functions over a new repo-wide fixture framework.
 
 Support assets and test-runtime files:
@@ -108,6 +109,7 @@ Current contracts:
 - Historical filename hints are not enough to classify cost: measured hotspot files now include roughly `45s` for `tests/analytics/test_stats_dashboard.py`, `15s` for `tests/ingestion/test_performance_features.py`, `11s` each for the EPUB/text CLI output-structure files, and `24s` for `tests/parsing/test_canonical_line_roles.py`, so those files stay slow-marked despite their old names.
 - Broad compact pytest runs are a poor hotspot profiler here; use one-file pytest invocations when measuring candidate slow files because the compact reporter suppresses most useful `--durations` detail in broad runs.
 - Prefer moving proven heavy helper-internal suites into `_SLOW_FILES` before changing production code for test speed; production edits need a stronger reason than loop runtime alone.
+- Bench-side Oracle upload tests that only care about command or metadata shape should clamp the background audit poll constants inside the test so they do not pay the default production wait window.
 - The benchmark smoke slice includes the real interactive single-book benchmark path while stubbing `labelstudio_benchmark(...)` so smoke runs catch routing and artifact regressions without spending tokens.
 - Label Studio benchmark-helper tests default-stub `_start_benchmark_bundle_oracle_upload_background(...)` from `tests/labelstudio/benchmark_helper_support.py`; routine test runs must not open live Oracle / ChatGPT browser sessions. Tests that need launch assertions should override that stub explicitly and assert the handoff arguments.
 - for shard-shape assertions, set `line_role_prompt_target_count=None` or an explicit `line_role_shard_target_lines`; otherwise current defaults will legally regroup several rows into one shard
@@ -167,6 +169,8 @@ Design intent:
 - 2026-03-16: CLI tests like `tests/bench/test_benchmark_oracle_upload.py` should build a minimal `upload_bundle_v1` fixture under `tmp_path` rather than pinning to one checked-in benchmark directory.
 - 2026-03-22: the next maintainability wins came from splitting long mixed-concern tests into local builders plus narrower assertion families; keep those seams local unless several files truly share the same support contract.
 - 2026-03-23: fast stage helper names should match the source-job runtime (`install_fake_source_job_stage`), not the removed `stage_one_file` path.
+- 2026-03-23: bench Oracle follow-up and `cf-debug` fast slices now rely on tiny synthetic `upload_bundle_v1` fixtures; routine `domain bench` should not copy large checked-in benchmark roots just to exercise request parsing, selector generation, or packet writing.
+- 2026-03-23: `tests/bench/test_benchmark_oracle_upload.py` should keep the production background-poll contract covered, but tests that only assert launch metadata must patch the poll window down so fast runs do not burn fixed sleep time.
 - LLM pack/schema tests now carry two important anti-drift contracts:
   - strict nested JSON-schema validity has to be checked recursively, not only at the top level
   - prompt-pack tests must assert per-pipeline transport reality (`inline` versus `path`) instead of freezing one legacy `{{INPUT_PATH}}` expectation across every pipeline

@@ -7,8 +7,8 @@ read_when:
 
 # CLI Section Reference
 
-Public CLI entrypoint wiring still lives in `cookimport/cli.py`, but active command-family ownership now lives in `cookimport/cli_commands/`.
-`cookimport.cli` also re-exports compatibility wrappers for those command callables so direct-call helpers and monkeypatch-heavy tests keep one public import surface while the implementation stays in `cookimport/cli_commands/`.
+Public CLI entrypoint wiring still lives in `cookimport/cli.py`, but that file is now only the thin Typer composition root plus the historical compatibility surface. Shared helper state lives in `cookimport/cli_support.py`, and active command-family ownership lives in `cookimport/cli_commands/`.
+`cookimport.cli` re-exports compatibility wrappers for command callables and helper functions so direct-call helpers and monkeypatch-heavy tests keep one public import surface while the implementation stays in `cookimport/cli_commands/`.
 Use this doc as the CLI reference and open `cookimport/cli_commands/<family>.py` before treating `cookimport/cli.py` as the implementation owner.
 For beginner interactive usage, start with `README.md` in the project root.
 

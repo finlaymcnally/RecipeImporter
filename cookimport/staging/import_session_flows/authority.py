@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-from cookimport.staging.import_session import *  # noqa: F401,F403
-from cookimport.staging import import_session as _import_session
+import json
+from pathlib import Path
+from typing import Any
 
-globals().update(
-    {
-        name: getattr(_import_session, name)
-        for name in dir(_import_session)
-        if not name.startswith("__")
-    }
-)
+from cookimport.parsing.label_source_of_truth import LabelFirstStageResult
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

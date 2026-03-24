@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import typer
 
-from cookimport.cli import *  # noqa: F401,F403
-from cookimport import cli as _cli
+from cookimport.cli_support import *  # noqa: F401,F403
+from cookimport import cli_support as _cli
 
 globals().update(
     {name: getattr(_cli, name) for name in dir(_cli) if not name.startswith("__")}

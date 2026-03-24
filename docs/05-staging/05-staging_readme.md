@@ -60,9 +60,13 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/runs/manifest.py`
   - Defines/stores `run_manifest.json` written by stage/pred-run flows for source identity + artifact indexing.
 - `cookimport/labelstudio/ingest.py`
-  - Reuses the same writer flow for processed output snapshots used in LS workflows.
+  - Public compatibility facade for Label Studio ingest import paths.
+- `cookimport/labelstudio/ingest_support.py`
+  - Shared helper surface used by `ingest_flows/` and mirrored back through the public ingest facade for tests.
 - `cookimport/staging/import_session.py`
-  - Public shared stage-session seam. Active runtime ownership now delegates into `cookimport/staging/import_session_flows/`.
+  - Public shared stage-session compatibility seam.
+- `cookimport/staging/import_session_contracts.py`
+  - Shared public result dataclass/types used by `import_session_flows/` and the public session facade.
 - `cookimport/staging/import_session_flows/`
   - `output_stage.py` owns the active shared stage-session implementation, `authority.py` owns label-first artifact writes, and the sibling modules keep the stage-session responsibilities split by concern.
 
