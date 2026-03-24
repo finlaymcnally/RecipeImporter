@@ -10,9 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal, Mapping, Sequence
-
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Any, Callable, Mapping, Sequence
 
 from cookimport.config.prediction_identity import (
     build_line_role_cache_identity_payload,
@@ -86,6 +84,17 @@ from cookimport.parsing.line_role_workspace_tools import (
     build_line_role_workspace_task_metadata,
     render_line_role_current_task_brief,
     render_line_role_worker_script,
+)
+from .contracts import (
+    CanonicalLineRolePrediction,
+    _normalize_review_exclusion_reason,
+    _unique_string_list,
+)
+from .prompt_inputs import (
+    serialize_line_role_debug_context_row,
+    serialize_line_role_debug_context_row_from_mapping,
+    serialize_line_role_file_row,
+    serialize_line_role_model_context_row,
 )
 
 _PROSE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
@@ -366,17 +375,6 @@ _LINE_ROLE_DIRECT_RUNTIME_ARTIFACT_SCHEMA = "line_role.direct_worker_runtime.v1"
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
 LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT = 240
 _LINE_ROLE_MODEL_PAYLOAD_VERSION = 1
-_REVIEW_EXCLUSION_REASON_CODES = frozenset(
-    {
-        "navigation",
-        "front_matter",
-        "publishing_metadata",
-        "copyright_legal",
-        "endorsement",
-        "publisher_promo",
-        "page_furniture",
-    }
-)
 _PAGE_FURNITURE_RE = re.compile(r"^\s*(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", re.IGNORECASE)
 _COPYRIGHT_LEGAL_RE = re.compile(
     r"\b(?:copyright|all rights reserved|used by permission|no part of this)\b",
@@ -409,52 +407,6 @@ _FRONT_MATTER_EXCLUSION_HEADINGS = {
     "introduction",
     "preface",
 }
-
-class CanonicalLineRolePrediction(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    recipe_id: str | None = None
-    block_id: str
-    block_index: int | None = None
-    atomic_index: int
-    text: str
-    within_recipe_span: bool | None = None
-    label: str
-    decided_by: Literal["rule", "codex", "fallback"]
-    reason_tags: list[str] = Field(default_factory=list)
-    escalation_reasons: list[str] = Field(default_factory=list)
-    review_exclusion_reason: str | None = None
-
-    @model_validator(mode="after")
-    def _normalize_metadata(self) -> "CanonicalLineRolePrediction":
-        self.escalation_reasons = _unique_string_list(self.escalation_reasons)
-        self.reason_tags = _unique_string_list(self.reason_tags)
-        self.review_exclusion_reason = _normalize_review_exclusion_reason(
-            self.review_exclusion_reason
-        )
-        return self
-
-
-def _unique_string_list(values: Sequence[Any]) -> list[str]:
-    output: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        rendered = str(value or "").strip()
-        if not rendered or rendered in seen:
-            continue
-        seen.add(rendered)
-        output.append(rendered)
-    return output
-
-
-def _normalize_review_exclusion_reason(value: Any) -> str | None:
-    rendered = str(value or "").strip().lower()
-    if not rendered:
-        return None
-    if rendered not in _REVIEW_EXCLUSION_REASON_CODES:
-        raise ValueError(f"unknown review exclusion reason: {rendered}")
-    return rendered
-
 
 def _prediction_has_reason_tag(
     prediction: CanonicalLineRolePrediction,
@@ -860,58 +812,6 @@ def _build_line_role_deterministic_baseline(
             by_atomic_index=by_atomic_index,
         )
     return baseline
-
-
-def serialize_line_role_file_row(
-    *,
-    candidate: AtomicLineCandidate,
-    deterministic_label: str,
-    escalation_reasons: Sequence[str],
-) -> dict[str, Any]:
-    return {
-        "atomic_index": int(candidate.atomic_index),
-        "block_index": int(candidate.block_index),
-        "block_id": str(candidate.block_id),
-        "recipe_id": candidate.recipe_id,
-        "within_recipe_span": candidate.within_recipe_span,
-        "deterministic_label": str(deterministic_label or "OTHER"),
-        "rule_tags": list(candidate.rule_tags),
-        "escalation_reasons": list(escalation_reasons),
-        "current_line": str(candidate.text),
-    }
-
-
-def serialize_line_role_debug_context_row(
-    *,
-    candidate: AtomicLineCandidate,
-) -> dict[str, Any]:
-    return {
-        "atomic_index": int(candidate.atomic_index),
-        "current_line": str(candidate.text),
-    }
-
-
-def serialize_line_role_debug_context_row_from_mapping(
-    row: Mapping[str, Any],
-) -> dict[str, Any] | None:
-    try:
-        atomic_index = int(row.get("atomic_index"))
-    except (AttributeError, TypeError, ValueError):
-        return None
-    return {
-        "atomic_index": atomic_index,
-        "current_line": str(row.get("current_line") or ""),
-    }
-
-
-def serialize_line_role_model_context_row(
-    *,
-    candidate: AtomicLineCandidate,
-) -> list[Any]:
-    return [
-        int(candidate.atomic_index),
-        str(candidate.text),
-    ]
 
 
 def build_line_role_debug_input_payload(
@@ -2824,7 +2724,7 @@ def _resolve_line_role_codex_farm_root(*, settings: RunSettings) -> Path:
     configured = str(getattr(settings, "codex_farm_root", "") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[2] / "llm_pipelines"
+    return Path(__file__).resolve().parents[3] / "llm_pipelines"
 
 
 def _resolve_line_role_codex_farm_workspace_root(

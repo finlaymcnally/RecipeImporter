@@ -703,10 +703,12 @@ from .settings import (
 )
 
 
-def _sync_cli_command_module_globals() -> None:
+@contextmanager
+def _sync_cli_command_module_globals() -> Iterable[None]:
     compat_module = sys.modules.get("cookimport.cli")
     runtime_module = sys.modules[__name__]
     if compat_module is None or compat_module is runtime_module:
+        yield
         return
 
     sync_names: dict[str, Any] = {}
@@ -716,14 +718,12 @@ def _sync_cli_command_module_globals() -> None:
         runtime_value = getattr(runtime_module, name)
         if value is runtime_value:
             continue
-        if callable(value) and getattr(value, "__wrapped__", None) is runtime_value:
+        if getattr(value, "_codex_cli_compat_export", False):
             continue
         sync_names[name] = value
     if not sync_names:
+        yield
         return
-
-    for name, value in sync_names.items():
-        setattr(runtime_module, name, value)
 
     command_module_names = (
         "cookimport.cli_commands.analytics",
@@ -733,13 +733,24 @@ def _sync_cli_command_module_globals() -> None:
         "cookimport.cli_commands.labelstudio",
         "cookimport.cli_commands.stage",
     )
+    target_modules = [runtime_module]
     for module_name in command_module_names:
         command_module = sys.modules.get(module_name)
-        if command_module is None:
-            continue
-        for name, value in sync_names.items():
-            if hasattr(command_module, name):
-                setattr(command_module, name, value)
+        if command_module is not None:
+            target_modules.append(command_module)
+
+    original_values: list[tuple[Any, str, Any]] = []
+    try:
+        for module in target_modules:
+            for name, value in sync_names.items():
+                if not hasattr(module, name):
+                    continue
+                original_values.append((module, name, getattr(module, name)))
+                setattr(module, name, value)
+        yield
+    finally:
+        for module, name, original_value in reversed(original_values):
+            setattr(module, name, original_value)
 
 
 def _settings_menu(current_settings: Dict[str, Any]) -> None:
@@ -6255,6 +6266,13 @@ def _metric_delta(candidate: float | None, baseline: float | None) -> float | No
 def _is_pipeline_off(value: Any) -> bool:
     normalized = str(value or "").strip().lower()
     return normalized in {"", "off", "none", "null"}
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _source_key_from_source_path(path_value: str) -> str:

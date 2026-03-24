@@ -7,14 +7,16 @@ read_when:
 
 # CLI Section Reference
 
-Public CLI entrypoint wiring still lives in `cookimport/cli.py`, and that file is now only the thin Typer composition root plus direct command/helper exports. Shared helper state lives in the private package `cookimport/cli_support/`, and active command-family ownership lives in `cookimport/cli_commands/`.
-`cookimport.cli` no longer republishes compatibility wrappers or runtime sync shims. Patch tests and helpers at `cookimport.cli_commands.<family>` or the specific helper owner under `cookimport.cli_support`, not at the root CLI module.
+Public CLI entrypoint wiring still lives in `cookimport/cli.py`, and that file is now the thin Typer composition root plus the historical direct-call/monkeypatch compatibility surface. Shared helper state lives in the private package `cookimport/cli_support/`, and active command-family ownership lives in `cookimport/cli_commands/`.
+`cookimport.cli` does still republish compatibility wrappers and a scoped runtime sync shim so legacy tests and helper entrypoints can keep patching the root module without permanently mutating private owners. Prefer patching `cookimport.cli_commands.<family>` or the specific helper owner under `cookimport.cli_support` when you are changing one domain deliberately, but keep the root surface working.
 Use this doc as the CLI reference and open `cookimport/cli_commands/<family>.py` before treating `cookimport/cli.py` as the implementation owner.
 For beginner interactive usage, start with `README.md` in the project root.
 
 Current package note:
 - the first real private support homes are `cookimport/cli_support/interactive.py`, `cookimport/cli_support/settings.py`, `cookimport/cli_support/dashboard.py`, and `cookimport/cli_support/compare_control.py`
-- `cookimport/cli_support/__init__.py` is now the explicit internal export hub for shared CLI helpers; it is broad, but it is no longer a callback-sync compatibility relay
+- `cookimport/cli_support/stage.py` now owns the shared stage manifest/merge/report helpers that were previously buried at the end of the root support file
+- `cookimport/cli_commands/stage.py`, `cookimport/cli_commands/bench.py`, and `cookimport/cli_commands/labelstudio.py` now use explicit `cli_support` imports instead of `from cookimport.cli_support import *`
+- `cookimport/cli_support/__init__.py` is now the explicit internal export hub for shared CLI helpers plus the scoped `cookimport.cli` compatibility relay
 
 ## Entry Points
 

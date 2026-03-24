@@ -2,106 +2,118 @@
 
 This is the current plain-English story of how a cookbook moves through the program from start to finish.
 
-a note to AI editors: please do not include code/file referneces here. it is confusing and not helpful to read (unless you are highlihgting something about that file specifically, but each time you mention code doesn't need a "citation" to that file)
+a note to AI editors: please do not include code/file references here. it is confusing and not helpful to read (unless you are highlighting something about that file specifically, but each time you mention code doesn't need a "citation" to that file)
 
-1. A run starts by creating a new timestamped output folder and deciding how much parallel work to use.
+## Start of a run
 
-2. The program looks at each input file and chooses the importer that seems most appropriate for that file type.
+Every `cookimport stage` run starts by creating a new timestamped output folder and deciding how much parallel work to use.
 
-3. Some importers are record-first. They try to read recipes directly from rows, fields, or structured data.
+Then the importer registry looks at each input file and picks the importer that seems most appropriate for that source type.
 
-4. Other importers are block-first. They first turn the book into one long ordered stream of text blocks, then try to find recipe-shaped regions inside that stream.
+Some importers are record-first. They try to read recipes directly from rows, fields, or structured data.
 
-5. At this early point, everything is still provisional. The importer is making its best first guess about recipes and leftover non-recipe text.
+Other importers are block-first. They turn the book into one long ordered stream of canonical source blocks and only then try to find recipe-shaped regions inside that stream.
 
-6. PDF and EPUB have an extra wrinkle: if the file is large, the program may split it into temporary sub-jobs. Those sub-jobs only do early parsing work.
+At this point everything is still provisional. Importers are source normalizers. They are not the final authority on what counts as a recipe or what counts as useful outside-recipe knowledge.
 
-7. When a file was split, the program later merges all the temporary pieces back together, rebuilds the full book text, fixes block indexes and recipe IDs, and only then runs the main semantic pipeline on the merged book.
+PDF and EPUB inputs have one extra wrinkle: the program may split them into source jobs. Those jobs only do the early conversion work. Afterward the program merges those job results back into one whole-book bundle, fixes indexes and recipe IDs, rebuilds the full text view, and only then runs the shared semantic session.
 
-8. The real center of the pipeline is a shared stage session. This is where most of the hidden architecture lives.
+## The real center of the pipeline
 
-9. The first big thing that session does is rebuild an authoritative line-by-line view of the book. It creates a block archive, breaks blocks into smaller atomic lines, and labels those lines.
+After conversion and any split-job merge, the book goes through one shared five-stage runtime:
 
-10. Those labels start with deterministic rules. If line-role review is enabled, an LLM may refine them. But even then, the program still treats the repo-owned validation and cleanup logic as the final gate.
+- `extract`
+- `recipe-boundary`
+- `recipe-refine`
+- `nonrecipe-route`
+- `knowledge-final`
 
-11. After the lines are labeled, the program groups them back into recipe spans. This is where one of the most important authority changes happens.
+That five-stage session is the real center of the pipeline. Importer output enters it as raw material, not as final truth.
 
-12. Importer recipes are not the final truth. The final recipe list comes from whichever recipe spans survive this regrouping step.
+## `extract`
 
-13. A grouped span usually needs a title anchor to count as a real recipe. Structured-looking text without a proper title can be rejected as a pseudo-recipe.
+`extract` rebuilds the book into the shared internal shape the later stages expect. It pulls together the canonical source blocks, block archive, and atomic line view so later decisions are based on one consistent representation of the book.
 
-14. If the importer thought there were recipes but the regrouping step ends up with zero real recipes, the program does not quietly fall back to the importer guess. It stays on the regrouped result and records that mismatch as a warning.
+## `recipe-boundary`
 
-15. Once the accepted recipe spans exist, the program rebuilds recipe candidates from them.
+`recipe-boundary` is where recipe ownership becomes authoritative.
 
-16. That means recipe structure is regenerated after regrouping instead of simply being carried forward from the importer output.
+It starts with `label_det`, which creates the deterministic line-by-line and block-level labels.
 
-17. If recipe LLM correction is enabled, it runs now, on the recipe side only.
+If line-role Codex review is enabled, `label_llm_correct` can refine those labels. Even then, the repo-owned validation and cleanup logic is still the final gate on whether those corrections count.
 
-18. Even then, the LLM is not the final writer. It is a correction layer. The program still builds the final recipe outputs locally with deterministic shaping code.
+After labeling, `group_recipe_spans` groups accepted lines back into recipe spans. This is the main authority handoff in the system. Importer recipes are not the final truth anymore. The accepted grouped spans are.
 
-19. Next the program handles everything outside the accepted recipe spans. This is the Stage 7 non-recipe world.
+A grouped span usually needs a title anchor to count as a real recipe. Structured-looking text without a convincing title can still be rejected as a pseudo-recipe.
 
-20. Every outside-recipe block is classified into a simple seed map, mainly "knowledge" or "other," plus review routing.
+If an importer thought there were recipes but `group_recipe_spans` ends up with zero accepted recipes, the program does not quietly fall back to the importer guess. It stays on the label-first result and records that mismatch as an authority problem.
 
-21. Some obviously useless outside-recipe material can be excluded immediately here: navigation, publishing junk, endorsements, page furniture, and similar noise.
+## `recipe-refine`
 
-22. The important subtle rule is that outside-recipe meaning is intentionally unfinished at this point. Review-eligible outside-recipe text is not yet final semantic truth.
+Once accepted recipe spans exist, the program rebuilds recipe candidates from those spans instead of simply carrying importer candidates forward.
 
-23. Another very non-obvious rule lives here: the earlier line-labeling stage is not allowed to be the final authority for outside-recipe knowledge. It can route and exclude obvious junk, but it is not supposed to make the final subtle "this is real cooking knowledge" judgment.
+If recipe Codex is enabled, this is the stage that runs it. The public recipe pipeline name is `codex-recipe-shard-v1`.
 
-24. That final semantic judgment belongs to the later knowledge stage.
+That Codex step is a refinement pass, not the final writer. Repo code still validates the result, normalizes it, builds the intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output.
 
-25. If the knowledge stage is off, the program keeps the deterministic Stage 7 seed result and moves on.
+So even when recipe Codex is on, the final files are still written through deterministic repo-owned staging code.
 
-26. If the knowledge stage is on, it reviews only the outside-recipe text that survived Stage 7 and is still review-eligible.
+## `nonrecipe-route`
 
-27. Before the knowledge reviewer sees anything, the program chunks that non-recipe text into local pieces so the reviewer is not judging the entire book at once.
+After recipe ownership is settled, everything outside the accepted recipe spans goes into `nonrecipe-route`. This is the runtime step most people have been informally calling Stage 7.
 
-28. The current design uses deterministic chunks as the basic review units. Workers return block-level keep-or-reject decisions plus grounded snippets.
+This stage creates the first real outside-recipe routing map. It decides which outside-recipe rows are obvious junk, which ones are review-eligible, and which simple seed category each row starts in.
 
-29. Those worker decisions refine the Stage 7 seed map into the final outside-recipe authority.
+Some material becomes final immediately here: navigation, publishing junk, endorsements, page furniture, and similar noise can be excluded right away as final `other`.
 
-30. So the final "knowledge" blocks are not whatever the importer found, and not whatever the early line-labeler guessed. They are whatever survives this later review path.
+The important subtle rule is that `nonrecipe-route` is allowed to route and exclude obvious junk, but it is not the final authority on the harder semantic question of whether a surviving outside-recipe passage is real cooking knowledge.
 
-31. After that, the program extracts tables from the non-recipe side, regenerates staged knowledge chunks, normalizes recipe tags, rebuilds the final report, and writes the finished artifacts.
+That is why the run now has a seed-routing artifact and a separate final-authority artifact instead of pretending those are the same thing.
 
-32. The program writes recipe outputs in two main forms: an intermediate schema-style form and the final cookbook-style form.
+## `knowledge-final`
 
-33. It also writes sections, chunks, tables, non-recipe authority files, knowledge output files, raw debug artifacts, and run summaries.
+`knowledge-final` is the last authority step for outside-recipe meaning.
 
-34. Benchmark-style block predictions are produced near the end from the final staged recipes plus the final outside-recipe authority, not from the importer's first guesses.
+If knowledge review is off, the program keeps the `nonrecipe-route` result and moves on.
 
-35. Finally, the run writes summary and observability files so later tools can inspect what happened.
+If knowledge review is on, the public knowledge pipeline name is `codex-knowledge-shard-v1`.
 
- # Hidden Layers
+Before that reviewer sees anything, the program chunks the surviving review-eligible outside-recipe text into local pieces. The reviewer works on those chunks, not on the entire book at once.
 
-  - Importer output is provisional. Label-first regrouping is the real recipe authority seam.
-    HAVE EXECPLANS
+Those worker decisions refine the seed routing into the final outside-recipe authority. So the final `knowledge` blocks are not whatever the importer found, and not whatever the early line labels happened to suggest. They are whatever survives `knowledge-final`.
 
-  - Deterministic label-first still runs even when all LLM pipelines are off.
-  NOT A PROBLEM, IMPORTER ISN"T SUPPOSED TO DO ANYTHING
-  
-  - “Non-recipe” exists in two live runtime states now: Stage 7 seed routing and final reviewed authority.
-    
-  - ConversionResult.non_recipe_blocks is a downstream cache populated by the stage session after authoritative outside-recipe ownership exists.
-  
-  - Recipe Codex and knowledge Codex are refinement layers over repo-owned deterministic scaffolding, not direct final-output writers.
- 
-  - Split PDF/EPUB debugging is different from single-file debugging because the semantic pipeline runs only after merge.
+In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic Stage 7 routing view, `09_nonrecipe_authority.json` is the final machine-readable truth, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved.
 
- # Design Smells Worth Investigating
+## What gets written at the end
 
-  - execute_stage_import_session_from_result() is a god-function. Too much pipeline truth is concentrated in one place, which makes invisible design coupling likely.
-  cookimport/staging/import_session.py:379
-  PLANNING TO ADDRESS IN REFACTOR
+Once recipe and outside-recipe authority are settled, the program writes the finished outputs.
 
-  - The authority story is clean in principle but hard in practice because ownership moves several times: importer -> label-first regrouping -> Stage 7 seed routing ->
-  knowledge final authority.
-  HAVE EXECPLANS
+That includes intermediate `schema.org Recipe JSON`, final `cookbook3` drafts, sections, chunks, tables, knowledge outputs, raw artifacts, reports, and benchmark-facing `stage_block_predictions.json`.
 
-  - Chunk outputs now depend only on final non-recipe authority. If a run has no surviving outside-recipe rows, it should emit no chunks instead of reviving an importer-side fallback.
+Those late outputs are built from the final stage-owned authority surfaces, not from the importer's first guesses.
 
-  - The artifact names make it look like 08_nonrecipe_spans.json is purely final truth, but it actually mixes seed routing, excluded junk, reviewed authority, and unreviewed
-  review-eligible rows.
-   HAVE EXECPLAN
+Finally the run writes manifest and observability files so later tools can inspect what happened.
+
+# Hidden Layers
+
+- Importer output is provisional. The real recipe authority seam is `recipe-boundary`, especially `label_det`, optional `label_llm_correct`, and `group_recipe_spans`.
+
+- The deterministic label-first path still runs even when `llm_recipe_pipeline=off` and `llm_knowledge_pipeline=off`.
+
+- Outside-recipe text now lives in two real runtime states: Stage 7 seed routing in `08_nonrecipe_seed_routing.json` and final reviewed authority in `09_nonrecipe_authority.json`.
+
+- `ConversionResult.non_recipe_blocks` is a downstream cache that gets repopulated after the stage session has already decided outside-recipe authority.
+
+- `codex-recipe-shard-v1` and `codex-knowledge-shard-v1` are refinement/review layers over repo-owned deterministic scaffolding, not direct final-output writers.
+
+- Split PDF/EPUB debugging is different from single-file debugging because the semantic pipeline only starts after the source jobs are merged back into one whole-book result.
+
+# Design Smells Worth Investigating
+
+- `execute_stage_import_session_from_result()` still feels like a god-function. The five-stage runtime is clearer than the old story, but too much pipeline truth is still composed in one place.
+
+- The authority story is cleaner now, but ownership still moves several times: importer -> `recipe-boundary` -> `nonrecipe-route` -> `knowledge-final`.
+
+- Chunk outputs now correctly depend on final outside-recipe authority. If a run has no surviving final outside-recipe rows, chunk generation should stay empty instead of reviving any older fallback idea.
+
+- The artifact names are better than before but still slightly misleading. `08_nonrecipe_seed_routing.json` sounds more final than it really is, and you need the `nonrecipe-route` / `knowledge-final` split in your head before `09_nonrecipe_review_status.json` makes immediate sense.

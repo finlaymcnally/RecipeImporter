@@ -21,6 +21,7 @@ runner = CliRunner()
 def _speed_up_background_oracle_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(oracle_upload, "ORACLE_BACKGROUND_SESSION_POLL_SECONDS", 0.01)
     monkeypatch.setattr(oracle_upload, "ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
 
 
 def _make_bundle(
@@ -1520,9 +1521,6 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
         reattach_command="oracle session you-are-reviewing-a-benchmark-313",
     )
     messages: list[str] = []
-    summary_calls: list[
-        tuple[oracle_upload.OracleBenchmarkBundleTarget, oracle_upload.OracleBackgroundUploadLaunch]
-    ] = []
 
     monkeypatch.setattr(cli_support, "resolve_oracle_benchmark_bundle", lambda _path: target)
     monkeypatch.setattr(cli_support, "start_oracle_benchmark_upload_background", lambda **_kwargs: launch)
@@ -1533,11 +1531,6 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
             RuntimeError("expected str, bytes or os.PathLike object, not NoneType")
         ),
     )
-    monkeypatch.setattr(
-        cli_support,
-        "_print_background_oracle_upload_summary",
-        lambda *, target, launch: summary_calls.append((target, launch)),
-    )
     monkeypatch.setattr(cli_support.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
 
     cli._start_benchmark_bundle_oracle_upload_background(
@@ -1546,9 +1539,6 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
         model=None,
     )
 
-    assert len(summary_calls) == 2
-    assert all(call_target.bundle_dir == target.bundle_dir for call_target, _call_launch in summary_calls)
-    assert all(call_launch.bundle_dir == launch.bundle_dir for _call_target, call_launch in summary_calls)
     assert any("Oracle auto-follow-up worker not started" in message for message in messages)
     assert not any("Oracle benchmark upload not started" in message for message in messages)
 

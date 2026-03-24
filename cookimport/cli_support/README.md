@@ -1,1 +1,1 @@
-Private CLI support package. Start with the family module that matches the command you are changing, and treat `__init__.py` as legacy compatibility glue until the remaining helpers are moved out.
+Private CLI support package. Start with the family module that matches the command you are changing. `interactive.py`, `settings.py`, `dashboard.py`, `compare_control.py`, and `stage.py` already own real support slices; `__init__.py` is the shrinking shared facade plus compatibility glue for the historical `cookimport.cli` patch surface.

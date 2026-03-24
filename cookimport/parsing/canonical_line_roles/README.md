@@ -1,0 +1,1 @@
+Private canonical line-role package. Start with `contracts.py` for the prediction model/normalization helpers and `prompt_inputs.py` for row serialization, then `__init__.py` for the still-large planning/runtime facade while the remaining policy/runtime/artifact slices are moved out.

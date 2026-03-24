@@ -17,8 +17,8 @@ def _compat_export(
 ) -> Callable[..., Any]:
     @functools.wraps(fn)
     def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        _sync()
-        return fn(*args, **kwargs)
+        with _sync():
+            return fn(*args, **kwargs)
 
     setattr(_wrapped, "_codex_cli_compat_export", True)
     return _wrapped
@@ -76,7 +76,6 @@ def _rebuild_cli_apps_from_command_packages() -> tuple[typer.Typer, typer.Typer,
     root_app.add_typer(compare_group, name="compare-control")
     root_app.add_typer(epub_app, name="epub")
 
-    _raw_sync_cli_compat_state()
     interactive_exports = interactive_commands.register_callback(root_app)
     stage_exports = stage_commands.register(root_app)
     labelstudio_exports = labelstudio_commands.register(root_app)

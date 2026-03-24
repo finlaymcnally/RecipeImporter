@@ -23,6 +23,14 @@ from cookimport.bench.oracle_upload import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_oracle_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "cookimport.bench.oracle_followup._detect_oracle_version",
+        lambda: "0.8.6-test",
+    )
+
+
 def _copy_sample_bundle_root(destination_root: Path) -> Path:
     return build_minimal_upload_bundle(
         destination_root,
