@@ -31,14 +31,6 @@ class _LineRoleShardPlan:
 
 
 @dataclass(frozen=True)
-class _LineRoleTaskPlan:
-    task_id: str
-    parent_shard_id: str
-    manifest_entry: ShardManifestEntryV1
-    debug_input_payload: dict[str, Any]
-
-
-@dataclass(frozen=True)
 class _LineRolePhaseRuntimeResult:
     phase_key: str
     phase_label: str
@@ -302,181 +294,26 @@ def _render_line_role_authoritative_rows(shard: ShardManifestEntryV1) -> str:
     return "\n".join(rendered_rows) if rendered_rows else "[no shard rows available]"
 
 
-def _build_line_role_task_plans(
+def _build_line_role_worker_shard_row(
     *,
     shard: ShardManifestEntryV1,
-    debug_payload: Any,
-    target_rows: int | None = None,
-) -> tuple[_LineRoleTaskPlan, ...]:
-    input_payload = _coerce_mapping_dict(shard.input_payload)
-    input_rows = list(input_payload.get("rows") or [])
-    debug_rows = list(_coerce_mapping_dict(debug_payload).get("rows") or [])
-    if not input_rows:
-        return ()
-    normalized_target_rows = max(
-        1,
-        int(
-            target_rows
-            or _runtime_attr("_LINE_ROLE_TASK_TARGET_ROWS", _LINE_ROLE_TASK_TARGET_ROWS)
-            or 1
-        ),
+) -> dict[str, Any]:
+    metadata = build_line_role_workspace_shard_metadata(
+        shard_id=shard.shard_id,
+        input_payload=_coerce_mapping_dict(shard.input_payload),
+        input_path=f"in/{shard.shard_id}.json",
+        hint_path=f"hints/{shard.shard_id}.md",
+        work_path=f"work/{shard.shard_id}.json",
+        result_path=f"out/{shard.shard_id}.json",
+        repair_path=f"repair/{shard.shard_id}.json",
     )
-    debug_row_by_atomic_index: dict[int, dict[str, Any]] = {}
-    for row in debug_rows:
-        if not isinstance(row, Mapping):
-            continue
-        try:
-            atomic_index = int(row.get("atomic_index"))
-        except (TypeError, ValueError):
-            continue
-        debug_row_by_atomic_index[atomic_index] = dict(row)
-    task_plans: list[_LineRoleTaskPlan] = []
-    task_count = max(1, (len(input_rows) + normalized_target_rows - 1) // normalized_target_rows)
-    for task_index, start in enumerate(range(0, len(input_rows), normalized_target_rows), start=1):
-        task_rows = input_rows[start : start + normalized_target_rows]
-        owned_ids: list[str] = []
-        task_debug_rows: list[dict[str, Any]] = []
-        for row in task_rows:
-            if not isinstance(row, (list, tuple)) or not row:
-                continue
-            try:
-                atomic_index = int(row[0])
-            except (TypeError, ValueError):
-                continue
-            owned_ids.append(str(atomic_index))
-            debug_row = debug_row_by_atomic_index.get(atomic_index)
-            if debug_row is not None:
-                task_debug_rows.append(dict(debug_row))
-        if not owned_ids:
-            continue
-        task_id = (
-            shard.shard_id
-            if task_count == 1
-            else f"{shard.shard_id}.task-{task_index:03d}"
-        )
-        overlap = max(
-            0,
-            int(
-                _runtime_attr(
-                    "_LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS",
-                    _LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS,
-                )
-            ),
-        )
-        task_end = start + len(task_rows)
-        task_input_context_before = [
-            list(row)
-            for row in input_rows[max(0, start - overlap) : start]
-            if isinstance(row, (list, tuple)) and len(row) >= 3
-        ]
-        task_input_context_before = [
-            [int(row[0]), str(row[2])]
-            for row in task_input_context_before
-        ]
-        task_input_context_after = [
-            list(row)
-            for row in input_rows[task_end : task_end + overlap]
-            if isinstance(row, (list, tuple)) and len(row) >= 3
-        ]
-        task_input_context_after = [
-            [int(row[0]), str(row[2])]
-            for row in task_input_context_after
-        ]
-        task_debug_context_before: list[dict[str, Any]] = []
-        for row in debug_rows[max(0, start - overlap) : start]:
-            if not isinstance(row, Mapping):
-                continue
-            serialized = serialize_line_role_debug_context_row_from_mapping(row)
-            if serialized is not None:
-                task_debug_context_before.append(serialized)
-        task_debug_context_after: list[dict[str, Any]] = []
-        for row in debug_rows[task_end : task_end + overlap]:
-            if not isinstance(row, Mapping):
-                continue
-            serialized = serialize_line_role_debug_context_row_from_mapping(row)
-            if serialized is not None:
-                task_debug_context_after.append(serialized)
-        task_input_payload = {
-            **input_payload,
-            "shard_id": task_id,
-            "parent_shard_id": shard.shard_id,
-            **_build_line_role_packet_context(rows=task_debug_rows),
-            "context_before_rows": task_input_context_before,
-            "context_after_rows": task_input_context_after,
-            "rows": task_rows,
-        }
-        task_debug_payload = {
-            **_coerce_mapping_dict(debug_payload),
-            "shard_id": task_id,
-            "parent_shard_id": shard.shard_id,
-            **_build_line_role_packet_context(rows=task_debug_rows),
-            "context_before_rows": task_debug_context_before,
-            "context_after_rows": task_debug_context_after,
-            "rows": task_debug_rows,
-        }
-        task_manifest = ShardManifestEntryV1(
-            shard_id=task_id,
-            owned_ids=tuple(owned_ids),
-            evidence_refs=shard.evidence_refs,
-            input_payload=task_input_payload,
-            metadata={
-                **_coerce_mapping_dict(shard.metadata),
-                "parent_shard_id": shard.shard_id,
-                "task_id": task_id,
-                "task_index": task_index,
-                "task_count": task_count,
-                "owned_row_count": len(owned_ids),
-                "context_before_row_count": len(task_input_context_before),
-                "context_after_row_count": len(task_input_context_after),
-            },
-        )
-        task_plans.append(
-            _LineRoleTaskPlan(
-                task_id=task_id,
-                parent_shard_id=shard.shard_id,
-                manifest_entry=task_manifest,
-                debug_input_payload=task_debug_payload,
-            )
-        )
-    return tuple(task_plans)
-
-def _build_line_role_task_manifest_entry(
-    task_plan: _LineRoleTaskPlan,
-) -> TaskManifestEntryV1:
-    task_manifest = task_plan.manifest_entry
-    metadata = build_line_role_workspace_task_metadata(
-        task_id=task_plan.task_id,
-        parent_shard_id=task_plan.parent_shard_id,
-        input_payload=_coerce_mapping_dict(task_manifest.input_payload),
-        input_path=f"in/{task_plan.task_id}.json",
-        hint_path=f"hints/{task_plan.task_id}.md",
-        result_path=f"out/{task_plan.task_id}.json",
-        scratch_draft_path=build_line_role_scratch_draft_path(task_plan.task_id),
-    )
-    return TaskManifestEntryV1(
-        task_id=task_plan.task_id,
-        task_kind="line_role_label_packet",
-        parent_shard_id=task_plan.parent_shard_id,
-        owned_ids=tuple(task_manifest.owned_ids),
-        input_payload=task_manifest.input_payload,
-        input_text=task_manifest.input_text,
-        metadata={
-            **_coerce_mapping_dict(task_manifest.metadata),
+    return {
+        "shard_id": shard.shard_id,
+        "owned_ids": [str(value).strip() for value in shard.owned_ids if str(value).strip()],
+        "metadata": {
+            **_coerce_mapping_dict(shard.metadata),
             **metadata,
         },
-    )
-
-
-def _build_line_role_worker_task_row(
-    task_plan: _LineRoleTaskPlan,
-) -> dict[str, Any]:
-    task_manifest = _build_line_role_task_manifest_entry(task_plan)
-    return {
-        "task_id": task_manifest.task_id,
-        "task_kind": task_manifest.task_kind,
-        "parent_shard_id": task_manifest.parent_shard_id,
-        "owned_ids": [str(value).strip() for value in task_manifest.owned_ids if str(value).strip()],
-        "metadata": _coerce_mapping_dict(task_manifest.metadata),
     }
 
 def _build_line_role_canonical_line_table_rows(
@@ -522,15 +359,15 @@ def _find_line_role_existing_output_path(
     *,
     run_root: Path,
     preferred_worker_root: Path,
-    task_id: str,
+    shard_id: str,
 ) -> Path | None:
     candidate_paths: list[Path] = []
-    preferred_path = preferred_worker_root / "out" / f"{task_id}.json"
+    preferred_path = preferred_worker_root / "out" / f"{shard_id}.json"
     if preferred_path.exists():
         candidate_paths.append(preferred_path)
     candidate_paths.extend(
         path
-        for path in sorted(run_root.glob(f"workers/*/out/{task_id}.json"))
+        for path in sorted(run_root.glob(f"workers/*/out/{shard_id}.json"))
         if path != preferred_path
     )
     for path in candidate_paths:
@@ -666,46 +503,47 @@ def _build_line_role_file_prompt_for_shard(
 
 def _build_line_role_workspace_worker_prompt(
     *,
-    tasks: Sequence[TaskManifestEntryV1],
+    shards: Sequence[ShardManifestEntryV1],
 ) -> str:
     assignments = "\n".join(
-        f"- `{task.task_id}`: read `hints/{task.task_id}.md`, then `in/{task.task_id}.json`, then write `out/{task.task_id}.json`"
-        for task in tasks
+        f"- `{shard.shard_id}`: read `hints/{shard.shard_id}.md`, edit `work/{shard.shard_id}.json`, validate with `check-phase`, then install to `out/{shard.shard_id}.json`"
+        for shard in shards
     )
     return (
-        "You are processing many canonical line-role tasks inside one local worker workspace. Each task owns one ordered line packet.\n\n"
+        "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
-        "- Start by opening `worker_manifest.json`, then `CURRENT_TASK.md`, then `OUTPUT_CONTRACT.md`. Open `current_task.json` when you need the exact metadata fields or file paths.\n"
-        "- The normal path is repo-written already: open the `metadata.scratch_draft_path` named in `current_task.json`, then `hints/<task_id>.md`; open `in/<task_id>.json` only when the draft or hint seems insufficient; edit that prewritten draft only where the deterministic seed is wrong; then run `python3 tools/line_role_worker.py finalize <draft_path>`.\n"
-        "- If several prewritten drafts are ready, `python3 tools/line_role_worker.py finalize-all scratch/` is the preferred bulk completion path.\n"
-        "- After the last output file is finalized, send one brief completion message naming the finished outputs and then stop.\n"
+        "- Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`, then `OUTPUT_CONTRACT.md`. Open `current_phase.json` when you need the exact metadata fields or file paths.\n"
+        "- The normal path is repo-written already: open the current work ledger named in `current_phase.json`, then `hints/<shard_id>.md`; open `in/<shard_id>.json` only when the work ledger or hint is insufficient.\n"
+        "- Run `python3 tools/line_role_worker.py check-phase` after editing the work ledger. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the existing work ledger.\n"
+        "- Run `python3 tools/line_role_worker.py install-phase` only after the current work ledger validates cleanly. Installing advances the phase surface to the next shard when one remains.\n"
+        "- Accepted rows are meant to stay frozen. Do not reopen already-installed shard ledgers just to hunt for novelty.\n"
+        "- After the last shard is installed, send one brief completion message naming the finished outputs and then stop.\n"
         "- If `tools/line_role_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.\n"
-        "- `python3 tools/line_role_worker.py overview`, `show <task_id>`, `check <json_path>`, `prepare-all --dest-dir scratch/`, and `scaffold <task_id> --dest scratch/<task_id>.json` are fallback/debug tools, not the default starting path.\n"
+        "- `python3 tools/line_role_worker.py overview`, `show <shard_id>`, and `scaffold <shard_id> --dest <path>` are fallback/debug tools, not the default starting path.\n"
         "- Long handwritten `jq` transforms are unnecessary here because the helper can already expand the deterministic label codes into the correct output shape.\n"
         "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on the named local files only.\n"
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
-        "- Treat `CURRENT_TASK.md` as the cheapest repo-written first read. Use `current_task.json` only for the exact metadata and named file paths.\n"
-        "- Use `assigned_tasks.json` only for ordered queue/progress context and `assigned_shards.json` only for shard ownership context.\n"
-        "- For each assigned task, start from the prewritten draft and hint before reopening the raw packet.\n"
-        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative packet input for that task step.\n"
-        "- Treat each packet's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
+        "- Treat `CURRENT_PHASE.md` as the cheapest repo-written first read. Use `current_phase.json` only for the exact metadata and named file paths.\n"
+        "- Use `assigned_shards.json` only for ordered ownership/progress context.\n"
+        "- For each assigned shard, start from the prewritten work ledger and hint before reopening the raw input ledger.\n"
+        "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative shard input for the active phase.\n"
+        "- Treat each shard ledger's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
         "- If `OUTPUT_CONTRACT.md` or `examples/` exists, use those repo-written files as the authoritative output-shape reference.\n"
         "- If `examples/*.md` exists, use those contrast examples for calibration only; do not copy them into outputs.\n"
-        "- Write exactly one JSON object to `out/<task_id>.json`.\n"
-        "- If `out/<task_id>.json` already exists and is complete, leave it alone and continue.\n"
+        "- Write and revise the active shard only in `work/<shard_id>.json`. The helper installs the validated ledger to `out/<shard_id>.json`.\n"
+        "- If `out/<shard_id>.json` already exists and is complete, leave it alone and continue.\n"
         "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
         "- Stay inside this workspace; do not inspect parent directories or the repository.\n"
-        "- Keep working through the assigned task files until all of them are handled or you truly cannot proceed.\n\n"
-        "Each task input file has this shape:\n"
-        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456.task-001","parent_shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[120,"Earlier row"],[121,"More context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later row"],[125,"More later context"]]}\n\n'
-        "Each output file must have this shape:\n"
+        "- Keep working through the assigned shard files until all of them are handled or you truly cannot proceed.\n\n"
+        "Each shard input file has this shape:\n"
+        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"],[124,"L2","Stir well."]]}\n\n'
+        "Each work/install ledger must have this shape:\n"
         '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
         "Rules:\n"
-        "- Use only the keys `rows`, `atomic_index`, and `label` in each output file.\n"
-        "- `context_before_rows` and `context_after_rows` are reference-only neighboring rows. Read them if helpful, but never emit labels for them.\n"
+        "- Use only the keys `rows`, `atomic_index`, `label`, and optional `review_exclusion_reason` in each ledger.\n"
         "- Return one result for every owned input row in `rows`, in the same order.\n"
-        "- Convert `label_code` into the correct full label string. The helper scaffold already does this deterministically.\n"
+        "- Convert `label_code` into the correct full label string. The seeded work ledger already does this deterministically.\n"
         "- `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
         "- `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.\n"
         "- `TIME_LINE`: stand-alone timing or temperature lines, not full instruction sentences.\n"
@@ -721,8 +559,8 @@ def _build_line_role_workspace_worker_prompt(
         "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n"
         "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as review-eligible `OTHER` unless nearby rows prove recipe-local structure.\n"
         "- First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n\n"
-        "Do not return task labels in your final message. The authoritative results are the `out/<task_id>.json` files.\n\n"
-        "Assigned task files:\n"
+        "Do not return row labels in your final message. The authoritative results are the installed `out/<shard_id>.json` files.\n\n"
+        "Assigned shard files:\n"
         f"{assignments}\n"
     )
 

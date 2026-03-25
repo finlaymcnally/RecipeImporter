@@ -327,14 +327,16 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert "`install-current`" in worker_prompt
     assert "python3 tools/recipe_worker.py stamp-status fragmentary" in worker_prompt
     assert "python3 tools/recipe_worker.py finalize-all scratch/" in worker_prompt
-    assert "one batch finish" in worker_prompt
-    assert "single-task validation or recovery" in worker_prompt
-    assert "Do not dump or reread the full `assigned_tasks.json` inventory during startup" in worker_prompt
+    assert "authoritative active-task seam" in worker_prompt
+    assert "The repo will keep rewriting those files for the same task when validation fails." in worker_prompt
+    assert "It is not the default recovery loop." in worker_prompt
+    assert "`assigned_tasks.json` is the same kind of fallback inventory surface." in worker_prompt
     assert "OUTPUT_CONTRACT.md" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "Open `hints/<task_id>.md` only if" in worker_prompt
     assert "Legacy keys are invalid here" in worker_prompt
     assert "After each successful `install-current`" not in worker_prompt
+    assert "one batch finish" not in worker_prompt
     shard_packet = (worker_root / "SHARD_PACKET.md").read_text(encoding="utf-8")
     assert "2+ non-empty ingredients" in shard_packet
     assert "unclear_alignment" in shard_packet

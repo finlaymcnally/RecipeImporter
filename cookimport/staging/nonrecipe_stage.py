@@ -20,16 +20,6 @@ _OTHER_LABELS = {
     "chapter_heading",
     "chapter-heading",
 }
-_KNOWN_NONRECIPE_FALLBACK_LABELS = {
-    "recipe_title",
-    "ingredient_line",
-    "instruction_line",
-    "howto_section",
-    "yield_line",
-    "time_line",
-    "recipe_notes",
-    "recipe_variant",
-}
 _REVIEW_CANDIDATE_CATEGORY = "review_candidate"
 
 
@@ -323,6 +313,7 @@ def build_nonrecipe_stage_result(
     }
 
     block_category_by_index: dict[int, str] = {}
+    review_eligible_block_category_by_index: dict[int, str] = {}
     review_exclusion_reason_by_block: dict[int, str] = {}
     warnings: list[str] = []
     block_preview_by_index = {
@@ -340,27 +331,23 @@ def build_nonrecipe_stage_result(
             raise ValueError(
                 f"Missing final block label for non-recipe block {block_index}."
             )
-        category, warning = _normalize_stage7_category(
-            str(getattr(block_label, "final_label", None) or "")
+        category = _require_nonrecipe_stage_category(
+            getattr(block_label, "final_label", None),
+            block_index=block_index,
         )
-        if warning is not None:
-            raise ValueError(f"Invalid final non-recipe label at block {block_index}: {warning}")
         block_category_by_index[block_index] = category
         review_exclusion_reason = str(
             getattr(block_label, "review_exclusion_reason", None) or ""
         ).strip()
         if category == "other" and review_exclusion_reason:
             review_exclusion_reason_by_block[block_index] = review_exclusion_reason
+            continue
+        review_eligible_block_category_by_index[block_index] = category
 
     seed = _build_nonrecipe_seed_result(
         full_blocks_by_index=full_blocks_by_index,
         block_category_by_index=block_category_by_index,
     )
-    review_eligible_block_category_by_index = {
-        index: category
-        for index, category in block_category_by_index.items()
-        if index not in review_exclusion_reason_by_block
-    }
     routing = _build_nonrecipe_routing_result(
         full_blocks_by_index=full_blocks_by_index,
         review_eligible_block_indices=sorted(review_eligible_block_category_by_index),
@@ -623,11 +610,22 @@ def _normalize_stage7_category(raw_label: str | None) -> tuple[str, str | None]:
     normalized = str(raw_label or "").strip().lower()
     if normalized == "knowledge":
         return "knowledge", None
-    if normalized in _OTHER_LABELS or normalized in _KNOWN_NONRECIPE_FALLBACK_LABELS:
+    if normalized in _OTHER_LABELS:
         return "other", None
     if not normalized:
-        return "other", "missing final label mapped to Stage 7 other"
-    return "other", f"unexpected final label '{raw_label}' mapped to Stage 7 other"
+        return "other", "missing final label"
+    return "other", f"unexpected final label '{raw_label}'"
+
+
+def _require_nonrecipe_stage_category(raw_label: str | None, *, block_index: int) -> str:
+    normalized_category, warning = _normalize_stage7_category(raw_label)
+    if warning is None:
+        return normalized_category
+    if warning == "missing final label":
+        raise ValueError(f"Missing final non-recipe label at block {block_index}.")
+    raise ValueError(
+        f"Invalid final non-recipe label at block {block_index}: {warning}."
+    )
 
 
 def _build_span(

@@ -730,7 +730,7 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
     repair_attempted, repair_completed, repair_running = _repair_rollup(stage_root)
     same_session_rollup = _same_session_fix_rollup(stage_root)
     proposal_count = len(list(stage_root.glob("proposals/*.json")))
-    planned_task_total = _count_jsonl_rows(stage_root / "task_manifest.jsonl")
+    planned_task_total = _count_jsonl_rows(stage_root / "shard_manifest.jsonl")
     completed_task_total = len(list(stage_root.glob("workers/*/out/*.json")))
     planned_shard_total = max(
         0,
@@ -800,7 +800,7 @@ def write_recipe_stage_summary(
 
 def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
-    task_rows = _load_jsonl_dicts(stage_root / "task_status.jsonl")
+    task_rows = _load_jsonl_dicts(stage_root / "shard_status.jsonl")
     line_rows = _load_jsonl_dicts(stage_root / "canonical_line_table.jsonl")
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
     shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
@@ -823,8 +823,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     important_artifacts = {
         "phase_manifest_json": "phase_manifest.json",
         "canonical_line_table_jsonl": "canonical_line_table.jsonl",
-        "task_manifest_jsonl": "task_manifest.jsonl",
-        "task_status_jsonl": "task_status.jsonl",
+        "shard_status_jsonl": "shard_status.jsonl",
         "worker_assignments_json": "worker_assignments.json",
         "promotion_report_json": "promotion_report.json",
         "telemetry_json": "telemetry.json",
@@ -868,14 +867,14 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
             "fallback_row_count": fallback_row_count,
             "suspicious_row_count": suspicious_row_count,
         },
-        "packets": {
-            "packet_total": max(planned_task_total, len(task_rows), completed_task_total),
+        "shards": {
+            "shard_total": max(planned_task_total, len(task_rows), completed_task_total),
             "planned_total": planned_task_total,
             "completed_output_total": completed_task_total,
             "state_counts": packet_state_counts,
             "terminal_outcome_counts": packet_terminal_outcome_counts,
             "attempt_type_counts": packet_attempt_type_counts,
-            "suspicious_packet_count": suspicious_packet_count,
+            "suspicious_shard_count": suspicious_packet_count,
         },
         "parent_shards": {
             "planned_total": planned_shard_total,

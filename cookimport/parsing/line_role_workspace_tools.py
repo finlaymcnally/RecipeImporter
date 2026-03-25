@@ -15,10 +15,7 @@ LINE_ROLE_LABEL_BY_CODE: dict[str, str] = {
 }
 LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = tuple(
     label
-    for label, _ in sorted(
-        _LABEL_CODE_BY_LABEL.items(),
-        key=lambda item: item[1],
-    )
+    for label, _ in sorted(_LABEL_CODE_BY_LABEL.items(), key=lambda item: item[1])
 )
 LINE_ROLE_WORKER_TOOL_FILENAME = "line_role_worker.py"
 LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME = "valid_line_role_output.json"
@@ -32,9 +29,9 @@ LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD = {
         },
     ]
 }
-LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN = """# Line-Role Output Contract
+LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN = """# Line-Role Ledger Contract
 
-Use this workspace contract for every `out/<task_id>.json` file.
+Use this contract for every `work/<shard_id>.json` ledger and every installed `out/<shard_id>.json`.
 
 Required shape:
 
@@ -44,7 +41,7 @@ Rules:
 
 - The file must be one JSON object with exactly one top-level key: `rows`.
 - `rows` must be a JSON array.
-- Return exactly one row for every owned input row from `in/<task_id>.json`.
+- Return exactly one row for every owned input row from `in/<shard_id>.json`.
 - Keep output order identical to the input `rows` order.
 - Each row object must use `atomic_index` and `label`, plus optional `review_exclusion_reason`.
 - `atomic_index` must match the owned input row at the same position.
@@ -53,55 +50,46 @@ Rules:
 - `review_exclusion_reason`, when present, must be one of:
   `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`
 - Only use `review_exclusion_reason` on rows labeled `OTHER`, and only for overwhelmingly obvious non-recipe junk that should skip knowledge review.
-- Do not emit context rows.
 - Do not add commentary, markdown, or extra JSON keys.
 
-Paved-road helper loop:
+Preferred loop:
 
-    open CURRENT_TASK.md
-    open the metadata.scratch_draft_path named in current_task.json
-    use hints/<task_id>.md for the targeted explanation
-    open in/<task_id>.json only if the draft or hint is insufficient
-    edit scratch/<task_id>.json only where the deterministic seed is wrong
-    python3 tools/line_role_worker.py finalize scratch/<task_id>.json
-
-Bulk completion when several drafts are ready:
-
-    python3 tools/line_role_worker.py finalize-all scratch/
-
-Fallback tools:
-
-    python3 tools/line_role_worker.py overview
-    python3 tools/line_role_worker.py show <task_id>
-    python3 tools/line_role_worker.py prepare-all --dest-dir scratch/
-    python3 tools/line_role_worker.py scaffold <task_id> --dest scratch/<task_id>.json
-    python3 tools/line_role_worker.py check scratch/<task_id>.json
-    python3 tools/line_role_worker.py finalize scratch/<task_id>.json
+    open CURRENT_PHASE.md
+    open work/<shard_id>.json
+    read hints/<shard_id>.md if helpful
+    python3 tools/line_role_worker.py check-phase
+    if CURRENT_PHASE_FEEDBACK.md names repair/<shard_id>.json, fix only the unresolved rows
+    python3 tools/line_role_worker.py install-phase
 """
 
+_VALID_REVIEW_EXCLUSION_REASONS = {
+    "navigation",
+    "front_matter",
+    "publishing_metadata",
+    "copyright_legal",
+    "endorsement",
+    "page_furniture",
+}
 
-def _coerce_task_row(task_row: Mapping[str, Any]) -> dict[str, Any]:
-    return dict(task_row or {})
 
-
-def _coerce_metadata(task_row: Mapping[str, Any]) -> dict[str, Any]:
-    metadata = task_row.get("metadata")
+def _coerce_metadata(shard_row: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = shard_row.get("metadata")
     if isinstance(metadata, Mapping):
         return dict(metadata)
     return {}
 
 
-def _load_task_input_payload(
-    task_row: Mapping[str, Any],
+def _load_shard_input_payload(
+    shard_row: Mapping[str, Any],
     *,
     workspace_root: Path | None = None,
 ) -> dict[str, Any]:
-    input_payload = task_row.get("input_payload")
+    input_payload = shard_row.get("input_payload")
     if isinstance(input_payload, Mapping):
         return dict(input_payload)
     if workspace_root is None:
         return {}
-    metadata = _coerce_metadata(task_row)
+    metadata = _coerce_metadata(shard_row)
     input_path = str(metadata.get("input_path") or "").strip()
     if not input_path:
         return {}
@@ -115,11 +103,11 @@ def _load_task_input_payload(
 
 
 def _coerce_input_rows(
-    task_row: Mapping[str, Any],
+    shard_row: Mapping[str, Any],
     *,
     workspace_root: Path | None = None,
 ) -> list[list[Any]]:
-    rows = _load_task_input_payload(task_row, workspace_root=workspace_root).get("rows")
+    rows = _load_shard_input_payload(shard_row, workspace_root=workspace_root).get("rows")
     if not isinstance(rows, list):
         return []
     normalized: list[list[Any]] = []
@@ -130,20 +118,15 @@ def _coerce_input_rows(
     return normalized
 
 
-def build_line_role_scratch_draft_path(task_id: str) -> str:
-    cleaned_task_id = str(task_id or "").strip()
-    return f"scratch/{cleaned_task_id}.json"
-
-
-def build_line_role_workspace_task_metadata(
+def build_line_role_workspace_shard_metadata(
     *,
-    task_id: str,
-    parent_shard_id: str,
+    shard_id: str,
     input_payload: Mapping[str, Any] | None,
     input_path: str,
     hint_path: str,
+    work_path: str,
     result_path: str,
-    scratch_draft_path: str | None = None,
+    repair_path: str,
 ) -> dict[str, Any]:
     rows = []
     if isinstance(input_payload, Mapping):
@@ -163,13 +146,13 @@ def build_line_role_workspace_task_metadata(
         deterministic_label = LINE_ROLE_LABEL_BY_CODE.get(str(row[1]).strip(), "OTHER")
         deterministic_label_counts[deterministic_label] += 1
     return {
-        "phase_key": "line_role",
-        "task_id": str(task_id),
-        "parent_shard_id": str(parent_shard_id),
+        "phase_key": "label_rows",
+        "shard_id": str(shard_id),
         "input_path": str(input_path),
         "hint_path": str(hint_path),
+        "work_path": str(work_path),
         "result_path": str(result_path),
-        "scratch_draft_path": str(scratch_draft_path or build_line_role_scratch_draft_path(task_id)),
+        "repair_path": str(repair_path),
         "owned_row_count": len(owned_atomic_indices),
         "atomic_index_start": owned_atomic_indices[0] if owned_atomic_indices else None,
         "atomic_index_end": owned_atomic_indices[-1] if owned_atomic_indices else None,
@@ -177,10 +160,10 @@ def build_line_role_workspace_task_metadata(
     }
 
 
-def build_line_role_seed_output(task_row: Mapping[str, Any]) -> dict[str, Any]:
+def build_line_role_seed_output(shard_row: Mapping[str, Any]) -> dict[str, Any]:
     rows_payload: list[dict[str, Any]] = []
     unknown_codes: list[str] = []
-    for row in _coerce_input_rows(task_row):
+    for row in _coerce_input_rows(shard_row):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError) as exc:
@@ -190,12 +173,7 @@ def build_line_role_seed_output(task_row: Mapping[str, Any]) -> dict[str, Any]:
         if label is None:
             unknown_codes.append(label_code or "<blank>")
             label = "OTHER"
-        rows_payload.append(
-            {
-                "atomic_index": atomic_index,
-                "label": label,
-            }
-        )
+        rows_payload.append({"atomic_index": atomic_index, "label": label})
     if unknown_codes:
         rendered = ", ".join(sorted(set(unknown_codes)))
         raise ValueError(f"unknown line-role label code(s): {rendered}")
@@ -204,11 +182,11 @@ def build_line_role_seed_output(task_row: Mapping[str, Any]) -> dict[str, Any]:
 
 def build_line_role_seed_output_for_workspace(
     workspace_root: Path,
-    task_row: Mapping[str, Any],
+    shard_row: Mapping[str, Any],
 ) -> dict[str, Any]:
     rows_payload: list[dict[str, Any]] = []
     unknown_codes: list[str] = []
-    for row in _coerce_input_rows(task_row, workspace_root=workspace_root):
+    for row in _coerce_input_rows(shard_row, workspace_root=workspace_root):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError) as exc:
@@ -218,12 +196,7 @@ def build_line_role_seed_output_for_workspace(
         if label is None:
             unknown_codes.append(label_code or "<blank>")
             label = "OTHER"
-        rows_payload.append(
-            {
-                "atomic_index": atomic_index,
-                "label": label,
-            }
-        )
+        rows_payload.append({"atomic_index": atomic_index, "label": label})
     if unknown_codes:
         rendered = ", ".join(sorted(set(unknown_codes)))
         raise ValueError(f"unknown line-role label code(s): {rendered}")
@@ -231,12 +204,12 @@ def build_line_role_seed_output_for_workspace(
 
 
 def validate_line_role_output_payload(
-    task_row: Mapping[str, Any],
+    shard_row: Mapping[str, Any],
     payload: Any,
 ) -> tuple[tuple[str, ...], dict[str, Any]]:
     errors: list[str] = []
     metadata: dict[str, Any] = {}
-    expected_rows = _coerce_input_rows(task_row)
+    expected_rows = _coerce_input_rows(shard_row)
     expected_atomic_indices: list[int] = []
     for row in expected_rows:
         try:
@@ -247,9 +220,7 @@ def validate_line_role_output_payload(
     metadata["owned_row_count"] = len(expected_atomic_indices)
     if not isinstance(payload, Mapping):
         return ("payload_not_object",), metadata
-    extra_top_level_keys = sorted(
-        key for key in payload.keys() if str(key) != "rows"
-    )
+    extra_top_level_keys = sorted(key for key in payload.keys() if str(key) != "rows")
     if extra_top_level_keys:
         errors.append("extra_top_level_keys")
         metadata["extra_top_level_keys"] = extra_top_level_keys
@@ -261,6 +232,7 @@ def validate_line_role_output_payload(
     if len(rows_payload) != len(expected_atomic_indices):
         errors.append("wrong_row_count")
     returned_atomic_indices: list[int] = []
+    invalid_row_atomic_indices: list[int] = []
     for row_payload in rows_payload:
         if not isinstance(row_payload, Mapping):
             errors.append("row_not_object")
@@ -273,27 +245,23 @@ def validate_line_role_output_payload(
         if extra_row_keys:
             errors.append("extra_row_keys")
         try:
-            returned_atomic_indices.append(int(row_payload.get("atomic_index")))
+            atomic_index = int(row_payload.get("atomic_index"))
+            returned_atomic_indices.append(atomic_index)
         except (TypeError, ValueError):
             errors.append("invalid_atomic_index")
+            continue
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in LINE_ROLE_ALLOWED_LABELS:
             errors.append("invalid_label")
-        review_exclusion_reason = str(
-            row_payload.get("review_exclusion_reason") or ""
-        ).strip()
+            invalid_row_atomic_indices.append(atomic_index)
+        review_exclusion_reason = str(row_payload.get("review_exclusion_reason") or "").strip()
         if review_exclusion_reason:
             if label != "OTHER":
                 errors.append("review_exclusion_reason_requires_other")
-            if review_exclusion_reason not in {
-                "navigation",
-                "front_matter",
-                "publishing_metadata",
-                "copyright_legal",
-                "endorsement",
-                "page_furniture",
-            }:
+                invalid_row_atomic_indices.append(atomic_index)
+            if review_exclusion_reason not in _VALID_REVIEW_EXCLUSION_REASONS:
                 errors.append("invalid_review_exclusion_reason")
+                invalid_row_atomic_indices.append(atomic_index)
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):
             errors.append("row_order_mismatch")
@@ -301,47 +269,81 @@ def validate_line_role_output_payload(
             errors.append("atomic_index_mismatch")
     metadata["expected_atomic_indices"] = expected_atomic_indices
     metadata["returned_atomic_indices"] = returned_atomic_indices
+    metadata["invalid_row_atomic_indices"] = sorted(set(invalid_row_atomic_indices))
     return tuple(sorted(set(errors))), metadata
 
 
-def render_line_role_task_overview(
+def _repair_request_payload(
     *,
-    task_rows: Sequence[Mapping[str, Any]],
-    current_task_id: str | None,
+    shard_row: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    validation_errors: Sequence[str],
+) -> dict[str, Any]:
+    expected_atomic_indices = [
+        int(value)
+        for value in metadata.get("expected_atomic_indices", [])
+        if str(value).strip()
+    ]
+    unresolved_atomic_indices = [
+        int(value)
+        for value in metadata.get("invalid_row_atomic_indices", [])
+        if str(value).strip()
+    ]
+    if not unresolved_atomic_indices:
+        unresolved_atomic_indices = expected_atomic_indices
+    input_rows = _coerce_input_rows(shard_row)
+    input_row_by_atomic_index = {
+        int(row[0]): [int(row[0]), str(row[1]), str(row[2])]
+        for row in input_rows
+        if len(row) >= 3
+    }
+    return {
+        "repair_mode": "line_role",
+        "shard_id": str(shard_row.get("shard_id") or ""),
+        "unresolved_atomic_indices": unresolved_atomic_indices,
+        "validation_errors": [str(error) for error in validation_errors if str(error).strip()],
+        "rows": [
+            input_row_by_atomic_index[index]
+            for index in unresolved_atomic_indices
+            if index in input_row_by_atomic_index
+        ],
+    }
+
+
+def render_line_role_shard_overview(
+    *,
+    shard_rows: Sequence[Mapping[str, Any]],
+    current_shard_id: str | None,
 ) -> str:
-    lines = ["Line-role worker queue:"]
-    for index, task_row in enumerate(task_rows, start=1):
-        task_id = str(task_row.get("task_id") or "").strip() or f"task-{index:03d}"
-        metadata = _coerce_metadata(task_row)
-        owned_row_count = metadata.get("owned_row_count")
-        atomic_start = metadata.get("atomic_index_start")
-        atomic_end = metadata.get("atomic_index_end")
+    lines = ["Line-role shard queue:"]
+    for index, shard_row in enumerate(shard_rows, start=1):
+        shard_id = str(shard_row.get("shard_id") or "").strip() or f"shard-{index:03d}"
+        metadata = _coerce_metadata(shard_row)
         counts = metadata.get("deterministic_label_counts")
         rendered_counts = (
             ", ".join(f"{label}={count}" for label, count in dict(counts).items())
             if isinstance(counts, Mapping) and counts
             else "unknown"
         )
-        current_marker = " current" if task_id == str(current_task_id or "").strip() else ""
+        current_marker = " current" if shard_id == str(current_shard_id or "").strip() else ""
         lines.append(
-            f"- {task_id}{current_marker}: rows={owned_row_count}, "
-            f"atomic={atomic_start}..{atomic_end}, labels={rendered_counts}, "
-            f"result={metadata.get('result_path') or 'unknown'}"
+            f"- {shard_id}{current_marker}: rows={metadata.get('owned_row_count')}, "
+            f"atomic={metadata.get('atomic_index_start')}..{metadata.get('atomic_index_end')}, "
+            f"labels={rendered_counts}, work={metadata.get('work_path') or 'unknown'}"
         )
     return "\n".join(lines) + "\n"
 
 
-def render_line_role_task_show(task_row: Mapping[str, Any]) -> str:
-    task_id = str(task_row.get("task_id") or "").strip() or "<unknown>"
-    parent_shard_id = str(task_row.get("parent_shard_id") or "").strip() or "<unknown>"
-    metadata = _coerce_metadata(task_row)
+def render_line_role_shard_show(shard_row: Mapping[str, Any]) -> str:
+    shard_id = str(shard_row.get("shard_id") or "").strip() or "<unknown>"
+    metadata = _coerce_metadata(shard_row)
     lines = [
-        f"task_id: {task_id}",
-        f"parent_shard_id: {parent_shard_id}",
+        f"shard_id: {shard_id}",
         f"input_path: {metadata.get('input_path') or '<missing>'}",
         f"hint_path: {metadata.get('hint_path') or '<missing>'}",
+        f"work_path: {metadata.get('work_path') or '<missing>'}",
         f"result_path: {metadata.get('result_path') or '<missing>'}",
-        f"scratch_draft_path: {metadata.get('scratch_draft_path') or '<missing>'}",
+        f"repair_path: {metadata.get('repair_path') or '<missing>'}",
         f"owned_row_count: {metadata.get('owned_row_count')}",
         f"atomic_index_start: {metadata.get('atomic_index_start')}",
         f"atomic_index_end: {metadata.get('atomic_index_end')}",
@@ -357,10 +359,9 @@ def render_line_role_task_show(task_row: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_line_role_current_task_brief(task_row: Mapping[str, Any]) -> str:
-    task_id = str(task_row.get("task_id") or "").strip() or "<unknown>"
-    parent_shard_id = str(task_row.get("parent_shard_id") or "").strip() or "<unknown>"
-    metadata = _coerce_metadata(task_row)
+def render_line_role_current_phase_brief(phase_row: Mapping[str, Any]) -> str:
+    shard_id = str(phase_row.get("shard_id") or "").strip() or "<unknown>"
+    metadata = _coerce_metadata(phase_row)
     counts = metadata.get("deterministic_label_counts")
     rendered_counts = (
         ", ".join(f"{label}={count}" for label, count in dict(counts).items())
@@ -369,38 +370,85 @@ def render_line_role_current_task_brief(task_row: Mapping[str, Any]) -> str:
     )
     return "\n".join(
         [
-            "# Current Line-Role Task",
+            "# Current Line-Role Phase",
             "",
-            f"Task id: `{task_id}`",
-            f"Parent shard: `{parent_shard_id}`",
+            "Phase: `label_rows`",
+            f"Shard id: `{shard_id}`",
             f"Owned rows: `{metadata.get('owned_row_count')}`",
             f"Atomic span: `{metadata.get('atomic_index_start')}..{metadata.get('atomic_index_end')}`",
             f"Deterministic labels: {rendered_counts}",
             "",
             "Read order:",
-            f"1. Draft: `{metadata.get('scratch_draft_path') or '<missing>'}`",
+            f"1. Work ledger: `{metadata.get('work_path') or '<missing>'}`",
             f"2. Hint: `{metadata.get('hint_path') or '<missing>'}`",
-            "3. Open the raw `input_path` only if the draft or hint is insufficient.",
-            f"4. Finalize to: `{metadata.get('result_path') or '<missing>'}`",
+            f"3. Input ledger: `{metadata.get('input_path') or '<missing>'}`",
+            "4. Run `python3 tools/line_role_worker.py check-phase`.",
+            "5. If feedback names a repair file, fix only the unresolved rows.",
+            f"6. Install to: `{metadata.get('result_path') or '<missing>'}`",
             "",
-            "`assigned_tasks.json` is queue/progress context only.",
+            "`assigned_shards.json` is queue/ownership context only.",
         ]
     ) + "\n"
+
+
+def render_line_role_current_phase_feedback(
+    *,
+    phase_row: Mapping[str, Any] | None,
+    validation_errors: Sequence[str] = (),
+    validation_metadata: Mapping[str, Any] | None = None,
+    repair_written: bool = False,
+    completed: bool = False,
+) -> str:
+    if completed:
+        return "# Current Phase Feedback\n\nAll assigned line-role shards are installed.\n"
+    if phase_row is None:
+        return "# Current Phase Feedback\n\nNo active line-role shard.\n"
+    metadata = _coerce_metadata(phase_row)
+    if not validation_errors:
+        return "\n".join(
+            [
+                "# Current Phase Feedback",
+                "",
+                "Current work ledger validates cleanly.",
+                f"Install target: `{metadata.get('result_path') or '<missing>'}`",
+            ]
+        ) + "\n"
+    lines = [
+        "# Current Phase Feedback",
+        "",
+        "Current work ledger is still unresolved.",
+        "Validation errors:",
+    ]
+    lines.extend(f"- `{error}`" for error in validation_errors if str(error).strip())
+    if repair_written:
+        lines.append(f"Repair request: `{metadata.get('repair_path') or '<missing>'}`")
+    invalid_rows = []
+    if isinstance(validation_metadata, Mapping):
+        invalid_rows = [
+            int(value)
+            for value in validation_metadata.get("invalid_row_atomic_indices", [])
+            if str(value).strip()
+        ]
+    if invalid_rows:
+        rendered = ", ".join(str(value) for value in invalid_rows)
+        lines.append(f"Unresolved atomic indices: `{rendered}`")
+    return "\n".join(lines) + "\n"
 
 
 def render_line_role_worker_script() -> str:
     allowed_labels_json = json.dumps(list(LINE_ROLE_ALLOWED_LABELS), sort_keys=True)
     label_by_code_json = json.dumps(LINE_ROLE_LABEL_BY_CODE, sort_keys=True)
+    valid_reasons_json = json.dumps(sorted(_VALID_REVIEW_EXCLUSION_REASONS))
     return """#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
 import json
-from collections import Counter
 from pathlib import Path
 
 ALLOWED_LABELS = {allowed_labels_json}
 LABEL_BY_CODE = {label_by_code_json}
+VALID_REVIEW_EXCLUSION_REASONS = {valid_reasons_json}
 
 
 def load_json(path: Path):
@@ -412,6 +460,10 @@ def save_json(path: Path, payload):
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
 
 
+def save_text(path: Path, text: str):
+    path.write_text(text, encoding="utf-8")
+
+
 def workspace_relative_path(workspace_root: Path, path: Path) -> str:
     try:
         return str(path.relative_to(workspace_root))
@@ -419,27 +471,68 @@ def workspace_relative_path(workspace_root: Path, path: Path) -> str:
         return str(path)
 
 
-def coerce_metadata(task_row):
-    metadata = task_row.get("metadata")
+def coerce_metadata(shard_row):
+    metadata = shard_row.get("metadata")
     if isinstance(metadata, dict):
         return dict(metadata)
     return {{}}
 
 
-def coerce_input_rows(workspace_root: Path, task_row):
-    input_payload = task_row.get("input_payload")
-    if not isinstance(input_payload, dict):
-        metadata = coerce_metadata(task_row)
-        input_path = str(metadata.get("input_path") or "").strip()
-        if not input_path:
-            return []
-        candidate_path = (workspace_root / input_path).resolve()
-        if not candidate_path.exists():
-            return []
-        input_payload = load_json(candidate_path)
-        if not isinstance(input_payload, dict):
-            return []
-    rows = input_payload.get("rows")
+def read_assigned_shards(workspace_root: Path):
+    path = workspace_root / "assigned_shards.json"
+    payload = load_json(path)
+    if not isinstance(payload, list):
+        raise SystemExit("assigned_shards.json is not a list")
+    return [row for row in payload if isinstance(row, dict)]
+
+
+def read_current_phase(workspace_root: Path):
+    path = workspace_root / "current_phase.json"
+    if not path.exists():
+        return None
+    payload = load_json(path)
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
+def resolve_shard_row(workspace_root: Path, shard_id: str | None = None):
+    assigned_shards = read_assigned_shards(workspace_root)
+    wanted = str(shard_id or "").strip()
+    if wanted:
+        for row in assigned_shards:
+            if str(row.get("shard_id") or "").strip() == wanted:
+                return row
+        raise SystemExit(f"unknown shard_id: {{wanted}}")
+    current_phase = read_current_phase(workspace_root)
+    if isinstance(current_phase, dict):
+        current_shard_id = str(current_phase.get("shard_id") or "").strip()
+        if current_shard_id:
+            for row in assigned_shards:
+                if str(row.get("shard_id") or "").strip() == current_shard_id:
+                    return row
+    if len(assigned_shards) == 1:
+        return assigned_shards[0]
+    raise SystemExit("shard_id is required when current_phase.json is absent")
+
+
+def load_input_payload(workspace_root: Path, shard_row):
+    input_payload = shard_row.get("input_payload")
+    if isinstance(input_payload, dict):
+        return input_payload
+    metadata = coerce_metadata(shard_row)
+    input_path = str(metadata.get("input_path") or "").strip()
+    if not input_path:
+        return {{}}
+    candidate_path = (workspace_root / input_path).resolve()
+    if not candidate_path.exists():
+        return {{}}
+    payload = load_json(candidate_path)
+    return payload if isinstance(payload, dict) else {{}}
+
+
+def coerce_input_rows(workspace_root: Path, shard_row):
+    rows = load_input_payload(workspace_root, shard_row).get("rows")
     if not isinstance(rows, list):
         return []
     normalized = []
@@ -450,44 +543,10 @@ def coerce_input_rows(workspace_root: Path, task_row):
     return normalized
 
 
-def read_assigned_tasks(workspace_root: Path):
-    path = workspace_root / "assigned_tasks.json"
-    payload = load_json(path)
-    if not isinstance(payload, list):
-        raise SystemExit("assigned_tasks.json is not a list")
-    return [row for row in payload if isinstance(row, dict)]
-
-
-def read_current_task(workspace_root: Path):
-    path = workspace_root / "current_task.json"
-    if not path.exists():
-        return None
-    payload = load_json(path)
-    if isinstance(payload, dict):
-        return payload
-    return None
-
-
-def resolve_task_row(workspace_root: Path, task_id: str | None):
-    assigned_tasks = read_assigned_tasks(workspace_root)
-    current_task = read_current_task(workspace_root)
-    wanted = (task_id or "").strip()
-    if wanted:
-        for row in assigned_tasks:
-            if str(row.get("task_id") or "").strip() == wanted:
-                return row
-        raise SystemExit(f"unknown task_id: {{wanted}}")
-    if current_task is not None:
-        return current_task
-    if len(assigned_tasks) == 1:
-        return assigned_tasks[0]
-    raise SystemExit("task_id is required when current_task.json is absent")
-
-
-def build_seed_output(task_row):
+def build_seed_output(workspace_root: Path, shard_row):
     rows_payload = []
     unknown_codes = []
-    for row in coerce_input_rows(Path.cwd(), task_row):
+    for row in coerce_input_rows(workspace_root, shard_row):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError):
@@ -504,48 +563,60 @@ def build_seed_output(task_row):
     return {{"rows": rows_payload}}
 
 
-def validate_payload(task_row, payload):
-    errors = []
-    expected_rows = coerce_input_rows(Path.cwd(), task_row)
+def validate_payload(workspace_root: Path, shard_row, payload):
+    expected_rows = coerce_input_rows(workspace_root, shard_row)
     expected_atomic_indices = []
     for row in expected_rows:
         try:
             expected_atomic_indices.append(int(row[0]))
         except (TypeError, ValueError):
             return ["invalid_input_atomic_index"], {{}}
-    metadata = {{
-        "owned_row_count": len(expected_atomic_indices),
-    }}
+    metadata = {{"owned_row_count": len(expected_atomic_indices)}}
     if not isinstance(payload, dict):
         return ["payload_not_object"], metadata
     extra_top_level_keys = sorted(key for key in payload.keys() if str(key) != "rows")
     if extra_top_level_keys:
-        errors.append("extra_top_level_keys")
         metadata["extra_top_level_keys"] = extra_top_level_keys
     rows_payload = payload.get("rows")
     if not isinstance(rows_payload, list):
-        errors.append("rows_not_list")
-        return sorted(set(errors)), metadata
+        return sorted(set(["rows_not_list"] + (["extra_top_level_keys"] if extra_top_level_keys else []))), metadata
+    errors = []
+    if extra_top_level_keys:
+        errors.append("extra_top_level_keys")
     metadata["returned_row_count"] = len(rows_payload)
     if len(rows_payload) != len(expected_atomic_indices):
         errors.append("wrong_row_count")
     returned_atomic_indices = []
+    invalid_row_atomic_indices = []
     for row_payload in rows_payload:
         if not isinstance(row_payload, dict):
             errors.append("row_not_object")
             continue
         extra_row_keys = sorted(
-            key for key in row_payload.keys() if str(key) not in {{"atomic_index", "label"}}
+            key
+            for key in row_payload.keys()
+            if str(key) not in {{"atomic_index", "label", "review_exclusion_reason"}}
         )
         if extra_row_keys:
             errors.append("extra_row_keys")
         try:
-            returned_atomic_indices.append(int(row_payload.get("atomic_index")))
+            atomic_index = int(row_payload.get("atomic_index"))
+            returned_atomic_indices.append(atomic_index)
         except (TypeError, ValueError):
             errors.append("invalid_atomic_index")
+            continue
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in ALLOWED_LABELS:
             errors.append("invalid_label")
+            invalid_row_atomic_indices.append(atomic_index)
+        review_exclusion_reason = str(row_payload.get("review_exclusion_reason") or "").strip()
+        if review_exclusion_reason:
+            if label != "OTHER":
+                errors.append("review_exclusion_reason_requires_other")
+                invalid_row_atomic_indices.append(atomic_index)
+            if review_exclusion_reason not in VALID_REVIEW_EXCLUSION_REASONS:
+                errors.append("invalid_review_exclusion_reason")
+                invalid_row_atomic_indices.append(atomic_index)
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):
             errors.append("row_order_mismatch")
@@ -553,57 +624,159 @@ def validate_payload(task_row, payload):
             errors.append("atomic_index_mismatch")
     metadata["expected_atomic_indices"] = expected_atomic_indices
     metadata["returned_atomic_indices"] = returned_atomic_indices
+    metadata["invalid_row_atomic_indices"] = sorted(set(invalid_row_atomic_indices))
     return sorted(set(errors)), metadata
 
 
-def infer_task_id_from_path(workspace_root: Path, json_path: Path):
-    stem = json_path.stem
-    assigned_tasks = read_assigned_tasks(workspace_root)
-    task_ids = {{
-        str(row.get("task_id") or "").strip()
-        for row in assigned_tasks
-        if str(row.get("task_id") or "").strip()
-    }}
-    if stem in task_ids:
-        return stem
-    current_task = read_current_task(workspace_root)
-    if isinstance(current_task, dict):
-        current_task_id = str(current_task.get("task_id") or "").strip()
-        if current_task_id:
-            return current_task_id
+def render_feedback(shard_row, errors, metadata, repair_written=False, completed=False):
+    if completed:
+        return "# Current Phase Feedback\\n\\nAll assigned line-role shards are installed.\\n"
+    if shard_row is None:
+        return "# Current Phase Feedback\\n\\nNo active line-role shard.\\n"
+    shard_id = str(shard_row.get("shard_id") or "").strip() or "<unknown>"
+    row_metadata = coerce_metadata(shard_row)
+    if not errors:
+        return (
+            "# Current Phase Feedback\\n\\n"
+            "Current work ledger validates cleanly.\\n"
+            f"Shard id: `{{shard_id}}`\\n"
+            f"Install target: `{{row_metadata.get('result_path') or '<missing>'}}`\\n"
+        )
+    lines = [
+        "# Current Phase Feedback",
+        "",
+        f"Shard id: `{{shard_id}}`",
+        "Current work ledger is still unresolved.",
+        "Validation errors:",
+    ]
+    lines.extend(f"- `{{error}}`" for error in errors if str(error).strip())
+    if repair_written:
+        lines.append(f"Repair request: `{{row_metadata.get('repair_path') or '<missing>'}}`")
+    invalid_rows = [
+        int(value)
+        for value in metadata.get("invalid_row_atomic_indices", [])
+        if str(value).strip()
+    ]
+    if invalid_rows:
+        lines.append(
+            "Unresolved atomic indices: `"
+            + ", ".join(str(value) for value in invalid_rows)
+            + "`"
+        )
+    return "\\n".join(lines) + "\\n"
+
+
+def write_current_phase_files(workspace_root: Path, shard_row, *, completed=False, feedback_text=None):
+    current_phase_path = workspace_root / "current_phase.json"
+    current_phase_brief_path = workspace_root / "CURRENT_PHASE.md"
+    current_phase_feedback_path = workspace_root / "CURRENT_PHASE_FEEDBACK.md"
+    if completed:
+        save_json(current_phase_path, {{"phase_key": "label_rows", "status": "completed", "shard_id": None}})
+        save_text(current_phase_brief_path, "# Current Line-Role Phase\\n\\nAll assigned line-role shards are installed.\\n")
+        save_text(
+            current_phase_feedback_path,
+            feedback_text or "# Current Phase Feedback\\n\\nAll assigned line-role shards are installed.\\n",
+        )
+        return
+    if shard_row is None:
+        return
+    payload = {{"phase_key": "label_rows", "status": "active", **shard_row}}
+    save_json(current_phase_path, payload)
+    metadata = coerce_metadata(shard_row)
+    counts = metadata.get("deterministic_label_counts")
+    rendered_counts = (
+        ", ".join(f"{{label}}={{count}}" for label, count in counts.items())
+        if isinstance(counts, dict) and counts
+        else "unknown"
+    )
+    save_text(
+        current_phase_brief_path,
+        "\\n".join(
+            [
+                "# Current Line-Role Phase",
+                "",
+                "Phase: `label_rows`",
+                f"Shard id: `{{shard_row.get('shard_id') or '<unknown>'}}`",
+                f"Owned rows: `{{metadata.get('owned_row_count')}}`",
+                f"Atomic span: `{{metadata.get('atomic_index_start')}}..{{metadata.get('atomic_index_end')}}`",
+                f"Deterministic labels: {{rendered_counts}}",
+                "",
+                "Read order:",
+                f"1. Work ledger: `{{metadata.get('work_path') or '<missing>'}}`",
+                f"2. Hint: `{{metadata.get('hint_path') or '<missing>'}}`",
+                f"3. Input ledger: `{{metadata.get('input_path') or '<missing>'}`",
+                "4. Run `python3 tools/line_role_worker.py check-phase`.",
+                "5. If feedback names a repair file, fix only the unresolved rows.",
+                f"6. Install to: `{{metadata.get('result_path') or '<missing>'}`",
+                "",
+                "`assigned_shards.json` is queue/ownership context only.",
+                "",
+            ]
+        ),
+    )
+    save_text(
+        current_phase_feedback_path,
+        feedback_text
+        or (
+            "# Current Phase Feedback\\n\\n"
+            "Edit the current work ledger, run `python3 tools/line_role_worker.py check-phase`, then install once clean.\\n"
+        ),
+    )
+
+
+def next_pending_shard(workspace_root: Path, current_shard_id: str | None):
+    assigned_shards = read_assigned_shards(workspace_root)
+    if not assigned_shards:
+        return None
+    start_index = 0
+    current = str(current_shard_id or "").strip()
+    if current:
+        for index, row in enumerate(assigned_shards):
+            if str(row.get("shard_id") or "").strip() == current:
+                start_index = index + 1
+                break
+    ordered = assigned_shards[start_index:] + assigned_shards[:start_index]
+    for shard_row in ordered:
+        metadata = coerce_metadata(shard_row)
+        result_path = str(metadata.get("result_path") or "").strip()
+        if not result_path:
+            return shard_row
+        if not (workspace_root / result_path).exists():
+            return shard_row
     return None
 
 
 def cmd_overview(workspace_root: Path):
-    assigned_tasks = read_assigned_tasks(workspace_root)
-    current_task = read_current_task(workspace_root)
-    current_task_id = str((current_task or {{}}).get("task_id") or "").strip()
-    print("Line-role worker queue:")
-    for index, task_row in enumerate(assigned_tasks, start=1):
-        task_id = str(task_row.get("task_id") or "").strip() or f"task-{{index:03d}}"
-        metadata = coerce_metadata(task_row)
+    assigned_shards = read_assigned_shards(workspace_root)
+    current_phase = read_current_phase(workspace_root)
+    current_shard_id = str((current_phase or {{}}).get("shard_id") or "").strip()
+    print("Line-role shard queue:")
+    for index, shard_row in enumerate(assigned_shards, start=1):
+        shard_id = str(shard_row.get("shard_id") or "").strip() or f"shard-{{index:03d}}"
+        metadata = coerce_metadata(shard_row)
         counts = metadata.get("deterministic_label_counts")
-        if isinstance(counts, dict) and counts:
-            rendered_counts = ", ".join(f"{{label}}={{count}}" for label, count in counts.items())
-        else:
-            rendered_counts = "unknown"
-        current_marker = " current" if task_id == current_task_id else ""
+        rendered_counts = (
+            ", ".join(f"{{label}}={{count}}" for label, count in counts.items())
+            if isinstance(counts, dict) and counts
+            else "unknown"
+        )
+        current_marker = " current" if shard_id == current_shard_id else ""
         print(
-            f"- {{task_id}}{{current_marker}}: rows={{metadata.get('owned_row_count')}}, "
+            f"- {{shard_id}}{{current_marker}}: rows={{metadata.get('owned_row_count')}}, "
             f"atomic={{metadata.get('atomic_index_start')}}..{{metadata.get('atomic_index_end')}}, "
-            f"labels={{rendered_counts}}, result={{metadata.get('result_path') or 'unknown'}}"
+            f"labels={{rendered_counts}}, work={{metadata.get('work_path') or 'unknown'}}"
         )
 
 
-def cmd_show(workspace_root: Path, task_id: str | None):
-    task_row = resolve_task_row(workspace_root, task_id)
-    metadata = coerce_metadata(task_row)
-    print(f"task_id: {{task_row.get('task_id')}}")
-    print(f"parent_shard_id: {{task_row.get('parent_shard_id')}}")
+def cmd_show(workspace_root: Path, shard_id: str | None):
+    shard_row = resolve_shard_row(workspace_root, shard_id)
+    metadata = coerce_metadata(shard_row)
+    print(f"shard_id: {{shard_row.get('shard_id')}}")
     print(f"input_path: {{metadata.get('input_path') or '<missing>'}}")
     print(f"hint_path: {{metadata.get('hint_path') or '<missing>'}}")
+    print(f"work_path: {{metadata.get('work_path') or '<missing>'}}")
     print(f"result_path: {{metadata.get('result_path') or '<missing>'}}")
-    print(f"scratch_draft_path: {{metadata.get('scratch_draft_path') or '<missing>'}}")
+    print(f"repair_path: {{metadata.get('repair_path') or '<missing>'}}")
     print(f"owned_row_count: {{metadata.get('owned_row_count')}}")
     print(f"atomic_index_start: {{metadata.get('atomic_index_start')}}")
     print(f"atomic_index_end: {{metadata.get('atomic_index_end')}}")
@@ -615,117 +788,106 @@ def cmd_show(workspace_root: Path, task_id: str | None):
     print(f"deterministic_label_counts: {{rendered_counts}}")
 
 
-def cmd_scaffold(workspace_root: Path, task_id: str | None, dest: str | None):
-    task_row = resolve_task_row(workspace_root, task_id)
-    payload = build_seed_output(task_row)
-    rendered = json.dumps(payload, indent=2, sort_keys=True) + "\\n"
+def cmd_scaffold(workspace_root: Path, shard_id: str | None, dest: str | None):
+    shard_row = resolve_shard_row(workspace_root, shard_id)
+    payload = build_seed_output(workspace_root, shard_row)
     if dest:
         save_json((workspace_root / dest).resolve(), payload)
         print(dest)
         return
-    print(rendered, end="")
+    print(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def cmd_prepare_all(workspace_root: Path, dest_dir: str):
-    normalized_dest_dir = Path(dest_dir)
-    if normalized_dest_dir.is_absolute():
-        raise SystemExit("dest_dir must stay relative to the workspace root")
-    assigned_tasks = read_assigned_tasks(workspace_root)
-    written_paths = []
-    for task_row in assigned_tasks:
-        row_task_id = str(task_row.get("task_id") or "").strip()
-        if not row_task_id:
-            continue
-        destination = workspace_root / normalized_dest_dir / f"{{row_task_id}}.json"
-        save_json(destination, build_seed_output(task_row))
-        written_paths.append(destination)
-    noun = "draft" if len(written_paths) == 1 else "drafts"
-    print(
-        f"prepared {{len(written_paths)}} {{noun}} under "
-        f"{{workspace_relative_path(workspace_root, (workspace_root / normalized_dest_dir).resolve())}}"
+def cmd_check_phase(workspace_root: Path, shard_id: str | None):
+    shard_row = resolve_shard_row(workspace_root, shard_id)
+    metadata = coerce_metadata(shard_row)
+    work_path = str(metadata.get("work_path") or "").strip()
+    if not work_path:
+        raise SystemExit("missing work_path")
+    resolved_work_path = (workspace_root / work_path).resolve()
+    payload = load_json(resolved_work_path)
+    errors, validation_metadata = validate_payload(workspace_root, shard_row, payload)
+    repair_written = False
+    repair_path = str(metadata.get("repair_path") or "").strip()
+    if errors and repair_path:
+        repair_payload = {{
+            "repair_mode": "line_role",
+            "shard_id": str(shard_row.get("shard_id") or ""),
+            "unresolved_atomic_indices": (
+                validation_metadata.get("invalid_row_atomic_indices")
+                or validation_metadata.get("expected_atomic_indices")
+                or []
+            ),
+            "validation_errors": errors,
+            "rows": [
+                row
+                for row in coerce_input_rows(workspace_root, shard_row)
+                if int(row[0]) in set(
+                    int(value)
+                    for value in (
+                        validation_metadata.get("invalid_row_atomic_indices")
+                        or validation_metadata.get("expected_atomic_indices")
+                        or []
+                    )
+                    if str(value).strip()
+                )
+            ],
+        }}
+        save_json((workspace_root / repair_path).resolve(), repair_payload)
+        repair_written = True
+    elif repair_path:
+        candidate = (workspace_root / repair_path).resolve()
+        if candidate.exists():
+            candidate.unlink()
+    feedback_text = render_feedback(
+        shard_row,
+        errors,
+        validation_metadata,
+        repair_written=repair_written,
     )
-
-
-def cmd_check(workspace_root: Path, json_path: str, task_id: str | None, verbose: bool):
-    resolved_json_path = (workspace_root / json_path).resolve()
-    payload = load_json(resolved_json_path)
-    resolved_task_id = task_id or infer_task_id_from_path(workspace_root, resolved_json_path)
-    task_row = resolve_task_row(workspace_root, resolved_task_id)
-    errors, metadata = validate_payload(task_row, payload)
+    save_text(workspace_root / "CURRENT_PHASE_FEEDBACK.md", feedback_text)
     if errors:
-        print(json.dumps({{"status": "invalid", "errors": errors, "metadata": metadata}}, indent=2, sort_keys=True))
+        print(json.dumps({{"status": "invalid", "errors": errors, "metadata": validation_metadata}}, indent=2, sort_keys=True))
         raise SystemExit(1)
-    if verbose:
-        print(json.dumps({{"status": "ok", "metadata": metadata}}, indent=2, sort_keys=True))
+    print(f"OK {{str(shard_row.get('shard_id') or '').strip()}}")
+
+
+def cmd_install_phase(workspace_root: Path, shard_id: str | None):
+    shard_row = resolve_shard_row(workspace_root, shard_id)
+    metadata = coerce_metadata(shard_row)
+    work_path = str(metadata.get("work_path") or "").strip()
+    result_path = str(metadata.get("result_path") or "").strip()
+    if not work_path or not result_path:
+        raise SystemExit("current phase is missing work_path or result_path")
+    resolved_work_path = (workspace_root / work_path).resolve()
+    payload = load_json(resolved_work_path)
+    errors, validation_metadata = validate_payload(workspace_root, shard_row, payload)
+    if errors:
+        feedback_text = render_feedback(
+            shard_row,
+            errors,
+            validation_metadata,
+            repair_written=bool(str(metadata.get("repair_path") or "").strip()),
+        )
+        save_text(workspace_root / "CURRENT_PHASE_FEEDBACK.md", feedback_text)
+        print(json.dumps({{"status": "invalid", "errors": errors, "metadata": validation_metadata}}, indent=2, sort_keys=True))
+        raise SystemExit(1)
+    destination = (workspace_root / result_path).resolve()
+    save_json(destination, payload)
+    next_shard = next_pending_shard(
+        workspace_root,
+        str(shard_row.get("shard_id") or "").strip(),
+    )
+    if next_shard is None:
+        write_current_phase_files(
+            workspace_root,
+            None,
+            completed=True,
+            feedback_text="# Current Phase Feedback\\n\\nAll assigned line-role shards are installed.\\n",
+        )
     else:
-        print(f"OK {{str(task_row.get('task_id') or '').strip()}}")
-
-
-def install_payloads(workspace_root: Path, json_paths: list[Path], task_ids: list[str | None]) -> list[Path]:
-    planned_writes = []
-    errors = []
-    for json_path, task_id in zip(json_paths, task_ids):
-        resolved_json_path = json_path.resolve()
-        payload = load_json(resolved_json_path)
-        resolved_task_id = task_id or infer_task_id_from_path(workspace_root, resolved_json_path)
-        task_row = resolve_task_row(workspace_root, resolved_task_id)
-        payload_errors, metadata = validate_payload(task_row, payload)
-        if payload_errors:
-            errors.append(
-                json.dumps(
-                    {{"draft": workspace_relative_path(workspace_root, resolved_json_path), "status": "invalid", "errors": payload_errors, "metadata": metadata}},
-                    indent=2,
-                    sort_keys=True,
-                )
-            )
-            continue
-        metadata_row = coerce_metadata(task_row)
-        result_path = str(metadata_row.get("result_path") or "").strip()
-        if not result_path:
-            errors.append(
-                json.dumps(
-                    {{"draft": workspace_relative_path(workspace_root, resolved_json_path), "status": "invalid", "errors": ["missing_result_path"]}},
-                    indent=2,
-                    sort_keys=True,
-                )
-            )
-            continue
-        destination = (workspace_root / result_path).resolve()
-        planned_writes.append((destination, payload))
-    if errors:
-        print("\\n".join(errors))
-        raise SystemExit(1)
-    written_paths = []
-    for destination, payload in planned_writes:
-        save_json(destination, payload)
-        written_paths.append(destination)
-    return written_paths
-
-
-def cmd_install(workspace_root: Path, json_path: str, task_id: str | None):
-    written_paths = install_payloads(workspace_root, [workspace_root / json_path], [task_id])
-    print(workspace_relative_path(workspace_root, written_paths[0]))
-
-
-def cmd_finalize_all(workspace_root: Path, draft_dir: str):
-    normalized_draft_dir = Path(draft_dir)
-    if normalized_draft_dir.is_absolute():
-        raise SystemExit("draft_dir must stay relative to the workspace root")
-    assigned_tasks = read_assigned_tasks(workspace_root)
-    json_paths = []
-    task_ids = []
-    for task_row in assigned_tasks:
-        row_task_id = str(task_row.get("task_id") or "").strip()
-        if not row_task_id:
-            continue
-        json_paths.append(workspace_root / normalized_draft_dir / f"{{row_task_id}}.json")
-        task_ids.append(row_task_id)
-    written_paths = install_payloads(workspace_root, json_paths, task_ids)
-    noun = "task output" if len(written_paths) == 1 else "task outputs"
-    print(
-        f"installed {{len(written_paths)}} {{noun}} from "
-        f"{{workspace_relative_path(workspace_root, (workspace_root / normalized_draft_dir).resolve())}}"
-    )
+        write_current_phase_files(workspace_root, next_shard)
+    print(workspace_relative_path(workspace_root, destination))
 
 
 def build_parser():
@@ -735,34 +897,17 @@ def build_parser():
     subparsers.add_parser("overview")
 
     show_parser = subparsers.add_parser("show")
-    show_parser.add_argument("task_id", nargs="?")
+    show_parser.add_argument("shard_id", nargs="?")
 
     scaffold_parser = subparsers.add_parser("scaffold")
-    scaffold_parser.add_argument("task_id", nargs="?")
+    scaffold_parser.add_argument("shard_id", nargs="?")
     scaffold_parser.add_argument("--dest")
 
-    prepare_parser = subparsers.add_parser("prepare")
-    prepare_parser.add_argument("task_id", nargs="?")
-    prepare_parser.add_argument("--dest")
+    check_phase_parser = subparsers.add_parser("check-phase")
+    check_phase_parser.add_argument("--shard-id")
 
-    prepare_all_parser = subparsers.add_parser("prepare-all")
-    prepare_all_parser.add_argument("--dest-dir", default="scratch")
-
-    check_parser = subparsers.add_parser("check")
-    check_parser.add_argument("json_path")
-    check_parser.add_argument("--task-id")
-    check_parser.add_argument("--verbose", action="store_true")
-
-    install_parser = subparsers.add_parser("install")
-    install_parser.add_argument("json_path")
-    install_parser.add_argument("--task-id")
-
-    finalize_parser = subparsers.add_parser("finalize")
-    finalize_parser.add_argument("json_path")
-    finalize_parser.add_argument("--task-id")
-
-    finalize_all_parser = subparsers.add_parser("finalize-all")
-    finalize_all_parser.add_argument("draft_dir")
+    install_phase_parser = subparsers.add_parser("install-phase")
+    install_phase_parser.add_argument("--shard-id")
     return parser
 
 
@@ -773,21 +918,13 @@ def main():
     if args.command == "overview":
         cmd_overview(workspace_root)
     elif args.command == "show":
-        cmd_show(workspace_root, args.task_id)
+        cmd_show(workspace_root, args.shard_id)
     elif args.command == "scaffold":
-        cmd_scaffold(workspace_root, args.task_id, args.dest)
-    elif args.command == "prepare":
-        cmd_scaffold(workspace_root, args.task_id, args.dest)
-    elif args.command == "prepare-all":
-        cmd_prepare_all(workspace_root, args.dest_dir)
-    elif args.command == "check":
-        cmd_check(workspace_root, args.json_path, args.task_id, args.verbose)
-    elif args.command == "install":
-        cmd_install(workspace_root, args.json_path, args.task_id)
-    elif args.command == "finalize":
-        cmd_install(workspace_root, args.json_path, args.task_id)
-    elif args.command == "finalize-all":
-        cmd_finalize_all(workspace_root, args.draft_dir)
+        cmd_scaffold(workspace_root, args.shard_id, args.dest)
+    elif args.command == "check-phase":
+        cmd_check_phase(workspace_root, args.shard_id)
+    elif args.command == "install-phase":
+        cmd_install_phase(workspace_root, args.shard_id)
     else:
         raise SystemExit(f"unknown command: {{args.command}}")
 
@@ -797,4 +934,5 @@ if __name__ == "__main__":
 """.format(
         allowed_labels_json=allowed_labels_json,
         label_by_code_json=label_by_code_json,
+        valid_reasons_json=valid_reasons_json,
     )

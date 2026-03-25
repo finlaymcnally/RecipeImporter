@@ -268,12 +268,29 @@ def test_nonrecipe_stage_requires_final_label_for_every_nonrecipe_block() -> Non
 
 
 def test_nonrecipe_stage_rejects_invalid_final_nonrecipe_labels() -> None:
-    with pytest.raises(ValueError, match="unexpected final label 'BROKEN_LABEL'"):
+    with pytest.raises(
+        ValueError,
+        match="Invalid final non-recipe label at block 0: unexpected final label 'BROKEN_LABEL'",
+    ):
         build_nonrecipe_stage_result(
             full_blocks=[
                 {"index": 0, "block_id": "b0", "text": "Useful technique"},
             ],
             final_block_labels=[_block_label(0, "BROKEN_LABEL")],
+            recipe_spans=[],
+        )
+
+
+def test_nonrecipe_stage_rejects_recipe_only_labels_outside_recipe() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Invalid final non-recipe label at block 0: unexpected final label 'RECIPE_TITLE'",
+    ):
+        build_nonrecipe_stage_result(
+            full_blocks=[
+                {"index": 0, "block_id": "b0", "text": "Heading"},
+            ],
+            final_block_labels=[_block_label(0, "RECIPE_TITLE")],
             recipe_spans=[],
         )
 

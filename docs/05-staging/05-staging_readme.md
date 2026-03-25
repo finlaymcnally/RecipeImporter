@@ -41,6 +41,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 review routing for all outside-recipe blocks.
   - Exposes explicit seed, routing, final-authority, and review-status components so the live runtime never has to infer which outside-recipe facts are seed guesses versus final truth.
+  - Fails closed on malformed authoritative outside-recipe labels: only `KNOWLEDGE` and the current `_OTHER_LABELS` vocabulary are accepted, and missing or unexpected block-label metadata raises immediately with the block index.
   - Assumes line-role is routing-only outside recipes: surviving outside-recipe rows enter a category-neutral review queue, and only final non-recipe authority can emit scored outside-recipe `knowledge` or final `other`.
   - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
 - `cookimport/staging/pipeline_runtime.py`
@@ -171,6 +172,7 @@ Recipe-authority note:
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
 - `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps review eligibility, exclusions, exclusion reasons, block ids, and previews, but it does not publish seed semantic category maps.
+- The nonrecipe router consumes authoritative block labels, not repair heuristics: valid `OTHER` without `review_exclusion_reason` stays review-eligible, valid `OTHER` with an exclusion reason becomes excluded final `other`, and malformed authoritative labels are hard errors.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.
 - `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.

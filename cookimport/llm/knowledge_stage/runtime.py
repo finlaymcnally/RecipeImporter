@@ -159,7 +159,6 @@ def run_codex_farm_nonrecipe_knowledge_review(
         candidate_spans=review_candidate_spans,
         recipe_spans=recipe_spans,
         workbook_slug=workbook_slug,
-        source_hash=_resolve_source_hash(conversion_result),
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
         prompt_target_count=run_settings.knowledge_prompt_target_count,

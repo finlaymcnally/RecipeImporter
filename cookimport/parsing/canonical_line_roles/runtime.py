@@ -732,7 +732,11 @@ def _run_line_role_workspace_worker_assignment_v1(
 ) -> _DirectLineRoleWorkerResult:
     out_dir = worker_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = worker_root / "work"
+    repair_dir = worker_root / "repair"
     scratch_dir = worker_root / "scratch"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    repair_dir.mkdir(parents=True, exist_ok=True)
     scratch_dir.mkdir(parents=True, exist_ok=True)
     worker_failure_count = 0
     worker_proposal_count = 0
@@ -741,26 +745,49 @@ def _run_line_role_workspace_worker_assignment_v1(
     worker_proposals: list[ShardProposalV1] = []
     stage_rows: list[dict[str, Any]] = []
     runner_results_by_shard_id: dict[str, dict[str, Any]] = {}
-    all_task_plans_by_shard_id: dict[str, tuple[_LineRoleTaskPlan, ...]] = {}
-    all_task_plans: list[_LineRoleTaskPlan] = []
-    runnable_task_ids: set[str] = set()
-    resumed_output_path_by_task_id: dict[str, Path] = {}
+    runnable_shard_ids: set[str] = set()
+    resumed_output_path_by_shard_id: dict[str, Path] = {}
     task_status_rows: list[dict[str, Any]] = []
     worker_prompt_path: Path | None = None
     session_run_result: CodexExecRunResult | None = None
+    valid_shards: list[ShardManifestEntryV1] = []
+
+    def _write_current_phase(shard_row: Mapping[str, Any] | None, *, completed: bool = False) -> None:
+        phase_json_path = worker_root / _LINE_ROLE_CURRENT_PHASE_FILE_NAME
+        phase_brief_path = worker_root / _LINE_ROLE_CURRENT_PHASE_BRIEF_FILE_NAME
+        phase_feedback_path = worker_root / _LINE_ROLE_CURRENT_PHASE_FEEDBACK_FILE_NAME
+        if completed:
+            _write_runtime_json(
+                phase_json_path,
+                {"phase_key": "label_rows", "status": "completed", "shard_id": None},
+            )
+            phase_brief_path.write_text(
+                "# Current Line-Role Phase\n\nAll assigned line-role shards are installed.\n",
+                encoding="utf-8",
+            )
+            phase_feedback_path.write_text(
+                "# Current Phase Feedback\n\nAll assigned line-role shards are installed.\n",
+                encoding="utf-8",
+            )
+            return
+        if shard_row is None:
+            return
+        _write_runtime_json(phase_json_path, dict(shard_row))
+        phase_brief_path.write_text(
+            render_line_role_current_phase_brief(dict(shard_row)),
+            encoding="utf-8",
+        )
+        phase_feedback_path.write_text(
+            "# Current Phase Feedback\n\nEdit the current work ledger, run `python3 tools/line_role_worker.py check-phase`, then install once clean.\n",
+            encoding="utf-8",
+        )
 
     for shard in assigned_shards:
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
         preflight_failure = _preflight_line_role_shard(shard)
         if preflight_failure is None:
-            task_plans = _build_line_role_task_plans(
-                shard=shard,
-                debug_payload=debug_payload_by_shard_id.get(shard.shard_id),
-            )
-            if task_plans:
-                all_task_plans_by_shard_id[shard.shard_id] = task_plans
-                all_task_plans.extend(task_plans)
+            valid_shards.append(shard)
             continue
         _write_runtime_json(
             shard_root / "live_status.json",
@@ -856,90 +883,74 @@ def _run_line_role_workspace_worker_assignment_v1(
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
-    assigned_task_rows = [_build_line_role_worker_task_row(task) for task in all_task_plans]
-    assigned_task_row_by_task_id = {
-        str(task_row.get("task_id") or "").strip(): task_row
-        for task_row in assigned_task_rows
-        if str(task_row.get("task_id") or "").strip()
+    assigned_shard_rows = [
+        _build_line_role_worker_shard_row(shard=shard) for shard in valid_shards
+    ]
+    assigned_shard_row_by_shard_id = {
+        str(shard_row.get("shard_id") or "").strip(): shard_row
+        for shard_row in assigned_shard_rows
+        if str(shard_row.get("shard_id") or "").strip()
     }
-    _write_runtime_json(worker_root / "assigned_tasks.json", assigned_task_rows)
-    if assigned_task_rows:
-        (worker_root / _LINE_ROLE_CURRENT_TASK_BRIEF_FILE_NAME).write_text(
-            render_line_role_current_task_brief(assigned_task_rows[0]),
-            encoding="utf-8",
-        )
+    _write_runtime_json(worker_root / "assigned_shards.json", assigned_shard_rows)
     _write_line_role_worker_examples(worker_root=worker_root)
     _write_line_role_output_contract(worker_root=worker_root)
     _write_line_role_worker_tools(worker_root=worker_root)
-    for task in all_task_plans:
-        task_manifest = task.manifest_entry
-        task_id = task_manifest.shard_id
-        task_row = assigned_task_row_by_task_id.get(task_id)
-        if task_row is not None:
-            draft_path = worker_root / build_line_role_scratch_draft_path(task_id)
-            _write_runtime_json(
-                draft_path,
-                build_line_role_seed_output({"input_payload": task_manifest.input_payload}),
-            )
+    for shard in valid_shards:
+        shard_id = shard.shard_id
+        shard_row = assigned_shard_row_by_shard_id.get(shard_id)
+        if shard_row is None:
+            continue
+        metadata = dict(shard_row.get("metadata") or {})
+        work_path = work_dir / f"{shard_id}.json"
+        _write_runtime_json(work_path, build_line_role_seed_output({"input_payload": shard.input_payload}))
         _write_worker_debug_input(
-            path=in_dir / f"{task_id}.json",
-            payload=task_manifest.input_payload,
+            path=in_dir / f"{shard_id}.json",
+            payload=shard.input_payload,
             input_text=None,
         )
         _write_worker_debug_input(
-            path=debug_dir / f"{task_id}.json",
-            payload=task.debug_input_payload,
+            path=debug_dir / f"{shard_id}.json",
+            payload=debug_payload_by_shard_id.get(shard_id),
             input_text=None,
         )
         _write_line_role_worker_hint(
-            path=hints_dir / f"{task_id}.md",
-            shard=task_manifest,
-            debug_payload=task.debug_input_payload,
+            path=hints_dir / f"{shard_id}.md",
+            shard=shard,
+            debug_payload=debug_payload_by_shard_id.get(shard_id),
         )
         existing_output_path = _find_line_role_existing_output_path(
             run_root=run_root,
             preferred_worker_root=worker_root,
-            task_id=task_id,
+            shard_id=shard_id,
         )
         if existing_output_path is None:
-            runnable_task_ids.add(task_id)
+            runnable_shard_ids.add(shard_id)
             continue
         try:
             existing_response_text = existing_output_path.read_text(encoding="utf-8")
         except OSError:
-            runnable_task_ids.add(task_id)
+            runnable_shard_ids.add(shard_id)
             continue
         existing_payload, _, _, existing_status = (
             _evaluate_line_role_response_with_pathology_guard(
-                shard=task_manifest,
+                shard=shard,
                 response_text=existing_response_text,
                 validator=validator,
                 deterministic_baseline_by_atomic_index=dict(
-                    deterministic_baseline_by_shard_id.get(task.parent_shard_id) or {}
+                    deterministic_baseline_by_shard_id.get(shard_id) or {}
                 ),
             )
         )
         if existing_payload is not None and existing_status == "validated":
-            resumed_output_path_by_task_id[task_id] = existing_output_path
+            resumed_output_path_by_shard_id[shard_id] = existing_output_path
         else:
-            runnable_task_ids.add(task_id)
+            runnable_shard_ids.add(shard_id)
 
-    runnable_tasks = [
-        task for task in all_task_plans if task.task_id in runnable_task_ids
-    ]
-    runnable_shards = [
-        shard
-        for shard in assigned_shards
-        if shard.shard_id
-        in {task.parent_shard_id for task in runnable_tasks}
-    ]
-
-    if runnable_shards and runnable_tasks:
+    runnable_shards = [shard for shard in valid_shards if shard.shard_id in runnable_shard_ids]
+    if runnable_shards:
+        _write_current_phase(assigned_shard_row_by_shard_id.get(runnable_shards[0].shard_id))
         worker_prompt_text = _build_line_role_workspace_worker_prompt(
-            tasks=[
-                _build_line_role_task_manifest_entry(task)
-                for task in runnable_tasks
-            ]
+            shards=runnable_shards,
         )
         worker_prompt_path = worker_root / "prompt.txt"
         worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
@@ -973,7 +984,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
                 expected_workspace_output_paths=[
-                    out_dir / f"{task.task_id}.json" for task in runnable_tasks
+                    out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
                 ],
             ),
         )
@@ -1004,39 +1015,34 @@ def _run_line_role_workspace_worker_assignment_v1(
         _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
         _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
     else:
+        _write_current_phase(None, completed=True)
         _write_runtime_json(
             worker_root / "live_status.json",
             {
                 "state": "completed",
                 "reason_code": (
                     "resume_existing_outputs"
-                    if resumed_output_path_by_task_id
-                    else "no_tasks_assigned"
+                    if resumed_output_path_by_shard_id
+                    else "no_shards_assigned"
                 ),
                 "reason_detail": (
-                    "all canonical line-role packet outputs were already durable on disk"
-                    if resumed_output_path_by_task_id
-                    else "worker had no runnable canonical line-role packets"
+                    "all canonical line-role shard outputs were already durable on disk"
+                    if resumed_output_path_by_shard_id
+                    else "worker had no runnable canonical line-role shards"
                 ),
                 "retryable": False,
                 "watchdog_policy": "workspace_worker_v1",
             },
         )
 
-    task_count = max(1, len(runnable_tasks))
-    task_payloads_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
-    task_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
-    task_watchdog_retry_status_by_shard_id: dict[str, dict[str, str]] = {}
-    task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
-    task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
-    for task_index, task in enumerate(all_task_plans):
-        task_manifest = task.manifest_entry
-        parent_shard_id = task.parent_shard_id
-        input_path = in_dir / f"{task_manifest.shard_id}.json"
-        debug_path = debug_dir / f"{task_manifest.shard_id}.json"
-        output_path = out_dir / f"{task_manifest.shard_id}.json"
+    shard_count = max(1, len(runnable_shards))
+    for shard_index, shard in enumerate(valid_shards):
+        shard_id = shard.shard_id
+        input_path = in_dir / f"{shard_id}.json"
+        debug_path = debug_dir / f"{shard_id}.json"
+        output_path = out_dir / f"{shard_id}.json"
         response_source_path = (
-            output_path if output_path.exists() else resumed_output_path_by_task_id.get(task_manifest.shard_id)
+            output_path if output_path.exists() else resumed_output_path_by_shard_id.get(shard_id)
         )
         response_text = (
             response_source_path.read_text(encoding="utf-8")
@@ -1045,22 +1051,22 @@ def _run_line_role_workspace_worker_assignment_v1(
         )
         if (
             session_run_result is not None
-            and task.task_id in runnable_task_ids
+            and shard_id in runnable_shard_ids
             and worker_prompt_path is not None
         ):
             runner_payload = _build_line_role_workspace_task_runner_payload(
                 pipeline_id=pipeline_id,
                 worker_id=assignment.worker_id,
-                shard_id=parent_shard_id,
-                runtime_task_id=task_manifest.shard_id,
+                shard_id=shard_id,
+                runtime_task_id=shard_id,
                 run_result=session_run_result,
                 model=model,
                 reasoning_effort=reasoning_effort,
                 request_input_file=input_path,
                 debug_input_file=debug_path,
                 worker_prompt_path=worker_prompt_path,
-                task_count=task_count,
-                task_index=min(task_index, task_count - 1),
+                task_count=shard_count,
+                task_index=min(shard_index, shard_count - 1),
             )
             worker_runner_results.append(dict(runner_payload))
             telemetry = runner_payload.get("telemetry")
@@ -1083,11 +1089,11 @@ def _run_line_role_workspace_worker_assignment_v1(
 
         payload, validation_errors, validation_metadata, proposal_status = (
             _evaluate_line_role_response_with_pathology_guard(
-                shard=task_manifest,
+                shard=shard,
                 response_text=response_text,
                 validator=validator,
                 deterministic_baseline_by_atomic_index=dict(
-                    deterministic_baseline_by_shard_id.get(parent_shard_id) or {}
+                    deterministic_baseline_by_shard_id.get(shard_id) or {}
                 ),
             )
         )
@@ -1097,7 +1103,7 @@ def _run_line_role_workspace_worker_assignment_v1(
         repair_status = "not_attempted"
         final_validation_errors = tuple(validation_errors)
         final_validation_metadata = dict(validation_metadata or {})
-        task_root = shard_dir / task_manifest.shard_id
+        task_root = shard_dir / shard_id
         task_root.mkdir(parents=True, exist_ok=True)
         if primary_row is not None:
             primary_row["proposal_status"] = proposal_status
@@ -1105,18 +1111,18 @@ def _run_line_role_workspace_worker_assignment_v1(
                 primary_row,
                 final_proposal_status=proposal_status,
             )
-            primary_row["runtime_task_id"] = task_manifest.shard_id
-            primary_row["runtime_parent_shard_id"] = parent_shard_id
+            primary_row["runtime_task_id"] = shard_id
+            primary_row["runtime_parent_shard_id"] = shard_id
         if primary_runner_row is not None:
             primary_runner_row["proposal_status"] = proposal_status
             _annotate_line_role_final_proposal_status(
                 primary_runner_row,
                 final_proposal_status=proposal_status,
             )
-            primary_runner_row["runtime_task_id"] = task_manifest.shard_id
-            primary_runner_row["runtime_parent_shard_id"] = parent_shard_id
+            primary_runner_row["runtime_task_id"] = shard_id
+            primary_runner_row["runtime_parent_shard_id"] = shard_id
         if (
-            task.task_id in runnable_task_ids
+            shard_id in runnable_shard_ids
             and payload is None
             and proposal_status == "missing_output"
             and session_run_result is not None
@@ -1129,7 +1135,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             watchdog_retry_run_result = _run_line_role_watchdog_retry_attempt(
                 runner=runner,
                 worker_root=worker_root,
-                shard=task_manifest,
+                shard=shard,
                 env=env,
                 output_schema_path=output_schema_path,
                 model=model,
@@ -1172,18 +1178,14 @@ def _run_line_role_workspace_worker_assignment_v1(
             watchdog_retry_runner_payload = _build_line_role_inline_attempt_runner_payload(
                 pipeline_id=pipeline_id,
                 worker_id=assignment.worker_id,
-                shard_id=parent_shard_id,
+                shard_id=shard_id,
                 run_result=watchdog_retry_run_result,
                 model=model,
                 reasoning_effort=reasoning_effort,
                 prompt_input_mode="inline_watchdog_retry",
             )
-            watchdog_retry_runner_payload["process_payload"]["runtime_task_id"] = (
-                task_manifest.shard_id
-            )
-            watchdog_retry_runner_payload["process_payload"]["runtime_parent_shard_id"] = (
-                parent_shard_id
-            )
+            watchdog_retry_runner_payload["process_payload"]["runtime_task_id"] = shard_id
+            watchdog_retry_runner_payload["process_payload"]["runtime_parent_shard_id"] = shard_id
             worker_runner_results.append(dict(watchdog_retry_runner_payload))
             watchdog_retry_telemetry = watchdog_retry_runner_payload.get("telemetry")
             watchdog_retry_row_payloads = (
@@ -1207,11 +1209,11 @@ def _run_line_role_workspace_worker_assignment_v1(
             )
             watchdog_retry_payload, watchdog_retry_validation_errors, watchdog_retry_validation_metadata, watchdog_retry_proposal_status = (
                 _evaluate_line_role_response_with_pathology_guard(
-                    shard=task_manifest,
+                    shard=shard,
                     response_text=watchdog_retry_run_result.response_text,
                     validator=validator,
                     deterministic_baseline_by_atomic_index=dict(
-                        deterministic_baseline_by_shard_id.get(parent_shard_id) or {}
+                        deterministic_baseline_by_shard_id.get(shard_id) or {}
                     ),
                 )
             )
@@ -1221,9 +1223,6 @@ def _run_line_role_workspace_worker_assignment_v1(
                 and watchdog_retry_proposal_status == "validated"
                 else "failed"
             )
-            task_watchdog_retry_status_by_shard_id.setdefault(parent_shard_id, {})[
-                task_manifest.shard_id
-            ] = watchdog_retry_status
             _write_runtime_json(
                 task_root / "watchdog_retry_status.json",
                 {
@@ -1256,8 +1255,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                 watchdog_retry_primary_row["watchdog_retry_status"] = (
                     watchdog_retry_status
                 )
-                watchdog_retry_primary_row["runtime_task_id"] = task_manifest.shard_id
-                watchdog_retry_primary_row["runtime_parent_shard_id"] = parent_shard_id
+                watchdog_retry_primary_row["runtime_task_id"] = shard_id
+                watchdog_retry_primary_row["runtime_parent_shard_id"] = shard_id
             if watchdog_retry_primary_runner_row is not None:
                 watchdog_retry_primary_runner_row["proposal_status"] = (
                     watchdog_retry_proposal_status
@@ -1269,12 +1268,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                 watchdog_retry_primary_runner_row["watchdog_retry_status"] = (
                     watchdog_retry_status
                 )
-                watchdog_retry_primary_runner_row["runtime_task_id"] = (
-                    task_manifest.shard_id
-                )
-                watchdog_retry_primary_runner_row["runtime_parent_shard_id"] = (
-                    parent_shard_id
-                )
+                watchdog_retry_primary_runner_row["runtime_task_id"] = shard_id
+                watchdog_retry_primary_runner_row["runtime_parent_shard_id"] = shard_id
             if (
                 watchdog_retry_payload is not None
                 and watchdog_retry_proposal_status == "validated"
@@ -1310,7 +1305,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     ),
                 }
         if (
-            task.task_id in runnable_task_ids
+            shard_id in runnable_shard_ids
             and _should_attempt_line_role_repair(
                 proposal_status=proposal_status,
                 validation_errors=validation_errors,
@@ -1321,7 +1316,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             repair_run_result = _run_line_role_repair_attempt(
                 runner=runner,
                 worker_root=worker_root,
-                shard=task_manifest,
+                shard=shard,
                 env=env,
                 output_schema_path=output_schema_path,
                 model=model,
@@ -1357,18 +1352,14 @@ def _run_line_role_workspace_worker_assignment_v1(
             repair_runner_payload = _build_line_role_inline_attempt_runner_payload(
                 pipeline_id=pipeline_id,
                 worker_id=assignment.worker_id,
-                shard_id=parent_shard_id,
+                shard_id=shard_id,
                 run_result=repair_run_result,
                 model=model,
                 reasoning_effort=reasoning_effort,
                 prompt_input_mode="inline_repair",
             )
-            repair_runner_payload["process_payload"]["runtime_task_id"] = (
-                task_manifest.shard_id
-            )
-            repair_runner_payload["process_payload"]["runtime_parent_shard_id"] = (
-                parent_shard_id
-            )
+            repair_runner_payload["process_payload"]["runtime_task_id"] = shard_id
+            repair_runner_payload["process_payload"]["runtime_parent_shard_id"] = shard_id
             worker_runner_results.append(dict(repair_runner_payload))
             repair_telemetry = repair_runner_payload.get("telemetry")
             repair_row_payloads = (
@@ -1392,11 +1383,11 @@ def _run_line_role_workspace_worker_assignment_v1(
             )
             repair_payload, repair_validation_errors, repair_validation_metadata, repair_proposal_status = (
                 _evaluate_line_role_response_with_pathology_guard(
-                    shard=task_manifest,
+                    shard=shard,
                     response_text=repair_run_result.response_text,
                     validator=validator,
                     deterministic_baseline_by_atomic_index=dict(
-                        deterministic_baseline_by_shard_id.get(parent_shard_id) or {}
+                        deterministic_baseline_by_shard_id.get(shard_id) or {}
                     ),
                 )
             )
@@ -1406,12 +1397,6 @@ def _run_line_role_workspace_worker_assignment_v1(
                 else "failed"
             )
             final_validation_errors = tuple(repair_validation_errors)
-            task_repair_status_by_shard_id.setdefault(parent_shard_id, {})[
-                task_manifest.shard_id
-            ] = repair_status
-            task_repair_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
-                task_manifest.shard_id
-            ] = final_validation_errors
             _write_runtime_json(
                 task_root / "repair_status.json",
                 {
@@ -1431,8 +1416,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                     final_proposal_status=repair_proposal_status,
                 )
                 repair_primary_row["repair_status"] = repair_status
-                repair_primary_row["runtime_task_id"] = task_manifest.shard_id
-                repair_primary_row["runtime_parent_shard_id"] = parent_shard_id
+                repair_primary_row["runtime_task_id"] = shard_id
+                repair_primary_row["runtime_parent_shard_id"] = shard_id
             if repair_primary_runner_row is not None:
                 repair_primary_runner_row["proposal_status"] = repair_proposal_status
                 _annotate_line_role_final_proposal_status(
@@ -1440,8 +1425,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                     final_proposal_status=repair_proposal_status,
                 )
                 repair_primary_runner_row["repair_status"] = repair_status
-                repair_primary_runner_row["runtime_task_id"] = task_manifest.shard_id
-                repair_primary_runner_row["runtime_parent_shard_id"] = parent_shard_id
+                repair_primary_runner_row["runtime_task_id"] = shard_id
+                repair_primary_runner_row["runtime_parent_shard_id"] = shard_id
             if repair_payload is not None and repair_proposal_status == "validated":
                 payload = repair_payload
                 final_validation_metadata = dict(repair_validation_metadata or {})
@@ -1466,16 +1451,9 @@ def _run_line_role_workspace_worker_assignment_v1(
                     "repair_validation_errors": list(final_validation_errors),
                     "repair_validation_metadata": dict(repair_validation_metadata or {}),
                 }
-        task_validation_errors_by_shard_id.setdefault(parent_shard_id, {})[
-            task_manifest.shard_id
-        ] = final_validation_errors
-        if payload is not None and proposal_status == "validated":
-            task_payloads_by_shard_id.setdefault(parent_shard_id, {})[
-                task_manifest.shard_id
-            ] = payload
         task_status_rows.append(
             _build_line_role_task_status_row(
-                task_manifest=task_manifest,
+                task_manifest=shard,
                 worker_id=assignment.worker_id,
                 state=(
                     "repair_recovered"
@@ -1504,8 +1482,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                         if watchdog_retry_attempted
                         else (
                             "resume_existing_output"
-                            if task_manifest.shard_id in resumed_output_path_by_task_id
-                            and task.task_id not in runnable_task_ids
+                            if shard_id in resumed_output_path_by_shard_id
+                            and shard_id not in runnable_shard_ids
                             else "main_worker"
                         )
                     )
@@ -1516,127 +1494,51 @@ def _run_line_role_workspace_worker_assignment_v1(
                 repair_attempted=repair_attempted,
                 repair_status=repair_status,
                 resumed_from_existing_output=(
-                    task_manifest.shard_id in resumed_output_path_by_task_id
-                    and task.task_id not in runnable_task_ids
+                    shard_id in resumed_output_path_by_shard_id
+                    and shard_id not in runnable_shard_ids
                 ),
             )
-        )
-
-    for shard in assigned_shards:
-        if shard.shard_id not in all_task_plans_by_shard_id:
-            continue
-        shard_root = shard_dir / shard.shard_id
-        if session_run_result is None and not (shard_root / "live_status.json").exists():
-            resumed = any(
-                task.task_id in resumed_output_path_by_task_id
-                for task in all_task_plans_by_shard_id.get(shard.shard_id, ())
-            )
-            _write_runtime_json(
-                shard_root / "live_status.json",
-                {
-                    "state": "completed",
-                    "reason_code": "resume_existing_outputs" if resumed else "no_tasks_assigned",
-                    "reason_detail": (
-                        "all canonical line-role packet outputs were already durable on disk"
-                        if resumed
-                        else "worker had no runnable canonical line-role packets"
-                    ),
-                    "retryable": False,
-                    "watchdog_policy": "workspace_worker_v1",
-                },
-            )
-        task_payloads = task_payloads_by_shard_id.get(shard.shard_id, {})
-        task_errors = task_validation_errors_by_shard_id.get(shard.shard_id, {})
-        task_watchdog_retry_statuses = task_watchdog_retry_status_by_shard_id.get(
-            shard.shard_id, {}
-        )
-        task_repair_statuses = task_repair_status_by_shard_id.get(shard.shard_id, {})
-        task_repair_errors = task_repair_validation_errors_by_shard_id.get(
-            shard.shard_id, {}
-        )
-        payload, aggregation_metadata = _aggregate_line_role_task_payloads(
-            shard=shard,
-            task_payloads_by_task_id=task_payloads,
-            task_validation_errors_by_task_id=task_errors,
-            deterministic_baseline_by_atomic_index=dict(
-                deterministic_baseline_by_shard_id.get(shard.shard_id) or {}
-            ),
-        )
-        valid, validation_errors, validator_metadata = validator(shard, payload)
-        validation_metadata = {
-            "task_aggregation": aggregation_metadata,
-            **(
-                dict(validator_metadata or {})
-                if isinstance(validator_metadata, Mapping)
-                else {}
-            ),
-        }
-        watchdog_retry_attempted = any(
-            str(status).strip() != "not_attempted"
-            for status in task_watchdog_retry_statuses.values()
-        )
-        watchdog_retry_status = (
-            "recovered"
-            if any(
-                str(status).strip() == "recovered"
-                for status in task_watchdog_retry_statuses.values()
-            )
-            else ("failed" if watchdog_retry_attempted else "not_attempted")
-        )
-        repair_attempted = any(
-            str(status).strip() != "not_attempted"
-            for status in task_repair_statuses.values()
-        )
-        repair_status = (
-            "repaired"
-            if any(
-                str(status).strip() == "repaired"
-                for status in task_repair_statuses.values()
-            )
-            else ("failed" if repair_attempted else "not_attempted")
-        )
-        repair_validation_errors = sorted(
-            {
-                str(error).strip()
-                for errors in task_repair_errors.values()
-                for error in errors
-                if str(error).strip()
-            }
-        )
-        if task_repair_statuses:
-            validation_metadata["task_repair_status_by_task_id"] = {
-                task_id: status
-                for task_id, status in sorted(task_repair_statuses.items())
-            }
-        if task_watchdog_retry_statuses:
-            validation_metadata["task_watchdog_retry_status_by_task_id"] = {
-                task_id: status
-                for task_id, status in sorted(task_watchdog_retry_statuses.items())
-            }
-        if repair_validation_errors:
-            validation_metadata["repair_validation_errors"] = repair_validation_errors
-        proposal_status = "validated" if valid else "invalid"
-        resumed_from_existing_outputs = any(
-            task.task_id in resumed_output_path_by_task_id
-            for task in all_task_plans_by_shard_id.get(shard.shard_id, ())
         )
         normalized_outcome = _normalize_line_role_shard_outcome(
             run_result=session_run_result,
             proposal_status=proposal_status,
             watchdog_retry_status=watchdog_retry_status,
             repair_status=repair_status,
-            resumed_from_existing_outputs=resumed_from_existing_outputs,
-            aggregation_metadata=aggregation_metadata,
+            resumed_from_existing_outputs=(
+                shard_id in resumed_output_path_by_shard_id
+                and shard_id not in runnable_shard_ids
+            ),
         )
+        shard_root = shard_dir / shard.shard_id
+        if session_run_result is None and not (shard_root / "live_status.json").exists():
+            _write_runtime_json(
+                shard_root / "live_status.json",
+                {
+                    "state": "completed",
+                    "reason_code": (
+                        "resume_existing_outputs"
+                        if shard_id in resumed_output_path_by_shard_id
+                        else "no_shards_assigned"
+                    ),
+                    "reason_detail": (
+                        "all canonical line-role shard outputs were already durable on disk"
+                        if shard_id in resumed_output_path_by_shard_id
+                        else "worker had no runnable canonical line-role shards"
+                    ),
+                    "retryable": False,
+                    "watchdog_policy": "workspace_worker_v1",
+                },
+            )
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        valid = payload is not None and proposal_status == "validated"
         _write_runtime_json(
             proposal_path,
             {
                 "shard_id": shard.shard_id,
                 "worker_id": assignment.worker_id,
                 "payload": payload if valid else None,
-                "validation_errors": list(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
+                "validation_errors": list(final_validation_errors),
+                "validation_metadata": dict(final_validation_metadata or {}),
                 "watchdog_retry_attempted": watchdog_retry_attempted,
                 "watchdog_retry_status": watchdog_retry_status,
                 "repair_attempted": repair_attempted,
@@ -1649,8 +1551,8 @@ def _run_line_role_workspace_worker_assignment_v1(
             if valid
             else {
                 "error": proposal_status,
-                "validation_errors": list(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
+                "validation_errors": list(final_validation_errors),
+                "validation_metadata": dict(final_validation_metadata or {}),
             },
         )
         shard_state = normalized_outcome.get("state")
@@ -1687,8 +1589,8 @@ def _run_line_role_workspace_worker_assignment_v1(
             shard_root / "status.json",
             {
                 "status": proposal_status,
-                "validation_errors": list(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
+                "validation_errors": list(final_validation_errors),
+                "validation_metadata": dict(final_validation_metadata or {}),
                 "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
                 "watchdog_retry_attempted": watchdog_retry_attempted,
                 "watchdog_retry_status": watchdog_retry_status,
@@ -1783,7 +1685,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                         if session_run_result is not None
                         else proposal_status
                     ),
-                    "validation_errors": list(validation_errors),
+                    "validation_errors": list(final_validation_errors),
                     "state": shard_state,
                     "reason_code": shard_reason_code,
                 }
@@ -1805,8 +1707,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                 status=proposal_status,
                 proposal_path=_relative_runtime_path(run_root, proposal_path),
                 payload=payload if valid else None,
-                validation_errors=tuple(validation_errors),
-                metadata=dict(validation_metadata or {}),
+                validation_errors=tuple(final_validation_errors),
+                metadata=dict(final_validation_metadata or {}),
             )
         )
         if shard_completed_callback is not None:
@@ -1837,6 +1739,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "debug_dir": _relative_runtime_path(run_root, debug_dir),
                 "hints_dir": _relative_runtime_path(run_root, hints_dir),
                 "out_dir": _relative_runtime_path(run_root, out_dir),
+                "work_dir": _relative_runtime_path(run_root, work_dir),
+                "repair_dir": _relative_runtime_path(run_root, repair_dir),
                 "shards_dir": _relative_runtime_path(run_root, shard_dir),
                 "log_dir": _relative_runtime_path(run_root, logs_dir),
             },
@@ -1940,8 +1844,7 @@ def _run_line_role_direct_workers_v1(
     artifacts = {
         "phase_manifest": "phase_manifest.json",
         "shard_manifest": "shard_manifest.jsonl",
-        "task_manifest": "task_manifest.jsonl",
-        "task_status": "task_status.jsonl",
+        "shard_status": "shard_status.jsonl",
         "canonical_line_table": "canonical_line_table.jsonl",
         "worker_assignments": "worker_assignments.json",
         "promotion_report": "promotion_report.json",
@@ -1956,24 +1859,9 @@ def _run_line_role_direct_workers_v1(
         shards=shards,
         worker_count=worker_count,
     )
-    task_plans_by_shard_id = {
-        shard.shard_id: _build_line_role_task_plans(
-            shard=shard,
-            debug_payload=debug_payload_by_shard_id.get(shard.shard_id),
-        )
-        for shard in shards
-    }
     _write_runtime_jsonl(
         run_root / artifacts["shard_manifest"],
         [_line_role_asdict(shard) for shard in shards],
-    )
-    _write_runtime_jsonl(
-        run_root / artifacts["task_manifest"],
-        [
-            _line_role_asdict(_build_line_role_task_manifest_entry(task_plan))
-            for shard in shards
-            for task_plan in task_plans_by_shard_id.get(shard.shard_id, ())
-        ],
     )
     _write_runtime_jsonl(
         run_root / artifacts["canonical_line_table"],
@@ -1995,11 +1883,7 @@ def _run_line_role_direct_workers_v1(
     completed_shards = 0
     total_shards = len(shards)
     task_ids_by_worker: dict[str, tuple[str, ...]] = {
-        assignment.worker_id: tuple(
-            task_plan.task_id
-            for shard_id in assignment.shard_ids
-            for task_plan in task_plans_by_shard_id.get(shard_id, ())
-        )
+        assignment.worker_id: tuple(assignment.shard_ids)
         for assignment in assignments
     }
     total_tasks = sum(len(task_ids) for task_ids in task_ids_by_worker.values())
@@ -2019,7 +1903,7 @@ def _run_line_role_direct_workers_v1(
         repair_running = 0
         for task_id in task_ids_by_worker.get(worker_id, ()):
             task_root = run_root / "workers" / worker_id / "shards" / task_id
-            repair_prompt_path = task_root / "repair_prompt.txt"
+            repair_prompt_path = task_root / "repair_status.json"
             repair_status_path = task_root / "repair_status.json"
             if repair_prompt_path.exists():
                 repair_attempted += 1
@@ -2178,7 +2062,7 @@ def _run_line_role_direct_workers_v1(
             task_status_rows.extend(result.task_status_rows)
             runner_results_by_shard_id.update(result.runner_results_by_shard_id)
 
-    _write_runtime_jsonl(run_root / artifacts["task_status"], task_status_rows)
+    _write_runtime_jsonl(run_root / artifacts["shard_status"], task_status_rows)
 
     llm_authoritative_row_count = sum(
         int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("llm_authoritative_row_count") or 0)
@@ -2210,7 +2094,7 @@ def _run_line_role_direct_workers_v1(
         "missing_output_shards": sum(
             1 for proposal in all_proposals if proposal.status == "missing_output"
         ),
-        "task_state_counts": {
+        "shard_state_counts": {
             state: sum(
                 1
                 for row in task_status_rows

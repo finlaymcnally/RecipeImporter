@@ -39,6 +39,9 @@ _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
 _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME = "current_batch.json"
 _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
 _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
+_DIRECT_EXEC_CURRENT_PHASE_FILE_NAME = "current_phase.json"
+_DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME = "CURRENT_PHASE.md"
+_DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME = "CURRENT_PHASE_FEEDBACK.md"
 _DIRECT_EXEC_CURRENT_TASK_FILE_NAME = "current_task.json"
 _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
 _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
@@ -52,6 +55,8 @@ _DIRECT_EXEC_EXAMPLES_DIR_NAME = "examples"
 _DIRECT_EXEC_TOOLS_DIR_NAME = "tools"
 _DIRECT_EXEC_OUTPUT_DIR_NAME = "out"
 _DIRECT_EXEC_SCRATCH_DIR_NAME = "scratch"
+_DIRECT_EXEC_WORK_DIR_NAME = "work"
+_DIRECT_EXEC_REPAIR_DIR_NAME = "repair"
 _DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS = 5.0
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
@@ -63,6 +68,9 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
     _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
@@ -80,6 +88,8 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_LOGS_DIR_NAME,
     _DIRECT_EXEC_OUTPUT_DIR_NAME,
     _DIRECT_EXEC_SCRATCH_DIR_NAME,
+    _DIRECT_EXEC_WORK_DIR_NAME,
+    _DIRECT_EXEC_REPAIR_DIR_NAME,
     _DIRECT_EXEC_SHARDS_DIR_NAME,
 }
 _WORKSPACE_ALLOWED_NULL_SINKS = {
@@ -95,6 +105,9 @@ _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
     _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
+    _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
@@ -517,6 +530,8 @@ class SubprocessCodexExecRunner:
             sync_output_paths=(
                 _DIRECT_EXEC_OUTPUT_DIR_NAME,
                 _DIRECT_EXEC_SCRATCH_DIR_NAME,
+                _DIRECT_EXEC_WORK_DIR_NAME,
+                _DIRECT_EXEC_REPAIR_DIR_NAME,
             ),
         )
 
@@ -828,6 +843,8 @@ class FakeCodexExecRunner:
             relative_paths=(
                 _DIRECT_EXEC_OUTPUT_DIR_NAME,
                 _DIRECT_EXEC_SCRATCH_DIR_NAME,
+                _DIRECT_EXEC_WORK_DIR_NAME,
+                _DIRECT_EXEC_REPAIR_DIR_NAME,
             ),
         )
         response_text = (
@@ -959,6 +976,9 @@ def build_direct_exec_workspace_manifest(
         "current_batch_path": None,
         "current_batch_brief_path": None,
         "current_batch_feedback_path": None,
+        "current_phase_path": None,
+        "current_phase_brief_path": None,
+        "current_phase_feedback_path": None,
         "current_task_path": None,
         "current_task_brief_path": None,
         "current_task_feedback_path": None,
@@ -970,6 +990,8 @@ def build_direct_exec_workspace_manifest(
         "current_result_path_path": None,
         "packet_lease_status_path": None,
         "scratch_dir": None,
+        "work_dir": None,
+        "repair_dir": None,
         "mirrored_input_files": [],
         "mirrored_debug_files": [],
         "mirrored_hint_files": [],
@@ -977,6 +999,8 @@ def build_direct_exec_workspace_manifest(
         "mirrored_tool_files": [],
         "mirrored_output_files": [],
         "mirrored_scratch_files": [],
+        "mirrored_work_files": [],
+        "mirrored_repair_files": [],
     }
     execution_root = (
         Path(execution_working_dir).expanduser()
@@ -1003,6 +1027,15 @@ def build_direct_exec_workspace_manifest(
     current_batch_feedback_path = execution_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME
     if current_batch_feedback_path.exists():
         payload["current_batch_feedback_path"] = str(current_batch_feedback_path)
+    current_phase_path = execution_root / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME
+    if current_phase_path.exists():
+        payload["current_phase_path"] = str(current_phase_path)
+    current_phase_brief_path = execution_root / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME
+    if current_phase_brief_path.exists():
+        payload["current_phase_brief_path"] = str(current_phase_brief_path)
+    current_phase_feedback_path = execution_root / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME
+    if current_phase_feedback_path.exists():
+        payload["current_phase_feedback_path"] = str(current_phase_feedback_path)
     current_task_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME
     if current_task_path.exists():
         payload["current_task_path"] = str(current_task_path)
@@ -1036,6 +1069,12 @@ def build_direct_exec_workspace_manifest(
     scratch_dir = execution_root / _DIRECT_EXEC_SCRATCH_DIR_NAME
     if scratch_dir.exists() and scratch_dir.is_dir():
         payload["scratch_dir"] = str(scratch_dir)
+    work_dir = execution_root / _DIRECT_EXEC_WORK_DIR_NAME
+    if work_dir.exists() and work_dir.is_dir():
+        payload["work_dir"] = str(work_dir)
+    repair_dir = execution_root / _DIRECT_EXEC_REPAIR_DIR_NAME
+    if repair_dir.exists() and repair_dir.is_dir():
+        payload["repair_dir"] = str(repair_dir)
     payload["mirrored_input_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_INPUT_DIR_NAME
     )
@@ -1056,6 +1095,12 @@ def build_direct_exec_workspace_manifest(
     )
     payload["mirrored_scratch_files"] = _list_workspace_relative_files(
         execution_root / _DIRECT_EXEC_SCRATCH_DIR_NAME
+    )
+    payload["mirrored_work_files"] = _list_workspace_relative_files(
+        execution_root / _DIRECT_EXEC_WORK_DIR_NAME
+    )
+    payload["mirrored_repair_files"] = _list_workspace_relative_files(
+        execution_root / _DIRECT_EXEC_REPAIR_DIR_NAME
     )
     return payload
 
@@ -1145,6 +1190,18 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
     )
     _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
+    )
+    _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
+    )
+    _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
+    )
+    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
     )
@@ -1203,6 +1260,14 @@ def _populate_direct_exec_workspace(
     _copy_tree_if_present(
         source_working_dir / _DIRECT_EXEC_SCRATCH_DIR_NAME,
         execution_working_dir / _DIRECT_EXEC_SCRATCH_DIR_NAME,
+    )
+    _copy_tree_if_present(
+        source_working_dir / _DIRECT_EXEC_WORK_DIR_NAME,
+        execution_working_dir / _DIRECT_EXEC_WORK_DIR_NAME,
+    )
+    _copy_tree_if_present(
+        source_working_dir / _DIRECT_EXEC_REPAIR_DIR_NAME,
+        execution_working_dir / _DIRECT_EXEC_REPAIR_DIR_NAME,
     )
     (execution_working_dir / _DIRECT_EXEC_LOGS_DIR_NAME).mkdir(parents=True, exist_ok=True)
     (execution_working_dir / _DIRECT_EXEC_SHARDS_DIR_NAME).mkdir(parents=True, exist_ok=True)
@@ -1264,6 +1329,7 @@ def _build_direct_exec_agents_text(
             "Start by reading `worker_manifest.json`, then open the prompt-named local files directly.\n"
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
+            "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`, treat that repo-written phase surface as authoritative and open it before the broader queue.\n"
             "When the workspace includes `current_batch.json`, `CURRENT_BATCH.md`, or `CURRENT_BATCH_FEEDBACK.md`, treat that repo-written batch surface as authoritative and open it before the single-task surface or the broader queue.\n"
             "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`, treat that repo-written current-task surface as authoritative and open it before touching the broader queue.\n"
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
@@ -2342,8 +2408,13 @@ def _write_direct_exec_worker_manifest(
         not has_packet_leasing
         and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME).exists()
     )
+    has_current_phase = (
+        not has_packet_leasing
+        and (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME).exists()
+    )
     has_current_task = (
         not has_packet_leasing
+        and not has_current_phase
         and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME).exists()
     )
     mirrored_tool_files = _list_workspace_relative_files(
@@ -2358,6 +2429,12 @@ def _write_direct_exec_worker_manifest(
             entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME)
         if (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME).exists():
             entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME)
+    if has_current_phase:
+        entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_FILE_NAME)
+        if (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME).exists():
+            entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME)
+        if (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME).exists():
+            entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME)
     if has_current_task:
         entry_files.append(_DIRECT_EXEC_CURRENT_TASK_FILE_NAME)
         if (workspace_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME).exists():
@@ -2400,6 +2477,21 @@ def _write_direct_exec_worker_manifest(
             _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME
             if has_current_batch
             and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME).exists()
+            else None
+        ),
+        "current_phase_file": (
+            _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME if has_current_phase else None
+        ),
+        "current_phase_brief_file": (
+            _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME
+            if has_current_phase
+            and (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME).exists()
+            else None
+        ),
+        "current_phase_feedback_file": (
+            _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME
+            if has_current_phase
+            and (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME).exists()
             else None
         ),
         "current_task_file": (
@@ -2454,6 +2546,16 @@ def _write_direct_exec_worker_manifest(
         "hints_dir": _DIRECT_EXEC_HINTS_DIR_NAME,
         "output_dir": _DIRECT_EXEC_OUTPUT_DIR_NAME,
         "scratch_dir": _DIRECT_EXEC_SCRATCH_DIR_NAME,
+        "work_dir": (
+            _DIRECT_EXEC_WORK_DIR_NAME
+            if (workspace_root / _DIRECT_EXEC_WORK_DIR_NAME).exists()
+            else None
+        ),
+        "repair_dir": (
+            _DIRECT_EXEC_REPAIR_DIR_NAME
+            if (workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME).exists()
+            else None
+        ),
         "notes": [
             note
             for note in [
@@ -2463,6 +2565,8 @@ def _write_direct_exec_worker_manifest(
                     "Treat the repo-written current-packet files as authoritative and use "
                     "`assigned_tasks.json` only as background inventory."
                     if has_packet_leasing
+                    else "Treat `CURRENT_PHASE.md`, `current_phase.json`, and `CURRENT_PHASE_FEEDBACK.md` as the authoritative phase surface when present. Treat `assigned_shards.json` as the ordered ownership/queue reference."
+                    if has_current_phase
                     else "Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative batch surface when present. Treat `CURRENT_TASK.md` / `current_task.json` only as fallback recovery for the first active task, and treat `assigned_tasks.json` as background queue/progress context rather than a file to dump directly."
                     if has_current_batch
                     else "Treat `SHARD_PACKET.md`, `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative recipe/task surface when present, and `assigned_tasks.json` as the ordered queue/progress reference."
@@ -2474,7 +2578,7 @@ def _write_direct_exec_worker_manifest(
                     if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
                     else None
                 ),
-                "Use `scratch/` or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
+                "Use `work/`, `repair/`, `scratch/`, or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
             ]
             if note is not None
         ],
@@ -2495,6 +2599,15 @@ def _write_direct_exec_worker_manifest(
             if has_packet_leasing
             else (
                 (
+                    [
+                        "sed -n '1,120p' CURRENT_PHASE.md",
+                        "sed -n '1,120p' CURRENT_PHASE_FEEDBACK.md",
+                        "jq '.metadata' current_phase.json",
+                    ]
+                    if has_current_phase
+                    else []
+                )
+                + (
                     [
                         "sed -n '1,120p' CURRENT_BATCH.md",
                         "sed -n '1,120p' CURRENT_BATCH_FEEDBACK.md",
@@ -2535,9 +2648,8 @@ def _write_direct_exec_worker_manifest(
                     if "recipe_worker.py" in mirrored_tool_files
                     else [
                         "python3 tools/line_role_worker.py overview",
-                        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row.get('metadata', {}).get('scratch_draft_path', ''))\"",
-                        "python3 tools/line_role_worker.py finalize scratch/<task>.json",
-                        "python3 tools/line_role_worker.py finalize-all scratch/",
+                        "python3 tools/line_role_worker.py check-phase",
+                        "python3 tools/line_role_worker.py install-phase",
                     ]
                     if "line_role_worker.py" in mirrored_tool_files
                     else [
@@ -2572,8 +2684,17 @@ def _write_direct_exec_worker_manifest(
             workspace_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME
         ),
         "mirrored_tool_files": mirrored_tool_files,
+        "mirrored_output_files": _list_workspace_relative_files(
+            workspace_root / _DIRECT_EXEC_OUTPUT_DIR_NAME
+        ),
         "mirrored_scratch_files": _list_workspace_relative_files(
             workspace_root / _DIRECT_EXEC_SCRATCH_DIR_NAME
+        ),
+        "mirrored_work_files": _list_workspace_relative_files(
+            workspace_root / _DIRECT_EXEC_WORK_DIR_NAME
+        ),
+        "mirrored_repair_files": _list_workspace_relative_files(
+            workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME
         ),
     }
     (workspace_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME).write_text(
@@ -2588,7 +2709,11 @@ def _write_direct_exec_current_task_sidecar(
     mode: DirectExecWorkspaceMode,
 ) -> None:
     current_task_path = workspace_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME
-    if mode != "workspace_worker" or (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
+    if (
+        mode != "workspace_worker"
+        or (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists()
+        or (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME).exists()
+    ):
         if current_task_path.exists() and current_task_path.is_file():
             current_task_path.unlink()
         return

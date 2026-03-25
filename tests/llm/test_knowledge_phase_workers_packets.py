@@ -32,7 +32,6 @@ def test_build_knowledge_jobs_emits_packet_shard_entries(tmp_path: Path) -> None
         ],
         recipe_spans=[],
         workbook_slug="book",
-        source_hash="hash123",
         out_dir=tmp_path / "in",
         context_blocks=1,
     )

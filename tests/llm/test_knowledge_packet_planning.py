@@ -42,7 +42,6 @@ def test_build_knowledge_jobs_writes_packet_blocks_not_chunk_bundles(tmp_path: P
             )
         ],
         workbook_slug="fixturebook",
-        source_hash="fixture",
         out_dir=out_dir,
         context_blocks=1,
         prompt_target_count=1,
@@ -86,7 +85,6 @@ def test_build_knowledge_jobs_bundles_packets_into_real_shards_when_target_count
         ],
         recipe_spans=[],
         workbook_slug="fixturebook",
-        source_hash="fixture",
         out_dir=out_dir,
         context_blocks=0,
         prompt_target_count=1,
@@ -131,7 +129,6 @@ def test_build_knowledge_jobs_keeps_all_packets_but_groups_them_when_prompt_targ
         ],
         recipe_spans=[],
         workbook_slug="fixturebook",
-        source_hash="fixture",
         out_dir=out_dir,
         context_blocks=0,
         prompt_target_count=1,

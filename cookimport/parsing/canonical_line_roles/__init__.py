@@ -80,10 +80,9 @@ from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME,
     LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD,
     LINE_ROLE_WORKER_TOOL_FILENAME,
-    build_line_role_scratch_draft_path,
     build_line_role_seed_output,
-    build_line_role_workspace_task_metadata,
-    render_line_role_current_task_brief,
+    build_line_role_workspace_shard_metadata,
+    render_line_role_current_phase_brief,
     render_line_role_worker_script,
 )
 from .contracts import (
@@ -138,14 +137,14 @@ _STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
 _LINE_ROLE_COHORT_WATCHDOG_MIN_COMPLETED_SHARDS = 3
 _LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS = 1_000
 _LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR = 4.0
-_LINE_ROLE_CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
+_LINE_ROLE_CURRENT_PHASE_FILE_NAME = "current_phase.json"
+_LINE_ROLE_CURRENT_PHASE_BRIEF_FILE_NAME = "CURRENT_PHASE.md"
+_LINE_ROLE_CURRENT_PHASE_FEEDBACK_FILE_NAME = "CURRENT_PHASE_FEEDBACK.md"
 _LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT = 16
 _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT = 4
 _LINE_ROLE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
 _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = 2.0
-_LINE_ROLE_TASK_TARGET_ROWS = 80
-_LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS = 3
 _LINE_ROLE_PATHOLOGY_MIN_ROWS = 4
 _LINE_ROLE_PATHOLOGY_MIN_BASELINE_DISTINCT_LABELS = 3
 _LINE_ROLE_PATHOLOGY_NEAR_UNIFORM_MIN_ROWS = 8
@@ -427,4 +426,3 @@ for _module_name in ("policy", "planning", "validation", "runtime"):
             if not name.startswith("__")
         }
     )
-

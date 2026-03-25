@@ -71,7 +71,6 @@ def test_build_knowledge_jobs_writes_seed_nonrecipe_packets_and_is_idempotent(
             )
         ],
         workbook_slug="book",
-        source_hash="hash123",
         out_dir=in_dir,
         context_blocks=2,
     )
@@ -137,7 +136,6 @@ def test_build_knowledge_jobs_writes_seed_nonrecipe_packets_and_is_idempotent(
             )
         ],
         workbook_slug="book",
-        source_hash="hash123",
         out_dir=in_dir,
         context_blocks=2,
     )
@@ -166,7 +164,6 @@ def test_build_knowledge_jobs_partitions_large_spans_by_block_cap(tmp_path: Path
         ],
         recipe_spans=[],
         workbook_slug="fixturebook",
-        source_hash="fixture",
         out_dir=out_dir,
         context_blocks=0,
     )
@@ -199,7 +196,6 @@ def test_build_knowledge_jobs_metadata_is_packet_native(tmp_path: Path) -> None:
         ],
         recipe_spans=[],
         workbook_slug="book",
-        source_hash="hash123",
         out_dir=out_dir,
         context_blocks=0,
     )
@@ -209,12 +205,13 @@ def test_build_knowledge_jobs_metadata_is_packet_native(tmp_path: Path) -> None:
 
     metadata = report.shard_entries[0].metadata
     assert metadata["packet_id"] == "book.kp0000.nr"
+    assert metadata["packet_count"] == 1
     assert metadata["owned_block_indices"] == [4, 5]
-    assert metadata["packet_block_count"] == 2
+    assert metadata["owned_block_count"] == 2
     assert metadata["source_span_ids"] == ["nr.4.6"]
     assert metadata["task_count"] == 1
     assert metadata["task_index"] == 1
-    assert "packet_char_count" in metadata
+    assert metadata["char_count"] == len("Keep the heat gentle.") + len("Whisk constantly.")
     assert not any(key.startswith("chunk_") for key in metadata)
 
 
@@ -240,7 +237,6 @@ def test_build_knowledge_jobs_warns_when_prompt_target_is_below_packet_floor(
         ],
         recipe_spans=[],
         workbook_slug="book",
-        source_hash="hash123",
         out_dir=out_dir,
         context_blocks=0,
         prompt_target_count=1,
@@ -255,3 +251,47 @@ def test_build_knowledge_jobs_warns_when_prompt_target_is_below_packet_floor(
         "book.kp0001.nr",
         "book.kp0002.nr",
     )
+
+
+def test_build_knowledge_jobs_partitions_five_packets_into_two_contiguous_shards(
+    tmp_path: Path,
+) -> None:
+    out_dir = tmp_path / "knowledge"
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": f"Technique {index}"}
+            for index in range(5)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id=f"nr.{index}.{index + 1}",
+                category="other",
+                block_start_index=index,
+                block_end_index=index + 1,
+                block_indices=[index],
+                block_ids=[f"b{index}"],
+            )
+            for index in range(5)
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        out_dir=out_dir,
+        context_blocks=0,
+        prompt_target_count=2,
+    )
+
+    assert report.packets_written == 5
+    assert report.shards_written == 2
+    assert [entry.shard_id for entry in report.shard_entries] == [
+        "book.ks0000.nr",
+        "book.ks0001.nr",
+    ]
+    assert [entry.owned_ids for entry in report.shard_entries] == [
+        ("book.kp0000.nr", "book.kp0001.nr", "book.kp0002.nr"),
+        ("book.kp0003.nr", "book.kp0004.nr"),
+    ]
+    assert [entry.metadata["packet_count"] for entry in report.shard_entries] == [3, 2]
+    assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
+        [0, 1, 2],
+        [3, 4],
+    ]

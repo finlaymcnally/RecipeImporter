@@ -1467,6 +1467,201 @@ def test_orchestrator_escalates_to_repair_after_same_session_budget_exhausted(
     assert promotion_report["same_session_fix_counts"]["budget_exhausted"] == 1
 
 
+@pytest.mark.parametrize(
+    ("supervision_state", "same_session_fix_status", "terminal_reason"),
+    [
+        (
+            "watchdog_killed",
+            "continuation_impossible",
+            "worker_stopped_after_validation_failure",
+        ),
+        (
+            "completed",
+            "continuation_unavailable",
+            "worker_session_ended_after_validation_failure",
+        ),
+    ],
+)
+def test_orchestrator_repairs_after_same_session_continuation_is_lost(
+    tmp_path: Path,
+    supervision_state: str,
+    same_session_fix_status: str,
+    terminal_reason: str,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+
+    def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
+        assert payload is not None
+        if payload.get("repair_mode") == "recipe":
+            return _build_valid_recipe_task_output(payload["authoritative_input"])
+        return _build_valid_recipe_task_output(payload)
+
+    class _ContinuationLostRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+            working_dir = Path(kwargs["working_dir"])
+            process_env = exec_runner_module._merge_env(kwargs["env"])
+            prepared = exec_runner_module.prepare_direct_exec_workspace(
+                source_working_dir=working_dir,
+                env=process_env,
+                task_label=kwargs.get("workspace_task_label"),
+                mode="workspace_worker",
+            )
+            execution_working_dir = prepared.execution_working_dir
+            execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
+                prompt_text=kwargs["prompt_text"],
+                source_working_dir=working_dir,
+                execution_working_dir=execution_working_dir,
+            )
+            self.calls.append(
+                {
+                    "mode": "workspace_worker",
+                    "prompt_text": execution_prompt_text,
+                    "input_payload": None,
+                    "working_dir": str(working_dir),
+                    "execution_working_dir": str(execution_working_dir),
+                }
+            )
+
+            def _sync_outputs() -> None:
+                exec_runner_module._sync_direct_exec_workspace_paths(  # noqa: SLF001
+                    source_working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                    relative_paths=("out", "scratch"),
+                )
+
+            def _sync_controls() -> None:
+                exec_runner_module._sync_direct_exec_runtime_control_paths_to_execution(  # noqa: SLF001
+                    source_working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                    relative_paths=exec_runner_module._DIRECT_EXEC_RUNTIME_CONTROL_PATHS,  # noqa: SLF001
+                )
+
+            out_dir = execution_working_dir / "out"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            task_row = exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
+                execution_working_dir=execution_working_dir
+            )[0]
+            task_id = task_row["task_id"]
+            input_payload = json.loads(
+                (execution_working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
+            )
+            (out_dir / f"{task_id}.json").write_text(
+                json.dumps({"v": "1", "sid": input_payload["sid"], "r": []}, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            _sync_outputs()
+            supervision_callback = kwargs.get("supervision_callback")
+            if supervision_callback is not None:
+                decision = supervision_callback(
+                    CodexExecLiveSnapshot(
+                        elapsed_seconds=0.1,
+                        last_event_seconds_ago=0.0,
+                        event_count=1,
+                        command_execution_count=0,
+                        reasoning_item_count=0,
+                        last_command=None,
+                        last_command_repeat_count=0,
+                        has_final_agent_message=False,
+                        timeout_seconds=kwargs.get("timeout_seconds"),
+                        source_working_dir=str(working_dir),
+                        execution_working_dir=str(execution_working_dir),
+                    )
+                )
+                assert decision is None
+                _sync_controls()
+                feedback_text = (execution_working_dir / "CURRENT_TASK_FEEDBACK.md").read_text(
+                    encoding="utf-8"
+                )
+                assert "Validation status: FAILED." in feedback_text
+                assert "Same-session fix cycle: 1/2" in feedback_text
+
+            response_text = "Stopped after validation failure."
+            usage = {
+                "input_tokens": 10,
+                "cached_input_tokens": 0,
+                "output_tokens": 2,
+                "reasoning_tokens": 0,
+            }
+            events = (
+                {"type": "thread.started"},
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": response_text},
+                },
+                {"type": "turn.completed", "usage": usage},
+            )
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=execution_prompt_text,
+                response_text=response_text,
+                turn_failed_message=None,
+                events=events,
+                usage=usage,
+                stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(execution_working_dir),
+                execution_agents_path=str(prepared.agents_path),
+                duration_ms=1,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                workspace_mode="workspace_worker",
+                supervision_state=supervision_state,
+                supervision_reason_code=f"{supervision_state}_after_validation_failure",
+                supervision_reason_detail="worker stopped before rewriting the invalid draft",
+                supervision_retryable=False,
+            )
+
+    runner = _ContinuationLostRunner(output_builder=_output_builder)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
+    shard_root = (
+        apply_result.llm_raw_dir
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "recipe-shard-0000-r0000-r0000"
+    )
+    same_session_status = json.loads(
+        (shard_root / "same_session_fix_status.json").read_text(encoding="utf-8")
+    )
+    repair_status = json.loads((shard_root / "repair_status.json").read_text(encoding="utf-8"))
+    proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0000-r0000-r0000.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert same_session_status["same_session_fix_count"] == 1
+    assert same_session_status["same_session_fix_status"] == same_session_fix_status
+    assert same_session_status["same_session_fix_terminal_reason"] == terminal_reason
+    assert same_session_status["repair_attempted"] is True
+    assert repair_status["status"] == "repaired"
+    assert proposal["repair_attempted"] is True
+    assert proposal["validation_metadata"]["task_same_session_fix_status_by_task_id"][
+        "recipe-shard-0000-r0000-r0000"
+    ]["same_session_fix_status"] == same_session_fix_status
+
+
 def test_preflight_recipe_shard_rejects_missing_model_facing_recipes() -> None:
     shard = ShardManifestEntryV1(
         shard_id="recipe-shard-0000-r0000-r0000",

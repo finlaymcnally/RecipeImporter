@@ -613,7 +613,6 @@ def _build_knowledge_preview_rows(
         candidate_spans=nonrecipe_stage_result.routing.review_eligible_nonrecipe_spans,
         recipe_spans=context.recipe_spans,
         workbook_slug=context.workbook_slug,
-        source_hash=context.source_hash,
         out_dir=in_dir,
         context_blocks=context_blocks,
         prompt_target_count=prompt_target_count,

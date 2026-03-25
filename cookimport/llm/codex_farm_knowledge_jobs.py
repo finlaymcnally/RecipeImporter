@@ -55,13 +55,14 @@ class _PreparedKnowledgePacket:
     has_table_content: bool
     has_heading: bool
     source_span_ids: tuple[str, ...]
+
+
 def build_knowledge_jobs(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     candidate_spans: Sequence[NonRecipeSpan],
     recipe_spans: Sequence[RecipeSpan],
     workbook_slug: str,
-    source_hash: str,
     out_dir: Path,
     context_blocks: int = 2,
     prompt_target_count: int | None = None,
@@ -202,6 +203,7 @@ def build_knowledge_jobs(
                     for span_id in packet.source_span_ids
                 )
             )
+        char_count = sum(packet.char_count for packet in packet_group)
         shard_entries.append(
             ShardManifestEntryV1(
                 shard_id=shard_id,
@@ -210,13 +212,13 @@ def build_knowledge_jobs(
                 input_payload=shard_payload,
                 metadata={
                     "packet_id": owned_packet_ids[0] if len(owned_packet_ids) == 1 else None,
+                    "packet_count": len(owned_packet_ids),
                     "owned_packet_ids": list(owned_packet_ids),
                     "owned_packet_count": len(owned_packet_ids),
                     "owned_block_indices": list(owned_block_indices),
                     "owned_block_count": len(owned_block_indices),
                     "source_span_ids": source_span_ids,
-                    "packet_block_count": len(owned_block_indices),
-                    "packet_char_count": sum(packet.char_count for packet in packet_group),
+                    "char_count": char_count,
                     "table_heavy": any(packet.has_table_content for packet in packet_group),
                     "has_heading": any(packet.has_heading for packet in packet_group),
                     "context_blocks": max(0, int(context_blocks)),
