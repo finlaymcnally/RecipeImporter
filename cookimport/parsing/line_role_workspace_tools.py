@@ -203,9 +203,56 @@ def build_line_role_seed_output_for_workspace(
     return {"rows": rows_payload}
 
 
+def _normalize_frozen_rows_by_atomic_index(
+    frozen_rows: Mapping[int, Mapping[str, Any]] | Sequence[Mapping[str, Any]] | None,
+) -> dict[int, dict[str, Any]]:
+    normalized: dict[int, dict[str, Any]] = {}
+    if isinstance(frozen_rows, Mapping):
+        values = frozen_rows.values()
+    elif isinstance(frozen_rows, Sequence):
+        values = frozen_rows
+    else:
+        values = ()
+    for row in values:
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            atomic_index = int(row.get("atomic_index"))
+        except (TypeError, ValueError):
+            continue
+        normalized_row = {
+            "atomic_index": atomic_index,
+            "label": str(row.get("label") or "").strip().upper(),
+        }
+        review_exclusion_reason = str(
+            row.get("review_exclusion_reason") or ""
+        ).strip()
+        if review_exclusion_reason:
+            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        normalized[atomic_index] = normalized_row
+    return normalized
+
+
+def _input_rows_by_atomic_index(
+    shard_row: Mapping[str, Any],
+    *,
+    workspace_root: Path | None = None,
+) -> dict[int, list[Any]]:
+    rows_by_atomic_index: dict[int, list[Any]] = {}
+    for row in _coerce_input_rows(shard_row, workspace_root=workspace_root):
+        try:
+            atomic_index = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        rows_by_atomic_index[atomic_index] = [atomic_index, str(row[1]), str(row[2])]
+    return rows_by_atomic_index
+
+
 def validate_line_role_output_payload(
     shard_row: Mapping[str, Any],
     payload: Any,
+    *,
+    frozen_rows_by_atomic_index: Mapping[int, Mapping[str, Any]] | Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[tuple[str, ...], dict[str, Any]]:
     errors: list[str] = []
     metadata: dict[str, Any] = {}
@@ -233,75 +280,156 @@ def validate_line_role_output_payload(
         errors.append("wrong_row_count")
     returned_atomic_indices: list[int] = []
     invalid_row_atomic_indices: list[int] = []
+    unresolved_atomic_indices: set[int] = set()
+    row_error_map: dict[int, list[str]] = {}
+    parsed_rows: list[dict[str, Any] | None] = []
+    seen_atomic_indices: set[int] = set()
+    duplicate_atomic_indices: set[int] = set()
+    frozen_by_atomic_index = _normalize_frozen_rows_by_atomic_index(
+        frozen_rows_by_atomic_index
+    )
     for row_payload in rows_payload:
         if not isinstance(row_payload, Mapping):
             errors.append("row_not_object")
+            parsed_rows.append(None)
             continue
+        row_errors: list[str] = []
         extra_row_keys = sorted(
             key
             for key in row_payload.keys()
             if str(key) not in {"atomic_index", "label", "review_exclusion_reason"}
         )
         if extra_row_keys:
-            errors.append("extra_row_keys")
+            row_errors.append("extra_row_keys")
         try:
             atomic_index = int(row_payload.get("atomic_index"))
             returned_atomic_indices.append(atomic_index)
         except (TypeError, ValueError):
             errors.append("invalid_atomic_index")
+            parsed_rows.append(None)
             continue
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in LINE_ROLE_ALLOWED_LABELS:
-            errors.append("invalid_label")
-            invalid_row_atomic_indices.append(atomic_index)
+            row_errors.append("invalid_label")
         review_exclusion_reason = str(row_payload.get("review_exclusion_reason") or "").strip()
         if review_exclusion_reason:
             if label != "OTHER":
-                errors.append("review_exclusion_reason_requires_other")
-                invalid_row_atomic_indices.append(atomic_index)
+                row_errors.append("review_exclusion_reason_requires_other")
             if review_exclusion_reason not in _VALID_REVIEW_EXCLUSION_REASONS:
-                errors.append("invalid_review_exclusion_reason")
-                invalid_row_atomic_indices.append(atomic_index)
+                row_errors.append("invalid_review_exclusion_reason")
+        if atomic_index not in expected_atomic_indices:
+            row_errors.append("unowned_atomic_index")
+        if atomic_index in seen_atomic_indices:
+            duplicate_atomic_indices.add(atomic_index)
+            row_errors.append("duplicate_atomic_index")
+        seen_atomic_indices.add(atomic_index)
+        if row_errors:
+            invalid_row_atomic_indices.append(atomic_index)
+            unresolved_atomic_indices.add(atomic_index)
+            row_error_map.setdefault(atomic_index, []).extend(row_errors)
+        normalized_row = {
+            "atomic_index": atomic_index,
+            "label": label,
+        }
+        if review_exclusion_reason:
+            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        parsed_rows.append(normalized_row)
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):
             errors.append("row_order_mismatch")
         else:
             errors.append("atomic_index_mismatch")
+    accepted_rows: list[dict[str, Any]] = []
+    accepted_atomic_indices: list[int] = []
+    for position, expected_atomic_index in enumerate(expected_atomic_indices):
+        parsed_row = parsed_rows[position] if position < len(parsed_rows) else None
+        if parsed_row is None:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        actual_atomic_index = int(parsed_row.get("atomic_index"))
+        if actual_atomic_index != expected_atomic_index:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        if actual_atomic_index in duplicate_atomic_indices:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        if actual_atomic_index in row_error_map:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        frozen_row = frozen_by_atomic_index.get(expected_atomic_index)
+        if frozen_row is not None and dict(parsed_row) != frozen_row:
+            errors.append(f"frozen_row_modified:{expected_atomic_index}")
+            invalid_row_atomic_indices.append(expected_atomic_index)
+            row_error_map.setdefault(expected_atomic_index, []).append(
+                "frozen_row_modified"
+            )
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        accepted_atomic_indices.append(expected_atomic_index)
+        accepted_rows.append(dict(parsed_row))
+    missing_atomic_indices = [
+        atomic_index
+        for atomic_index in expected_atomic_indices
+        if atomic_index not in set(returned_atomic_indices)
+    ]
+    for atomic_index in missing_atomic_indices:
+        unresolved_atomic_indices.add(atomic_index)
     metadata["expected_atomic_indices"] = expected_atomic_indices
     metadata["returned_atomic_indices"] = returned_atomic_indices
     metadata["invalid_row_atomic_indices"] = sorted(set(invalid_row_atomic_indices))
+    metadata["accepted_atomic_indices"] = accepted_atomic_indices
+    metadata["accepted_rows"] = accepted_rows
+    metadata["unresolved_atomic_indices"] = [
+        atomic_index
+        for atomic_index in expected_atomic_indices
+        if atomic_index in unresolved_atomic_indices
+    ]
+    metadata["row_errors_by_atomic_index"] = {
+        str(atomic_index): sorted(set(row_errors))
+        for atomic_index, row_errors in sorted(row_error_map.items())
+    }
+    metadata["frozen_atomic_indices"] = sorted(frozen_by_atomic_index)
     return tuple(sorted(set(errors))), metadata
 
 
-def _repair_request_payload(
+def build_line_role_repair_request_payload(
     *,
     shard_row: Mapping[str, Any],
     metadata: Mapping[str, Any],
     validation_errors: Sequence[str],
+    workspace_root: Path | None = None,
 ) -> dict[str, Any]:
-    expected_atomic_indices = [
-        int(value)
-        for value in metadata.get("expected_atomic_indices", [])
-        if str(value).strip()
-    ]
     unresolved_atomic_indices = [
         int(value)
-        for value in metadata.get("invalid_row_atomic_indices", [])
+        for value in metadata.get("unresolved_atomic_indices", [])
         if str(value).strip()
     ]
     if not unresolved_atomic_indices:
-        unresolved_atomic_indices = expected_atomic_indices
-    input_rows = _coerce_input_rows(shard_row)
-    input_row_by_atomic_index = {
-        int(row[0]): [int(row[0]), str(row[1]), str(row[2])]
-        for row in input_rows
-        if len(row) >= 3
-    }
+        unresolved_atomic_indices = [
+            int(value)
+            for value in metadata.get("invalid_row_atomic_indices", [])
+            if str(value).strip()
+        ]
+    input_row_by_atomic_index = _input_rows_by_atomic_index(
+        shard_row,
+        workspace_root=workspace_root,
+    )
+    frozen_rows = [
+        dict(row)
+        for row in metadata.get("accepted_rows", [])
+        if isinstance(row, Mapping)
+    ]
     return {
         "repair_mode": "line_role",
         "shard_id": str(shard_row.get("shard_id") or ""),
+        "accepted_atomic_indices": [
+            int(value)
+            for value in metadata.get("accepted_atomic_indices", [])
+            if str(value).strip()
+        ],
         "unresolved_atomic_indices": unresolved_atomic_indices,
         "validation_errors": [str(error) for error in validation_errors if str(error).strip()],
+        "frozen_rows": frozen_rows,
         "rows": [
             input_row_by_atomic_index[index]
             for index in unresolved_atomic_indices
@@ -423,12 +551,21 @@ def render_line_role_current_phase_feedback(
     if repair_written:
         lines.append(f"Repair request: `{metadata.get('repair_path') or '<missing>'}`")
     invalid_rows = []
+    accepted_rows = []
     if isinstance(validation_metadata, Mapping):
         invalid_rows = [
             int(value)
-            for value in validation_metadata.get("invalid_row_atomic_indices", [])
+            for value in validation_metadata.get("unresolved_atomic_indices", [])
             if str(value).strip()
         ]
+        accepted_rows = [
+            int(value)
+            for value in validation_metadata.get("accepted_atomic_indices", [])
+            if str(value).strip()
+        ]
+    if accepted_rows:
+        rendered = ", ".join(str(value) for value in accepted_rows)
+        lines.append(f"Frozen accepted atomic indices: `{rendered}`")
     if invalid_rows:
         rendered = ", ".join(str(value) for value in invalid_rows)
         lines.append(f"Unresolved atomic indices: `{rendered}`")
@@ -563,7 +700,45 @@ def build_seed_output(workspace_root: Path, shard_row):
     return {{"rows": rows_payload}}
 
 
-def validate_payload(workspace_root: Path, shard_row, payload):
+def normalize_frozen_rows(frozen_rows):
+    normalized = {{}}
+    if isinstance(frozen_rows, dict):
+        values = frozen_rows.values()
+    elif isinstance(frozen_rows, list):
+        values = frozen_rows
+    else:
+        values = []
+    for row in values:
+        if not isinstance(row, dict):
+            continue
+        try:
+            atomic_index = int(row.get("atomic_index"))
+        except (TypeError, ValueError):
+            continue
+        normalized_row = {{
+            "atomic_index": atomic_index,
+            "label": str(row.get("label") or "").strip().upper(),
+        }}
+        review_exclusion_reason = str(row.get("review_exclusion_reason") or "").strip()
+        if review_exclusion_reason:
+            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        normalized[atomic_index] = normalized_row
+    return normalized
+
+
+def load_existing_repair_request(workspace_root: Path, shard_row):
+    metadata = coerce_metadata(shard_row)
+    repair_path = str(metadata.get("repair_path") or "").strip()
+    if not repair_path:
+        return None
+    candidate = (workspace_root / repair_path).resolve()
+    if not candidate.exists():
+        return None
+    payload = load_json(candidate)
+    return payload if isinstance(payload, dict) else None
+
+
+def validate_payload(workspace_root: Path, shard_row, payload, *, frozen_rows_by_atomic_index=None):
     expected_rows = coerce_input_rows(workspace_root, shard_row)
     expected_atomic_indices = []
     for row in expected_rows:
@@ -588,43 +763,111 @@ def validate_payload(workspace_root: Path, shard_row, payload):
         errors.append("wrong_row_count")
     returned_atomic_indices = []
     invalid_row_atomic_indices = []
+    unresolved_atomic_indices = set()
+    row_error_map = {{}}
+    parsed_rows = []
+    seen_atomic_indices = set()
+    duplicate_atomic_indices = set()
+    frozen_by_atomic_index = normalize_frozen_rows(frozen_rows_by_atomic_index)
     for row_payload in rows_payload:
         if not isinstance(row_payload, dict):
             errors.append("row_not_object")
+            parsed_rows.append(None)
             continue
+        row_errors = []
         extra_row_keys = sorted(
             key
             for key in row_payload.keys()
             if str(key) not in {{"atomic_index", "label", "review_exclusion_reason"}}
         )
         if extra_row_keys:
-            errors.append("extra_row_keys")
+            row_errors.append("extra_row_keys")
         try:
             atomic_index = int(row_payload.get("atomic_index"))
             returned_atomic_indices.append(atomic_index)
         except (TypeError, ValueError):
             errors.append("invalid_atomic_index")
+            parsed_rows.append(None)
             continue
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in ALLOWED_LABELS:
-            errors.append("invalid_label")
-            invalid_row_atomic_indices.append(atomic_index)
+            row_errors.append("invalid_label")
         review_exclusion_reason = str(row_payload.get("review_exclusion_reason") or "").strip()
         if review_exclusion_reason:
             if label != "OTHER":
-                errors.append("review_exclusion_reason_requires_other")
-                invalid_row_atomic_indices.append(atomic_index)
+                row_errors.append("review_exclusion_reason_requires_other")
             if review_exclusion_reason not in VALID_REVIEW_EXCLUSION_REASONS:
-                errors.append("invalid_review_exclusion_reason")
-                invalid_row_atomic_indices.append(atomic_index)
+                row_errors.append("invalid_review_exclusion_reason")
+        if atomic_index not in expected_atomic_indices:
+            row_errors.append("unowned_atomic_index")
+        if atomic_index in seen_atomic_indices:
+            duplicate_atomic_indices.add(atomic_index)
+            row_errors.append("duplicate_atomic_index")
+        seen_atomic_indices.add(atomic_index)
+        if row_errors:
+            invalid_row_atomic_indices.append(atomic_index)
+            unresolved_atomic_indices.add(atomic_index)
+            row_error_map.setdefault(atomic_index, []).extend(row_errors)
+        normalized_row = {{
+            "atomic_index": atomic_index,
+            "label": label,
+        }}
+        if review_exclusion_reason:
+            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        parsed_rows.append(normalized_row)
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):
             errors.append("row_order_mismatch")
         else:
             errors.append("atomic_index_mismatch")
+    accepted_rows = []
+    accepted_atomic_indices = []
+    for position, expected_atomic_index in enumerate(expected_atomic_indices):
+        parsed_row = parsed_rows[position] if position < len(parsed_rows) else None
+        if parsed_row is None:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        actual_atomic_index = int(parsed_row.get("atomic_index"))
+        if actual_atomic_index != expected_atomic_index:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        if actual_atomic_index in duplicate_atomic_indices:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        if actual_atomic_index in row_error_map:
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        frozen_row = frozen_by_atomic_index.get(expected_atomic_index)
+        if frozen_row is not None and dict(parsed_row) != frozen_row:
+            errors.append(f"frozen_row_modified:{{expected_atomic_index}}")
+            invalid_row_atomic_indices.append(expected_atomic_index)
+            row_error_map.setdefault(expected_atomic_index, []).append("frozen_row_modified")
+            unresolved_atomic_indices.add(expected_atomic_index)
+            continue
+        accepted_atomic_indices.append(expected_atomic_index)
+        accepted_rows.append(dict(parsed_row))
+    missing_atomic_indices = [
+        atomic_index
+        for atomic_index in expected_atomic_indices
+        if atomic_index not in set(returned_atomic_indices)
+    ]
+    for atomic_index in missing_atomic_indices:
+        unresolved_atomic_indices.add(atomic_index)
     metadata["expected_atomic_indices"] = expected_atomic_indices
     metadata["returned_atomic_indices"] = returned_atomic_indices
     metadata["invalid_row_atomic_indices"] = sorted(set(invalid_row_atomic_indices))
+    metadata["accepted_atomic_indices"] = accepted_atomic_indices
+    metadata["accepted_rows"] = accepted_rows
+    metadata["unresolved_atomic_indices"] = [
+        atomic_index
+        for atomic_index in expected_atomic_indices
+        if atomic_index in unresolved_atomic_indices
+    ]
+    metadata["row_errors_by_atomic_index"] = {{
+        str(atomic_index): sorted(set(row_errors))
+        for atomic_index, row_errors in sorted(row_error_map.items())
+    }}
+    metadata["frozen_atomic_indices"] = sorted(frozen_by_atomic_index)
     return sorted(set(errors)), metadata
 
 
@@ -654,9 +897,20 @@ def render_feedback(shard_row, errors, metadata, repair_written=False, completed
         lines.append(f"Repair request: `{{row_metadata.get('repair_path') or '<missing>'}}`")
     invalid_rows = [
         int(value)
-        for value in metadata.get("invalid_row_atomic_indices", [])
+        for value in metadata.get("unresolved_atomic_indices", [])
         if str(value).strip()
     ]
+    accepted_rows = [
+        int(value)
+        for value in metadata.get("accepted_atomic_indices", [])
+        if str(value).strip()
+    ]
+    if accepted_rows:
+        lines.append(
+            "Frozen accepted atomic indices: `"
+            + ", ".join(str(value) for value in accepted_rows)
+            + "`"
+        )
     if invalid_rows:
         lines.append(
             "Unresolved atomic indices: `"
@@ -806,31 +1060,55 @@ def cmd_check_phase(workspace_root: Path, shard_id: str | None):
         raise SystemExit("missing work_path")
     resolved_work_path = (workspace_root / work_path).resolve()
     payload = load_json(resolved_work_path)
-    errors, validation_metadata = validate_payload(workspace_root, shard_row, payload)
+    existing_repair_request = load_existing_repair_request(workspace_root, shard_row)
+    frozen_rows = (
+        existing_repair_request.get("frozen_rows")
+        if isinstance(existing_repair_request, dict)
+        else None
+    )
+    errors, validation_metadata = validate_payload(
+        workspace_root,
+        shard_row,
+        payload,
+        frozen_rows_by_atomic_index=frozen_rows,
+    )
     repair_written = False
     repair_path = str(metadata.get("repair_path") or "").strip()
     if errors and repair_path:
+        input_row_by_atomic_index = {{
+            int(row[0]): [int(row[0]), str(row[1]), str(row[2])]
+            for row in coerce_input_rows(workspace_root, shard_row)
+            if len(row) >= 3
+        }}
+        unresolved_atomic_indices = [
+            int(value)
+            for value in (
+                validation_metadata.get("unresolved_atomic_indices")
+                or validation_metadata.get("invalid_row_atomic_indices")
+                or validation_metadata.get("expected_atomic_indices")
+                or []
+            )
+            if str(value).strip()
+        ]
         repair_payload = {{
             "repair_mode": "line_role",
             "shard_id": str(shard_row.get("shard_id") or ""),
-            "unresolved_atomic_indices": (
-                validation_metadata.get("invalid_row_atomic_indices")
-                or validation_metadata.get("expected_atomic_indices")
-                or []
-            ),
+            "accepted_atomic_indices": [
+                int(value)
+                for value in validation_metadata.get("accepted_atomic_indices", [])
+                if str(value).strip()
+            ],
+            "unresolved_atomic_indices": unresolved_atomic_indices,
             "validation_errors": errors,
+            "frozen_rows": [
+                dict(row)
+                for row in validation_metadata.get("accepted_rows", [])
+                if isinstance(row, dict)
+            ],
             "rows": [
-                row
-                for row in coerce_input_rows(workspace_root, shard_row)
-                if int(row[0]) in set(
-                    int(value)
-                    for value in (
-                        validation_metadata.get("invalid_row_atomic_indices")
-                        or validation_metadata.get("expected_atomic_indices")
-                        or []
-                    )
-                    if str(value).strip()
-                )
+                input_row_by_atomic_index[index]
+                for index in unresolved_atomic_indices
+                if index in input_row_by_atomic_index
             ],
         }}
         save_json((workspace_root / repair_path).resolve(), repair_payload)
@@ -861,7 +1139,18 @@ def cmd_install_phase(workspace_root: Path, shard_id: str | None):
         raise SystemExit("current phase is missing work_path or result_path")
     resolved_work_path = (workspace_root / work_path).resolve()
     payload = load_json(resolved_work_path)
-    errors, validation_metadata = validate_payload(workspace_root, shard_row, payload)
+    existing_repair_request = load_existing_repair_request(workspace_root, shard_row)
+    frozen_rows = (
+        existing_repair_request.get("frozen_rows")
+        if isinstance(existing_repair_request, dict)
+        else None
+    )
+    errors, validation_metadata = validate_payload(
+        workspace_root,
+        shard_row,
+        payload,
+        frozen_rows_by_atomic_index=frozen_rows,
+    )
     if errors:
         feedback_text = render_feedback(
             shard_row,

@@ -191,6 +191,7 @@ Benchmark transport note:
 Primary scored prediction artifact:
 
 - `stage_block_predictions.json` (`schema_version=stage_block_predictions.v1`)
+  - the current staging owner map for that artifact is: `recipe_block_evidence.py` for recipe-local evidence, `knowledge_block_evidence.py` for final non-recipe evidence, `block_label_resolution.py` for priority rules, and `stage_block_predictions.py` as the assembly root
 
 Required supporting artifact:
 

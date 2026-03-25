@@ -53,6 +53,7 @@ Architecture priorities:
 - shared source-job planning lives in `cookimport/staging/job_planning.py`.
 - `cookimport/staging/pipeline_runtime.py` now makes the post-import semantic session explicit as five stage-owned runtime steps: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, and `knowledge-final`.
 - `cookimport/staging/import_session.py` remains the composition root, but it now threads stage-owned results instead of treating `ConversionResult` as the only post-import carrier.
+- `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_review_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_det`, optional `label_llm_correct`, and `group_recipe_spans` artifacts are written under the stage run root and drive downstream stage block predictions.
@@ -86,6 +87,7 @@ Architecture priorities:
 
 - the canonical public recipe pipeline id is `codex-recipe-shard-v1`.
 - the active recipe Codex path now promotes one canonical recipe-semantics payload per accepted recipe span before draft writing. Repo code still validates, normalizes, and writes final files, but later staging code should project from `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` instead of re-deciding recipe meaning from separate override lanes.
+- `cookimport/llm/codex_farm_orchestrator.py` is now a thin public facade over `cookimport/llm/recipe_stage/`. Planning, runtime/workspace setup, validation, promotion, recovery, and reporting now have explicit package owner files, while the large private implementation moved behind `cookimport/llm/recipe_stage_shared.py`.
 - current semantic recipe-stage observability for new runs uses:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`

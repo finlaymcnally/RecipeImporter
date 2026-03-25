@@ -2403,6 +2403,12 @@ def _write_direct_exec_worker_manifest(
     mode: DirectExecWorkspaceMode,
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
+    has_assigned_shards = (
+        workspace_root / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
+    ).exists()
+    has_assigned_tasks = (
+        workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+    ).exists()
     has_packet_leasing = (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists()
     has_current_batch = (
         not has_packet_leasing
@@ -2420,6 +2426,9 @@ def _write_direct_exec_worker_manifest(
     mirrored_tool_files = _list_workspace_relative_files(
         workspace_root / _DIRECT_EXEC_TOOLS_DIR_NAME
     )
+    has_scratch_dir = (workspace_root / _DIRECT_EXEC_SCRATCH_DIR_NAME).exists()
+    has_work_dir = (workspace_root / _DIRECT_EXEC_WORK_DIR_NAME).exists()
+    has_repair_dir = (workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME).exists()
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
     if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists():
         entry_files.append(_DIRECT_EXEC_SHARD_PACKET_FILE_NAME)
@@ -2450,20 +2459,22 @@ def _write_direct_exec_worker_manifest(
                 _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME,
             ]
         )
-    entry_files.extend(
-        [
-            _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
-            _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
-        ]
-    )
+    if has_assigned_shards:
+        entry_files.append(_DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME)
+    if has_assigned_tasks:
+        entry_files.append(_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME)
     payload = {
         "version": 1,
         "task_label": rendered_task_label,
         "workspace_mode": mode,
         "workspace_root": str(workspace_root),
         "entry_files": entry_files,
-        "assigned_shards_file": _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
-        "assigned_tasks_file": _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+        "assigned_shards_file": (
+            _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME if has_assigned_shards else None
+        ),
+        "assigned_tasks_file": (
+            _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME if has_assigned_tasks else None
+        ),
         "current_batch_file": (
             _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME if has_current_batch else None
         ),
@@ -2545,22 +2556,24 @@ def _write_direct_exec_worker_manifest(
         "debug_dir": _DIRECT_EXEC_DEBUG_DIR_NAME,
         "hints_dir": _DIRECT_EXEC_HINTS_DIR_NAME,
         "output_dir": _DIRECT_EXEC_OUTPUT_DIR_NAME,
-        "scratch_dir": _DIRECT_EXEC_SCRATCH_DIR_NAME,
+        "scratch_dir": (
+            _DIRECT_EXEC_SCRATCH_DIR_NAME if has_scratch_dir else None
+        ),
         "work_dir": (
             _DIRECT_EXEC_WORK_DIR_NAME
-            if (workspace_root / _DIRECT_EXEC_WORK_DIR_NAME).exists()
+            if has_work_dir
             else None
         ),
         "repair_dir": (
             _DIRECT_EXEC_REPAIR_DIR_NAME
-            if (workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME).exists()
+            if has_repair_dir
             else None
         ),
         "notes": [
             note
             for note in [
                 "The current working directory is already the workspace root.",
-                "Open named task files directly; do not dump whole task inventories just to orient yourself.",
+                "Open named workspace files directly; do not dump whole inventories just to orient yourself.",
                 (
                     "Treat the repo-written current-packet files as authoritative and use "
                     "`assigned_tasks.json` only as background inventory."
@@ -2578,7 +2591,11 @@ def _write_direct_exec_worker_manifest(
                     if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
                     else None
                 ),
-                "Use `work/`, `repair/`, `scratch/`, or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results.",
+                (
+                    "Use `work/`, `repair/`, or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results."
+                    if has_work_dir or has_repair_dir
+                    else "Use short-lived local temp roots such as `/tmp` for helper work, and the approved result paths for final outputs."
+                ),
             ]
             if note is not None
         ],
@@ -2634,7 +2651,11 @@ def _write_direct_exec_worker_manifest(
                     else []
                 )
                 + [
-                    "sed -n '1,80p' hints/<task>.md",
+                    (
+                        "sed -n '1,80p' hints/<shard_id>.md"
+                        if has_current_phase and "line_role_worker.py" in mirrored_tool_files
+                        else "sed -n '1,80p' hints/<task>.md"
+                    ),
                 ]
                 + (
                     []

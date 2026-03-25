@@ -7,7 +7,8 @@ import pytest
 
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.staging.nonrecipe_stage import (
-    block_rows_for_nonrecipe_survivors,
+    block_rows_for_nonrecipe_late_outputs,
+    build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
     refine_nonrecipe_stage_result,
 )
@@ -295,7 +296,7 @@ def test_nonrecipe_stage_rejects_recipe_only_labels_outside_recipe() -> None:
         )
 
 
-def test_nonrecipe_survivor_rows_include_unreviewed_review_queue() -> None:
+def test_nonrecipe_late_output_rows_use_unreviewed_review_queue_before_review() -> None:
     stage_result = build_nonrecipe_stage_result(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
@@ -317,7 +318,7 @@ def test_nonrecipe_survivor_rows_include_unreviewed_review_queue() -> None:
         recipe_spans=[],
     )
 
-    rows = block_rows_for_nonrecipe_survivors(
+    rows = block_rows_for_nonrecipe_late_outputs(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
             {"index": 1, "block_id": "b1", "text": "Useful technique"},
@@ -327,3 +328,76 @@ def test_nonrecipe_survivor_rows_include_unreviewed_review_queue() -> None:
 
     assert [row["index"] for row in rows] == [1]
     assert rows[0]["stage7_category"] == "knowledge"
+
+
+def test_nonrecipe_authority_contract_uses_review_queue_for_late_outputs_before_review() -> None:
+    stage_result = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique"},
+        ],
+        final_block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id="b0",
+                source_block_index=0,
+                supporting_atomic_indices=[],
+                deterministic_label="OTHER",
+                final_label="OTHER",
+                decided_by="rule",
+                reason_tags=[],
+                review_exclusion_reason="front_matter",
+            ),
+            _block_label(1, "KNOWLEDGE"),
+        ],
+        recipe_spans=[],
+    )
+
+    contract = build_nonrecipe_authority_contract(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique"},
+        ],
+        stage_result=stage_result,
+    )
+
+    assert contract.late_output_mode == "review_queue"
+    assert [row["index"] for row in contract.final_blocks] == [0]
+    assert [row["index"] for row in contract.review_queue_blocks] == [1]
+    assert [row["index"] for row in contract.excluded_blocks] == [0]
+    assert [row["index"] for row in contract.late_output_blocks] == [1]
+    assert contract.scoring_view.authoritative_block_category_by_index == {0: "other"}
+    assert contract.scoring_view.unresolved_review_eligible_block_category_by_index == {
+        1: "knowledge"
+    }
+
+
+def test_nonrecipe_authority_contract_uses_final_authority_for_late_outputs_after_review() -> None:
+    seed = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Useful technique"},
+            {"index": 1, "block_id": "b1", "text": "History note"},
+        ],
+        final_block_labels=[_block_label(0, "KNOWLEDGE"), _block_label(1, "OTHER")],
+        recipe_spans=[],
+    )
+    refined = refine_nonrecipe_stage_result(
+        stage_result=seed,
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Useful technique"},
+            {"index": 1, "block_id": "b1", "text": "History note"},
+        ],
+        block_category_updates={0: "knowledge"},
+    )
+
+    contract = build_nonrecipe_authority_contract(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Useful technique"},
+            {"index": 1, "block_id": "b1", "text": "History note"},
+        ],
+        stage_result=refined,
+    )
+
+    assert contract.late_output_mode == "final_authority"
+    assert [row["index"] for row in contract.final_blocks] == [0]
+    assert [row["index"] for row in contract.late_output_blocks] == [0]
+    assert contract.scoring_view.unresolved_review_eligible_block_indices == [1]

@@ -80,7 +80,9 @@ from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME,
     LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD,
     LINE_ROLE_WORKER_TOOL_FILENAME,
+    build_line_role_repair_request_payload,
     build_line_role_seed_output,
+    validate_line_role_output_payload,
     build_line_role_workspace_shard_metadata,
     render_line_role_current_phase_brief,
     render_line_role_worker_script,
@@ -170,7 +172,7 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
     (
         "03-recipe-internal-sections.md",
         "# Recipe-internal section headings\n\n"
-        "- `FOR THE SAUCE`, `FOR SERVING`, or similar headings become `HOWTO_SECTION` only when the packet is clearly inside one recipe.\n"
+        "- `FOR THE SAUCE`, `FOR SERVING`, or similar headings become `HOWTO_SECTION` only when the shard clearly sits inside one recipe.\n"
         "- A full sentence beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not a subsection heading.\n"
         "- Front-matter or contents title lists such as `Winter: Roasted Radicchio and Roquefort` stay `OTHER` until nearby ingredient or instruction rows prove a live recipe.\n"
         "- Ingredient lines, yield lines, and imperative steps are strong recipe-local evidence.\n"
@@ -181,7 +183,7 @@ _LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
         "# HOWTO_SECTION is book-optional\n\n"
         "- Some books legitimately use zero `HOWTO_SECTION` labels.\n"
         "- Do not invent subsection structure just because the label exists in the global taxonomy.\n"
-        "- Prefer a conservative non-structural label unless the local packet shows immediate recipe-local support.\n",
+        "- Prefer a conservative non-structural label unless the local shard rows show immediate recipe-local support.\n",
     ),
 )
 _LINE_ROLE_OUTPUT_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (

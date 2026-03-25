@@ -141,9 +141,32 @@ from cookimport.staging.import_session import execute_stage_import_session_from_
 from cookimport.staging.job_planning import JobSpec, plan_source_job
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
-    block_rows_for_nonrecipe_survivors,
+    build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
 )
+
+
+def _build_prediction_nonrecipe_stage_result(
+    *,
+    result: ConversionResult,
+    authoritative_label_result: LabelFirstStageResult,
+    notify: Callable[[str], None],
+) -> NonRecipeStageResult | None:
+    try:
+        return build_nonrecipe_stage_result(
+            full_blocks=authoritative_label_result.archive_blocks,
+            final_block_labels=authoritative_label_result.block_labels,
+            recipe_spans=authoritative_label_result.recipe_spans,
+        )
+    except ValueError as exc:
+        if result.report is None:
+            result.report = ConversionReport()
+        result.report.warnings.append(
+            "Skipping strict non-recipe prediction-run staging because the "
+            f"label-first bundle was not non-recipe-clean: {exc}"
+        )
+        notify("Skipping strict non-recipe staging for prediction artifacts.")
+        return None
 
 
 def generate_pred_run_artifacts(
@@ -852,7 +875,7 @@ def generate_pred_run_artifacts(
     book_id = result.workbook or path.stem
     authoritative_label_result: LabelFirstStageResult | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
-    final_nonrecipe_rows: list[dict[str, Any]] = []
+    authority_contract = None
     if processed_output_root is None:
         authoritative_label_result = build_label_first_stage_result(
             conversion_result=result,
@@ -864,16 +887,17 @@ def generate_pred_run_artifacts(
             progress_callback=_notify,
         )
         result = authoritative_label_result.updated_conversion_result
-        nonrecipe_stage_result = build_nonrecipe_stage_result(
-            full_blocks=authoritative_label_result.archive_blocks,
-            final_block_labels=authoritative_label_result.block_labels,
-            recipe_spans=authoritative_label_result.recipe_spans,
+        nonrecipe_stage_result = _build_prediction_nonrecipe_stage_result(
+            result=result,
+            authoritative_label_result=authoritative_label_result,
+            notify=_notify,
         )
-        final_nonrecipe_rows = block_rows_for_nonrecipe_survivors(
-            full_blocks=authoritative_label_result.archive_blocks,
-            stage_result=nonrecipe_stage_result,
-        )
-        result.non_recipe_blocks = list(final_nonrecipe_rows)
+        if nonrecipe_stage_result is not None:
+            authority_contract = build_nonrecipe_authority_contract(
+                full_blocks=authoritative_label_result.archive_blocks,
+                stage_result=nonrecipe_stage_result,
+            )
+            result.non_recipe_blocks = list(authority_contract.final_blocks)
     line_role_artifacts: dict[str, Path] | None = None
     line_role_recipe_projection_summary: dict[str, Any] | None = None
     archive_payload_rows: list[dict[str, Any]] | None = None
@@ -930,15 +954,19 @@ def generate_pred_run_artifacts(
 
     if processed_output_root is None:
         if nonrecipe_stage_result is not None:
-            result.non_recipe_blocks = block_rows_for_nonrecipe_survivors(
+            authority_contract = build_nonrecipe_authority_contract(
                 full_blocks=authoritative_label_result.archive_blocks,
                 stage_result=nonrecipe_stage_result,
             )
+            result.non_recipe_blocks = list(authority_contract.final_blocks)
         if (
             run_settings.llm_knowledge_pipeline.value == "off"
-            and result.non_recipe_blocks
+            and authority_contract is not None
+            and authority_contract.late_output_blocks
         ):
-            result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+            result.chunks = chunks_from_non_recipe_blocks(
+                authority_contract.late_output_blocks
+            )
         else:
             result.chunks = []
 
@@ -950,10 +978,10 @@ def generate_pred_run_artifacts(
                 nonrecipe_stage_result=(
                     nonrecipe_stage_result
                     if nonrecipe_stage_result is not None
-                    else build_nonrecipe_stage_result(
-                        full_blocks=authoritative_label_result.archive_blocks,
-                        final_block_labels=authoritative_label_result.block_labels,
-                        recipe_spans=authoritative_label_result.recipe_spans,
+                    else _build_prediction_nonrecipe_stage_result(
+                        result=result,
+                        authoritative_label_result=authoritative_label_result,
+                        notify=_notify,
                     )
                 ),
                 recipe_spans=list(
@@ -987,15 +1015,18 @@ def generate_pred_run_artifacts(
         result.report.llm_codex_farm = llm_report
 
     if processed_output_root is None and nonrecipe_stage_result is not None:
-        result.non_recipe_blocks = block_rows_for_nonrecipe_survivors(
+        authority_contract = build_nonrecipe_authority_contract(
             full_blocks=authoritative_label_result.archive_blocks,
             stage_result=nonrecipe_stage_result,
         )
+        result.non_recipe_blocks = list(authority_contract.final_blocks)
         if (
             run_settings.llm_knowledge_pipeline.value == "off"
-            and result.non_recipe_blocks
+            and authority_contract.late_output_blocks
         ):
-            result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+            result.chunks = chunks_from_non_recipe_blocks(
+                authority_contract.late_output_blocks
+            )
         else:
             result.chunks = []
 

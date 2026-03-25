@@ -8,6 +8,7 @@ from pathlib import Path
 from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
     LINE_ROLE_WORKER_TOOL_FILENAME,
+    build_line_role_repair_request_payload,
     build_line_role_seed_output,
     build_line_role_seed_output_for_workspace,
     build_line_role_workspace_shard_metadata,
@@ -111,6 +112,8 @@ def test_line_role_workspace_seed_output_and_validation() -> None:
     assert errors == ()
     assert metadata["owned_row_count"] == 2
     assert metadata["returned_row_count"] == 2
+    assert metadata["accepted_atomic_indices"] == [10, 11]
+    assert metadata["unresolved_atomic_indices"] == []
 
 
 def test_line_role_workspace_shard_metadata_sets_owned_paths() -> None:
@@ -255,3 +258,73 @@ def test_line_role_workspace_helper_cli_check_phase_rejects_wrong_order(
         (workspace_root / "repair" / f"{shard_id}.json").read_text(encoding="utf-8")
     )
     assert repair_payload["repair_mode"] == "line_role"
+    assert repair_payload["accepted_atomic_indices"] == []
+    assert repair_payload["unresolved_atomic_indices"] == [0, 1]
+    assert repair_payload["frozen_rows"] == []
+
+
+def test_line_role_repair_request_payload_freezes_accepted_rows_only() -> None:
+    shard_row = {
+        "shard_id": "line-role-canonical-0001-a000000-a000002",
+        "input_payload": {
+            "rows": [
+                [0, "L1", "Salt"],
+                [1, "L2", "Stir."],
+                [2, "L9", "Sidebar note"],
+            ]
+        },
+    }
+    payload = {
+        "rows": [
+            {"atomic_index": 0, "label": "INGREDIENT_LINE"},
+            {"atomic_index": 999, "label": "OTHER"},
+            {"atomic_index": 2, "label": "OTHER"},
+        ]
+    }
+
+    errors, metadata = validate_line_role_output_payload(shard_row, payload)
+
+    assert "unowned_atomic_index" in metadata["row_errors_by_atomic_index"]["999"]
+    assert metadata["accepted_atomic_indices"] == [0, 2]
+    assert metadata["unresolved_atomic_indices"] == [1]
+    repair_payload = build_line_role_repair_request_payload(
+        shard_row=shard_row,
+        metadata=metadata,
+        validation_errors=errors,
+    )
+    assert repair_payload["accepted_atomic_indices"] == [0, 2]
+    assert repair_payload["unresolved_atomic_indices"] == [1]
+    assert repair_payload["rows"] == [[1, "L2", "Stir."]]
+    assert repair_payload["frozen_rows"] == [
+        {"atomic_index": 0, "label": "INGREDIENT_LINE"},
+        {"atomic_index": 2, "label": "OTHER"},
+    ]
+
+
+def test_line_role_validation_rejects_changes_to_frozen_rows() -> None:
+    shard_row = {
+        "input_payload": {
+            "rows": [
+                [0, "L1", "Salt"],
+                [1, "L2", "Stir."],
+            ]
+        }
+    }
+    frozen_rows = [
+        {"atomic_index": 0, "label": "INGREDIENT_LINE"},
+    ]
+
+    errors, metadata = validate_line_role_output_payload(
+        shard_row,
+        {
+            "rows": [
+                {"atomic_index": 0, "label": "OTHER"},
+                {"atomic_index": 1, "label": "INSTRUCTION_LINE"},
+            ]
+        },
+        frozen_rows_by_atomic_index=frozen_rows,
+    )
+
+    assert "frozen_row_modified:0" in errors
+    assert metadata["accepted_atomic_indices"] == [1]
+    assert metadata["unresolved_atomic_indices"] == [0]

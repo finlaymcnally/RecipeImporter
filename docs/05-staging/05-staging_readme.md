@@ -38,20 +38,22 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Final conversion from canonical recipe semantics to cookbook3 output shape (internal model label still `RecipeDraftV1`).
   - Applies staging safety normalization for ingredient lines.
   - Builds the canonical `AuthoritativeRecipeSemantics` payload from a deterministic recipe or recipe-Codex correction result, then projects cookbook3 from that payload without re-running semantic note/variant/link decisions later in writer code.
+- `cookimport/staging/nonrecipe_authority_contract.py`
+  - Canonical non-recipe contract/result types, including the strict-authority vs late-output split now read by stage and Label Studio flows.
+- `cookimport/staging/nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_review_status.py`
+  - Small owners for seed spans, review-queue routing, final authority, late-output/scoring views, and reviewed/unreviewed bookkeeping.
 - `cookimport/staging/nonrecipe_stage.py`
-  - Deterministic Stage 7 review routing for all outside-recipe blocks.
-  - Exposes explicit seed, routing, final-authority, and review-status components so the live runtime never has to infer which outside-recipe facts are seed guesses versus final truth.
-  - Fails closed on malformed authoritative outside-recipe labels: only `KNOWLEDGE` and the current `_OTHER_LABELS` vocabulary are accepted, and missing or unexpected block-label metadata raises immediately with the block index.
-  - Assumes line-role is routing-only outside recipes: surviving outside-recipe rows enter a category-neutral review queue, and only final non-recipe authority can emit scored outside-recipe `knowledge` or final `other`.
-  - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
+  - Thin public seam that assembles the owner modules above into the Stage 7 routing/final-authority runtime result.
 - `cookimport/staging/pipeline_runtime.py`
   - Defines the stage-owned runtime bundles now used by `import_session.py`: `ExtractedBookBundle`, `RecipeBoundaryResult`, `RecipeRefineResult`, `NonrecipeRouteResult`, and `KnowledgeFinalResult`.
   - Keeps the five-stage authority order explicit; the writer now emits split non-recipe seed-routing, final-authority, and review-status artifacts instead of one mixed file.
 - `cookimport/staging/writer.py`
   - Writes recipe-authority artifacts, intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
+- `cookimport/staging/recipe_block_evidence.py`, `knowledge_block_evidence.py`, `block_label_resolution.py`
+  - Owned builders for recipe-local evidence, final non-recipe knowledge evidence, and block-label priority resolution.
 - `cookimport/staging/stage_block_predictions.py`
-  - Builds deterministic block-level benchmark evidence labels (`stage_block_predictions.v1`) from staged recipes + archive blocks + knowledge hints.
+  - Thin assembly layer for deterministic block-level benchmark evidence labels (`stage_block_predictions.v1`).
 - `cookimport/staging/pdf_jobs.py`
   - Split-job helpers: range planning and post-merge recipe ID reassignment by source order.
 - `cookimport/cli_worker.py`
@@ -69,7 +71,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/import_session_contracts.py`
   - Shared public result dataclass/types used by `import_session_flows/` and the public session facade.
 - `cookimport/staging/import_session_flows/`
-  - `output_stage.py` owns the active shared stage-session implementation, `authority.py` owns label-first artifact writes, and the sibling modules keep the stage-session responsibilities split by concern.
+  - `output_stage.py` owns the active shared stage-session implementation, but it now reads late outputs from the canonical non-recipe authority contract instead of re-deciding that boundary inline. `authority.py` owns label-first artifact writes, and the sibling modules keep the stage-session responsibilities split by concern.
 
 Progress telemetry note:
 
@@ -179,10 +181,13 @@ Stage-block `KNOWLEDGE` label contract:
 - `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Optional knowledge groups and snippets are reviewer-facing evidence; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
 - Review-eligible rows that remain unreviewed now stay explicit in benchmark/Label Studio metadata as `unresolved_review_eligible_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
-- `ConversionResult.non_recipe_blocks`, table extraction, and deterministic knowledge-off chunk generation now use the surviving outside-recipe review queue, not just final semantic authority. Final semantic `KNOWLEDGE` evidence still comes only from `09_nonrecipe_authority.json`.
+- `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
+- Table extraction and deterministic knowledge-off chunk generation use a separate late-output block list. When knowledge review runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when knowledge review is off or falls back, it is the surviving outside-recipe review queue.
+- Final semantic `KNOWLEDGE` evidence still comes only from `09_nonrecipe_authority.json`.
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
+- `recipe_block_evidence.py` owns those recipe-local matches, `knowledge_block_evidence.py` owns final `KNOWLEDGE` evidence plus unresolved review metadata, and `block_label_resolution.py` is the only label-priority resolver.
 - `stage_block_predictions.py` now requires nearby recipe-boundary evidence before promoting `RECIPE_TITLE` or `RECIPE_VARIANT`, so isolated headings or memoir-style prose transitions do not become recipe headers in stage evidence.
 - `stage_block_predictions.py` emits `HOWTO_SECTION` for deterministic ingredient/instruction section-header hits (`extract_ingredient_sections`, `extract_instruction_sections`) when nearby recipe-structure signals are present.
 - `RECIPE_NOTES` evidence merges schema `comment` rows with recipe-specific notes deterministically extracted from `description` (`extract_recipe_specific_notes`).

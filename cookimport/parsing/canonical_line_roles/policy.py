@@ -133,14 +133,14 @@ def build_line_role_debug_input_payload(
         )
         for candidate in candidates
     ]
-    packet_context = _build_line_role_packet_context(
+    shard_context = _build_line_role_shard_context(
         rows=rows,
         book_context=book_context,
     )
     return {
         "shard_id": shard_id,
         "phase_key": "line_role",
-        **packet_context,
+        **shard_context,
         "rows": rows,
     }
 
@@ -154,14 +154,14 @@ def build_line_role_model_input_payload(
     book_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     label_code_by_label = build_line_role_label_code_by_label(FREEFORM_LABELS)
-    packet_context = _build_line_role_packet_context(
+    shard_context = _build_line_role_shard_context(
         rows=debug_rows or (),
         book_context=book_context,
     )
     return {
         "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
         "shard_id": shard_id,
-        **packet_context,
+        **shard_context,
         "rows": [
             serialize_line_role_model_row(
                 atomic_index=int(candidate.atomic_index),
@@ -177,25 +177,25 @@ def build_line_role_model_input_payload(
     }
 
 
-def _build_line_role_packet_context(
+def _build_line_role_shard_context(
     *,
     rows: Sequence[Mapping[str, Any]],
     book_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    packet_mode, context_confidence = _classify_line_role_packet_mode(rows=rows)
+    shard_mode, context_confidence = _classify_line_role_shard_mode(rows=rows)
     resolved_book_context = dict(book_context or {})
     return {
-        "packet_mode": packet_mode,
+        "shard_mode": shard_mode,
         "context_confidence": context_confidence,
-        "packet_summary": _line_role_packet_summary(packet_mode=packet_mode),
-        "default_posture": _line_role_default_posture(packet_mode=packet_mode),
-        "strong_signals": _line_role_strong_signals(packet_mode=packet_mode),
+        "shard_summary": _line_role_shard_summary(shard_mode=shard_mode),
+        "default_posture": _line_role_default_posture(shard_mode=shard_mode),
+        "strong_signals": _line_role_strong_signals(shard_mode=shard_mode),
         "weak_signals": _line_role_weak_signals(),
         "flip_policy": _line_role_flip_policy(
-            packet_mode=packet_mode,
+            shard_mode=shard_mode,
             book_context=resolved_book_context,
         ),
-        "example_files": _line_role_example_files(packet_mode=packet_mode),
+        "example_files": _line_role_example_files(shard_mode=shard_mode),
         "howto_section_availability": str(
             resolved_book_context.get("howto_section_availability")
             or "absent_or_unproven"
@@ -210,7 +210,7 @@ def _build_line_role_packet_context(
     }
 
 
-def _classify_line_role_packet_mode(
+def _classify_line_role_shard_mode(
     *,
     rows: Sequence[Mapping[str, Any]],
 ) -> tuple[str, str]:
@@ -303,7 +303,7 @@ def _classify_line_role_packet_mode(
     explicit_prose_count = tag_counts.get("explicit_prose", 0)
     span_unknown = max(0, row_count - span_inside - span_outside)
     all_span_status_unknown = row_count > 0 and span_unknown == row_count
-    contents_navigation_packet = span_inside == 0 and (
+    contents_navigation_shard = span_inside == 0 and (
         (
             front_matter_heading_count >= 2
             and recipe_signal_row_count <= max(10, row_count // 8)
@@ -324,7 +324,7 @@ def _classify_line_role_packet_mode(
         and navigation_entry_count < max(5, row_count // 5)
     )
 
-    if contents_navigation_packet:
+    if contents_navigation_shard:
         confidence = (
             "high"
             if front_matter_heading_count >= 2
@@ -360,34 +360,34 @@ def _classify_line_role_packet_mode(
     return "mixed_boundaries", "low"
 
 
-def _line_role_packet_summary(*, packet_mode: str) -> str:
+def _line_role_shard_summary(*, shard_mode: str) -> str:
     summaries = {
         "front_matter_navigation": (
-            "This packet reads like front matter, navigation, or table-of-contents material, "
+            "This shard reads like front matter, navigation, or table-of-contents material, "
             "not recipe-local structure."
         ),
         "recipe_body": (
-            "This packet reads like recipe-local structure: ingredient lines, step lines, "
+            "This shard reads like recipe-local structure: ingredient lines, step lines, "
             "or recipe-internal headings dominate."
         ),
         "recipe_adjacent_notes": (
-            "This packet mixes real recipe structure with nearby notes or explanatory prose."
+            "This shard mixes real recipe structure with nearby notes or explanatory prose."
         ),
         "lesson_prose": (
-            "This packet reads like cookbook lesson prose: explanatory teaching around a topic, "
+            "This shard reads like cookbook lesson prose: explanatory teaching around a topic, "
             "not recipe-local structure."
         ),
         "memoir_front_matter": (
-            "This packet reads like memoir/front matter or narrative prose, not recipe-local structure."
+            "This shard reads like memoir/front matter or narrative prose, not recipe-local structure."
         ),
         "mixed_boundaries": (
-            "This packet is mixed: some rows look structural and some look like surrounding prose."
+            "This shard is mixed: some rows look structural and some look like surrounding prose."
         ),
     }
-    return summaries.get(packet_mode, summaries["mixed_boundaries"])
+    return summaries.get(shard_mode, summaries["mixed_boundaries"])
 
 
-def _line_role_default_posture(*, packet_mode: str) -> str:
+def _line_role_default_posture(*, shard_mode: str) -> str:
     postures = {
         "front_matter_navigation": (
             "Default to `OTHER`; use `review_exclusion_reason` only for overwhelming obvious navigation/front-matter junk, and only promote to recipe structure when multiple adjacent rows show one concrete recipe component."
@@ -408,10 +408,10 @@ def _line_role_default_posture(*, packet_mode: str) -> str:
             "Make the smallest safe correction and leave ambiguous rows near the deterministic seed."
         ),
     }
-    return postures.get(packet_mode, postures["mixed_boundaries"])
+    return postures.get(shard_mode, postures["mixed_boundaries"])
 
 
-def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
+def _line_role_strong_signals(*, shard_mode: str) -> list[str]:
     signals = {
         "front_matter_navigation": [
             "Contents/front-matter headings such as `CONTENTS`, `Foreword`, `Introduction`, or `PART ONE`.",
@@ -440,7 +440,7 @@ def _line_role_strong_signals(*, packet_mode: str) -> list[str]:
             "Prefer the smallest locally grounded correction.",
         ],
     }
-    return list(signals.get(packet_mode, signals["mixed_boundaries"]))
+    return list(signals.get(shard_mode, signals["mixed_boundaries"]))
 
 
 def _line_role_weak_signals() -> list[str]:
@@ -454,7 +454,7 @@ def _line_role_weak_signals() -> list[str]:
 
 def _line_role_flip_policy(
     *,
-    packet_mode: str,
+    shard_mode: str,
     book_context: Mapping[str, Any] | None = None,
 ) -> list[str]:
     howto_availability = str(
@@ -463,7 +463,7 @@ def _line_role_flip_policy(
     )
     policy = [
         "Treat the deterministic label as a strong prior, not a neutral starting guess.",
-        "Only flip a row when packet-local evidence is clearer than the seed label.",
+        "Only flip a row when shard-local evidence is clearer than the seed label.",
         "A heading alone is weak evidence; promote to `HOWTO_SECTION` only with immediate recipe-local support.",
         "Generic advice or science explanations are review-eligible `OTHER` here, not `INSTRUCTION_LINE`.",
     ]
@@ -477,9 +477,9 @@ def _line_role_flip_policy(
         )
     else:
         policy.append(
-            "`HOWTO_SECTION` is available in this book, but it still needs immediate recipe-local support in this packet."
+            "`HOWTO_SECTION` is available in this book, but it still needs immediate recipe-local support in this shard."
         )
-    if packet_mode == "lesson_prose":
+    if shard_mode == "lesson_prose":
         policy.append(
             "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay review-eligible `OTHER` so the knowledge stage can make the semantic call later."
         )
@@ -495,26 +495,26 @@ def _line_role_flip_policy(
         policy.append(
             "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`; only overwhelming obvious junk gets `review_exclusion_reason`."
         )
-    elif packet_mode == "front_matter_navigation":
+    elif shard_mode == "front_matter_navigation":
         policy.append(
             "Do not over-structure recipe-name lists, part/chapter headings, or front matter blurbs into live recipe labels."
         )
         policy.append(
             "Contents-style runs like `Winter: ...`, `Spring: ...`, `Torn Croutons`, or `Red Wine Vinaigrette` stay `OTHER` until nearby rows prove one live recipe."
         )
-    elif packet_mode == "memoir_front_matter":
+    elif shard_mode == "memoir_front_matter":
         policy.append(
             "First-person narrative should stay `OTHER` unless the row clearly teaches a reusable cooking concept."
         )
-    elif packet_mode == "recipe_body":
+    elif shard_mode == "recipe_body":
         policy.append(
             "When strong recipe-local structure is present, preserve ingredient/instruction labels unless a row clearly breaks pattern."
         )
     return policy
 
 
-def _line_role_example_files(*, packet_mode: str) -> list[str]:
-    packet_specific = {
+def _line_role_example_files(*, shard_mode: str) -> list[str]:
+    shard_specific = {
         "front_matter_navigation": [
             "02-memoir-vs-knowledge.md",
             "01-lesson-prose-vs-howto.md",
@@ -546,7 +546,7 @@ def _line_role_example_files(*, packet_mode: str) -> list[str]:
             "04-book-optional-howto.md",
         ],
     }
-    return list(packet_specific.get(packet_mode, packet_specific["mixed_boundaries"]))
+    return list(shard_specific.get(shard_mode, shard_specific["mixed_boundaries"]))
 
 
 def _looks_front_matter_navigation_heading(text: str) -> bool:

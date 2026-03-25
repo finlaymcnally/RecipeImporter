@@ -80,8 +80,9 @@ def _label_atomic_lines_internal(
     deterministic_interval = _line_role_progress_interval(deterministic_total)
     _notify_line_role_progress(
         progress_callback=progress_callback,
-        completed_tasks=0,
-        total_tasks=deterministic_total,
+        completed_units=0,
+        total_units=deterministic_total,
+        work_unit_label="row",
     )
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
     mode = _line_role_pipeline_name(settings)
@@ -153,8 +154,9 @@ def _label_atomic_lines_internal(
         ):
             _notify_line_role_progress(
                 progress_callback=progress_callback,
-                completed_tasks=candidate_index,
-                total_tasks=deterministic_total,
+                completed_units=candidate_index,
+                total_units=deterministic_total,
+                work_unit_label="row",
             )
 
     codex_targets = ordered if mode == LINE_ROLE_PIPELINE_SHARD_V1 else []
@@ -369,10 +371,10 @@ def _run_line_role_shard_runtime(
         proposal_metadata = dict(
             phase_result.proposal_metadata_by_shard_id.get(shard_plan.shard_id) or {}
         )
-        task_aggregation_metadata = dict(proposal_metadata.get("task_aggregation") or {})
+        row_resolution_metadata = dict(proposal_metadata.get("row_resolution") or {})
         fallback_atomic_indices = {
             int(value)
-            for value in task_aggregation_metadata.get("baseline_fallback_atomic_indices") or []
+            for value in row_resolution_metadata.get("fallback_atomic_indices") or []
             if str(value).strip()
         }
         rows = response_payload.get("rows")
@@ -392,7 +394,7 @@ def _run_line_role_shard_runtime(
             if atomic_index in fallback_atomic_indices:
                 fallback_payload = baseline_prediction.model_dump(mode="python")
                 fallback_payload["reason_tags"] = list(baseline_prediction.reason_tags) + [
-                    "task_packet_fallback",
+                    "line_role_row_fallback",
                 ]
                 predictions_by_atomic_index[atomic_index] = CanonicalLineRolePrediction.model_validate(
                     fallback_payload
@@ -479,9 +481,10 @@ def _run_line_role_phase_runtime(
     )
     _notify_line_role_progress(
         progress_callback=progress_callback,
-        completed_tasks=0,
-        total_tasks=len(shard_plans),
-        running_tasks=min(worker_count, len(shard_plans)),
+        completed_units=0,
+        total_units=len(shard_plans),
+        work_unit_label="shard",
+        running_units=min(worker_count, len(shard_plans)),
         worker_total=worker_count,
     )
     output_schema_path = resolve_codex_farm_output_schema_path(
@@ -540,6 +543,7 @@ def _run_line_role_phase_runtime(
     )
     invalid_shard_count = 0
     missing_output_shard_count = 0
+    raw_output_issue_count = 0
     response_payloads_by_shard_id: dict[str, dict[str, Any]] = {}
     proposal_metadata_by_shard_id: dict[str, dict[str, Any]] = {}
     proposal_dir = Path(manifest.run_root) / "proposals"
@@ -567,7 +571,14 @@ def _run_line_role_phase_runtime(
             continue
         response_payload = proposal_payload.get("payload")
         validation_errors = proposal_payload.get("validation_errors") or []
-        if validation_errors or not isinstance(response_payload, dict):
+        proposal_validation_metadata = dict(
+            proposal_payload.get("validation_metadata") or {}
+        )
+        if proposal_validation_metadata.get("raw_output_invalid") or proposal_validation_metadata.get(
+            "raw_output_missing"
+        ):
+            raw_output_issue_count += 1
+        if not isinstance(response_payload, dict):
             invalid_shard_count += 1
             prompt_state.write_failure(
                 phase_key=shard_plan.phase_key,
@@ -595,12 +606,10 @@ def _run_line_role_phase_runtime(
             response_payload=response_payload,
         )
         response_payloads_by_shard_id[shard_plan.shard_id] = response_payload
-        proposal_metadata_by_shard_id[shard_plan.shard_id] = dict(
-            proposal_payload.get("validation_metadata") or {}
-        )
+        proposal_metadata_by_shard_id[shard_plan.shard_id] = proposal_validation_metadata
     prompt_state.finalize(
         phase_key=shard_plans[0].phase_key,
-        parse_error_count=invalid_shard_count + missing_output_shard_count,
+        parse_error_count=raw_output_issue_count + missing_output_shard_count,
     )
     return _LineRolePhaseRuntimeResult(
         phase_key=shard_plans[0].phase_key,
@@ -633,9 +642,10 @@ def _run_line_role_phase_runtime(
 def _notify_line_role_progress(
     *,
     progress_callback: Callable[[str], None] | None,
-    completed_tasks: int,
-    total_tasks: int,
-    running_tasks: int | None = None,
+    completed_units: int,
+    total_units: int,
+    work_unit_label: str = "row",
+    running_units: int | None = None,
     worker_total: int | None = None,
     worker_running: int | None = None,
     worker_completed: int | None = None,
@@ -649,15 +659,16 @@ def _notify_line_role_progress(
 ) -> None:
     if progress_callback is None:
         return
-    total = max(0, int(total_tasks))
-    completed = max(0, min(total, int(completed_tasks)))
-    message = f"Running canonical line-role pipeline... task {completed}/{total}"
-    if running_tasks is not None:
-        running = max(0, int(running_tasks))
+    total = max(0, int(total_units))
+    completed = max(0, min(total, int(completed_units)))
+    unit_label = str(work_unit_label or "row").strip() or "row"
+    message = f"Running canonical line-role pipeline... {unit_label} {completed}/{total}"
+    if running_units is not None:
+        running = max(0, int(running_units))
         message = f"{message} | running {running}"
     remaining = max(0, total - completed)
     detail_lines = [
-        f"queued tasks: {remaining}",
+        f"queued {unit_label}s: {remaining}",
     ]
     if worker_total is not None:
         detail_lines.insert(0, f"configured workers: {max(0, int(worker_total))}")
@@ -665,10 +676,10 @@ def _notify_line_role_progress(
         format_stage_progress(
             message,
             stage_label="canonical line-role pipeline",
-            work_unit_label="task",
+            work_unit_label=unit_label,
             task_current=completed,
             task_total=total,
-            running_workers=running_tasks,
+            running_workers=running_units,
             worker_total=worker_total,
             worker_running=worker_running,
             worker_completed=worker_completed,
@@ -734,10 +745,8 @@ def _run_line_role_workspace_worker_assignment_v1(
     out_dir.mkdir(parents=True, exist_ok=True)
     work_dir = worker_root / "work"
     repair_dir = worker_root / "repair"
-    scratch_dir = worker_root / "scratch"
     work_dir.mkdir(parents=True, exist_ok=True)
     repair_dir.mkdir(parents=True, exist_ok=True)
-    scratch_dir.mkdir(parents=True, exist_ok=True)
     worker_failure_count = 0
     worker_proposal_count = 0
     worker_runner_results: list[dict[str, Any]] = []
@@ -1058,7 +1067,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 pipeline_id=pipeline_id,
                 worker_id=assignment.worker_id,
                 shard_id=shard_id,
-                runtime_task_id=shard_id,
+                runtime_shard_id=shard_id,
                 run_result=session_run_result,
                 model=model,
                 reasoning_effort=reasoning_effort,
@@ -1097,10 +1106,14 @@ def _run_line_role_workspace_worker_assignment_v1(
                 ),
             )
         )
+        baseline_by_atomic_index = dict(
+            deterministic_baseline_by_shard_id.get(shard_id) or {}
+        )
         watchdog_retry_attempted = False
         watchdog_retry_status = "not_attempted"
         repair_attempted = False
         repair_status = "not_attempted"
+        raw_output_status = proposal_status
         final_validation_errors = tuple(validation_errors)
         final_validation_metadata = dict(validation_metadata or {})
         task_root = shard_dir / shard_id
@@ -1111,7 +1124,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 primary_row,
                 final_proposal_status=proposal_status,
             )
-            primary_row["runtime_task_id"] = shard_id
+            primary_row["runtime_shard_id"] = shard_id
             primary_row["runtime_parent_shard_id"] = shard_id
         if primary_runner_row is not None:
             primary_runner_row["proposal_status"] = proposal_status
@@ -1119,7 +1132,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 primary_runner_row,
                 final_proposal_status=proposal_status,
             )
-            primary_runner_row["runtime_task_id"] = shard_id
+            primary_runner_row["runtime_shard_id"] = shard_id
             primary_runner_row["runtime_parent_shard_id"] = shard_id
         if (
             shard_id in runnable_shard_ids
@@ -1184,7 +1197,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 reasoning_effort=reasoning_effort,
                 prompt_input_mode="inline_watchdog_retry",
             )
-            watchdog_retry_runner_payload["process_payload"]["runtime_task_id"] = shard_id
+            watchdog_retry_runner_payload["process_payload"]["runtime_shard_id"] = shard_id
             watchdog_retry_runner_payload["process_payload"]["runtime_parent_shard_id"] = shard_id
             worker_runner_results.append(dict(watchdog_retry_runner_payload))
             watchdog_retry_telemetry = watchdog_retry_runner_payload.get("telemetry")
@@ -1255,7 +1268,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 watchdog_retry_primary_row["watchdog_retry_status"] = (
                     watchdog_retry_status
                 )
-                watchdog_retry_primary_row["runtime_task_id"] = shard_id
+                watchdog_retry_primary_row["runtime_shard_id"] = shard_id
                 watchdog_retry_primary_row["runtime_parent_shard_id"] = shard_id
             if watchdog_retry_primary_runner_row is not None:
                 watchdog_retry_primary_runner_row["proposal_status"] = (
@@ -1268,7 +1281,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 watchdog_retry_primary_runner_row["watchdog_retry_status"] = (
                     watchdog_retry_status
                 )
-                watchdog_retry_primary_runner_row["runtime_task_id"] = shard_id
+                watchdog_retry_primary_runner_row["runtime_shard_id"] = shard_id
                 watchdog_retry_primary_runner_row["runtime_parent_shard_id"] = shard_id
             if (
                 watchdog_retry_payload is not None
@@ -1280,6 +1293,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     watchdog_retry_validation_metadata or {}
                 )
                 proposal_status = watchdog_retry_proposal_status
+                raw_output_status = watchdog_retry_proposal_status
                 if primary_row is not None:
                     _annotate_line_role_final_proposal_status(
                         primary_row,
@@ -1304,12 +1318,25 @@ def _run_line_role_workspace_worker_assignment_v1(
                         watchdog_retry_validation_metadata or {}
                     ),
                 }
+        repair_request_metadata = dict(final_validation_metadata or {})
+        if repair_request_metadata.get("semantic_rejected"):
+            repair_request_metadata["accepted_rows"] = []
+            repair_request_metadata["accepted_atomic_indices"] = []
+            repair_request_metadata["unresolved_atomic_indices"] = [
+                int(value) for value in shard.owned_ids
+            ]
+        repair_request_payload = build_line_role_repair_request_payload(
+            shard_row={"shard_id": shard_id, "input_payload": shard.input_payload},
+            metadata=repair_request_metadata,
+            validation_errors=final_validation_errors,
+        )
         if (
             shard_id in runnable_shard_ids
             and _should_attempt_line_role_repair(
                 proposal_status=proposal_status,
                 validation_errors=validation_errors,
             )
+            and list(repair_request_payload.get("rows") or [])
         ):
             repair_attempted = True
             repair_live_status_path = task_root / "repair_live_status.json"
@@ -1317,6 +1344,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 runner=runner,
                 worker_root=worker_root,
                 shard=shard,
+                repair_request_payload=repair_request_payload,
                 env=env,
                 output_schema_path=output_schema_path,
                 model=model,
@@ -1358,7 +1386,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 reasoning_effort=reasoning_effort,
                 prompt_input_mode="inline_repair",
             )
-            repair_runner_payload["process_payload"]["runtime_task_id"] = shard_id
+            repair_runner_payload["process_payload"]["runtime_shard_id"] = shard_id
             repair_runner_payload["process_payload"]["runtime_parent_shard_id"] = shard_id
             worker_runner_results.append(dict(repair_runner_payload))
             repair_telemetry = repair_runner_payload.get("telemetry")
@@ -1381,14 +1409,20 @@ def _run_line_role_workspace_worker_assignment_v1(
                 and isinstance(repair_row_payloads[0], dict)
                 else None
             )
+            repair_shard = ShardManifestEntryV1(
+                shard_id=shard.shard_id,
+                owned_ids=tuple(
+                    str(value)
+                    for value in repair_request_payload.get("unresolved_atomic_indices", [])
+                ),
+                input_payload={"rows": list(repair_request_payload.get("rows") or [])},
+                metadata={"phase_key": "line_role_repair_patch"},
+            )
             repair_payload, repair_validation_errors, repair_validation_metadata, repair_proposal_status = (
-                _evaluate_line_role_response_with_pathology_guard(
-                    shard=shard,
+                _evaluate_line_role_response(
+                    shard=repair_shard,
                     response_text=repair_run_result.response_text,
                     validator=validator,
-                    deterministic_baseline_by_atomic_index=dict(
-                        deterministic_baseline_by_shard_id.get(shard_id) or {}
-                    ),
                 )
             )
             repair_status = (
@@ -1416,7 +1450,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     final_proposal_status=repair_proposal_status,
                 )
                 repair_primary_row["repair_status"] = repair_status
-                repair_primary_row["runtime_task_id"] = shard_id
+                repair_primary_row["runtime_shard_id"] = shard_id
                 repair_primary_row["runtime_parent_shard_id"] = shard_id
             if repair_primary_runner_row is not None:
                 repair_primary_runner_row["proposal_status"] = repair_proposal_status
@@ -1425,52 +1459,76 @@ def _run_line_role_workspace_worker_assignment_v1(
                     final_proposal_status=repair_proposal_status,
                 )
                 repair_primary_runner_row["repair_status"] = repair_status
-                repair_primary_runner_row["runtime_task_id"] = shard_id
+                repair_primary_runner_row["runtime_shard_id"] = shard_id
                 repair_primary_runner_row["runtime_parent_shard_id"] = shard_id
-            if repair_payload is not None and repair_proposal_status == "validated":
-                payload = repair_payload
-                final_validation_metadata = dict(repair_validation_metadata or {})
-                proposal_status = repair_proposal_status
-                if primary_row is not None:
-                    _annotate_line_role_final_proposal_status(
-                        primary_row,
-                        final_proposal_status=proposal_status,
-                    )
-                if primary_runner_row is not None:
-                    _annotate_line_role_final_proposal_status(
-                        primary_runner_row,
-                        final_proposal_status=proposal_status,
-                    )
-            else:
-                final_validation_metadata = {
-                    **(
-                        dict(final_validation_metadata)
-                        if isinstance(final_validation_metadata, Mapping)
-                        else {}
-                    ),
-                    "repair_validation_errors": list(final_validation_errors),
-                    "repair_validation_metadata": dict(repair_validation_metadata or {}),
-                }
+            main_accepted_rows = [
+                dict(row)
+                for row in repair_request_metadata.get("accepted_rows", [])
+                if isinstance(row, Mapping)
+            ]
+            repair_accepted_rows = [
+                dict(row)
+                for row in (repair_validation_metadata or {}).get("accepted_rows", [])
+                if isinstance(row, Mapping)
+            ]
+            merged_accepted_rows = {
+                int(row["atomic_index"]): dict(row)
+                for row in [*main_accepted_rows, *repair_accepted_rows]
+                if row.get("atomic_index") is not None
+                and str(row.get("atomic_index")).strip()
+            }
+            merged_validation_metadata = {
+                **repair_request_metadata,
+                "accepted_rows": [
+                    merged_accepted_rows[index]
+                    for index in sorted(merged_accepted_rows)
+                ],
+                "accepted_atomic_indices": sorted(merged_accepted_rows),
+                "repair_validation_errors": list(final_validation_errors),
+                "repair_validation_metadata": dict(repair_validation_metadata or {}),
+            }
+            final_validation_metadata = merged_validation_metadata
+        row_resolution_payload, row_resolution_metadata = _build_line_role_row_resolution(
+            shard=shard,
+            validation_metadata=final_validation_metadata,
+            deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
+        )
+        payload = row_resolution_payload
+        proposal_status = "validated"
+        final_validation_metadata = {
+            **dict(final_validation_metadata or {}),
+            "raw_output_status": raw_output_status,
+            "raw_output_invalid": raw_output_status != "validated",
+            "raw_output_missing": raw_output_status == "missing_output",
+            "row_resolution": dict(row_resolution_metadata),
+        }
+        if primary_row is not None:
+            _annotate_line_role_final_proposal_status(
+                primary_row,
+                final_proposal_status=proposal_status,
+            )
+        if primary_runner_row is not None:
+            _annotate_line_role_final_proposal_status(
+                primary_runner_row,
+                final_proposal_status=proposal_status,
+            )
         task_status_rows.append(
-            _build_line_role_task_status_row(
-                task_manifest=shard,
+            _build_line_role_shard_status_row(
+                shard=shard,
                 worker_id=assignment.worker_id,
                 state=(
                     "repair_recovered"
-                    if payload is not None
-                    and proposal_status == "validated"
-                    and repair_status == "repaired"
+                    if repair_status == "repaired"
+                    and int(row_resolution_metadata.get("fallback_row_count") or 0) == 0
                     else (
-                        "validated"
-                        if payload is not None and proposal_status == "validated"
+                        "partial_fallback"
+                        if int(row_resolution_metadata.get("fallback_row_count") or 0) > 0
+                        and int(row_resolution_metadata.get("accepted_row_count") or 0) > 0
                         else (
-                            "repair_failed"
-                            if repair_attempted
-                            else (
-                                "missing_output"
-                                if proposal_status == "missing_output"
-                                else "invalid_output"
-                            )
+                            "fallback_only"
+                            if int(row_resolution_metadata.get("fallback_row_count") or 0)
+                            == len(tuple(shard.owned_ids))
+                            else "validated"
                         )
                     )
                 ),
@@ -1491,6 +1549,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 output_path=response_source_path,
                 validation_errors=final_validation_errors,
                 validation_metadata=final_validation_metadata,
+                row_resolution_metadata=row_resolution_metadata,
                 repair_attempted=repair_attempted,
                 repair_status=repair_status,
                 resumed_from_existing_output=(
@@ -1508,6 +1567,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 shard_id in resumed_output_path_by_shard_id
                 and shard_id not in runnable_shard_ids
             ),
+            row_resolution_metadata=row_resolution_metadata,
         )
         shard_root = shard_dir / shard.shard_id
         if session_run_result is None and not (shard_root / "live_status.json").exists():
@@ -1671,7 +1731,10 @@ def _run_line_role_workspace_worker_assignment_v1(
             "raw_supervision_retryable"
         )
         runner_results_by_shard_id[shard.shard_id] = shard_runner_payload
-        if proposal_status != "validated" or shard_state != "completed":
+        if proposal_status != "validated" or shard_state not in {
+            "completed",
+            "completed_with_fallback",
+        }:
             worker_failure_count += 1
             worker_failures.append(
                 {
@@ -1916,39 +1979,39 @@ def _run_line_role_direct_workers_v1(
     def _render_line_role_progress_label(
         *,
         worker_id: str,
-        completed_task_ids: set[str],
+        completed_shard_ids: set[str],
     ) -> str | None:
-        worker_task_ids = task_ids_by_worker.get(worker_id, ())
-        if not worker_task_ids:
+        worker_shard_ids = task_ids_by_worker.get(worker_id, ())
+        if not worker_shard_ids:
             return None
-        completed_worker_tasks = sum(
-            1 for task_id in worker_task_ids if task_id in completed_task_ids
+        completed_worker_shards = sum(
+            1 for shard_id in worker_shard_ids if shard_id in completed_shard_ids
         )
-        if completed_worker_tasks >= len(worker_task_ids):
+        if completed_worker_shards >= len(worker_shard_ids):
             return None
         pending_shards = pending_shards_by_worker.get(worker_id) or []
-        base_label = str((pending_shards[0] if pending_shards else worker_task_ids[0]) or "").strip() or worker_id
+        base_label = str((pending_shards[0] if pending_shards else worker_shard_ids[0]) or "").strip() or worker_id
         extra_shard_count = max(0, len(pending_shards) - 1)
         if extra_shard_count > 0:
             base_label = f"{base_label} +{extra_shard_count} more"
-        return f"{base_label} ({completed_worker_tasks}/{len(worker_task_ids)} tasks)"
+        return f"{base_label} ({completed_worker_shards}/{len(worker_shard_ids)} shards)"
 
     def _emit_progress_locked(*, force: bool = False) -> None:
-        completed_task_ids: set[str] = set()
+        completed_shard_ids: set[str] = set()
         for assignment in assignments:
             out_dir = run_root / "workers" / assignment.worker_id / "out"
             if not out_dir.exists():
                 continue
             for output_path in out_dir.glob("*.json"):
-                completed_task_ids.add(output_path.stem)
-        completed_tasks = min(total_tasks, len(completed_task_ids))
+                completed_shard_ids.add(output_path.stem)
+        completed_tasks = min(total_tasks, len(completed_shard_ids))
         active_tasks = [
             label
             for assignment in assignments
             for label in [
                 _render_line_role_progress_label(
                     worker_id=assignment.worker_id,
-                    completed_task_ids=completed_task_ids,
+                    completed_shard_ids=completed_shard_ids,
                 )
             ]
             if label is not None
@@ -1969,7 +2032,7 @@ def _run_line_role_direct_workers_v1(
             repair_completed += worker_repair_completed
             repair_running += worker_repair_running
             if not any(
-                task_id not in completed_task_ids
+                task_id not in completed_shard_ids
                 for task_id in task_ids_by_worker.get(assignment.worker_id, ())
             ) and (pending_shards_by_worker.get(assignment.worker_id) or []):
                 finalize_workers += 1
@@ -1992,9 +2055,10 @@ def _run_line_role_direct_workers_v1(
         setattr(_emit_progress_locked, "_last_snapshot", snapshot)
         _notify_line_role_progress(
             progress_callback=progress_callback,
-            completed_tasks=completed_tasks,
-            total_tasks=total_tasks,
-            running_tasks=running_workers,
+            completed_units=completed_tasks,
+            total_units=total_tasks,
+            work_unit_label="shard",
+            running_units=running_workers,
             worker_total=worker_count,
             worker_running=running_workers,
             worker_completed=completed_workers,
@@ -2074,10 +2138,10 @@ def _run_line_role_direct_workers_v1(
         for row in task_status_rows
         if isinstance(row, dict)
     )
-    suspicious_packet_count = sum(
+    suspicious_shard_count = sum(
         1
         for row in task_status_rows
-        if bool(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_packet"))
+        if bool(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_shard"))
     )
     suspicious_row_count = sum(
         int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_row_count") or 0)
@@ -2110,7 +2174,7 @@ def _run_line_role_direct_workers_v1(
         },
         "llm_authoritative_row_count": llm_authoritative_row_count,
         "fallback_row_count": fallback_row_count,
-        "suspicious_packet_count": suspicious_packet_count,
+        "suspicious_shard_count": suspicious_shard_count,
         "suspicious_row_count": suspicious_row_count,
     }
     telemetry = {
@@ -2178,7 +2242,7 @@ def _build_line_role_workspace_task_runner_payload(
     pipeline_id: str,
     worker_id: str,
     shard_id: str,
-    runtime_task_id: str,
+    runtime_shard_id: str,
     run_result: CodexExecRunResult,
     model: str | None,
     reasoning_effort: str | None,
@@ -2231,13 +2295,13 @@ def _build_line_role_workspace_task_runner_payload(
             else token_total_shares[task_index]
         )
         row_payload["prompt_input_mode"] = "workspace_worker"
-        row_payload["runtime_task_id"] = runtime_task_id
+        row_payload["runtime_shard_id"] = runtime_shard_id
         row_payload["runtime_parent_shard_id"] = shard_id
         row_payload["request_input_file"] = request_input_file_str
         row_payload["request_input_file_bytes"] = request_input_file_bytes
         row_payload["debug_input_file"] = debug_input_file_str
         row_payload["worker_prompt_file"] = worker_prompt_file_str
-        row_payload["worker_session_task_count"] = task_count
+        row_payload["worker_session_shard_count"] = task_count
         row_payload["worker_session_primary_row"] = task_index == 0
         row_payload["command_execution_policy_counts"] = _line_role_command_policy_counts(
             row_payload.get("command_execution_commands")
@@ -2264,7 +2328,7 @@ def _build_line_role_workspace_task_runner_payload(
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
         "prompt_input_mode": "workspace_worker",
-        "runtime_task_id": runtime_task_id,
+        "runtime_shard_id": runtime_shard_id,
         "runtime_parent_shard_id": shard_id,
         "request_input_file": request_input_file_str,
         "request_input_file_bytes": request_input_file_bytes,
@@ -2861,6 +2925,7 @@ def _run_line_role_repair_attempt(
     runner: CodexExecRunner,
     worker_root: Path,
     shard: ShardManifestEntryV1,
+    repair_request_payload: Mapping[str, Any],
     env: Mapping[str, str],
     output_schema_path: Path | None,
     model: str | None,
@@ -2874,6 +2939,7 @@ def _run_line_role_repair_attempt(
 ) -> CodexExecRunResult:
     prompt_text = _build_line_role_repair_prompt(
         shard=shard,
+        repair_request_payload=repair_request_payload,
         original_response_text=original_response_text,
         validation_errors=validation_errors,
     )
@@ -2888,8 +2954,13 @@ def _run_line_role_repair_attempt(
             "worker_id": worker_id,
             "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
             "shard_id": shard.shard_id,
-            "rows": list((shard.input_payload or {}).get("rows") or []),
-            "owned_ids": list(shard.owned_ids),
+            "rows": list(repair_request_payload.get("rows") or []),
+            "owned_ids": list(repair_request_payload.get("unresolved_atomic_indices") or []),
+            "frozen_rows": [
+                dict(row)
+                for row in repair_request_payload.get("frozen_rows", [])
+                if isinstance(row, Mapping)
+            ],
             "validation_errors": list(validation_errors),
             "previous_output": _truncate_repair_text(original_response_text),
         },
@@ -3025,15 +3096,27 @@ def _build_line_role_watchdog_retry_prompt(
 def _build_line_role_repair_prompt(
     *,
     shard: ShardManifestEntryV1,
+    repair_request_payload: Mapping[str, Any],
     original_response_text: str,
     validation_errors: Sequence[str],
 ) -> str:
-    owned_ids = ", ".join(str(value) for value in shard.owned_ids)
+    owned_ids = ", ".join(
+        str(value) for value in repair_request_payload.get("unresolved_atomic_indices") or []
+    )
     allowed_labels = ", ".join(FREEFORM_ALLOWED_LABELS)
     label_code_legend = _render_label_code_legend(
         build_line_role_label_code_by_label(FREEFORM_LABELS)
     )
-    authoritative_rows = _render_line_role_authoritative_rows(shard)
+    authoritative_rows = "\n".join(
+        json.dumps(list(row), ensure_ascii=False)
+        for row in repair_request_payload.get("rows") or []
+        if isinstance(row, (list, tuple))
+    ) or "[no unresolved rows]"
+    frozen_rows = "\n".join(
+        json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
+        for row in repair_request_payload.get("frozen_rows") or []
+        if isinstance(row, Mapping)
+    ) or "[no frozen accepted rows]"
     return (
         "Repair the invalid canonical line-role shard output.\n\n"
         "Rules:\n"
@@ -3044,7 +3127,7 @@ def _build_line_role_repair_prompt(
         "- The first emitted character must be `{`.\n"
         "- Your first response must be the final JSON object.\n"
         "- Return one JSON object shaped like {\"rows\":[{\"atomic_index\":<int>,\"label\":\"<ALLOWED_LABEL>\"}]}.\n"
-        f"- Return each owned atomic_index exactly once, in input order: {owned_ids}\n"
+        f"- Return only the unresolved atomic_index rows, exactly once each, in input order: {owned_ids}\n"
         f"- Allowed labels: {allowed_labels}\n"
         "- Use only the keys `rows`, `atomic_index`, and `label`.\n\n"
         f"Label code legend: {label_code_legend}\n"
@@ -3054,11 +3137,15 @@ def _build_line_role_repair_prompt(
         "- `HOWTO_SECTION` means a recipe-internal subsection heading, not a chapter or topic heading.\n"
         "- `KNOWLEDGE` is only for recipe-local explanatory/reference prose here; outside-recipe useful prose should stay `OTHER` for the later knowledge stage.\n"
         "- `OTHER` means navigation, memoir, decorative matter, or other non-structure text.\n\n"
-        "Authoritative shard rows to relabel (each row is [atomic_index, label_code, current_line]):\n"
+        "Frozen accepted rows that must not be reopened:\n"
+        "<BEGIN_FROZEN_ACCEPTED_ROWS>\n"
+        f"{frozen_rows}\n"
+        "<END_FROZEN_ACCEPTED_ROWS>\n\n"
+        "Authoritative unresolved shard rows to relabel (each row is [atomic_index, label_code, current_line]):\n"
         "<BEGIN_AUTHORITATIVE_ROWS>\n"
         f"{authoritative_rows}\n"
         "<END_AUTHORITATIVE_ROWS>\n\n"
-        "Recompute the full shard from those rows. Do not copy the previous output.\n\n"
+        "Return only a repair patch for those unresolved rows. Do not copy the previous output and do not repeat frozen rows.\n\n"
         f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
         "Previous invalid output:\n"
         "<BEGIN_PREVIOUS_OUTPUT>\n"

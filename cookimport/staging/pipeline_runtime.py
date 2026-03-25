@@ -29,13 +29,13 @@ from cookimport.parsing.label_source_of_truth import (
     build_label_first_stage_result,
 )
 from cookimport.staging.nonrecipe_stage import (
+    NonRecipeAuthorityContract,
     NonRecipeAuthorityResult,
     NonRecipeRoutingResult,
     NonRecipeStageResult,
     NonRecipeReviewStatusResult,
-    block_rows_for_nonrecipe_authority,
-    block_rows_for_nonrecipe_survivors,
     block_rows_for_nonrecipe_span,
+    build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
 )
 from cookimport.staging.draft_v1 import build_authoritative_recipe_semantics
@@ -136,10 +136,11 @@ class KnowledgeFinalResult:
     nonrecipe_route_result: NonrecipeRouteResult
     recipe_refine_result: RecipeRefineResult
     stage_result: NonRecipeStageResult
+    authority_contract: NonRecipeAuthorityContract
     authority: NonRecipeAuthorityResult
     review_status: NonRecipeReviewStatusResult
-    final_nonrecipe_blocks: list[dict[str, Any]]
     authoritative_nonrecipe_blocks: list[dict[str, Any]]
+    late_output_nonrecipe_blocks: list[dict[str, Any]]
     unreviewed_reviewable_blocks: list[dict[str, Any]]
     llm_report: dict[str, Any] | None
     knowledge_write_report: Any | None = None
@@ -362,11 +363,7 @@ def run_knowledge_final_stage(
             llm_report = dict(knowledge_apply_result.llm_report)
             knowledge_write_report = knowledge_apply_result.write_report
 
-    authoritative_nonrecipe_blocks = block_rows_for_nonrecipe_authority(
-        full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
-        stage_result=stage_result,
-    )
-    final_nonrecipe_blocks = block_rows_for_nonrecipe_survivors(
+    authority_contract = build_nonrecipe_authority_contract(
         full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
         stage_result=stage_result,
     )
@@ -379,10 +376,11 @@ def run_knowledge_final_stage(
         nonrecipe_route_result=nonrecipe_route_result,
         recipe_refine_result=recipe_refine_result,
         stage_result=stage_result,
+        authority_contract=authority_contract,
         authority=stage_result.authority,
         review_status=stage_result.review_status,
-        final_nonrecipe_blocks=list(final_nonrecipe_blocks),
-        authoritative_nonrecipe_blocks=authoritative_nonrecipe_blocks,
+        authoritative_nonrecipe_blocks=list(authority_contract.final_blocks),
+        late_output_nonrecipe_blocks=list(authority_contract.late_output_blocks),
         unreviewed_reviewable_blocks=unreviewed_reviewable_blocks,
         llm_report=llm_report,
         knowledge_write_report=knowledge_write_report,

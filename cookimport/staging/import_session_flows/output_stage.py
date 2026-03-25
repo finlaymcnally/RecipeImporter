@@ -162,7 +162,7 @@ def execute_stage_import_session_from_result(
     if knowledge_final_result.llm_report is not None:
         llm_report["knowledge"] = dict(knowledge_final_result.llm_report)
 
-    nonrecipe_block_rows = list(knowledge_final_result.final_nonrecipe_blocks)
+    nonrecipe_block_rows = list(knowledge_final_result.late_output_nonrecipe_blocks)
 
     extracted_tables = []
     if nonrecipe_block_rows:
@@ -195,9 +195,9 @@ def execute_stage_import_session_from_result(
     else:
         result.chunks = []
 
-    # Mirror the current final non-recipe authority onto ConversionResult so
-    # downstream consumers read the same view used for scoring and staged outputs.
-    result.non_recipe_blocks = nonrecipe_block_rows
+    # ConversionResult keeps only strict final non-recipe authority. Late outputs may
+    # use a broader routed review queue when knowledge review did not run.
+    result.non_recipe_blocks = list(knowledge_final_result.authoritative_nonrecipe_blocks)
 
     tag_normalization_report = normalize_conversion_result_recipe_tags(result)
     if recipe_limit is not None:

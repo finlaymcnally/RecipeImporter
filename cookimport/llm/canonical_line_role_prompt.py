@@ -260,7 +260,7 @@ def build_canonical_line_role_file_prompt(
             "- The authoritative owned shard rows are embedded below.\n"
             "- Reference-only neighboring context may also be embedded below to help you judge boundary rows.\n"
             "- The mirrored worker-local file `{{INPUT_PATH}}` exists for traceability only; do not open it or inspect the workspace to answer.\n"
-            "- Use only the embedded packet text as evidence.\n"
+            "- Use only the embedded shard rows and neighboring context as evidence.\n"
             "- Do not run shell commands, Python, or any other tools.\n"
             "- Do not describe your plan, reasoning, or heuristics.\n"
             "- Your first response must be the final JSON object.\n"
@@ -328,7 +328,7 @@ def build_canonical_line_role_file_prompt(
     rendered = rendered.replace("{{LABEL_CODE_LEGEND}}", label_code_legend)
     rendered = rendered.replace(
         "{{PACKET_CONTEXT_BLOCK}}",
-        _render_packet_context_block(input_payload),
+        _render_shard_context_block(input_payload),
     )
     rendered = rendered.replace(
         "{{REFERENCE_CONTEXT_BLOCK}}",
@@ -445,11 +445,11 @@ def _render_reference_context_block(
     return "\n".join(lines)
 
 
-def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str:
+def _render_shard_context_block(input_payload: Mapping[str, Any] | None) -> str:
     payload = dict(input_payload or {})
-    summary = str(payload.get("packet_summary") or "").strip()
+    summary = str(payload.get("shard_summary") or "").strip()
     default_posture = str(payload.get("default_posture") or "").strip()
-    packet_mode = str(payload.get("packet_mode") or "").strip()
+    shard_mode = str(payload.get("shard_mode") or "").strip()
     context_confidence = str(payload.get("context_confidence") or "").strip()
     flip_policy = [
         str(item).strip()
@@ -482,7 +482,7 @@ def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str
         (
             summary,
             default_posture,
-            packet_mode,
+            shard_mode,
             context_confidence,
             flip_policy,
             strong_signals,
@@ -494,13 +494,13 @@ def _render_packet_context_block(input_payload: Mapping[str, Any] | None) -> str
         )
     ):
         return ""
-    lines = ["Packet-local guidance:"]
+    lines = ["Shard-local guidance:"]
     if summary:
-        lines.append(f"- Packet summary: {summary}")
-    if packet_mode or context_confidence:
+        lines.append(f"- Shard summary: {summary}")
+    if shard_mode or context_confidence:
         lines.append(
-            "- Packet mode: "
-            f"{packet_mode or 'unknown'}"
+            "- Shard mode: "
+            f"{shard_mode or 'unknown'}"
             + (
                 f" (confidence: {context_confidence})"
                 if context_confidence

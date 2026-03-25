@@ -217,11 +217,11 @@ def test_write_stage_observability_report_writes_recipe_and_line_role_stage_summ
         encoding="utf-8",
     )
     _write_json(line_role_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
-    (line_role_root / "task_manifest.jsonl").write_text(
-        json.dumps({"task_id": "line-role-canonical-0001.task-001"}) + "\n",
+    (line_role_root / "shard_manifest.jsonl").write_text(
+        json.dumps({"shard_id": "line-role-canonical-0001"}) + "\n",
         encoding="utf-8",
     )
-    (line_role_root / "workers" / "worker-001" / "out" / "line-role-canonical-0001.task-001.json").write_text(
+    (line_role_root / "workers" / "worker-001" / "out" / "line-role-canonical-0001.json").write_text(
         "{}",
         encoding="utf-8",
     )
@@ -282,12 +282,12 @@ def test_build_recipe_stage_summary_reports_same_session_fix_rollups(tmp_path: P
     assert summary["followups"]["repair_completed_count"] == 1
 
 
-def test_build_line_role_stage_summary_reports_packet_and_line_rollups(tmp_path: Path) -> None:
+def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: Path) -> None:
     stage_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
     (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
     _write_json(stage_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
-    (stage_root / "task_manifest.jsonl").write_text(
-        json.dumps({"task_id": "line-role-canonical-0001.task-001"}) + "\n",
+    (stage_root / "shard_manifest.jsonl").write_text(
+        json.dumps({"shard_id": "line-role-canonical-0001"}) + "\n",
         encoding="utf-8",
     )
     (stage_root / "canonical_line_table.jsonl").write_text(
@@ -300,10 +300,10 @@ def test_build_line_role_stage_summary_reports_packet_and_line_rollups(tmp_path:
         + "\n",
         encoding="utf-8",
     )
-    (stage_root / "task_status.jsonl").write_text(
+    (stage_root / "shard_status.jsonl").write_text(
         json.dumps(
             {
-                "task_id": "line-role-canonical-0001.task-001",
+                "shard_id": "line-role-canonical-0001",
                 "state": "validated",
                 "terminal_outcome": "validated",
                 "last_attempt_type": "resume_existing_output",
@@ -311,7 +311,7 @@ def test_build_line_role_stage_summary_reports_packet_and_line_rollups(tmp_path:
                     "llm_authoritative_row_count": 2,
                     "fallback_row_count": 0,
                     "suspicious_row_count": 2,
-                    "suspicious_packet": True,
+                    "suspicious_shard": True,
                 },
             }
         )
@@ -332,12 +332,12 @@ def test_build_line_role_stage_summary_reports_packet_and_line_rollups(tmp_path:
     assert summary["lines"]["canonical_line_total"] == 2
     assert summary["lines"]["llm_authoritative_row_count"] == 2
     assert summary["lines"]["fallback_row_count"] == 0
-    assert summary["packets"]["packet_total"] == 1
-    assert summary["packets"]["state_counts"] == {"validated": 1}
-    assert summary["packets"]["attempt_type_counts"] == {"resume_existing_output": 1}
-    assert summary["packets"]["suspicious_packet_count"] == 1
+    assert summary["shards"]["shard_total"] == 1
+    assert summary["shards"]["state_counts"] == {"validated": 1}
+    assert summary["shards"]["attempt_type_counts"] == {"resume_existing_output": 1}
+    assert summary["shards"]["suspicious_shard_count"] == 1
     assert summary["important_artifacts"]["canonical_line_table_jsonl"] == "canonical_line_table.jsonl"
-    assert summary["important_artifacts"]["task_status_jsonl"] == "task_status.jsonl"
+    assert summary["important_artifacts"]["shard_status_jsonl"] == "shard_status.jsonl"
 
 
 def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) -> None:

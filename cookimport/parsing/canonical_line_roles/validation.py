@@ -15,163 +15,90 @@ def _validate_line_role_shard_proposal(
     shard: ShardManifestEntryV1,
     payload: dict[str, Any],
 ) -> tuple[bool, Sequence[str], dict[str, Any] | None]:
-    if not isinstance(payload, dict):
-        return False, ("proposal_not_a_json_object",), None
-    rows = payload.get("rows")
-    if not isinstance(rows, list):
-        return False, ("rows_missing_or_not_a_list",), None
-    owned_atomic_indices = [int(value) for value in shard.owned_ids]
-    expected_owned = set(owned_atomic_indices)
-    seen_owned: set[int] = set()
-    errors: list[str] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            errors.append("row_not_a_json_object")
+    errors, metadata = validate_line_role_output_payload(
+        {"input_payload": shard.input_payload},
+        payload,
+    )
+    mapped_errors: list[str] = []
+    row_errors_by_atomic_index = {
+        int(key): list(value)
+        for key, value in (metadata or {}).get("row_errors_by_atomic_index", {}).items()
+        if str(key).strip()
+    }
+    for error in errors:
+        cleaned = str(error).strip()
+        if not cleaned:
             continue
-        try:
-            atomic_index = int(row.get("atomic_index"))
-        except (TypeError, ValueError):
-            errors.append("atomic_index_missing")
-            continue
-        label = str(row.get("label") or "").strip()
-        if not label:
-            errors.append(f"missing_label:{atomic_index}")
-        elif label not in FREEFORM_ALLOWED_LABELS:
-            errors.append(f"invalid_label:{atomic_index}:{label}")
-        review_exclusion_reason = row.get("review_exclusion_reason")
-        try:
-            normalized_review_exclusion_reason = _normalize_review_exclusion_reason(
-                review_exclusion_reason
-            )
-        except ValueError as exc:
-            errors.append(f"invalid_review_exclusion_reason:{atomic_index}:{exc}")
-            normalized_review_exclusion_reason = None
-        if normalized_review_exclusion_reason is not None and label != "OTHER":
-            errors.append(f"review_exclusion_reason_requires_other:{atomic_index}")
-        if atomic_index not in expected_owned:
-            errors.append(f"unowned_atomic_index:{atomic_index}")
-            continue
-        if atomic_index in seen_owned:
-            errors.append(f"duplicate_atomic_index:{atomic_index}")
-            continue
-        seen_owned.add(atomic_index)
-    missing_owned = sorted(expected_owned - seen_owned)
+        if cleaned == "payload_not_object":
+            mapped_errors.append("proposal_not_a_json_object")
+        elif cleaned == "rows_not_list":
+            mapped_errors.append("rows_missing_or_not_a_list")
+        elif cleaned == "invalid_atomic_index":
+            mapped_errors.append("atomic_index_missing")
+        elif cleaned == "row_not_object":
+            mapped_errors.append("row_not_a_json_object")
+        else:
+            mapped_errors.append(cleaned)
+    rows_payload = payload.get("rows") if isinstance(payload, Mapping) else []
+    for atomic_index, row_errors in sorted(row_errors_by_atomic_index.items()):
+        row_payload = next(
+            (
+                row
+                for row in rows_payload
+                if isinstance(row, Mapping)
+                and row.get("atomic_index") is not None
+                and str(row.get("atomic_index")).strip()
+                and int(row.get("atomic_index")) == atomic_index
+            ),
+            {},
+        )
+        for row_error in row_errors:
+            if row_error == "invalid_label":
+                mapped_errors.append(
+                    f"invalid_label:{atomic_index}:{str(row_payload.get('label') or '').strip()}"
+                )
+            elif row_error == "review_exclusion_reason_requires_other":
+                mapped_errors.append(
+                    f"review_exclusion_reason_requires_other:{atomic_index}"
+                )
+            elif row_error == "invalid_review_exclusion_reason":
+                review_exclusion_reason = str(
+                    row_payload.get("review_exclusion_reason") or ""
+                ).strip()
+                mapped_errors.append(
+                    f"invalid_review_exclusion_reason:{atomic_index}:{review_exclusion_reason or '<blank>'}"
+                )
+            elif row_error == "unowned_atomic_index":
+                mapped_errors.append(f"unowned_atomic_index:{atomic_index}")
+            elif row_error == "duplicate_atomic_index":
+                mapped_errors.append(f"duplicate_atomic_index:{atomic_index}")
+    missing_owned = [
+        int(value)
+        for value in (metadata or {}).get("expected_atomic_indices", [])
+        if str(value).strip()
+        and int(value)
+        not in {
+            int(index)
+            for index in (metadata or {}).get("accepted_atomic_indices", [])
+            if str(index).strip()
+        }
+        and int(value)
+        not in {
+            int(index)
+            for index in (metadata or {}).get("invalid_row_atomic_indices", [])
+            if str(index).strip()
+        }
+    ]
     if missing_owned:
-        errors.append(
+        mapped_errors.append(
             "missing_owned_atomic_indices:" + ",".join(str(value) for value in missing_owned)
         )
-    metadata = {
-        "owned_row_count": len(expected_owned),
-        "returned_row_count": len(rows),
-        "validated_row_count": len(seen_owned),
-    }
-    return len(errors) == 0, tuple(errors), metadata
-
-def _aggregate_line_role_task_payloads(
-    *,
-    shard: ShardManifestEntryV1,
-    task_payloads_by_task_id: Mapping[str, dict[str, Any] | None],
-    task_validation_errors_by_task_id: Mapping[str, Sequence[str]],
-    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    ordered_atomic_indices = [int(value) for value in shard.owned_ids]
-    output_rows: list[dict[str, Any]] = []
-    accepted_task_ids: list[str] = []
-    fallback_task_ids: list[str] = []
-    task_payload_row_by_atomic_index: dict[int, dict[str, Any]] = {}
-    task_id_by_atomic_index: dict[int, str] = {}
-    for task_id, payload in task_payloads_by_task_id.items():
-        rows = payload.get("rows") if isinstance(payload, Mapping) else None
-        if not isinstance(rows, list):
-            continue
-        accepted_task_ids.append(task_id)
-        for row in rows:
-            if not isinstance(row, Mapping):
-                continue
-            try:
-                atomic_index = int(row.get("atomic_index"))
-            except (TypeError, ValueError):
-                continue
-            task_payload_row_by_atomic_index[atomic_index] = {
-                "atomic_index": atomic_index,
-                "label": str(row.get("label") or "").strip(),
-            }
-            task_id_by_atomic_index[atomic_index] = task_id
-    missing_atomic_indices: list[int] = []
-    baseline_fallback_atomic_indices: list[int] = []
-    for atomic_index in ordered_atomic_indices:
-        task_row = task_payload_row_by_atomic_index.get(atomic_index)
-        if task_row is not None and str(task_row.get("label") or "").strip():
-            output_rows.append(dict(task_row))
-            continue
-        baseline_prediction = deterministic_baseline_by_atomic_index.get(atomic_index)
-        if baseline_prediction is None:
-            missing_atomic_indices.append(atomic_index)
-            continue
-        output_rows.append(
-            {
-                "atomic_index": atomic_index,
-                "label": str(baseline_prediction.label or "OTHER").strip() or "OTHER",
-            }
-        )
-        baseline_fallback_atomic_indices.append(atomic_index)
-    fallback_task_ids = sorted(
-        {
-            str(task_id).strip()
-            for task_id, errors in task_validation_errors_by_task_id.items()
-            if errors or task_id not in accepted_task_ids
-        }
+    deduped_errors = tuple(dict.fromkeys(mapped_errors))
+    runtime_metadata = dict(metadata or {})
+    runtime_metadata["validated_row_count"] = len(
+        runtime_metadata.get("accepted_atomic_indices") or []
     )
-    all_task_ids = sorted(
-        {
-            str(task_id).strip()
-            for task_id in [*task_payloads_by_task_id.keys(), *task_validation_errors_by_task_id.keys()]
-            if str(task_id).strip()
-        }
-    )
-    metadata = {
-        "task_count": len(all_task_ids),
-        "accepted_task_count": len(accepted_task_ids),
-        "fallback_task_count": len(fallback_task_ids),
-        "accepted_task_ids": sorted(accepted_task_ids),
-        "task_ids": all_task_ids,
-        "fallback_task_ids": fallback_task_ids,
-        "baseline_fallback_atomic_indices": baseline_fallback_atomic_indices,
-        "missing_atomic_indices": missing_atomic_indices,
-        "task_validation_errors_by_task_id": {
-            task_id: list(errors)
-            for task_id, errors in task_validation_errors_by_task_id.items()
-            if errors
-        },
-        "task_id_by_atomic_index": {
-            str(atomic_index): task_id
-            for atomic_index, task_id in sorted(task_id_by_atomic_index.items())
-        },
-    }
-    return {"rows": output_rows}, metadata
-
-
-def _line_role_task_aggregation_validation_errors(
-    aggregation_metadata: Mapping[str, Any] | None,
-) -> tuple[str, ...]:
-    if not isinstance(aggregation_metadata, Mapping):
-        return ()
-    task_errors_by_task_id = aggregation_metadata.get("task_validation_errors_by_task_id")
-    if not isinstance(task_errors_by_task_id, Mapping):
-        return ()
-    errors: list[str] = []
-    seen_errors: set[str] = set()
-    for task_id in sorted(task_errors_by_task_id):
-        task_errors = task_errors_by_task_id.get(task_id)
-        if not isinstance(task_errors, list | tuple):
-            continue
-        for error in task_errors:
-            cleaned = str(error).strip()
-            if not cleaned or cleaned in seen_errors:
-                continue
-            seen_errors.add(cleaned)
-            errors.append(cleaned)
-    return tuple(errors)
+    return len(deduped_errors) == 0, deduped_errors, runtime_metadata
 
 def _validate_line_role_payload_semantics(
     *,
@@ -296,18 +223,77 @@ def _evaluate_line_role_response_with_pathology_guard(
         validation_metadata = {
             **dict(validation_metadata or {}),
             "semantic_diagnostics": list(semantic_errors),
+            "semantic_rejected": True,
         }
+        validation_errors = tuple([*validation_errors, *semantic_errors])
+        proposal_status = "invalid"
     return payload, validation_errors, validation_metadata, proposal_status
 
-def _build_line_role_task_status_row(
+def _build_line_role_row_resolution(
     *,
-    task_manifest: ShardManifestEntryV1,
+    shard: ShardManifestEntryV1,
+    validation_metadata: Mapping[str, Any] | None,
+    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    ordered_atomic_indices = [int(value) for value in shard.owned_ids]
+    accepted_rows = []
+    if not bool((validation_metadata or {}).get("semantic_rejected")):
+        accepted_rows = [
+            dict(row)
+            for row in (validation_metadata or {}).get("accepted_rows", [])
+            if isinstance(row, Mapping)
+        ]
+    accepted_by_atomic_index = {
+        int(row["atomic_index"]): dict(row)
+        for row in accepted_rows
+        if row.get("atomic_index") is not None and str(row.get("atomic_index")).strip()
+    }
+    final_rows: list[dict[str, Any]] = []
+    accepted_atomic_indices: list[int] = []
+    fallback_atomic_indices: list[int] = []
+    for atomic_index in ordered_atomic_indices:
+        accepted_row = accepted_by_atomic_index.get(atomic_index)
+        if accepted_row is not None:
+            final_rows.append(dict(accepted_row))
+            accepted_atomic_indices.append(atomic_index)
+            continue
+        baseline_prediction = deterministic_baseline_by_atomic_index.get(atomic_index)
+        fallback_row = {
+            "atomic_index": atomic_index,
+            "label": str(
+                (baseline_prediction.label if baseline_prediction is not None else "OTHER")
+                or "OTHER"
+            ).strip()
+            or "OTHER",
+        }
+        normalized_review_exclusion_reason = _normalize_review_exclusion_reason(
+            baseline_prediction.review_exclusion_reason
+            if baseline_prediction is not None
+            else None
+        )
+        if normalized_review_exclusion_reason is not None:
+            fallback_row["review_exclusion_reason"] = normalized_review_exclusion_reason
+        final_rows.append(fallback_row)
+        fallback_atomic_indices.append(atomic_index)
+    resolution_metadata = {
+        "accepted_atomic_indices": accepted_atomic_indices,
+        "fallback_atomic_indices": fallback_atomic_indices,
+        "accepted_row_count": len(accepted_atomic_indices),
+        "fallback_row_count": len(fallback_atomic_indices),
+        "semantic_rejected": bool((validation_metadata or {}).get("semantic_rejected")),
+    }
+    return {"rows": final_rows}, resolution_metadata
+
+def _build_line_role_shard_status_row(
+    *,
+    shard: ShardManifestEntryV1,
     worker_id: str,
     state: str,
     last_attempt_type: str,
     output_path: Path | None,
     validation_errors: Sequence[str],
     validation_metadata: Mapping[str, Any] | None,
+    row_resolution_metadata: Mapping[str, Any] | None,
     repair_attempted: bool,
     repair_status: str,
     resumed_from_existing_output: bool,
@@ -317,17 +303,23 @@ def _build_line_role_task_status_row(
         for value in (validation_metadata or {}).get("semantic_diagnostics", [])
         if str(value).strip()
     ]
-    owned_row_count = len(tuple(task_manifest.owned_ids))
-    llm_authoritative = state in {"validated", "repair_recovered"}
-    fallback_row_count = 0 if llm_authoritative else owned_row_count
+    owned_row_count = len(tuple(shard.owned_ids))
+    llm_authoritative_row_count = int(
+        (row_resolution_metadata or {}).get("accepted_row_count") or 0
+    )
+    fallback_row_count = int(
+        (row_resolution_metadata or {}).get("fallback_row_count") or 0
+    )
     metadata = {
         "repair_attempted": bool(repair_attempted),
         "repair_status": str(repair_status or "not_attempted"),
         "output_path": str(output_path) if output_path is not None else None,
         "owned_row_count": owned_row_count,
-        "llm_authoritative_row_count": owned_row_count if llm_authoritative else 0,
+        "llm_authoritative_row_count": llm_authoritative_row_count,
         "fallback_row_count": fallback_row_count,
-        "suspicious_row_count": owned_row_count if semantic_diagnostics else 0,
+        "suspicious_row_count": (
+            owned_row_count if semantic_diagnostics else fallback_row_count
+        ),
         "suspicious_shard": bool(semantic_diagnostics),
         "semantic_diagnostics": semantic_diagnostics,
         "resumed_from_existing_output": bool(resumed_from_existing_output),
@@ -337,10 +329,12 @@ def _build_line_role_task_status_row(
     }
     if validation_metadata:
         metadata["validation_metadata"] = dict(validation_metadata)
+    if row_resolution_metadata:
+        metadata["row_resolution"] = dict(row_resolution_metadata)
     return {
-        "shard_id": task_manifest.shard_id,
+        "shard_id": shard.shard_id,
         "worker_id": worker_id,
-        "owned_ids": [str(value).strip() for value in task_manifest.owned_ids if str(value).strip()],
+        "owned_ids": [str(value).strip() for value in shard.owned_ids if str(value).strip()],
         "state": state,
         "terminal_outcome": state,
         "last_attempt_type": last_attempt_type,
@@ -407,7 +401,7 @@ def _normalize_line_role_shard_outcome(
     watchdog_retry_status: str,
     repair_status: str,
     resumed_from_existing_outputs: bool,
-    aggregation_metadata: Mapping[str, Any] | None = None,
+    row_resolution_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     raw_supervision_state = (
         str(run_result.supervision_state or "").strip() or None
@@ -429,19 +423,14 @@ def _normalize_line_role_shard_outcome(
         if run_result is not None
         else False
     )
-    fallback_task_count = int(
-        (
-            aggregation_metadata.get("fallback_task_count")
-            if isinstance(aggregation_metadata, Mapping)
-            else 0
-        )
-        or 0
+    fallback_row_count = int(
+        ((row_resolution_metadata or {}).get("fallback_row_count") or 0)
     )
 
     if proposal_status == "validated":
         if (
             str(raw_supervision_state or "").lower() == "watchdog_killed"
-            and fallback_task_count > 0
+            and fallback_row_count > 0
         ):
             return {
                 "state": str(raw_supervision_state or "watchdog_killed"),
@@ -449,6 +438,24 @@ def _normalize_line_role_shard_outcome(
                 "reason_detail": raw_supervision_reason_detail,
                 "retryable": raw_supervision_retryable,
                 "finalization_path": "session_result",
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
+        if fallback_row_count > 0:
+            return {
+                "state": "completed_with_fallback",
+                "reason_code": (
+                    "repair_partial_fallback"
+                    if str(repair_status).strip() not in {"", "not_attempted"}
+                    else "row_fallback"
+                ),
+                "reason_detail": (
+                    "The final shard ledger preserved validated rows and kept unresolved rows on the deterministic baseline."
+                ),
+                "retryable": False,
+                "finalization_path": "row_fallback",
                 "raw_supervision_state": raw_supervision_state,
                 "raw_supervision_reason_code": raw_supervision_reason_code,
                 "raw_supervision_reason_detail": raw_supervision_reason_detail,
@@ -527,11 +534,23 @@ def _normalize_line_role_shard_outcome(
             "finalization_path": "session_completed",
             "raw_supervision_state": raw_supervision_state,
             "raw_supervision_reason_code": raw_supervision_reason_code,
-            "raw_supervision_reason_detail": raw_supervision_reason_detail,
-            "raw_supervision_retryable": raw_supervision_retryable,
-        }
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
 
     if run_result is None:
+        if fallback_row_count > 0:
+            return {
+                "state": "completed_with_fallback",
+                "reason_code": "resumed_with_row_fallback",
+                "reason_detail": "validated existing workspace outputs with deterministic fallback for unresolved rows",
+                "retryable": False,
+                "finalization_path": "resumed_with_row_fallback",
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            }
         reason_code, reason_detail = _line_role_resume_reason_fields(
             resumed_from_existing_outputs=resumed_from_existing_outputs
         )

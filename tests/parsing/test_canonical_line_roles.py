@@ -3035,7 +3035,7 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "deterministic_unavailable" in predictions[0].reason_tags
-    assert "task_packet_fallback" in predictions[0].reason_tags
+    assert "line_role_row_fallback" in predictions[0].reason_tags
     parse_errors_path = (
         tmp_path
         / "line-role-pipeline"
@@ -3044,8 +3044,8 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         / "parse_errors.json"
     )
     payload = json.loads(parse_errors_path.read_text(encoding="utf-8"))
-    assert payload["parse_error_count"] == 0
-    assert payload["parse_error_present"] is False
+    assert payload["parse_error_count"] == 1
+    assert payload["parse_error_present"] is True
     assert not (tmp_path / "line-role-pipeline" / "guardrail_report.json").exists()
     assert not (tmp_path / "line-role-pipeline" / "do_no_harm_diagnostics.json").exists()
     proposal_payload = json.loads(
@@ -3058,23 +3058,35 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    assert proposal_payload["validation_errors"] == []
-    assert (
-        proposal_payload["validation_metadata"]["task_aggregation"]["fallback_task_count"]
-        == 1
-    )
-    task_status_rows = [
+    assert proposal_payload["validation_errors"] == [
+        "row_order_mismatch",
+        "unowned_atomic_index:999",
+        "missing_owned_atomic_indices:0",
+    ]
+    assert proposal_payload["payload"] == {
+        "rows": [{"atomic_index": 0, "label": "OTHER"}]
+    }
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "failed"
+    assert proposal_payload["validation_metadata"]["row_resolution"] == {
+        "accepted_atomic_indices": [],
+        "accepted_row_count": 0,
+        "fallback_atomic_indices": [0],
+        "fallback_row_count": 1,
+        "semantic_rejected": False,
+    }
+    shard_status_rows = [
         json.loads(line)
         for line in (
             tmp_path
             / "line-role-pipeline"
             / "runtime"
             / "line_role"
-            / "task_status.jsonl"
+            / "shard_status.jsonl"
         ).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert task_status_rows[0]["state"] == "repair_failed"
+    assert shard_status_rows[0]["state"] == "fallback_only"
 
 
 def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
@@ -3251,14 +3263,7 @@ def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() ->
     ) != canonical_line_roles_module._canonical_candidate_fingerprint(updated)
 
 
-def test_line_role_task_plans_include_reference_only_neighbor_context(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        canonical_line_roles_module,
-        "_LINE_ROLE_TASK_CONTEXT_OVERLAP_ROWS",
-        3,
-    )
+def test_line_role_shard_plans_keep_owned_rows_without_hidden_task_splits() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -3303,78 +3308,8 @@ def test_line_role_task_plans_include_reference_only_neighbor_context(
     assert "context_after_rows" not in shard_plan.manifest_entry.input_payload
     assert "context_before_rows" not in shard_plan.debug_input_payload
     assert "context_after_rows" not in shard_plan.debug_input_payload
-
-    task_plans = canonical_line_roles_module._build_line_role_task_plans(  # noqa: SLF001
-        shard=shard_plan.manifest_entry,
-        debug_payload=shard_plan.debug_input_payload,
-        target_rows=2,
-    )
-
-    assert [task.task_id for task in task_plans] == [
-        "line-role-canonical-0001-a000000-a000007.task-001",
-        "line-role-canonical-0001-a000000-a000007.task-002",
-        "line-role-canonical-0001-a000000-a000007.task-003",
-        "line-role-canonical-0001-a000000-a000007.task-004",
-    ]
-
-    first_task = task_plans[0]
-    middle_task = task_plans[1]
-    last_task = task_plans[-1]
-
-    assert first_task.manifest_entry.owned_ids == ("0", "1")
-    assert first_task.manifest_entry.metadata["context_before_row_count"] == 0
-    assert first_task.manifest_entry.metadata["context_after_row_count"] == 3
-    assert first_task.manifest_entry.input_payload["context_before_rows"] == []
-    assert first_task.manifest_entry.input_payload["context_after_rows"] == [
-        [2, "Line 2"],
-        [3, "Line 3"],
-        [4, "Line 4"],
-    ]
-    assert first_task.debug_input_payload["context_before_rows"] == []
-    assert first_task.debug_input_payload["context_after_rows"] == [
-        {"atomic_index": 2, "current_line": "Line 2"},
-        {"atomic_index": 3, "current_line": "Line 3"},
-        {"atomic_index": 4, "current_line": "Line 4"},
-    ]
-
-    assert middle_task.manifest_entry.owned_ids == ("2", "3")
-    assert middle_task.manifest_entry.metadata["context_before_row_count"] == 2
-    assert middle_task.manifest_entry.metadata["context_after_row_count"] == 3
-    assert [row[0] for row in middle_task.manifest_entry.input_payload["rows"]] == [2, 3]
-    assert middle_task.manifest_entry.input_payload["context_before_rows"] == [
-        [0, "Line 0"],
-        [1, "Line 1"],
-    ]
-    assert middle_task.manifest_entry.input_payload["context_after_rows"] == [
-        [4, "Line 4"],
-        [5, "Line 5"],
-        [6, "Line 6"],
-    ]
-    assert all(
-        len(row) == 2
-        for row in (
-            middle_task.manifest_entry.input_payload["context_before_rows"]
-            + middle_task.manifest_entry.input_payload["context_after_rows"]
-        )
-    )
-    assert middle_task.debug_input_payload["context_before_rows"] == [
-        {"atomic_index": 0, "current_line": "Line 0"},
-        {"atomic_index": 1, "current_line": "Line 1"},
-    ]
-    assert middle_task.debug_input_payload["context_after_rows"] == [
-        {"atomic_index": 4, "current_line": "Line 4"},
-        {"atomic_index": 5, "current_line": "Line 5"},
-        {"atomic_index": 6, "current_line": "Line 6"},
-    ]
-    assert last_task.manifest_entry.owned_ids == ("6", "7")
-    assert last_task.manifest_entry.metadata["context_before_row_count"] == 3
-    assert last_task.manifest_entry.metadata["context_after_row_count"] == 0
-    assert last_task.manifest_entry.input_payload["context_before_rows"] == [
-        [3, "Line 3"],
-        [4, "Line 4"],
-        [5, "Line 5"],
-    ]
-    assert last_task.manifest_entry.input_payload["context_after_rows"] == []
+    assert shard_plan.manifest_entry.owned_ids == tuple(str(index) for index in range(8))
+    assert [row[0] for row in shard_plan.manifest_entry.input_payload["rows"]] == list(range(8))
 
 
 def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> None:
@@ -4270,7 +4205,7 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     assert status_payload["status"] == "validated"
     assert status_payload["state"] == "completed"
     assert status_payload["reason_code"] == "validated_after_watchdog_kill"
-    assert "validated using durable packet outputs" in status_payload["reason_detail"]
+    assert "validated using a durable shard ledger" in status_payload["reason_detail"]
 
     live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
     assert live_status_payload["state"] == "watchdog_killed"
@@ -5134,7 +5069,7 @@ def test_label_atomic_lines_accepts_valid_uniform_packet_output_without_revertin
     )
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
     assert proposal_payload["validation_errors"] == []
-    assert proposal_payload["validation_metadata"]["task_aggregation"]["fallback_task_count"] == 0
+    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 0
 
 
 def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against_diverse_baseline() -> None:
@@ -5201,15 +5136,9 @@ def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against
     assert "pathological_uniform_label_output:INGREDIENT_LINE" in semantic_errors
 
 
-def test_label_atomic_lines_repairs_split_task_packets(
-    monkeypatch,
+def test_label_atomic_lines_repairs_invalid_shard_ledgers(
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(
-        canonical_line_roles_module,
-        "_LINE_ROLE_TASK_TARGET_ROWS",
-        2,
-    )
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -5253,8 +5182,7 @@ def test_label_atomic_lines_repairs_split_task_packets(
         (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
     )
     assert [path.parent.name for path in repair_status_paths] == [
-        "line-role-canonical-0001-a000000-a000003.task-001",
-        "line-role-canonical-0001-a000000-a000003.task-002",
+        "line-role-canonical-0001-a000000-a000003",
     ]
     for repair_status_path in repair_status_paths:
         repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
@@ -5262,7 +5190,7 @@ def test_label_atomic_lines_repairs_split_task_packets(
         repair_prompt_path = repair_status_path.parent / "repair_prompt.txt"
         assert repair_prompt_path.exists()
         repair_prompt = repair_prompt_path.read_text(encoding="utf-8")
-        assert "Authoritative shard rows to relabel" in repair_prompt
+        assert "Authoritative unresolved shard rows to relabel" in repair_prompt
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
@@ -5426,25 +5354,24 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role"
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
-    assert "You are processing many canonical line-role tasks inside one local worker workspace. Each task owns one ordered line packet." in prompt_text
-    assert "Start by opening `worker_manifest.json`, then `CURRENT_TASK.md`, then `OUTPUT_CONTRACT.md`" in prompt_text
+    assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in prompt_text
+    assert "Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`, then `OUTPUT_CONTRACT.md`" in prompt_text
     assert "`tools/line_role_worker.py` exists, use it as the paved road" in prompt_text
-    assert "metadata.scratch_draft_path" in prompt_text
-    assert "python3 tools/line_role_worker.py finalize <draft_path>" in prompt_text
-    assert "python3 tools/line_role_worker.py finalize-all scratch/" in prompt_text
+    assert "python3 tools/line_role_worker.py check-phase" in prompt_text
+    assert "python3 tools/line_role_worker.py install-phase" in prompt_text
     assert "send one brief completion message naming the finished outputs and then stop" in prompt_text
-    assert "`prepare-all --dest-dir scratch/`, and `scaffold <task_id> --dest scratch/<task_id>.json` are fallback/debug tools" in prompt_text
+    assert "`python3 tools/line_role_worker.py overview`, `show <shard_id>`, and `scaffold <shard_id> --dest <path>` are fallback/debug tools" in prompt_text
     assert "Long handwritten `jq` transforms are unnecessary here" in prompt_text
     assert "keep them narrow and grounded on the named local files only" in prompt_text
     assert "Stay inside this workspace" in prompt_text
-    assert "Treat `CURRENT_TASK.md` as the cheapest repo-written first read." in prompt_text
-    assert "Use `assigned_tasks.json` only for ordered queue/progress context" in prompt_text
-    assert "start from the prewritten draft and hint before reopening the raw packet" in prompt_text
-    assert "Treat each packet's deterministic label code as a strong prior." in prompt_text
+    assert "Treat `CURRENT_PHASE.md` as the cheapest repo-written first read." in prompt_text
+    assert "Use `assigned_shards.json` only for ordered ownership/progress context" in prompt_text
+    assert "start from the prewritten work ledger and hint before reopening the raw input ledger" in prompt_text
+    assert "Treat each shard ledger's deterministic label code as a strong prior." in prompt_text
     assert "If `OUTPUT_CONTRACT.md` or `examples/` exists" in prompt_text
     assert "`HOWTO_SECTION` is book-optional" in prompt_text
     assert "Balancing Fat" in prompt_text
-    assert "Write exactly one JSON object to `out/<task_id>.json`." in prompt_text
+    assert "Write and revise the active shard only in `work/<shard_id>.json`." in prompt_text
     worker_prompt_text = (
         prompt_root
         / "runtime"
@@ -5455,9 +5382,9 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line-role-canonical-0001-a000000-a000000"
         / "prompt.txt"
     ).read_text(encoding="utf-8")
-    assert "You are processing many canonical line-role tasks inside one local worker workspace. Each task owns one ordered line packet." in worker_prompt_text
+    assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in worker_prompt_text
     assert "worker_manifest.json" in worker_prompt_text
-    assert "Assigned task files:" in worker_prompt_text
+    assert "CURRENT_PHASE.md" in worker_prompt_text
 
 
 def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_contract(
@@ -5480,17 +5407,24 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     )
     assert worker_manifest_payload["entry_files"] == [
         "worker_manifest.json",
-        "current_task.json",
-        "CURRENT_TASK.md",
+        "current_phase.json",
+        "CURRENT_PHASE.md",
+        "CURRENT_PHASE_FEEDBACK.md",
         "assigned_shards.json",
-        "assigned_tasks.json",
     ]
-    assert worker_manifest_payload["current_task_file"] == "current_task.json"
-    assert worker_manifest_payload["current_task_brief_file"] == "CURRENT_TASK.md"
+    assert worker_manifest_payload["assigned_tasks_file"] is None
+    assert worker_manifest_payload["current_phase_file"] == "current_phase.json"
+    assert worker_manifest_payload["current_phase_brief_file"] == "CURRENT_PHASE.md"
+    assert worker_manifest_payload["current_phase_feedback_file"] == "CURRENT_PHASE_FEEDBACK.md"
+    assert worker_manifest_payload["current_task_file"] is None
+    assert worker_manifest_payload["current_task_brief_file"] is None
     assert worker_manifest_payload["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest_payload["examples_dir"] == "examples"
     assert worker_manifest_payload["tools_dir"] == "tools"
     assert worker_manifest_payload["hints_dir"] == "hints"
+    assert worker_manifest_payload["scratch_dir"] is None
+    assert worker_manifest_payload["work_dir"] == "work"
+    assert worker_manifest_payload["repair_dir"] == "repair"
     assert worker_manifest_payload["mirrored_example_files"] == [
         "01-lesson-prose-vs-howto.md",
         "02-memoir-vs-knowledge.md",
@@ -5499,54 +5433,56 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
         "valid_line_role_output.json",
     ]
     assert worker_manifest_payload["mirrored_tool_files"] == ["line_role_worker.py"]
-    assert worker_manifest_payload["mirrored_scratch_files"] == [
+    assert worker_manifest_payload["mirrored_scratch_files"] == []
+    assert worker_manifest_payload["mirrored_work_files"] == [
         "line-role-canonical-0001-a000000-a000000.json"
     ]
-    current_task_payload = json.loads(
+    current_phase_payload = json.loads(
         (
             prompt_root
             / "runtime"
             / "line_role"
             / "workers"
             / "worker-001"
-            / "current_task.json"
+            / "current_phase.json"
         ).read_text(encoding="utf-8")
     )
-    assert current_task_payload["metadata"]["input_path"].startswith("in/")
-    assert current_task_payload["metadata"]["hint_path"].startswith("hints/")
-    assert current_task_payload["metadata"]["result_path"].startswith("out/")
-    assert current_task_payload["metadata"]["scratch_draft_path"].startswith("scratch/")
-    assert current_task_payload["metadata"]["owned_row_count"] == 1
-    assert current_task_payload["metadata"]["atomic_index_start"] == 0
-    assert current_task_payload["metadata"]["atomic_index_end"] == 0
-    assert current_task_payload["metadata"]["deterministic_label_counts"] == {
+    assert current_phase_payload["metadata"]["input_path"].startswith("in/")
+    assert current_phase_payload["metadata"]["hint_path"].startswith("hints/")
+    assert current_phase_payload["metadata"]["result_path"].startswith("out/")
+    assert current_phase_payload["metadata"]["work_path"].startswith("work/")
+    assert current_phase_payload["metadata"]["repair_path"].startswith("repair/")
+    assert current_phase_payload["metadata"]["owned_row_count"] == 1
+    assert current_phase_payload["metadata"]["atomic_index_start"] == 0
+    assert current_phase_payload["metadata"]["atomic_index_end"] == 0
+    assert current_phase_payload["metadata"]["deterministic_label_counts"] == {
         "OTHER": 1
     }
-    assert "input_payload" not in current_task_payload
-    scratch_draft_payload = json.loads(
+    assert "input_payload" not in current_phase_payload
+    work_ledger_payload = json.loads(
         (
             prompt_root
             / "runtime"
             / "line_role"
             / "workers"
             / "worker-001"
-            / current_task_payload["metadata"]["scratch_draft_path"]
+            / current_phase_payload["metadata"]["work_path"]
         ).read_text(encoding="utf-8")
     )
-    assert scratch_draft_payload == {
+    assert work_ledger_payload == {
         "rows": [{"atomic_index": 0, "label": "OTHER"}]
     }
-    current_task_brief = (
+    current_phase_brief = (
         prompt_root
         / "runtime"
         / "line_role"
         / "workers"
         / "worker-001"
-        / "CURRENT_TASK.md"
+        / "CURRENT_PHASE.md"
     ).read_text(encoding="utf-8")
-    assert "Current Line-Role Task" in current_task_brief
-    assert "Draft:" in current_task_brief
-    assert "Ambiguous line 0" not in current_task_brief
+    assert "Current Line-Role Phase" in current_phase_brief
+    assert "Work ledger:" in current_phase_brief
+    assert "Ambiguous line 0" not in current_phase_brief
 
 
 def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_artifacts(
@@ -5658,15 +5594,10 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
     ).exists()
 
 
-def test_label_atomic_lines_splits_one_shard_into_multiple_task_packets(
+def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_tasks(
     monkeypatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(
-        canonical_line_roles_module,
-        "_LINE_ROLE_TASK_TARGET_ROWS",
-        2,
-    )
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -5701,17 +5632,16 @@ def test_label_atomic_lines_splits_one_shard_into_multiple_task_packets(
         / "workers"
         / "worker-001"
     )
-    assigned_tasks = json.loads(
-        (worker_root / "assigned_tasks.json").read_text(encoding="utf-8")
+    assert not (worker_root / "assigned_tasks.json").exists()
+    assigned_shards = json.loads(
+        (worker_root / "assigned_shards.json").read_text(encoding="utf-8")
     )
-    assert [row["task_id"] for row in assigned_tasks] == [
-        "line-role-canonical-0001-a000000-a000003.task-001",
-        "line-role-canonical-0001-a000000-a000003.task-002",
+    assert [row["shard_id"] for row in assigned_shards] == [
+        "line-role-canonical-0001-a000000-a000003"
     ]
-    assert all("input_payload" not in row for row in assigned_tasks)
+    assert assigned_shards[0]["metadata"]["owned_row_count"] == 4
     assert sorted(path.name for path in (worker_root / "out").glob("*.json")) == [
-        "line-role-canonical-0001-a000000-a000003.task-001.json",
-        "line-role-canonical-0001-a000000-a000003.task-002.json",
+        "line-role-canonical-0001-a000000-a000003.json",
     ]
     proposal_payload = json.loads(
         (
@@ -5725,12 +5655,10 @@ def test_label_atomic_lines_splits_one_shard_into_multiple_task_packets(
     )
     assert proposal_payload["validation_errors"] == []
     assert len(proposal_payload["payload"]["rows"]) == 4
-    assert (
-        proposal_payload["validation_metadata"]["task_aggregation"]["task_count"] == 2
-    )
+    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 0
 
 
-def test_label_atomic_lines_writes_canonical_line_table_and_task_status(
+def test_label_atomic_lines_writes_canonical_line_table_and_shard_status(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -5748,7 +5676,11 @@ def test_label_atomic_lines_writes_canonical_line_table_and_task_status(
 
     predictions = label_atomic_lines(
         candidates,
-        _settings("codex-line-role-shard-v1", line_role_worker_count=1),
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_worker_count=1,
+            line_role_prompt_target_count=1,
+        ),
         artifact_root=tmp_path,
         codex_batch_size=2,
         codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE"}),
@@ -5764,17 +5696,17 @@ def test_label_atomic_lines_writes_canonical_line_table_and_task_status(
     ]
     assert [row["line_id"] for row in line_table_rows] == ["0", "1"]
     assert [row["current_line"] for row in line_table_rows] == ["Line 0", "Line 1"]
-    task_status_rows = [
+    shard_status_rows = [
         json.loads(line)
-        for line in (runtime_root / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (runtime_root / "shard_status.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert all(row["state"] == "validated" for row in task_status_rows)
-    assert sum(row["metadata"]["llm_authoritative_row_count"] for row in task_status_rows) == 2
-    assert sum(row["metadata"]["fallback_row_count"] for row in task_status_rows) == 0
+    assert all(row["state"] == "validated" for row in shard_status_rows)
+    assert sum(row["metadata"]["llm_authoritative_row_count"] for row in shard_status_rows) == 2
+    assert sum(row["metadata"]["fallback_row_count"] for row in shard_status_rows) == 0
 
 
-def test_label_atomic_lines_resume_existing_valid_packet_outputs_without_rerunning_worker(
+def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunning_worker(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -5814,22 +5746,22 @@ def test_label_atomic_lines_resume_existing_valid_packet_outputs_without_rerunni
 
     assert [prediction.label for prediction in second_predictions] == ["OTHER", "OTHER"]
     assert second_runner.calls == []
-    task_status_rows = [
+    shard_status_rows = [
         json.loads(line)
         for line in (
             tmp_path
             / "line-role-pipeline"
             / "runtime"
             / "line_role"
-            / "task_status.jsonl"
+            / "shard_status.jsonl"
         ).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert task_status_rows[0]["last_attempt_type"] == "resume_existing_output"
-    assert task_status_rows[0]["metadata"]["resumed_from_existing_output"] is True
+    assert shard_status_rows[0]["last_attempt_type"] == "resume_existing_output"
+    assert shard_status_rows[0]["metadata"]["resumed_from_existing_output"] is True
 
 
-def test_line_role_workspace_worker_invalid_task_output_falls_back_without_invalidating_parent_shard(
+def test_line_role_workspace_worker_invalid_shard_ledger_falls_back_without_promoting_it(
     tmp_path,
 ) -> None:
     predictions = label_atomic_lines(
@@ -5867,12 +5799,15 @@ def test_line_role_workspace_worker_invalid_task_output_falls_back_without_inval
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    assert proposal_payload["validation_errors"] == []
-    assert proposal_payload["payload"]["rows"] == [{"atomic_index": 0, "label": "OTHER"}]
-    assert (
-        proposal_payload["validation_metadata"]["task_aggregation"]["fallback_task_count"]
-        == 1
-    )
+    assert proposal_payload["validation_errors"] == [
+        "row_order_mismatch",
+        "unowned_atomic_index:999",
+        "missing_owned_atomic_indices:0",
+    ]
+    assert proposal_payload["payload"] == {
+        "rows": [{"atomic_index": 0, "label": "OTHER"}]
+    }
+    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_atomic_indices"] == [0]
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
@@ -5881,6 +5816,63 @@ def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
     monkeypatch.delenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", raising=False)
 
     assert canonical_line_roles_module._resolve_line_role_prompt_format() == "compact_v1"
+
+
+def test_label_atomic_lines_preserves_accepted_rows_when_only_part_of_shard_falls_back(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:partial-fallback:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+        for index in range(2)
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_worker_count=1,
+            line_role_prompt_target_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=FakeCodexExecRunner(
+            output_builder=lambda _payload: {
+                "rows": [
+                    {"atomic_index": 0, "label": "OTHER"},
+                    {"atomic_index": 999, "label": "OTHER"},
+                ]
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].decided_by == "codex"
+    assert predictions[1].decided_by != "codex"
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000001.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["validation_metadata"]["row_resolution"] == {
+        "accepted_atomic_indices": [0],
+        "accepted_row_count": 1,
+        "fallback_atomic_indices": [1],
+        "fallback_row_count": 1,
+        "semantic_rejected": False,
+    }
 
 
 def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_and_finish() -> None:
@@ -5913,16 +5905,14 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
     )
 
     progress_texts = _progress_messages_as_text(progress_messages)
+    shard_progress_texts = [text for text in progress_texts if " shard " in text]
     assert [row.atomic_index for row in predictions] == [0, 1, 2]
-    assert progress_texts[0] == (
-        "Running canonical line-role pipeline... task 0/3"
-    )
     assert (
-        "Running canonical line-role pipeline... task 0/3 | running 2"
-        in progress_texts
+        "Running canonical line-role pipeline... shard 0/3 | running 2"
+        in shard_progress_texts
     )
-    assert progress_texts[-1] == (
-        "Running canonical line-role pipeline... task 3/3 | running 0"
+    assert shard_progress_texts[-1] == (
+        "Running canonical line-role pipeline... shard 3/3 | running 0"
     )
 
 
@@ -5958,7 +5948,7 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
     progress_texts = _progress_messages_as_text(progress_messages)
     assert [row.atomic_index for row in predictions] == [0, 1, 2]
     assert (
-        "Running canonical line-role pipeline... task 0/3 | running 3"
+        "Running canonical line-role pipeline... shard 0/3 | running 3"
         in progress_texts
     )
     phase_manifest = json.loads(
@@ -6009,7 +5999,7 @@ def test_label_atomic_lines_defaults_workers_to_shard_count_when_unspecified() -
     progress_texts = _progress_messages_as_text(progress_messages)
     assert [row.atomic_index for row in predictions] == [0, 1, 2, 3, 4]
     assert (
-        "Running canonical line-role pipeline... task 0/5 | running 5"
+        "Running canonical line-role pipeline... shard 0/5 | running 5"
         in progress_texts
     )
 

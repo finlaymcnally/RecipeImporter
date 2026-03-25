@@ -27,18 +27,24 @@ def test_run_settings_contracts_stays_model_agnostic() -> None:
     assert "from cookimport.config.run_settings import" not in contracts_text
 
 
-def test_templates_and_knowledge_orchestrator_stay_thin_facades() -> None:
+def test_templates_and_llm_orchestrators_stay_thin_facades() -> None:
     templates_text = _read("cookimport/analytics/dashboard_renderers/templates.py")
-    orchestrator_text = _read("cookimport/llm/codex_farm_knowledge_orchestrator.py")
+    knowledge_orchestrator_text = _read("cookimport/llm/codex_farm_knowledge_orchestrator.py")
+    recipe_orchestrator_text = _read("cookimport/llm/codex_farm_orchestrator.py")
 
     assert "from .html_shell import _HTML" in templates_text
     assert "from .script_asset import _JS" in templates_text
     assert "from .style_asset import _CSS" in templates_text
     assert len(templates_text.splitlines()) <= 10
 
-    assert "knowledge_stage as _knowledge_stage" in orchestrator_text
-    assert "sys.modules[__name__] = _knowledge_stage" in orchestrator_text
-    assert len(orchestrator_text.splitlines()) <= 12
+    assert "from cookimport.llm.knowledge_stage.planning import (" in knowledge_orchestrator_text
+    assert "from cookimport.llm.knowledge_stage.recovery import (" in knowledge_orchestrator_text
+    assert "from cookimport.llm.knowledge_stage.runtime import (" in knowledge_orchestrator_text
+    assert len(knowledge_orchestrator_text.splitlines()) <= 20
+
+    assert "recipe_stage as _recipe_stage" in recipe_orchestrator_text
+    assert "sys.modules[__name__] = _recipe_stage" in recipe_orchestrator_text
+    assert len(recipe_orchestrator_text.splitlines()) <= 10
 
 
 def test_run_settings_root_exports_helpers_without_reowning_them() -> None:
@@ -76,6 +82,21 @@ def test_package_owner_modules_exist_for_split_domains() -> None:
         REPO_ROOT / "cookimport" / "llm" / "knowledge_stage" / "recovery.py",
         REPO_ROOT / "cookimport" / "llm" / "knowledge_stage" / "reporting.py",
         REPO_ROOT / "cookimport" / "llm" / "knowledge_stage" / "runtime.py",
+        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "__init__.py",
+        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "planning.py",
+        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "runtime.py",
+        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "validation.py",
+        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "promotion.py",
+        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "recovery.py",
+        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "reporting.py",
+        REPO_ROOT / "cookimport" / "staging" / "nonrecipe_authority_contract.py",
+        REPO_ROOT / "cookimport" / "staging" / "nonrecipe_seed.py",
+        REPO_ROOT / "cookimport" / "staging" / "nonrecipe_routing.py",
+        REPO_ROOT / "cookimport" / "staging" / "nonrecipe_authority.py",
+        REPO_ROOT / "cookimport" / "staging" / "nonrecipe_review_status.py",
+        REPO_ROOT / "cookimport" / "staging" / "recipe_block_evidence.py",
+        REPO_ROOT / "cookimport" / "staging" / "knowledge_block_evidence.py",
+        REPO_ROOT / "cookimport" / "staging" / "block_label_resolution.py",
         REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "html_shell.py",
         REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "style_asset.py",
         REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "script_asset.py",
@@ -108,6 +129,9 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     bench_text = _read("cookimport/cli_support/bench.py")
     line_role_text = _read("cookimport/parsing/canonical_line_roles/__init__.py")
     knowledge_text = _read("cookimport/llm/knowledge_stage/__init__.py")
+    recipe_stage_text = _read("cookimport/llm/recipe_stage/__init__.py")
+    nonrecipe_text = _read("cookimport/staging/nonrecipe_stage.py")
+    stage_predictions_text = _read("cookimport/staging/stage_block_predictions.py")
     script_asset_text = _read("cookimport/analytics/dashboard_renderers/script_asset.py")
     run_settings_text = _read("cookimport/config/run_settings.py")
 
@@ -119,8 +143,24 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     assert '("policy", "planning", "validation", "runtime")' in line_role_text
     assert len(line_role_text.splitlines()) <= 500
 
-    assert '("planning", "promotion", "recovery", "runtime")' in knowledge_text
-    assert len(knowledge_text.splitlines()) <= 250
+    assert "from .planning import CodexFarmNonrecipeKnowledgeReviewResult" in knowledge_text
+    assert "from .recovery import _preflight_knowledge_shard" in knowledge_text
+    assert "from .runtime import run_codex_farm_nonrecipe_knowledge_review" in knowledge_text
+    assert len(knowledge_text.splitlines()) <= 40
+
+    assert "from . import planning as _planning_module" in recipe_stage_text
+    assert "from . import runtime as _runtime_module" in recipe_stage_text
+    assert "from . import validation as _validation_module" in recipe_stage_text
+    assert len(recipe_stage_text.splitlines()) <= 80
+
+    assert "build_nonrecipe_authority_contract" in nonrecipe_text
+    assert "build_nonrecipe_routing_result" in nonrecipe_text
+    assert len(nonrecipe_text.splitlines()) <= 350
+
+    assert "build_recipe_block_evidence" in stage_predictions_text
+    assert "build_knowledge_block_evidence" in stage_predictions_text
+    assert "resolve_stage_block_label" in stage_predictions_text
+    assert len(stage_predictions_text.splitlines()) <= 160
 
     assert "from .script_bootstrap import _JS_BOOTSTRAP" in script_asset_text
     assert "from .script_filters import _JS_FILTERS" in script_asset_text

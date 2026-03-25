@@ -626,7 +626,7 @@ def _write_line_role_worker_hint(
     span_outside = 0
     span_unknown = 0
     attention_lines: list[str] = []
-    packet_context = _build_line_role_packet_context(rows=debug_rows)
+    shard_context = _build_line_role_shard_context(rows=debug_rows)
     for row in debug_rows:
         if not isinstance(row, Mapping):
             continue
@@ -659,21 +659,21 @@ def _write_line_role_worker_hint(
             continue
         current_line = str(row.get("current_line") or "").strip()
         input_code = input_row_by_atomic_index.get(atomic_index, ("", "", ""))[1]
-        packet_index = order_lookup.get(atomic_index)
+        row_index = order_lookup.get(atomic_index)
         prev_line = "[start]"
         next_line = "[end]"
-        if packet_index is not None:
-            if packet_index > 0:
-                prev_atomic_index = ordered_atomic_indices[packet_index - 1]
+        if row_index is not None:
+            if row_index > 0:
+                prev_atomic_index = ordered_atomic_indices[row_index - 1]
                 prev_line = input_row_by_atomic_index.get(prev_atomic_index, ("", "", ""))[2]
-            if packet_index < (len(ordered_atomic_indices) - 1):
-                next_atomic_index = ordered_atomic_indices[packet_index + 1]
+            if row_index < (len(ordered_atomic_indices) - 1):
+                next_atomic_index = ordered_atomic_indices[row_index + 1]
                 next_line = input_row_by_atomic_index.get(next_atomic_index, ("", "", ""))[2]
         attention_lines.append(
             f"`{atomic_index}` `{preview_text(current_line, max_chars=90)}` -> deterministic `{deterministic_label}`, input code `{input_code}` ({label_by_code.get(input_code, 'unknown')}), tags `{', '.join(rule_tags) or 'none'}`, escalation `{', '.join(escalation_reasons) or 'none'}`, prev `{preview_text(prev_line, max_chars=60)}`, next `{preview_text(next_line, max_chars=60)}`"
         )
 
-    packet_profile = [
+    shard_profile = [
         f"Owned rows: {len(input_row_by_atomic_index)}.",
         f"Deterministic label mix: {', '.join(f'{label}={count}' for label, count in sorted(label_counts.items())) or 'none'}.",
         f"Rows with rule tags or escalation reasons: {flagged_count}.",
@@ -684,28 +684,28 @@ def _write_line_role_worker_hint(
         f"`{code}` = `{label}`"
         for label, code in sorted(code_by_label.items(), key=lambda item: item[1])
     ]
-    packet_interpretation = [
-        str(packet_context.get("packet_summary") or "No packet summary available."),
+    shard_interpretation = [
+        str(shard_context.get("shard_summary") or "No shard summary available."),
         (
             "Confidence: "
-            f"{str(packet_context.get('context_confidence') or 'low')}. "
-            f"Packet mode: {str(packet_context.get('packet_mode') or 'mixed_boundaries')}."
+            f"{str(shard_context.get('context_confidence') or 'low')}. "
+            f"Shard mode: {str(shard_context.get('shard_mode') or 'mixed_boundaries')}."
         ),
-        str(packet_context.get("default_posture") or "Make conservative packet-local corrections."),
+        str(shard_context.get("default_posture") or "Make conservative shard-local corrections."),
     ]
-    decision_policy = list(packet_context.get("flip_policy") or [])
+    decision_policy = list(shard_context.get("flip_policy") or [])
     decision_policy.extend(
         f"Strong signal: {value}"
-        for value in list(packet_context.get("strong_signals") or [])
+        for value in list(shard_context.get("strong_signals") or [])
     )
     decision_policy.extend(
         f"Weak signal: {value}"
-        for value in list(packet_context.get("weak_signals") or [])
+        for value in list(shard_context.get("weak_signals") or [])
     )
-    packet_examples = [
+    shard_examples = [
         f"`examples/{filename}`"
-        for filename in list(packet_context.get("example_files") or [])
-    ] or ["Worker-local examples are not available for this packet."]
+        for filename in list(shard_context.get("example_files") or [])
+    ] or ["Worker-local examples are not available for this shard."]
     if not attention_lines:
         attention_lines = [
             "No special attention rows were flagged. Read the authoritative rows in order and use nearby neighbors for disambiguation."
@@ -719,10 +719,10 @@ def _write_line_role_worker_hint(
             "Use nearby rows to disambiguate front matter, lesson prose, headings, and recipe-local structure.",
         ],
         sections=[
-            ("Packet profile", packet_profile),
-            ("Packet interpretation", packet_interpretation),
+            ("Shard profile", shard_profile),
+            ("Shard interpretation", shard_interpretation),
             ("Decision policy", decision_policy),
-            ("Packet examples", packet_examples),
+            ("Shard examples", shard_examples),
             ("Label code legend", legend_lines),
             ("Attention rows", attention_lines),
         ],

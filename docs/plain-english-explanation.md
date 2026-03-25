@@ -231,7 +231,11 @@ That includes:
 
 Sections come from the finalized recipe side.
 
-Tables and chunks follow the stage-owned outside-recipe result. If no outside-recipe material survives into that late stage-owned view, the correct answer is no such outputs.
+Tables and chunks follow a late-output outside-recipe block list, not the strict authority cache blindly.
+
+If knowledge review ran and produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
+
+If knowledge review is off or falls back, that late-output list is instead the surviving review queue from `nonrecipe-route`, so the run can still build useful deterministic tables and chunks without pretending that unreviewed rows are final truth.
 
 `stage_block_predictions.json` matters because it is the run's block-level benchmark evidence after the real authority decisions have already happened.
 
@@ -243,5 +247,5 @@ So the end of the run is: write recipes, write outside-recipe authority, write t
 - The deterministic label-first path still runs even when recipe and knowledge LLM stages are both off.
 - Accepted recipe spans are the recipe ownership boundary. Later stages refine those recipes into final structured outputs.
 - `nonrecipe-route` routes and records. `knowledge-final` decides the final meaning of reviewable outside-recipe rows.
-- `ConversionResult.non_recipe_blocks` mirrors the stage-owned outside-recipe result for downstream consumers.
+- `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
 - Split PDF and EPUB jobs do early conversion in pieces, but semantic authority still happens once on the merged whole-book view.

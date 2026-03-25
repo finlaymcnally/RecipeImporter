@@ -192,29 +192,50 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    task_status_rows = [
+    task_status_path = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "task_status.jsonl"
+    )
+    task_status_rows = (
+        [
+            json.loads(line)
+            for line in task_status_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if task_status_path.exists()
+        else []
+    )
+
+    assert [row["reason"] for row in failures] == ["proposal_validation_failed"]
+    assert failures[0]["validation_errors"] == [
+        "unowned_atomic_index:999",
+        "missing_owned_atomic_indices:0",
+    ]
+    assert parse_errors["parse_error_count"] == 1
+    assert proposal["validation_errors"] == [
+        "unowned_atomic_index:999",
+        "missing_owned_atomic_indices:0",
+    ]
+    assert (
+        proposal["validation_metadata"]["repair_validation_errors"]
+        == ["unowned_atomic_index:999", "missing_owned_atomic_indices:0"]
+    )
+    shard_status_rows = [
         json.loads(line)
         for line in (
             tmp_path
             / "line-role-pipeline"
             / "runtime"
             / "line_role"
-            / "task_status.jsonl"
+            / "shard_status.jsonl"
         ).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-
-    assert failures == []
-    assert parse_errors["parse_error_count"] == 0
-    assert proposal["validation_errors"] == []
-    assert proposal["validation_metadata"]["task_aggregation"]["fallback_task_count"] == 1
-    assert (
-        proposal["validation_metadata"]["task_aggregation"]["task_validation_errors_by_task_id"][
-            "line-role-canonical-0001-a000000-a000000"
-        ]
-        == ["unowned_atomic_index:999", "missing_owned_atomic_indices:0"]
-    )
-    assert [row["state"] for row in task_status_rows] == ["repair_failed"]
+    assert not task_status_rows
+    assert [row["state"] for row in shard_status_rows] == ["repair_failed"]
 
 
 def test_line_role_phase_workers_emit_runtime_telemetry_summary(
@@ -389,7 +410,7 @@ def test_line_role_phase_workers_report_task_packet_progress(
     ]
 
     assert payloads
-    assert payloads[-1]["work_unit_label"] == "task"
+    assert payloads[-1]["work_unit_label"] == "shard"
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"] == 2
     assert any(int(payload.get("worker_total") or 0) == 2 for payload in payloads)
     assert any(payload.get("followup_label") == "shard finalization" for payload in payloads)
