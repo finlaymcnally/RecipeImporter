@@ -176,8 +176,8 @@ Stage-block `KNOWLEDGE` label contract:
 - `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.
 - `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Optional knowledge groups and snippets are reviewer-facing evidence; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
-- Review-eligible rows that remain unreviewed stay visible only in the seed-routing and review-status artifacts; they must not be treated as reviewed semantic authority by scoring or Label Studio projection.
-- `ConversionResult.non_recipe_blocks`, table extraction, and chunk generation now mirror final Stage 7 non-recipe authority only; runs with zero final non-recipe rows simply emit no chunks.
+- Review-eligible rows that remain unreviewed now stay explicit in benchmark/Label Studio metadata as `unresolved_review_eligible_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
+- `ConversionResult.non_recipe_blocks`, table extraction, and deterministic knowledge-off chunk generation now use the surviving outside-recipe review queue, not just final semantic authority. Final semantic `KNOWLEDGE` evidence still comes only from `09_nonrecipe_authority.json`.
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).

@@ -204,6 +204,7 @@ Current rule:
 - prediction generation is responsible for setting those canonical pointers to the correct artifacts for the run
 - canonical-text line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
 - new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing older fallback filenames or implicit directories
+- semantic stage/canonical scoring uses only authoritative predictions. If `stage_block_predictions.json` carries `unresolved_review_eligible_block_indices`, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
 
 ### 3.2 Gold inputs
 

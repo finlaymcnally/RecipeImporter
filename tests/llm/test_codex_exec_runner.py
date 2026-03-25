@@ -192,6 +192,28 @@ def test_summarize_direct_telemetry_rows_prefers_final_proposal_status() -> None
     assert summary["repaired_shard_count"] == 1
 
 
+def test_summarize_direct_telemetry_rows_counts_same_session_fix_statuses() -> None:
+    summary = summarize_direct_telemetry_rows(
+        [
+            {
+                "task_id": "shard-001",
+                "same_session_fix_attempted": True,
+                "same_session_fix_status": "recovered",
+            },
+            {
+                "task_id": "shard-002",
+                "same_session_fix_attempted": True,
+                "same_session_fix_status": "budget_exhausted",
+            },
+        ]
+    )
+
+    assert summary["same_session_fix_attempted_task_count"] == 2
+    assert summary["same_session_fix_recovered_task_count"] == 1
+    assert summary["same_session_fix_escalated_task_count"] == 1
+    assert summary["same_session_fix_budget_exhausted_task_count"] == 1
+
+
 def test_summarize_direct_telemetry_rows_marks_missing_usage_unavailable() -> None:
     summary = summarize_direct_telemetry_rows(
         [

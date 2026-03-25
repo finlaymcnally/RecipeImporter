@@ -14,6 +14,7 @@ from cookimport.runs import (
     summarize_knowledge_stage_artifacts,
     write_stage_observability_report,
 )
+from cookimport.runs.stage_observability import build_recipe_stage_summary
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -247,6 +248,38 @@ def test_write_stage_observability_report_writes_recipe_and_line_role_stage_summ
 
     assert (run_root / recipe_stage["workbooks"][0]["artifact_paths"]["recipe_stage_summary_json"]).exists()
     assert (run_root / line_role_stage["workbooks"][0]["artifact_paths"]["line_role_stage_summary_json"]).exists()
+
+
+def test_build_recipe_stage_summary_reports_same_session_fix_rollups(tmp_path: Path) -> None:
+    stage_root = tmp_path / "raw" / "llm" / "book" / "recipe_phase_runtime"
+    (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
+    (stage_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
+    task_root = stage_root / "workers" / "worker-001" / "shards" / "recipe-shard-0001.task-001"
+    task_root.mkdir(parents=True, exist_ok=True)
+    _write_json(stage_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
+    (stage_root / "task_manifest.jsonl").write_text(
+        json.dumps({"task_id": "recipe-shard-0001.task-001"}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "out" / "recipe-shard-0001.task-001.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    _write_json(task_root / "same_session_fix_status.json", {
+        "same_session_fix_attempted": True,
+        "same_session_fix_count": 2,
+        "same_session_fix_status": "budget_exhausted",
+    })
+    _write_json(task_root / "repair_status.json", {"status": "repaired"})
+    _write_json(task_root / "status.json", {"status": "validated"})
+
+    summary = build_recipe_stage_summary(stage_root)
+
+    assert summary["schema_version"] == "recipe_stage_summary.v2"
+    assert summary["followups"]["same_session_fix_attempted_count"] == 1
+    assert summary["followups"]["same_session_fix_escalated_count"] == 1
+    assert summary["followups"]["same_session_fix_budget_exhausted_count"] == 1
+    assert summary["followups"]["repair_completed_count"] == 1
 
 
 def test_build_line_role_stage_summary_reports_packet_and_line_rollups(tmp_path: Path) -> None:

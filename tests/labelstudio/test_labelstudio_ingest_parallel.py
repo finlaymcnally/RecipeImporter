@@ -2313,9 +2313,9 @@ def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_kno
     stage_payload = json.loads(
         artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
     )
-    assert stage_payload["block_labels"]["2"] == "OTHER"
+    assert stage_payload["block_labels"]["2"] == "KNOWLEDGE"
     assert (
-        "Unreviewed review-eligible outside-recipe KNOWLEDGE rows were marked unresolved and excluded from semantic scoring."
+        "Unreviewed review-eligible outside-recipe rows were marked unresolved and excluded from semantic scoring."
         in stage_payload["notes"]
     )
 
