@@ -22,6 +22,8 @@ Ingestion is the stage that converts source files into `ConversionResult` payloa
 - `raw_artifacts`
 - `report`
 
+For stage-backed flows, importers are source readers only. They leave `ConversionResult.recipes` empty and hand recipe ownership to the later recipe-boundary stage.
+
 Primary runtime entrypoint:
 - `cookimport stage ...` in `cookimport/cli.py`
 

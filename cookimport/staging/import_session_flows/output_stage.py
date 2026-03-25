@@ -14,7 +14,6 @@ from cookimport.parsing.label_source_of_truth import LabelFirstStageResult
 from cookimport.staging.import_session_contracts import StageImportSessionResult
 from cookimport.staging.import_session_flows.authority import (
     _write_label_first_artifacts,
-    _write_label_first_authority_mismatch_artifact,
 )
 from cookimport.staging.import_session_flows.reporting import _notify_stage_progress
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
@@ -64,7 +63,6 @@ def execute_stage_import_session_from_result(
     recipe_limit_label: int | None = None,
 ) -> StageImportSessionResult:
     runtime = _runtime()
-    original_result = result
     stats = timing_stats or TimingStats()
     workbook_slug = slugify_name(source_file.stem)
     parsing_overrides = (
@@ -116,26 +114,6 @@ def execute_stage_import_session_from_result(
         label_first_result=label_first_result,
         line_role_pipeline=str(getattr(run_settings.line_role_pipeline, "value", "off")),
     )
-    if original_result.recipes and not result.recipes:
-        warnings = list(result.report.warnings or [])
-        warnings.append(
-            "Authoritative Stage 2 regrouping found zero recipes after importer "
-            "candidates were detected; keeping label-first outputs and writing "
-            "group_recipe_spans authority diagnostics."
-        )
-        result.report.warnings = warnings
-        label_artifact_paths["authority_mismatch_path"] = (
-            _write_label_first_authority_mismatch_artifact(
-                run_root=run_root,
-                workbook_slug=workbook_slug,
-                importer_recipe_count=len(original_result.recipes),
-                authoritative_recipe_count=len(result.recipes),
-                recipe_spans=[
-                    row.model_dump(mode="json")
-                    for row in label_first_result.recipe_spans
-                ],
-            )
-        )
 
     if run_settings.llm_recipe_pipeline.value != "off":
         _notify_stage_progress(

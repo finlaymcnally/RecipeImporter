@@ -40,7 +40,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Builds the canonical `AuthoritativeRecipeSemantics` payload from a deterministic recipe or recipe-Codex correction result, then projects cookbook3 from that payload without re-running semantic note/variant/link decisions later in writer code.
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 review routing for all outside-recipe blocks.
-  - Exposes explicit routing, final-authority, and review-status components so the live runtime can separate “queued for review” from “final truth.”
+  - Exposes explicit seed, routing, final-authority, and review-status components so the live runtime never has to infer which outside-recipe facts are seed guesses versus final truth.
   - Assumes line-role is routing-only outside recipes: surviving outside-recipe rows enter a category-neutral review queue, and only final non-recipe authority can emit scored outside-recipe `knowledge` or final `other`.
   - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
 - `cookimport/staging/pipeline_runtime.py`
@@ -135,7 +135,7 @@ Label-first metadata note:
 - `label_det`, `label_llm_correct`, and `group_recipe_spans` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
 - `group_recipe_spans/<workbook_slug>/recipe_spans.json` is the accepted authoritative span list only.
 - `span_decisions.json` is the compact reviewer/debug rollup for both accepted recipe spans and rejected pseudo-recipe runs, including explicit `decision` and `rejection_reason` fields.
-- `build_conversion_result_from_label_spans(...)` can further demote an accepted grouped span to `rejected_missing_recipe_body` when it builds to a title-only shell with no ingredients, instructions, or yield/time metadata.
+- Accepted grouped spans now already satisfy the minimum recipe-body rule. `build_conversion_result_from_label_spans(...)` no longer performs ordinary late `rejected_missing_recipe_body` demotion; an impossible title-only projection is surfaced only as an invariant warning.
 
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).
@@ -163,6 +163,7 @@ Tags embedding note:
 Recipe-authority note:
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` is the canonical semantic handoff from Stage 3 into staging writes.
 - When recipe Codex is enabled and validates, its promoted correction payload becomes the semantic owner for title, description, ingredients, instructions, notes, yield phrase, variants, tags, and ingredient-step links.
+- Recipe Codex task outcomes now stay explicit even when they do not promote. `recipe_phase_runtime/promotion_report.json` records whether a validated recipe task result is `promotable` or `non_promotable`, while `recipe_manifest.json` and `recipe_correction_audit/*.json` record whether final recipe authority was actually `promoted` or intentionally `not_promoted`.
 - When recipe Codex is off or falls back, `pipeline_runtime.py` still emits the same payload shape deterministically so writer contracts stay uniform.
 - `write_intermediate_outputs(...)`, `write_draft_outputs(...)`, and `write_section_outputs(...)` now project from that payload first; active stage-backed runtime code no longer threads legacy override dicts as a parallel authority lane, and `CodexFarmApplyResult` no longer publishes recipe override maps as part of the live stage contract.
 

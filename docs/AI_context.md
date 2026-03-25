@@ -5,7 +5,7 @@ read_when:
   - When you need a high-level map before diving into the numbered subsystem docs
 ---
 
-# AI Context: `cookimport` (code-verified on 2026-03-16)
+# AI Context: `cookimport` (code-verified on 2026-03-25)
 
 This is the fast orientation doc for the current repo.
 
@@ -17,7 +17,7 @@ Use this file to understand the product shape, the current authority boundaries,
 
 The post-refactor mental model is:
 
-1. importer gets source material into normalized recipe/non-recipe candidates and raw artifacts
+1. importer gets source material into normalized source blocks, support, and raw artifacts
 2. label-first staging becomes the authority for recipe vs non-recipe ownership
 3. deterministic recipe building produces intermediate and final drafts
 4. optional Codex stages can correct labels, recipes, or knowledge outputs
@@ -46,7 +46,7 @@ Active importer families:
 - RecipeSage
 - webschema
 
-Importer conversion returns a `ConversionResult` with recipe candidates, optional chunks, non-recipe material, raw artifacts, and a conversion report.
+Importer conversion returns a `ConversionResult` with source blocks, optional non-authoritative support, raw artifacts, and a conversion report. In stage-backed flows, importers leave `recipes` empty.
 
 ### 2.2 Label-first staging is now the authority boundary
 
@@ -66,7 +66,7 @@ Those artifacts are the current source of truth for recipe ownership. Authoritat
 
 Important rule:
 
-- if importer candidates existed but authoritative regrouping yields zero recipes, the run stays on the label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently reverting to importer-owned recipe candidates
+- recipe-boundary is the first place recipes exist at runtime for stage-backed flows; zero-recipe debugging lives in `recipe_spans.json` and `span_decisions.json`, not in importer-comparison artifacts
 
 ### 2.3 Recipe building is deterministic-first, with one main recipe Codex seam
 

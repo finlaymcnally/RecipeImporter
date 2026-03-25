@@ -808,6 +808,17 @@ def _build_recipe_correction_audit(
     mapping_reason: str | None,
 ) -> dict[str, Any]:
     canonical_recipe = correction_output.canonical_recipe
+    (
+        final_recipe_authority_eligibility,
+        final_recipe_authority_eligibility_reason,
+    ) = _classify_recipe_authority_eligibility(correction_output.repair_status)
+    (
+        final_recipe_authority_status,
+        final_recipe_authority_reason,
+    ) = _classify_final_recipe_authority_status(
+        correction_output_status=correction_output.repair_status,
+        final_assembly_status=final_assembly_status,
+    )
     return {
         "schema_version": "recipe_correction_audit.v1",
         "recipe_id": state.recipe_id,
@@ -840,6 +851,13 @@ def _build_recipe_correction_audit(
             "ingredient_step_mapping_reason": correction_output.ingredient_step_mapping_reason,
             "payload": _serialize_recipe_correction_output(correction_output),
         },
+        "task_outcome": {
+            "status": correction_output.repair_status,
+            "reason": correction_output.status_reason,
+            "final_recipe_authority_eligibility": final_recipe_authority_eligibility,
+            "final_recipe_authority_reason": final_recipe_authority_eligibility_reason,
+            "valid_task_outcome": True,
+        },
         "deterministic_final_assembly": {
             "status": final_assembly_status,
             "corrected_candidate_title": (
@@ -848,6 +866,10 @@ def _build_recipe_correction_audit(
             "final_step_count": len(list((final_payload or {}).get("steps") or [])),
             "mapping_status": mapping_status,
             "mapping_reason": mapping_reason,
+        },
+        "final_recipe_authority": {
+            "status": final_recipe_authority_status,
+            "reason": final_recipe_authority_reason,
         },
         "structural_audit": structural_audit.to_dict(),
     }
@@ -1683,11 +1705,50 @@ def _recipe_result_rows_from_proposals(
         except Exception:  # noqa: BLE001
             continue
         for recipe_output in shard_output.recipes:
+            (
+                final_recipe_authority_eligibility,
+                final_recipe_authority_reason,
+            ) = _classify_recipe_authority_eligibility(recipe_output.repair_status)
             rows[recipe_output.recipe_id] = {
                 "repair_status": recipe_output.repair_status,
                 "status_reason": recipe_output.status_reason,
+                "final_recipe_authority_eligibility": final_recipe_authority_eligibility,
+                "final_recipe_authority_reason": final_recipe_authority_reason,
             }
     return rows
+
+
+def _classify_recipe_authority_eligibility(
+    repair_status: str | None,
+) -> tuple[str, str]:
+    status = str(repair_status or "").strip()
+    if status == "repaired":
+        return "promotable", "repair_status_repaired"
+    if status == "fragmentary":
+        return "non_promotable", "repair_status_fragmentary"
+    if status == "not_a_recipe":
+        return "non_promotable", "repair_status_not_a_recipe"
+    return "unknown", "repair_status_unknown"
+
+
+def _classify_final_recipe_authority_status(
+    *,
+    correction_output_status: str | None,
+    final_assembly_status: str,
+) -> tuple[str, str]:
+    status = str(correction_output_status or "").strip()
+    assembly_status = str(final_assembly_status or "").strip()
+    if status == "repaired" and assembly_status == "ok":
+        return "promoted", "repaired_recipe_promoted"
+    if status in {"fragmentary", "not_a_recipe"}:
+        return "not_promoted", f"valid_task_outcome_{status}"
+    if assembly_status == "error":
+        if status == "repaired":
+            return "error", "repaired_recipe_final_assembly_error"
+        return "error", "recipe_task_outcome_error"
+    if assembly_status == "skipped":
+        return "not_promoted", "promotion_skipped"
+    return "pending", "promotion_pending"
 
 
 def _load_pipeline_assets(*, pipeline_root: Path, pipeline_id: str) -> dict[str, Any]:
@@ -1742,10 +1803,19 @@ def _build_single_correction_manifest(
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
     for state in states:
+        (
+            final_recipe_authority_status,
+            final_recipe_authority_reason,
+        ) = _classify_final_recipe_authority_status(
+            correction_output_status=state.correction_output_status,
+            final_assembly_status=state.final_assembly_status,
+        )
         row = {
             "build_intermediate_det": "ok",
             "recipe_llm_correct_and_link": state.single_correction_status,
             "build_final_recipe": state.final_assembly_status,
+            "final_recipe_authority_status": final_recipe_authority_status,
+            "final_recipe_authority_reason": final_recipe_authority_reason,
             "warnings": list(state.warnings),
             "errors": list(state.errors),
             "structural_status": state.structural_status,
@@ -1814,6 +1884,33 @@ def _build_single_correction_manifest(
             ),
             "build_final_recipe_skipped": sum(
                 1 for state in states if state.final_assembly_status == "skipped"
+            ),
+            "final_recipe_authority_promoted": sum(
+                1
+                for state in states
+                if _classify_final_recipe_authority_status(
+                    correction_output_status=state.correction_output_status,
+                    final_assembly_status=state.final_assembly_status,
+                )[0]
+                == "promoted"
+            ),
+            "final_recipe_authority_not_promoted": sum(
+                1
+                for state in states
+                if _classify_final_recipe_authority_status(
+                    correction_output_status=state.correction_output_status,
+                    final_assembly_status=state.final_assembly_status,
+                )[0]
+                == "not_promoted"
+            ),
+            "final_recipe_authority_error": sum(
+                1
+                for state in states
+                if _classify_final_recipe_authority_status(
+                    correction_output_status=state.correction_output_status,
+                    final_assembly_status=state.final_assembly_status,
+                )[0]
+                == "error"
             ),
         },
         "timing": {

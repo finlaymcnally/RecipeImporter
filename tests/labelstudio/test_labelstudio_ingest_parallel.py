@@ -42,6 +42,13 @@ from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.staging.job_planning import JobSpec, plan_source_job
 from cookimport.staging.import_session import StageImportSessionResult
+from tests.nonrecipe_stage_helpers import (
+    make_authority_result,
+    make_review_status_result,
+    make_routing_result,
+    make_seed_result,
+    make_stage_result,
+)
 
 
 def _make_label_first_result(
@@ -1968,12 +1975,14 @@ def _build_final_nonrecipe_authority_fixture(
         )
     ]
 
-    final_nonrecipe_stage_result = NonRecipeStageResult(
-        nonrecipe_spans=[],
-        knowledge_spans=[],
-        other_spans=[],
-        block_category_by_index={2: "knowledge"},
-        seed_block_category_by_index={2: "other"},
+    final_nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({2: "other"}),
+        routing=make_routing_result(review_eligible_block_indices=[2]),
+        authority=make_authority_result({2: "knowledge"}),
+        review_status=make_review_status_result(
+            reviewed_block_indices=[2],
+            unreviewed_block_category_by_index={},
+        ),
         refinement_report={
             "enabled": True,
             "authority_mode": "knowledge_refined_final_authority",
@@ -2142,11 +2151,14 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
             reason_tags=["storage_or_serving_note"],
         )
     ]
-    nonrecipe_stage_result = NonRecipeStageResult(
-        nonrecipe_spans=[],
-        knowledge_spans=[],
-        other_spans=[],
-        block_category_by_index={10: "other"},
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({10: "other"}),
+        routing=make_routing_result(review_eligible_block_indices=[10]),
+        authority=make_authority_result({10: "other"}),
+        review_status=make_review_status_result(
+            reviewed_block_indices=[10],
+            unreviewed_block_category_by_index={},
+        ),
         refinement_report={
             "authority_mode": "deterministic_seed_only",
             "scored_effect": "seed_only",
@@ -2179,14 +2191,14 @@ def test_nonrecipe_authority_projection_ignores_unreviewed_review_eligible_seed_
             reason_tags=["knowledge_heading"],
         )
     ]
-    nonrecipe_stage_result = NonRecipeStageResult(
-        nonrecipe_spans=[],
-        knowledge_spans=[],
-        other_spans=[],
-        block_category_by_index={10: "other"},
-        review_eligible_block_indices=[10],
-        final_authority_block_indices=[],
-        unreviewed_review_eligible_block_indices=[10],
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({10: "other"}),
+        routing=make_routing_result(review_eligible_block_indices=[10]),
+        authority=make_authority_result({}),
+        review_status=make_review_status_result(
+            reviewed_block_indices=[],
+            unreviewed_block_category_by_index={10: "other"},
+        ),
         refinement_report={
             "authority_mode": "deterministic_seed_only",
             "scored_effect": "seed_only",
@@ -2266,14 +2278,14 @@ def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_kno
         )
     ]
 
-    nonrecipe_stage_result = NonRecipeStageResult(
-        nonrecipe_spans=[],
-        knowledge_spans=[],
-        other_spans=[],
-        block_category_by_index={2: "knowledge"},
-        review_eligible_block_indices=[2],
-        final_authority_block_indices=[],
-        unreviewed_review_eligible_block_indices=[2],
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({2: "knowledge"}),
+        routing=make_routing_result(review_eligible_block_indices=[2]),
+        authority=make_authority_result({}),
+        review_status=make_review_status_result(
+            reviewed_block_indices=[],
+            unreviewed_block_category_by_index={2: "knowledge"},
+        ),
         refinement_report={
             "authority_mode": "deterministic_seed_only",
             "scored_effect": "seed_only",

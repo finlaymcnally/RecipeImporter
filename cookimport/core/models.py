@@ -791,6 +791,8 @@ class ConversionResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     source: str | None = None
+    # Stage-backed importers are source-only producers. Recipes first become
+    # live on the shared recipe-boundary stage, not during importer conversion.
     recipes: list[RecipeCandidate] = Field(default_factory=list)
     source_blocks: list[SourceBlock] = Field(default_factory=list, alias="sourceBlocks")
     source_support: list[SourceSupport] = Field(default_factory=list, alias="sourceSupport")

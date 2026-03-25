@@ -15,6 +15,13 @@ from cookimport.llm.prompt_budget import (
 )
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
+from tests.nonrecipe_stage_helpers import (
+    make_authority_result,
+    make_review_status_result,
+    make_routing_result,
+    make_seed_result,
+    make_stage_result,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -493,18 +500,25 @@ def test_prompt_preview_knowledge_uses_review_eligible_spans_not_seed_spans(
             block_indices=[2],
             block_ids=["block:2"],
         )
-        return NonRecipeStageResult(
-            nonrecipe_spans=[knowledge_span, excluded_other_span],
-            knowledge_spans=[knowledge_span],
-            other_spans=[excluded_other_span],
-            block_category_by_index={2: "knowledge", 3: "other"},
-            review_eligible_nonrecipe_spans=[review_span],
-            review_excluded_other_spans=[excluded_other_span],
-            review_eligible_block_indices=[2],
-            review_excluded_block_indices=[3],
-            review_exclusion_reason_by_block={3: "deterministic_other"},
-            seed_nonrecipe_spans=[knowledge_span, excluded_other_span],
-            seed_block_category_by_index={2: "knowledge", 3: "other"},
+        return make_stage_result(
+            seed=make_seed_result(
+                {2: "knowledge", 3: "other"},
+                nonrecipe_spans=[knowledge_span, excluded_other_span],
+                knowledge_spans=[knowledge_span],
+                other_spans=[excluded_other_span],
+            ),
+            routing=make_routing_result(
+                review_eligible_block_indices=[2],
+                review_excluded_block_indices=[3],
+                review_exclusion_reason_by_block={3: "deterministic_other"},
+                review_eligible_nonrecipe_spans=[review_span],
+                review_excluded_other_spans=[excluded_other_span],
+            ),
+            authority=make_authority_result({3: "other"}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[],
+                unreviewed_block_category_by_index={2: "knowledge"},
+            ),
         )
 
     monkeypatch.setattr(

@@ -957,7 +957,7 @@ def _block_id_for_stage_result(
     block_index: int,
 ) -> str:
     for span in (
-        list(stage_result.seed_nonrecipe_spans or [])
+        list(stage_result.seed.seed_nonrecipe_spans)
         + list(stage_result.routing.review_eligible_nonrecipe_spans)
         + list(stage_result.routing.review_excluded_other_spans)
     ):

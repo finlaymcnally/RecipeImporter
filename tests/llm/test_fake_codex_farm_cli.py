@@ -15,6 +15,13 @@ from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
+from tests.nonrecipe_stage_helpers import (
+    make_authority_result,
+    make_review_status_result,
+    make_routing_result,
+    make_seed_result,
+    make_stage_result,
+)
 
 
 def _patch_direct_exec_home(
@@ -369,7 +376,8 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=_knowledge_conversion_result(source),
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.other.0.1",
@@ -409,6 +417,13 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
                 )
             ],
             block_category_by_index={0: "other", 4: "knowledge"},
+            ),
+            routing=make_routing_result(review_eligible_block_indices=[0, 4]),
+            authority=make_authority_result({0: "other", 4: "knowledge"}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[0, 4],
+                unreviewed_block_category_by_index={},
+            ),
         ),
         recipe_spans=[
             RecipeSpan(
@@ -457,7 +472,8 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=_knowledge_conversion_result(source),
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.other.0.1",
@@ -497,6 +513,13 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
                 )
             ],
             block_category_by_index={0: "other", 4: "knowledge"},
+            ),
+            routing=make_routing_result(review_eligible_block_indices=[0, 4]),
+            authority=make_authority_result({0: "other", 4: "knowledge"}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[0, 4],
+                unreviewed_block_category_by_index={},
+            ),
         ),
         recipe_spans=[
             RecipeSpan(

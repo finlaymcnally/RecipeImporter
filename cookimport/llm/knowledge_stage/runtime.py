@@ -50,10 +50,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
         fallback=DEFAULT_KNOWLEDGE_PIPELINE_ID,
     )
     routing = nonrecipe_stage_result.routing
-    all_nonrecipe_spans = list(
-        nonrecipe_stage_result.seed_nonrecipe_spans
-        or nonrecipe_stage_result.nonrecipe_spans
-    )
+    all_nonrecipe_spans = list(nonrecipe_stage_result.seed.seed_nonrecipe_spans)
     review_candidate_spans = list(routing.review_eligible_nonrecipe_spans)
     seed_nonrecipe_span_count = len(all_nonrecipe_spans)
     review_eligible_nonrecipe_span_count = len(review_candidate_spans)

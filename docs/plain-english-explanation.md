@@ -108,19 +108,21 @@ The deterministic pass is important even when LLMs are available. It gives the s
 
 If line-role Codex review is enabled, `label_llm_correct` is the normal fuzzy review pass over those labels. Repo code still validates shape, ownership, and consistency before installing the corrected result, but the semantic judgment is meant to come from Codex here.
 
+The safety rule is now blunt on purpose: once a Codex line-role answer passes structural validation, the program either accepts that semantic label as-is or rejects that row back to the deterministic baseline with an explicit fallback reason. It does not quietly accept Codex and then massage the label into some third semantic answer later.
+
 After labeling, `group_recipe_spans` groups accepted lines into recipe spans.
 
 This is the main authority handoff in the system. The accepted grouped spans are the authoritative recipe boundaries for the rest of the run.
 
-A grouped span usually needs a title anchor to count as a real recipe. Structured-looking text without a convincing title can still be rejected as a pseudo-recipe.
+A grouped span needs two things to count as a real recipe: a title anchor and at least one real body signal such as ingredients, instructions, or yield/time metadata. Structured-looking text without a convincing title can still be rejected as a pseudo-recipe, and title-only or title-plus-note junk now gets rejected here instead of being accepted now and thrown away later.
 
 That title-anchor rule exists because cookbook sources often contain recipe-shaped junk: tables of contents, index-like blocks, sidebars, ingredient-like shopping notes, or small structured fragments that look recipe-ish but are not actually real recipes.
 
 So `recipe-boundary` is not just grouping. It is also a rejection stage. It rejects titleless pseudo-recipes, weak spans, and other false positives instead of treating every structured cluster as a valid recipe. Rejected material stays on the outside-recipe side of the book rather than becoming a final recipe.
 
-If `group_recipe_spans` ends up with zero accepted recipes, the program stays on that label-first result and records the mismatch as an authority problem.
+If `group_recipe_spans` ends up with zero accepted recipes, the program still stays on that label-first result.
 
-That is a strong business decision. The program surfaces the mismatch instead of reviving some different authority story later in the run.
+There is no separate importer-recipe count to compare against anymore. The debugging surface is just the span artifacts themselves: `recipe_spans.json` shows what was accepted, and `span_decisions.json` shows both accepted spans and rejected pseudo-recipes with reasons.
 
 By the end of `recipe-boundary`, the program knows:
 
@@ -157,6 +159,8 @@ If recipe Codex is enabled, this is the stage that runs it. The public recipe pi
 That Codex step is a refinement pass, not the final writer.
 
 Its job is to improve recipe semantics inside the boundaries already accepted by `recipe-boundary`. In practice it is looking at the stage-owned recipe payload generated from those accepted spans, not reopening recipe ownership. It can help with things like cleaner recipe structure, better note placement, better ingredient-step links, and tag suggestions.
+
+Recipe Codex outcomes are also explicit now. A valid task result can be `repaired`, `fragmentary`, or `not_a_recipe`. Only `repaired` is promotable into final recipe authority. The other two remain visible in recipe runtime artifacts as valid non-promoted outcomes instead of just disappearing.
 
 Tags live inside this same recipe-refine path now. There is no separate tags subsystem anymore. The recipe correction prompt may emit raw selected tags, then deterministic normalization cleans them up and the final recipe stores them as `recipe.tags`.
 
@@ -272,7 +276,7 @@ So the end of the run is not just "write recipes." It is "write recipes, write t
 
 # Hidden Layers
 
-- Importer output is provisional. The real recipe authority seam is `recipe-boundary`, especially `label_det`, optional `label_llm_correct`, and `group_recipe_spans`.
+- Importer output is source-first input, not recipe ownership. The real recipe authority seam is `recipe-boundary`, especially `label_det`, optional `label_llm_correct`, and `group_recipe_spans`.
 
 - The deterministic label-first path still runs even when `llm_recipe_pipeline=off` and `llm_knowledge_pipeline=off`.
 
@@ -288,7 +292,7 @@ So the end of the run is not just "write recipes." It is "write recipes, write t
 
 - `execute_stage_import_session_from_result()` still feels like a god-function. The five-stage runtime is clearer than the old story, but too much pipeline truth is still composed in one place.
 
-- The authority story is cleaner now, but ownership still moves several times: importer -> `recipe-boundary` -> `nonrecipe-route` -> `knowledge-final`.
+- The authority story is cleaner now, but it is still split across stages. Recipe ownership starts at `recipe-boundary`, while outside-recipe material then moves through `nonrecipe-route` and `knowledge-final`.
 
 - Chunk outputs now correctly depend on final outside-recipe authority. If a run has no surviving final outside-recipe rows, chunk generation should stay empty instead of reviving any older fallback idea.
 

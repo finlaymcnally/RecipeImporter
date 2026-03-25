@@ -92,11 +92,19 @@ def _make_runtime_nonrecipe_stage_result(
         block_indices=block_indices,
         block_ids=[f"b{index}" for index in block_indices],
     )
-    return NonRecipeStageResult(
-        nonrecipe_spans=[span],
-        knowledge_spans=[span],
-        other_spans=[],
-        block_category_by_index={index: "knowledge" for index in block_indices},
+    return make_stage_result(
+        seed=make_seed_result(
+            {index: "knowledge" for index in block_indices},
+            nonrecipe_spans=[span],
+            knowledge_spans=[span],
+            other_spans=[],
+        ),
+        routing=make_routing_result(review_eligible_block_indices=block_indices),
+        authority=make_authority_result({index: "knowledge" for index in block_indices}),
+        review_status=make_review_status_result(
+            reviewed_block_indices=block_indices,
+            unreviewed_block_category_by_index={},
+        ),
     )
 
 
@@ -124,7 +132,12 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
     progress_messages: list[str] = []
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result(
+            {
+                0: "other",
+                4: "knowledge",
+            },
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.other.0.1",
@@ -163,7 +176,13 @@ def test_knowledge_orchestrator_emits_structured_progress_snapshots(
                     block_ids=["b0"],
                 )
             ],
-            block_category_by_index={0: "other", 4: "knowledge"},
+            ),
+            routing=make_routing_result(review_eligible_block_indices=[0, 4]),
+            authority=make_authority_result({0: "other", 4: "knowledge"}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[0, 4],
+                unreviewed_block_category_by_index={},
+            ),
         ),
         recipe_spans=[
             RecipeSpan(

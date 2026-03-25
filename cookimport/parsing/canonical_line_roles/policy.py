@@ -43,6 +43,8 @@ def _apply_prediction_decision_metadata(
         reasons.append("deterministic_unresolved")
     if prediction.decided_by == "fallback":
         reasons.append("fallback_decision")
+    if _prediction_has_reason_tag(prediction, "codex_policy_rejected"):
+        reasons.append("codex_rejected_to_baseline")
     if _is_outside_recipe_span(candidate) and label in _RECIPEISH_OUTSIDE_SPAN_LABELS:
         reasons.append("outside_span_structured_label")
     if baseline_prediction is not None:
@@ -93,6 +95,16 @@ def _build_line_role_deterministic_baseline(
                 decided_by="rule",
                 reason_tags=list(tags),
             )
+        prediction = _apply_repo_baseline_semantic_policy(
+            prediction=prediction,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        prediction = _normalize_prediction_metadata(
+            prediction=prediction,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
         baseline[int(candidate.atomic_index)] = _apply_prediction_decision_metadata(
             prediction=prediction,
             candidate=candidate,
@@ -947,7 +959,7 @@ def _fallback_prediction(
         reason_tags=reason_tags,
     )
 
-def _sanitize_prediction(
+def _apply_repo_baseline_semantic_policy(
     *,
     prediction: CanonicalLineRolePrediction,
     candidate: AtomicLineCandidate,
@@ -1088,6 +1100,28 @@ def _sanitize_prediction(
         decided_by = "fallback"
         if "coerced_outside_recipe_knowledge_to_reviewable_other" not in reason_tags:
             reason_tags.append("coerced_outside_recipe_knowledge_to_reviewable_other")
+    return CanonicalLineRolePrediction(
+        recipe_id=prediction.recipe_id,
+        block_id=prediction.block_id,
+        block_index=prediction.block_index,
+        atomic_index=prediction.atomic_index,
+        text=prediction.text,
+        within_recipe_span=prediction.within_recipe_span,
+        label=label,
+        decided_by=decided_by,
+        reason_tags=reason_tags,
+        review_exclusion_reason=prediction.review_exclusion_reason,
+    )
+
+
+def _normalize_prediction_metadata(
+    *,
+    prediction: CanonicalLineRolePrediction,
+    candidate: AtomicLineCandidate,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> CanonicalLineRolePrediction:
+    label = str(prediction.label or "OTHER")
+    review_exclusion_reason = prediction.review_exclusion_reason
     if label != "OTHER" or _is_within_recipe_span(candidate):
         review_exclusion_reason = None
     else:
@@ -1106,10 +1140,84 @@ def _sanitize_prediction(
         text=prediction.text,
         within_recipe_span=prediction.within_recipe_span,
         label=label,
-        decided_by=decided_by,
-        reason_tags=reason_tags,
+        decided_by=prediction.decided_by,
+        reason_tags=_unique_string_list(str(tag) for tag in prediction.reason_tags),
         review_exclusion_reason=review_exclusion_reason,
     )
+
+
+def _codex_prediction_policy_rejection_reason(
+    *,
+    prediction: CanonicalLineRolePrediction,
+    candidate: AtomicLineCandidate,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> str | None:
+    label = str(prediction.label or "OTHER")
+    if (
+        label == "KNOWLEDGE"
+        and _is_within_recipe_span(candidate)
+        and not _knowledge_allowed_inside_recipe(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        return "knowledge_inside_recipe_not_allowed"
+    if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
+        return "time_line_not_primary"
+    if (
+        label == "RECIPE_TITLE"
+        and _is_outside_recipe_span(candidate)
+        and not _looks_recipe_title_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        return "title_without_local_support"
+    if label == "RECIPE_VARIANT" and not _variant_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "variant_without_local_support"
+    if label == "HOWTO_SECTION" and not _howto_section_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "howto_without_local_support"
+    if label == "INSTRUCTION_LINE" and not _instruction_line_label_allowed(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "instruction_without_local_support"
+    if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
+        return "outside_recipe_knowledge_not_allowed"
+    return None
+
+
+def _reject_codex_prediction_to_baseline_if_policy_violated(
+    *,
+    prediction: CanonicalLineRolePrediction,
+    candidate: AtomicLineCandidate,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    baseline_prediction: CanonicalLineRolePrediction,
+) -> CanonicalLineRolePrediction:
+    rejection_reason = _codex_prediction_policy_rejection_reason(
+        prediction=prediction,
+        candidate=candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if rejection_reason is None:
+        return prediction
+    payload = baseline_prediction.model_dump(mode="python")
+    payload["decided_by"] = "fallback"
+    payload["reason_tags"] = _unique_string_list(
+        [
+            *list(baseline_prediction.reason_tags),
+            "codex_policy_rejected",
+            f"codex_policy_rejected:{rejection_reason}",
+        ]
+    )
+    return CanonicalLineRolePrediction.model_validate(payload)
+
 
 def _should_escalate_candidate(
     *,

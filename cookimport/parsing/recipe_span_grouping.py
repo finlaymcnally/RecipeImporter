@@ -20,7 +20,14 @@ _RECIPE_LOCAL_LABELS = {
     "RECIPE_VARIANT",
 }
 _TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
-_RECIPE_BODY_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_LIKE_LABELS
+_ACCEPTANCE_RECIPE_BODY_LABELS = {
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+}
+_BRIDGEABLE_RECIPE_STRUCTURE_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_LIKE_LABELS
 _NONRECIPE_GAP_LABELS = {"KNOWLEDGE", "OTHER"}
 
 
@@ -120,13 +127,19 @@ def _build_span_decision(
         warnings.append(warning)
         escalation_reasons.append(warning)
         decision_notes.append(warning)
-    has_title_anchor = any(
-        str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS for row in block_rows
-    )
+    has_title_anchor = _has_title_anchor(block_rows)
+    has_acceptance_recipe_body = _has_acceptance_recipe_body(block_rows)
+    rejection_reason: str | None = None
     if not has_title_anchor:
         warnings.append("recipe_span_missing_title_label")
         escalation_reasons.append("missing_required_recipe_fields")
         decision_notes.append("span_missing_title_block")
+        rejection_reason = "rejected_missing_title_anchor"
+    elif not has_acceptance_recipe_body:
+        warnings.append("recipe_span_missing_recipe_body")
+        escalation_reasons.append("missing_required_recipe_fields")
+        decision_notes.append("span_missing_recipe_body")
+        rejection_reason = "rejected_missing_recipe_body"
 
     if title_block_index is not None:
         title_row = next(
@@ -142,7 +155,6 @@ def _build_span_decision(
             decision_notes.append("title_block_was_not_rule_held")
 
     atomic_indices = sorted(set(atomic_indices))
-    rejection_reason = None if has_title_anchor else "rejected_missing_title_anchor"
     if rejection_reason is not None:
         decision_notes.append(rejection_reason)
 
@@ -150,7 +162,7 @@ def _build_span_decision(
         span_id=f"recipe_span_{span_index}",
         decision=(
             "accepted_recipe_span"
-            if has_title_anchor
+            if rejection_reason is None
             else "rejected_pseudo_recipe_span"
         ),
         rejection_reason=rejection_reason,
@@ -181,7 +193,7 @@ def _should_bridge_nonrecipe_gap(
         return False
     if not _has_title_anchor(pending):
         return False
-    if not _has_recipe_body(pending):
+    if not _has_bridgeable_recipe_structure(pending):
         return False
 
     current_label = str(ordered_blocks[gap_position].final_label or "OTHER")
@@ -192,15 +204,29 @@ def _should_bridge_nonrecipe_gap(
     if next_position >= len(ordered_blocks):
         return False
     next_label = str(ordered_blocks[next_position].final_label or "OTHER")
-    return next_label in _RECIPE_BODY_LABELS
+    return next_label in _ACCEPTANCE_RECIPE_BODY_LABELS
 
 
 def _has_title_anchor(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
     return any(str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS for row in block_rows)
 
 
-def _has_recipe_body(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
-    return any(str(row.final_label or "OTHER") in _RECIPE_BODY_LABELS for row in block_rows)
+def _has_acceptance_recipe_body(
+    block_rows: Sequence[AuthoritativeBlockLabel],
+) -> bool:
+    return any(
+        str(row.final_label or "OTHER") in _ACCEPTANCE_RECIPE_BODY_LABELS
+        for row in block_rows
+    )
+
+
+def _has_bridgeable_recipe_structure(
+    block_rows: Sequence[AuthoritativeBlockLabel],
+) -> bool:
+    return any(
+        str(row.final_label or "OTHER") in _BRIDGEABLE_RECIPE_STRUCTURE_LABELS
+        for row in block_rows
+    )
 
 
 def _decision_to_recipe_span(decision: RecipeSpanDecision) -> RecipeSpan:

@@ -186,6 +186,13 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     manifest = json.loads(
         (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
     )
+    promotion_report = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "promotion_report.json"
+        ).read_text(encoding="utf-8")
+    )
     assert manifest["pipeline"] == SINGLE_CORRECTION_RECIPE_PIPELINE_ID
     assert manifest["pipelines"] == {
         "recipe_correction": SINGLE_CORRECTION_STAGE_PIPELINE_ID
@@ -194,7 +201,15 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     assert manifest["counts"]["recipe_workers_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 1
+    assert manifest["counts"]["final_recipe_authority_promoted"] == 1
     assert sorted(manifest["process_runs"].keys()) == ["recipe_correction"]
+    assert manifest["recipes"]["urn:recipe:test:toast"]["final_recipe_authority_status"] == "promoted"
+    assert (
+        promotion_report["recipe_results"]["urn:recipe:test:toast"][
+            "final_recipe_authority_eligibility"
+        ]
+        == "promotable"
+    )
     correction_input = worker_input
     assert "draft_hint" not in correction_input
     assert correction_input["r"][0]["h"] == {
@@ -654,6 +669,13 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     manifest = json.loads(
         (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
     )
+    promotion_report = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "promotion_report.json"
+        ).read_text(encoding="utf-8")
+    )
     proposal = json.loads(
         (
             apply_result.llm_raw_dir
@@ -675,11 +697,96 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 0
     assert manifest["counts"]["build_final_recipe_skipped"] == 1
+    assert manifest["counts"]["final_recipe_authority_not_promoted"] == 1
     assert manifest["recipes"][recipe_id]["correction_output_status"] == "not_a_recipe"
     assert manifest["recipes"][recipe_id]["correction_output_reason"] == "reference_table"
+    assert manifest["recipes"][recipe_id]["final_recipe_authority_status"] == "not_promoted"
+    assert (
+        manifest["recipes"][recipe_id]["final_recipe_authority_reason"]
+        == "valid_task_outcome_not_a_recipe"
+    )
+    assert (
+        promotion_report["recipe_results"][recipe_id]["final_recipe_authority_eligibility"]
+        == "non_promotable"
+    )
     assert proposal["payload"]["r"][0]["st"] == "not_a_recipe"
     assert audit["output"]["repair_status"] == "not_a_recipe"
     assert audit["deterministic_final_assembly"]["status"] == "skipped"
+    assert audit["task_outcome"]["final_recipe_authority_eligibility"] == "non_promotable"
+    assert audit["final_recipe_authority"]["status"] == "not_promoted"
+
+
+def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "v": "1",
+            "sid": payload.get("sid"),
+            "r": [
+                {
+                    "v": "1",
+                    "rid": payload["r"][0]["rid"],
+                    "st": "fragmentary",
+                    "sr": "incomplete_recipe_source",
+                    "cr": None,
+                    "m": [],
+                    "mr": "not_applicable_fragmentary",
+                    "g": [],
+                    "w": ["incomplete_recipe_source"],
+                }
+            ],
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = "urn:recipe:test:toast"
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
+    )
+    promotion_report = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "promotion_report.json"
+        ).read_text(encoding="utf-8")
+    )
+    audit = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_correction_audit"
+            / "urn_recipe_test_toast.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
+    assert apply_result.updated_conversion_result.recipes == []
+    assert manifest["recipes"][recipe_id]["correction_output_status"] == "fragmentary"
+    assert manifest["recipes"][recipe_id]["final_recipe_authority_status"] == "not_promoted"
+    assert (
+        manifest["recipes"][recipe_id]["final_recipe_authority_reason"]
+        == "valid_task_outcome_fragmentary"
+    )
+    assert (
+        promotion_report["recipe_results"][recipe_id]["final_recipe_authority_eligibility"]
+        == "non_promotable"
+    )
+    assert audit["task_outcome"]["status"] == "fragmentary"
+    assert audit["final_recipe_authority"]["status"] == "not_promoted"
 
 
 def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_promotion(

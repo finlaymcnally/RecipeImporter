@@ -392,18 +392,7 @@ def build_conversion_result_from_label_spans(
             provenance_builder=provenance_builder,
         )
         existing_decision = decision_by_span_id.get(span.span_id)
-        rejection_reason = _recipe_candidate_rejection_reason(recipe)
-        if rejection_reason is not None:
-            updated_span_decisions.append(
-                _reject_recipe_span_decision(
-                    span=span,
-                    existing_decision=existing_decision,
-                    rejection_reason=rejection_reason,
-                )
-            )
-            continue
-        accepted_recipe_spans.append(span)
-        updated_span_decisions.append(
+        decision = (
             existing_decision
             if existing_decision is not None
             else RecipeSpanDecision(
@@ -421,8 +410,23 @@ def build_conversion_result_from_label_spans(
                 warnings=list(span.warnings),
                 escalation_reasons=list(span.escalation_reasons),
                 decision_notes=list(span.decision_notes),
+            )
         )
-        )
+        if not _recipe_candidate_has_projected_body(recipe):
+            invariant_warning = (
+                "accepted_recipe_span_projection_missing_body"
+                f":{span.span_id}"
+            )
+            if invariant_warning not in report.warnings:
+                report.warnings.append(invariant_warning)
+            decision = _annotate_recipe_span_decision(
+                decision,
+                warning=invariant_warning,
+                escalation_reason="accepted_recipe_span_projection_invariant_failed",
+                decision_note="accepted_recipe_span_projection_missing_body",
+            )
+        accepted_recipe_spans.append(span)
+        updated_span_decisions.append(decision)
         recipes.append(recipe)
 
     accepted_span_ids = {row.span_id for row in accepted_recipe_spans}
@@ -602,49 +606,38 @@ def _build_recipe_candidate_from_span(
     return recipe
 
 
-def _recipe_candidate_rejection_reason(recipe: RecipeCandidate) -> str | None:
+def _recipe_candidate_has_projected_body(recipe: RecipeCandidate) -> bool:
     ingredients = list(recipe.ingredients or [])
     instructions = list(recipe.instructions or [])
     if ingredients or instructions:
-        return None
+        return True
     if recipe.recipe_yield or recipe.prep_time or recipe.cook_time or recipe.total_time:
-        return None
-    return "rejected_missing_recipe_body"
+        return True
+    return False
 
 
-def _reject_recipe_span_decision(
+def _annotate_recipe_span_decision(
+    decision: RecipeSpanDecision,
     *,
-    span: RecipeSpan,
-    existing_decision: RecipeSpanDecision | None,
-    rejection_reason: str,
+    warning: str | None = None,
+    escalation_reason: str | None = None,
+    decision_note: str | None = None,
 ) -> RecipeSpanDecision:
-    base = (
-        existing_decision.model_dump(mode="json")
-        if existing_decision is not None
-        else span.model_dump(mode="json")
-    )
-    decision_notes = list(base.get("decision_notes") or [])
-    escalation_reasons = list(base.get("escalation_reasons") or [])
-    if rejection_reason not in decision_notes:
-        decision_notes.append(rejection_reason)
-    if rejection_reason not in escalation_reasons:
-        escalation_reasons.append(rejection_reason)
-    return RecipeSpanDecision(
-        span_id=str(base["span_id"]),
-        decision="rejected_pseudo_recipe_span",
-        rejection_reason=rejection_reason,
-        start_block_index=int(base["start_block_index"]),
-        end_block_index=int(base["end_block_index"]),
-        block_indices=[int(value) for value in base.get("block_indices") or []],
-        source_block_ids=[str(value) for value in base.get("source_block_ids") or []],
-        start_atomic_index=base.get("start_atomic_index"),
-        end_atomic_index=base.get("end_atomic_index"),
-        atomic_indices=[int(value) for value in base.get("atomic_indices") or []],
-        title_block_index=base.get("title_block_index"),
-        title_atomic_index=base.get("title_atomic_index"),
-        warnings=[str(value) for value in base.get("warnings") or []],
-        escalation_reasons=escalation_reasons,
-        decision_notes=decision_notes,
+    warnings = list(decision.warnings)
+    if warning and warning not in warnings:
+        warnings.append(warning)
+    escalation_reasons = list(decision.escalation_reasons)
+    if escalation_reason and escalation_reason not in escalation_reasons:
+        escalation_reasons.append(escalation_reason)
+    decision_notes = list(decision.decision_notes)
+    if decision_note and decision_note not in decision_notes:
+        decision_notes.append(decision_note)
+    return decision.model_copy(
+        update={
+            "warnings": warnings,
+            "escalation_reasons": escalation_reasons,
+            "decision_notes": decision_notes,
+        }
     )
 
 

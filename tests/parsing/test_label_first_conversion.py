@@ -13,6 +13,7 @@ from cookimport.parsing.label_source_of_truth import (
     RecipeSpanDecision,
     _atomize_archive_blocks,
 )
+from cookimport.parsing.recipe_span_grouping import group_recipe_spans_from_labels
 
 
 def _make_empty_label_first_original_result(
@@ -162,6 +163,7 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
     assert updated.non_recipe_lines[0].final_label == "KNOWLEDGE"
     assert updated.span_decisions[0].decision == "accepted_recipe_span"
 
+
 def _run_title_only_span_rejection_fixture() -> dict[str, object]:
     archive_blocks = [
         {
@@ -261,6 +263,77 @@ def _run_title_only_span_rejection_fixture() -> dict[str, object]:
             decided_by="rule",
         ),
     ]
+    recipe_spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+        block_labels,
+        labeled_lines,
+    )
+    original_result = _make_empty_label_first_original_result()
+
+    updated = build_conversion_result_from_label_spans(
+        source_file=Path("/tmp/book.txt"),
+        importer_name="text",
+        source_hash="hash-123",
+        original_result=original_result,
+        archive_blocks=archive_blocks,
+        labeled_lines=labeled_lines,
+        block_labels=block_labels,
+        recipe_spans=recipe_spans,
+        span_decisions=span_decisions,
+    )
+    return {"updated": updated}
+
+
+def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans() -> None:
+    fixture = _run_title_only_span_rejection_fixture()
+    updated = fixture["updated"]
+    result = updated.updated_conversion_result
+    assert [recipe.name for recipe in result.recipes] == ["Bright Cabbage Slaw"]
+    assert updated.recipe_spans[0].span_id == "recipe_span_1"
+
+
+def test_build_conversion_result_from_label_spans_records_rejected_title_only_span() -> None:
+    fixture = _run_title_only_span_rejection_fixture()
+    updated = fixture["updated"]
+    result = updated.updated_conversion_result
+    assert any(
+        row.span_id == "recipe_span_0"
+        and row.decision == "rejected_pseudo_recipe_span"
+        and row.rejection_reason == "rejected_missing_recipe_body"
+        for row in updated.span_decisions
+    )
+    assert [row["index"] for row in result.non_recipe_blocks] == [0]
+
+
+def test_build_conversion_result_from_label_spans_keeps_explicit_invariant_warning_instead_of_late_demotion() -> None:
+    archive_blocks = [
+        {
+            "index": 0,
+            "block_id": "block:0",
+            "text": "Bare Title",
+            "location": {"block_index": 0},
+        },
+    ]
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Bare Title",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        )
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        )
+    ]
     recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
@@ -273,19 +346,7 @@ def _run_title_only_span_rejection_fixture() -> dict[str, object]:
             atomic_indices=[0],
             title_block_index=0,
             title_atomic_index=0,
-        ),
-        RecipeSpan(
-            span_id="recipe_span_1",
-            start_block_index=1,
-            end_block_index=3,
-            block_indices=[1, 2, 3],
-            source_block_ids=["block:1", "block:2", "block:3"],
-            start_atomic_index=1,
-            end_atomic_index=3,
-            atomic_indices=[1, 2, 3],
-            title_block_index=1,
-            title_atomic_index=1,
-        ),
+        )
     ]
     original_result = _make_empty_label_first_original_result()
 
@@ -311,44 +372,25 @@ def _run_title_only_span_rejection_fixture() -> dict[str, object]:
                 atomic_indices=[0],
                 title_block_index=0,
                 title_atomic_index=0,
-            ),
-            RecipeSpanDecision(
-                span_id="recipe_span_1",
-                decision="accepted_recipe_span",
-                start_block_index=1,
-                end_block_index=3,
-                block_indices=[1, 2, 3],
-                source_block_ids=["block:1", "block:2", "block:3"],
-                start_atomic_index=1,
-                end_atomic_index=3,
-                atomic_indices=[1, 2, 3],
-                title_block_index=1,
-                title_atomic_index=1,
-            ),
+            )
         ],
     )
-    return {"updated": updated}
 
-
-def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans() -> None:
-    fixture = _run_title_only_span_rejection_fixture()
-    updated = fixture["updated"]
     result = updated.updated_conversion_result
-    assert [recipe.name for recipe in result.recipes] == ["Bright Cabbage Slaw"]
-    assert updated.recipe_spans[0].span_id == "recipe_span_1"
-
-
-def test_build_conversion_result_from_label_spans_records_rejected_title_only_span() -> None:
-    fixture = _run_title_only_span_rejection_fixture()
-    updated = fixture["updated"]
-    result = updated.updated_conversion_result
-    assert any(
-        row.span_id == "recipe_span_0"
-        and row.decision == "rejected_pseudo_recipe_span"
-        and row.rejection_reason == "rejected_missing_recipe_body"
-        for row in updated.span_decisions
+    assert [recipe.name for recipe in result.recipes] == ["Bare Title"]
+    assert updated.recipe_spans[0].span_id == "recipe_span_0"
+    assert updated.span_decisions[0].decision == "accepted_recipe_span"
+    assert (
+        updated.span_decisions[0].warnings
+        == ["accepted_recipe_span_projection_missing_body:recipe_span_0"]
     )
-    assert [row["index"] for row in result.non_recipe_blocks] == [0]
+    assert (
+        updated.updated_conversion_result.report.warnings
+        == [
+            "label_source_of_truth=label-first-v1",
+            "accepted_recipe_span_projection_missing_body:recipe_span_0",
+        ]
+    )
 
 
 def test_build_conversion_result_from_label_spans_keeps_title_plus_yield_stub() -> None:

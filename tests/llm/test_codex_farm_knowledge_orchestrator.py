@@ -29,6 +29,13 @@ from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.llm.phase_worker_runtime import TaskManifestEntryV1
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
+from tests.nonrecipe_stage_helpers import (
+    make_authority_result,
+    make_review_status_result,
+    make_routing_result,
+    make_seed_result,
+    make_stage_result,
+)
 
 
 def _semantic_packet_output(
@@ -94,6 +101,81 @@ def _payload_chunks_or_fallback(payload: dict[str, object] | None) -> list[dict[
         if isinstance(chunks, list) and chunks:
             return [dict(chunk) for chunk in chunks if isinstance(chunk, dict)]
     return [{"cid": "fallback.chunk", "b": [{"i": 1, "t": "Fallback knowledge block."}]}]
+
+
+def _authoritative_stage_result(
+    *,
+    block_category_by_index: dict[int, str],
+    nonrecipe_spans: list[NonRecipeSpan] | None = None,
+    knowledge_spans: list[NonRecipeSpan] | None = None,
+    other_spans: list[NonRecipeSpan] | None = None,
+    seed_block_category_by_index: dict[int, str] | None = None,
+    seed_nonrecipe_spans: list[NonRecipeSpan] | None = None,
+    refinement_report: dict[str, object] | None = None,
+) -> NonRecipeStageResult:
+    seed_map = seed_block_category_by_index or block_category_by_index
+    seed = make_seed_result(
+        seed_map,
+        nonrecipe_spans=seed_nonrecipe_spans or nonrecipe_spans,
+        knowledge_spans=knowledge_spans if seed_map == block_category_by_index else None,
+        other_spans=other_spans if seed_map == block_category_by_index else None,
+    )
+    return make_stage_result(
+        seed=seed,
+        routing=make_routing_result(
+            review_eligible_block_indices=sorted(seed.seed_block_category_by_index)
+        ),
+        authority=make_authority_result(block_category_by_index),
+        review_status=make_review_status_result(
+            reviewed_block_indices=sorted(block_category_by_index),
+            unreviewed_block_category_by_index={},
+        ),
+        refinement_report=refinement_report,
+    )
+
+
+def _pending_stage_result(
+    *,
+    seed_block_category_by_index: dict[int, str],
+    review_eligible_block_indices: list[int],
+    authoritative_block_category_by_index: dict[int, str] | None = None,
+    review_excluded_block_indices: list[int] | None = None,
+    review_exclusion_reason_by_block: dict[int, str] | None = None,
+    nonrecipe_spans: list[NonRecipeSpan] | None = None,
+    knowledge_spans: list[NonRecipeSpan] | None = None,
+    other_spans: list[NonRecipeSpan] | None = None,
+    review_eligible_nonrecipe_spans: list[NonRecipeSpan] | None = None,
+    review_excluded_other_spans: list[NonRecipeSpan] | None = None,
+    refinement_report: dict[str, object] | None = None,
+) -> NonRecipeStageResult:
+    authority_map = authoritative_block_category_by_index or {}
+    excluded_indices = review_excluded_block_indices or []
+    seed = make_seed_result(
+        seed_block_category_by_index,
+        nonrecipe_spans=nonrecipe_spans,
+        knowledge_spans=knowledge_spans,
+        other_spans=other_spans,
+    )
+    return make_stage_result(
+        seed=seed,
+        routing=make_routing_result(
+            review_eligible_block_indices=review_eligible_block_indices,
+            review_excluded_block_indices=excluded_indices,
+            review_exclusion_reason_by_block=review_exclusion_reason_by_block or {},
+            review_eligible_nonrecipe_spans=review_eligible_nonrecipe_spans,
+            review_excluded_other_spans=review_excluded_other_spans,
+        ),
+        authority=make_authority_result(authority_map),
+        review_status=make_review_status_result(
+            reviewed_block_indices=sorted(authority_map),
+            unreviewed_block_category_by_index={
+                int(index): seed_block_category_by_index[int(index)]
+                for index in review_eligible_block_indices
+                if int(index) not in authority_map
+            },
+        ),
+        refinement_report=refinement_report,
+    )
 
 
 def test_build_deterministic_knowledge_bypass_candidate_returns_valid_other_payload() -> None:
@@ -1447,7 +1529,10 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.llm_report["review_summary"]["reviewed_shards_with_useful_chunks"] >= 1
     assert apply_result.llm_report["review_status"] == "complete"
     assert apply_result.llm_report["review_summary"]["promoted_snippet_count"] >= 1
-    assert apply_result.refined_stage_result.block_category_by_index[4] == "knowledge"
+    assert (
+        apply_result.refined_stage_result.authority.authoritative_block_category_by_index[4]
+        == "knowledge"
+    )
     assert apply_result.manifest_path.exists()
     assert manifest["paths"]["nonrecipe_seed_routing_path"].endswith(
         "08_nonrecipe_seed_routing.json"
@@ -1538,7 +1623,7 @@ def _build_knowledge_orchestrator_artifact_fixture(tmp_path: Path) -> dict[str, 
     try:
         apply_result = run_codex_farm_nonrecipe_knowledge_review(
             conversion_result=result,
-            nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_stage_result=_authoritative_stage_result(
                 nonrecipe_spans=[
                     NonRecipeSpan(
                         span_id="nr.other.0.1",
@@ -1862,7 +1947,7 @@ def _build_knowledge_worker_cli_fixture(tmp_path: Path) -> dict[str, object]:
             workbook="book",
             workbookPath=str(source),
         ),
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.2",
@@ -2238,7 +2323,7 @@ def test_knowledge_orchestrator_writes_interrupt_status_before_reraising(
     with pytest.raises(KeyboardInterrupt):
         run_codex_farm_nonrecipe_knowledge_review(
             conversion_result=result,
-            nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_stage_result=_authoritative_stage_result(
                 nonrecipe_spans=[
                     NonRecipeSpan(
                         span_id="nr.knowledge.4.5",
@@ -2687,7 +2772,7 @@ def _run_near_miss_repair_fixture(tmp_path: Path) -> dict[str, object]:
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -2868,7 +2953,7 @@ def test_knowledge_orchestrator_repairs_snippet_copy_outputs_before_poison_skip(
             workbook="book",
             workbookPath="book.txt",
         ),
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -3001,7 +3086,7 @@ def test_knowledge_orchestrator_hard_fails_when_snippet_only_repair_still_copies
             workbook="book",
             workbookPath="book.txt",
         ),
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -3314,7 +3399,7 @@ def _run_watchdog_killed_summary_fixture(tmp_path: Path) -> dict[str, object]:
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -3517,7 +3602,7 @@ def _run_taskized_watchdog_failure_fixture(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.2",
@@ -3825,7 +3910,7 @@ def _run_cohort_outlier_watchdog_fixture(
     runner = _OutlierRetryRunner(output_builder=_valid_payload)
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.4",
@@ -4030,7 +4115,7 @@ def _run_missing_rows_taskization_fixture(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.6",
@@ -4167,7 +4252,7 @@ def test_knowledge_orchestrator_accepts_valid_workspace_outputs_without_final_me
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.6",
@@ -4240,7 +4325,7 @@ def test_knowledge_orchestrator_noops_when_no_seed_nonrecipe_spans(tmp_path: Pat
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[],
             knowledge_spans=[],
             other_spans=[],
@@ -4335,7 +4420,7 @@ def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -4436,7 +4521,7 @@ def test_knowledge_orchestrator_workspace_workers_do_not_force_heredoc_kills(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -4555,7 +4640,7 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.3",
@@ -4682,7 +4767,7 @@ def test_knowledge_orchestrator_uses_workspace_worker_for_multi_shard_assignment
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.2",
@@ -4801,7 +4886,7 @@ def _run_multi_chunk_workspace_taskization_fixture(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.2",
@@ -4992,7 +5077,7 @@ def _run_partial_task_promotion_fixture(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.3",
@@ -5046,11 +5131,14 @@ def test_knowledge_orchestrator_partially_promotes_accepted_task_packets_from_in
     apply_result = fixture["apply_result"]
     assert hasattr(apply_result, "llm_report")
 
-    assert apply_result.refined_stage_result.block_category_by_index == {
+    assert apply_result.refined_stage_result.authority.authoritative_block_category_by_index == {
         0: "knowledge",
         1: "knowledge",
-        2: "knowledge",
     }
+    assert (
+        apply_result.refined_stage_result.review_status.unreviewed_block_category_by_index
+        == {2: "knowledge"}
+    )
     assert apply_result.llm_report["stage_status"] == "completed_with_failures"
     assert apply_result.llm_report["review_status"] == "partial"
     assert apply_result.llm_report["counts"]["validated_shards"] == 2
@@ -5138,7 +5226,7 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.other.8.9",
@@ -5169,8 +5257,10 @@ def test_knowledge_orchestrator_can_promote_seed_other_block_to_final_knowledge(
         runner=runner,
     )
 
-    assert apply_result.refined_stage_result.seed_block_category_by_index == {8: "other"}
-    assert apply_result.refined_stage_result.block_category_by_index == {8: "knowledge"}
+    assert apply_result.refined_stage_result.seed.seed_block_category_by_index == {8: "other"}
+    assert apply_result.refined_stage_result.authority.authoritative_block_category_by_index == {
+        8: "knowledge"
+    }
     assert apply_result.refined_stage_result.refinement_report["changed_block_count"] == 1
     assert apply_result.refined_stage_result.refinement_report["reviewer_category_counts"] == {
         "knowledge": 1
@@ -5240,7 +5330,7 @@ def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -5271,7 +5361,9 @@ def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
         runner=runner,
     )
 
-    assert apply_result.refined_stage_result.block_category_by_index == {4: "other"}
+    assert apply_result.refined_stage_result.authority.authoritative_block_category_by_index == {
+        4: "other"
+    }
     assert sum(
         apply_result.refined_stage_result.refinement_report["reviewer_category_counts"].values()
     ) == 1
@@ -5340,7 +5432,7 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -5371,7 +5463,8 @@ def test_knowledge_orchestrator_rejects_off_surface_worker_output(
         runner=runner,
     )
 
-    assert apply_result.refined_stage_result.block_category_by_index == {4: "knowledge"}
+    assert apply_result.refined_stage_result.seed.seed_block_category_by_index == {4: "knowledge"}
+    assert apply_result.refined_stage_result.authority.authoritative_block_category_by_index == {}
     assert apply_result.llm_report["counts"]["outputs_parsed"] == 0
     assert apply_result.llm_report["counts"]["invalid_shards"] == 1
     assert apply_result.llm_report["counts"]["unreviewed_shard_count"] == 1
@@ -5447,7 +5540,7 @@ def test_knowledge_orchestrator_rejects_semantically_empty_strong_cue_shard(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -5478,7 +5571,8 @@ def test_knowledge_orchestrator_rejects_semantically_empty_strong_cue_shard(
         runner=runner,
     )
 
-    assert apply_result.refined_stage_result.block_category_by_index == {4: "knowledge"}
+    assert apply_result.refined_stage_result.seed.seed_block_category_by_index == {4: "knowledge"}
+    assert apply_result.refined_stage_result.authority.authoritative_block_category_by_index == {}
     assert apply_result.llm_report["stage_status"] == "completed_with_failures"
     assert apply_result.llm_report["review_status"] == "unreviewed"
     assert apply_result.llm_report["authority_mode"] == "knowledge_unreviewed_seed_kept"
@@ -5587,7 +5681,7 @@ def _run_valid_and_invalid_shard_mix_fixture(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.3",
@@ -5717,7 +5811,7 @@ def test_knowledge_orchestrator_honors_prompt_target_count_and_keeps_worker_coun
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.0.10",
@@ -5821,7 +5915,7 @@ def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(
 
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=result,
-        nonrecipe_stage_result=NonRecipeStageResult(
+        nonrecipe_stage_result=_authoritative_stage_result(
             nonrecipe_spans=[
                 NonRecipeSpan(
                     span_id="nr.knowledge.4.5",
@@ -5852,7 +5946,10 @@ def test_knowledge_orchestrator_falls_back_when_phase_runtime_raises(
         runner=FailingRunner(),  # type: ignore[arg-type]
     )
 
-    assert apply_result.refined_stage_result.block_category_by_index == {4: "knowledge"}
+    assert (
+        apply_result.refined_stage_result.authority.authoritative_block_category_by_index
+        == {4: "knowledge"}
+    )
     assert apply_result.llm_report["stage_status"] == "runtime_failed"
     assert apply_result.llm_report["authority_mode"] == "knowledge_not_run_runtime_failed"
     assert apply_result.llm_report["counts"]["outputs_parsed"] == 0

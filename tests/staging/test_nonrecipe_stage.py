@@ -52,8 +52,8 @@ def test_nonrecipe_stage_excludes_knowledge_inside_recipe_span() -> None:
         ],
     )
 
-    assert result.block_category_by_index == {0: "other", 3: "knowledge"}
-    assert [span.span_id for span in result.nonrecipe_spans] == [
+    assert result.seed.seed_block_category_by_index == {0: "other", 3: "knowledge"}
+    assert [span.span_id for span in result.seed.seed_nonrecipe_spans] == [
         "nr.other.0.1",
         "nr.knowledge.3.4",
     ]
@@ -76,8 +76,8 @@ def test_nonrecipe_stage_groups_contiguous_knowledge_and_normalizes_noise() -> N
         recipe_spans=[],
     )
 
-    assert [span.span_id for span in result.knowledge_spans] == ["nr.knowledge.0.2"]
-    assert [span.span_id for span in result.other_spans] == ["nr.other.2.4"]
+    assert [span.span_id for span in result.seed.seed_knowledge_spans] == ["nr.knowledge.0.2"]
+    assert [span.span_id for span in result.seed.seed_other_spans] == ["nr.other.2.4"]
 
 
 def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path) -> None:
@@ -182,7 +182,7 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
         reviewer_categories_by_block={0: "chapter_taxonomy"},
     )
 
-    assert refined.block_category_by_index == {0: "other"}
+    assert refined.seed.seed_block_category_by_index == {0: "knowledge"}
     assert refined.authority.authoritative_block_indices == [0]
     assert refined.authority.authoritative_block_category_by_index == {0: "other"}
     assert refined.review_status.reviewed_block_indices == [0]

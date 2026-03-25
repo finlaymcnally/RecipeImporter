@@ -189,10 +189,6 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     )
 
     assert session.conversion_result.recipes == []
-    assert any(
-        "Authoritative Stage 2 regrouping found zero recipes" in warning
-        for warning in session.conversion_result.report.warnings
-    )
     mismatch_path = (
         tmp_path
         / "out"
@@ -200,8 +196,12 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
         / "book"
         / "authority_mismatch.json"
     )
-    assert mismatch_path.is_file()
-    assert session.label_artifact_paths["authority_mismatch_path"] == mismatch_path
+    assert not mismatch_path.exists()
+    assert "authority_mismatch_path" not in (session.label_artifact_paths or {})
+    assert not any(
+        "Authoritative Stage 2 regrouping found zero recipes" in warning
+        for warning in session.conversion_result.report.warnings
+    )
     assert session.recipe_boundary_result is not None
     assert session.recipe_refine_result is not None
     assert session.nonrecipe_route_result is not None

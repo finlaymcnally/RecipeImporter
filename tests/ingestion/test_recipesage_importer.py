@@ -61,6 +61,7 @@ def test_convert_recipesage(tmp_path):
     result = importer.convert(path, None)
 
     assert result.recipes == []
+    assert result.report.total_recipes == 0
     assert len(result.source_blocks) == 1
     assert len(result.source_support) == 1
     assert result.source_support[0].kind == "recipesage_recipe_object"

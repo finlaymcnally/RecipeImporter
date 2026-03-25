@@ -216,34 +216,3 @@ def _serialize_span_decision(row: Any) -> dict[str, Any]:
         "decision_notes": list(payload.get("decision_notes") or []),
         "warnings": list(payload.get("warnings") or []),
     }
-
-def _write_label_first_authority_mismatch_artifact(
-    *,
-    run_root: Path,
-    workbook_slug: str,
-    importer_recipe_count: int,
-    authoritative_recipe_count: int,
-    recipe_spans: list[dict[str, Any]],
-) -> Path:
-    mismatch_path = (
-        run_root
-        / "group_recipe_spans"
-        / workbook_slug
-        / "authority_mismatch.json"
-    )
-    _write_json(
-        mismatch_path,
-        {
-            "schema_version": "group_recipe_spans_authority_mismatch.v1",
-            "workbook_slug": workbook_slug,
-            "importer_recipe_count": int(importer_recipe_count),
-            "authoritative_recipe_count": int(authoritative_recipe_count),
-            "warning": (
-                "Authoritative Stage 2 regrouping produced zero recipes even though "
-                "the importer reported recipe candidates. The run stayed on the "
-                "authoritative label-first path."
-            ),
-            "recipe_spans": list(recipe_spans),
-        },
-    )
-    return mismatch_path

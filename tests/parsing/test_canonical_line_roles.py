@@ -252,7 +252,7 @@ def test_label_atomic_lines_instruction_with_time_stays_instruction() -> None:
     assert by_text["3. Cover and braise for 45 minutes."].label == "INSTRUCTION_LINE"
 
 
-def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time(
+def test_codex_time_line_prediction_rejects_to_baseline_when_not_primary_time(
 ) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -275,7 +275,9 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
     assert len(predictions) == 1
     assert predictions[0].label == "INSTRUCTION_LINE"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_time_to_instruction" in predictions[0].reason_tags
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "codex_policy_rejected:time_line_not_primary" in predictions[0].reason_tags
+    assert "codex_rejected_to_baseline" in predictions[0].escalation_reasons
 
 
 def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtime() -> None:
@@ -1266,7 +1268,7 @@ def test_label_atomic_lines_outside_recipe_how_to_heading_is_not_recipe_title() 
     assert predictions[0].label != "RECIPE_TITLE"
 
 
-def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient() -> None:
+def test_codex_neighbor_ingredient_fragment_stays_codex_other() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -1304,9 +1306,9 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient() -> None:
         live_llm_allowed=True,
     )
     by_index = {row.atomic_index: row for row in predictions}
-    assert by_index[1].label == "INGREDIENT_LINE"
-    assert by_index[1].decided_by == "fallback"
-    assert "sanitized_neighbor_ingredient_fragment" in by_index[1].reason_tags
+    assert by_index[1].label == "OTHER"
+    assert by_index[1].decided_by == "codex"
+    assert "sanitized_neighbor_ingredient_fragment" not in by_index[1].reason_tags
 
 
 def test_label_atomic_lines_component_heading_prefers_howto_section() -> None:
@@ -2306,7 +2308,7 @@ def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None
     assert predictions[0].label == "OTHER"
 
 
-def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_reviewable_other(
+def test_codex_outside_recipe_generic_lesson_heading_rejects_howto_to_reviewable_other(
     tmp_path,
 ) -> None:
     candidates = [
@@ -2344,8 +2346,9 @@ def test_codex_outside_recipe_generic_lesson_heading_demotes_howto_to_reviewable
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "fallback_decision" in predictions[0].escalation_reasons
-    assert "sanitized_label_adjustment" in predictions[0].escalation_reasons
-    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
+    assert "codex_rejected_to_baseline" in predictions[0].escalation_reasons
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
 
 
 def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -> None:
@@ -2375,8 +2378,9 @@ def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
     assert "fallback_decision" in predictions[0].escalation_reasons
-    assert "sanitized_label_adjustment" in predictions[0].escalation_reasons
-    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
+    assert "codex_rejected_to_baseline" in predictions[0].escalation_reasons
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
 
 
 def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -> None:
@@ -2402,7 +2406,8 @@ def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "coerced_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in predictions[0].reason_tags
     assert predictions[0].review_exclusion_reason == "endorsement"
 
 
@@ -2433,7 +2438,8 @@ def test_codex_outside_recipe_publisher_promo_demotes_knowledge_to_other(tmp_pat
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "coerced_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in predictions[0].reason_tags
     assert predictions[0].review_exclusion_reason == "publisher_promo"
 
 
@@ -2460,7 +2466,8 @@ def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_pa
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "coerced_outside_recipe_knowledge_to_reviewable_other" in predictions[0].reason_tags
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in predictions[0].reason_tags
     assert predictions[0].review_exclusion_reason is None
 
 
@@ -2502,6 +2509,10 @@ def test_codex_outside_recipe_knowledge_heading_with_context_stays_reviewable_ot
     assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
     assert all(prediction.decided_by == "fallback" for prediction in predictions)
     assert all(prediction.review_exclusion_reason is None for prediction in predictions)
+    assert all(
+        "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in prediction.reason_tags
+        for prediction in predictions
+    )
 
 
 def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_stay_structured(
@@ -2541,7 +2552,7 @@ def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_
     assert predictions[1].label == "INGREDIENT_LINE"
 
 
-def test_codex_long_to_make_variant_paragraph_demotes_howto_to_recipe_variant(
+def test_codex_long_to_make_variant_paragraph_rejects_howto_to_baseline(
     tmp_path,
 ) -> None:
     candidates = [
@@ -2571,10 +2582,11 @@ def test_codex_long_to_make_variant_paragraph_demotes_howto_to_recipe_variant(
 
     assert predictions[0].label == "RECIPE_VARIANT"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
 
 
-def test_codex_exact_caesar_make_step_demotes_variant_to_instruction(tmp_path) -> None:
+def test_codex_exact_caesar_make_step_rejects_variant_to_baseline(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2663,7 +2675,8 @@ def test_codex_exact_caesar_make_step_demotes_variant_to_instruction(tmp_path) -
 
     assert predictions[2].label == "INSTRUCTION_LINE"
     assert predictions[2].decided_by == "fallback"
-    assert "sanitized_variant_without_local_support" in predictions[2].reason_tags
+    assert "codex_policy_rejected" in predictions[2].reason_tags
+    assert "codex_policy_rejected:variant_without_local_support" in predictions[2].reason_tags
 
 
 def test_codex_exact_lesson_prose_other_rows_stay_reviewable_other(tmp_path) -> None:
@@ -2806,10 +2819,10 @@ def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) 
         "OTHER",
         "OTHER",
     ]
-    assert "sanitized_title_without_local_support" in predictions[2].reason_tags
+    assert "codex_policy_rejected:title_without_local_support" in predictions[2].reason_tags
 
 
-def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:
+def test_codex_how_salt_works_rejects_howto_to_baseline(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2844,7 +2857,7 @@ def test_codex_how_salt_works_demotes_howto_to_knowledge(tmp_path) -> None:
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_howto_without_local_support" in predictions[0].reason_tags
+    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
 
 
 def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
@@ -2874,10 +2887,10 @@ def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
 
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
-    assert "sanitized_instruction_without_local_support" in predictions[0].reason_tags
+    assert "codex_policy_rejected:instruction_without_local_support" in predictions[0].reason_tags
 
 
-def test_codex_exact_instruction_other_rows_rescue_to_instruction(tmp_path) -> None:
+def test_codex_exact_instruction_other_rows_stay_codex_other(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2929,14 +2942,16 @@ def test_codex_exact_instruction_other_rows_rescue_to_instruction(tmp_path) -> N
 
     assert [prediction.label for prediction in predictions] == [
         "INGREDIENT_LINE",
-        "INSTRUCTION_LINE",
-        "INSTRUCTION_LINE",
+        "OTHER",
+        "OTHER",
     ]
-    assert "rescued_other_to_instruction" in predictions[1].reason_tags
-    assert "rescued_other_to_instruction" in predictions[2].reason_tags
+    assert predictions[1].decided_by == "codex"
+    assert predictions[2].decided_by == "codex"
+    assert "rescued_other_to_instruction" not in predictions[1].reason_tags
+    assert "rescued_other_to_instruction" not in predictions[2].reason_tags
 
 
-def test_codex_exact_variations_other_rows_rescue_to_variant(tmp_path) -> None:
+def test_codex_exact_variations_other_rows_stay_codex_other(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -2979,13 +2994,15 @@ def test_codex_exact_variations_other_rows_rescue_to_variant(tmp_path) -> None:
     )
 
     assert [prediction.label for prediction in predictions] == [
-        "RECIPE_VARIANT",
-        "RECIPE_VARIANT",
-        "RECIPE_VARIANT",
+        "OTHER",
+        "OTHER",
+        "OTHER",
     ]
-    assert "rescued_other_to_variant" in predictions[0].reason_tags
-    assert "rescued_other_to_variant" in predictions[1].reason_tags
-    assert "rescued_other_to_variant" in predictions[2].reason_tags
+    assert all(prediction.decided_by == "codex" for prediction in predictions)
+    assert all(
+        "rescued_other_to_variant" not in prediction.reason_tags
+        for prediction in predictions
+    )
 
 
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
@@ -3626,10 +3643,10 @@ def test_line_role_packet_context_marks_preserved_front_matter_packet_as_navigat
         "This packet reads like front matter, navigation"
     )
     assert packet_context["default_posture"].startswith(
-        "Default to `OTHER` or `KNOWLEDGE`"
+        "Default to `OTHER`; use `review_exclusion_reason` only"
     )
     assert any(
-        "Do not over-structure recipe-name lists" in line
+        "heading alone is weak evidence" in line.lower()
         for line in packet_context["flip_policy"]
     )
 
@@ -3646,6 +3663,9 @@ def test_line_role_packet_context_marks_preserved_contents_packet_as_navigation(
     assert packet_context["context_confidence"] == "high"
     assert packet_context["packet_summary"].startswith(
         "This packet reads like front matter, navigation"
+    )
+    assert packet_context["default_posture"].startswith(
+        "Default to `OTHER`; use `review_exclusion_reason` only"
     )
 
 
@@ -3915,7 +3935,8 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
     assert len(predictions) == 1
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].escalation_reasons == []
+    assert predictions[0].escalation_reasons == ["knowledge_review_excluded"]
+    assert predictions[0].review_exclusion_reason == "navigation"
 
 
 def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
@@ -4235,6 +4256,7 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
         )
     )
     assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
+    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 1
     assert "watchdog_kills_detected" not in telemetry_payload["summary"]["pathological_flags"]
     assert "command_execution_detected" in telemetry_payload["summary"]["pathological_flags"]
 
@@ -4247,12 +4269,12 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
     assert status_payload["status"] == "validated"
     assert status_payload["state"] == "completed"
-    assert status_payload["reason_code"] == "workspace_outputs_stabilized"
-    assert "wrote every assigned output file" in status_payload["reason_detail"]
+    assert status_payload["reason_code"] == "validated_after_watchdog_kill"
+    assert "validated using durable packet outputs" in status_payload["reason_detail"]
 
     live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
-    assert live_status_payload["state"] == "completed"
-    assert live_status_payload["reason_code"] == "workspace_outputs_stabilized"
+    assert live_status_payload["state"] == "watchdog_killed"
+    assert live_status_payload["reason_code"] == "watchdog_command_loop_without_output"
 
 
 def test_line_role_strict_watchdog_still_kills_benign_commands_in_structured_mode(

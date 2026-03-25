@@ -16,12 +16,18 @@ from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     LabelFirstStageResult,
 )
-from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.staging.stage_block_predictions import (
     _is_howto_section_text,
     build_stage_block_predictions,
 )
 from cookimport.staging.writer import write_stage_block_predictions
+from tests.nonrecipe_stage_helpers import (
+    make_authority_result,
+    make_review_status_result,
+    make_routing_result,
+    make_seed_result,
+    make_stage_result,
+)
 
 
 def _build_result(
@@ -93,11 +99,14 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
     payload = build_stage_block_predictions(
         result,
         "simple",
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[],
-            knowledge_spans=[],
-            other_spans=[],
-            block_category_by_index={8: "knowledge"},
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result({8: "knowledge"}),
+            routing=make_routing_result(review_eligible_block_indices=[8]),
+            authority=make_authority_result({8: "knowledge"}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[8],
+                unreviewed_block_category_by_index={},
+            ),
         ),
     )
 
@@ -154,11 +163,14 @@ def test_build_stage_block_predictions_ignores_stage7_other_blocks() -> None:
     payload = build_stage_block_predictions(
         result,
         "simple",
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[],
-            knowledge_spans=[],
-            other_spans=[],
-            block_category_by_index={8: "other"},
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result({8: "other"}),
+            routing=make_routing_result(review_eligible_block_indices=[8]),
+            authority=make_authority_result({8: "other"}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[8],
+                unreviewed_block_category_by_index={},
+            ),
         ),
     )
 
@@ -171,14 +183,14 @@ def test_build_stage_block_predictions_ignores_unreviewed_review_eligible_knowle
     payload = build_stage_block_predictions(
         result,
         "simple",
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[],
-            knowledge_spans=[],
-            other_spans=[],
-            block_category_by_index={8: "knowledge"},
-            review_eligible_block_indices=[8],
-            final_authority_block_indices=[],
-            unreviewed_review_eligible_block_indices=[8],
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result({8: "knowledge"}),
+            routing=make_routing_result(review_eligible_block_indices=[8]),
+            authority=make_authority_result({}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[],
+                unreviewed_block_category_by_index={8: "knowledge"},
+            ),
         ),
     )
 
@@ -231,11 +243,14 @@ def test_write_stage_block_predictions_prefers_final_nonrecipe_authority(
         run_root=tmp_path,
         workbook_slug="simple",
         source_file="/tmp/simple.txt",
-        nonrecipe_stage_result=NonRecipeStageResult(
-            nonrecipe_spans=[],
-            knowledge_spans=[],
-            other_spans=[],
-            block_category_by_index={8: "knowledge"},
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result({8: "knowledge"}),
+            routing=make_routing_result(review_eligible_block_indices=[8]),
+            authority=make_authority_result({8: "knowledge"}),
+            review_status=make_review_status_result(
+                reviewed_block_indices=[8],
+                unreviewed_block_category_by_index={},
+            ),
         ),
         label_first_result=label_first_result,
     )

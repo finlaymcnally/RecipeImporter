@@ -129,6 +129,16 @@ def _label_atomic_lines_internal(
                 decided_by="rule",
                 reason_tags=tags,
             )
+        baseline_prediction = _apply_repo_baseline_semantic_policy(
+            prediction=baseline_prediction,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        baseline_prediction = _normalize_prediction_metadata(
+            prediction=baseline_prediction,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
         baseline_prediction = _apply_prediction_decision_metadata(
             prediction=baseline_prediction,
             candidate=candidate,
@@ -172,33 +182,28 @@ def _label_atomic_lines_internal(
             ]
 
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
-    sanitized_baseline_by_index: dict[int, CanonicalLineRolePrediction] = {}
     for candidate in ordered:
-        current = predictions[candidate.atomic_index]
         baseline = deterministic_baseline[candidate.atomic_index]
-        sanitized_baseline = _sanitize_prediction(
-            prediction=baseline,
-            candidate=candidate,
-            by_atomic_index=by_atomic_index,
-        )
-        sanitized_current = _sanitize_prediction(
+        current = predictions[candidate.atomic_index]
+        if current.decided_by == "codex":
+            current = _reject_codex_prediction_to_baseline_if_policy_violated(
+                prediction=current,
+                candidate=candidate,
+                by_atomic_index=by_atomic_index,
+                baseline_prediction=baseline,
+            )
+        current = _normalize_prediction_metadata(
             prediction=current,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
         )
-        sanitized_baseline = _apply_prediction_decision_metadata(
-            prediction=sanitized_baseline,
+        current = _apply_prediction_decision_metadata(
+            prediction=current,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
+            baseline_prediction=baseline,
         )
-        sanitized_current = _apply_prediction_decision_metadata(
-            prediction=sanitized_current,
-            candidate=candidate,
-            by_atomic_index=by_atomic_index,
-            baseline_prediction=sanitized_baseline,
-        )
-        sanitized_by_index[candidate.atomic_index] = sanitized_current
-        sanitized_baseline_by_index[candidate.atomic_index] = sanitized_baseline
+        sanitized_by_index[candidate.atomic_index] = current
     if mode == LINE_ROLE_PIPELINE_SHARD_V1:
         _write_line_role_telemetry_summary(
             artifact_root=artifact_root,
@@ -206,7 +211,7 @@ def _label_atomic_lines_internal(
         )
     sanitized = [sanitized_by_index[candidate.atomic_index] for candidate in ordered]
     sanitized_baseline = [
-        sanitized_baseline_by_index[candidate.atomic_index] for candidate in ordered
+        deterministic_baseline[candidate.atomic_index] for candidate in ordered
     ]
     _write_cached_predictions(
         cache_path=cache_path,

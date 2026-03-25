@@ -178,6 +178,111 @@ def test_group_recipe_spans_from_labels_rejects_recipeish_blocks_without_title()
     assert "span_missing_title_block" in span_decisions[0].decision_notes
 
 
+def test_group_recipe_spans_from_labels_rejects_title_only_note_span_without_body() -> None:
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Weeknight Salad",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="A bright side dish for spring dinners.",
+            deterministic_label="RECIPE_NOTES",
+            final_label="RECIPE_NOTES",
+            decided_by="rule",
+        ),
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[1],
+            deterministic_label="RECIPE_NOTES",
+            final_label="RECIPE_NOTES",
+            decided_by="rule",
+        ),
+    ]
+
+    spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+        block_labels,
+        labeled_lines,
+    )
+
+    assert spans == []
+    assert len(span_decisions) == 1
+    assert span_decisions[0].decision == "rejected_pseudo_recipe_span"
+    assert span_decisions[0].rejection_reason == "rejected_missing_recipe_body"
+    assert "recipe_span_missing_recipe_body" in span_decisions[0].warnings
+    assert "missing_required_recipe_fields" in span_decisions[0].escalation_reasons
+    assert "span_missing_recipe_body" in span_decisions[0].decision_notes
+
+
+def test_group_recipe_spans_from_labels_accepts_title_plus_yield_stub() -> None:
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Tomato Vinaigrette",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="Makes about 1 cup",
+            deterministic_label="YIELD_LINE",
+            final_label="YIELD_LINE",
+            decided_by="rule",
+        ),
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[1],
+            deterministic_label="YIELD_LINE",
+            final_label="YIELD_LINE",
+            decided_by="rule",
+        ),
+    ]
+
+    spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+        block_labels,
+        labeled_lines,
+    )
+
+    assert len(spans) == 1
+    assert spans[0].block_indices == [0, 1]
+    assert span_decisions[0].decision == "accepted_recipe_span"
+    assert span_decisions[0].rejection_reason is None
+
+
 def test_group_recipe_spans_from_labels_keeps_anchored_recipe_through_single_other_gap() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
