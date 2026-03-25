@@ -5426,7 +5426,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role"
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
-    assert "You are processing many canonical line-role task packets inside one local worker workspace." in prompt_text
+    assert "You are processing many canonical line-role tasks inside one local worker workspace. Each task owns one ordered line packet." in prompt_text
     assert "Start by opening `worker_manifest.json`, then `CURRENT_TASK.md`, then `OUTPUT_CONTRACT.md`" in prompt_text
     assert "`tools/line_role_worker.py` exists, use it as the paved road" in prompt_text
     assert "metadata.scratch_draft_path" in prompt_text
@@ -5455,7 +5455,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line-role-canonical-0001-a000000-a000000"
         / "prompt.txt"
     ).read_text(encoding="utf-8")
-    assert "You are processing many canonical line-role task packets inside one local worker workspace." in worker_prompt_text
+    assert "You are processing many canonical line-role tasks inside one local worker workspace. Each task owns one ordered line packet." in worker_prompt_text
     assert "worker_manifest.json" in worker_prompt_text
     assert "Assigned task files:" in worker_prompt_text
 

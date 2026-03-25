@@ -657,7 +657,7 @@ def _notify_line_role_progress(
         message = f"{message} | running {running}"
     remaining = max(0, total - completed)
     detail_lines = [
-        f"queued shards: {remaining}",
+        f"queued tasks: {remaining}",
     ]
     if worker_total is not None:
         detail_lines.insert(0, f"configured workers: {max(0, int(worker_total))}")
@@ -665,7 +665,7 @@ def _notify_line_role_progress(
         format_stage_progress(
             message,
             stage_label="canonical line-role pipeline",
-            work_unit_label="task packet",
+            work_unit_label="task",
             task_current=completed,
             task_total=total,
             running_workers=running_tasks,
@@ -2047,7 +2047,7 @@ def _run_line_role_direct_workers_v1(
         extra_shard_count = max(0, len(pending_shards) - 1)
         if extra_shard_count > 0:
             base_label = f"{base_label} +{extra_shard_count} more"
-        return f"{base_label} ({completed_worker_tasks}/{len(worker_task_ids)} task packets)"
+        return f"{base_label} ({completed_worker_tasks}/{len(worker_task_ids)} tasks)"
 
     def _emit_progress_locked(*, force: bool = False) -> None:
         completed_task_ids: set[str] = set()

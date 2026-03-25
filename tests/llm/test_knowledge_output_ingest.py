@@ -75,6 +75,29 @@ def _shard(
     )
 
 
+def _multi_packet_shard() -> ShardManifestEntryV1:
+    return ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=("book.kp0000.nr", "book.kp0001.nr"),
+        input_payload={
+            "sid": "book.ks0000.nr",
+            "p": [
+                {
+                    "v": "1",
+                    "bid": "book.kp0000.nr",
+                    "b": [{"i": 4, "t": "Keep whisking"}],
+                },
+                {
+                    "v": "1",
+                    "bid": "book.kp0001.nr",
+                    "b": [{"i": 5, "t": "Advertisement copy that should stay other"}],
+                },
+            ],
+        },
+        metadata={"owned_packet_ids": ["book.kp0000.nr", "book.kp0001.nr"]},
+    )
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -132,6 +155,47 @@ def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> Non
     assert valid is True
     assert errors == ()
     assert metadata["bundle_id"] == "book.kp0000.nr"
+    assert metadata["result_block_decision_count"] == 2
+    assert metadata["idea_group_count"] == 1
+
+
+def test_validate_knowledge_shard_output_accepts_multi_packet_wrapper() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        _multi_packet_shard(),
+        {
+            "shard_id": "book.ks0000.nr",
+            "packet_results": [
+                _semantic_packet_payload(
+                    packet_id="book.kp0000.nr",
+                    block_decisions=[{"block_index": 4, "category": "knowledge"}],
+                    idea_groups=[
+                        {
+                            "group_id": "idea-1",
+                            "topic_label": "Whisking keeps the sauce smooth",
+                            "block_indices": [4],
+                            "snippets": [
+                                {
+                                    "body": "Keep whisking so the sauce stays smooth.",
+                                    "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                _semantic_packet_payload(
+                    packet_id="book.kp0001.nr",
+                    block_decisions=[{"block_index": 5, "category": "other"}],
+                    idea_groups=[],
+                ),
+            ],
+        },
+    )
+
+    assert valid is True
+    assert errors == ()
+    assert metadata["owned_packet_count"] == 2
+    assert metadata["validated_packet_count"] == 2
+    assert metadata["owned_packet_ids"] == ["book.kp0000.nr", "book.kp0001.nr"]
     assert metadata["result_block_decision_count"] == 2
     assert metadata["idea_group_count"] == 1
 
@@ -258,8 +322,65 @@ def test_read_validated_knowledge_outputs_from_proposals_promotes_only_valid_pac
 
     assert list(outputs) == ["book.kp0000.nr"]
     assert outputs["book.kp0000.nr"].bundle_id == "book.kp0000.nr"
+
+
+def test_read_validated_knowledge_outputs_from_proposals_promotes_multi_packet_wrapper(
+    tmp_path: Path,
+) -> None:
+    _write_json(
+        tmp_path / "multi.json",
+        {
+            "payload": {
+                "shard_id": "book.ks0000.nr",
+                "packet_results": [
+                    normalize_knowledge_worker_payload(
+                        _semantic_packet_payload(
+                            packet_id="book.kp0000.nr",
+                            block_decisions=[{"block_index": 4, "category": "knowledge"}],
+                            idea_groups=[
+                                {
+                                    "group_id": "idea-1",
+                                    "topic_label": "Whisking keeps the sauce smooth",
+                                    "block_indices": [4],
+                                    "snippets": [
+                                        {
+                                            "body": "Keep whisking so the sauce stays smooth.",
+                                            "evidence": [
+                                                {"block_index": 4, "quote": "Keep whisking"}
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                        )
+                    )[0],
+                    normalize_knowledge_worker_payload(
+                        _semantic_packet_payload(
+                            packet_id="book.kp0001.nr",
+                            block_decisions=[{"block_index": 5, "category": "other"}],
+                            idea_groups=[],
+                        )
+                    )[0],
+                ],
+            },
+            "validation_errors": [],
+            "validation_metadata": {
+                "owned_packet_ids": ["book.kp0000.nr", "book.kp0001.nr"],
+                "owned_packet_count": 2,
+            },
+        },
+    )
+
+    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(tmp_path)
+
+    assert sorted(outputs) == ["book.kp0000.nr", "book.kp0001.nr"]
+    assert outputs["book.kp0000.nr"].bundle_id == "book.kp0000.nr"
+    assert outputs["book.kp0001.nr"].bundle_id == "book.kp0001.nr"
+    assert sorted(payloads_by_shard_id) == ["book.kp0000.nr", "book.kp0001.nr"]
     assert payloads_by_shard_id["book.kp0000.nr"]["g"][0]["gid"] == "idea-1"
-    assert "book.kp0001.nr" not in payloads_by_shard_id
+    assert payloads_by_shard_id["book.kp0001.nr"]["d"] == [
+        {"c": "other", "i": 5, "rc": "other"}
+    ]
 
 
 def test_read_validated_knowledge_outputs_from_proposals_rejects_duplicate_packet_ids(

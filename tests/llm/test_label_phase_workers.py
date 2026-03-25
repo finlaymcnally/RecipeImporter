@@ -389,7 +389,7 @@ def test_line_role_phase_workers_report_task_packet_progress(
     ]
 
     assert payloads
-    assert payloads[-1]["work_unit_label"] == "task packet"
+    assert payloads[-1]["work_unit_label"] == "task"
     assert payloads[-1]["task_current"] == payloads[-1]["task_total"] == 2
     assert any(int(payload.get("worker_total") or 0) == 2 for payload in payloads)
     assert any(payload.get("followup_label") == "shard finalization" for payload in payloads)

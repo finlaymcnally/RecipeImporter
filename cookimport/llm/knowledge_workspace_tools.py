@@ -3229,6 +3229,9 @@ def _infer_task_id(payload: Mapping[str, Any]) -> str:
 
 
 def _packet_rows(input_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    packets = input_payload.get("p")
+    if isinstance(packets, list):
+        return [dict(packet) for packet in packets if isinstance(packet, Mapping)]
     blocks = input_payload.get("b")
     if not isinstance(blocks, list):
         return []

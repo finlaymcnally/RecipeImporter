@@ -7,7 +7,7 @@ from typing import Any, Mapping, Sequence
 
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 
-from ..codex_farm_knowledge_ingest import extract_promotable_knowledge_bundle
+from ..codex_farm_knowledge_ingest import extract_promotable_knowledge_bundles
 from ..codex_exec_runner import (
     DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
     summarize_direct_telemetry_rows,
@@ -357,22 +357,24 @@ def _write_knowledge_runtime_summary_artifacts(
 
     def _promotable_bundle_for_proposal(
         proposal: ShardProposalV1,
-    ) -> tuple[Any, dict[str, Any]] | None:
-        return extract_promotable_knowledge_bundle(
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        return extract_promotable_knowledge_bundles(
             payload=proposal.payload,
             validation_errors=proposal.validation_errors,
             validation_metadata=proposal.metadata,
         )
 
-    def _promoted_rows_are_all_other(bundle: Any) -> bool:
-        if bundle is None:
+    def _promoted_rows_are_all_other(bundles: Mapping[str, Any] | None) -> bool:
+        if not isinstance(bundles, Mapping) or not bundles:
             return False
-        block_decisions = tuple(getattr(bundle, "block_decisions", ()) or ())
-        idea_groups = tuple(getattr(bundle, "idea_groups", ()) or ())
-        if not block_decisions:
-            return False
-        return (not idea_groups) and all(
-            decision.category == "other" for decision in block_decisions
+        return all(
+            bool(getattr(bundle, "block_decisions", ()) or ())
+            and not bool(getattr(bundle, "idea_groups", ()) or ())
+            and all(
+                decision.category == "other"
+                for decision in (getattr(bundle, "block_decisions", ()) or ())
+            )
+            for bundle in bundles.values()
         )
 
     def _unreviewed_packet_count_for_proposal(
@@ -432,11 +434,12 @@ def _write_knowledge_runtime_summary_artifacts(
         proposal_promotion_rows.append(
             {
                 "proposal": proposal,
-                "promoted_bundle": promoted_bundle[0] if promoted_bundle else None,
+                "promoted_bundle": promoted_bundle[0] if promoted_bundle else {},
                 "promotion_info": promotion_info,
                 "partially_promoted": bool(promotion_info.get("partial")),
                 "reviewed_with_useful_packets": bool(
-                    promoted_bundle is not None and promoted_bundle[0].idea_groups
+                    promoted_bundle is not None
+                    and any(bundle.idea_groups for bundle in promoted_bundle[0].values())
                 ),
                 "reviewed_all_other": _promoted_rows_are_all_other(
                     promoted_bundle[0] if promoted_bundle else None

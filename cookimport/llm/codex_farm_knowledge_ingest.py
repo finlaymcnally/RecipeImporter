@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .codex_farm_knowledge_contracts import knowledge_input_packets
 from .phase_worker_runtime import ShardManifestEntryV1
 from .codex_farm_knowledge_models import (
     ALLOWED_KNOWLEDGE_REASON_CODES,
@@ -28,6 +29,10 @@ _KNOWLEDGE_SCHEMA_OR_SHAPE_VALIDATION_ERRORS = frozenset(
 )
 _KNOWLEDGE_COVERAGE_VALIDATION_ERRORS = frozenset(
     {
+        "missing_owned_packet_results",
+        "unexpected_packet_results",
+        "duplicate_packet_results",
+        "packet_result_validation_failed",
         "missing_owned_block_decisions",
         "unexpected_block_decisions",
         "block_decision_order_mismatch",
@@ -38,6 +43,9 @@ _KNOWLEDGE_COVERAGE_VALIDATION_ERRORS = frozenset(
 )
 _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
     {
+        "missing_owned_packet_results",
+        "unexpected_packet_results",
+        "duplicate_packet_results",
         "response_json_invalid",
         "response_not_json_object",
         "schema_invalid",
@@ -80,156 +88,125 @@ def validate_knowledge_shard_output(
     shard: ShardManifestEntryV1,
     payload: dict[str, Any],
 ) -> tuple[bool, tuple[str, ...], dict[str, Any]]:
-    errors: list[str] = []
+    packet_surfaces = _packet_surfaces_for_shard(shard)
     metadata: dict[str, Any] = {
-        "owned_packet_count": 1,
+        "owned_packet_count": len(packet_surfaces),
+        "owned_packet_ids": [surface["packet_id"] for surface in packet_surfaces],
+        "owned_block_indices": [
+            block_index
+            for surface in packet_surfaces
+            for block_index in surface["owned_block_indices"]
+        ],
+        "owned_block_count": sum(len(surface["owned_block_indices"]) for surface in packet_surfaces),
     }
-    try:
-        normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(payload)
-        parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
-    except Exception as exc:  # noqa: BLE001
-        return False, ("schema_invalid",), {"parse_error": str(exc)}
-    metadata.update(normalization_metadata)
-    metadata["bundle_id"] = parsed.bundle_id
-    if parsed.bundle_id != shard.shard_id:
-        errors.append("bundle_id_mismatch")
+    packet_results = payload.get("packet_results")
+    if not isinstance(packet_results, list):
+        packet_results = payload.get("results")
+    if not isinstance(packet_results, list):
+        if len(packet_surfaces) > 1:
+            return False, ("schema_invalid",), {
+                **metadata,
+                "parse_error": "multi-packet shard payload must use `packet_results`",
+            }
+        return _validate_single_packet_payload(
+            packet_surface=packet_surfaces[0],
+            payload=payload,
+        )
 
-    owned_block_indices = _owned_block_indices(shard)
-    metadata["owned_block_indices"] = list(owned_block_indices)
-    metadata["owned_block_count"] = len(owned_block_indices)
-    decision_block_indices = [int(decision.block_index) for decision in parsed.block_decisions]
-    metadata["result_block_decision_count"] = len(decision_block_indices)
-    metadata["idea_group_count"] = len(parsed.idea_groups)
-
-    decision_block_set = set(decision_block_indices)
-    owned_block_set = set(owned_block_indices)
-    missing_block_indices = [index for index in owned_block_indices if index not in decision_block_set]
-    unexpected_block_indices = sorted(decision_block_set - owned_block_set)
-    if missing_block_indices:
-        errors.append("missing_owned_block_decisions")
-        metadata["missing_owned_block_indices"] = missing_block_indices
-    if unexpected_block_indices:
-        errors.append("unexpected_block_decisions")
-        metadata["unexpected_block_indices"] = unexpected_block_indices
-    if not missing_block_indices and not unexpected_block_indices and decision_block_indices != owned_block_indices:
-        errors.append("block_decision_order_mismatch")
-        metadata["result_block_index_order"] = list(decision_block_indices)
-
-    out_of_surface_evidence: list[int] = []
-    decision_category_by_block = {
-        int(decision.block_index): str(decision.category)
-        for decision in parsed.block_decisions
-    }
-    knowledge_block_indices = [
-        block_index
-        for block_index in owned_block_indices
-        if decision_category_by_block.get(block_index) == "knowledge"
-    ]
-    knowledge_group_count_by_block: dict[int, int] = {}
-    group_contains_other_blocks: dict[str, list[int]] = {}
-    group_out_of_surface_blocks: dict[str, list[int]] = {}
-    for group in parsed.idea_groups:
-        wrong_group_blocks: list[int] = []
-        out_of_surface_group_blocks: list[int] = []
-        for block_index in group.block_indices:
-            if block_index not in owned_block_set:
-                out_of_surface_group_blocks.append(int(block_index))
-                continue
-            if decision_category_by_block.get(int(block_index)) != "knowledge":
-                wrong_group_blocks.append(int(block_index))
-                continue
-            knowledge_group_count_by_block[int(block_index)] = (
-                knowledge_group_count_by_block.get(int(block_index), 0) + 1
-            )
-        if wrong_group_blocks:
-            group_contains_other_blocks[group.group_id] = sorted(set(wrong_group_blocks))
-        if out_of_surface_group_blocks:
-            group_out_of_surface_blocks[group.group_id] = sorted(set(out_of_surface_group_blocks))
-        for snippet in group.snippets:
-            for evidence in snippet.evidence:
-                if int(evidence.block_index) not in owned_block_set:
-                    out_of_surface_evidence.append(int(evidence.block_index))
-    if group_contains_other_blocks:
-        errors.append("group_contains_other_block")
-        metadata["group_contains_other_blocks"] = group_contains_other_blocks
-    if group_out_of_surface_blocks:
-        errors.append("idea_group_out_of_surface")
-        metadata["idea_group_out_of_surface"] = group_out_of_surface_blocks
-    if out_of_surface_evidence:
-        errors.append("snippet_evidence_out_of_surface")
-        metadata["out_of_surface_evidence_block_indices"] = sorted(set(out_of_surface_evidence))
-
-    missing_group_blocks = [
-        block_index
-        for block_index in knowledge_block_indices
-        if knowledge_group_count_by_block.get(block_index, 0) == 0
-    ]
-    duplicate_group_blocks = [
-        block_index
-        for block_index, count in sorted(knowledge_group_count_by_block.items())
-        if count > 1
-    ]
-    if missing_group_blocks:
-        errors.append("knowledge_block_missing_group")
-        metadata["knowledge_blocks_missing_group"] = missing_group_blocks
-    if duplicate_group_blocks:
-        errors.append("knowledge_block_group_conflict")
-        metadata["knowledge_blocks_with_multiple_groups"] = duplicate_group_blocks
-
-    owned_block_text_by_index = _owned_block_text_by_index(shard)
+    errors: list[str] = []
+    seen_packet_ids: set[str] = set()
+    unexpected_packet_ids: list[str] = []
+    duplicate_packet_ids: list[str] = []
+    invalid_packet_ids: list[str] = []
+    missing_owned_block_indices: list[int] = []
+    child_validation_errors_by_packet_id: dict[str, list[str]] = {}
+    validated_packet_count = 0
+    result_block_decision_count = 0
+    idea_group_count = 0
+    knowledge_decision_count = 0
     snippet_count = 0
-    non_grounded_groups: list[str] = []
-    echoed_groups: list[str] = []
-    copied_quote_groups: list[str] = []
-    for group in parsed.idea_groups:
-        group_surface = " ".join(
-            owned_block_text_by_index.get(block_index, "")
-            for block_index in group.block_indices
+    reviewed_with_useful_packets = False
+    reviewed_all_other = True
+    packet_surface_by_id = {
+        surface["packet_id"]: surface for surface in packet_surfaces
+    }
+    for packet_result in packet_results:
+        if not isinstance(packet_result, Mapping):
+            errors.append("packet_result_not_json_object")
+            continue
+        packet_id = str(
+            packet_result.get("packet_id") or packet_result.get("bid") or ""
         ).strip()
-        normalized_group_surface = _normalize_semantic_comparison_text(group_surface)
-        for snippet in group.snippets:
-            snippet_count += 1
-            if not _contains_grounded_text(snippet.body):
-                non_grounded_groups.append(group.group_id)
-            normalized_body = _normalize_semantic_comparison_text(snippet.body)
-            evidence_surface = " ".join(
-                str(evidence.quote).strip()
-                for evidence in snippet.evidence
-                if str(evidence.quote).strip()
-            ).strip()
-            normalized_evidence_surface = _normalize_semantic_comparison_text(evidence_surface)
-            if _looks_like_verbatim_surface_echo(
-                normalized_body,
-                normalized_evidence_surface,
-                min_surface_chars=80,
-                min_body_chars=80,
-            ):
-                copied_quote_groups.append(group.group_id)
-            if _looks_like_verbatim_surface_echo(
-                normalized_body,
-                normalized_group_surface,
-                min_surface_chars=160,
-                min_body_chars=120,
-            ):
-                echoed_groups.append(group.group_id)
-    if non_grounded_groups:
-        errors.append("semantic_snippet_body_not_grounded_text")
-        metadata["non_grounded_idea_group_ids"] = sorted(set(non_grounded_groups))
-    if copied_quote_groups:
-        errors.append("semantic_snippet_copies_evidence_quote")
-        metadata["copied_quote_idea_group_ids"] = sorted(set(copied_quote_groups))
-    if echoed_groups:
-        errors.append("semantic_snippet_echoes_packet_surface")
-        metadata["echoed_idea_group_ids"] = sorted(set(echoed_groups))
-
-    metadata["knowledge_decision_count"] = len(knowledge_block_indices)
+        if not packet_id:
+            errors.append("packet_result_missing_packet_id")
+            continue
+        if packet_id in seen_packet_ids:
+            duplicate_packet_ids.append(packet_id)
+            continue
+        seen_packet_ids.add(packet_id)
+        packet_surface = packet_surface_by_id.get(packet_id)
+        if packet_surface is None:
+            unexpected_packet_ids.append(packet_id)
+            continue
+        valid, packet_errors, packet_metadata = _validate_single_packet_payload(
+            packet_surface=packet_surface,
+            payload=dict(packet_result),
+        )
+        if valid:
+            validated_packet_count += 1
+        else:
+            invalid_packet_ids.append(packet_id)
+            child_validation_errors_by_packet_id[packet_id] = list(packet_errors)
+            missing_owned_block_indices.extend(
+                packet_surface["owned_block_indices"]
+            )
+        result_block_decision_count += int(packet_metadata.get("result_block_decision_count") or 0)
+        idea_group_count += int(packet_metadata.get("idea_group_count") or 0)
+        knowledge_decision_count += int(packet_metadata.get("knowledge_decision_count") or 0)
+        snippet_count += int(packet_metadata.get("snippet_count") or 0)
+        reviewed_with_useful_packets = reviewed_with_useful_packets or bool(
+            packet_metadata.get("reviewed_with_useful_chunks")
+        )
+        reviewed_all_other = reviewed_all_other and bool(
+            packet_metadata.get("reviewed_all_other")
+        )
+    missing_packet_ids = [
+        packet_id
+        for packet_id in packet_surface_by_id
+        if packet_id not in seen_packet_ids
+    ]
+    if unexpected_packet_ids:
+        errors.append("unexpected_packet_results")
+        metadata["unexpected_packet_ids"] = sorted(set(unexpected_packet_ids))
+    if duplicate_packet_ids:
+        errors.append("duplicate_packet_results")
+        metadata["duplicate_packet_ids"] = sorted(set(duplicate_packet_ids))
+    if missing_packet_ids:
+        errors.append("missing_owned_packet_results")
+        metadata["missing_packet_ids"] = missing_packet_ids
+        missing_owned_block_indices.extend(
+            block_index
+            for packet_id in missing_packet_ids
+            for block_index in packet_surface_by_id[packet_id]["owned_block_indices"]
+        )
+    if invalid_packet_ids:
+        errors.append("packet_result_validation_failed")
+        metadata["invalid_packet_result_ids"] = sorted(set(invalid_packet_ids))
+        metadata["packet_validation_errors_by_packet_id"] = dict(
+            sorted(child_validation_errors_by_packet_id.items())
+        )
+    if missing_owned_block_indices:
+        metadata["missing_owned_block_indices"] = sorted(set(missing_owned_block_indices))
+    metadata["validated_packet_count"] = validated_packet_count
+    metadata["result_block_decision_count"] = result_block_decision_count
+    metadata["idea_group_count"] = idea_group_count
+    metadata["knowledge_decision_count"] = knowledge_decision_count
     metadata["snippet_count"] = snippet_count
-    metadata["reviewed_with_useful_chunks"] = bool(parsed.idea_groups)
+    metadata["reviewed_with_useful_chunks"] = reviewed_with_useful_packets
     metadata["reviewed_all_other"] = (
         not errors
-        and not parsed.idea_groups
-        and bool(parsed.block_decisions)
-        and not knowledge_block_indices
+        and validated_packet_count == len(packet_surfaces)
+        and reviewed_all_other
     )
     return not errors, tuple(errors), metadata
 
@@ -315,27 +292,92 @@ def classify_knowledge_validation_failure(
     }
 
 
-def extract_promotable_knowledge_bundle(
+def extract_promotable_knowledge_bundles(
     *,
     payload: Mapping[str, Any] | None,
     validation_errors: Sequence[str] = (),
     validation_metadata: Mapping[str, Any] | None = None,
-) -> tuple[KnowledgeBundleOutputV2, dict[str, Any]] | None:
-    del validation_metadata
+) -> tuple[dict[str, KnowledgeBundleOutputV2], dict[str, Any]] | None:
+    metadata = _coerce_dict(validation_metadata)
     normalized_errors = _normalize_validation_errors(validation_errors)
-    if normalized_errors:
-        return None
     payload_dict = _coerce_dict(payload)
     if not payload_dict:
         raise ValueError("Invalid proposal wrapper: missing payload object.")
+    packet_results = payload_dict.get("packet_results")
+    if not isinstance(packet_results, list):
+        packet_results = payload_dict.get("results")
+    if isinstance(packet_results, list):
+        outputs: dict[str, KnowledgeBundleOutputV2] = {}
+        for packet_result in packet_results:
+            if not isinstance(packet_result, Mapping):
+                continue
+            try:
+                normalized_payload, _normalization_metadata = normalize_knowledge_worker_payload(
+                    dict(packet_result)
+                )
+                parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
+            except Exception:
+                continue
+            if parsed.bundle_id in outputs:
+                return None
+            outputs[parsed.bundle_id] = parsed
+        if not outputs:
+            return None
+        promoted_packet_ids = sorted(outputs)
+        missing_packet_ids = [
+            str(packet_id).strip()
+            for packet_id in (
+                metadata.get("missing_packet_ids")
+                or metadata.get("invalid_packet_result_ids")
+                or []
+            )
+            if str(packet_id).strip()
+        ]
+        if not missing_packet_ids and normalized_errors:
+            expected_packet_ids = [
+                str(packet_id).strip()
+                for packet_id in (metadata.get("owned_packet_ids") or [])
+                if str(packet_id).strip()
+            ]
+            missing_packet_ids = sorted(set(expected_packet_ids) - set(promoted_packet_ids))
+        return outputs, {
+            "promotion_mode": "validated_wrapper",
+            "partial": bool(normalized_errors) or bool(missing_packet_ids),
+            "promoted_packet_ids": promoted_packet_ids,
+            "promoted_packet_count": len(promoted_packet_ids),
+            "missing_packet_ids": missing_packet_ids,
+            "missing_owned_block_indices": list(metadata.get("missing_owned_block_indices") or []),
+        }
+    if normalized_errors:
+        return None
     parsed = KnowledgeBundleOutputV2.model_validate(payload_dict)
-    return parsed, {
+    return {parsed.bundle_id: parsed}, {
         "promotion_mode": "validated_wrapper",
         "partial": False,
         "promoted_packet_ids": [parsed.bundle_id],
         "promoted_packet_count": 1,
         "missing_packet_ids": [],
     }
+
+
+def extract_promotable_knowledge_bundle(
+    *,
+    payload: Mapping[str, Any] | None,
+    validation_errors: Sequence[str] = (),
+    validation_metadata: Mapping[str, Any] | None = None,
+) -> tuple[KnowledgeBundleOutputV2, dict[str, Any]] | None:
+    promoted = extract_promotable_knowledge_bundles(
+        payload=payload,
+        validation_errors=validation_errors,
+        validation_metadata=validation_metadata,
+    )
+    if promoted is None:
+        return None
+    outputs, promotion_metadata = promoted
+    if len(outputs) != 1:
+        return None
+    bundle = next(iter(outputs.values()))
+    return bundle, promotion_metadata
 
 
 def read_validated_knowledge_outputs_from_proposals(
@@ -347,7 +389,7 @@ def read_validated_knowledge_outputs_from_proposals(
         wrapper = json.loads(proposal_path.read_text(encoding="utf-8"))
         if not isinstance(wrapper, Mapping):
             raise ValueError(f"Invalid proposal wrapper {proposal_path}: expected object.")
-        promoted_bundle = extract_promotable_knowledge_bundle(
+        promoted_bundles = extract_promotable_knowledge_bundles(
             payload=wrapper.get("payload"),
             validation_errors=wrapper.get("validation_errors") or (),
             validation_metadata=(
@@ -356,19 +398,20 @@ def read_validated_knowledge_outputs_from_proposals(
                 else wrapper.get("metadata")
             ),
         )
-        if promoted_bundle is None:
+        if promoted_bundles is None:
             continue
-        parsed, _promotion_metadata = promoted_bundle
-        if parsed.bundle_id in outputs:
-            raise ValueError(
-                "Duplicate packet_id in validated knowledge proposals: "
-                f"{parsed.bundle_id!r} (file={proposal_path.name})."
+        promoted_outputs, _promotion_metadata = promoted_bundles
+        for packet_id, parsed in promoted_outputs.items():
+            if packet_id in outputs:
+                raise ValueError(
+                    "Duplicate packet_id in validated knowledge proposals: "
+                    f"{packet_id!r} (file={proposal_path.name})."
+                )
+            outputs[packet_id] = parsed
+            payloads_by_shard_id[str(packet_id)] = parsed.model_dump(
+                mode="json",
+                by_alias=True,
             )
-        outputs[parsed.bundle_id] = parsed
-        payloads_by_shard_id[str(parsed.bundle_id)] = parsed.model_dump(
-            mode="json",
-            by_alias=True,
-        )
     return outputs, payloads_by_shard_id
 
 
@@ -402,7 +445,8 @@ def _owned_block_indices(shard: ShardManifestEntryV1) -> list[int]:
     payload = dict(shard.input_payload) if isinstance(shard.input_payload, Mapping) else {}
     return [
         value
-        for value in (_coerce_int((block or {}).get("i")) for block in (payload.get("b") or []))
+        for packet in knowledge_input_packets(payload)
+        for value in (_coerce_int((block or {}).get("i")) for block in (packet.get("b") or []))
         if value is not None
     ]
 
@@ -410,14 +454,218 @@ def _owned_block_indices(shard: ShardManifestEntryV1) -> list[int]:
 def _owned_block_text_by_index(shard: ShardManifestEntryV1) -> dict[int, str]:
     payload = dict(shard.input_payload) if isinstance(shard.input_payload, Mapping) else {}
     owned_text: dict[int, str] = {}
-    for block in payload.get("b") or []:
-        if not isinstance(block, Mapping):
-            continue
-        block_index = _coerce_int(block.get("i"))
-        if block_index is None:
-            continue
-        owned_text[block_index] = str(block.get("t") or "").strip()
+    for packet in knowledge_input_packets(payload):
+        for block in packet.get("b") or []:
+            if not isinstance(block, Mapping):
+                continue
+            block_index = _coerce_int(block.get("i"))
+            if block_index is None:
+                continue
+            owned_text[block_index] = str(block.get("t") or "").strip()
     return owned_text
+
+
+def _packet_surfaces_for_shard(shard: ShardManifestEntryV1) -> list[dict[str, Any]]:
+    payload = _coerce_dict(shard.input_payload)
+    packet_payloads = knowledge_input_packets(payload)
+    if not packet_payloads:
+        return [
+            {
+                "packet_id": str(shard.shard_id).strip(),
+                "owned_block_indices": _owned_block_indices(shard),
+                "owned_block_text_by_index": _owned_block_text_by_index(shard),
+            }
+        ]
+    surfaces: list[dict[str, Any]] = []
+    for packet in packet_payloads:
+        packet_id = str(packet.get("bid") or packet.get("packet_id") or "").strip()
+        block_indices = [
+            value
+            for value in (_coerce_int((block or {}).get("i")) for block in (packet.get("b") or []))
+            if value is not None
+        ]
+        block_text_by_index = {
+            int(block_index): str(block.get("t") or "").strip()
+            for block in (packet.get("b") or [])
+            if isinstance(block, Mapping)
+            for block_index in [_coerce_int(block.get("i"))]
+            if block_index is not None
+        }
+        surfaces.append(
+            {
+                "packet_id": packet_id,
+                "owned_block_indices": block_indices,
+                "owned_block_text_by_index": block_text_by_index,
+            }
+        )
+    return surfaces
+
+
+def _validate_single_packet_payload(
+    *,
+    packet_surface: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> tuple[bool, tuple[str, ...], dict[str, Any]]:
+    errors: list[str] = []
+    metadata: dict[str, Any] = {
+        "owned_packet_count": 1,
+    }
+    try:
+        normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(payload)
+        parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
+    except Exception as exc:  # noqa: BLE001
+        return False, ("schema_invalid",), {"parse_error": str(exc)}
+    metadata.update(normalization_metadata)
+    metadata["bundle_id"] = parsed.bundle_id
+    expected_packet_id = str(packet_surface.get("packet_id") or "").strip()
+    if expected_packet_id and parsed.bundle_id != expected_packet_id:
+        errors.append("bundle_id_mismatch")
+
+    owned_block_indices = [
+        int(value)
+        for value in (packet_surface.get("owned_block_indices") or [])
+        if value is not None
+    ]
+    metadata["owned_block_indices"] = list(owned_block_indices)
+    metadata["owned_block_count"] = len(owned_block_indices)
+    decision_block_indices = [int(decision.block_index) for decision in parsed.block_decisions]
+    metadata["result_block_decision_count"] = len(decision_block_indices)
+    metadata["idea_group_count"] = len(parsed.idea_groups)
+
+    decision_block_set = set(decision_block_indices)
+    owned_block_set = set(owned_block_indices)
+    missing_block_indices = [index for index in owned_block_indices if index not in decision_block_set]
+    unexpected_block_indices = sorted(decision_block_set - owned_block_set)
+    if missing_block_indices:
+        errors.append("missing_owned_block_decisions")
+        metadata["missing_owned_block_indices"] = missing_block_indices
+    if unexpected_block_indices:
+        errors.append("unexpected_block_decisions")
+        metadata["unexpected_block_indices"] = unexpected_block_indices
+    if not missing_block_indices and not unexpected_block_indices and decision_block_indices != owned_block_indices:
+        errors.append("block_decision_order_mismatch")
+        metadata["result_block_index_order"] = list(decision_block_indices)
+
+    out_of_surface_evidence: list[int] = []
+    decision_category_by_block = {
+        int(decision.block_index): str(decision.category)
+        for decision in parsed.block_decisions
+    }
+    knowledge_block_indices = [
+        block_index
+        for block_index in owned_block_indices
+        if decision_category_by_block.get(block_index) == "knowledge"
+    ]
+    knowledge_group_count_by_block: dict[int, int] = {}
+    group_contains_other_blocks: dict[str, list[int]] = {}
+    group_out_of_surface_blocks: dict[str, list[int]] = {}
+    for group in parsed.idea_groups:
+        wrong_group_blocks: list[int] = []
+        out_of_surface_group_blocks: list[int] = []
+        for block_index in group.block_indices:
+            if block_index not in owned_block_set:
+                out_of_surface_group_blocks.append(int(block_index))
+                continue
+            if decision_category_by_block.get(int(block_index)) != "knowledge":
+                wrong_group_blocks.append(int(block_index))
+                continue
+            knowledge_group_count_by_block[int(block_index)] = (
+                knowledge_group_count_by_block.get(int(block_index), 0) + 1
+            )
+        if wrong_group_blocks:
+            group_contains_other_blocks[group.group_id] = sorted(set(wrong_group_blocks))
+        if out_of_surface_group_blocks:
+            group_out_of_surface_blocks[group.group_id] = sorted(set(out_of_surface_group_blocks))
+        for snippet in group.snippets:
+            for evidence in snippet.evidence:
+                if int(evidence.block_index) not in owned_block_set:
+                    out_of_surface_evidence.append(int(evidence.block_index))
+    if group_contains_other_blocks:
+        errors.append("group_contains_other_block")
+        metadata["group_contains_other_blocks"] = group_contains_other_blocks
+    if group_out_of_surface_blocks:
+        errors.append("idea_group_out_of_surface")
+        metadata["idea_group_out_of_surface"] = group_out_of_surface_blocks
+    if out_of_surface_evidence:
+        errors.append("snippet_evidence_out_of_surface")
+        metadata["out_of_surface_evidence_block_indices"] = sorted(set(out_of_surface_evidence))
+
+    missing_group_blocks = [
+        block_index
+        for block_index in knowledge_block_indices
+        if knowledge_group_count_by_block.get(block_index, 0) == 0
+    ]
+    duplicate_group_blocks = [
+        block_index
+        for block_index, count in sorted(knowledge_group_count_by_block.items())
+        if count > 1
+    ]
+    if missing_group_blocks:
+        errors.append("knowledge_block_missing_group")
+        metadata["knowledge_blocks_missing_group"] = missing_group_blocks
+    if duplicate_group_blocks:
+        errors.append("knowledge_block_group_conflict")
+        metadata["knowledge_blocks_with_multiple_groups"] = duplicate_group_blocks
+
+    owned_block_text_by_index = {
+        int(block_index): str(text).strip()
+        for block_index, text in dict(packet_surface.get("owned_block_text_by_index") or {}).items()
+    }
+    snippet_count = 0
+    non_grounded_groups: list[str] = []
+    echoed_groups: list[str] = []
+    copied_quote_groups: list[str] = []
+    for group in parsed.idea_groups:
+        group_surface = " ".join(
+            owned_block_text_by_index.get(block_index, "")
+            for block_index in group.block_indices
+        ).strip()
+        normalized_group_surface = _normalize_semantic_comparison_text(group_surface)
+        for snippet in group.snippets:
+            snippet_count += 1
+            if not _contains_grounded_text(snippet.body):
+                non_grounded_groups.append(group.group_id)
+            normalized_body = _normalize_semantic_comparison_text(snippet.body)
+            evidence_surface = " ".join(
+                str(evidence.quote).strip()
+                for evidence in snippet.evidence
+                if str(evidence.quote).strip()
+            ).strip()
+            normalized_evidence_surface = _normalize_semantic_comparison_text(evidence_surface)
+            if _looks_like_verbatim_surface_echo(
+                normalized_body,
+                normalized_evidence_surface,
+                min_surface_chars=80,
+                min_body_chars=80,
+            ):
+                copied_quote_groups.append(group.group_id)
+            if _looks_like_verbatim_surface_echo(
+                normalized_body,
+                normalized_group_surface,
+                min_surface_chars=160,
+                min_body_chars=120,
+            ):
+                echoed_groups.append(group.group_id)
+    if non_grounded_groups:
+        errors.append("semantic_snippet_body_not_grounded_text")
+        metadata["non_grounded_idea_group_ids"] = sorted(set(non_grounded_groups))
+    if copied_quote_groups:
+        errors.append("semantic_snippet_copies_evidence_quote")
+        metadata["copied_quote_idea_group_ids"] = sorted(set(copied_quote_groups))
+    if echoed_groups:
+        errors.append("semantic_snippet_echoes_packet_surface")
+        metadata["echoed_idea_group_ids"] = sorted(set(echoed_groups))
+
+    metadata["knowledge_decision_count"] = len(knowledge_block_indices)
+    metadata["snippet_count"] = snippet_count
+    metadata["reviewed_with_useful_chunks"] = bool(parsed.idea_groups)
+    metadata["reviewed_all_other"] = (
+        not errors
+        and not parsed.idea_groups
+        and bool(parsed.block_decisions)
+        and not knowledge_block_indices
+    )
+    return not errors, tuple(errors), metadata
 
 
 def _normalize_semantic_comparison_text(value: object) -> str:

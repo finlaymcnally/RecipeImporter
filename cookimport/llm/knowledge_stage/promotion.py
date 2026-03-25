@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import sys
+from . import _shared as _shared_module
 
-runtime = sys.modules["cookimport.llm.knowledge_stage"]
 globals().update(
     {
         name: value
-        for name, value in vars(runtime).items()
+        for name, value in vars(_shared_module).items()
         if not name.startswith("__")
     }
 )

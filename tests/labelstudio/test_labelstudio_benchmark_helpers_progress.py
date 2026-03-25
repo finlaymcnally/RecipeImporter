@@ -734,7 +734,7 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
             format_stage_progress(
                 "Running codex-farm non-recipe knowledge review... task 1/4 | running 2",
                 stage_label="non-recipe knowledge review",
-                work_unit_label="task packet",
+                work_unit_label="task",
                 task_current=1,
                 task_total=4,
                 running_workers=2,
@@ -747,7 +747,7 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
                 followup_label="repair/retry",
                 artifact_counts={"proposal_count": 3, "repair_running": 1},
                 active_tasks=["knowledge-shard-0001", "knowledge-shard-0002"],
-                detail_lines=["configured workers: 4", "queued shards: 3"],
+                detail_lines=["configured workers: 4", "queued tasks: 3"],
             )
         )
         return {"ok": True}
@@ -767,7 +767,7 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
         if line.strip()
     ]
     assert any(row.get("stage_label") == "non-recipe knowledge review" for row in rows)
-    assert any(row.get("work_unit_label") == "task packet" for row in rows)
+    assert any(row.get("work_unit_label") == "task" for row in rows)
     assert any(row.get("worker_total") == 4 for row in rows)
     assert any(row.get("worker_active") == 2 for row in rows)
     assert any(row.get("worker_completed") == 2 for row in rows)
@@ -901,7 +901,7 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
                 running_workers=2,
                 worker_total=4,
                 active_tasks=["knowledge-shard-0001", "knowledge-shard-0002"],
-                detail_lines=["configured workers: 4", "queued shards: 3"],
+                detail_lines=["configured workers: 4", "queued tasks: 3"],
             )
         )
         update_progress(
@@ -911,7 +911,7 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
                 task_current=2,
                 task_total=4,
                 worker_total=4,
-                detail_lines=["configured workers: 4", "queued shards: 2"],
+                detail_lines=["configured workers: 4", "queued tasks: 2"],
             )
         )
         return {"ok": True}
@@ -933,7 +933,7 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
     assert any("configured workers: 4" in message for message in knowledge_messages)
     assert any("worker 01: knowledge-shard-0001" in message for message in knowledge_messages)
     assert any("worker 03: idle" in message for message in knowledge_messages)
-    assert "queued shards: 2" in capture.messages[-1]
+    assert "queued tasks: 2" in capture.messages[-1]
 
 
 def test_run_with_progress_status_renders_all_ten_knowledge_workers(
@@ -973,7 +973,7 @@ def test_run_with_progress_status_renders_all_ten_knowledge_workers(
                 running_workers=10,
                 worker_total=10,
                 active_tasks=[f"knowledge-shard-{index:04d}" for index in range(1, 11)],
-                detail_lines=["configured workers: 10", "queued shards: 10"],
+                detail_lines=["configured workers: 10", "queued tasks: 10"],
             )
         )
         return {"ok": True}
@@ -1027,11 +1027,11 @@ def test_run_with_progress_status_renders_packet_scale_knowledge_worker_labels(
                 task_total=48,
                 running_workers=1,
                 worker_total=1,
-                active_tasks=["saltfatacidheatcutdown.ks0009.nr (47/48 task packets)"],
+                active_tasks=["saltfatacidheatcutdown.ks0009.nr (47/48 tasks)"],
                 detail_lines=[
                     "configured workers: 1",
                     "completed shards: 9/10",
-                    "queued task packets: 1",
+                    "queued tasks: 1",
                 ],
             )
         )
@@ -1046,9 +1046,9 @@ def test_run_with_progress_status_renders_packet_scale_knowledge_worker_labels(
 
     assert result == {"ok": True}
     assert any("task 47/48" in message for message in capture.messages)
-    assert any("queued task packets: 1" in message for message in capture.messages)
+    assert any("queued tasks: 1" in message for message in capture.messages)
     assert any(
-        "worker 01: saltfatacidheatcutdown.ks0009.nr (47/48 task packets)" in message
+        "worker 01: saltfatacidheatcutdown.ks0009.nr (47/48 tasks)" in message
         for message in capture.messages
     )
     assert all("task 0/10" not in message for message in capture.messages)

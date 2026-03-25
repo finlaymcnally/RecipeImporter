@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import sys
+from . import _shared as _shared_module
+from .planning import _knowledge_packet_payloads
 
-runtime = sys.modules["cookimport.llm.knowledge_stage"]
 globals().update(
     {
         name: value
-        for name, value in vars(runtime).items()
+        for name, value in vars(_shared_module).items()
         if not name.startswith("__")
     }
 )
 
 
 def _runtime_constant(name: str, default: Any) -> Any:
-    return getattr(runtime, name, default)
+    return getattr(_shared_module, name, default)
 
 
 def _format_knowledge_followup_label(
@@ -1307,39 +1307,56 @@ def _preflight_knowledge_shard(
 ) -> dict[str, Any] | None:
     payload = _coerce_dict(shard.input_payload)
     owned_ids = [str(value).strip() for value in shard.owned_ids if str(value).strip()]
-    blocks = payload.get("b")
-    bundle_id = str(payload.get("bid") or "").strip()
     if not owned_ids:
         return {
             "reason_code": "preflight_invalid_shard_payload",
             "reason_detail": "knowledge shard has no owned packet ids",
         }
-    if not isinstance(blocks, list) or not blocks:
-        return {
-            "reason_code": "preflight_invalid_shard_payload",
-            "reason_detail": "knowledge shard has no model-facing blocks",
-        }
-    for block in blocks:
-        if not isinstance(block, Mapping):
-            return {
-                "reason_code": "preflight_invalid_shard_payload",
-                "reason_detail": "knowledge shard contains a non-object block payload",
-            }
-        block_index = block.get("i")
-        if block_index is None:
-            return {
-                "reason_code": "preflight_invalid_shard_payload",
-                "reason_detail": "knowledge shard contains a block without `i`",
-            }
-    if not bundle_id:
+    if (
+        not str(payload.get("bid") or payload.get("packet_id") or "").strip()
+        and isinstance(payload.get("b"), list)
+    ):
         return {
             "reason_code": "preflight_invalid_shard_payload",
             "reason_detail": "knowledge shard is missing `bid`",
         }
-    if sorted(owned_ids) != [bundle_id]:
+    packet_payloads = _knowledge_packet_payloads(payload)
+    if not packet_payloads:
         return {
             "reason_code": "preflight_invalid_shard_payload",
-            "reason_detail": "knowledge shard owned ids do not match packet payload id",
+            "reason_detail": "knowledge shard has no model-facing packets",
+        }
+    packet_ids: list[str] = []
+    for packet_payload in packet_payloads:
+        packet_id = str(packet_payload.get("bid") or packet_payload.get("packet_id") or "").strip()
+        if not packet_id:
+            return {
+                "reason_code": "preflight_invalid_shard_payload",
+                "reason_detail": "knowledge shard contains a packet without `bid`",
+            }
+        packet_ids.append(packet_id)
+        blocks = packet_payload.get("b")
+        if not isinstance(blocks, list) or not blocks:
+            return {
+                "reason_code": "preflight_invalid_shard_payload",
+                "reason_detail": "knowledge shard contains an empty model-facing packet",
+            }
+        for block in blocks:
+            if not isinstance(block, Mapping):
+                return {
+                    "reason_code": "preflight_invalid_shard_payload",
+                    "reason_detail": "knowledge shard contains a non-object block payload",
+                }
+            block_index = block.get("i")
+            if block_index is None:
+                return {
+                    "reason_code": "preflight_invalid_shard_payload",
+                    "reason_detail": "knowledge shard contains a block without `i`",
+                }
+    if sorted(owned_ids) != sorted(packet_ids):
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "knowledge shard owned ids do not match packet payload ids",
         }
     return None
 

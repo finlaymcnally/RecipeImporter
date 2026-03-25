@@ -1,7 +1,17 @@
 from __future__ import annotations
 
-import sys
+from cookimport.llm.knowledge_stage.planning import (
+    CodexFarmNonrecipeKnowledgeReviewResult,
+)
+from cookimport.llm.knowledge_stage.recovery import (
+    _preflight_knowledge_shard,
+)
+from cookimport.llm.knowledge_stage.runtime import (
+    run_codex_farm_nonrecipe_knowledge_review,
+)
 
-from cookimport.llm import knowledge_stage as _knowledge_stage
-
-sys.modules[__name__] = _knowledge_stage
+__all__ = [
+    "CodexFarmNonrecipeKnowledgeReviewResult",
+    "_preflight_knowledge_shard",
+    "run_codex_farm_nonrecipe_knowledge_review",
+]

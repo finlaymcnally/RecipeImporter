@@ -247,8 +247,11 @@ def test_build_knowledge_jobs_warns_when_prompt_target_is_below_packet_floor(
     )
 
     assert report.packets_written == 3
-    assert report.shards_written == 3
-    assert report.planning_warnings == [
-        "knowledge prompt target count requested fewer shards than the packet floor; "
-        "keeping one shard per packet so no review packet is dropped."
-    ]
+    assert report.shards_written == 1
+    assert report.planning_warnings == []
+    assert [entry.shard_id for entry in report.shard_entries] == ["book.ks0000.nr"]
+    assert report.shard_entries[0].owned_ids == (
+        "book.kp0000.nr",
+        "book.kp0001.nr",
+        "book.kp0002.nr",
+    )

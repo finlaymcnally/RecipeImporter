@@ -673,7 +673,7 @@ def _build_line_role_workspace_worker_prompt(
         for task in tasks
     )
     return (
-        "You are processing many canonical line-role task packets inside one local worker workspace.\n\n"
+        "You are processing many canonical line-role tasks inside one local worker workspace. Each task owns one ordered line packet.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
         "- Start by opening `worker_manifest.json`, then `CURRENT_TASK.md`, then `OUTPUT_CONTRACT.md`. Open `current_task.json` when you need the exact metadata fields or file paths.\n"
@@ -688,7 +688,7 @@ def _build_line_role_workspace_worker_prompt(
         "- Treat `CURRENT_TASK.md` as the cheapest repo-written first read. Use `current_task.json` only for the exact metadata and named file paths.\n"
         "- Use `assigned_tasks.json` only for ordered queue/progress context and `assigned_shards.json` only for shard ownership context.\n"
         "- For each assigned task, start from the prewritten draft and hint before reopening the raw packet.\n"
-        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative task packet for that worker step.\n"
+        "- Treat `hints/<task_id>.md` as guidance and `in/<task_id>.json` as the authoritative packet input for that task step.\n"
         "- Treat each packet's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
         "- If `OUTPUT_CONTRACT.md` or `examples/` exists, use those repo-written files as the authoritative output-shape reference.\n"
         "- If `examples/*.md` exists, use those contrast examples for calibration only; do not copy them into outputs.\n"

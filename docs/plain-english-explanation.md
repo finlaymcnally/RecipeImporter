@@ -1,62 +1,60 @@
+---
+summary: "Plain-English walkthrough of the current stage pipeline from importer selection through final outputs."
+read_when:
+  - When you want a non-code explanation of how a cookbook moves through the program
+  - When updating high-level docs about recipe authority or outside-recipe authority
+---
+
 # A-to-Z
 
 This is the current plain-English story of how a cookbook moves through the program from start to finish.
 
-a note to AI editors: please do not include code/file references here. it is confusing and not helpful to read (unless you are highlighting something about that file specifically, but each time you mention code doesn't need a "citation" to that file)
+A note to AI editors: keep this as a plain-language product walkthrough. Artifact names are fine when they help explain the product, but constant file-by-file references make this harder to read.
 
 ## Start of a run
 
-Every `cookimport stage` run starts by creating a new timestamped output folder and deciding how much parallel work to use.
+Every `cookimport stage` run starts by creating a new timestamped output folder and locking in the big behavior choices for that run.
 
-The run settings also lock in the big behavior choices up front: how many workers to use, how source jobs should be planned, whether line-role Codex review is on, whether recipe Codex is on, whether knowledge Codex is on, how ingredient parsing should behave, whether markdown sidecars should be written, and similar knobs that affect the whole run.
+Those settings decide things like:
 
-Then the importer registry looks at each input file and picks the importer that seems most appropriate for that source type.
+- how many workers to use
+- whether PDF or EPUB source jobs should be split
+- whether line-role Codex review is on
+- whether recipe Codex is on
+- whether knowledge Codex is on
+- how ingredient parsing should behave
+- whether markdown sidecars should be written
 
-Some importers are record-first. They start from rows, fields, or explicit exported recipe objects and try to preserve those records while still turning them into the shared source model.
+Then the importer registry looks at each input file and picks the importer that best matches that source type.
 
-Other importers are block-first. They start from pages, spine items, paragraphs, headings, or other document fragments and turn the source into one long ordered stream of canonical source blocks.
+## What importers are really doing
 
-The important business rule here is that all of those importers now converge on the same kind of result. They all produce a conversion bundle with:
+Importers read the source and preserve as much useful structure as they can for the shared stage pipeline.
+
+Some importers are record-first. They start from rows, fields, or exported recipe objects and preserve that record structure as much as possible.
+
+Some importers are block-first. They start from pages, spine items, paragraphs, headings, or similar document fragments and turn the source into one ordered stream of canonical source blocks.
+
+The important rule is that all of them converge on the same kind of bundle:
 
 - canonical source blocks
 - optional source-support proposals
 - raw artifacts
 - a report
 
-Importers may carry source-native proposals in `source_support`, but that support is non-authoritative. For stage-backed flows, importers are source normalizers: they publish canonical source blocks, raw artifacts, and support data, and the shared stage later owns recipe and outside-recipe authority.
-
-## What importers are really doing
-
-Importers are trying to preserve as much useful source structure as they can without claiming too much authority too early.
-
-For spreadsheet-like or exported-recipe sources, that often means keeping row order, sheet identity, and field-level structure intact.
-
-For text-like, EPUB, or PDF sources, that often means preserving the order of headings, paragraphs, list items, table-like fragments, and provenance such as page range or spine range.
-
-The program also keeps raw artifacts from this phase so later debugging can answer basic questions like:
-
-- what text did the importer actually see
-- what order did it think the blocks were in
-- what diagnostics or warnings did it produce
-- what extractor backend or parser path was used
-
-That raw preservation is important because a lot of later business logic assumes the source model is already honest and complete enough to support authoritative regrouping.
-
-Every source now runs through planned source jobs. For many inputs that plan contains one whole-source job. For larger PDFs or EPUBs it may contain multiple ranged jobs. Either way, those jobs only do the early conversion work. Afterward the program merges the job results back into one whole-book bundle, fixes indexes and recipe IDs, rebuilds the full text view, and only then runs the shared semantic session.
+For stage-backed flows, those importers produce the source bundle that feeds the shared recipe-boundary stage, where recipe ownership is decided.
 
 ## Split jobs and merge
 
-Large PDFs can be split by page range. Large EPUBs can be split by spine range.
+Large PDFs may be split by page range. Large EPUBs may be split by spine range.
 
-This does not mean the semantic pipeline runs separately on each chunk and then tries to stitch together finished answers. The split jobs are only there to make source conversion manageable and parallel.
+The split covers the early source-conversion work. After that, the run returns to one shared semantic pipeline.
 
-Each split job returns a partial source model plus its raw extraction artifacts. Then the main process waits for all jobs for that source file to finish.
+Each job converts its assigned range and returns a partial source model plus raw extraction artifacts. If any job fails, the run stops before the shared semantic session for that source and keeps the temporary job artifacts for debugging.
 
-If any split job fails, the program stops short of the shared semantic session for that source and preserves the temporary job artifacts for debugging.
+If all jobs succeed, the program merges them back together in source order. It rebases block indexes, merges support data, rebuilds the whole-book text view, moves raw artifacts into the normal run tree, and only then runs one shared semantic session on the merged whole-book result.
 
-If all split jobs succeed, the program merges them in source order. It offsets block indexes, rebases source-support references, rebuilds the whole-book extracted text view, moves raw artifacts into the normal run tree, and only then hands one merged book into the real semantic pipeline.
-
-This is a major business rule: for split sources, semantic authority is decided once on the merged whole-book view, not piecemeal on the individual split jobs.
+That rule matters: for split sources, semantic authority is decided once on the merged book.
 
 ## The real center of the pipeline
 
@@ -68,156 +66,136 @@ After conversion and any split-job merge, the book goes through one shared five-
 - `nonrecipe-route`
 - `knowledge-final`
 
-That five-stage session is the real center of the pipeline. Importer output enters it as raw material, not as final truth.
+That five-stage runtime is the real center of the product. Importer output enters it as the source bundle the later stages shape into final authority.
 
 ## `extract`
 
-`extract` rebuilds the book into the shared internal shape the later stages expect.
+`extract` rebuilds the importer result into one shared internal book shape that the later stages all understand.
 
-This is where the program turns the importer’s source model into the common internal book representation used by all later authority logic.
+This is where the program establishes:
 
-That includes:
+- one canonical ordered block archive
+- one atomic line view for line-role decisions
+- normalized source-support data
+- shared book-level context for later recipe and non-recipe work
 
-- the canonical ordered block archive
-- the atomic line view used for line-role decisions
-- the normalized source-support data
-- the basic book-level context needed by recipe and non-recipe stages
-
-The point of `extract` is to make the rest of the pipeline operate on one stable book representation instead of a different ad hoc structure for each importer.
-
-That matters because later stages need to compare nearby lines, understand ordering, recover block spans, and write benchmark/debug artifacts in a consistent coordinate system.
+The point is simple: every later stage reasons over the same internal coordinates and the same shared book structure.
 
 ## `recipe-boundary`
 
 `recipe-boundary` is where recipe ownership becomes authoritative.
 
-This stage is intentionally label-first, not importer-first.
+This stage is label-first.
 
-It starts with `label_det`, which creates the deterministic line-by-line and block-level labels.
-
-At this point the program is asking practical classification questions like:
+It starts with `label_det`, which creates the deterministic line and block labels. That pass answers practical questions like:
 
 - is this line title-like
 - is this line an ingredient line
 - is this line an instruction line
 - is this line note-like
-- does this line belong inside the accepted recipe structure or outside it
-- if it is outside the recipe structure, should it stay alive for later Codex knowledge review
+- does this line belong inside a recipe or outside it
+- if it is outside, should it stay alive for later knowledge review
 
-The deterministic pass is important even when LLMs are available. It gives the system a reproducible first pass, creates artifact trails, and establishes the structural baseline that the later Codex step can review.
+That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
 
-If line-role Codex review is enabled, `label_llm_correct` is the normal fuzzy review pass over those labels. Repo code still validates shape, ownership, and consistency before installing the corrected result, but the semantic judgment is meant to come from Codex here.
+If line-role Codex review is enabled, `label_llm_correct` reviews those labels. The safety rule is simple: accepted Codex labels survive after structural validation, and rejected rows fall back to the deterministic baseline with an explicit reason.
 
-The safety rule is now blunt on purpose: once a Codex line-role answer passes structural validation, the program either accepts that semantic label as-is or rejects that row back to the deterministic baseline with an explicit fallback reason. It does not quietly accept Codex and then massage the label into some third semantic answer later.
+After labeling, `group_recipe_spans` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
-After labeling, `group_recipe_spans` groups accepted lines into recipe spans.
+An accepted recipe span now needs both:
 
-This is the main authority handoff in the system. The accepted grouped spans are the authoritative recipe boundaries for the rest of the run.
+- a title anchor
+- real body proof such as ingredients, instructions, or yield/time structure
 
-A grouped span needs two things to count as a real recipe: a title anchor and at least one real body signal such as ingredients, instructions, or yield/time metadata. Structured-looking text without a convincing title can still be rejected as a pseudo-recipe, and title-only or title-plus-note junk now gets rejected here instead of being accepted now and thrown away later.
+That rule exists because cookbook sources are full of recipe-shaped material such as tables of contents, sidebars, shopping lists, and index fragments.
 
-That title-anchor rule exists because cookbook sources often contain recipe-shaped junk: tables of contents, index-like blocks, sidebars, ingredient-like shopping notes, or small structured fragments that look recipe-ish but are not actually real recipes.
+So `recipe-boundary` is both a grouping stage and a rejection stage. It accepts real recipe spans and rejects pseudo-recipes before they can turn into final recipes later.
 
-So `recipe-boundary` is not just grouping. It is also a rejection stage. It rejects titleless pseudo-recipes, weak spans, and other false positives instead of treating every structured cluster as a valid recipe. Rejected material stays on the outside-recipe side of the book rather than becoming a final recipe.
+If the stage accepts zero recipes, that zero is the answer. There is no separate importer recipe count to compare against anymore. The debugging surface is the span artifacts themselves: `recipe_spans.json` shows what was accepted, and `span_decisions.json` shows both accepted spans and rejected pseudo-recipes with reasons.
 
-If `group_recipe_spans` ends up with zero accepted recipes, the program still stays on that label-first result.
+By the end of `recipe-boundary`, the run knows:
 
-There is no separate importer-recipe count to compare against anymore. The debugging surface is just the span artifacts themselves: `recipe_spans.json` shows what was accepted, and `span_decisions.json` shows both accepted spans and rejected pseudo-recipes with reasons.
-
-By the end of `recipe-boundary`, the program knows:
-
-- which spans count as real recipes
+- which spans are real recipes
 - which blocks belong to those recipes
 - which lines stay outside recipes
-- which normalized recipe/non-recipe labels should drive later stages
+- which normalized labels drive the later stages
 
 ## `recipe-refine`
 
-Once accepted recipe spans exist, the program assembles one recipe object for each accepted span.
+Once accepted recipe spans exist, `recipe-refine` turns each one into an actual recipe object.
 
-`recipe-boundary` decides which lines and blocks belong to a recipe. `recipe-refine` then turns that accepted span into actual recipe structure.
+`recipe-boundary` decides ownership. `recipe-refine` decides recipe shape.
 
-Now the recipe side becomes a semantic shaping problem.
-
-The system works through the common recipe business logic:
+This stage handles the common recipe business logic:
 
 - title normalization
-- ingredient line parsing
+- ingredient parsing
 - instruction parsing
-- instruction step segmentation when needed
-- yield extraction
-- time extraction
+- step segmentation
+- yield and time extraction
 - temperature extraction
 - ingredient-to-step linking
 - note handling
 - variant handling
+- tag handling
 
-This is where the program turns the accepted recipe span into one coherent recipe representation. The label stage has already done the ownership and line-role work; this stage does the recipe assembly and normalization work that turns those labeled spans into recipe data.
+If recipe Codex is enabled, this is the stage that runs it. The public recipe pipeline is `codex-recipe-shard-v1`.
 
-If recipe Codex is enabled, this is the stage that runs it. The public recipe pipeline name is `codex-recipe-shard-v1`.
+That Codex pass is a refinement layer inside already-accepted recipe boundaries.
 
-That Codex step is a refinement pass, not the final writer.
+Recipe Codex outcomes are explicit now. A valid task result can be:
 
-Its job is to improve recipe semantics inside the boundaries already accepted by `recipe-boundary`. In practice it is looking at the stage-owned recipe payload generated from those accepted spans, not reopening recipe ownership. It can help with things like cleaner recipe structure, better note placement, better ingredient-step links, and tag suggestions.
+- `repaired`
+- `fragmentary`
+- `not_a_recipe`
 
-Recipe Codex outcomes are also explicit now. A valid task result can be `repaired`, `fragmentary`, or `not_a_recipe`. Only `repaired` is promotable into final recipe authority. The other two remain visible in recipe runtime artifacts as valid non-promoted outcomes instead of just disappearing.
+Only `repaired` promotes into final recipe authority. `fragmentary` and `not_a_recipe` remain visible in runtime artifacts as non-promoted outcomes.
 
-Tags live inside this same recipe-refine path now. There is no separate tags subsystem anymore. The recipe correction prompt may emit raw selected tags, then deterministic normalization cleans them up and the final recipe stores them as `recipe.tags`.
+After the optional Codex pass, repo code still validates the result, normalizes it, builds intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output. Even when recipe Codex is on, deterministic repo code still owns the final write path.
 
-After the optional Codex refinement, repo code still validates the result, normalizes it, builds the intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output.
-
-So even when recipe Codex is on, the final files are still written through deterministic repo-owned staging code.
-
-This stage is also where the recipe side becomes stable enough to write:
-
-- intermediate drafts
-- final drafts
-- sections
-- recipe-authority payloads
-
-Those are not casual exports. They are the program’s normalized statement of what each accepted recipe means.
+This stage is also where the run produces its authoritative recipe payloads for later output writing.
 
 ## `nonrecipe-route`
 
-After recipe ownership is settled, everything outside the accepted recipe spans goes into `nonrecipe-route`.
+After recipe ownership is settled, everything outside accepted recipe spans moves into `nonrecipe-route`.
 
-This stage is mainly a routing and bookkeeping step over the outside-recipe side of the book.
+This stage handles routing and bookkeeping for outside-recipe material.
 
-It is not supposed to be the final fuzzy judge of meaning. Its main job is to carry forward the rows that should stay alive for Codex knowledge review, separate them from the obviously useless junk that can be excluded immediately, and record the status needed by the later knowledge stage.
+Its job is to:
 
-Some material becomes final immediately here: navigation, publishing junk, endorsements, page furniture, and similar noise can be excluded right away as final `other`.
+- exclude obvious junk immediately
+- keep worthwhile survivors alive for later review
+- record why each row survived or was excluded
 
-That matters because cookbook sources are full of outside-recipe text that is not equally valuable. Some of it is clearly worthless for downstream use. Some of it might be useful cooking knowledge. Some of it is ambiguous and should not be finalized too early.
+Some rows become final right here. Navigation, publishing junk, endorsements, page furniture, and similar obvious noise can be excluded immediately as final `other`.
 
-The important subtle rule is that `nonrecipe-route` can exclude obvious junk, but it is not the final authority on the harder semantic question of whether a surviving outside-recipe passage is real cooking knowledge. In the normal product path, that fuzzy decision belongs to Codex.
+Surviving outside-recipe text then moves into one category-neutral review queue for the later knowledge stage, where the harder semantic judgment happens.
 
-That is why the run now has a seed-routing artifact and a separate final-authority artifact instead of pretending those are the same thing.
+By the end of `nonrecipe-route`, the run has:
 
-By the end of `nonrecipe-route`, the program has two routed outcomes plus the metadata needed for the next stage:
+- final obvious-junk exclusions
+- one review queue of surviving outside-recipe rows
+- routing metadata that explains why rows survived or were excluded
 
-- excluded rows that are done forever
-- one category-neutral review queue containing every surviving row that is still alive for later Codex judgment
-- routing metadata that explains why those rows survived or were excluded
-
-This stage also matters because later chunk generation, table extraction, Label Studio knowledge counts, and benchmark evidence are not supposed to revive importer leftovers or old side lanes. They are supposed to follow the stage-owned outside-recipe path.
+This is why the run writes separate routing and final-authority artifacts.
 
 ## `knowledge-final`
 
-`knowledge-final` is the last authority step for outside-recipe meaning.
+`knowledge-final` is the final semantic owner of reviewable outside-recipe material.
 
-If knowledge review is off, the program keeps the routed review queue artifact and moves on. In that mode, only the upstream obvious-junk exclusions have final outside-recipe authority; the surviving reviewable rows stay provisional rather than magically becoming final semantic truth.
+If knowledge review is off, the run keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list.
 
-If knowledge review is on, the public knowledge pipeline name is `codex-knowledge-shard-v1`.
+If knowledge review is on, the public knowledge pipeline is `codex-knowledge-shard-v1`.
 
-Before that reviewer sees anything, the program packages the surviving review-eligible outside-recipe text into bounded ordered packets rather than asking for one giant whole-book judgment at once.
+Before the model sees anything, the program packages the surviving review queue into bounded ordered packets. Repo code owns packet sizing and ordering. The model owns the harder semantic judgment inside each packet.
 
-That bounded packaging matters for business logic, not just token control. Repo code chooses packet size and ordering, but it does not decide which nearby blocks belong together as one final knowledge idea. The model now owns that grouping step.
+That means the model decides:
 
-The reviewer returns block-level semantic decisions plus one or more packet-local related-idea groups with grounded snippets. Those decisions are then validated and promoted back into the stage-owned authority model.
+- which reviewed rows are real `knowledge`
+- which reviewed rows are just `other`
+- which nearby blocks belong together as one related idea group
 
-Those worker decisions refine the routed review queue into the final outside-recipe authority.
-
-So the final `knowledge` blocks are not whatever the importer found, and not whatever the early line labels happened to suggest. They are whatever survives `knowledge-final`.
+The reviewed results are then validated and promoted back into the stage-owned authority model.
 
 This is the place where the system makes its final semantic claim about outside-recipe prose:
 
@@ -225,25 +203,18 @@ This is the place where the system makes its final semantic claim about outside-
 - this passage is just other outside-recipe material
 - this passage was excluded earlier and never came back into play
 
-In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` view (legacy Stage 7 routing), `09_nonrecipe_authority.json` is the final machine-readable truth, `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved. The routing artifact keeps queue and exclusion facts, not the final semantic answer.
+In artifact terms:
 
-If optional reviewer-facing knowledge snippets are written, they are evidence artifacts derived from those promoted idea groups, not the authority surface themselves.
+- `08_nonrecipe_seed_routing.json` is the deterministic routing view
+- `09_nonrecipe_authority.json` is the final machine-readable truth
+- `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups
+- `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved
 
-## Tables, chunks, sections, and other late outputs
+If reviewer-facing knowledge snippets are written, they are evidence artifacts derived from those promoted groups.
 
-Once the core authority decisions are done, the program can safely build the downstream artifacts that depend on them.
+## Late outputs
 
-Sections come from the finalized recipe side.
-
-Chunks come from final outside-recipe authority only. That is a deliberate business rule. If no final outside-recipe rows survive, the correct answer is no chunks, not a fallback to some older importer-side guess.
-
-Table extraction also follows the authoritative staged view instead of acting like a parallel semantic universe. The knowledge side still clearly has more future work in it than the recipe side.
-
-At this point the run may also write reviewer-facing sidecars like markdown summaries, knowledge snippets, and raw debugging artifacts that help explain what happened without changing any final authority decision.
-
-## What gets written at the end
-
-Once recipe and outside-recipe authority are settled, the program writes the finished outputs.
+Once recipe and outside-recipe authority are settled, the program can safely build the downstream artifacts that depend on them.
 
 That includes:
 
@@ -252,46 +223,25 @@ That includes:
 - sections
 - chunks
 - tables
-- knowledge outputs
+- reviewer-facing knowledge artifacts
 - raw artifacts
 - reports
 - benchmark-facing `stage_block_predictions.json`
 - run manifest and observability files
 
-`stage_block_predictions.json` is important because it represents the run’s block-level benchmark evidence near the end of the pipeline, after the real authority decisions have been made.
+Sections come from the finalized recipe side.
 
-Those late outputs are built from the final stage-owned authority surfaces, not from the importer's first guesses.
+Tables and chunks follow the stage-owned outside-recipe result. If no outside-recipe material survives into that late stage-owned view, the correct answer is no such outputs.
 
-The run also writes the report and observability story that later tools use to inspect what happened:
+`stage_block_predictions.json` matters because it is the run's block-level benchmark evidence after the real authority decisions have already happened.
 
-- what importer was selected
-- whether split jobs were used
-- which optional LLM stages ran
-- where raw artifacts and final outputs were written
-- what stage summaries and mismatch warnings were produced
+So the end of the run is: write recipes, write outside-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later.
 
-So the end of the run is not just "write recipes." It is "write recipes, write the outside-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later."
+## Easy-to-miss rules
 
-# Hidden Layers
-
-- Importer output is source-first input, not recipe ownership. The real recipe authority seam is `recipe-boundary`, especially `label_det`, optional `label_llm_correct`, and `group_recipe_spans`.
-
-- The deterministic label-first path still runs even when `llm_recipe_pipeline=off` and `llm_knowledge_pipeline=off`.
-
-- Outside-recipe text now lives in two real runtime states: Stage 7 routing in `08_nonrecipe_seed_routing.json` and final reviewed authority in `09_nonrecipe_authority.json`.
-
-- `ConversionResult.non_recipe_blocks` is a downstream cache that gets repopulated only from final outside-recipe authority after the stage session has already decided what is truly final.
-
-- `codex-recipe-shard-v1` and `codex-knowledge-shard-v1` are refinement/review layers over repo-owned deterministic scaffolding, not direct final-output writers.
-
-- Split PDF/EPUB debugging is different from single-file debugging because the semantic pipeline only starts after the source jobs are merged back into one whole-book result.
-
-# Design Smells Worth Investigating
-
-- `execute_stage_import_session_from_result()` still feels like a god-function. The five-stage runtime is clearer than the old story, but too much pipeline truth is still composed in one place.
-
-- The authority story is cleaner now, but it is still split across stages. Recipe ownership starts at `recipe-boundary`, while outside-recipe material then moves through `nonrecipe-route` and `knowledge-final`.
-
-- Chunk outputs now correctly depend on final outside-recipe authority. If a run has no surviving final outside-recipe rows, chunk generation should stay empty instead of reviving any older fallback idea.
-
-- The artifact names are better than before but still slightly misleading. `08_nonrecipe_seed_routing.json` sounds more final than it really is, and you need the `nonrecipe-route` / `knowledge-final` split in your head before `09_nonrecipe_review_status.json` makes immediate sense.
+- Importers read the source, preserve structure, and hand the shared stage pipeline the material it needs.
+- The deterministic label-first path still runs even when recipe and knowledge LLM stages are both off.
+- Accepted recipe spans are the recipe ownership boundary. Later stages refine those recipes into final structured outputs.
+- `nonrecipe-route` routes and records. `knowledge-final` decides the final meaning of reviewable outside-recipe rows.
+- `ConversionResult.non_recipe_blocks` mirrors the stage-owned outside-recipe result for downstream consumers.
+- Split PDF and EPUB jobs do early conversion in pieces, but semantic authority still happens once on the merged whole-book view.

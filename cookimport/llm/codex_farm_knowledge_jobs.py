@@ -13,6 +13,7 @@ from cookimport.staging.nonrecipe_stage import (
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.llm.shard_prompt_targets import (
+    partition_contiguous_items,
     resolve_shard_count,
 )
 
@@ -22,6 +23,7 @@ from .codex_farm_knowledge_contracts import (
     KnowledgePacketContextPayloadV1,
     KnowledgePacketGuardrailsPayloadV1,
     KnowledgePacketJobInputV1,
+    KnowledgeShardJobInputV1,
     KnowledgeTableHintV1,
     SpanV1,
 )
@@ -130,24 +132,6 @@ def build_knowledge_jobs(
         prepared_packets,
         key=lambda packet: packet.absolute_indices[0],
     )
-    requested_shard_count = resolve_shard_count(
-        total_items=len(sorted_packets),
-        prompt_target_count=prompt_target_count,
-        items_per_shard=None,
-        default_items_per_shard=1,
-    )
-    if (
-        sorted_packets
-        and requested_shard_count
-        and requested_shard_count < len(sorted_packets)
-    ):
-        planning_warnings.append(
-            "knowledge prompt target count requested fewer shards than the packet floor; "
-            "keeping one shard per packet so no review packet is dropped."
-        )
-    shard_entries: list[ShardManifestEntryV1] = []
-    bundle_counter = 0
-    written_packets: list[_PreparedKnowledgePacket] = []
     for packet in sorted_packets:
         bundle_payload = _build_packet_job_payload(
             packet=packet,
@@ -166,27 +150,89 @@ def build_knowledge_jobs(
             bundle_payload_json,
             out_dir / f"{packet.packet_id}.json",
         )
+
+    requested_shard_count = resolve_shard_count(
+        total_items=len(sorted_packets),
+        prompt_target_count=prompt_target_count,
+        items_per_shard=None,
+        default_items_per_shard=1,
+    )
+    packet_partitions = partition_contiguous_items(
+        sorted_packets,
+        shard_count=requested_shard_count,
+    )
+    shard_entries: list[ShardManifestEntryV1] = []
+    bundle_counter = 0
+    written_packets: list[_PreparedKnowledgePacket] = list(sorted_packets)
+    for shard_index, packet_group in enumerate(packet_partitions, start=0):
+        if not packet_group:
+            continue
+        if len(packet_group) == 1:
+            packet = packet_group[0]
+            packet_payload = json.loads(
+                (out_dir / f"{packet.packet_id}.json").read_text(encoding="utf-8")
+            )
+            shard_id = packet.packet_id
+            owned_packet_ids = [packet.packet_id]
+            owned_block_indices = list(packet.absolute_indices)
+            source_span_ids = list(packet.source_span_ids)
+            shard_payload = packet_payload
+        else:
+            shard_id = f"{workbook_slug}.ks{shard_index:04d}.nr"
+            shard_payload = KnowledgeShardJobInputV1(
+                shard_id=shard_id,
+                packets=[
+                    KnowledgePacketJobInputV1.model_validate(
+                        json.loads(
+                            (out_dir / f"{packet.packet_id}.json").read_text(encoding="utf-8")
+                        )
+                    )
+                    for packet in packet_group
+                ],
+            ).model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+                exclude_defaults=True,
+            )
+            owned_packet_ids = [packet.packet_id for packet in packet_group]
+            owned_block_indices = sorted(
+                {
+                    index
+                    for packet in packet_group
+                    for index in packet.absolute_indices
+                }
+            )
+            source_span_ids = list(
+                dict.fromkeys(
+                    span_id
+                    for packet in packet_group
+                    for span_id in packet.source_span_ids
+                )
+            )
         shard_entries.append(
             ShardManifestEntryV1(
-                shard_id=packet.packet_id,
-                owned_ids=(packet.packet_id,),
-                evidence_refs=tuple(f"block:{index}" for index in packet.absolute_indices),
-                input_payload=bundle_payload_json,
+                shard_id=shard_id,
+                owned_ids=tuple(owned_packet_ids),
+                evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
+                input_payload=shard_payload,
                 metadata={
-                    "packet_id": packet.packet_id,
-                    "owned_block_indices": list(packet.absolute_indices),
-                    "source_span_ids": list(packet.source_span_ids),
-                    "packet_block_count": len(packet.absolute_indices),
-                    "packet_char_count": packet.char_count,
-                    "table_heavy": packet.has_table_content,
-                    "has_heading": packet.has_heading,
+                    "packet_id": owned_packet_ids[0] if len(owned_packet_ids) == 1 else None,
+                    "owned_packet_ids": list(owned_packet_ids),
+                    "owned_packet_count": len(owned_packet_ids),
+                    "owned_block_indices": list(owned_block_indices),
+                    "owned_block_count": len(owned_block_indices),
+                    "source_span_ids": source_span_ids,
+                    "packet_block_count": len(owned_block_indices),
+                    "packet_char_count": sum(packet.char_count for packet in packet_group),
+                    "table_heavy": any(packet.has_table_content for packet in packet_group),
+                    "has_heading": any(packet.has_heading for packet in packet_group),
                     "context_blocks": max(0, int(context_blocks)),
-                    "task_count": 1,
+                    "task_count": len(owned_packet_ids),
                     "task_index": 1,
                 },
             )
         )
-        written_packets.append(packet)
         bundle_counter += 1
 
     return KnowledgeJobBuildReport(

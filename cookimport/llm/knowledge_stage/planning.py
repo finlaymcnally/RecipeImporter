@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import sys
+from . import _shared as _shared_module
 
-runtime = sys.modules["cookimport.llm.knowledge_stage"]
 globals().update(
     {
         name: value
-        for name, value in vars(runtime).items()
+        for name, value in vars(_shared_module).items()
         if not name.startswith("__")
     }
 )
@@ -21,6 +20,30 @@ class _KnowledgeWorkspaceStageCommandViolation:
 
 def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _knowledge_packet_payloads(
+    payload: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    data = _coerce_dict(payload)
+    packets = data.get("p")
+    if isinstance(packets, list):
+        return [dict(packet) for packet in packets if isinstance(packet, Mapping)]
+    blocks = data.get("b")
+    packet_id = str(data.get("bid") or data.get("packet_id") or "").strip()
+    if packet_id and isinstance(blocks, list):
+        packet_payload = {
+            "bid": packet_id,
+            "b": [dict(block) for block in blocks if isinstance(block, Mapping)],
+        }
+        if isinstance(data.get("x"), Mapping):
+            packet_payload["x"] = dict(data["x"])
+        if isinstance(data.get("g"), Mapping):
+            packet_payload["g"] = dict(data["g"])
+        if data.get("v") is not None:
+            packet_payload["v"] = data.get("v")
+        return [packet_payload]
+    return []
 
 
 def _build_knowledge_task_manifest_entry(
@@ -41,42 +64,50 @@ def _build_knowledge_task_plans(
     shard: ShardManifestEntryV1,
 ) -> tuple[_KnowledgeTaskPlan, ...]:
     payload = _coerce_dict(shard.input_payload)
-    blocks = [dict(row) for row in (payload.get("b") or []) if isinstance(row, Mapping)]
-    if not blocks:
+    packet_payloads = _knowledge_packet_payloads(payload)
+    if not packet_payloads:
         return ()
-    task_id = str(shard.shard_id).strip()
-    owned_block_indices = [
-        int(block.get("i"))
-        for block in blocks
-        if isinstance(block, Mapping) and block.get("i") is not None
-    ]
-    task_payload = {
-        **payload,
-        "bid": task_id,
-    }
-    task_manifest = ShardManifestEntryV1(
-        shard_id=task_id,
-        owned_ids=tuple(shard.owned_ids),
-        evidence_refs=tuple(shard.evidence_refs),
-        input_payload=task_payload,
-        input_text=shard.input_text,
-        metadata={
-            **dict(shard.metadata or {}),
-            "parent_shard_id": shard.shard_id,
-            "task_id": task_id,
-            "task_index": 1,
-            "task_count": 1,
-            "packet_count": 1,
-            "owned_block_indices": owned_block_indices,
-        },
-    )
-    return (
-        _KnowledgeTaskPlan(
-            task_id=task_id,
-            parent_shard_id=shard.shard_id,
-            manifest_entry=task_manifest,
-        ),
-    )
+    task_count = len(packet_payloads)
+    task_plans: list[_KnowledgeTaskPlan] = []
+    for task_index, packet_payload in enumerate(packet_payloads, start=1):
+        task_id = str(packet_payload.get("bid") or packet_payload.get("packet_id") or "").strip()
+        if not task_id:
+            continue
+        blocks = [
+            dict(row) for row in (packet_payload.get("b") or []) if isinstance(row, Mapping)
+        ]
+        owned_block_indices = [
+            int(block.get("i"))
+            for block in blocks
+            if isinstance(block, Mapping) and block.get("i") is not None
+        ]
+        task_manifest = ShardManifestEntryV1(
+            shard_id=task_id,
+            owned_ids=(task_id,),
+            evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
+            input_payload=dict(packet_payload),
+            input_text=None,
+            metadata={
+                **dict(shard.metadata or {}),
+                "parent_shard_id": shard.shard_id,
+                "task_id": task_id,
+                "task_index": task_index,
+                "task_count": task_count,
+                "packet_count": 1,
+                "owned_packet_ids": [task_id],
+                "owned_packet_count": 1,
+                "owned_block_indices": owned_block_indices,
+                "owned_block_count": len(owned_block_indices),
+            },
+        )
+        task_plans.append(
+            _KnowledgeTaskPlan(
+                task_id=task_id,
+                parent_shard_id=shard.shard_id,
+                manifest_entry=task_manifest,
+            )
+        )
+    return tuple(task_plans)
 
 
 def _build_knowledge_task_runtime_manifest_entry(
@@ -193,14 +224,19 @@ def _aggregate_knowledge_task_payloads(
     task_payloads_by_task_id: Mapping[str, dict[str, Any] | None],
     task_validation_errors_by_task_id: Mapping[str, Sequence[str]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    expected_packet_ids = [
+        str(value).strip() for value in shard.owned_ids if str(value).strip()
+    ]
     accepted_task_ids: list[str] = []
-    accepted_payload: dict[str, Any] | None = None
+    accepted_payloads_by_task_id: dict[str, dict[str, Any]] = {}
     for task_id, payload in task_payloads_by_task_id.items():
         if not isinstance(payload, Mapping):
             continue
-        accepted_task_ids.append(task_id)
-        accepted_payload = dict(payload)
-        break
+        cleaned_task_id = str(task_id).strip()
+        if not cleaned_task_id:
+            continue
+        accepted_task_ids.append(cleaned_task_id)
+        accepted_payloads_by_task_id[cleaned_task_id] = dict(payload)
     all_task_ids = sorted(
         {
             str(task_id).strip()
@@ -215,13 +251,23 @@ def _aggregate_knowledge_task_payloads(
             if errors or task_id not in accepted_task_ids
         }
     )
+    accepted_payloads = [
+        accepted_payloads_by_task_id[packet_id]
+        for packet_id in expected_packet_ids
+        if packet_id in accepted_payloads_by_task_id
+    ]
+    missing_packet_ids = [
+        packet_id
+        for packet_id in expected_packet_ids
+        if packet_id not in accepted_payloads_by_task_id
+    ]
     metadata = {
         "task_count": len(all_task_ids),
         "accepted_task_count": len(accepted_task_ids),
         "accepted_task_ids": sorted(accepted_task_ids),
         "fallback_task_count": len(fallback_task_ids),
         "fallback_task_ids": fallback_task_ids,
-        "missing_packet_ids": [] if accepted_payload is not None else [shard.shard_id],
+        "missing_packet_ids": missing_packet_ids,
         "task_ids": all_task_ids,
         "task_validation_errors_by_task_id": {
             task_id: list(errors)
@@ -229,12 +275,25 @@ def _aggregate_knowledge_task_payloads(
             if errors
         },
         "task_id_by_packet_id": {
-            shard.shard_id: accepted_task_ids[0]
-            for _ in [0]
-            if accepted_task_ids
+            packet_id: packet_id
+            for packet_id in expected_packet_ids
+            if packet_id in accepted_payloads_by_task_id
         },
     }
-    return dict(accepted_payload or {"packet_id": shard.shard_id, "block_decisions": [], "idea_groups": []}), metadata
+    if len(expected_packet_ids) <= 1:
+        accepted_payload = accepted_payloads[0] if accepted_payloads else None
+        return dict(
+            accepted_payload
+            or {
+                "packet_id": expected_packet_ids[0] if expected_packet_ids else shard.shard_id,
+                "block_decisions": [],
+                "idea_groups": [],
+            }
+        ), metadata
+    return {
+        "shard_id": shard.shard_id,
+        "packet_results": accepted_payloads,
+    }, metadata
 
 
 def _effort_override_value(value: object | None) -> str | None:

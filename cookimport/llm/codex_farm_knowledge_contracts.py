@@ -97,22 +97,75 @@ class KnowledgePacketJobInputV1(BaseModel):
     guardrails: KnowledgePacketGuardrailsPayloadV1 | None = Field(default=None, alias="g")
 
 
+class KnowledgeShardJobInputV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    shard_version: Literal["1"] = Field(default=_PACKET_VERSION_V1, alias="v")
+    shard_id: str = Field(alias="sid")
+    packets: list[KnowledgePacketJobInputV1] = Field(default_factory=list, alias="p")
+
+
 def knowledge_input_bundle_id(payload: Mapping[str, Any] | None) -> str:
     data = payload or {}
-    return str(data.get("bid") or data.get("packet_id") or "").strip()
+    return str(
+        data.get("sid")
+        or data.get("shard_id")
+        or data.get("bid")
+        or data.get("packet_id")
+        or ""
+    ).strip()
 
 
-def knowledge_input_blocks(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def knowledge_input_packets(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     data = payload or {}
+    packets = data.get("p")
+    if not isinstance(packets, list):
+        packets = data.get("packets")
+    if isinstance(packets, list):
+        return [dict(item) for item in packets if isinstance(item, dict)]
     blocks = data.get("b")
     if not isinstance(blocks, list):
         blocks = data.get("blocks")
     if not isinstance(blocks, list):
         return []
-    return [dict(item) for item in blocks if isinstance(item, dict)]
+    packet_id = str(data.get("bid") or data.get("packet_id") or "").strip()
+    if not packet_id:
+        return []
+    packet_payload: dict[str, Any] = {
+        "bid": packet_id,
+        "b": [dict(item) for item in blocks if isinstance(item, dict)],
+    }
+    if isinstance(data.get("x"), Mapping):
+        packet_payload["x"] = dict(data["x"])
+    if isinstance(data.get("g"), Mapping):
+        packet_payload["g"] = dict(data["g"])
+    if data.get("v") is not None:
+        packet_payload["v"] = data.get("v")
+    return [packet_payload]
+
+
+def knowledge_input_blocks(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    packets = knowledge_input_packets(payload)
+    if len(packets) == 1:
+        blocks = packets[0].get("b")
+        if isinstance(blocks, list):
+            return [dict(item) for item in blocks if isinstance(item, dict)]
+    return [
+        dict(block)
+        for packet in packets
+        for block in (packet.get("b") or [])
+        if isinstance(block, dict)
+    ]
 
 
 def knowledge_input_packet_ids(payload: Mapping[str, Any] | None) -> list[str]:
+    packet_ids = [
+        str(packet.get("bid") or packet.get("packet_id") or "").strip()
+        for packet in knowledge_input_packets(payload)
+        if str(packet.get("bid") or packet.get("packet_id") or "").strip()
+    ]
+    if packet_ids:
+        return packet_ids
     bundle_id = knowledge_input_bundle_id(payload)
     blocks = knowledge_input_blocks(payload)
     if not bundle_id or not blocks:
