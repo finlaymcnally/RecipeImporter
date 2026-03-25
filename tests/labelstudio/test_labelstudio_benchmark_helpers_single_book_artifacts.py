@@ -358,6 +358,7 @@ def test_single_book_starter_pack_fallback_loader_registers_module(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS", "1")
     session_root = tmp_path / "session"
     session_root.mkdir(parents=True, exist_ok=True)
     helper_script_path = tmp_path / "fake_benchmark_helper.py"

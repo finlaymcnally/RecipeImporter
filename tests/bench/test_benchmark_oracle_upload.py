@@ -1496,6 +1496,7 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS", "1")
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )

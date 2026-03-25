@@ -131,6 +131,41 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
         "1": "knowledge",
     }
     assert knowledge_payload["unreviewed_spans"][1]["span_id"] == "nr.knowledge.1.2"
+    assert stage_result.routing.review_eligible_block_indices == [0, 1]
+    assert stage_result.authority.authoritative_block_indices == []
+    assert stage_result.review_status.reviewed_block_indices == []
+    assert stage_result.review_status.unreviewed_review_eligible_block_indices == [0, 1]
+
+
+def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
+    seed = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique"},
+        ],
+        final_block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id="b0",
+                source_block_index=0,
+                supporting_atomic_indices=[],
+                deterministic_label="OTHER",
+                final_label="OTHER",
+                decided_by="rule",
+                reason_tags=[],
+                review_exclusion_reason="front_matter",
+            ),
+            _block_label(1, "KNOWLEDGE"),
+        ],
+        recipe_spans=[],
+    )
+
+    assert seed.routing.review_excluded_block_indices == [0]
+    assert seed.routing.review_eligible_block_indices == [1]
+    assert seed.authority.authoritative_block_indices == [0]
+    assert seed.authority.authoritative_block_category_by_index == {0: "other"}
+    assert seed.review_status.reviewed_block_indices == []
+    assert seed.review_status.unreviewed_review_eligible_block_indices == [1]
+    assert seed.review_status.unreviewed_block_category_by_index == {1: "knowledge"}
 
 
 def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal() -> None:
@@ -150,6 +185,10 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
     )
 
     assert refined.block_category_by_index == {0: "other"}
+    assert refined.authority.authoritative_block_indices == [0]
+    assert refined.authority.authoritative_block_category_by_index == {0: "other"}
+    assert refined.review_status.reviewed_block_indices == [0]
+    assert refined.review_status.unreviewed_review_eligible_block_indices == []
     assert refined.refinement_report["reviewer_category_counts"] == {
         "chapter_taxonomy": 1
     }

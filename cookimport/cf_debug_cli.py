@@ -283,6 +283,11 @@ def preview_prompts(
         "--recipe-prompt-target-count",
         min=1,
     ),
+    knowledge_prompt_target_count: int | None = typer.Option(
+        None,
+        "--knowledge-prompt-target-count",
+        min=1,
+    ),
     knowledge_worker_count: int | None = typer.Option(None, "--knowledge-worker-count", min=1),
     line_role_worker_count: int | None = typer.Option(None, "--line-role-worker-count", min=1),
     line_role_prompt_target_count: int | None = typer.Option(
@@ -311,6 +316,7 @@ def preview_prompts(
         atomic_block_splitter=atomic_block_splitter,
         recipe_worker_count=recipe_worker_count,
         recipe_prompt_target_count=recipe_prompt_target_count,
+        knowledge_prompt_target_count=knowledge_prompt_target_count,
         knowledge_worker_count=knowledge_worker_count,
         line_role_worker_count=line_role_worker_count,
         line_role_prompt_target_count=line_role_prompt_target_count,
@@ -503,6 +509,11 @@ def preview_shard_sweep(
             recipe_prompt_target_count=(
                 int(experiment["recipe_prompt_target_count"])
                 if experiment.get("recipe_prompt_target_count") is not None
+                else None
+            ),
+            knowledge_prompt_target_count=(
+                int(experiment["knowledge_prompt_target_count"])
+                if experiment.get("knowledge_prompt_target_count") is not None
                 else None
             ),
             knowledge_worker_count=(

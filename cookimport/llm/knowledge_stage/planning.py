@@ -373,7 +373,7 @@ def _summarize_knowledge_task_packet_distribution(
         )
     counts = list(worker_task_packet_counts.values())
     return {
-        "bundle_policy": "shard_round_robin_single_chunk_tasks_v1",
+        "bundle_policy": "shard_round_robin_chunk_bundle_tasks_v1",
         "task_total": sum(counts),
         "worker_task_counts": dict(sorted(worker_task_packet_counts.items())),
         "max_tasks_per_worker": max(counts) if counts else 0,

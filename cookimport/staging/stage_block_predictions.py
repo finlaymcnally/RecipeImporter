@@ -109,8 +109,8 @@ def build_stage_block_predictions(
         )
 
     if nonrecipe_stage_result is not None:
-        authoritative_categories = (
-            nonrecipe_stage_result.authoritative_block_category_by_index()
+        authoritative_categories = dict(
+            nonrecipe_stage_result.authority.authoritative_block_category_by_index
         )
         knowledge_indices = {
             int(block_index)
@@ -121,11 +121,11 @@ def build_stage_block_predictions(
             notes.append(
                 "KNOWLEDGE labels were derived from final non-recipe authority."
             )
-        if nonrecipe_stage_result.unreviewed_review_eligible_block_indices:
+        if nonrecipe_stage_result.review_status.unreviewed_review_eligible_block_indices:
             notes.append(
                 "Review-eligible non-recipe blocks without final authority were kept as OTHER for scoring."
             )
-        elif nonrecipe_stage_result.review_eligible_block_indices:
+        elif nonrecipe_stage_result.routing.review_eligible_block_indices:
             notes.append(
                 "All review-eligible non-recipe blocks had final authority before scoring."
             )

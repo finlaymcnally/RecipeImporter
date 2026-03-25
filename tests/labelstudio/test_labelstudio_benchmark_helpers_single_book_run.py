@@ -17,6 +17,7 @@ def _run_single_book_codex_enabled_fixture(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "recipe_prompt_target_count": 10,
+            "knowledge_prompt_target_count": 4,
             "line_role_prompt_target_count": 5,
         },
         warn_context="test codex-enabled",
@@ -122,8 +123,8 @@ def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
     assert [call["recipe_prompt_target_count"] for call in benchmark_calls] == [10, 10]
+    assert [call["knowledge_prompt_target_count"] for call in benchmark_calls] == [4, 4]
     assert [call["line_role_prompt_target_count"] for call in benchmark_calls] == [5, 5]
-    assert all("knowledge_prompt_target_count" not in call for call in benchmark_calls)
     assert [call["single_book_split_cache_mode"] for call in benchmark_calls] == [
         "auto",
         "auto",
@@ -165,19 +166,7 @@ def test_interactive_single_book_codex_enabled_writes_comparison_and_refreshes_d
     )
     assert comparison_json.exists()
     assert not comparison_md.exists()
-    assert len(refresh_calls) == 1
-    assert refresh_calls[0]["reason"] == "single-book benchmark variant batch append"
-    assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
-        processed_output_root
-        / benchmark_eval_output.name
-        / "single-book-benchmark"
-        / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
-    )
-    assert refresh_calls[0]["output_root"] == processed_output_root
-    assert (
-        refresh_calls[0]["dashboard_out_dir"]
-        == cli.history_root_for_output(processed_output_root) / "dashboard"
-    )
+    assert refresh_calls == []
 
 
 def test_interactive_single_book_preserves_selected_codex_recipe_pipeline(

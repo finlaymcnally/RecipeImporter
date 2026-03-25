@@ -216,12 +216,12 @@ def _build_scored_line_role_projection_spans(
             "suppressed_unreviewed_knowledge_block_indices": [],
         }
 
-    authoritative_categories = (
-        nonrecipe_stage_result.authoritative_block_category_by_index()
+    authoritative_categories = dict(
+        nonrecipe_stage_result.authority.authoritative_block_category_by_index
     )
     unreviewed_block_index_set = {
         int(index)
-        for index in nonrecipe_stage_result.unreviewed_review_eligible_block_indices
+        for index in nonrecipe_stage_result.review_status.unreviewed_review_eligible_block_indices
     }
     suppressed_block_indices: set[int] = set()
     scored_spans: list[FreeformSpanPrediction] = []
@@ -261,7 +261,9 @@ def _apply_nonrecipe_authority_to_predictions(
             "changed_block_indices": [],
         }
 
-    final_categories = nonrecipe_stage_result.authoritative_block_category_by_index()
+    final_categories = dict(
+        nonrecipe_stage_result.authority.authoritative_block_category_by_index
+    )
     changed_block_indices = sorted(
         int(row.get("block_index"))
         for row in (nonrecipe_stage_result.refinement_report.get("changed_blocks") or [])

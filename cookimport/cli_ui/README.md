@@ -17,6 +17,8 @@ Interactive run-settings UI helpers.
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - checked block labelling preserves the current/default `atomic_block_splitter` value instead of auto-enabling `atomic-v1`
   - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
+  - enabled surfaces now also prompt for shard count using the same contract on every Codex-backed stage: import asks recipe then knowledge, while benchmark flows ask line-role then recipe then knowledge
+  - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)

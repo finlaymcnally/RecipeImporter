@@ -29,7 +29,10 @@ from cookimport.parsing.label_source_of_truth import (
     build_label_first_stage_result,
 )
 from cookimport.staging.nonrecipe_stage import (
+    NonRecipeAuthorityResult,
+    NonRecipeRoutingResult,
     NonRecipeStageResult,
+    NonRecipeReviewStatusResult,
     block_rows_for_nonrecipe_span,
     block_rows_for_nonrecipe_stage,
     build_nonrecipe_stage_result,
@@ -122,6 +125,7 @@ class NonrecipeRouteResult:
     recipe_boundary_result: RecipeBoundaryResult
     recipe_refine_result: RecipeRefineResult
     stage_result: NonRecipeStageResult
+    routing: NonRecipeRoutingResult
     routed_nonrecipe_blocks: list[dict[str, Any]]
     reviewable_nonrecipe_blocks: list[dict[str, Any]]
     excluded_final_other_blocks: list[dict[str, Any]]
@@ -132,6 +136,8 @@ class KnowledgeFinalResult:
     nonrecipe_route_result: NonrecipeRouteResult
     recipe_refine_result: RecipeRefineResult
     stage_result: NonRecipeStageResult
+    authority: NonRecipeAuthorityResult
+    review_status: NonRecipeReviewStatusResult
     final_nonrecipe_blocks: list[dict[str, Any]]
     authoritative_nonrecipe_blocks: list[dict[str, Any]]
     unreviewed_reviewable_blocks: list[dict[str, Any]]
@@ -293,18 +299,19 @@ def run_nonrecipe_route_stage(
         recipe_boundary_result=recipe_boundary_result,
         recipe_refine_result=recipe_refine_result,
         stage_result=stage_result,
+        routing=stage_result.routing,
         routed_nonrecipe_blocks=block_rows_for_nonrecipe_stage(
             full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
             stage_result=stage_result,
         ),
         reviewable_nonrecipe_blocks=_block_rows_for_indices(
             recipe_boundary_result.extracted_bundle.archive_blocks,
-            stage_result.review_eligible_block_indices,
-            stage_result.block_category_by_index,
+            stage_result.routing.review_eligible_block_indices,
+            stage_result.routing.review_eligible_seed_block_category_by_index(),
         ),
         excluded_final_other_blocks=[
             row
-            for span in stage_result.review_excluded_other_spans
+            for span in stage_result.routing.review_excluded_other_spans
             for row in block_rows_for_nonrecipe_span(
                 full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
                 span=span,
@@ -366,18 +373,20 @@ def run_knowledge_final_stage(
     )
     authoritative_nonrecipe_blocks = _block_rows_for_indices(
         recipe_boundary_result.extracted_bundle.archive_blocks,
-        stage_result.final_authority_block_indices,
-        stage_result.block_category_by_index,
+        stage_result.authority.authoritative_block_indices,
+        stage_result.authority.authoritative_block_category_by_index,
     )
     unreviewed_reviewable_blocks = _block_rows_for_indices(
         recipe_boundary_result.extracted_bundle.archive_blocks,
-        stage_result.unreviewed_review_eligible_block_indices,
-        stage_result.block_category_by_index,
+        stage_result.review_status.unreviewed_review_eligible_block_indices,
+        stage_result.review_status.unreviewed_block_category_by_index,
     )
     return KnowledgeFinalResult(
         nonrecipe_route_result=nonrecipe_route_result,
         recipe_refine_result=recipe_refine_result,
         stage_result=stage_result,
+        authority=stage_result.authority,
+        review_status=stage_result.review_status,
         final_nonrecipe_blocks=final_nonrecipe_blocks,
         authoritative_nonrecipe_blocks=authoritative_nonrecipe_blocks,
         unreviewed_reviewable_blocks=unreviewed_reviewable_blocks,

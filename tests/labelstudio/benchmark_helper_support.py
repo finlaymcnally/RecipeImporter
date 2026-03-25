@@ -74,6 +74,26 @@ def _force_helper_oracle_test_lane(monkeypatch: pytest.MonkeyPatch) -> None:
         "_start_benchmark_bundle_oracle_upload_background",
         lambda **_kwargs: None,
     )
+    _patch_cli_attr(
+        monkeypatch,
+        "_refresh_dashboard_after_history_write",
+        lambda **_kwargs: None,
+    )
+
+    def _fake_write_benchmark_upload_bundle(**kwargs):
+        output_dir = kwargs.get("output_dir")
+        if not isinstance(output_dir, Path):
+            return output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for file_name in cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
+            (output_dir / file_name).write_text("{}", encoding="utf-8")
+        return output_dir
+
+    _patch_cli_attr(
+        monkeypatch,
+        "_write_benchmark_upload_bundle",
+        _fake_write_benchmark_upload_bundle,
+    )
 
 
 def _benchmark_test_run_settings(

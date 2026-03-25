@@ -23,8 +23,7 @@ The important business rule here is that all of those importers now converge on 
 - raw artifacts
 - a report
 
-Some importers may also make early guesses about recipes or non-recipe text, but those guesses are not the final truth. Importers are source normalizers first. The shared stage session later decides what is really a recipe and what is really meaningful outside-recipe knowledge.
-> [3] I thought I removed all of this?
+Importers may carry source-native proposals in `source_support`, but that support is non-authoritative. For stage-backed flows, importers are source normalizers: they publish canonical source blocks, raw artifacts, and support data, and the shared stage later owns recipe and outside-recipe authority.
 
 ## What importers are really doing
 
@@ -102,34 +101,26 @@ At this point the program is asking practical classification questions like:
 - is this line an ingredient line
 - is this line an instruction line
 - is this line note-like
-- is this line clearly outside a recipe 
-> [5] what is this
-- is this line ambiguous enough to need later review 
-> [6] what is this
+- does this line belong inside the accepted recipe structure or outside it
+- if it is outside the recipe structure, should it stay alive for later Codex knowledge review
 
-The deterministic pass is important even when LLMs are available. It gives the system a reproducible first pass, creates artifact trails, and establishes a baseline that the later optional Codex step can refine instead of replacing from scratch.
+The deterministic pass is important even when LLMs are available. It gives the system a reproducible first pass, creates artifact trails, and establishes the structural baseline that the later Codex step can review.
 
-If line-role Codex review is enabled, `label_llm_correct` can refine those labels. Even then, the repo-owned validation and cleanup logic is still the final gate on whether those corrections count.
-> [7] the corrections should always count. how does the gate decide?
+If line-role Codex review is enabled, `label_llm_correct` is the normal fuzzy review pass over those labels. Repo code still validates shape, ownership, and consistency before installing the corrected result, but the semantic judgment is meant to come from Codex here.
 
-After labeling, `group_recipe_spans` groups accepted lines back into recipe spans.
-> [8] why "back into"
+After labeling, `group_recipe_spans` groups accepted lines into recipe spans.
 
-This is the main authority handoff in the system. Importer recipes are not the final truth anymore. The accepted grouped spans are.
-> [9] dont need notes about what used to be
+This is the main authority handoff in the system. The accepted grouped spans are the authoritative recipe boundaries for the rest of the run.
 
 A grouped span usually needs a title anchor to count as a real recipe. Structured-looking text without a convincing title can still be rejected as a pseudo-recipe.
 
 That title-anchor rule exists because cookbook sources often contain recipe-shaped junk: tables of contents, index-like blocks, sidebars, ingredient-like shopping notes, or small structured fragments that look recipe-ish but are not actually real recipes.
 
-So `recipe-boundary` is not just grouping. It is also a rejection stage. It throws away titleless pseudo-recipes, weak spans, and other false positives instead of treating every structured cluster as a valid recipe.
-> [10] what happens to them
+So `recipe-boundary` is not just grouping. It is also a rejection stage. It rejects titleless pseudo-recipes, weak spans, and other false positives instead of treating every structured cluster as a valid recipe. Rejected material stays on the outside-recipe side of the book rather than becoming a final recipe.
 
-If an importer thought there were recipes but `group_recipe_spans` ends up with zero accepted recipes, the program does not quietly fall back to the importer guess. It stays on the label-first result and records that mismatch as an authority problem.
-> [11] there shouldn't be anything about importer guesses, this was supposed to be cleaned out
+If `group_recipe_spans` ends up with zero accepted recipes, the program stays on that label-first result and records the mismatch as an authority problem.
 
-That is a strong business decision. The program would rather surface a mismatch than quietly reintroduce early importer authority that the shared stage just rejected.
-> [12] there shouldn't be anything about importer guesses, this was supposed to be cleaned out
+That is a strong business decision. The program surfaces the mismatch instead of reviving some different authority story later in the run.
 
 By the end of `recipe-boundary`, the program knows:
 
@@ -184,44 +175,25 @@ Those are not casual exports. They are the program’s normalized statement of w
 
 ## `nonrecipe-route`
 
-After recipe ownership is settled, everything outside the accepted recipe spans goes into `nonrecipe-route`. This is the runtime step most people have been informally calling Stage 7.
-> [19] who? what people? why are there no stages 1 - 6?
+After recipe ownership is settled, everything outside the accepted recipe spans goes into `nonrecipe-route`.
 
-This stage creates the first real outside-recipe routing map.
+This stage is mainly a routing and bookkeeping step over the outside-recipe side of the book.
 
-Its job is not to perfectly understand all surviving prose. Its job is to do the first ownership split on the outside-recipe world.
-
-It decides:
-
-- which outside-recipe rows are obvious junk
-> [20] it doesn't decide aything it literally just routes them, the label_llm_correct decided this
-- which rows are clearly final `other`
-> [21] is this not the same as obvious junk? how is it deciding? deterministic things should NOT be deciding
-- which rows are still plausible knowledge candidates
-> [22] how is it deciding? deterministic things should NOT be deciding
-- which rows are review-eligible and should stay in play for later `knowledge-final`
-> [23] how is it deciding? deterministic things should NOT be deciding
-
-> [24] this step just routes off the junk labelled in the labelling step. it shouldn't do muhc more than that. i dont even really know why  it exists
+It is not supposed to be the final fuzzy judge of meaning. Its main job is to carry forward the rows that should stay alive for Codex knowledge review, separate them from the obviously useless junk that can be excluded immediately, and record the status needed by the later knowledge stage.
 
 Some material becomes final immediately here: navigation, publishing junk, endorsements, page furniture, and similar noise can be excluded right away as final `other`.
-> [25] it doesn't decide aything it literally just routes them, the label_llm_correct decided this
 
 That matters because cookbook sources are full of outside-recipe text that is not equally valuable. Some of it is clearly worthless for downstream use. Some of it might be useful cooking knowledge. Some of it is ambiguous and should not be finalized too early.
 
-So `nonrecipe-route` is trying to be decisive only where the program has strong enough evidence.
-
-The important subtle rule is that `nonrecipe-route` is allowed to route and exclude obvious junk, but it is not the final authority on the harder semantic question of whether a surviving outside-recipe passage is real cooking knowledge.
+The important subtle rule is that `nonrecipe-route` can exclude obvious junk, but it is not the final authority on the harder semantic question of whether a surviving outside-recipe passage is real cooking knowledge. In the normal product path, that fuzzy decision belongs to Codex.
 
 That is why the run now has a seed-routing artifact and a separate final-authority artifact instead of pretending those are the same thing.
 
-By the end of `nonrecipe-route`, the program has three practical buckets:
+By the end of `nonrecipe-route`, the program has two routed outcomes plus the metadata needed for the next stage:
 
 - excluded rows that are done forever
-- seed-kept rows that are still only provisional
-> [26] what is this
-- the review-status setup for whatever has to go through the last semantic gate
-> [27] what is this
+- review-eligible rows that are still alive for later Codex judgment
+- routing metadata that explains why those rows survived or were excluded
 
 This stage also matters because later chunk generation, table extraction, Label Studio knowledge counts, and benchmark evidence are not supposed to revive importer leftovers or old side lanes. They are supposed to follow the stage-owned outside-recipe path.
 
@@ -229,20 +201,17 @@ This stage also matters because later chunk generation, table extraction, Label 
 
 `knowledge-final` is the last authority step for outside-recipe meaning.
 
-If knowledge review is off, the program keeps the `nonrecipe-route` result and moves on.
-> [28] its basically pointless for vanilla / deterministic only to even try to do KNOWLEDGE vs OTHER to be honest. its pure subtle decision making based on judgement/context
+If knowledge review is off, the program keeps the routed review queue and moves on. In that mode, only the upstream obvious-junk exclusions have final outside-recipe authority; the surviving reviewable rows stay provisional rather than magically becoming final semantic truth.
 
 If knowledge review is on, the public knowledge pipeline name is `codex-knowledge-shard-v1`.
 
-Before that reviewer sees anything, the program chunks the surviving review-eligible outside-recipe text into local pieces. The reviewer works on those chunks, not on the entire book at once.
-> [29] is this true? I thought i changed this
+Before that reviewer sees anything, the program packages the surviving review-eligible outside-recipe text into the bounded local units that the knowledge runtime uses for review, rather than asking for one giant whole-book judgment at once.
 
-That chunking matters for business logic, not just token control. The program wants the reviewer to judge bounded local passages with grounded context instead of making vague whole-book judgments.
-> [30] I mostly want the LLM to do this, to group the knowledge by topic so it's not just a bunch of sentences
-> [31] we also need to tag the knowledge, same way/same tags as the recipes!
+There is one important extra rule here. Not every review-eligible piece automatically gets sent to the LLM. Inside `knowledge-final`, the program can take a conservative deterministic fast path for a chunk that looks clearly non-useful: strong negative utility cues, no positive utility cues, no strong knowledge cue, and no borderline signal. When that happens, the program does not claim it found subtle knowledge deterministically. It does the opposite. It says this chunk looks obviously like final `other`, skips the LLM call, and records that as a repo-owned final decision. So this shortcut is a cheap obvious-not-knowledge filter, not a cheap way to declare real knowledge.
 
-The reviewer returns block-level keep-or-reject style decisions plus grounded evidence. Those decisions are then validated and promoted back into the stage-owned authority model.
-> [32] evidence?
+That bounded packaging matters for business logic, not just token control. The point is to give Codex grounded local material to review and eventually turn into better knowledge outputs. The knowledge side still looks unfinished compared with the recipe side, especially around topic grouping and tagging.
+
+The reviewer returns semantic decisions plus the supporting snippets and records used by the runtime. Those decisions are then validated and promoted back into the stage-owned authority model.
 
 Those worker decisions refine the seed routing into the final outside-recipe authority.
 
@@ -254,7 +223,7 @@ This is the place where the system makes its final semantic claim about outside-
 - this passage is just other outside-recipe material
 - this passage was excluded earlier and never came back into play
 
-In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic Stage 7 routing view, `09_nonrecipe_authority.json` is the final machine-readable truth, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved.
+In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` view (legacy Stage 7 routing), `09_nonrecipe_authority.json` is the final machine-readable truth, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved.
 
 If optional reviewer-facing knowledge snippets are written, they are evidence artifacts, not the authority surface themselves.
 
@@ -266,8 +235,7 @@ Sections come from the finalized recipe side.
 
 Chunks come from final outside-recipe authority only. That is a deliberate business rule. If no final outside-recipe rows survive, the correct answer is no chunks, not a fallback to some older importer-side guess.
 
-Table extraction also follows the authoritative staged view instead of acting like a parallel semantic universe.
-> [33] going to have to do more work here eventually. i dont think we're done with the knowledge section by a long shot
+Table extraction also follows the authoritative staged view instead of acting like a parallel semantic universe. The knowledge side still clearly has more future work in it than the recipe side.
 
 At this point the run may also write reviewer-facing sidecars like markdown summaries, knowledge snippets, and raw debugging artifacts that help explain what happened without changing any final authority decision.
 

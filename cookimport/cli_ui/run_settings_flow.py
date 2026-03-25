@@ -63,6 +63,7 @@ _CODEX_REASONING_EFFORT_ORDER = (
 _CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
     "recipe": ("recipe_prompt_target_count", "Recipe correction"),
     "line_role": ("line_role_prompt_target_count", "Block labelling"),
+    "knowledge": ("knowledge_prompt_target_count", "Knowledge"),
 }
 
 

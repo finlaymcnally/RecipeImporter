@@ -471,6 +471,13 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--llm-knowledge-pipeline",
             help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
         ),
+        knowledge_prompt_target_count: int = typer.Option(
+            5,
+            "--knowledge-prompt-target-count",
+            min=1,
+            hidden=True,
+            help="Internal: preferred knowledge shard count for Codex-backed stage runs.",
+        ),
         allow_codex: bool = typer.Option(
             False,
             "--allow-codex/--no-allow-codex",
@@ -623,6 +630,9 @@ def register(app: typer.Typer) -> dict[str, object]:
         llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
         recipe_prompt_target_count = _unwrap_typer_option_default(recipe_prompt_target_count)
         llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
+        knowledge_prompt_target_count = _unwrap_typer_option_default(
+            knowledge_prompt_target_count
+        )
         allow_codex = _unwrap_typer_option_default(allow_codex)
         codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
         codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
@@ -844,6 +854,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             llm_recipe_pipeline=selected_llm_recipe_pipeline,
             recipe_prompt_target_count=recipe_prompt_target_count,
             llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
+            knowledge_prompt_target_count=knowledge_prompt_target_count,
             codex_farm_cmd=codex_farm_cmd,
             codex_farm_root=codex_farm_root,
             codex_farm_workspace_root=codex_farm_workspace_root,

@@ -815,8 +815,10 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
     assert selected is not None
     assert prompt_messages == [
         "Recipe correction shard count for this run:",
+        "Knowledge shard count for this run:",
     ]
     assert selected.recipe_prompt_target_count == 3
+    assert selected.knowledge_prompt_target_count == 6
     assert selected.line_role_prompt_target_count == 5
 
 
@@ -865,9 +867,11 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
     assert prompt_messages == [
         "Block labelling shard count for this run:",
         "Recipe correction shard count for this run:",
+        "Knowledge shard count for this run:",
     ]
     assert selected.line_role_prompt_target_count == 10
     assert selected.recipe_prompt_target_count == 5
+    assert selected.knowledge_prompt_target_count == 10
 
 
 def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:

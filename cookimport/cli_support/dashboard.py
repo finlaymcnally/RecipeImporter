@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cookimport.cli_support.test_safety import should_skip_heavy_test_side_effects
+
 
 def _runtime():
     from cookimport import cli_support as runtime
@@ -18,6 +20,11 @@ def _refresh_dashboard_after_history_write(
     reason: str | None = None,
 ) -> None:
     runtime = _runtime()
+    if should_skip_heavy_test_side_effects():
+        runtime.logger.info(
+            "Skipping dashboard refresh during pytest-side-effect guard."
+        )
+        return
     resolved_csv_path = csv_path.expanduser()
     if not resolved_csv_path.exists():
         return

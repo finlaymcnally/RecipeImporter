@@ -769,6 +769,23 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    knowledge_prompt_target_count: int | None = Field(
+        default=5,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Shard Count",
+            order=115,
+            description=(
+                "Direct shard-count override for shard-v1 knowledge runtime. "
+                "When set, the planner partitions the ordered knowledge chunks into this many shards."
+            ),
+            step=1,
+            minimum=1,
+            maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     knowledge_worker_count: int | None = Field(
         default=None,
         ge=1,

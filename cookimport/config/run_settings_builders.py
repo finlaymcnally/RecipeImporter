@@ -120,6 +120,7 @@ def build_run_settings(
     line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
     line_role_prompt_target_count: int | None = 5,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
+    knowledge_prompt_target_count: int | None = 5,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -224,6 +225,11 @@ def build_run_settings(
                 else None
             ),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
+            "knowledge_prompt_target_count": (
+                int(knowledge_prompt_target_count)
+                if knowledge_prompt_target_count is not None
+                else None
+            ),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_model": (

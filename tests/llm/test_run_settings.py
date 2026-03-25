@@ -70,6 +70,7 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "line_role_pipeline",
         "line_role_prompt_target_count",
         "llm_knowledge_pipeline",
+        "knowledge_prompt_target_count",
         "codex_farm_recipe_mode",
         "codex_farm_cmd",
         "codex_farm_context_blocks",
@@ -130,6 +131,7 @@ def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> Non
     assert settings.codex_farm_knowledge_context_blocks == 0
     assert settings.recipe_prompt_target_count == 5
     assert settings.line_role_prompt_target_count == 5
+    assert settings.knowledge_prompt_target_count == 5
     assert settings.epub_unstructured_preprocess_mode.value == "br_split_v1"
 
 
@@ -167,10 +169,12 @@ def test_build_run_settings_accepts_codex_prompt_targets() -> None:
         llm_knowledge_pipeline="codex-knowledge-shard-v1",
         recipe_prompt_target_count=10,
         line_role_prompt_target_count=5,
+        knowledge_prompt_target_count=4,
     )
 
     assert settings.recipe_prompt_target_count == 10
     assert settings.line_role_prompt_target_count == 5
+    assert settings.knowledge_prompt_target_count == 4
     assert settings.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
 
 

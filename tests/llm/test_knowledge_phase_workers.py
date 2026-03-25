@@ -16,6 +16,32 @@ from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, run_phase_
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
 
 
+def _semantic_packet_output(
+    *,
+    packet_id: str,
+    chunk_id: str,
+    block_index: int,
+    snippet_block_index: int,
+) -> dict[str, object]:
+    return {
+        "packet_id": packet_id,
+        "chunk_results": [
+            {
+                "chunk_id": chunk_id,
+                "is_useful": True,
+                "block_decisions": [{"block_index": block_index, "category": "knowledge"}],
+                "snippets": [
+                    {
+                        "body": "This should be rejected.",
+                        "evidence": [{"block_index": snippet_block_index, "quote": "bad"}],
+                    }
+                ],
+                "reason_code": "technique_or_mechanism",
+            }
+        ],
+    }
+
+
 def test_build_knowledge_jobs_emits_stable_shard_entries(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -89,27 +115,68 @@ def test_build_knowledge_jobs_emits_stable_shard_entries(
     ]
 
 
+def test_build_knowledge_jobs_uses_prompt_target_count_as_shard_target(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id=f"chunk-{index}",
+                lane=ChunkLane.KNOWLEDGE,
+                title=f"Topic {index}",
+                text=f"Knowledge chunk {index}",
+                blockIds=[index],
+            )
+            for index in range(5)
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": f"Knowledge chunk {index}"}
+            for index in range(5)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.knowledge.0.5",
+                category="knowledge",
+                block_start_index=0,
+                block_end_index=5,
+                block_indices=[0, 1, 2, 3, 4],
+                block_ids=["b0", "b1", "b2", "b3", "b4"],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=tmp_path / "in",
+        context_blocks=1,
+        prompt_target_count=2,
+    )
+
+    assert report.shards_written == 2
+    assert [entry.owned_ids for entry in report.shard_entries] == [
+        ("book.c0000.nr", "book.c0001.nr", "book.c0002.nr"),
+        ("book.c0003.nr", "book.c0004.nr"),
+    ]
+
+
 def test_knowledge_phase_workers_reject_off_surface_outputs(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     runner = FakeCodexFarmRunner(
         output_builders={
-            "recipe.knowledge.compact.v1": lambda shard_payload: {
-                "bundle_version": "2",
-                "bundle_id": shard_payload["bid"],
-                "chunk_results": [
-                    {
-                        "chunk_id": shard_payload["c"][0]["cid"],
-                        "is_useful": True,
-                        "block_decisions": [{"block_index": 99, "category": "knowledge"}],
-                        "snippets": [
-                            {
-                                "body": "This should be rejected.",
-                                "evidence": [{"block_index": 99, "quote": "bad"}],
-                            }
-                        ],
-                    }
-                ],
-            }
+            "recipe.knowledge.compact.v1": lambda shard_payload: _semantic_packet_output(
+                packet_id=shard_payload["bid"],
+                chunk_id=shard_payload["c"][0]["cid"],
+                block_index=99,
+                snippet_block_index=99,
+            )
         }
     )
 

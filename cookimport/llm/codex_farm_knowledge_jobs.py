@@ -16,6 +16,10 @@ from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_span,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
+from cookimport.llm.shard_prompt_targets import (
+    partition_contiguous_items,
+    resolve_shard_count,
+)
 
 from .codex_farm_knowledge_contracts import (
     KnowledgeCompactBundleChunkPayloadV2,
@@ -72,7 +76,8 @@ def build_knowledge_jobs(
     context_blocks: int = 2,
     overrides: ParsingOverrides | None = None,
     skip_suggested_lanes: Sequence[str] = (),
-    target_chunks_per_shard: int = 1,
+    prompt_target_count: int | None = None,
+    target_chunks_per_shard: int | None = None,
 ) -> KnowledgeJobBuildReport:
     """Write knowledge-stage job bundles to out_dir and return a build report.
 
@@ -86,7 +91,6 @@ def build_knowledge_jobs(
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
-    shard_chunk_limit = max(1, int(target_chunks_per_shard))
     recipe_spans_payload = [
         SpanV1(
             start=int(span.start_block_index),
@@ -174,10 +178,16 @@ def build_knowledge_jobs(
         all_prepared_chunks,
         key=lambda chunk: chunk.absolute_indices[0],
     )
-    for bundle_start in range(0, len(sorted_prepared_chunks), shard_chunk_limit):
-        prepared_chunks = sorted_prepared_chunks[
-            bundle_start : bundle_start + shard_chunk_limit
-        ]
+    planned_shard_count = resolve_shard_count(
+        total_items=len(sorted_prepared_chunks),
+        prompt_target_count=prompt_target_count,
+        items_per_shard=target_chunks_per_shard,
+        default_items_per_shard=1,
+    )
+    for prepared_chunks in partition_contiguous_items(
+        sorted_prepared_chunks,
+        shard_count=planned_shard_count,
+    ):
         bundle_id = f"{workbook_slug}.ks{bundle_counter:04d}.nr"
         bundle_payload = _build_bundle_job_payload(
             bundle_id=bundle_id,

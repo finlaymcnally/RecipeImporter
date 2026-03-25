@@ -9,6 +9,8 @@ import pytest
 _FORCE_VERBOSE_OUTPUT_ENV = "COOKIMPORT_PYTEST_VERBOSE_OUTPUT"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _TEST_SUITE_ENV = "COOKIMPORT_TEST_SUITE"
+_RUNNING_UNDER_PYTEST_ENV = "COOKIMPORT_RUNNING_UNDER_PYTEST"
+_DISABLE_HEAVY_TEST_SIDE_EFFECTS_ENV = "COOKIMPORT_DISABLE_HEAVY_TEST_SIDE_EFFECTS"
 
 _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_atoms.py": ("core", "parsing"),
@@ -353,6 +355,8 @@ def _emit_verbose_env_guidance(terminalreporter) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     os.environ["COOKIMPORT_ALLOW_LLM"] = "1"
+    os.environ.setdefault(_RUNNING_UNDER_PYTEST_ENV, "1")
+    os.environ.setdefault(_DISABLE_HEAVY_TEST_SIDE_EFFECTS_ENV, "1")
     if _should_honor_verbose_output(config):
         return
     # Enforce compact output even when callers pass `-o addopts=''`.

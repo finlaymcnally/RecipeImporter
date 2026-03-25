@@ -113,6 +113,7 @@ def write_prompt_preview_for_existing_run(
     atomic_block_splitter: str = "off",
     recipe_worker_count: int | None = None,
     recipe_prompt_target_count: int | None = None,
+    knowledge_prompt_target_count: int | None = None,
     knowledge_worker_count: int | None = None,
     line_role_worker_count: int | None = None,
     line_role_prompt_target_count: int | None = None,
@@ -130,6 +131,11 @@ def write_prompt_preview_for_existing_run(
         line_role_prompt_target_count
         if line_role_prompt_target_count is not None
         else _coerce_int(context.run_config.get("line_role_prompt_target_count"))
+    )
+    resolved_knowledge_prompt_target_count = (
+        knowledge_prompt_target_count
+        if knowledge_prompt_target_count is not None
+        else _coerce_int(context.run_config.get("knowledge_prompt_target_count"))
     )
 
     pipeline_root = (
@@ -181,6 +187,7 @@ def write_prompt_preview_for_existing_run(
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
             context_blocks=codex_farm_knowledge_context_blocks,
+            prompt_target_count=resolved_knowledge_prompt_target_count,
         )
         stage_plans["nonrecipe_knowledge_review"] = _build_direct_shard_phase_plan(
             stage_key="nonrecipe_knowledge_review",
@@ -283,6 +290,7 @@ def write_prompt_preview_for_existing_run(
         "preview_settings": {
             "recipe_worker_count": recipe_worker_count,
             "recipe_prompt_target_count": resolved_recipe_prompt_target_count,
+            "knowledge_prompt_target_count": resolved_knowledge_prompt_target_count,
             "knowledge_worker_count": knowledge_worker_count,
             "line_role_worker_count": line_role_worker_count,
             "line_role_prompt_target_count": resolved_line_role_prompt_target_count,
@@ -585,6 +593,7 @@ def _build_knowledge_preview_rows(
     model_override: str | None,
     reasoning_effort_override: str | None,
     context_blocks: int,
+    prompt_target_count: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
@@ -601,15 +610,13 @@ def _build_knowledge_preview_rows(
     )
     build_knowledge_jobs(
         full_blocks=context.full_blocks,
-        candidate_spans=(
-            nonrecipe_stage_result.seed_nonrecipe_spans
-            or nonrecipe_stage_result.nonrecipe_spans
-        ),
+        candidate_spans=nonrecipe_stage_result.routing.review_eligible_nonrecipe_spans,
         recipe_spans=context.recipe_spans,
         workbook_slug=context.workbook_slug,
         source_hash=context.source_hash,
         out_dir=in_dir,
         context_blocks=context_blocks,
+        prompt_target_count=prompt_target_count,
     )
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):

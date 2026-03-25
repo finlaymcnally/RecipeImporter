@@ -4596,9 +4596,7 @@ def test_knowledge_orchestrator_defaults_workers_to_shard_count_when_unspecified
 
     assert phase_runtime["shard_count"] == 3
     assert phase_runtime["worker_count"] == 3
-    assert phase_runtime["bundle_policy"] == (
-        "shard_round_robin_single_chunk_tasks_v1"
-    )
+    assert phase_runtime["bundle_policy"] == "shard_round_robin_chunk_bundle_tasks_v1"
     assert phase_runtime["task_total"] == phase_runtime["shard_count"]
     assert sum(phase_runtime["worker_task_counts"].values()) == phase_runtime["task_total"]
     assert phase_runtime["max_tasks_per_worker"] >= phase_runtime["min_tasks_per_worker"]
@@ -5656,7 +5654,7 @@ def test_knowledge_orchestrator_reports_missing_chunk_counts_for_mixed_shard_run
     assert llm_report["missing_chunk_ids"] == ["book.c0001.nr", "book.c0002.nr"]
 
 
-def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warnings(
+def test_knowledge_orchestrator_honors_prompt_target_count_and_keeps_worker_count_separate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5688,6 +5686,8 @@ def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warning
     settings = RunSettings.model_validate(
         {
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "knowledge_prompt_target_count": 4,
+            "knowledge_worker_count": 2,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
@@ -5754,9 +5754,13 @@ def test_knowledge_orchestrator_honors_direct_shard_override_and_records_warning
         ),
     )
 
-    assert apply_result.llm_report["counts"]["shards_written"] == 10
-    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 10
-    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 10
+    assert apply_result.llm_report["counts"]["shards_written"] == 4
+    assert apply_result.llm_report["phase_worker_runtime"]["configured_prompt_target_count"] == 4
+    assert apply_result.llm_report["phase_worker_runtime"]["configured_worker_count"] == 2
+    assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
+    assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 4
+    assert apply_result.llm_report["review_summary"]["planned_shard_count"] == 4
+    assert apply_result.llm_report["review_summary"]["reviewed_shard_count"] == 4
     assert apply_result.llm_report["planning_warnings"] == []
 
 

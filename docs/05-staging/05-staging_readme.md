@@ -40,7 +40,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Builds the canonical `AuthoritativeRecipeSemantics` payload from a deterministic recipe or recipe-Codex correction result, then projects cookbook3 from that payload without re-running semantic note/variant/link decisions later in writer code.
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 review routing for all outside-recipe blocks.
-  - Builds the seed routing split between review-excluded final `other` and review-eligible blocks, keeps the practical fallback category map for artifact readability, and records explicit final-authority block indices separately from unreviewed seed-kept rows.
+  - Exposes explicit routing, final-authority, and review-status components so the live runtime can separate “queued for review” from “final truth.”
   - Assumes line-role is routing-only outside recipes: useful lesson prose arrives as review-eligible seed `other`, and only final non-recipe authority can emit scored outside-recipe `knowledge`.
   - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
 - `cookimport/staging/pipeline_runtime.py`
@@ -168,7 +168,7 @@ Recipe-authority note:
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
-- `08_nonrecipe_seed_routing.json` is the deterministic Stage 7 routing artifact. It keeps seed spans, review eligibility, exclusions, exclusion reasons, and block previews, but it is not a final-truth surface.
+- `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps seed spans, review eligibility, exclusions, exclusion reasons, and block previews, but it is not a final-truth surface.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.
 - `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.

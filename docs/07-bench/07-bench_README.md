@@ -147,6 +147,7 @@ Current interactive contracts:
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
 - interactive single-book writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
 - multi-book single-profile writes the top-level group bundle and leaves Oracle upload as a separate manual step
+- repo pytest runs now default to disabling those heavyweight follow-up side effects (`upload_bundle_v1`, dashboard refresh, background Oracle launch) unless a test explicitly opts back in via `COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS=1`
 
 ### 2.3 `cf-debug`
 

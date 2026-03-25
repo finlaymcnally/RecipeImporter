@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 
+from cookimport.cli_support.test_safety import should_skip_heavy_test_side_effects
+
 runtime = sys.modules["cookimport.cli_support.bench"]
 globals().update(
     {
@@ -12,6 +14,13 @@ globals().update(
 )
 
 def _write_single_book_starter_pack(*, session_root: Path) -> Path | None:
+    if should_skip_heavy_test_side_effects():
+        logger = getattr(runtime, "logger", None)
+        if logger is not None:
+            logger.info(
+                "Skipping single-book starter pack during pytest-side-effect guard."
+            )
+        return None
     build_starter_pack_for_existing_runs = None
 
     try:
@@ -93,6 +102,13 @@ def _write_benchmark_upload_bundle(
     high_level_only: bool = False,
     target_bundle_size_bytes: int | None = None,
 ) -> Path | None:
+    if should_skip_heavy_test_side_effects():
+        logger = getattr(runtime, "logger", None)
+        if logger is not None:
+            logger.info(
+                "Skipping benchmark upload bundle during pytest-side-effect guard."
+            )
+        return None
     build_upload_bundle_for_existing_output = None
 
     try:
@@ -410,6 +426,13 @@ def _start_benchmark_bundle_oracle_upload_background(
     model: str | None = None,
     review_profile: str = "all",
 ) -> None:
+    if should_skip_heavy_test_side_effects():
+        logger = getattr(runtime, "logger", None)
+        if logger is not None:
+            logger.info(
+                "Skipping Oracle benchmark background upload during pytest-side-effect guard."
+            )
+        return
     try:
         target = resolve_oracle_benchmark_bundle(bundle_dir)
         target = replace(target, scope=scope)

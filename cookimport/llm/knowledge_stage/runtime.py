@@ -49,15 +49,13 @@ def run_codex_farm_nonrecipe_knowledge_review(
         run_settings.codex_farm_pipeline_knowledge,
         fallback=DEFAULT_KNOWLEDGE_PIPELINE_ID,
     )
-    seed_candidate_spans = list(
-        nonrecipe_stage_result.seed_nonrecipe_spans
-        or nonrecipe_stage_result.nonrecipe_spans
-    )
-    review_candidate_spans = list(nonrecipe_stage_result.review_eligible_nonrecipe_spans)
+    routing = nonrecipe_stage_result.routing
+    seed_candidate_spans = list(routing.seed_nonrecipe_spans)
+    review_candidate_spans = list(routing.review_eligible_nonrecipe_spans)
     seed_nonrecipe_span_count = len(seed_candidate_spans)
     review_eligible_nonrecipe_span_count = len(review_candidate_spans)
-    review_eligible_block_count = len(nonrecipe_stage_result.review_eligible_block_indices)
-    review_excluded_block_count = len(nonrecipe_stage_result.review_excluded_block_indices)
+    review_eligible_block_count = len(routing.review_eligible_block_indices)
+    review_excluded_block_count = len(routing.review_excluded_block_indices)
     if not seed_candidate_spans:
         llm_report = _build_noop_knowledge_llm_report(
             run_settings=run_settings,
@@ -155,6 +153,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
         overrides=overrides,
+        prompt_target_count=run_settings.knowledge_prompt_target_count,
     )
     for warning in build_report.planning_warnings:
         logger.warning("Knowledge planning warning for %s: %s", workbook_slug, warning)
@@ -215,6 +214,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             output_schema_path=Path(output_schema_path) if output_schema_path else None,
             settings={
                 "llm_knowledge_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_worker_count": run_settings.knowledge_worker_count,
                 "knowledge_shard_max_turns": run_settings.knowledge_shard_max_turns,
                 "codex_farm_pipeline_knowledge": pipeline_id,
@@ -223,6 +223,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
                 "input_mode": "stage7_review_eligible_nonrecipe_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
+                "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
             },
             progress_worker_total=configured_worker_total,
             progress_callback=progress_callback,
@@ -297,9 +298,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             ignored_block_indices,
         ) = _collect_block_category_updates(
             outputs=outputs,
-            allowed_block_indices=(
-                nonrecipe_stage_result.review_eligible_seed_block_category_by_index()
-            ),
+            allowed_block_indices=routing.review_eligible_seed_block_category_by_index(),
         )
         refined_stage_result = refine_nonrecipe_stage_result(
             stage_result=nonrecipe_stage_result,
@@ -455,6 +454,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "phase_worker_runtime": {
                 "phase_key": "nonrecipe_knowledge_review",
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
+                "configured_worker_count": run_settings.knowledge_worker_count,
                 "worker_count": (
                     int(phase_manifest.worker_count)
                     if phase_manifest is not None
@@ -485,7 +486,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "bundle_policy": str(
                     (phase_manifest.runtime_metadata or {}).get("bundle_policy") or ""
                 ).strip()
-                or "shard_round_robin_single_chunk_tasks_v1",
+                or "shard_round_robin_chunk_bundle_tasks_v1",
                 "worker_task_counts": dict(
                     (phase_manifest.runtime_metadata or {}).get("worker_task_counts")
                     or (phase_manifest.runtime_metadata or {}).get("worker_task_packet_counts")
@@ -3195,4 +3196,3 @@ def _render_events_jsonl(events: tuple[dict[str, Any], ...]) -> str:
     if not events:
         return ""
     return "".join(json.dumps(event, sort_keys=True) + "\n" for event in events)
-

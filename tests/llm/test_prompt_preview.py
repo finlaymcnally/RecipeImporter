@@ -14,6 +14,7 @@ from cookimport.llm.prompt_budget import (
     write_prompt_preview_budget_summary,
 )
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
+from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +45,7 @@ def _build_existing_run_at(run_dir: Path) -> Path:
             "sourceFile": "fixturebook.epub",
             "runConfig": {
                 "atomic_block_splitter": "atomic-v1",
+                "knowledge_prompt_target_count": 5,
             },
         },
     )
@@ -431,9 +433,109 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
         "2",
         "3",
     ]
+
+
+def test_prompt_preview_knowledge_prompt_target_count_controls_shard_count(
+    tmp_path: Path,
+) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    out_dir = tmp_path / "preview"
+
+    manifest_path = write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+        knowledge_prompt_target_count=1,
+        knowledge_worker_count=1,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    knowledge_phase = manifest["phase_plans"]["nonrecipe_knowledge_review"]
+
+    assert manifest["preview_settings"]["knowledge_prompt_target_count"] == 1
+    assert knowledge_phase["shard_count"] == 1
+    assert knowledge_phase["worker_count"] == 1
+    assert knowledge_phase["shards"][0]["owned_ids"] == [
+        "fixturebook.c0000.nr",
+        "fixturebook.c0001.nr",
+    ]
     artifacts = manifest["artifacts"]
     assert artifacts["prompt_preview_budget_summary_json"] == "prompt_preview_budget_summary.json"
     assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"
+
+
+def test_prompt_preview_knowledge_uses_review_eligible_spans_not_seed_spans(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    out_dir = tmp_path / "preview"
+    knowledge_span = NonRecipeSpan(
+        span_id="nr.knowledge.2.2",
+        category="knowledge",
+        block_start_index=2,
+        block_end_index=2,
+        block_indices=[2],
+        block_ids=["block:2"],
+    )
+    excluded_other_span = NonRecipeSpan(
+        span_id="nr.other.3.3",
+        category="other",
+        block_start_index=3,
+        block_end_index=3,
+        block_indices=[3],
+        block_ids=["block:3"],
+    )
+
+    def _fake_build_nonrecipe_stage_result(**_: object) -> NonRecipeStageResult:
+        return NonRecipeStageResult(
+            nonrecipe_spans=[knowledge_span, excluded_other_span],
+            knowledge_spans=[knowledge_span],
+            other_spans=[excluded_other_span],
+            block_category_by_index={2: "knowledge", 3: "other"},
+            review_eligible_nonrecipe_spans=[knowledge_span],
+            review_eligible_other_spans=[],
+            review_excluded_other_spans=[excluded_other_span],
+            review_eligible_block_indices=[2],
+            review_excluded_block_indices=[3],
+            review_exclusion_reason_by_block={3: "deterministic_other"},
+            seed_nonrecipe_spans=[knowledge_span, excluded_other_span],
+            seed_knowledge_spans=[knowledge_span],
+            seed_other_spans=[excluded_other_span],
+            seed_block_category_by_index={2: "knowledge", 3: "other"},
+        )
+
+    monkeypatch.setattr(
+        "cookimport.llm.prompt_preview.build_nonrecipe_stage_result",
+        _fake_build_nonrecipe_stage_result,
+    )
+
+    manifest_path = write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    knowledge_phase = manifest["phase_plans"]["nonrecipe_knowledge_review"]
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (out_dir / "prompts" / "full_prompt_log.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    knowledge_rows = [
+        row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review"
+    ]
+
+    assert knowledge_phase["shard_count"] == 1
+    assert knowledge_phase["shards"][0]["owned_ids"] == ["fixturebook.c0000.nr"]
+    assert len(knowledge_rows) == 1
+    assert [chunk["cid"] for chunk in knowledge_rows[0]["request_input_payload"]["c"]] == [
+        "fixturebook.c0000.nr"
+    ]
+    assert knowledge_rows[0]["request_input_payload"]["c"][0]["b"][0]["i"] == 2
 
 
 def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path) -> None:
