@@ -2837,11 +2837,11 @@ def _line_role_resume_reason_fields(*, resumed_from_existing_outputs: bool) -> t
     if resumed_from_existing_outputs:
         return (
             "resume_existing_outputs",
-            "all canonical line-role packet outputs were already durable on disk",
+            "all canonical line-role shard outputs were already durable on disk",
         )
     return (
         "no_tasks_assigned",
-        "worker had no runnable canonical line-role packets",
+        "worker had no runnable canonical line-role shards",
     )
 
 

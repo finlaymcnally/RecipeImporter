@@ -3318,10 +3318,10 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         input_payload={
             "v": 1,
             "shard_id": "line-role-canonical-0001-a000123-a000456",
-            "packet_mode": "lesson_prose",
+            "shard_mode": "lesson_prose",
             "context_confidence": "high",
-            "packet_summary": (
-                "This packet reads like cookbook lesson prose: explanatory teaching around a topic, not recipe-local structure."
+            "shard_summary": (
+                "This shard reads like cookbook lesson prose: explanatory teaching around a topic, not recipe-local structure."
             ),
             "default_posture": (
                 "Default to review-eligible `OTHER`; useful outside-recipe lesson prose stays `OTHER` here and the knowledge stage decides semantic `KNOWLEDGE` versus `OTHER` later. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
@@ -3385,8 +3385,8 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Salt and Pepper" in prompt
-    assert "Packet-local guidance:" in prompt
-    assert "Packet mode: lesson_prose (confidence: high)" in prompt
+    assert "Shard-local guidance:" in prompt
+    assert "Shard mode: lesson_prose (confidence: high)" in prompt
     assert "Reference-only neighboring context:" in prompt
     assert "These neighboring rows are for context only. Do not label them." in prompt
     assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n[122, "Earlier context"]\n<END_CONTEXT_BEFORE_ROWS>' in prompt
@@ -3396,7 +3396,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
 
 
 def test_canonical_line_role_file_prompt_renders_front_matter_navigation_guidance() -> None:
-    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
         rows=_load_preserved_line_role_packet_rows(
             worker_id="worker-001",
             task_id="line-role-canonical-0001-a000000-a000147.task-002",
@@ -3407,12 +3407,12 @@ def test_canonical_line_role_file_prompt_renders_front_matter_navigation_guidanc
         input_payload={
             "v": 1,
             "shard_id": "line-role-canonical-0001-a000080-a000147",
-            **packet_context,
+            **shard_context,
             "rows": [[80, "L9", "Blue Cheese Dressing"]],
         },
     )
 
-    assert "Packet mode: front_matter_navigation (confidence: high)" in prompt
+    assert "Shard mode: front_matter_navigation (confidence: high)" in prompt
     assert "front matter, navigation, or table-of-contents material" in prompt
     assert "Do not over-structure recipe-name lists" in prompt
 
@@ -3451,7 +3451,7 @@ def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
     )
 
 
-def test_line_role_packet_context_marks_lesson_heading_packet_as_conservative_knowledge() -> None:
+def test_line_role_shard_context_marks_lesson_heading_shard_as_conservative_knowledge() -> None:
     book_context = canonical_line_roles_module._build_line_role_book_context(  # noqa: SLF001
         candidates=[
             AtomicLineCandidate(
@@ -3485,7 +3485,7 @@ def test_line_role_packet_context_marks_lesson_heading_packet_as_conservative_kn
             ),
         ]
     )
-    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
         rows=[
             {
                 "atomic_index": 598,
@@ -3516,27 +3516,27 @@ def test_line_role_packet_context_marks_lesson_heading_packet_as_conservative_kn
         book_context=book_context,
     )
 
-    assert packet_context["packet_mode"] == "lesson_prose"
-    assert packet_context["packet_summary"].startswith(
-        "This packet reads like cookbook lesson prose"
+    assert shard_context["shard_mode"] == "lesson_prose"
+    assert shard_context["shard_summary"].startswith(
+        "This shard reads like cookbook lesson prose"
     )
-    assert packet_context["howto_section_availability"] == "absent_or_unproven"
-    assert packet_context["howto_section_evidence_count"] == 0
-    assert packet_context["howto_section_policy"].startswith(
+    assert shard_context["howto_section_availability"] == "absent_or_unproven"
+    assert shard_context["howto_section_evidence_count"] == 0
+    assert shard_context["howto_section_policy"].startswith(
         "This book may legitimately use zero"
     )
     assert any(
         "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?`" in line
-        for line in packet_context["flip_policy"]
+        for line in shard_context["flip_policy"]
     )
     assert any(
         "This book may legitimately use zero `HOWTO_SECTION` labels." in line
-        for line in packet_context["flip_policy"]
+        for line in shard_context["flip_policy"]
     )
 
 
-def test_line_role_packet_context_marks_memoir_packet_as_other_first() -> None:
-    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+def test_line_role_shard_context_marks_memoir_shard_as_other_first() -> None:
+    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
         rows=[
             {
                 "atomic_index": 10,
@@ -3557,55 +3557,55 @@ def test_line_role_packet_context_marks_memoir_packet_as_other_first() -> None:
         ]
     )
 
-    assert packet_context["packet_mode"] == "memoir_front_matter"
-    assert packet_context["packet_summary"].startswith(
-        "This packet reads like memoir/front matter"
+    assert shard_context["shard_mode"] == "memoir_front_matter"
+    assert shard_context["shard_summary"].startswith(
+        "This shard reads like memoir/front matter"
     )
-    assert packet_context["default_posture"].startswith("Default to `OTHER`")
+    assert shard_context["default_posture"].startswith("Default to `OTHER`")
 
 
-def test_line_role_packet_context_marks_preserved_front_matter_packet_as_navigation() -> None:
-    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+def test_line_role_shard_context_marks_preserved_front_matter_shard_as_navigation() -> None:
+    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
         rows=_load_preserved_line_role_packet_rows(
             worker_id="worker-001",
             task_id="line-role-canonical-0001-a000000-a000147.task-001",
         )
     )
 
-    assert packet_context["packet_mode"] == "front_matter_navigation"
-    assert packet_context["context_confidence"] == "high"
-    assert packet_context["packet_summary"].startswith(
-        "This packet reads like front matter, navigation"
+    assert shard_context["shard_mode"] == "front_matter_navigation"
+    assert shard_context["context_confidence"] == "high"
+    assert shard_context["shard_summary"].startswith(
+        "This shard reads like front matter, navigation"
     )
-    assert packet_context["default_posture"].startswith(
+    assert shard_context["default_posture"].startswith(
         "Default to `OTHER`; use `review_exclusion_reason` only"
     )
     assert any(
         "heading alone is weak evidence" in line.lower()
-        for line in packet_context["flip_policy"]
+        for line in shard_context["flip_policy"]
     )
 
 
-def test_line_role_packet_context_marks_preserved_contents_packet_as_navigation() -> None:
-    packet_context = canonical_line_roles_module._build_line_role_packet_context(  # noqa: SLF001
+def test_line_role_shard_context_marks_preserved_contents_shard_as_navigation() -> None:
+    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
         rows=_load_preserved_line_role_packet_rows(
             worker_id="worker-001",
             task_id="line-role-canonical-0001-a000000-a000147.task-002",
         )
     )
 
-    assert packet_context["packet_mode"] == "front_matter_navigation"
-    assert packet_context["context_confidence"] == "high"
-    assert packet_context["packet_summary"].startswith(
-        "This packet reads like front matter, navigation"
+    assert shard_context["shard_mode"] == "front_matter_navigation"
+    assert shard_context["context_confidence"] == "high"
+    assert shard_context["shard_summary"].startswith(
+        "This shard reads like front matter, navigation"
     )
-    assert packet_context["default_posture"].startswith(
+    assert shard_context["default_posture"].startswith(
         "Default to `OTHER`; use `review_exclusion_reason` only"
     )
 
 
-def test_line_role_packet_mode_does_not_treat_toc_style_title_lists_as_recipe_body() -> None:
-    packet_mode, context_confidence = canonical_line_roles_module._classify_line_role_packet_mode(  # noqa: SLF001
+def test_line_role_shard_mode_does_not_treat_toc_style_title_lists_as_recipe_body() -> None:
+    shard_mode, context_confidence = canonical_line_roles_module._classify_line_role_shard_mode(  # noqa: SLF001
         rows=[
             {
                 "atomic_index": 80,
@@ -3652,8 +3652,8 @@ def test_line_role_packet_mode_does_not_treat_toc_style_title_lists_as_recipe_bo
         ]
     )
 
-    assert packet_mode in {"front_matter_navigation", "mixed_boundaries"}
-    assert packet_mode != "recipe_body"
+    assert shard_mode in {"front_matter_navigation", "mixed_boundaries"}
+    assert shard_mode != "recipe_body"
     assert context_confidence in {"low", "medium", "high"}
 
 
@@ -4972,7 +4972,7 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
     repair_prompt = (repair_status_path.parent / "repair_prompt.txt").read_text(
         encoding="utf-8"
     )
-    assert "Authoritative shard rows to relabel" in repair_prompt
+    assert "Authoritative unresolved shard rows to relabel" in repair_prompt
     assert "Your first response must be the final JSON object." in repair_prompt
     assert "Do not describe your plan, reasoning, or heuristics." in repair_prompt
 
@@ -4991,7 +4991,7 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
     assert workspace_rows[0]["final_proposal_status"] == "validated"
 
 
-def test_label_atomic_lines_accepts_valid_uniform_packet_output_without_reverting_to_baseline(
+def test_label_atomic_lines_rejects_uniform_shard_output_and_falls_back(
     tmp_path,
 ) -> None:
     candidates = [
@@ -5053,7 +5053,13 @@ def test_label_atomic_lines_accepts_valid_uniform_packet_output_without_revertin
         live_llm_allowed=True,
     )
 
-    assert all(prediction.label == "INGREDIENT_LINE" for prediction in predictions)
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "INSTRUCTION_LINE",
+        "RECIPE_NOTES",
+    ]
+    assert all(prediction.decided_by in {"fallback", "rule"} for prediction in predictions)
 
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
@@ -5068,8 +5074,12 @@ def test_label_atomic_lines_accepts_valid_uniform_packet_output_without_revertin
         )
     )
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
-    assert proposal_payload["validation_errors"] == []
-    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 0
+    assert proposal_payload["repair_attempted"] is False
+    assert proposal_payload["validation_errors"] == [
+        "pathological_uniform_label_output:INGREDIENT_LINE"
+    ]
+    assert proposal_payload["validation_metadata"]["semantic_rejected"] is True
+    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 4
 
 
 def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against_diverse_baseline() -> None:
@@ -5502,9 +5512,9 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
         / "hints"
         / "line-role-canonical-0001-a000000-a000000.md"
     ).read_text(encoding="utf-8")
-    assert "Packet interpretation" in worker_hint_text
+    assert "Shard interpretation" in worker_hint_text
     assert "Decision policy" in worker_hint_text
-    assert "Packet examples" in worker_hint_text
+    assert "Shard examples" in worker_hint_text
     assert "Label code legend" in worker_hint_text
     assert "Attention rows" in worker_hint_text
     assert "Make the smallest safe correction" in worker_hint_text
@@ -5518,7 +5528,7 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
         / "line-role-canonical-0001-a000000-a000000.json"
     ).read_text(encoding="utf-8")
     worker_input_payload = json.loads(worker_input_text)
-    assert worker_input_payload["packet_summary"]
+    assert worker_input_payload["shard_summary"]
     assert worker_input_payload["default_posture"]
     assert worker_input_payload["flip_policy"]
     assert worker_input_payload["howto_section_availability"] == "absent_or_unproven"
@@ -6004,7 +6014,7 @@ def test_label_atomic_lines_defaults_workers_to_shard_count_when_unspecified() -
     )
 
 
-def test_label_atomic_lines_deterministic_progress_callback_reports_task_counts() -> None:
+def test_label_atomic_lines_deterministic_progress_callback_reports_row_counts() -> None:
     blocks = [
         {
             "block_id": "block:det:0",
@@ -6030,6 +6040,6 @@ def test_label_atomic_lines_deterministic_progress_callback_reports_task_counts(
     )
     progress_texts = _progress_messages_as_text(progress_messages)
     assert len(predictions) == 2
-    assert progress_texts[0] == "Running canonical line-role pipeline... task 0/2"
-    assert progress_texts[-1] == "Running canonical line-role pipeline... task 2/2"
+    assert progress_texts[0] == "Running canonical line-role pipeline... row 0/2"
+    assert progress_texts[-1] == "Running canonical line-role pipeline... row 2/2"
     assert all("| running " not in message for message in progress_texts)

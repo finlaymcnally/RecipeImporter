@@ -502,7 +502,7 @@ Gates include:
 
 - Rule-first path handles low-ambiguity cases (`NOTE`, yield, ingredient-like, method headers, variants, and instruction lines).
 - The pre-grouping contract is intended-only: no prompt or deterministic rule gets importer recipe ranges up front. Any logic that truly depends on accepted recipe membership must key off explicit `within_recipe_span is True`, not truthy/falsy fallback.
-- `HOWTO_SECTION` is now book-optional and high-evidence. `canonical_line_roles.py` computes one book-local availability seam (`absent_or_unproven`, `sparse`, `available`) and packet guidance carries that posture into worker files/prompts.
+- `HOWTO_SECTION` is now book-optional and high-evidence. `canonical_line_roles.py` computes one book-local availability seam (`absent_or_unproven`, `sparse`, `available`) and shard guidance carries that posture into worker files/prompts.
 - Compact all-caps title-like rows are disambiguated to `HOWTO_SECTION` only when neighboring lines indicate an internal component/subsection flow. Isolated headings now fail closed instead of assuming subsection structure.
 - `YIELD_LINE` now has strict header validation (`MAKES`/`SERVES`/`YIELDS` prefix plus short header shape and quantity/count hint); the deterministic baseline may still demote non-header yield-like prose to structural fallback (`INSTRUCTION_LINE` or `OTHER`), but accepted Codex `YIELD_LINE` labels are no longer silently rewritten afterward.
 - `TIME_LINE` is only used for primary time metadata; the deterministic baseline may still demote non-primary `TIME_LINE`, while accepted Codex `TIME_LINE` rows now reject explicitly to deterministic baseline with `codex_policy_rejected:time_line_not_primary` instead of being rewritten in place.
