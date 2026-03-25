@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cookimport.core.models import ParsingOverrides
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
@@ -65,15 +64,8 @@ def build_knowledge_jobs(
     source_hash: str,
     out_dir: Path,
     context_blocks: int = 2,
-    overrides: ParsingOverrides | None = None,
-    skip_suggested_lanes: Sequence[str] = (),
     prompt_target_count: int | None = None,
-    target_chunks_per_shard: int | None = None,
 ) -> KnowledgeJobBuildReport:
-    del overrides
-    del skip_suggested_lanes
-    del target_chunks_per_shard
-
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale_path in sorted(out_dir.glob("*.json")):
         stale_path.unlink()

@@ -2315,16 +2315,16 @@ def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_kno
     )
     assert stage_payload["block_labels"]["2"] == "OTHER"
     assert (
-        "Unreviewed review-eligible outside-recipe KNOWLEDGE rows were forced to OTHER for scoring."
+        "Unreviewed review-eligible outside-recipe KNOWLEDGE rows were marked unresolved and excluded from semantic scoring."
         in stage_payload["notes"]
     )
 
     telemetry_payload = json.loads(
         artifacts["telemetry_summary_path"].read_text(encoding="utf-8")
     )
-    assert telemetry_payload["suppressed_unreviewed_knowledge_line_count"] == 1
-    assert telemetry_payload["suppressed_unreviewed_knowledge_block_indices"] == [2]
-    assert summary["suppressed_unreviewed_knowledge_line_count"] == 1
+    assert telemetry_payload["unresolved_review_eligible_line_count"] == 1
+    assert telemetry_payload["unresolved_review_eligible_block_indices"] == [2]
+    assert summary["unresolved_review_eligible_line_count"] == 1
 
 
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(

@@ -27,6 +27,9 @@ FREEFORM_LABELS: tuple[str, ...] = (
     "OTHER",
 )
 
+UNRESOLVED_REVIEW_BLOCK_INDICES_KEY = "unresolved_review_eligible_block_indices"
+UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY = "unresolved_review_eligible_block_category_by_index"
+
 _LABEL_RESOLUTION_PRIORITY: tuple[str, ...] = (
     "RECIPE_VARIANT",
     "RECIPE_TITLE",
@@ -112,6 +115,13 @@ def build_stage_block_predictions(
         authoritative_categories = dict(
             nonrecipe_stage_result.authority.authoritative_block_category_by_index
         )
+        unresolved_categories = {
+            int(block_index): str(category)
+            for block_index, category in (
+                nonrecipe_stage_result.review_status.unreviewed_block_category_by_index.items()
+            )
+        }
+        unresolved_block_indices = sorted(unresolved_categories)
         knowledge_indices = {
             int(block_index)
             for block_index, category in authoritative_categories.items()
@@ -123,7 +133,7 @@ def build_stage_block_predictions(
             )
         if nonrecipe_stage_result.review_status.unreviewed_review_eligible_block_indices:
             notes.append(
-                "Review-eligible non-recipe blocks without final authority were kept as OTHER for scoring."
+                "Review-eligible non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
             )
         elif nonrecipe_stage_result.routing.review_eligible_block_indices:
             notes.append(
@@ -131,6 +141,8 @@ def build_stage_block_predictions(
             )
     else:
         knowledge_indices = set()
+        unresolved_categories = {}
+        unresolved_block_indices = []
         notes.append(
             "KNOWLEDGE labels require final non-recipe authority; no fallback chunk-lane projection ran."
         )
@@ -180,6 +192,16 @@ def build_stage_block_predictions(
         "label_blocks": {
             label: sorted(indices)
             for label, indices in label_blocks.items()
+        },
+        "counts": {
+            "blocks": block_count,
+            "authoritative_knowledge_blocks": len(knowledge_indices),
+            "unresolved_review_eligible_blocks": len(unresolved_block_indices),
+        },
+        UNRESOLVED_REVIEW_BLOCK_INDICES_KEY: list(unresolved_block_indices),
+        UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY: {
+            str(index): category
+            for index, category in sorted(unresolved_categories.items())
         },
         "conflicts": conflicts,
         "notes": sorted(set(note for note in notes if note)),
@@ -977,4 +999,3 @@ def _resolve_block_label(labels: list[str]) -> str:
         if label in label_set:
             return label
     return "OTHER"
-

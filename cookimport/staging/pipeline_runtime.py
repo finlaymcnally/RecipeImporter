@@ -34,6 +34,7 @@ from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
     NonRecipeReviewStatusResult,
     block_rows_for_nonrecipe_authority,
+    block_rows_for_nonrecipe_survivors,
     block_rows_for_nonrecipe_span,
     build_nonrecipe_stage_result,
 )
@@ -365,6 +366,10 @@ def run_knowledge_final_stage(
         full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
         stage_result=stage_result,
     )
+    final_nonrecipe_blocks = block_rows_for_nonrecipe_survivors(
+        full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
+        stage_result=stage_result,
+    )
     unreviewed_reviewable_blocks = _block_rows_for_indices(
         recipe_boundary_result.extracted_bundle.archive_blocks,
         stage_result.review_status.unreviewed_review_eligible_block_indices,
@@ -376,7 +381,7 @@ def run_knowledge_final_stage(
         stage_result=stage_result,
         authority=stage_result.authority,
         review_status=stage_result.review_status,
-        final_nonrecipe_blocks=list(authoritative_nonrecipe_blocks),
+        final_nonrecipe_blocks=list(final_nonrecipe_blocks),
         authoritative_nonrecipe_blocks=authoritative_nonrecipe_blocks,
         unreviewed_reviewable_blocks=unreviewed_reviewable_blocks,
         llm_report=llm_report,

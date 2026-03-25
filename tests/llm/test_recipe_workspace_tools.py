@@ -93,13 +93,13 @@ def test_render_recipe_worker_briefs_include_prewritten_draft_paths() -> None:
     )
 
     assert "scratch_draft_path: scratch/recipe-shard-0000-r0000-r0001.task-001.json" in current_brief
-    assert "python3 tools/recipe_worker.py finalize-all scratch/" in current_brief
-    assert "python3 tools/recipe_worker.py check-current` and `install-current` only for single-task validation or recovery" in current_brief
+    assert "python3 tools/recipe_worker.py check-current" in current_brief
+    assert "same-session fix budget" in current_brief
     assert "repo already prewrote `scratch/` drafts" in feedback_brief
     assert "SHARD_PACKET.md" in feedback_brief
-    assert "python3 tools/recipe_worker.py finalize-all scratch/" in feedback_brief
+    assert "python3 tools/recipe_worker.py install-current" in feedback_brief
     assert "draft: `scratch/recipe-shard-0000-r0000-r0001.task-001.json`" in feedback_brief
-    assert "current-task sidecars" in feedback_brief
+    assert "validator feedback" in feedback_brief
 
 
 def test_render_recipe_worker_shard_packet_packs_queue_contract_and_draft_paths() -> None:
@@ -112,7 +112,7 @@ def test_render_recipe_worker_shard_packet_packs_queue_contract_and_draft_paths(
 
     assert "# Recipe Shard Packet" in packet
     assert "Read this file first." in packet
-    assert "finalize-all scratch/` once after the batch is ready" in packet
+    assert "check-current` until the validator is clean" in packet
     assert "scratch/_prepared_drafts.json" in packet
     assert "draft: `scratch/recipe-shard-0000-r0000-r0001.task-001.json`" in packet
     assert "hint fallback: `hints/recipe-shard-0000-r0000-r0001.task-001.md`" in packet
@@ -432,7 +432,7 @@ def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) ->
         check=True,
     )
     assert "Current Recipe Task" in current_result.stdout
-    assert "finalize-all scratch/" in current_result.stdout
+    assert "check-current" in current_result.stdout
 
     next_result = subprocess.run(
         [sys.executable, "tools/recipe_worker.py", "next"],
@@ -508,7 +508,7 @@ def test_recipe_worker_cli_prepare_all_check_and_finalize_all(tmp_path: Path) ->
     assert "out/recipe-shard-0000-r0000-r0001.task-001.json" in install_current_result.stdout
     assert (
         "Queue complete. No current task is active." in install_current_result.stdout
-        or "The cheap happy path is to edit the prewritten `scratch/*.json` drafts" in install_current_result.stdout
+        or "The normal loop is: edit the active draft and run `python3 tools/recipe_worker.py check-current` until the validator is clean." in install_current_result.stdout
     )
 
     finalize_result = subprocess.run(
@@ -582,9 +582,9 @@ def test_recipe_worker_cli_install_current_advances_queue(tmp_path: Path) -> Non
     )
 
     assert "installed scratch/recipe-shard-0000-r0000-r0001.task-001.json -> out/recipe-shard-0000-r0000-r0001.task-001.json" in install_current_result.stdout
-    assert "The cheap happy path is to edit the prewritten `scratch/*.json` drafts" in install_current_result.stdout
+    assert "The normal loop is: edit the active draft and run `python3 tools/recipe_worker.py check-current` until the validator is clean." in install_current_result.stdout
     assert "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`" in install_current_result.stdout
-    assert "continue with that task immediately" not in install_current_result.stdout
+    assert "continue with that task." in install_current_result.stdout
     current_task_payload = json.loads(
         (workspace_root / "current_task.json").read_text(encoding="utf-8")
     )

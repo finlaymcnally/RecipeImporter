@@ -18,6 +18,7 @@ from cookimport.core.models import (
 )
 from cookimport.core.timing import TimingStats
 from cookimport.llm import codex_farm_orchestrator as recipe_module
+from cookimport.llm import codex_exec_runner as exec_runner_module
 from cookimport.llm.codex_farm_orchestrator import (
     SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     SINGLE_CORRECTION_STAGE_PIPELINE_ID,
@@ -89,6 +90,33 @@ def _build_run_settings(pack_root: Path, *, llm_recipe_pipeline: str) -> RunSett
             "codex_farm_recipe_mode": "extract",
         }
     )
+
+
+def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str, object]:
+    recipe_row = task_payload["r"][0]
+    return {
+        "v": "1",
+        "sid": task_payload["sid"],
+        "r": [
+            {
+                "v": "1",
+                "rid": recipe_row["rid"],
+                "st": "repaired",
+                "sr": None,
+                "cr": {
+                    "t": recipe_row["h"]["n"],
+                    "i": recipe_row["h"]["i"],
+                    "s": recipe_row["h"]["s"],
+                    "d": None,
+                    "y": None,
+                },
+                "m": [],
+                "mr": "unclear_alignment",
+                "g": [],
+                "w": [],
+            }
+        ],
+    }
 
 
 def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(

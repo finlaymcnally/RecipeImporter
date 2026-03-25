@@ -11,7 +11,11 @@ from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
 from cookimport.staging.draft_v1 import (
     apply_line_role_spans_to_recipes as apply_line_role_spans_to_staging_recipes,
 )
-from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
+from cookimport.staging.stage_block_predictions import (
+    FREEFORM_LABELS,
+    UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY,
+    UNRESOLVED_REVIEW_BLOCK_INDICES_KEY,
+)
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
 _PROJECTED_LABEL_PRIORITY: tuple[str, ...] = (
@@ -86,6 +90,8 @@ def build_line_role_stage_prediction_payload(
     source_file: str,
     source_hash: str,
     workbook_slug: str,
+    unresolved_block_indices: Sequence[int] | None = None,
+    unresolved_block_category_by_index: dict[int, str] | None = None,
     notes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     labels_by_block: dict[int, list[str]] = {}
@@ -119,10 +125,29 @@ def build_line_role_stage_prediction_payload(
         "source_hash": str(source_hash or "unknown"),
         "workbook_slug": str(workbook_slug),
         "block_count": block_count,
+        "counts": {
+            "blocks": block_count,
+            "unresolved_review_eligible_blocks": len(
+                {
+                    int(index)
+                    for index in (unresolved_block_indices or [])
+                }
+            ),
+        },
         "block_labels": {
             str(index): resolved_labels.get(index, "OTHER") for index in range(block_count)
         },
         "label_blocks": label_blocks,
+        UNRESOLVED_REVIEW_BLOCK_INDICES_KEY: sorted(
+            {
+                int(index)
+                for index in (unresolved_block_indices or [])
+            }
+        ),
+        UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY: {
+            str(int(index)): str(category)
+            for index, category in sorted((unresolved_block_category_by_index or {}).items())
+        },
         "conflicts": conflicts,
         "notes": [
             "Projected from canonical line-role predictions.",

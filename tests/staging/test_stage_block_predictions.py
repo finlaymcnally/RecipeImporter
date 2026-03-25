@@ -17,6 +17,8 @@ from cookimport.parsing.label_source_of_truth import (
     LabelFirstStageResult,
 )
 from cookimport.staging.stage_block_predictions import (
+    UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY,
+    UNRESOLVED_REVIEW_BLOCK_INDICES_KEY,
     _is_howto_section_text,
     build_stage_block_predictions,
 )
@@ -199,8 +201,11 @@ def test_build_stage_block_predictions_ignores_unreviewed_review_eligible_knowle
     )
 
     assert payload["block_labels"]["8"] == "OTHER"
+    assert payload[UNRESOLVED_REVIEW_BLOCK_INDICES_KEY] == [8]
+    assert payload[UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY] == {"8": "knowledge"}
+    assert payload["counts"]["unresolved_review_eligible_blocks"] == 1
     assert (
-        "Review-eligible non-recipe blocks without final authority were kept as OTHER for scoring."
+        "Review-eligible non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
         in payload["notes"]
     )
 

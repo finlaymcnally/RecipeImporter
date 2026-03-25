@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 import threading
@@ -119,6 +120,7 @@ _AUDIT_PLACEHOLDER_STEP_TEXTS = {
     "refer to original recipe",
     "follow original recipe",
 }
+_RECIPE_SAME_SESSION_FIX_BUDGET = 2
 _ELIGIBILITY_CHAPTER_PAGE_HINT_KEYS = (
     "chapter_page_hint",
     "chapter_page_hints",
@@ -227,12 +229,24 @@ class _RecipeTaskPlan:
 
 
 @dataclass
+class _RecipeSameSessionFixState:
+    failure_count: int = 0
+    last_failed_signature: str | None = None
+    recovered: bool = False
+    status: str = "not_needed"
+    terminal_reason: str = "not_needed"
+    last_validation_errors: tuple[str, ...] = ()
+
+
+@dataclass
 class _RecipeWorkspaceTaskQueueController:
     worker_root: Path
     task_rows: tuple[dict[str, Any], ...]
     current_index: int = 0
     validated_task_ids: set[str] = field(default_factory=set)
     current_validation_errors: tuple[str, ...] = ()
+    same_session_fix_budget: int = _RECIPE_SAME_SESSION_FIX_BUDGET
+    same_session_fix_states: dict[str, _RecipeSameSessionFixState] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._write_current_sidecars()
@@ -252,6 +266,7 @@ class _RecipeWorkspaceTaskQueueController:
         return str(row.get("task_id") or "").strip() or None
 
     def status_payload(self) -> dict[str, Any]:
+        current_state = self._same_session_state(self.current_task_id())
         return {
             "queue_total_task_count": len(self.task_rows),
             "queue_validated_task_count": len(self.validated_task_ids),
@@ -259,6 +274,10 @@ class _RecipeWorkspaceTaskQueueController:
             "queue_complete": self.is_complete(),
             "current_task_id": self.current_task_id(),
             "current_validation_errors": list(self.current_validation_errors),
+            "current_same_session_fix_count": current_state.failure_count,
+            "current_same_session_fix_budget": self.same_session_fix_budget,
+            "current_same_session_fix_status": current_state.status,
+            "current_same_session_fix_terminal_reason": current_state.terminal_reason,
         }
 
     def observe_current_output(self) -> dict[str, Any]:
@@ -273,11 +292,16 @@ class _RecipeWorkspaceTaskQueueController:
                 "valid": True,
                 "validation_errors": (),
                 "queue_complete": True,
+                "same_session_fix_count": 0,
+                "same_session_fix_status": "not_needed",
+                "same_session_fix_terminal_reason": "not_needed",
+                "same_session_fix_budget_exhausted": False,
             }
         task_id = str(row.get("task_id") or "").strip()
         result_path = self.worker_root / recipe_worker_task_paths(row)["result_path"]
         if not result_path.exists():
             self.current_validation_errors = ()
+            state = self._same_session_state(task_id)
             return {
                 "current_task_id": task_id or None,
                 "current_output_present": False,
@@ -285,31 +309,81 @@ class _RecipeWorkspaceTaskQueueController:
                 "valid": False,
                 "validation_errors": (),
                 "queue_complete": False,
+                "same_session_fix_count": state.failure_count,
+                "same_session_fix_status": state.status,
+                "same_session_fix_terminal_reason": state.terminal_reason,
+                "same_session_fix_budget_exhausted": state.status == "budget_exhausted",
             }
         try:
-            payload = json.loads(result_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            self.current_validation_errors = ("draft_validation_exception",)
+            raw_text = result_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors = (str(exc).strip() or "draft_validation_exception",)
+            state = self._record_failed_validation(
+                task_id=task_id,
+                signature=None,
+                errors=errors,
+            )
+            self.current_validation_errors = errors
             self._write_current_sidecars(
                 validation_state="failed",
-                validation_errors=(str(exc).strip() or "draft_validation_exception",),
+                validation_errors=errors,
                 current_draft_path=str(result_path.relative_to(self.worker_root)),
+                same_session_fix_count=state.failure_count,
             )
             return {
                 "current_task_id": task_id or None,
                 "current_output_present": True,
                 "advanced": False,
                 "valid": False,
-                "validation_errors": ("draft_validation_exception",),
+                "validation_errors": errors,
                 "queue_complete": False,
+                "same_session_fix_count": state.failure_count,
+                "same_session_fix_status": state.status,
+                "same_session_fix_terminal_reason": state.terminal_reason,
+                "same_session_fix_budget_exhausted": state.status == "budget_exhausted",
+            }
+        signature = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            errors = (str(exc).strip() or "draft_validation_exception",)
+            state = self._record_failed_validation(
+                task_id=task_id,
+                signature=signature,
+                errors=errors,
+            )
+            self.current_validation_errors = errors
+            self._write_current_sidecars(
+                validation_state="failed",
+                validation_errors=errors,
+                current_draft_path=str(result_path.relative_to(self.worker_root)),
+                same_session_fix_count=state.failure_count,
+            )
+            return {
+                "current_task_id": task_id or None,
+                "current_output_present": True,
+                "advanced": False,
+                "valid": False,
+                "validation_errors": errors,
+                "queue_complete": False,
+                "same_session_fix_count": state.failure_count,
+                "same_session_fix_status": state.status,
+                "same_session_fix_terminal_reason": state.terminal_reason,
+                "same_session_fix_budget_exhausted": state.status == "budget_exhausted",
             }
         if not isinstance(payload, Mapping):
             errors = ("draft payload must be a JSON object",)
+            state = self._record_failed_validation(
+                task_id=task_id,
+                signature=signature,
+                errors=errors,
+            )
             self.current_validation_errors = errors
             self._write_current_sidecars(
                 validation_state="failed",
                 validation_errors=errors,
                 current_draft_path=str(result_path.relative_to(self.worker_root)),
+                same_session_fix_count=state.failure_count,
             )
             return {
                 "current_task_id": task_id or None,
@@ -318,14 +392,24 @@ class _RecipeWorkspaceTaskQueueController:
                 "valid": False,
                 "validation_errors": errors,
                 "queue_complete": False,
+                "same_session_fix_count": state.failure_count,
+                "same_session_fix_status": state.status,
+                "same_session_fix_terminal_reason": state.terminal_reason,
+                "same_session_fix_budget_exhausted": state.status == "budget_exhausted",
             }
         errors = tuple(validate_recipe_worker_draft(task_row=row, payload=dict(payload)))
         if errors:
+            state = self._record_failed_validation(
+                task_id=task_id,
+                signature=signature,
+                errors=errors,
+            )
             self.current_validation_errors = errors
             self._write_current_sidecars(
                 validation_state="failed",
                 validation_errors=errors,
                 current_draft_path=str(result_path.relative_to(self.worker_root)),
+                same_session_fix_count=state.failure_count,
             )
             return {
                 "current_task_id": task_id or None,
@@ -334,7 +418,17 @@ class _RecipeWorkspaceTaskQueueController:
                 "valid": False,
                 "validation_errors": errors,
                 "queue_complete": False,
+                "same_session_fix_count": state.failure_count,
+                "same_session_fix_status": state.status,
+                "same_session_fix_terminal_reason": state.terminal_reason,
+                "same_session_fix_budget_exhausted": state.status == "budget_exhausted",
             }
+        state = self._same_session_state(task_id)
+        if state.failure_count > 0:
+            state.recovered = True
+            state.status = "recovered"
+            state.terminal_reason = "validated_after_repo_feedback"
+            state.last_validation_errors = ()
         if task_id:
             self.validated_task_ids.add(task_id)
         self.current_index += 1
@@ -347,6 +441,10 @@ class _RecipeWorkspaceTaskQueueController:
             "valid": True,
             "validation_errors": (),
             "queue_complete": self.is_complete(),
+            "same_session_fix_count": state.failure_count,
+            "same_session_fix_status": state.status,
+            "same_session_fix_terminal_reason": state.terminal_reason,
+            "same_session_fix_budget_exhausted": False,
         }
 
     def advance_all_completed_outputs(self) -> None:
@@ -355,14 +453,75 @@ class _RecipeWorkspaceTaskQueueController:
             if not observation.get("advanced"):
                 break
 
+    def finalize_run_outcome(self, *, run_result: CodexExecRunResult) -> None:
+        task_id = self.current_task_id()
+        if not task_id:
+            return
+        state = self.same_session_fix_states.get(task_id)
+        if state is None or state.recovered or state.failure_count <= 0:
+            return
+        if state.status == "budget_exhausted":
+            return
+        supervision_state = str(run_result.supervision_state or "completed").strip().lower()
+        if supervision_state == "watchdog_killed":
+            state.status = "continuation_impossible"
+            state.terminal_reason = "worker_stopped_after_validation_failure"
+            return
+        state.status = "continuation_unavailable"
+        state.terminal_reason = "worker_session_ended_after_validation_failure"
+
+    def same_session_status_payload(self, *, task_id: str | None) -> dict[str, Any]:
+        state = self._same_session_state(task_id)
+        return {
+            "same_session_fix_attempted": state.failure_count > 0,
+            "same_session_fix_count": state.failure_count,
+            "same_session_fix_budget": self.same_session_fix_budget,
+            "same_session_fix_status": state.status,
+            "same_session_fix_terminal_reason": state.terminal_reason,
+            "same_session_fix_validation_errors": list(state.last_validation_errors),
+        }
+
+    def _same_session_state(self, task_id: str | None) -> _RecipeSameSessionFixState:
+        normalized_task_id = str(task_id or "").strip()
+        if not normalized_task_id:
+            return _RecipeSameSessionFixState()
+        return self.same_session_fix_states.setdefault(
+            normalized_task_id,
+            _RecipeSameSessionFixState(),
+        )
+
+    def _record_failed_validation(
+        self,
+        *,
+        task_id: str,
+        signature: str | None,
+        errors: Sequence[str],
+    ) -> _RecipeSameSessionFixState:
+        state = self._same_session_state(task_id)
+        if signature is None or state.last_failed_signature != signature:
+            state.failure_count += 1
+            state.last_failed_signature = signature
+        state.last_validation_errors = tuple(str(error).strip() for error in errors if str(error).strip())
+        if state.failure_count >= self.same_session_fix_budget:
+            state.status = "budget_exhausted"
+            state.terminal_reason = "same_session_validation_budget_exhausted"
+        else:
+            state.status = "pending"
+            state.terminal_reason = "awaiting_worker_rewrite"
+        return state
+
     def _write_current_sidecars(
         self,
         *,
         validation_state: str = "pending",
         validation_errors: Sequence[str] | None = None,
         current_draft_path: str | None = None,
+        same_session_fix_count: int | None = None,
     ) -> None:
         current_row = self.current_task_row()
+        current_state = self._same_session_state(
+            str(current_row.get("task_id") or "").strip() if current_row else None
+        )
         write_recipe_worker_current_task_sidecars(
             workspace_root=self.worker_root,
             task_rows=self.task_rows,
@@ -370,6 +529,12 @@ class _RecipeWorkspaceTaskQueueController:
             validation_state=validation_state if current_row is not None else "queue_complete",
             validation_errors=validation_errors,
             current_draft_path=current_draft_path,
+            same_session_fix_count=(
+                current_state.failure_count
+                if same_session_fix_count is None
+                else int(same_session_fix_count)
+            ),
+            same_session_fix_budget=self.same_session_fix_budget,
         )
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -1317,8 +1482,15 @@ def _should_attempt_recipe_repair(
     *,
     proposal_status: str,
     validation_errors: Sequence[str],
+    same_session_fix_status: str,
 ) -> bool:
     if proposal_status != "invalid":
+        return False
+    if str(same_session_fix_status or "").strip() not in {
+        "budget_exhausted",
+        "continuation_impossible",
+        "continuation_unavailable",
+    }:
         return False
     repairable_prefixes = ("invalid_shard_output:",)
     repairable_errors = {
@@ -1624,6 +1796,7 @@ def _final_recipe_supervision_fields(
     proposal_status: str,
     watchdog_retry_status: str = "not_attempted",
     watchdog_retry_mode: str = "not_attempted",
+    same_session_fix_status: str = "not_needed",
     repair_status: str = "not_attempted",
 ) -> dict[str, Any]:
     raw_state = str(run_result.supervision_state or "completed").strip() or "completed"
@@ -1646,6 +1819,10 @@ def _final_recipe_supervision_fields(
             final_reason_code = "recipe_repair_recovered"
             final_reason_detail = "recipe shard validated after follow-up repair"
             finalization_path = "repair_recovered"
+        elif same_session_fix_status == "recovered":
+            final_reason_code = "same_session_validation_recovered"
+            final_reason_detail = "recipe shard validated after repo-written same-session feedback"
+            finalization_path = "same_session_recovered"
         else:
             final_reason_code = "workspace_outputs_recovered"
             final_reason_detail = "recipe shard validated despite the raw workspace session stop"
@@ -1986,17 +2163,17 @@ def _build_recipe_workspace_worker_prompt(
     lines = [
         "You are a recipe correction worker in a bounded local workspace.",
         "",
-        "Process the repo-written ordered recipe queue in this workspace by editing the prewritten drafts locally and doing one batch finalize at the end. The current working directory is already the workspace root.",
+        "Process the repo-written ordered recipe queue in this workspace by fixing one active draft at a time inside the same live session. The current working directory is already the workspace root.",
         "The assignment is complete only when `current_task.json` is gone and the current-task sidecars say the queue is complete.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then `SHARD_PACKET.md`, then `scratch/_prepared_drafts.json`. Open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` only to locate the active draft or inspect a validator failure.",
-        "2. Treat `SHARD_PACKET.md` as the authoritative packed shard summary and treat `scratch/_prepared_drafts.json` as the authoritative draft inventory. The current-task sidecars are contextual aids for the active draft, not the core loop. Do not dump or reread the full `assigned_tasks.json` inventory during startup; it is fallback/debug queue inventory only after the packet, prepared-drafts manifest, and current-task sidecars still leave you blocked.",
-        "3. Edit the prewritten draft files under `scratch/`. Start with the `metadata.scratch_draft_path` named in `current_task.json`, then continue through the batch without reinstalling after each healthy draft.",
-        "4. Open `hints/<task_id>.md` only if the shard packet, prepared drafts, and current-task surface are still unclear. Open `in/<task_id>.json` only if the draft, packet, and hint still leave something unresolved.",
-        "5. The cheap happy path is one batch finish: when the drafts are ready, run `python3 tools/recipe_worker.py finalize-all scratch/` once.",
-        "6. `python3 tools/recipe_worker.py check-current` and `install-current` remain available only for single-task validation or recovery. If you use `install-current` mid-batch and another task remains, re-open the current-task sidecars only to locate the next draft, then return to batch editing.",
+        "1. Open `worker_manifest.json`, then `SHARD_PACKET.md`, then `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md`. Use `scratch/_prepared_drafts.json` only as queue inventory after you know the active task.",
+        "2. Treat `current_task.json` plus `CURRENT_TASK_FEEDBACK.md` as the authoritative active-task seam. The repo will keep rewriting those files for the same task when validation fails. Do not move on until the repo advances them or says the queue is complete.",
+        "3. Edit the prewritten draft file under `scratch/` named by `metadata.scratch_draft_path` in `current_task.json`, then run `python3 tools/recipe_worker.py check-current`.",
+        "4. If `CURRENT_TASK_FEEDBACK.md` says validation failed, fix that same draft immediately and run `check-current` again in the same session. When `check-current` is clean, run `python3 tools/recipe_worker.py install-current` so the repo can advance the queue.",
+        "5. `python3 tools/recipe_worker.py finalize-all scratch/` is only a happy-path shortcut when the whole prepared batch is already clean. It is not the default recovery loop.",
+        "6. Open `hints/<task_id>.md` only if the shard packet, current-task sidecars, and active draft are still unclear. Open `in/<task_id>.json` only if the draft, packet, and hint still leave something unresolved.",
         '7. For obvious terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary "<reason>" scratch/<task_id>.json` or the same command with `not_a_recipe`.',
         "8. `python3 tools/recipe_worker.py current`, `next`, `overview`, `show <task_id>`, `prepare-all --dest-dir scratch/`, and `finalize scratch/<task_id>.json` are fallback/debug tools, not the default queue loop. `assigned_tasks.json` is the same kind of fallback inventory surface.",
         "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local or in approved temp roots, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
@@ -2010,7 +2187,7 @@ def _build_recipe_workspace_worker_prompt(
         "- Legacy keys are invalid here, including `results`, `recipes`, `recipe_id`, `repair_status`, `canonical_recipe`, `not_a_recipe`, `fragmentary`, and `notes`.",
         "- Treat `hints/<task_id>.md` as optional guidance and `in/<task_id>.json` as fallback authoritative owned input only when the cheaper task surface is insufficient.",
         "- Do not dump `examples/*.json`, `tools/recipe_worker.py`, or `OUTPUT_CONTRACT.md` by default just to re-learn the contract.",
-        "- Large batch heredocs are unnecessary here because the repo already prewrote the drafts and `finalize-all scratch/` is the approved happy-path finish.",
+        "- Large batch heredocs are unnecessary here because the repo already prewrote the drafts and the default loop is active-task edit -> `check-current` -> `install-current`.",
         "",
         "Your final message is optional telemetry only. Do not paste shard outputs there. The authoritative result is the set of valid files written under `out/`.",
     ]
@@ -2827,8 +3004,37 @@ def _run_recipe_workspace_worker_assignment_v1(
         def _recipe_workspace_supervision_callback(
             snapshot: CodexExecLiveSnapshot,
         ) -> CodexExecSupervisionDecision | None:
-            recipe_task_queue_controller.observe_current_output()
-            return base_watchdog_callback(snapshot)
+            observation = recipe_task_queue_controller.observe_current_output()
+            if observation.get("same_session_fix_budget_exhausted"):
+                return CodexExecSupervisionDecision.terminate(
+                    reason_code="workspace_current_task_validation_budget_exhausted",
+                    reason_detail=(
+                        "recipe worker exceeded the bounded same-session validation fix budget "
+                        f"for {observation.get('current_task_id') or 'the current task'}"
+                    ),
+                    retryable=False,
+                    supervision_state="completed_with_failures",
+                )
+            decision = base_watchdog_callback(snapshot)
+            queue_status = recipe_task_queue_controller.status_payload()
+            for live_status_path in (worker_live_status_path, *shard_live_status_paths):
+                if not live_status_path.exists():
+                    continue
+                try:
+                    live_status_payload = json.loads(
+                        live_status_path.read_text(encoding="utf-8")
+                    )
+                except (OSError, json.JSONDecodeError):
+                    live_status_payload = {}
+                if isinstance(live_status_payload, Mapping):
+                    _write_live_status(
+                        live_status_path,
+                        {
+                            **dict(live_status_payload),
+                            **queue_status,
+                        },
+                    )
+            return decision
 
         run_result = runner.run_workspace_worker(
             prompt_text=worker_prompt_text,
@@ -2840,6 +3046,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             supervision_callback=_recipe_workspace_supervision_callback,
         )
         recipe_task_queue_controller.advance_all_completed_outputs()
+        recipe_task_queue_controller.finalize_run_outcome(run_result=run_result)
         _finalize_live_status(
             worker_live_status_path,
             run_result=run_result,
@@ -2851,6 +3058,20 @@ def _run_recipe_workspace_worker_assignment_v1(
                 run_result=run_result,
                 watchdog_policy="workspace_worker_v1",
             )
+        queue_status = recipe_task_queue_controller.status_payload()
+        for live_status_path in (worker_live_status_path, *shard_live_status_paths):
+            try:
+                live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                live_status_payload = {}
+            if isinstance(live_status_payload, Mapping):
+                _write_live_status(
+                    live_status_path,
+                    {
+                        **dict(live_status_payload),
+                        **queue_status,
+                    },
+                )
         (worker_root / "events.jsonl").write_text(
             _render_events_jsonl(run_result.events),
             encoding="utf-8",
@@ -2865,6 +3086,7 @@ def _run_recipe_workspace_worker_assignment_v1(
         task_watchdog_retry_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+        task_same_session_status_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
         shard_packed_watchdog_retry_status_by_shard_id: dict[str, str] = {}
         if _should_attempt_recipe_watchdog_retry(run_result=run_result):
             for shard in runnable_shards:
@@ -3057,6 +3279,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                     )
                 )
                 initial_proposal_status = proposal_status
+            same_session_status = recipe_task_queue_controller.same_session_status_payload(
+                task_id=task_manifest.shard_id
+            )
             if (
                 proposal_status != "validated"
                 and _should_attempt_recipe_watchdog_retry(run_result=run_result)
@@ -3164,6 +3389,9 @@ def _run_recipe_workspace_worker_assignment_v1(
             if _should_attempt_recipe_repair(
                 proposal_status=proposal_status,
                 validation_errors=validation_errors,
+                same_session_fix_status=str(
+                    same_session_status.get("same_session_fix_status") or ""
+                ),
             ):
                 repair_attempted = True
                 repair_run_result = _run_recipe_repair_attempt(
@@ -3274,6 +3502,18 @@ def _run_recipe_workspace_worker_assignment_v1(
                 ] = tuple(
                     repair_errors if repair_status == "failed" else ()
                 )
+            task_same_session_status_by_shard_id.setdefault(parent_shard_id, {})[
+                task_manifest.shard_id
+            ] = dict(same_session_status)
+            same_session_status_payload = {
+                **dict(same_session_status),
+                "repair_attempted": repair_attempted,
+                "repair_status": repair_status,
+            }
+            _write_json(
+                same_session_status_payload,
+                task_root / "same_session_fix_status.json",
+            )
             stage_row["proposal_status"] = (
                 initial_proposal_status
                 if (watchdog_retry_attempted or repair_attempted)
@@ -3283,6 +3523,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             stage_row["watchdog_retry_attempted"] = watchdog_retry_attempted
             stage_row["watchdog_retry_status"] = watchdog_retry_status
             stage_row["watchdog_retry_mode"] = watchdog_retry_mode
+            stage_row.update(same_session_status_payload)
             stage_row["repair_attempted"] = repair_attempted
             stage_row["repair_status"] = repair_status
             stage_row.update(
@@ -3291,6 +3532,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                     proposal_status=proposal_status,
                     watchdog_retry_status=watchdog_retry_status,
                     watchdog_retry_mode=watchdog_retry_mode,
+                    same_session_fix_status=str(
+                        same_session_status_payload.get("same_session_fix_status") or ""
+                    ),
                     repair_status=repair_status,
                 )
             )
@@ -3311,6 +3555,9 @@ def _run_recipe_workspace_worker_assignment_v1(
             )
             task_repair_statuses = task_repair_status_by_shard_id.get(shard.shard_id, {})
             task_repair_errors = task_repair_validation_errors_by_shard_id.get(
+                shard.shard_id, {}
+            )
+            task_same_session_statuses = task_same_session_status_by_shard_id.get(
                 shard.shard_id, {}
             )
             payload, aggregation_metadata = _aggregate_recipe_task_payloads(
@@ -3371,14 +3618,57 @@ def _run_recipe_workspace_worker_assignment_v1(
                     task_id: status
                     for task_id, status in sorted(task_repair_statuses.items())
                 }
+            if task_same_session_statuses:
+                validation_metadata["task_same_session_fix_status_by_task_id"] = {
+                    task_id: {
+                        key: value
+                        for key, value in status_payload.items()
+                        if key
+                        in {
+                            "same_session_fix_attempted",
+                            "same_session_fix_count",
+                            "same_session_fix_budget",
+                            "same_session_fix_status",
+                            "same_session_fix_terminal_reason",
+                        }
+                    }
+                    for task_id, status_payload in sorted(task_same_session_statuses.items())
+                }
             if repair_validation_errors:
                 validation_metadata["repair_validation_errors"] = repair_validation_errors
+            same_session_attempted = sum(
+                1
+                for status_payload in task_same_session_statuses.values()
+                if bool(status_payload.get("same_session_fix_attempted"))
+            )
+            same_session_recovered = sum(
+                1
+                for status_payload in task_same_session_statuses.values()
+                if str(status_payload.get("same_session_fix_status") or "").strip()
+                == "recovered"
+            )
+            same_session_budget_exhausted = sum(
+                1
+                for status_payload in task_same_session_statuses.values()
+                if str(status_payload.get("same_session_fix_status") or "").strip()
+                == "budget_exhausted"
+            )
+            same_session_escalated = sum(
+                1
+                for status_payload in task_same_session_statuses.values()
+                if bool(status_payload.get("same_session_fix_attempted"))
+                and str(status_payload.get("same_session_fix_status") or "").strip()
+                in {"budget_exhausted", "continuation_impossible", "continuation_unavailable"}
+            )
             final_payload = payload_candidate if proposal_status == "validated" else None
             supervision_fields = _final_recipe_supervision_fields(
                 run_result=run_result,
                 proposal_status=proposal_status,
                 watchdog_retry_status=watchdog_retry_status,
                 watchdog_retry_mode=watchdog_retry_mode,
+                same_session_fix_status=(
+                    "recovered" if same_session_recovered > 0 else "not_needed"
+                ),
                 repair_status=repair_status,
             )
             proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
@@ -3392,6 +3682,10 @@ def _run_recipe_workspace_worker_assignment_v1(
                     "watchdog_retry_attempted": watchdog_retry_attempted,
                     "watchdog_retry_status": watchdog_retry_status,
                     "watchdog_retry_mode": watchdog_retry_mode,
+                    "same_session_fix_attempted_count": same_session_attempted,
+                    "same_session_fix_recovered_count": same_session_recovered,
+                    "same_session_fix_escalated_count": same_session_escalated,
+                    "same_session_fix_budget_exhausted_count": same_session_budget_exhausted,
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
                     "state": supervision_fields["final_supervision_state"],
@@ -3411,6 +3705,10 @@ def _run_recipe_workspace_worker_assignment_v1(
                     "watchdog_retry_attempted": watchdog_retry_attempted,
                     "watchdog_retry_status": watchdog_retry_status,
                     "watchdog_retry_mode": watchdog_retry_mode,
+                    "same_session_fix_attempted_count": same_session_attempted,
+                    "same_session_fix_recovered_count": same_session_recovered,
+                    "same_session_fix_escalated_count": same_session_escalated,
+                    "same_session_fix_budget_exhausted_count": same_session_budget_exhausted,
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
                     "state": supervision_fields["final_supervision_state"],
@@ -3454,6 +3752,10 @@ def _run_recipe_workspace_worker_assignment_v1(
                         **dict(validation_metadata or {}),
                         "watchdog_retry_attempted": watchdog_retry_attempted,
                         "watchdog_retry_status": watchdog_retry_status,
+                        "same_session_fix_attempted_count": same_session_attempted,
+                        "same_session_fix_recovered_count": same_session_recovered,
+                        "same_session_fix_escalated_count": same_session_escalated,
+                        "same_session_fix_budget_exhausted_count": same_session_budget_exhausted,
                         "repair_attempted": repair_attempted,
                         "repair_status": repair_status,
                         "state": supervision_fields["final_supervision_state"],
@@ -3892,6 +4194,31 @@ def _run_direct_recipe_workers_v1(
                 1
                 for row in recipe_result_rows.values()
                 if row.get("repair_status") == "not_a_recipe"
+            ),
+        },
+        "same_session_fix_counts": {
+            "attempted": sum(
+                1
+                for row in stage_rows
+                if bool((row if isinstance(row, Mapping) else {}).get("same_session_fix_attempted"))
+            ),
+            "recovered": sum(
+                1
+                for row in stage_rows
+                if str((row if isinstance(row, Mapping) else {}).get("same_session_fix_status") or "").strip()
+                == "recovered"
+            ),
+            "escalated": sum(
+                1
+                for row in stage_rows
+                if str((row if isinstance(row, Mapping) else {}).get("same_session_fix_status") or "").strip()
+                in {"budget_exhausted", "continuation_impossible", "continuation_unavailable"}
+            ),
+            "budget_exhausted": sum(
+                1
+                for row in stage_rows
+                if str((row if isinstance(row, Mapping) else {}).get("same_session_fix_status") or "").strip()
+                == "budget_exhausted"
             ),
         },
     }

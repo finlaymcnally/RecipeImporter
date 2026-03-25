@@ -25,7 +25,7 @@ KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
 KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v1"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
-RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v1"
+RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v2"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
 LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v1"
 
@@ -678,6 +678,28 @@ def _repair_rollup(stage_root: Path) -> tuple[int, int, int]:
     return len(attempted_paths), len(completed_paths), running_count
 
 
+def _same_session_fix_rollup(stage_root: Path) -> dict[str, int]:
+    counts = {
+        "attempted_count": 0,
+        "recovered_count": 0,
+        "escalated_count": 0,
+        "budget_exhausted_count": 0,
+    }
+    for status_path in sorted(stage_root.glob("workers/*/shards/*/same_session_fix_status.json")):
+        payload = _load_json_dict(status_path) or {}
+        if not bool(payload.get("same_session_fix_attempted")):
+            continue
+        counts["attempted_count"] += 1
+        status = str(payload.get("same_session_fix_status") or "").strip()
+        if status == "recovered":
+            counts["recovered_count"] += 1
+        if status in {"budget_exhausted", "continuation_impossible", "continuation_unavailable"}:
+            counts["escalated_count"] += 1
+        if status == "budget_exhausted":
+            counts["budget_exhausted_count"] += 1
+    return counts
+
+
 def _stage_summary_state(
     *,
     planned_total: int,
@@ -706,6 +728,7 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
         if status not in {"validated"}
     )
     repair_attempted, repair_completed, repair_running = _repair_rollup(stage_root)
+    same_session_rollup = _same_session_fix_rollup(stage_root)
     proposal_count = len(list(stage_root.glob("proposals/*.json")))
     planned_task_total = _count_jsonl_rows(stage_root / "task_manifest.jsonl")
     completed_task_total = len(list(stage_root.glob("workers/*/out/*.json")))
@@ -748,6 +771,10 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
         },
         "followups": {
             "label": "shard_finalization",
+            "same_session_fix_attempted_count": same_session_rollup["attempted_count"],
+            "same_session_fix_recovered_count": same_session_rollup["recovered_count"],
+            "same_session_fix_escalated_count": same_session_rollup["escalated_count"],
+            "same_session_fix_budget_exhausted_count": same_session_rollup["budget_exhausted_count"],
             "repair_attempted_count": repair_attempted,
             "repair_completed_count": repair_completed,
             "repair_running_count": repair_running,

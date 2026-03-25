@@ -13,6 +13,7 @@ from cookimport.bench.eval_stage_blocks import (
     compute_block_metrics,
     evaluate_stage_blocks,
     load_gold_block_labels,
+    load_stage_block_prediction_manifest,
     load_stage_block_labels,
 )
 from cookimport.labelstudio.canonical_line_projection import (
@@ -163,6 +164,37 @@ def test_load_stage_block_labels_maps_howto_section_by_neighboring_labels(
     labels = load_stage_block_labels(stage_path)
     assert labels[1] == "INGREDIENT_LINE"
     assert labels[4] == "INSTRUCTION_LINE"
+
+
+def test_load_stage_block_prediction_manifest_preserves_unresolved_metadata(
+    tmp_path: Path,
+) -> None:
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 2,
+                "block_labels": {
+                    "0": "RECIPE_TITLE",
+                    "1": "OTHER",
+                },
+                "unresolved_review_eligible_block_indices": [1],
+                "unresolved_review_eligible_block_category_by_index": {"1": "knowledge"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = load_stage_block_prediction_manifest(stage_path)
+
+    assert manifest.labels == {0: "RECIPE_TITLE", 1: "OTHER"}
+    assert manifest.unresolved_block_indices == [1]
+    assert manifest.unresolved_block_category_by_index == {1: "knowledge"}
 
 
 def test_build_pred_line_labels_preserves_howto_section_labels() -> None:
@@ -395,6 +427,98 @@ def test_evaluate_canonical_text_scores_knowledge_stage_in_line_role_projection(
     assert repeated_result["report"]["per_label"]["KNOWLEDGE"]["tp"] == 0
 
 
+def test_evaluate_canonical_text_excludes_unresolved_lines_from_semantic_scoring(
+    tmp_path: Path,
+) -> None:
+    canonical_text = "Recipe Title\nUseful kitchen note\n1 cup stock"
+    canonical_lines = canonical_eval._build_canonical_lines(canonical_text)
+
+    gold_export_root = tmp_path / "gold"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    (gold_export_root / "canonical_text.txt").write_text(canonical_text, encoding="utf-8")
+    _write_jsonl(
+        gold_export_root / "canonical_span_labels.jsonl",
+        [
+            {
+                "span_id": "s0",
+                "label": "RECIPE_TITLE",
+                "start_char": canonical_lines[0]["start_char"],
+                "end_char": canonical_lines[0]["end_char"],
+            },
+            {
+                "span_id": "s1",
+                "label": "KNOWLEDGE",
+                "start_char": canonical_lines[1]["start_char"],
+                "end_char": canonical_lines[1]["end_char"],
+            },
+            {
+                "span_id": "s2",
+                "label": "INGREDIENT_LINE",
+                "start_char": canonical_lines[2]["start_char"],
+                "end_char": canonical_lines[2]["end_char"],
+            },
+        ],
+    )
+    (gold_export_root / "canonical_manifest.json").write_text(
+        json.dumps({"schema_version": "canonical_gold.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    stage_predictions_path = tmp_path / "stage_block_predictions.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "hash-demo",
+                "block_count": 3,
+                "block_labels": {
+                    "0": "RECIPE_TITLE",
+                    "1": "OTHER",
+                    "2": "INGREDIENT_LINE",
+                },
+                "unresolved_review_eligible_block_indices": [1],
+                "unresolved_review_eligible_block_category_by_index": {"1": "knowledge"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_blocks_path = tmp_path / "extracted_archive.json"
+    extracted_blocks_path.write_text(
+        json.dumps(
+            [
+                {"index": 0, "text": "Recipe Title"},
+                {"index": 1, "text": "Useful kitchen note"},
+                {"index": 2, "text": "1 cup stock"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    report = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_blocks_path,
+        out_dir=tmp_path / "eval",
+        canonical_paths={
+            "canonical_text_path": gold_export_root / "canonical_text.txt",
+            "canonical_span_labels_path": gold_export_root / "canonical_span_labels.jsonl",
+            "canonical_manifest_path": gold_export_root / "canonical_manifest.json",
+        },
+    )["report"]
+
+    assert report["overall_line_accuracy"] == pytest.approx(1.0)
+    assert report["counts"]["gold_total"] == 2
+    assert report["authority_coverage"]["scored_prediction_lines"] == 2
+    assert report["authority_coverage"]["total_prediction_lines"] == 3
+    assert report["authority_coverage"]["unresolved_review_eligible_lines"] == 1
+    assert report["authority_coverage"]["prediction_coverage"] == pytest.approx(2 / 3)
+    assert report["authority_coverage"]["unresolved_review_eligible_line_indices"] == [1]
+
+
 def test_compute_block_metrics_reports_macro_and_worst_label() -> None:
     gold = {
         0: "RECIPE_TITLE",
@@ -554,6 +678,73 @@ def test_evaluate_stage_blocks_writes_reports_and_debug_artifacts(tmp_path: Path
         if line
     ]
     assert len(missed_boundary_rows) == 2
+
+
+def test_evaluate_stage_blocks_excludes_unresolved_predictions_from_semantic_scoring(
+    tmp_path: Path,
+) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {"span_id": "s0", "label": "RECIPE_TITLE", "touched_block_indices": [0]},
+            {"span_id": "s1", "label": "INGREDIENT_LINE", "touched_block_indices": [1]},
+            {"span_id": "s2", "label": "KNOWLEDGE", "touched_block_indices": [2]},
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 3,
+                "block_labels": {
+                    "0": "RECIPE_TITLE",
+                    "1": "INGREDIENT_LINE",
+                    "2": "OTHER",
+                },
+                "unresolved_review_eligible_block_indices": [2],
+                "unresolved_review_eligible_block_category_by_index": {"2": "knowledge"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {"index": 0, "text": "Simple Soup"},
+                {"index": 1, "text": "1 cup stock"},
+                {"index": 2, "text": "Useful kitchen note"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    report = evaluate_stage_blocks(
+        gold_freeform_jsonl=gold_path,
+        stage_predictions_json=stage_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=tmp_path / "eval",
+    )["report"]
+
+    assert report["overall_block_accuracy"] == pytest.approx(1.0)
+    assert report["counts"]["gold_total"] == 2
+    assert report["authority_coverage"]["scored_prediction_blocks"] == 2
+    assert report["authority_coverage"]["total_prediction_blocks"] == 3
+    assert report["authority_coverage"]["unresolved_review_eligible_blocks"] == 1
+    assert report["authority_coverage"]["prediction_coverage"] == pytest.approx(2 / 3)
+    assert report["authority_coverage"]["unresolved_review_eligible_block_indices"] == [2]
+    assert report["authority_coverage"]["unresolved_review_eligible_block_category_by_index"] == {
+        2: "knowledge"
+    }
 
 
 def test_evaluate_stage_blocks_allows_multilabel_gold_blocks(tmp_path: Path) -> None:

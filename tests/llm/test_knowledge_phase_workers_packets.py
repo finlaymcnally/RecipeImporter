@@ -35,7 +35,6 @@ def test_build_knowledge_jobs_emits_packet_shard_entries(tmp_path: Path) -> None
         source_hash="hash123",
         out_dir=tmp_path / "in",
         context_blocks=1,
-        target_chunks_per_shard=2,
     )
 
     assert report.shards_written == 1

@@ -928,6 +928,10 @@ def _attach_recipe_stage_observability(
     if isinstance(followups, Mapping):
         stage_summary["followup_label"] = str(followups.get("label") or "").strip() or None
         for key in (
+            "same_session_fix_attempted_count",
+            "same_session_fix_recovered_count",
+            "same_session_fix_escalated_count",
+            "same_session_fix_budget_exhausted_count",
             "repair_attempted_count",
             "repair_completed_count",
             "repair_running_count",

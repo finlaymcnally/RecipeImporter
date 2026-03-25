@@ -4,6 +4,7 @@ import json
 import re
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,11 @@ from typing import Any
 from cookimport.bench.segmentation_metrics import compute_segmentation_boundaries
 from cookimport.labelstudio.howto_section import resolve_howto_label_sets_by_index
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
-from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
+from cookimport.staging.stage_block_predictions import (
+    FREEFORM_LABELS,
+    UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY,
+    UNRESOLVED_REVIEW_BLOCK_INDICES_KEY,
+)
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
 _SEGMENTATION_LABEL_PROJECTION_CORE = "core_structural_v1"
@@ -1144,79 +1149,10 @@ def load_stage_block_labels(
     *,
     resolve_howto_sections: bool = True,
 ) -> dict[int, str]:
-    if not stage_block_predictions_json_path.exists():
-        raise FileNotFoundError(
-            "Missing stage block predictions manifest: "
-            f"{stage_block_predictions_json_path}"
-        )
-    payload = json.loads(stage_block_predictions_json_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("Stage block predictions payload must be an object.")
-
-    schema_version = str(payload.get("schema_version") or "")
-    if schema_version != "stage_block_predictions.v1":
-        raise ValueError(
-            "Unsupported stage block predictions schema version: "
-            f"{schema_version or '<missing>'}"
-        )
-
-    raw_block_labels = payload.get("block_labels")
-    if not isinstance(raw_block_labels, dict):
-        raise ValueError("Stage block predictions missing block_labels map.")
-
-    labels: dict[int, str] = {}
-    for raw_index, raw_label in raw_block_labels.items():
-        try:
-            index = int(raw_index)
-        except (TypeError, ValueError):
-            raise ValueError(f"Invalid block index in stage predictions: {raw_index!r}") from None
-        label = str(raw_label or "").strip()
-        if label not in _FREEFORM_LABEL_SET:
-            raise ValueError(
-                f"Invalid stage label {label!r} at block {index}; expected one of {sorted(_FREEFORM_LABEL_SET)}"
-            )
-        labels[index] = label
-
-    block_count_raw = payload.get("block_count")
-    expected_count: int | None = None
-    try:
-        if block_count_raw is not None:
-            expected_count = int(block_count_raw)
-    except (TypeError, ValueError):
-        expected_count = None
-
-    if expected_count is not None and expected_count >= 0:
-        missing = [index for index in range(expected_count) if index not in labels]
-        if missing:
-            raise ValueError(
-                "Stage block predictions are incomplete: "
-                f"missing labels for {len(missing)} indices."
-            )
-
-    if not resolve_howto_sections:
-        return {index: label for index, label in sorted(labels.items())}
-
-    resolved_label_sets = resolve_howto_label_sets_by_index(
-        {
-            index: {label}
-            for index, label in labels.items()
-        }
-    )
-    resolved_labels: dict[int, str] = {}
-    for index, original_label in sorted(labels.items()):
-        resolved_set = {
-            str(label)
-            for label in resolved_label_sets.get(index, {original_label})
-            if str(label) in _FREEFORM_LABEL_SET
-        }
-        if not resolved_set:
-            resolved_set = {"OTHER"}
-        resolved_labels[index] = _primary_gold_label(
-            resolved_set,
-            pred_label=original_label,
-        )
-
-    return resolved_labels
+    return load_stage_block_prediction_manifest(
+        stage_block_predictions_json_path,
+        resolve_howto_sections=resolve_howto_sections,
+    ).labels
 
 
 def compute_block_metrics(
@@ -1403,6 +1339,145 @@ def _most_common_confusions(
     return rows[:limit]
 
 
+@dataclass(frozen=True, slots=True)
+class LoadedStageBlockPredictionManifest:
+    labels: dict[int, str]
+    unresolved_block_indices: list[int]
+    unresolved_block_category_by_index: dict[int, str]
+
+
+def load_stage_block_prediction_manifest(
+    stage_block_predictions_json_path: Path,
+    *,
+    resolve_howto_sections: bool = True,
+) -> LoadedStageBlockPredictionManifest:
+    if not stage_block_predictions_json_path.exists():
+        raise FileNotFoundError(
+            "Missing stage block predictions manifest: "
+            f"{stage_block_predictions_json_path}"
+        )
+    payload = json.loads(stage_block_predictions_json_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Stage block predictions payload must be an object.")
+
+    schema_version = str(payload.get("schema_version") or "")
+    if schema_version != "stage_block_predictions.v1":
+        raise ValueError(
+            "Unsupported stage block predictions schema version: "
+            f"{schema_version or '<missing>'}"
+        )
+
+    raw_block_labels = payload.get("block_labels")
+    if not isinstance(raw_block_labels, dict):
+        raise ValueError("Stage block predictions missing block_labels map.")
+
+    labels: dict[int, str] = {}
+    for raw_index, raw_label in raw_block_labels.items():
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid block index in stage predictions: {raw_index!r}") from None
+        label = str(raw_label or "").strip()
+        if label not in _FREEFORM_LABEL_SET:
+            raise ValueError(
+                f"Invalid stage label {label!r} at block {index}; expected one of {sorted(_FREEFORM_LABEL_SET)}"
+            )
+        labels[index] = label
+
+    block_count_raw = payload.get("block_count")
+    expected_count: int | None = None
+    try:
+        if block_count_raw is not None:
+            expected_count = int(block_count_raw)
+    except (TypeError, ValueError):
+        expected_count = None
+
+    if expected_count is not None and expected_count >= 0:
+        missing = [index for index in range(expected_count) if index not in labels]
+        if missing:
+            raise ValueError(
+                "Stage block predictions are incomplete: "
+                f"missing labels for {len(missing)} indices."
+            )
+
+    raw_unresolved_indices = payload.get(UNRESOLVED_REVIEW_BLOCK_INDICES_KEY) or []
+    if not isinstance(raw_unresolved_indices, list):
+        raise ValueError(
+            f"Stage block predictions field {UNRESOLVED_REVIEW_BLOCK_INDICES_KEY!r} must be a list."
+        )
+    unresolved_block_indices: list[int] = []
+    for raw_index in raw_unresolved_indices:
+        index = _coerce_int(raw_index)
+        if index is None:
+            raise ValueError(f"Invalid unresolved block index in stage predictions: {raw_index!r}")
+        if index not in labels:
+            raise ValueError(
+                "Stage block predictions unresolved block index is missing from block_labels: "
+                f"{index}"
+            )
+        unresolved_block_indices.append(index)
+    unresolved_block_indices = sorted(set(unresolved_block_indices))
+
+    raw_unresolved_categories = payload.get(UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY) or {}
+    if not isinstance(raw_unresolved_categories, dict):
+        raise ValueError(
+            f"Stage block predictions field {UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY!r} must be an object."
+        )
+    unresolved_block_category_by_index: dict[int, str] = {}
+    for raw_index, raw_category in raw_unresolved_categories.items():
+        index = _coerce_int(raw_index)
+        if index is None:
+            raise ValueError(
+                f"Invalid unresolved category block index in stage predictions: {raw_index!r}"
+            )
+        category = str(raw_category or "").strip().lower()
+        if category not in {"knowledge", "other"}:
+            raise ValueError(
+                "Invalid unresolved non-recipe category "
+                f"{raw_category!r} at block {index}; expected 'knowledge' or 'other'."
+            )
+        unresolved_block_category_by_index[index] = category
+    if unresolved_block_category_by_index and set(unresolved_block_category_by_index) != set(
+        unresolved_block_indices
+    ):
+        raise ValueError(
+            "Stage block predictions unresolved category metadata must exactly match unresolved block indices."
+        )
+
+    if not resolve_howto_sections:
+        return LoadedStageBlockPredictionManifest(
+            labels={index: label for index, label in sorted(labels.items())},
+            unresolved_block_indices=unresolved_block_indices,
+            unresolved_block_category_by_index=unresolved_block_category_by_index,
+        )
+
+    resolved_label_sets = resolve_howto_label_sets_by_index(
+        {
+            index: {label}
+            for index, label in labels.items()
+        }
+    )
+    resolved_labels: dict[int, str] = {}
+    for index, original_label in sorted(labels.items()):
+        resolved_set = {
+            str(label)
+            for label in resolved_label_sets.get(index, {original_label})
+            if str(label) in _FREEFORM_LABEL_SET
+        }
+        if not resolved_set:
+            resolved_set = {"OTHER"}
+        resolved_labels[index] = _primary_gold_label(
+            resolved_set,
+            pred_label=original_label,
+        )
+
+    return LoadedStageBlockPredictionManifest(
+        labels=resolved_labels,
+        unresolved_block_indices=unresolved_block_indices,
+        unresolved_block_category_by_index=unresolved_block_category_by_index,
+    )
+
+
 def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
     def _format_metric(value: Any) -> str:
         if value is None:
@@ -1410,6 +1485,7 @@ def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
         return f"{float(value):.3f}"
 
     counts = report.get("counts") or {}
+    authority_coverage = report.get("authority_coverage") or {}
     worst = report.get("worst_label_recall") or {}
     lines = [
         "# Stage Block Evaluation",
@@ -1427,7 +1503,17 @@ def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
         "",
         "## Counts",
         "",
-        f"- Blocks: {int(counts.get('gold_total') or 0)}",
+        f"- Scored blocks: {int(counts.get('gold_total') or 0)}",
+        (
+            "- Prediction coverage: "
+            f"{float(authority_coverage.get('prediction_coverage') or 0.0):.3f} "
+            f"({int(authority_coverage.get('scored_prediction_blocks') or 0)}/"
+            f"{int(authority_coverage.get('total_prediction_blocks') or 0)})"
+        ),
+        (
+            "- Unresolved review-eligible blocks: "
+            f"{int(authority_coverage.get('unresolved_review_eligible_blocks') or 0)}"
+        ),
         f"- Correct: {int(counts.get('gold_matched') or 0)}",
         f"- Mismatched: {int(counts.get('gold_missed') or 0)}",
         "",
@@ -1630,7 +1716,8 @@ def evaluate_stage_blocks(
     subphase_seconds["load_gold_seconds"] = max(0.0, time.monotonic() - load_gold_started)
 
     load_prediction_started = time.monotonic()
-    pred = load_stage_block_labels(stage_predictions_json)
+    pred_manifest = load_stage_block_prediction_manifest(stage_predictions_json)
+    pred = dict(pred_manifest.labels)
     prediction_profile = _load_extracted_block_profile(extracted_blocks_json)
     stage_payload = json.loads(stage_predictions_json.read_text(encoding="utf-8"))
     block_texts = _load_extracted_block_texts(extracted_blocks_json)
@@ -1745,8 +1832,41 @@ def evaluate_stage_blocks(
     )
 
     metrics_started = time.monotonic()
-    report = compute_block_metrics(gold, pred)
+    unresolved_block_indices = sorted(
+        index
+        for index in pred_manifest.unresolved_block_indices
+        if index in pred
+    )
+    unresolved_block_index_set = set(unresolved_block_indices)
+    scored_gold = {
+        index: labels
+        for index, labels in gold.items()
+        if index not in unresolved_block_index_set
+    }
+    scored_pred = {
+        index: label
+        for index, label in pred.items()
+        if index not in unresolved_block_index_set
+    }
+    report = compute_block_metrics(scored_gold, scored_pred)
     subphase_seconds["metrics_seconds"] = max(0.0, time.monotonic() - metrics_started)
+    report["authority_coverage"] = {
+        "scoring_mode": "authoritative_predictions_only",
+        "total_prediction_blocks": len(pred),
+        "scored_prediction_blocks": len(scored_pred),
+        "unresolved_review_eligible_blocks": len(unresolved_block_indices),
+        "prediction_coverage": (
+            (len(scored_pred) / len(pred))
+            if pred
+            else 1.0
+        ),
+        "unresolved_review_eligible_block_indices": unresolved_block_indices,
+        "unresolved_review_eligible_block_category_by_index": {
+            index: pred_manifest.unresolved_block_category_by_index[index]
+            for index in unresolved_block_indices
+            if index in pred_manifest.unresolved_block_category_by_index
+        },
+    }
 
     workbook_slug = str(stage_payload.get("workbook_slug") or "")
     source_file = str(stage_payload.get("source_file") or "")
@@ -1758,8 +1878,8 @@ def evaluate_stage_blocks(
         projected_gold_by_index,
         projected_pred_by_index,
     ) = _build_projected_structural_sequences(
-        gold=gold,
-        pred=pred,
+        gold=scored_gold,
+        pred=scored_pred,
         label_projection=label_projection,
     )
     segmentation = compute_segmentation_boundaries(
@@ -1918,6 +2038,13 @@ def evaluate_stage_blocks(
         "work_units": {
             "gold_block_count": float(len(gold)),
             "prediction_block_count": float(len(pred)),
+            "scored_prediction_block_count": float(len(scored_pred)),
+            "unresolved_review_eligible_block_count": float(len(unresolved_block_indices)),
+            "prediction_authority_coverage": float(
+                (len(scored_pred) / len(pred))
+                if pred
+                else 1.0
+            ),
             "missing_gold_defaulted_count": float(len(missing_gold)),
             "gold_adaptation_coverage_ratio": float(
                 (gold_adaptation_diagnostics or {}).get("coverage_ratio") or 0.0

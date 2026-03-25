@@ -126,12 +126,16 @@ def _write_authoritative_line_role_artifacts(
         source_file=source_file,
         source_hash=source_hash,
         workbook_slug=workbook_slug,
+        unresolved_block_indices=scoring_projection_summary["unresolved_review_eligible_block_indices"],
+        unresolved_block_category_by_index=scoring_projection_summary[
+            "unresolved_review_eligible_block_category_by_index"
+        ],
         notes=[
             "Prediction-run projection reused authoritative Stage 2 labels for recipe-local lines.",
             "Outside-recipe KNOWLEDGE/OTHER labels were projected from final non-recipe authority.",
             *([
-                "Unreviewed review-eligible outside-recipe KNOWLEDGE rows were forced to OTHER for scoring."
-            ] if scoring_projection_summary["suppressed_unreviewed_knowledge_line_count"] else []),
+                "Unreviewed review-eligible outside-recipe rows were marked unresolved and excluded from semantic scoring."
+            ] if scoring_projection_summary["unresolved_review_eligible_line_count"] else []),
             *([
                 f"Knowledge refinement changed {nonrecipe_projection_summary['changed_block_count']} outside-recipe blocks before scoring."
             ] if nonrecipe_projection_summary["changed_block_count"] else []),
@@ -212,8 +216,9 @@ def _build_scored_line_role_projection_spans(
     spans = list(projected_spans)
     if nonrecipe_stage_result is None:
         return spans, {
-            "suppressed_unreviewed_knowledge_line_count": 0,
-            "suppressed_unreviewed_knowledge_block_indices": [],
+            "unresolved_review_eligible_line_count": 0,
+            "unresolved_review_eligible_block_indices": [],
+            "unresolved_review_eligible_block_category_by_index": {},
         }
 
     authoritative_categories = dict(
@@ -223,7 +228,7 @@ def _build_scored_line_role_projection_spans(
         int(index)
         for index in nonrecipe_stage_result.review_status.unreviewed_review_eligible_block_indices
     }
-    suppressed_block_indices: set[int] = set()
+    unresolved_block_indices: set[int] = set()
     scored_spans: list[FreeformSpanPrediction] = []
     for span in spans:
         if span.within_recipe_span or span.label not in {"KNOWLEDGE", "OTHER"}:
@@ -239,13 +244,19 @@ def _build_scored_line_role_projection_spans(
                 span = span.model_copy(update={"label": target_label})
             scored_spans.append(span)
             continue
-        if block_index in unreviewed_block_index_set and span.label == "KNOWLEDGE":
-            suppressed_block_indices.add(block_index)
-            span = span.model_copy(update={"label": "OTHER"})
+        if block_index in unreviewed_block_index_set:
+            unresolved_block_indices.add(block_index)
         scored_spans.append(span)
     return scored_spans, {
-        "suppressed_unreviewed_knowledge_line_count": len(suppressed_block_indices),
-        "suppressed_unreviewed_knowledge_block_indices": sorted(suppressed_block_indices),
+        "unresolved_review_eligible_line_count": len(unresolved_block_indices),
+        "unresolved_review_eligible_block_indices": sorted(unresolved_block_indices),
+        "unresolved_review_eligible_block_category_by_index": {
+            int(block_index): str(
+                nonrecipe_stage_result.review_status.unreviewed_block_category_by_index[int(block_index)]
+            )
+            for block_index in sorted(unresolved_block_indices)
+            if int(block_index) in nonrecipe_stage_result.review_status.unreviewed_block_category_by_index
+        },
     }
 
 def _apply_nonrecipe_authority_to_predictions(

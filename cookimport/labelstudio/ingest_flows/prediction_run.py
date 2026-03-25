@@ -141,7 +141,7 @@ from cookimport.staging.import_session import execute_stage_import_session_from_
 from cookimport.staging.job_planning import JobSpec, plan_source_job
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
-    block_rows_for_nonrecipe_authority,
+    block_rows_for_nonrecipe_survivors,
     build_nonrecipe_stage_result,
 )
 
@@ -869,7 +869,7 @@ def generate_pred_run_artifacts(
             final_block_labels=authoritative_label_result.block_labels,
             recipe_spans=authoritative_label_result.recipe_spans,
         )
-        final_nonrecipe_rows = block_rows_for_nonrecipe_authority(
+        final_nonrecipe_rows = block_rows_for_nonrecipe_survivors(
             full_blocks=authoritative_label_result.archive_blocks,
             stage_result=nonrecipe_stage_result,
         )
@@ -930,7 +930,7 @@ def generate_pred_run_artifacts(
 
     if processed_output_root is None:
         if nonrecipe_stage_result is not None:
-            result.non_recipe_blocks = block_rows_for_nonrecipe_authority(
+            result.non_recipe_blocks = block_rows_for_nonrecipe_survivors(
                 full_blocks=authoritative_label_result.archive_blocks,
                 stage_result=nonrecipe_stage_result,
             )
@@ -987,7 +987,7 @@ def generate_pred_run_artifacts(
         result.report.llm_codex_farm = llm_report
 
     if processed_output_root is None and nonrecipe_stage_result is not None:
-        result.non_recipe_blocks = block_rows_for_nonrecipe_authority(
+        result.non_recipe_blocks = block_rows_for_nonrecipe_survivors(
             full_blocks=authoritative_label_result.archive_blocks,
             stage_result=nonrecipe_stage_result,
         )

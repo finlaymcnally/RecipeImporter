@@ -1688,6 +1688,10 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         "structured_followup_tokens_total": 0,
         "command_policy_counts": {},
         "watchdog_recovered_shard_count": 0,
+        "same_session_fix_attempted_task_count": 0,
+        "same_session_fix_recovered_task_count": 0,
+        "same_session_fix_escalated_task_count": 0,
+        "same_session_fix_budget_exhausted_task_count": 0,
     }
     prompt_input_mode_counts: dict[str, int] = {}
     command_executing_shards: set[str] = set()
@@ -1769,6 +1773,19 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             pathological_shards.add(shard_id)
         if str(row.get("repair_status") or "").strip().lower() == "repaired" and shard_id:
             repaired_shards.add(shard_id)
+        if bool(row.get("same_session_fix_attempted")):
+            summary["same_session_fix_attempted_task_count"] += 1
+        same_session_fix_status = str(row.get("same_session_fix_status") or "").strip().lower()
+        if same_session_fix_status == "recovered":
+            summary["same_session_fix_recovered_task_count"] += 1
+        if same_session_fix_status in {
+            "budget_exhausted",
+            "continuation_impossible",
+            "continuation_unavailable",
+        }:
+            summary["same_session_fix_escalated_task_count"] += 1
+        if same_session_fix_status == "budget_exhausted":
+            summary["same_session_fix_budget_exhausted_task_count"] += 1
         effective_supervision_state = str(
             row.get("final_supervision_state") or row.get("supervision_state") or ""
         ).strip().lower()

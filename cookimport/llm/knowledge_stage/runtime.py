@@ -162,7 +162,6 @@ def run_codex_farm_nonrecipe_knowledge_review(
         source_hash=_resolve_source_hash(conversion_result),
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
-        overrides=overrides,
         prompt_target_count=run_settings.knowledge_prompt_target_count,
     )
     for warning in build_report.planning_warnings:

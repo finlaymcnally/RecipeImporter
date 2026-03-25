@@ -25,25 +25,30 @@ _ACTIVE_ASSIGNMENT_TEXT = (
 _NO_REPO_WRITTEN_FEEDBACK_TEXT = "No repo-written validation feedback exists yet for this task."
 _VALIDATION_STATUS_OK_TEXT = "Validation status: OK."
 _VALIDATION_STATUS_FAILED_TEXT = "Validation status: FAILED."
+_SAME_SESSION_HOLD_TEXT = (
+    "The repo keeps this same task active until the draft validates, the same-session "
+    "fix budget is exhausted, or the queue is complete."
+)
+_CHECK_CURRENT_DEFAULT_TEXT = (
+    "The normal loop is: edit the active draft and run "
+    "`python3 tools/recipe_worker.py check-current` until the validator is clean."
+)
 _INSTALL_CURRENT_READY_TEXT = (
-    "You may run `python3 tools/recipe_worker.py install-current` to write the final result path."
+    "Once `check-current` is clean, run `python3 tools/recipe_worker.py install-current` "
+    "to write the final result path and let the repo advance the queue."
 )
 _REOPEN_AFTER_INSTALL_TEXT = (
-    "If you use `install-current` as a single-task recovery step and another task remains, "
-    "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` to locate "
-    "the next draft."
+    "If another task remains after `install-current`, re-open `CURRENT_TASK.md`, "
+    "`current_task.json`, and `CURRENT_TASK_FEEDBACK.md` immediately and continue with "
+    "that task."
 )
-_BATCH_FINALIZE_DEFAULT_TEXT = (
-    "The cheap happy path is to edit the prewritten `scratch/*.json` drafts and run "
-    "`python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready."
-)
-_CHECK_INSTALL_FALLBACK_TEXT = (
-    "Use `python3 tools/recipe_worker.py check-current` and `install-current` only for "
-    "single-task validation or recovery, not as the default loop."
+_BATCH_FINALIZE_OPTIMIZATION_TEXT = (
+    "`python3 tools/recipe_worker.py finalize-all scratch/` is an optional happy-path "
+    "shortcut when the whole prepared batch is already clean."
 )
 _POST_INSTALL_LOCATOR_TEXT = (
-    "If another task becomes active, the refreshed sidecars are only a locator for the next "
-    "draft; return to batch editing after that."
+    "If another task becomes active, the refreshed sidecars name the next draft and its "
+    "validator state; stay on that task until the repo advances again."
 )
 _LEGACY_KEY_SUGGESTIONS = {
     "bundle_version": "v",
@@ -363,8 +368,8 @@ def render_recipe_worker_shard_packet(
         "# Recipe Shard Packet",
         "",
         "Read this file first. It is the authoritative packed shard summary for the normal recipe worker path.",
-        "The default loop is: read this packet, edit the prewritten drafts under `scratch/`, and run `python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready.",
-        "Use `scratch/_prepared_drafts.json` as the draft inventory. Treat the current-task sidecars as active-draft locators or failure context, not the core loop.",
+        "The default loop is: read this packet, open the current-task sidecars, edit the active draft under `scratch/`, and run `python3 tools/recipe_worker.py check-current` until the validator is clean.",
+        "Use `scratch/_prepared_drafts.json` as the draft inventory. Treat `finalize-all scratch/` as a happy-path shortcut only after the current task is already clean.",
         "Open raw `hints/*.md`, `in/*.json`, `OUTPUT_CONTRACT.md`, `examples/*.json`, or `tools/recipe_worker.py` only if this packet, the prepared-drafts manifest, and the current-task sidecars are still insufficient.",
         "",
         (
@@ -440,14 +445,16 @@ def render_recipe_worker_current_task_brief(
         ),
         "",
         _ACTIVE_ASSIGNMENT_TEXT,
+        _SAME_SESSION_HOLD_TEXT,
         "",
         "Recommended loop:",
-        f"- Start with the active draft `{paths['scratch_draft_path']}`, then continue editing the prepared drafts directly under `scratch/`.",
-        "- Use `SHARD_PACKET.md` and `scratch/_prepared_drafts.json` as the normal batch view.",
+        f"- Start with the active draft `{paths['scratch_draft_path']}` and keep working on that same draft until the validator passes.",
+        "- Use `SHARD_PACKET.md` and `scratch/_prepared_drafts.json` as queue context, but let `CURRENT_TASK_FEEDBACK.md` drive the current fix loop.",
         f"- Open `{paths['hint_path']}` only if the brief or draft is still unclear.",
         f"- Open `{paths['input_path']}` only if the draft and hint still leave something unresolved.",
-        f"- {_BATCH_FINALIZE_DEFAULT_TEXT}",
-        f"- {_CHECK_INSTALL_FALLBACK_TEXT}",
+        f"- {_CHECK_CURRENT_DEFAULT_TEXT}",
+        f"- {_INSTALL_CURRENT_READY_TEXT}",
+        f"- {_BATCH_FINALIZE_OPTIMIZATION_TEXT}",
         f"- For obvious terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary \"<reason>\" {paths['scratch_draft_path']}` or the same command with `not_a_recipe`.",
         f"- {_REOPEN_AFTER_INSTALL_TEXT}",
         "",
@@ -467,6 +474,8 @@ def render_recipe_worker_feedback_brief(
     validation_state: str = "pending",
     validation_errors: Sequence[str] | None = None,
     current_draft_path: str | None = None,
+    same_session_fix_count: int = 0,
+    same_session_fix_budget: int = 2,
 ) -> str:
     rows = list(task_rows)
     current_task_row = next(
@@ -503,9 +512,10 @@ def render_recipe_worker_feedback_brief(
                 _VALIDATION_STATUS_OK_TEXT,
                 f"Draft path: `{display_draft_path}`",
                 f"Install target: `{current_paths.get('result_path') or '[unknown]'}`",
-                _BATCH_FINALIZE_DEFAULT_TEXT,
+                _SAME_SESSION_HOLD_TEXT,
+                _CHECK_CURRENT_DEFAULT_TEXT,
                 _INSTALL_CURRENT_READY_TEXT,
-                _CHECK_INSTALL_FALLBACK_TEXT,
+                _BATCH_FINALIZE_OPTIMIZATION_TEXT,
                 _REOPEN_AFTER_INSTALL_TEXT,
                 _POST_INSTALL_LOCATOR_TEXT,
             ]
@@ -520,14 +530,22 @@ def render_recipe_worker_feedback_brief(
             [
                 _VALIDATION_STATUS_FAILED_TEXT,
                 f"Draft path: `{display_draft_path}`",
+                (
+                    f"Same-session fix cycle: {max(1, int(same_session_fix_count))}/"
+                    f"{max(1, int(same_session_fix_budget))}"
+                ),
+                _SAME_SESSION_HOLD_TEXT,
                 "",
                 "Validator errors:",
                 *(rendered_errors or ["- `unknown_validation_failure`"]),
                 "",
                 "How to fix it:",
                 "- Edit the current draft, then re-run `python3 tools/recipe_worker.py check-current`.",
+                "- Do not move to another draft while this task is failing validation.",
+                "- When `check-current` is clean, run `python3 tools/recipe_worker.py install-current`.",
                 "- Open the hint path first if the brief is insufficient.",
                 "- Open the input path only if the brief and hint still leave something unresolved.",
+                f"- {_BATCH_FINALIZE_OPTIMIZATION_TEXT}",
             ]
         )
     else:
@@ -535,12 +553,14 @@ def render_recipe_worker_feedback_brief(
             [
                 _NO_REPO_WRITTEN_FEEDBACK_TEXT,
                 f"Current draft path: `{display_draft_path}`",
+                _SAME_SESSION_HOLD_TEXT,
                 "Default local loop:",
                 "- The repo already prewrote `scratch/` drafts and `scratch/_prepared_drafts.json`.",
-                "- Start with `SHARD_PACKET.md`, then use the current-task sidecars only to locate the active draft or inspect validator feedback.",
-                "- Edit the relevant drafts directly under `scratch/`.",
-                f"- {_BATCH_FINALIZE_DEFAULT_TEXT}",
-                f"- {_CHECK_INSTALL_FALLBACK_TEXT}",
+                "- Start with `SHARD_PACKET.md`, then use the current-task sidecars to locate the active draft and track validator feedback.",
+                "- Edit the active draft directly under `scratch/`.",
+                f"- {_CHECK_CURRENT_DEFAULT_TEXT}",
+                f"- {_INSTALL_CURRENT_READY_TEXT}",
+                f"- {_BATCH_FINALIZE_OPTIMIZATION_TEXT}",
                 "- `prepare-all`, `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug surfaces, not the default first move.",
             ]
         )
@@ -599,6 +619,8 @@ def write_recipe_worker_current_task_sidecars(
     validation_state: str = "pending",
     validation_errors: Sequence[str] | None = None,
     current_draft_path: str | None = None,
+    same_session_fix_count: int = 0,
+    same_session_fix_budget: int = 2,
 ) -> None:
     workspace_root = Path(workspace_root)
     rows = [dict(row) for row in task_rows if _task_id(row)]
@@ -635,6 +657,8 @@ def write_recipe_worker_current_task_sidecars(
             validation_state=validation_state,
             validation_errors=validation_errors,
             current_draft_path=current_draft_path,
+            same_session_fix_count=same_session_fix_count,
+            same_session_fix_budget=same_session_fix_budget,
         )
         + "\n",
         encoding="utf-8",
@@ -1129,6 +1153,7 @@ def check_current_recipe_worker_draft(
                 workspace_root=workspace_root,
                 path=resolved_draft_path,
             ),
+            same_session_fix_count=1,
         )
         raise
     write_recipe_worker_current_task_sidecars(
@@ -1211,25 +1236,30 @@ def render_recipe_worker_cli_script() -> str:
         NO_REPO_WRITTEN_FEEDBACK_TEXT = "No repo-written validation feedback exists yet for this task."
         VALIDATION_STATUS_OK_TEXT = "Validation status: OK."
         VALIDATION_STATUS_FAILED_TEXT = "Validation status: FAILED."
+        SAME_SESSION_HOLD_TEXT = (
+            "The repo keeps this same task active until the draft validates, the same-session "
+            "fix budget is exhausted, or the queue is complete."
+        )
+        CHECK_CURRENT_DEFAULT_TEXT = (
+            "The normal loop is: edit the active draft and run "
+            "`python3 tools/recipe_worker.py check-current` until the validator is clean."
+        )
         INSTALL_CURRENT_READY_TEXT = (
-            "You may run `python3 tools/recipe_worker.py install-current` to write the final result path."
+            "Once `check-current` is clean, run `python3 tools/recipe_worker.py install-current` "
+            "to write the final result path and let the repo advance the queue."
         )
         REOPEN_AFTER_INSTALL_TEXT = (
-            "If you use `install-current` as a single-task recovery step and another task remains, "
-            "re-open `CURRENT_TASK.md`, `current_task.json`, and `CURRENT_TASK_FEEDBACK.md` to locate "
-            "the next draft."
+            "If another task remains after `install-current`, re-open `CURRENT_TASK.md`, "
+            "`current_task.json`, and `CURRENT_TASK_FEEDBACK.md` immediately and continue with "
+            "that task."
         )
-        BATCH_FINALIZE_DEFAULT_TEXT = (
-            "The cheap happy path is to edit the prewritten `scratch/*.json` drafts and run "
-            "`python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready."
-        )
-        CHECK_INSTALL_FALLBACK_TEXT = (
-            "Use `python3 tools/recipe_worker.py check-current` and `install-current` only for "
-            "single-task validation or recovery, not as the default loop."
+        BATCH_FINALIZE_OPTIMIZATION_TEXT = (
+            "`python3 tools/recipe_worker.py finalize-all scratch/` is an optional happy-path "
+            "shortcut when the whole prepared batch is already clean."
         )
         POST_INSTALL_LOCATOR_TEXT = (
-            "If another task becomes active, the refreshed sidecars are only a locator for the next "
-            "draft; return to batch editing after that."
+            "If another task becomes active, the refreshed sidecars name the next draft and its "
+            "validator state; stay on that task until the repo advances again."
         )
         LEGACY_KEY_SUGGESTIONS = {
             "bundle_version": "v",
@@ -1503,8 +1533,8 @@ def render_recipe_worker_cli_script() -> str:
                 "# Recipe Shard Packet",
                 "",
                 "Read this file first. It is the authoritative packed shard summary for the normal recipe worker path.",
-                "The default loop is: read this packet, edit the prewritten drafts under `scratch/`, and run `python3 tools/recipe_worker.py finalize-all scratch/` once after the batch is ready.",
-                "Use `scratch/_prepared_drafts.json` as the draft inventory. Treat the current-task sidecars as active-draft locators or failure context, not the core loop.",
+                "The default loop is: read this packet, open the current-task sidecars, edit the active draft under `scratch/`, and run `python3 tools/recipe_worker.py check-current` until the validator is clean.",
+                "Use `scratch/_prepared_drafts.json` as the draft inventory. Treat `finalize-all scratch/` as a happy-path shortcut only after the current task is already clean.",
                 "Open raw `hints/*.md`, `in/*.json`, `OUTPUT_CONTRACT.md`, `examples/*.json`, or `tools/recipe_worker.py` only if this packet, the prepared-drafts manifest, and the current-task sidecars are still insufficient.",
                 "",
                 f"current_task_id: {task_id(current_task)}" if current_task is not None else "current_task_id: [none]",
@@ -1583,14 +1613,16 @@ def render_recipe_worker_cli_script() -> str:
                 [
                     "",
                     ACTIVE_ASSIGNMENT_TEXT,
+                    SAME_SESSION_HOLD_TEXT,
                     "",
                     "Recommended loop:",
-                    f"- Start with the active draft `{paths['scratch_draft_path']}`, then continue editing the prepared drafts directly under `scratch/`.",
-                    "- Use `SHARD_PACKET.md` and `scratch/_prepared_drafts.json` as the normal batch view.",
+                    f"- Start with the active draft `{paths['scratch_draft_path']}` and keep working on that same draft until the validator passes.",
+                    "- Use `SHARD_PACKET.md` and `scratch/_prepared_drafts.json` as queue context, but let `CURRENT_TASK_FEEDBACK.md` drive the current fix loop.",
                     f"- Open `{paths['hint_path']}` only if the brief or draft is still unclear.",
                     f"- Open `{paths['input_path']}` only if the draft and hint still leave something unresolved.",
-                    f"- {BATCH_FINALIZE_DEFAULT_TEXT}",
-                    f"- {CHECK_INSTALL_FALLBACK_TEXT}",
+                    f"- {CHECK_CURRENT_DEFAULT_TEXT}",
+                    f"- {INSTALL_CURRENT_READY_TEXT}",
+                    f"- {BATCH_FINALIZE_OPTIMIZATION_TEXT}",
                     f"- For obvious terminal cases, use `python3 tools/recipe_worker.py stamp-status fragmentary \\\"<reason>\\\" {paths['scratch_draft_path']}` or the same command with `not_a_recipe`.",
                     f"- {REOPEN_AFTER_INSTALL_TEXT}",
                     "",
@@ -1610,6 +1642,8 @@ def render_recipe_worker_cli_script() -> str:
             validation_state: str = "pending",
             validation_errors: list[str] | None = None,
             current_draft_path: str | None = None,
+            same_session_fix_count: int = 0,
+            same_session_fix_budget: int = 2,
         ) -> str:
             current_task = next(
                 (
@@ -1642,9 +1676,10 @@ def render_recipe_worker_cli_script() -> str:
                         VALIDATION_STATUS_OK_TEXT,
                         f"Draft path: `{display_draft_path}`",
                         f"Install target: `{paths['result_path']}`",
-                        BATCH_FINALIZE_DEFAULT_TEXT,
+                        SAME_SESSION_HOLD_TEXT,
+                        CHECK_CURRENT_DEFAULT_TEXT,
                         INSTALL_CURRENT_READY_TEXT,
-                        CHECK_INSTALL_FALLBACK_TEXT,
+                        BATCH_FINALIZE_OPTIMIZATION_TEXT,
                         REOPEN_AFTER_INSTALL_TEXT,
                         POST_INSTALL_LOCATOR_TEXT,
                     ]
@@ -1659,14 +1694,22 @@ def render_recipe_worker_cli_script() -> str:
                     [
                         VALIDATION_STATUS_FAILED_TEXT,
                         f"Draft path: `{display_draft_path}`",
+                        (
+                            f"Same-session fix cycle: {max(1, int(same_session_fix_count))}/"
+                            f"{max(1, int(same_session_fix_budget))}"
+                        ),
+                        SAME_SESSION_HOLD_TEXT,
                         "",
                         "Validator errors:",
                         *(rendered_errors or ["- `unknown_validation_failure`"]),
                         "",
                         "How to fix it:",
                         "- Edit the current draft, then re-run `python3 tools/recipe_worker.py check-current`.",
+                        "- Do not move to another draft while this task is failing validation.",
+                        "- When `check-current` is clean, run `python3 tools/recipe_worker.py install-current`.",
                         "- Open the hint path first if the brief is insufficient.",
                         "- Open the input path only if the brief and hint still leave something unresolved.",
+                        f"- {BATCH_FINALIZE_OPTIMIZATION_TEXT}",
                     ]
                 )
             else:
@@ -1674,12 +1717,14 @@ def render_recipe_worker_cli_script() -> str:
                     [
                         NO_REPO_WRITTEN_FEEDBACK_TEXT,
                         f"Current draft path: `{display_draft_path}`",
+                        SAME_SESSION_HOLD_TEXT,
                         "Default local loop:",
                         "- The repo already prewrote `scratch/` drafts and `scratch/_prepared_drafts.json`.",
-                        "- Start with `SHARD_PACKET.md`, then use the current-task sidecars only to locate the active draft or inspect validator feedback.",
-                        "- Edit the relevant drafts directly under `scratch/`.",
-                        f"- {BATCH_FINALIZE_DEFAULT_TEXT}",
-                        f"- {CHECK_INSTALL_FALLBACK_TEXT}",
+                        "- Start with `SHARD_PACKET.md`, then use the current-task sidecars to locate the active draft and track validator feedback.",
+                        "- Edit the active draft directly under `scratch/`.",
+                        f"- {CHECK_CURRENT_DEFAULT_TEXT}",
+                        f"- {INSTALL_CURRENT_READY_TEXT}",
+                        f"- {BATCH_FINALIZE_OPTIMIZATION_TEXT}",
                         "- `prepare-all`, `OUTPUT_CONTRACT.md`, `examples/*.json`, and `tools/recipe_worker.py` are fallback/debug surfaces, not the default first move.",
                     ]
                 )
@@ -2066,6 +2111,8 @@ def render_recipe_worker_cli_script() -> str:
             validation_state: str = "pending",
             validation_errors: list[str] | None = None,
             current_draft_path: str | None = None,
+            same_session_fix_count: int = 0,
+            same_session_fix_budget: int = 2,
         ) -> dict[str, Any] | None:
             current_task = next(
                 (
@@ -2097,6 +2144,8 @@ def render_recipe_worker_cli_script() -> str:
                     validation_state=validation_state,
                     validation_errors=validation_errors,
                     current_draft_path=current_draft_path,
+                    same_session_fix_count=same_session_fix_count,
+                    same_session_fix_budget=same_session_fix_budget,
                 )
                 + "\\n",
                 encoding="utf-8",
@@ -2286,6 +2335,7 @@ def render_recipe_worker_cli_script() -> str:
                             validation_state="failed",
                             validation_errors=errors,
                             current_draft_path=str(display_path),
+                            same_session_fix_count=1,
                         )
                         raise ValueError("\\n".join(errors))
                     write_current_task_sidecars(
@@ -2319,6 +2369,7 @@ def render_recipe_worker_cli_script() -> str:
                             validation_state="failed",
                             validation_errors=errors,
                             current_draft_path=str(display_path),
+                            same_session_fix_count=1,
                         )
                         raise ValueError("\\n".join(errors))
                     output_path = install_draft(workspace_root, draft_path)
@@ -2342,7 +2393,9 @@ def render_recipe_worker_cli_script() -> str:
                     if next_row is None:
                         print("Queue complete. No current task is active.")
                     else:
-                        print(BATCH_FINALIZE_DEFAULT_TEXT)
+                        print(CHECK_CURRENT_DEFAULT_TEXT)
+                        print(INSTALL_CURRENT_READY_TEXT)
+                        print(BATCH_FINALIZE_OPTIMIZATION_TEXT)
                         print(REOPEN_AFTER_INSTALL_TEXT)
                         print(POST_INSTALL_LOCATOR_TEXT)
                     return 0

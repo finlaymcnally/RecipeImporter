@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.staging.nonrecipe_stage import (
+    block_rows_for_nonrecipe_survivors,
     build_nonrecipe_stage_result,
     refine_nonrecipe_stage_result,
 )
@@ -250,3 +253,60 @@ def test_nonrecipe_stage_writes_review_exclusion_ledger(tmp_path: Path) -> None:
             "review_exclusion_reason": "front_matter",
         }
     ]
+
+
+def test_nonrecipe_stage_requires_final_label_for_every_nonrecipe_block() -> None:
+    with pytest.raises(ValueError, match="Missing final block label for non-recipe block 1"):
+        build_nonrecipe_stage_result(
+            full_blocks=[
+                {"index": 0, "block_id": "b0", "text": "Intro"},
+                {"index": 1, "block_id": "b1", "text": "Useful technique"},
+            ],
+            final_block_labels=[_block_label(0, "OTHER")],
+            recipe_spans=[],
+        )
+
+
+def test_nonrecipe_stage_rejects_invalid_final_nonrecipe_labels() -> None:
+    with pytest.raises(ValueError, match="unexpected final label 'BROKEN_LABEL'"):
+        build_nonrecipe_stage_result(
+            full_blocks=[
+                {"index": 0, "block_id": "b0", "text": "Useful technique"},
+            ],
+            final_block_labels=[_block_label(0, "BROKEN_LABEL")],
+            recipe_spans=[],
+        )
+
+
+def test_nonrecipe_survivor_rows_include_unreviewed_review_queue() -> None:
+    stage_result = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique"},
+        ],
+        final_block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id="b0",
+                source_block_index=0,
+                supporting_atomic_indices=[],
+                deterministic_label="OTHER",
+                final_label="OTHER",
+                decided_by="rule",
+                reason_tags=[],
+                review_exclusion_reason="front_matter",
+            ),
+            _block_label(1, "KNOWLEDGE"),
+        ],
+        recipe_spans=[],
+    )
+
+    rows = block_rows_for_nonrecipe_survivors(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique"},
+        ],
+        stage_result=stage_result,
+    )
+
+    assert [row["index"] for row in rows] == [1]
+    assert rows[0]["stage7_category"] == "knowledge"

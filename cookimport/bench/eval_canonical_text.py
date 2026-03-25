@@ -21,7 +21,7 @@ from cookimport.bench.eval_stage_blocks import (
     _build_projected_structural_sequences,
     _compute_error_taxonomy,
     compute_block_metrics,
-    load_stage_block_labels,
+    load_stage_block_prediction_manifest,
 )
 from cookimport.bench.segmentation_metrics import compute_segmentation_boundaries
 from cookimport.bench.sequence_matcher_select import (
@@ -1304,6 +1304,44 @@ def _build_pred_line_labels(
     }
 
 
+def _collect_unresolved_line_indices(
+    *,
+    lines: list[dict[str, Any]],
+    aligned_prediction_blocks: list[dict[str, Any]],
+    unresolved_block_indices: set[int],
+) -> list[int]:
+    if not unresolved_block_indices:
+        return []
+
+    unresolved_intervals: list[tuple[int, int]] = []
+    for block in aligned_prediction_blocks:
+        block_index = _coerce_int(block.get("block_index"))
+        if block_index is None or block_index not in unresolved_block_indices:
+            continue
+        if not bool(block.get("matched")):
+            continue
+        canonical_start = _coerce_int(block.get("canonical_start_char"))
+        canonical_end = _coerce_int(block.get("canonical_end_char"))
+        if canonical_start is None or canonical_end is None or canonical_end <= canonical_start:
+            continue
+        unresolved_intervals.append((canonical_start, canonical_end))
+
+    if not unresolved_intervals:
+        return []
+
+    unresolved_line_indices: list[int] = []
+    for line in lines:
+        line_index = int(line["line_index"])
+        line_start = int(line["start_char"])
+        line_end = int(line["end_char"])
+        if any(
+            _overlap_len(line_start, line_end, start_char, end_char) > 0
+            for start_char, end_char in unresolved_intervals
+        ):
+            unresolved_line_indices.append(line_index)
+    return unresolved_line_indices
+
+
 def _pick_primary_label(
     labels: set[str],
     *,
@@ -1397,6 +1435,7 @@ def _rows_from_line_mismatches(
 
 def format_canonical_eval_report_md(report: dict[str, Any]) -> str:
     counts = report.get("counts") or {}
+    authority_coverage = report.get("authority_coverage") or {}
     alignment = report.get("alignment") or {}
     segmentation = report.get("segmentation") or {}
     segmentation_boundaries = (
@@ -1464,7 +1503,17 @@ def format_canonical_eval_report_md(report: dict[str, Any]) -> str:
         "",
         "## Counts",
         "",
-        f"- Lines: {int(counts.get('gold_total') or 0)}",
+        f"- Scored lines: {int(counts.get('gold_total') or 0)}",
+        (
+            "- Prediction coverage: "
+            f"{float(authority_coverage.get('prediction_coverage') or 0.0):.3f} "
+            f"({int(authority_coverage.get('scored_prediction_lines') or 0)}/"
+            f"{int(authority_coverage.get('total_prediction_lines') or 0)})"
+        ),
+        (
+            "- Unresolved review-eligible lines: "
+            f"{int(authority_coverage.get('unresolved_review_eligible_lines') or 0)}"
+        ),
         f"- Correct: {int(counts.get('gold_matched') or 0)}",
         f"- Mismatched: {int(counts.get('gold_missed') or 0)}",
         "",
@@ -1507,13 +1556,13 @@ def evaluate_canonical_text(
     subphase_seconds["load_gold_seconds"] = max(0.0, time.monotonic() - load_gold_started)
 
     load_prediction_started = time.monotonic()
-    stage_labels = load_stage_block_labels(
+    prediction_manifest = load_stage_block_prediction_manifest(
         stage_predictions_json,
         resolve_howto_sections=False,
     )
     prediction_blocks = _load_prediction_blocks(
         extracted_blocks_json=extracted_blocks_json,
-        stage_labels=stage_labels,
+        stage_labels=prediction_manifest.labels,
     )
     prediction_text, prediction_block_rows = _join_blocks_with_offsets(prediction_blocks)
     subphase_seconds["load_prediction_seconds"] = max(
@@ -1550,15 +1599,33 @@ def evaluate_canonical_text(
         lines=canonical_lines,
         aligned_prediction_blocks=aligned_blocks,
     )
+    unresolved_line_indices = _collect_unresolved_line_indices(
+        lines=canonical_lines,
+        aligned_prediction_blocks=aligned_blocks,
+        unresolved_block_indices=set(prediction_manifest.unresolved_block_indices),
+    )
     subphase_seconds["line_projection_seconds"] = max(
         0.0,
         time.monotonic() - projection_started,
     )
 
     metrics_started = time.monotonic()
-    scored_indices = sorted(set(gold_line_labels) | set(pred_line_labels))
+    unresolved_line_index_set = set(unresolved_line_indices)
+    scored_indices = sorted(
+        (set(gold_line_labels) | set(pred_line_labels)) - unresolved_line_index_set
+    )
     gold_for_metrics = {index: gold_line_labels.get(index, {"OTHER"}) for index in scored_indices}
     pred_for_metrics = {index: pred_line_labels.get(index, "OTHER") for index in scored_indices}
+    scored_gold_line_labels = {
+        index: labels
+        for index, labels in gold_line_labels.items()
+        if index not in unresolved_line_index_set
+    }
+    scored_pred_line_labels = {
+        index: label
+        for index, label in pred_line_labels.items()
+        if index not in unresolved_line_index_set
+    }
 
     report = compute_block_metrics(gold_for_metrics, pred_for_metrics)
     subphase_seconds["metrics_seconds"] = max(0.0, time.monotonic() - metrics_started)
@@ -1574,6 +1641,23 @@ def evaluate_canonical_text(
         "canonical_text_path": str(canonical_text_path),
         "canonical_span_labels_path": str(canonical_spans_path),
     }
+    total_prediction_lines = len(set(gold_line_labels) | set(pred_line_labels))
+    report["authority_coverage"] = {
+        "scoring_mode": "authoritative_predictions_only",
+        "total_prediction_lines": total_prediction_lines,
+        "scored_prediction_lines": len(scored_indices),
+        "unresolved_review_eligible_lines": len(unresolved_line_indices),
+        "prediction_coverage": (
+            (len(scored_indices) / total_prediction_lines)
+            if total_prediction_lines > 0
+            else 1.0
+        ),
+        "unresolved_review_eligible_line_indices": unresolved_line_indices,
+        "unresolved_review_eligible_block_indices": prediction_manifest.unresolved_block_indices,
+        "unresolved_review_eligible_block_category_by_index": dict(
+            prediction_manifest.unresolved_block_category_by_index
+        ),
+    }
 
     stage_payload = json.loads(stage_predictions_json.read_text(encoding="utf-8"))
     report["source"] = {
@@ -1588,8 +1672,8 @@ def evaluate_canonical_text(
         projected_gold_by_index,
         projected_pred_by_index,
     ) = _build_projected_structural_sequences(
-        gold=gold_line_labels,
-        pred=pred_line_labels,
+        gold=scored_gold_line_labels,
+        pred=scored_pred_line_labels,
         label_projection=_SEGMENTATION_LABEL_PROJECTION_CORE,
     )
     segmentation = compute_segmentation_boundaries(
