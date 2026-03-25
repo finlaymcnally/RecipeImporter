@@ -40,7 +40,7 @@ _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
         "stage_order": 4,
         "stage_label": "Non-Recipe Knowledge Review",
         "stage_artifact_stem": "knowledge",
-        "default_pipeline_id": "recipe.knowledge.compact.v1",
+        "default_pipeline_id": "recipe.knowledge.packet.v1",
         "manifest_name": KNOWLEDGE_MANIFEST_FILE_NAME,
     },
 )

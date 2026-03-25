@@ -164,12 +164,11 @@ Label-first recipe-span note:
 
 1. Importers publish canonical `source_blocks` plus optional non-authoritative `source_support`; they do not own outside-recipe truth.
 2. The shared stage session builds authoritative outside-recipe ownership from that source model and writes the final Stage 7 non-recipe rows back into `ConversionResult.non_recipe_blocks`.
-3. CLI/ingest path computes chunks from those final non-recipe rows only:
+3. CLI/ingest path still can compute deterministic chunks from final non-recipe rows for fallback/debug artifact surfaces:
    - `chunks_from_non_recipe_blocks(non_recipe_blocks)`
    - table-aware enrichment and artifact writing are driven by `extract_and_annotate_tables(...)` in CLI + Label Studio ingest paths
-   - knowledge job builders also consume parser chunks (`cookimport/llm/codex_farm_knowledge_jobs.py`)
-4. Highlight extraction inside `chunks.py` still reuses the internal advice extractor from `parsing/tips.py`, but those candidates are local chunk metadata rather than a published stage `tips/` product.
-5. Writer emits chunks and optional chunk summaries.
+4. The live knowledge LLM path no longer consumes those parser chunks. `cookimport/llm/codex_farm_knowledge_jobs.py` now plans ordered review packets directly from review-eligible outside-recipe block rows and leaves semantic grouping to the model.
+5. Highlight extraction inside `chunks.py` still reuses the internal advice extractor from `parsing/tips.py`, but those candidates are local deterministic chunk metadata rather than the final knowledge-group authority surface.
 
 ## Ingredient Parsing (`cookimport/parsing/ingredients.py`)
 

@@ -4,7 +4,7 @@ from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-_BUNDLE_VERSION_V2: Literal["2"] = "2"
+_PACKET_VERSION_V1: Literal["1"] = "1"
 
 
 class SpanV1(BaseModel):
@@ -38,7 +38,7 @@ class KnowledgeCompactTableHintV1(BaseModel):
     row_index_in_table: int | None = Field(default=None, alias="r")
 
 
-class KnowledgeCompactChunkBlockV1(BaseModel):
+class KnowledgePacketBlockV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     block_index: int = Field(alias="i")
@@ -52,7 +52,7 @@ class KnowledgeCompactChunkBlockV1(BaseModel):
         return int(value)
 
 
-class KnowledgeCompactContextBlockV1(BaseModel):
+class KnowledgePacketContextBlockV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     block_index: int = Field(alias="i")
@@ -65,21 +65,14 @@ class KnowledgeCompactContextBlockV1(BaseModel):
         return int(value)
 
 
-class KnowledgeCompactBundleChunkPayloadV2(BaseModel):
+class KnowledgePacketContextPayloadV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    chunk_id: str = Field(alias="cid")
-    blocks: list[KnowledgeCompactChunkBlockV1] = Field(default_factory=list, alias="b")
+    blocks_before: list[KnowledgePacketContextBlockV1] = Field(default_factory=list, alias="p")
+    blocks_after: list[KnowledgePacketContextBlockV1] = Field(default_factory=list, alias="n")
 
 
-class KnowledgeCompactContextPayloadV1(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    blocks_before: list[KnowledgeCompactContextBlockV1] = Field(default_factory=list, alias="p")
-    blocks_after: list[KnowledgeCompactContextBlockV1] = Field(default_factory=list, alias="n")
-
-
-class KnowledgeCompactGuardrailsPayloadV1(BaseModel):
+class KnowledgePacketGuardrailsPayloadV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     context_recipe_block_indices: list[int] = Field(default_factory=list, alias="r")
@@ -94,40 +87,37 @@ class KnowledgeCompactGuardrailsPayloadV1(BaseModel):
         return value
 
 
-class KnowledgeCompactBundleJobInputV2(BaseModel):
+class KnowledgePacketJobInputV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    bundle_version: Literal["2"] = Field(default=_BUNDLE_VERSION_V2, alias="v")
-    bundle_id: str = Field(alias="bid")
-    chunks: list[KnowledgeCompactBundleChunkPayloadV2] = Field(default_factory=list, alias="c")
-    context: KnowledgeCompactContextPayloadV1 | None = Field(default=None, alias="x")
-    guardrails: KnowledgeCompactGuardrailsPayloadV1 | None = Field(default=None, alias="g")
+    packet_version: Literal["1"] = Field(default=_PACKET_VERSION_V1, alias="v")
+    packet_id: str = Field(alias="bid")
+    blocks: list[KnowledgePacketBlockV1] = Field(default_factory=list, alias="b")
+    context: KnowledgePacketContextPayloadV1 | None = Field(default=None, alias="x")
+    guardrails: KnowledgePacketGuardrailsPayloadV1 | None = Field(default=None, alias="g")
 
 
 def knowledge_input_bundle_id(payload: Mapping[str, Any] | None) -> str:
     data = payload or {}
-    return str(data.get("bid") or data.get("bundle_id") or "").strip()
+    return str(data.get("bid") or data.get("packet_id") or "").strip()
 
 
-def knowledge_input_chunks(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def knowledge_input_blocks(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     data = payload or {}
-    chunks = data.get("c")
-    if not isinstance(chunks, list):
-        chunks = data.get("chunks")
-    return [dict(item) for item in chunks if isinstance(item, dict)] if isinstance(chunks, list) else []
-
-
-def knowledge_input_chunk_id(chunk_payload: Mapping[str, Any] | None) -> str:
-    data = chunk_payload or {}
-    return str(data.get("cid") or data.get("chunk_id") or "").strip()
-
-
-def knowledge_input_blocks(chunk_payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
-    data = chunk_payload or {}
     blocks = data.get("b")
     if not isinstance(blocks, list):
         blocks = data.get("blocks")
-    return [dict(item) for item in blocks if isinstance(item, dict)] if isinstance(blocks, list) else []
+    if not isinstance(blocks, list):
+        return []
+    return [dict(item) for item in blocks if isinstance(item, dict)]
+
+
+def knowledge_input_packet_ids(payload: Mapping[str, Any] | None) -> list[str]:
+    bundle_id = knowledge_input_bundle_id(payload)
+    blocks = knowledge_input_blocks(payload)
+    if not bundle_id or not blocks:
+        return []
+    return [bundle_id]
 
 
 def knowledge_input_block_index(block_payload: Mapping[str, Any] | None) -> int | None:

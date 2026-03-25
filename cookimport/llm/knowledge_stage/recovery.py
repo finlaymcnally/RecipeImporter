@@ -953,12 +953,11 @@ def _build_knowledge_workspace_worker_prompt(
 ) -> str:
     final_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)
     reviewer_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)
-    reason_codes_text = "`, `".join(ALLOWED_KNOWLEDGE_REASON_CODES)
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "Keep only durable cooking leverage. The positive class is not broad cooking-related factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
         "",
-        "Process the repo-written ordered task queue in this workspace as small repo-owned consecutive batches. Each task owns exactly one deterministic chunk plus nearby non-authoritative context. The current working directory is already the workspace root.",
+        "Process the repo-written ordered task queue in this workspace as small repo-owned consecutive batches. Each task owns exactly one deterministic packet plus nearby non-authoritative context. The current working directory is already the workspace root.",
         "The assignment is complete only when the repo removes `current_batch.json` and the batch sidecars say no current batch is active / the queue is complete.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
@@ -974,34 +973,34 @@ def _build_knowledge_workspace_worker_prompt(
         "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, helper-source spelunking, broad inline schedulers, or one-off validators. If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`.",
         "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "10. Write one completed semantic task result file per listed batch task only. Do not work ahead on later tasks outside the current batch while the repo-owned batch still has unaccepted drafts.",
-        "11. Do not invent extra tasks, skip owned chunks, or write outside the listed `result_path` files.",
+        "11. Do not invent extra tasks, skip owned packets or blocks, or write outside the listed `result_path` files.",
         "12. Do not invent your own queue/output scheduler or rewrite repo-owned queue-control files. Reading `tools/knowledge_worker.py`, dumping `assigned_tasks.json`, or switching back to single-task helpers during an active batch are discouraged fallback moves, but the real hard boundary is queue/output bypass. The main-worker watchdog treats those bypasses as off-contract behavior and records the slower fallback moves as telemetry instead.",
         "",
         "Semantic task result contract for each assigned result path:",
         "- Write exactly one JSON object.",
         "- Use semantic field names, not the compact canonical bundle envelope.",
-        "- Top level keys: `packet_id`, `chunk_results`.",
+        "- Top level keys: `packet_id`, `block_decisions`, `idea_groups`.",
         "- `packet_id` must equal the current task row's `task_id`.",
-        "- Each task owns exactly one authoritative chunk. `chunk_results` must therefore contain exactly one row, and its `chunk_id` must match the single owned chunk in the current task row.",
-        "- Each result row uses `chunk_id`, `is_useful`, `block_decisions`, `snippets`, and required `reason_code`.",
+        "- Each task owns exactly one authoritative packet. Cover every owned block exactly once in `block_decisions`, in input order.",
+        "- `idea_groups` may be empty only when every block stays `other`.",
         "- Each block decision uses `block_index`, `category`, and optional `reviewer_category`.",
+        "- Each idea group uses `group_id`, `topic_label`, `block_indices`, and `snippets`.",
         f"- `category` must be exactly one of `{final_categories_text}`.",
         (
             f"- `reviewer_category` may be omitted or must be one of "
             f"`{reviewer_categories_text}`."
         ),
-        f"- `reason_code` must be one of `{reason_codes_text}`.",
-        "- Use `technique_or_mechanism`, `diagnostic_or_troubleshooting`, `reference_or_definition`, or `substitution_storage_or_safety` only when the chunk clearly earns preservation.",
-        "- Use `book_framing_or_marketing`, `memoir_or_scene_setting`, `navigation_or_chapter_taxonomy`, `decorative_heading_only`, `true_but_low_utility`, or `not_cooking_knowledge` when the chunk stays `other`.",
         "- If `category` is `knowledge`, `reviewer_category` must be `knowledge`.",
         (
             "- Never invent category labels such as `content`, `noise`, or `heading`; "
             "those values are invalid."
         ),
         "- Each snippet uses `body` and `evidence`; each evidence row uses `block_index` and `quote`.",
+        "- Every `knowledge` block must appear in exactly one idea group.",
+        "- No `other` block may appear in an idea group.",
         (
             "- Keep each snippet body as a short grounded extraction, not a whole-block dump, "
-            "full-chunk echo, or stitched quote list."
+            "full-packet echo, or stitched quote list."
         ),
         (
             "- Good snippet pattern: body `Use low heat to prevent curdling.` with one or "
@@ -1009,19 +1008,19 @@ def _build_knowledge_workspace_worker_prompt(
         ),
         (
             "- Bad snippet pattern: a body that restates nearly every sentence from the "
-            "owned chunk or stitches long quotes from every owned block into one snippet."
+            "owned packet or stitches long quotes from every owned block into one snippet."
         ),
-        "- The owned chunk under `c[*]` is authoritative. Nearby `x` context is informational only and must not be cited as evidence or used to expand ownership.",
+        "- The owned packet under `b[*]` is authoritative. Nearby `x` context is informational only and must not be cited as evidence or used to expand ownership.",
         "- If `check` says the task copied source prose, keep the evidence pointers and rewrite only the snippet body into a shorter grounded claim before installing.",
         "- Ask: would saving this materially improve a cook's future decisions, diagnosis, or technique?",
         "- If the text is technically true but low-value prose, generic memoir-like framing, or just navigation, keep it `other`.",
-        "- If the owned chunk mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole task `knowledge` by inertia.",
-        "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance inside the owned chunk.",
+        "- If the owned packet mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole task `knowledge` by inertia.",
+        "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance inside the owned packet.",
         "- Sentences about why the book matters, why the author teaches well, or how the writer discovered cooking are usually still `other` even when nearby blocks mention technique.",
         "- Keep all block decisions and snippet evidence on the current task row's own block indices only.",
-        "- If a chunk is not useful, still include its result row with `is_useful: false` and an empty snippet list.",
+        "- If every block is `other`, return an empty `idea_groups` list.",
         "- Treat each task row's `metadata.hint_path` file as guidance and its `metadata.input_path` file as the authoritative owned input.",
-        "- The repo will write the final canonical `v` / `bid` / `r` bundle artifact after it accepts your semantic result.",
+        "- The repo will write the final canonical `v` / `bid` / `d` / `g` bundle artifact after it accepts your semantic result.",
         "",
         "Do not return the task outputs in your final message. The authoritative result is the set of files written to the repo-declared local result paths.",
     ]
@@ -1034,66 +1033,53 @@ def _write_knowledge_worker_hint(
     shard: ShardManifestEntryV1,
 ) -> None:
     payload = _coerce_dict(shard.input_payload)
-    shard_metadata = _coerce_dict(shard.metadata)
-    chunks = list(payload.get("c") or [])
+    packet_blocks = [
+        dict(block)
+        for block in (payload.get("b") or [])
+        if isinstance(block, Mapping)
+    ]
     nearby_recipe_blocks: list[int] = []
     for value in (_coerce_dict(payload.get("g")).get("r") or []):
         try:
             nearby_recipe_blocks.append(int(value))
         except (TypeError, ValueError):
             continue
-    chunk_summaries: list[str] = []
-    heading_only_count = 0
-    prose_chunk_count = 0
-    for chunk in chunks[:12]:
-        if not isinstance(chunk, Mapping):
-            continue
-        chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
-        blocks = [block for block in (chunk.get("b") or []) if isinstance(block, Mapping)]
-        block_indices = [int(block.get("i", 0)) for block in blocks]
-        heading_levels = [int(block.get("hl", 0)) for block in blocks if block.get("hl") is not None]
-        previews = [preview_text(block.get("t"), max_chars=70) for block in blocks[:3]]
-        all_short = bool(blocks) and all(len(str(block.get("t") or "").split()) <= 6 for block in blocks)
-        has_heading = bool(heading_levels)
-        positive_cues = [
-            str(value).strip()
-            for value in (_coerce_dict(shard_metadata.get("chunk_utility_positive_cues_by_id")).get(chunk_id) or [])
-            if str(value).strip()
-        ]
-        negative_cues = [
-            str(value).strip()
-            for value in (_coerce_dict(shard_metadata.get("chunk_utility_negative_cues_by_id")).get(chunk_id) or [])
-            if str(value).strip()
-        ]
-        borderline = bool(
-            _coerce_dict(shard_metadata.get("chunk_utility_borderline_by_id")).get(chunk_id)
-        )
-        strong_negative = bool(
-            _coerce_dict(shard_metadata.get("chunk_strong_negative_utility_cue_by_id")).get(
-                chunk_id
-            )
-        )
-        profile = "mixed"
-        if has_heading and all_short:
-            profile = "heading_or_navigation_candidate"
-            heading_only_count += 1
-        elif any(len(str(block.get("t") or "").split()) >= 12 for block in blocks):
-            profile = "prose_or_reference_candidate"
-            prose_chunk_count += 1
-        chunk_summaries.append(
-            f"`{chunk_id}` blocks `{block_indices[0] if block_indices else '?'}..{block_indices[-1] if block_indices else '?'}` "
-            f"profile `{profile}` positive cues `{', '.join(positive_cues) or 'none'}` "
-            f"negative cues `{', '.join(negative_cues) or 'none'}` "
-            f"borderline `{str(borderline).lower()}` strong_negative `{str(strong_negative).lower()}` "
-            f"preview `{ ' / '.join(previews) or '[empty]' }`"
-        )
+    packet_id = str(payload.get("bid") or shard.shard_id).strip() or "[unknown packet]"
+    block_indices = [
+        int(block.get("i", 0))
+        for block in packet_blocks
+        if block.get("i") is not None
+    ]
+    heading_count = sum(1 for block in packet_blocks if block.get("hl") is not None)
+    table_hint_count = sum(1 for block in packet_blocks if isinstance(block.get("th"), Mapping))
+    preview_rows = [
+        f"`{preview_text(block.get('t'), max_chars=90)}`"
+        for block in packet_blocks[:6]
+        if preview_text(block.get("t"), max_chars=90)
+    ]
+    packet_summary = [
+        f"Packet id: `{packet_id}`",
+        (
+            f"Owned block range: `{block_indices[0]}..{block_indices[-1]}`"
+            if block_indices
+            else "Owned block range: unknown"
+        ),
+        f"Owned block count: `{len(packet_blocks)}`",
+        f"Heading rows in packet: `{heading_count}`",
+        f"Table-hint rows in packet: `{table_hint_count}`",
+        (
+            "Packet preview: " + " / ".join(preview_rows)
+            if preview_rows
+            else "Packet preview: `[empty]`"
+        ),
+    ]
     write_worker_hint_markdown(
         path,
         title=f"Knowledge review hints for {shard.shard_id}",
         summary_lines=[
             "This sidecar is worker guidance only.",
             "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
-            f"Chunk count: {len(chunks)}. Heading-heavy chunks: {heading_only_count}. Longer prose/reference chunks: {prose_chunk_count}.",
+            f"Packet id: {packet_id}. Owned blocks: {len(packet_blocks)}.",
             "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
             (
                 "Nearby recipe guardrail block indices: "
@@ -1105,15 +1091,15 @@ def _write_knowledge_worker_hint(
             (
                 "How to use this task",
                 [
-                    "Use the hint file to understand whether this owned chunk looks like front matter, navigation, headings, or genuinely useful technique/reference text.",
-                    "Use only block text from the owned chunk in `in/<shard_id>.json` as evidence in the final output. Nearby context is only for grounding.",
-                    "A short chunk can still be real knowledge if it is genuinely technical or reference-like.",
-                    "Do not keep a chunk merely because it is true or cooking-adjacent; keep it only if it would materially improve future cooking decisions.",
+                    "Use the hint file to understand the packet shape, then let the owned block text drive the judgment.",
+                    "Use only block text from the owned packet in `in/<shard_id>.json` as evidence in the final output. Nearby context is only for grounding.",
+                    "A short packet can still be real knowledge if it is genuinely technical, diagnostic, or reference-like.",
+                    "Do not keep a packet merely because it is true or cooking-adjacent; keep it only if it would materially improve future cooking decisions.",
                     "Good snippet body: a shorter grounded claim. Bad snippet body: copied evidence quote text.",
                     "Do not treat the task as finished until `python3 tools/knowledge_worker.py check-batch` passes for the active batch.",
                 ],
             ),
-            ("Chunk previews", chunk_summaries or ["No chunk previews available."]),
+            ("Packet summary", packet_summary or ["No packet summary available."]),
         ],
     )
 
@@ -1321,35 +1307,39 @@ def _preflight_knowledge_shard(
 ) -> dict[str, Any] | None:
     payload = _coerce_dict(shard.input_payload)
     owned_ids = [str(value).strip() for value in shard.owned_ids if str(value).strip()]
-    chunks = payload.get("c")
+    blocks = payload.get("b")
+    bundle_id = str(payload.get("bid") or "").strip()
     if not owned_ids:
         return {
             "reason_code": "preflight_invalid_shard_payload",
-            "reason_detail": "knowledge shard has no owned chunk ids",
+            "reason_detail": "knowledge shard has no owned packet ids",
         }
-    if not isinstance(chunks, list) or not chunks:
+    if not isinstance(blocks, list) or not blocks:
         return {
             "reason_code": "preflight_invalid_shard_payload",
-            "reason_detail": "knowledge shard has no model-facing chunks",
+            "reason_detail": "knowledge shard has no model-facing blocks",
         }
-    chunk_ids: list[str] = []
-    for chunk in chunks:
-        if not isinstance(chunk, Mapping):
+    for block in blocks:
+        if not isinstance(block, Mapping):
             return {
                 "reason_code": "preflight_invalid_shard_payload",
-                "reason_detail": "knowledge shard contains a non-object chunk payload",
+                "reason_detail": "knowledge shard contains a non-object block payload",
             }
-        chunk_id = str(chunk.get("cid") or "").strip()
-        if not chunk_id:
+        block_index = block.get("i")
+        if block_index is None:
             return {
                 "reason_code": "preflight_invalid_shard_payload",
-                "reason_detail": "knowledge shard contains a chunk without `cid`",
+                "reason_detail": "knowledge shard contains a block without `i`",
             }
-        chunk_ids.append(chunk_id)
-    if sorted(chunk_ids) != sorted(owned_ids):
+    if not bundle_id:
         return {
             "reason_code": "preflight_invalid_shard_payload",
-            "reason_detail": "knowledge shard owned ids do not match chunk payload ids",
+            "reason_detail": "knowledge shard is missing `bid`",
+        }
+    if sorted(owned_ids) != [bundle_id]:
+        return {
+            "reason_code": "preflight_invalid_shard_payload",
+            "reason_detail": "knowledge shard owned ids do not match packet payload id",
         }
     return None
 
@@ -2086,12 +2076,16 @@ def _classify_knowledge_watchdog_retry_size(
     shard: ShardManifestEntryV1,
 ) -> dict[str, Any]:
     metadata = dict(shard.metadata or {})
-    chunk_count = max(0, int(metadata.get("chunk_count") or len(shard.owned_ids)))
+    payload = _coerce_dict(shard.input_payload)
+    packet_block_count = max(
+        0,
+        int(metadata.get("owned_block_count") or metadata.get("packet_block_count") or len(payload.get("b") or [])),
+    )
     char_count = max(0, int(metadata.get("char_count") or 0))
     oversized = (
-        chunk_count > 1
+        packet_block_count > 1
         and (
-            chunk_count > _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD
+            packet_block_count > _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD
             or char_count > _KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD
         )
     )
@@ -2100,7 +2094,7 @@ def _classify_knowledge_watchdog_retry_size(
             "oversized": False,
             "reason_code": None,
             "reason_detail": None,
-            "chunk_count": chunk_count,
+            "packet_block_count": packet_block_count,
             "char_count": char_count,
         }
     return {
@@ -2108,12 +2102,12 @@ def _classify_knowledge_watchdog_retry_size(
         "reason_code": "watchdog_retry_oversized_skipped",
         "reason_detail": (
             "skipped monolithic strict JSON watchdog retry because the shard owns "
-            "multiple chunks and exceeds the retry-safe size policy "
-            f"(chunk_count={chunk_count}, char_count={char_count}, "
-            f"limits={_KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD} chunk / "
+            "multiple packet blocks and exceeds the retry-safe size policy "
+            f"(packet_block_count={packet_block_count}, char_count={char_count}, "
+            f"limits={_KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD} blocks / "
             f"{_KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD} chars)"
         ),
-        "chunk_count": chunk_count,
+        "packet_block_count": packet_block_count,
         "char_count": char_count,
     }
 
@@ -2219,13 +2213,21 @@ def _knowledge_failure_signature(
         return "schema_invalid"
     if any(error.startswith("semantic_") for error in errors):
         return "semantic_invalid"
-    if metadata.get("non_grounded_snippet_chunk_ids") or metadata.get("echoed_full_chunk_ids"):
+    if (
+        metadata.get("non_grounded_idea_group_ids")
+        or metadata.get("echoed_idea_group_ids")
+        or metadata.get("copied_quote_idea_group_ids")
+    ):
         return "semantic_low_trust"
     if errors.intersection(
         {
-            "missing_owned_chunk_results",
-            "unexpected_chunk_results",
-            "chunk_result_order_mismatch",
+            "missing_owned_block_decisions",
+            "unexpected_block_decisions",
+            "block_decision_order_mismatch",
+            "knowledge_block_missing_group",
+            "knowledge_block_group_conflict",
+            "group_contains_other_block",
+            "idea_group_out_of_surface",
         }
     ):
         return "coverage_mismatch"
@@ -2285,23 +2287,26 @@ def _build_knowledge_watchdog_example(
 ) -> dict[str, Any] | None:
     if not isinstance(payload, Mapping):
         return None
-    result_rows = payload.get("r")
-    if not isinstance(result_rows, list):
-        return None
-    compact_rows = [
-        dict(row_payload)
-        for row_payload in result_rows[:2]
-        if isinstance(row_payload, Mapping)
-    ]
-    if not compact_rows:
+    block_decisions = payload.get("d")
+    idea_groups = payload.get("g")
+    if not isinstance(block_decisions, list) or not isinstance(idea_groups, list):
         return None
     return {
         "shard_id": shard.shard_id,
         "owned_ids": list(shard.owned_ids),
         "output": {
-            "v": str(payload.get("v") or "2"),
+            "v": str(payload.get("v") or "3"),
             "bid": str(payload.get("bid") or shard.shard_id),
-            "r": compact_rows,
+            "d": [
+                dict(row_payload)
+                for row_payload in block_decisions[:8]
+                if isinstance(row_payload, Mapping)
+            ],
+            "g": [
+                dict(row_payload)
+                for row_payload in idea_groups[:3]
+                if isinstance(row_payload, Mapping)
+            ],
         },
     }
 
@@ -2309,18 +2314,18 @@ def _build_knowledge_watchdog_example(
 def _is_pathological_knowledge_response_text(
     response_text: str,
     *,
-    owned_chunk_count: int,
-    returned_chunk_count: int,
+    owned_block_count: int,
+    returned_decision_count: int,
 ) -> bool:
     cleaned = str(response_text or "")
     if not cleaned.strip():
         return False
     if re.search(rf"\s{{{_KNOWLEDGE_PATHOLOGICAL_WHITESPACE_RUN},}}", cleaned):
         return True
-    effective_rows = max(1, int(returned_chunk_count or 0))
+    effective_rows = max(1, int(returned_decision_count or 0))
     chars_per_row = len(cleaned) / effective_rows
     if (
-        int(owned_chunk_count or 0) > effective_rows
+        int(owned_block_count or 0) > effective_rows
         and chars_per_row >= _KNOWLEDGE_PATHOLOGICAL_CHARS_PER_RETURNED_ROW
     ):
         return True
@@ -2337,25 +2342,26 @@ def _should_retry_knowledge_shard_split(
 ) -> bool:
     if proposal_status != "invalid":
         return False
-    if len(shard.owned_ids) <= 1:
+    owned_block_count = int(validation_metadata.get("owned_block_count") or 0)
+    if owned_block_count <= 1:
         return False
     errors = {str(error) for error in validation_errors}
     if not errors.intersection(
         {
-            "missing_owned_chunk_results",
-            "unexpected_chunk_results",
+            "missing_owned_block_decisions",
+            "unexpected_block_decisions",
             "response_json_invalid",
             "response_not_json_object",
         }
     ):
         return False
-    returned_chunk_count = int(validation_metadata.get("result_chunk_count") or 0)
-    if "missing_owned_chunk_results" in errors and returned_chunk_count < len(shard.owned_ids):
+    returned_decision_count = int(validation_metadata.get("result_block_decision_count") or 0)
+    if "missing_owned_block_decisions" in errors and returned_decision_count < owned_block_count:
         return True
     return _is_pathological_knowledge_response_text(
         str(response_text or ""),
-        owned_chunk_count=len(shard.owned_ids),
-        returned_chunk_count=returned_chunk_count,
+        owned_block_count=max(1, owned_block_count),
+        returned_decision_count=max(1, returned_decision_count),
     )
 
 
@@ -2366,8 +2372,8 @@ def _split_failed_knowledge_shard_for_retry(
     max_retry_chars: int,
 ) -> tuple[ShardManifestEntryV1, ...]:
     payload = _coerce_dict(shard.input_payload)
-    chunks = payload.get("c")
-    if not isinstance(chunks, list):
+    blocks = [dict(block) for block in (payload.get("b") or []) if isinstance(block, Mapping)]
+    if not blocks:
         return ()
     normalized_max_chunks = max(1, int(max_retry_chunk_count or 1))
     normalized_max_chars = max(1, int(max_retry_chars or 1))
@@ -2381,31 +2387,23 @@ def _split_failed_knowledge_shard_for_retry(
         retry_index = len(retry_shards) + 1
         retry_shard_id = f"{shard.shard_id}.retry{retry_index:02d}"
         retry_payload: dict[str, Any] = {
-            "v": str(payload.get("v") or "2"),
+            "v": str(payload.get("v") or "1"),
             "bid": retry_shard_id,
-            "c": [dict(chunk_payload) for chunk_payload in group],
+            "b": [dict(block) for block in group],
         }
         if "x" in payload:
             retry_payload["x"] = payload["x"]
         if "g" in payload:
             retry_payload["g"] = payload["g"]
-        owned_ids = tuple(
-            str(chunk_payload.get("cid") or "").strip()
-            for chunk_payload in group
-            if str(chunk_payload.get("cid") or "").strip()
-        )
+        owned_ids = (retry_shard_id,)
         owned_block_indices = sorted(
-            {
-                int(block.get("i"))
-                for chunk_payload in group
-                for block in (chunk_payload.get("b") or [])
-                if isinstance(block, Mapping) and block.get("i") is not None
-            }
+            int(block.get("i"))
+            for block in group
+            if isinstance(block, Mapping) and block.get("i") is not None
         )
         char_count = sum(
             len(str(block.get("t") or ""))
-            for chunk_payload in group
-            for block in (chunk_payload.get("b") or [])
+            for block in group
             if isinstance(block, Mapping)
         )
         retry_shards.append(
@@ -2416,9 +2414,9 @@ def _split_failed_knowledge_shard_for_retry(
                 input_payload=retry_payload,
                 metadata={
                     **dict(shard.metadata or {}),
-                    "ordered_chunk_ids": list(owned_ids),
+                    "ordered_packet_ids": list(owned_ids),
                     "owned_block_indices": list(owned_block_indices),
-                    "chunk_count": len(owned_ids),
+                    "packet_count": len(owned_ids),
                     "char_count": char_count,
                     "retry_parent_shard_id": shard.shard_id,
                     **_subset_knowledge_shard_metadata(
@@ -2429,24 +2427,17 @@ def _split_failed_knowledge_shard_for_retry(
             )
         )
 
-    for raw_chunk in chunks:
-        if not isinstance(raw_chunk, Mapping):
-            continue
-        chunk_payload = dict(raw_chunk)
-        chunk_char_count = sum(
-            len(str(block.get("t") or ""))
-            for block in (chunk_payload.get("b") or [])
-            if isinstance(block, Mapping)
-        )
+    for block in blocks:
+        block_char_count = len(str(block.get("t") or ""))
         if current_group and (
             len(current_group) >= normalized_max_chunks
-            or current_group_chars + chunk_char_count > normalized_max_chars
+            or current_group_chars + block_char_count > normalized_max_chars
         ):
             _flush_group(current_group)
             current_group = []
             current_group_chars = 0
-        current_group.append(chunk_payload)
-        current_group_chars += chunk_char_count
+        current_group.append(dict(block))
+        current_group_chars += block_char_count
     _flush_group(current_group)
     return tuple(retry_shards)
 
@@ -2496,8 +2487,12 @@ def _should_attempt_knowledge_repair(
         "response_json_invalid",
         "response_not_json_object",
         "schema_invalid",
-        "missing_owned_chunk_results",
-        "unexpected_chunk_results",
+        "missing_owned_block_decisions",
+        "unexpected_block_decisions",
+        "block_decision_order_mismatch",
+        "knowledge_block_missing_group",
+        "knowledge_block_group_conflict",
+        "group_contains_other_block",
     }
     return bool(set(validation_errors).intersection(repairable_errors))
 
@@ -2664,7 +2659,7 @@ def _build_knowledge_watchdog_retry_prompt(
     reason_detail: str,
     successful_examples: Sequence[Mapping[str, Any]],
 ) -> str:
-    owned_ids = ", ".join(str(chunk_id) for chunk_id in shard.owned_ids)
+    owned_ids = ", ".join(str(packet_id) for packet_id in shard.owned_ids)
     example_rows = [
         json.dumps(dict(example_payload), ensure_ascii=False, sort_keys=True)
         for example_payload in successful_examples[:_KNOWLEDGE_COHORT_WATCHDOG_MAX_EXAMPLES]
@@ -2689,10 +2684,10 @@ def _build_knowledge_watchdog_retry_prompt(
         "- Do not run shell commands, Python, or any other tools.\n"
         "- The first emitted character must be `{`.\n"
         f"- `bid` must be `{shard.shard_id}`.\n"
-        "- Return exactly one result row for each owned chunk id.\n"
-        f"- Owned chunk ids: {owned_ids}\n"
+        "- Return one packet result covering the owned block surface exactly once.\n"
+        f"- Owned packet ids: {owned_ids}\n"
         "- Keep only durable cooking leverage; technically true but low-value prose stays `other`.\n"
-        "- Preserve chunk-local evidence and do not invent synthetic ids.\n\n"
+        "- Preserve packet-local evidence and do not invent synthetic ids.\n\n"
         f"Previous stop reason: {reason_code or '[unknown]'}\n"
         f"Reason detail: {reason_detail or '[none recorded]'}\n\n"
         "Successful sibling examples:\n"
@@ -2713,10 +2708,10 @@ def _build_knowledge_repair_prompt(
     validation_errors: Sequence[str],
     validation_metadata: Mapping[str, Any],
 ) -> str:
-    owned_ids = ", ".join(str(chunk_id) for chunk_id in shard.owned_ids)
-    missing_ids = ", ".join(
-        str(chunk_id)
-        for chunk_id in (validation_metadata.get("missing_owned_chunk_ids") or [])
+    owned_ids = ", ".join(str(packet_id) for packet_id in shard.owned_ids)
+    missing_indices = ", ".join(
+        str(block_index)
+        for block_index in (validation_metadata.get("missing_owned_block_indices") or [])
     )
     authoritative_input = json.dumps(
         _coerce_dict(shard.input_payload),
@@ -2732,12 +2727,12 @@ def _build_knowledge_repair_prompt(
         "- Do not run shell commands, Python, or any other tools.\n"
         "- The first emitted character must be `{`.\n"
         f"- `bid` must be `{shard.shard_id}`.\n"
-        "- Return exactly one result row for each owned chunk id.\n"
-        f"- Owned chunk ids: {owned_ids}\n"
+        "- Return one packet result covering the owned block surface exactly once.\n"
+        f"- Owned packet ids: {owned_ids}\n"
         "- Keep only durable cooking leverage; technically true but low-value prose stays `other`.\n"
-        "- Preserve chunk-local evidence and do not invent synthetic ids.\n\n"
+        "- Preserve packet-local evidence and do not invent synthetic ids.\n\n"
         f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
-        f"Missing owned chunk ids: {missing_ids or '[none recorded]'}\n\n"
+        f"Missing owned block indices: {missing_indices or '[none recorded]'}\n\n"
         "Authoritative shard input:\n"
         "<BEGIN_INPUT_JSON>\n"
         f"{authoritative_input}\n"
@@ -2756,10 +2751,14 @@ def _build_knowledge_snippet_repair_prompt(
     validation_errors: Sequence[str],
     validation_metadata: Mapping[str, Any],
 ) -> str:
-    owned_ids = ", ".join(str(chunk_id) for chunk_id in shard.owned_ids)
-    echoed_chunk_ids = ", ".join(
-        str(chunk_id)
-        for chunk_id in (validation_metadata.get("echoed_full_chunk_ids") or [])
+    owned_ids = ", ".join(str(packet_id) for packet_id in shard.owned_ids)
+    echoed_group_ids = ", ".join(
+        str(group_id)
+        for group_id in (
+            validation_metadata.get("echoed_idea_group_ids")
+            or validation_metadata.get("copied_quote_idea_group_ids")
+            or []
+        )
     )
     authoritative_input = json.dumps(
         _coerce_dict(shard.input_payload),
@@ -2775,15 +2774,15 @@ def _build_knowledge_snippet_repair_prompt(
         "- Do not run shell commands, Python, or any other tools.\n"
         "- The first emitted character must be `{`.\n"
         f"- `bid` must be `{shard.shard_id}`.\n"
-        "- Return exactly one result row for each owned chunk id.\n"
-        f"- Owned chunk ids: {owned_ids}\n"
+        "- Return one packet result covering the owned block surface exactly once.\n"
+        f"- Owned packet ids: {owned_ids}\n"
         "- Keep the existing durable-utility judgment. Do not widen the semantic bar back to generic cooking facts.\n"
-        "- Preserve every existing `chunk_id`, `is_useful`, `block_decisions`, `reason_code`, and evidence pointer.\n"
-        "- Rewrite only `snippets[*].body`.\n"
+        "- Preserve every existing `block_decisions`, `idea_groups[*].block_indices`, and evidence pointer.\n"
+        "- Rewrite only `idea_groups[*].snippets[*].body`.\n"
         "- Each rewritten snippet body must be a short grounded extraction, not copied evidence prose.\n"
         "- Do not add new snippets, drop snippets, or change evidence quotes.\n\n"
         f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
-        f"Copied-snippet chunk ids: {echoed_chunk_ids or '[none recorded]'}\n\n"
+        f"Copied-snippet idea group ids: {echoed_group_ids or '[none recorded]'}\n\n"
         "Authoritative shard input:\n"
         "<BEGIN_INPUT_JSON>\n"
         f"{authoritative_input}\n"

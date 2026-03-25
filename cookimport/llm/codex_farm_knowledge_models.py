@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-_BUNDLE_VERSION_V2: Literal["2"] = "2"
+_BUNDLE_VERSION_V3: Literal["3"] = "3"
 ALLOWED_KNOWLEDGE_FINAL_CATEGORIES: tuple[str, ...] = ("knowledge", "other")
 ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES: tuple[str, ...] = (
     "knowledge",
@@ -35,26 +35,6 @@ _REASON_CODE_ALIASES: dict[str, str] = {
     "grounded_useful": "technique_or_mechanism",
     "all_other": "not_cooking_knowledge",
 }
-_USEFUL_REASON_CODES = frozenset(
-    {
-        "technique_or_mechanism",
-        "diagnostic_or_troubleshooting",
-        "reference_or_definition",
-        "substitution_storage_or_safety",
-    }
-)
-_NON_USEFUL_REASON_CODES = frozenset(
-    {
-        "book_framing_or_marketing",
-        "memoir_or_scene_setting",
-        "navigation_or_chapter_taxonomy",
-        "decorative_heading_only",
-        "true_but_low_utility",
-        "not_cooking_knowledge",
-        "review_not_completed",
-        "strong_cue_review_required",
-    }
-)
 
 
 def normalize_knowledge_reason_code(value: object) -> str | None:
@@ -157,9 +137,62 @@ class KnowledgeChunkResultV2(BaseModel):
     def _normalize_chunk_id(cls, value: object) -> object:
         return str(value).strip()
 
+
+class KnowledgeIdeaGroupV1(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    group_id: str = Field(alias="gid")
+    topic_label: str = Field(alias="l")
+    block_indices: list[int] = Field(default_factory=list, alias="bi")
+    snippets: list[KnowledgeSnippetV1] = Field(default_factory=list, alias="s")
+
+    @field_validator("group_id", "topic_label", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: object) -> object:
+        if value is None:
+            return value
+        return str(value).strip()
+
+    @field_validator("block_indices", mode="before")
+    @classmethod
+    def _coerce_block_indices(cls, value: object) -> object:
+        if value is None:
+            return []
+        return [int(item) for item in value]
+
+    @field_validator("block_indices")
+    @classmethod
+    def _require_unique_block_indices(cls, value: list[int]) -> list[int]:
+        if not value:
+            raise ValueError("idea_groups must include at least one block index.")
+        if len(set(value)) != len(value):
+            raise ValueError("idea_groups must not repeat block indices.")
+        return value
+
+    @field_validator("snippets")
+    @classmethod
+    def _require_snippets(cls, value: list[KnowledgeSnippetV1]) -> list[KnowledgeSnippetV1]:
+        if not value:
+            raise ValueError("idea_groups must include at least one snippet.")
+        return value
+
+
+class KnowledgeBundleOutputV2(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    bundle_version: Literal["3"] = Field(default=_BUNDLE_VERSION_V3, alias="v")
+    bundle_id: str = Field(alias="bid")
+    block_decisions: list[KnowledgeBlockDecisionV1] = Field(default_factory=list, alias="d")
+    idea_groups: list[KnowledgeIdeaGroupV1] = Field(default_factory=list, alias="g")
+
+    @field_validator("bundle_id", mode="before")
+    @classmethod
+    def _normalize_bundle_id(cls, value: object) -> object:
+        return str(value).strip()
+
     @field_validator("block_decisions")
     @classmethod
-    def _require_unique_block_indices(
+    def _require_unique_block_decisions(
         cls, value: list[KnowledgeBlockDecisionV1]
     ) -> list[KnowledgeBlockDecisionV1]:
         seen: set[int] = set()
@@ -172,56 +205,29 @@ class KnowledgeChunkResultV2(BaseModel):
             seen.add(decision.block_index)
         return value
 
-    @model_validator(mode="after")
-    def _validate_usefulness_consistency(self) -> "KnowledgeChunkResultV2":
-        has_knowledge_decision = any(
-            decision.category == "knowledge" for decision in self.block_decisions
-        )
-        has_snippets = bool(self.snippets)
-        if self.is_useful:
-            if not has_knowledge_decision:
-                raise ValueError(
-                    "useful chunk results must include at least one knowledge block decision."
-                )
-            if not has_snippets:
-                raise ValueError("useful chunk results must include at least one snippet.")
-            return self
-        if has_knowledge_decision:
-            raise ValueError(
-                "non-useful chunk results must not include knowledge block decisions."
-            )
-        if has_snippets:
-            raise ValueError("non-useful chunk results must not include snippets.")
-        return self
-
-
-class KnowledgeBundleOutputV2(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="forbid")
-
-    bundle_version: Literal["2"] = Field(default=_BUNDLE_VERSION_V2, alias="v")
-    bundle_id: str = Field(alias="bid")
-    chunk_results: list[KnowledgeChunkResultV2] = Field(default_factory=list, alias="r")
-
-    @field_validator("bundle_id", mode="before")
+    @field_validator("idea_groups")
     @classmethod
-    def _normalize_bundle_id(cls, value: object) -> object:
-        return str(value).strip()
-
-    @field_validator("chunk_results")
-    @classmethod
-    def _require_unique_chunk_ids(
-        cls, value: list[KnowledgeChunkResultV2]
-    ) -> list[KnowledgeChunkResultV2]:
+    def _require_unique_group_ids(
+        cls, value: list[KnowledgeIdeaGroupV1]
+    ) -> list[KnowledgeIdeaGroupV1]:
         seen: set[str] = set()
-        for result in value:
-            if result.chunk_id in seen:
-                raise ValueError(
-                    "chunk_results must not repeat chunk_id "
-                    f"{result.chunk_id!r}."
-                )
-            seen.add(result.chunk_id)
+        for group in value:
+            if group.group_id in seen:
+                raise ValueError(f"idea_groups must not repeat group_id {group.group_id!r}.")
+            seen.add(group.group_id)
         return value
 
+    @property
+    def is_useful(self) -> bool:
+        return bool(self.idea_groups)
+
+    @property
+    def snippets(self) -> list[KnowledgeSnippetV1]:
+        return [
+            snippet
+            for group in self.idea_groups
+            for snippet in group.snippets
+        ]
 
 class KnowledgeSemanticEvidenceV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -303,124 +309,61 @@ class KnowledgeSemanticBlockDecisionV1(BaseModel):
         return self
 
 
-class KnowledgeSemanticChunkResultV1(BaseModel):
+class KnowledgeSemanticIdeaGroupV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    chunk_id: str
-    is_useful: bool
-    block_decisions: list[KnowledgeSemanticBlockDecisionV1] = Field(default_factory=list)
+    group_id: str
+    topic_label: str
+    block_indices: list[int] = Field(default_factory=list)
     snippets: list[KnowledgeSemanticSnippetV1] = Field(default_factory=list)
-    reason_code: str | None = None
 
-    @field_validator("chunk_id", mode="before")
+    @field_validator("group_id", "topic_label", mode="before")
     @classmethod
-    def _normalize_chunk_id(cls, value: object) -> object:
+    def _normalize_text(cls, value: object) -> object:
+        if value is None:
+            return value
         return str(value).strip()
 
-    @field_validator("reason_code", mode="before")
+    @field_validator("block_indices", mode="before")
     @classmethod
-    def _normalize_reason_code(cls, value: object) -> object:
-        return normalize_knowledge_reason_code(value)
-
-    @field_validator("block_decisions")
-    @classmethod
-    def _require_unique_block_indices(
-        cls, value: list[KnowledgeSemanticBlockDecisionV1]
-    ) -> list[KnowledgeSemanticBlockDecisionV1]:
-        seen: set[int] = set()
-        for decision in value:
-            if decision.block_index in seen:
-                raise ValueError(
-                    "block_decisions must not repeat block_index "
-                    f"{decision.block_index}."
-                )
-            seen.add(decision.block_index)
-        return value
-
-    @model_validator(mode="after")
-    def _validate_usefulness_consistency(self) -> "KnowledgeSemanticChunkResultV1":
-        has_knowledge_decision = any(
-            decision.category == "knowledge" for decision in self.block_decisions
-        )
-        has_snippets = bool(self.snippets)
-        if self.reason_code is None:
-            raise ValueError("chunk results must include a utility-focused reason_code.")
-        if self.reason_code not in ALLOWED_KNOWLEDGE_REASON_CODES:
-            raise ValueError(
-                "reason_code must be one of "
-                + ", ".join(repr(code) for code in ALLOWED_KNOWLEDGE_REASON_CODES)
-                + f"; got {self.reason_code!r}."
-            )
-        if self.is_useful:
-            if not has_knowledge_decision:
-                raise ValueError(
-                    "useful chunk results must include at least one knowledge block decision."
-                )
-            if not has_snippets:
-                raise ValueError("useful chunk results must include at least one snippet.")
-            if self.reason_code not in _USEFUL_REASON_CODES:
-                raise ValueError(
-                    "useful chunk reason_code must describe durable cooking leverage."
-                )
-            return self
-        if has_knowledge_decision:
-            raise ValueError(
-                "non-useful chunk results must not include knowledge block decisions."
-            )
-        if has_snippets:
-            raise ValueError("non-useful chunk results must not include snippets.")
-        if self.reason_code not in _NON_USEFUL_REASON_CODES:
-            raise ValueError(
-                "non-useful chunk reason_code must describe why the chunk is not worth keeping."
-            )
-        return self
+    def _coerce_block_indices(cls, value: object) -> object:
+        if value is None:
+            return []
+        return [int(item) for item in value]
 
 
 class KnowledgePacketSemanticResultV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     packet_id: str
-    chunk_results: list[KnowledgeSemanticChunkResultV1] = Field(default_factory=list)
+    block_decisions: list[KnowledgeSemanticBlockDecisionV1] = Field(default_factory=list)
+    idea_groups: list[KnowledgeSemanticIdeaGroupV1] = Field(default_factory=list)
 
     @field_validator("packet_id", mode="before")
     @classmethod
     def _normalize_packet_id(cls, value: object) -> object:
         return str(value).strip()
 
-    @field_validator("chunk_results")
-    @classmethod
-    def _require_unique_chunk_ids(
-        cls, value: list[KnowledgeSemanticChunkResultV1]
-    ) -> list[KnowledgeSemanticChunkResultV1]:
-        seen: set[str] = set()
-        for result in value:
-            if result.chunk_id in seen:
-                raise ValueError(
-                    "chunk_results must not repeat chunk_id "
-                    f"{result.chunk_id!r}."
-                )
-            seen.add(result.chunk_id)
-        return value
-
 
 def serialize_canonical_knowledge_packet(
     result: KnowledgePacketSemanticResultV1,
 ) -> dict[str, object]:
     return {
-        "v": _BUNDLE_VERSION_V2,
+        "v": _BUNDLE_VERSION_V3,
         "bid": result.packet_id,
-        "r": [
+        "d": [
             {
-                "cid": chunk_result.chunk_id,
-                "u": chunk_result.is_useful,
-                "d": [
-                    {
-                        "i": decision.block_index,
-                        "c": decision.category,
-                        "rc": decision.reviewer_category,
-                    }
-                    for decision in chunk_result.block_decisions
-                ],
+                "i": decision.block_index,
+                "c": decision.category,
+                "rc": decision.reviewer_category,
+            }
+            for decision in result.block_decisions
+        ],
+        "g": [
+            {
+                "gid": group.group_id,
+                "l": group.topic_label,
+                "bi": list(group.block_indices),
                 "s": [
                     {
                         "b": snippet.body,
@@ -432,9 +375,9 @@ def serialize_canonical_knowledge_packet(
                             for evidence in snippet.evidence
                         ],
                     }
-                    for snippet in chunk_result.snippets
+                    for snippet in group.snippets
                 ],
             }
-            for chunk_result in result.chunk_results
+            for group in result.idea_groups
         ],
     }

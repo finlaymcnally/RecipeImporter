@@ -650,7 +650,13 @@ def test_workspace_supervision_pushes_advanced_current_task_bundle_back_to_execu
             encoding="utf-8",
         )
     (execution_root / "out" / "task-001.json").write_text(
-        json.dumps({"packet_id": "task-001", "chunk_results": []}),
+        json.dumps(
+            {
+                "packet_id": "task-001",
+                "block_decisions": [],
+                "idea_groups": [],
+            }
+        ),
         encoding="utf-8",
     )
 

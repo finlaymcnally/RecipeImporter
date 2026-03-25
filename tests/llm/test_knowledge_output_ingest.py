@@ -16,277 +16,131 @@ from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 
 def _semantic_packet_payload(
     *,
-    packet_id: str,
-    chunk_id: str,
-    block_indices: list[int],
-    useful: bool = True,
-    snippet_body: str = "Keep whisking.",
-    evidence_quote: str = "Keep whisking",
-    snippets: list[dict[str, object]] | None = None,
+    packet_id: str = "book.kp0000.nr",
+    block_decisions: list[dict[str, object]] | None = None,
+    idea_groups: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
-    block_decisions = [
-        {
-            "block_index": block_index,
-            "category": "knowledge" if useful else "other",
-        }
-        for block_index in block_indices
-    ]
     return {
         "packet_id": packet_id,
-        "chunk_results": [
+        "block_decisions": block_decisions
+        if block_decisions is not None
+        else [
+            {"block_index": 4, "category": "knowledge"},
+            {"block_index": 5, "category": "other"},
+        ],
+        "idea_groups": idea_groups
+        if idea_groups is not None
+        else [
             {
-                "chunk_id": chunk_id,
-                "is_useful": useful,
-                "block_decisions": block_decisions,
-                "snippets": (
-                    snippets
-                    if snippets is not None
-                    else (
-                        [
-                            {
-                                "body": snippet_body,
-                                "evidence": [
-                                    {
-                                        "block_index": block_indices[0],
-                                        "quote": evidence_quote,
-                                    }
-                                ],
-                            }
-                        ]
-                        if useful
-                        else []
-                    )
-                ),
-                "reason_code": (
-                    "technique_or_mechanism"
-                    if useful
-                    else "not_cooking_knowledge"
-                ),
+                "group_id": "idea-1",
+                "topic_label": "Whisking keeps the sauce smooth",
+                "block_indices": [4],
+                "snippets": [
+                    {
+                        "body": "Keep whisking so the sauce stays smooth.",
+                        "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
+                    }
+                ],
             }
         ],
     }
 
 
-def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() -> None:
-    payload, metadata = normalize_knowledge_worker_payload(
-        _semantic_packet_payload(
-            packet_id="book.ks0099.nr.task-001",
-            chunk_id="book.c0099.nr",
-            block_indices=[4, 5],
-        )
+def _shard(
+    *,
+    shard_id: str = "book.kp0000.nr",
+    owned_block_indices: list[int] | None = None,
+) -> ShardManifestEntryV1:
+    block_indices = owned_block_indices or [4, 5]
+    input_payload = {
+        "v": "1",
+        "bid": shard_id,
+        "b": [
+            {
+                "i": block_index,
+                "t": (
+                    "Keep whisking"
+                    if block_index == 4
+                    else "Advertisement copy that should stay other"
+                ),
+            }
+            for block_index in block_indices
+        ],
+    }
+    return ShardManifestEntryV1(
+        shard_id=shard_id,
+        owned_ids=(shard_id,),
+        input_payload=input_payload,
+        metadata={"owned_block_indices": block_indices},
     )
 
-    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
-    assert metadata["reason_code_by_chunk_id"] == {
-        "book.c0099.nr": "technique_or_mechanism"
-    }
-    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() -> None:
+    payload, metadata = normalize_knowledge_worker_payload(_semantic_packet_payload())
+
     assert payload == {
-        "v": "2",
-        "bid": "book.ks0099.nr.task-001",
-        "r": [
+        "v": "3",
+        "bid": "book.kp0000.nr",
+        "d": [
+            {"i": 4, "c": "knowledge", "rc": "knowledge"},
+            {"i": 5, "c": "other", "rc": "other"},
+        ],
+        "g": [
             {
-                "cid": "book.c0099.nr",
-                "u": True,
-                "d": [
-                    {"i": 4, "c": "knowledge", "rc": "knowledge"},
-                    {"i": 5, "c": "knowledge", "rc": "knowledge"},
-                ],
+                "gid": "idea-1",
+                "l": "Whisking keeps the sauce smooth",
+                "bi": [4],
                 "s": [
                     {
-                        "b": "Keep whisking.",
+                        "b": "Keep whisking so the sauce stays smooth.",
                         "e": [{"i": 4, "q": "Keep whisking"}],
                     }
                 ],
             }
         ],
     }
+    assert metadata["worker_output_contract"] == "semantic_packet_result_v2"
 
 
-def test_normalize_knowledge_worker_payload_rejects_removed_semantic_category_aliases() -> None:
-    with pytest.raises(ValueError, match="semantic packet result v1 contract"):
-        normalize_knowledge_worker_payload(
-            {
-                "packet_id": "book.ks0099.nr.task-002",
-                "chunk_results": [
-                    {
-                        "chunk_id": "book.c0100.nr",
-                        "is_useful": True,
-                        "reason_code": "technique_or_mechanism",
-                        "block_decisions": [
-                            {"block_index": 8, "category": "content"},
-                            {"block_index": 9, "category": "heading"},
-                            {
-                                "block_index": 10,
-                                "category": "noise",
-                                "reviewer_category": "front_matter",
-                            },
-                        ],
-                        "snippets": [
-                            {
-                                "body": "Use enough salt to wake up the stew.",
-                                "evidence": [
-                                    {
-                                        "block_index": 8,
-                                        "quote": "Use enough salt to wake up the stew.",
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            }
-        )
+def test_normalize_knowledge_worker_payload_accepts_canonical_packet_output() -> None:
+    payload, metadata = normalize_knowledge_worker_payload(
+        {
+            "v": "3",
+            "bid": "book.kp0001.nr",
+            "d": [{"i": 8, "c": "other", "rc": "other"}],
+            "g": [],
+        }
+    )
 
-
-def test_normalize_knowledge_worker_payload_rejects_removed_canonical_bundle_contract() -> None:
-    with pytest.raises(ValueError, match="semantic packet result v1 contract"):
-        normalize_knowledge_worker_payload(
-            {
-                "v": "2",
-                "bid": "book.ks0099.nr",
-                "r": [
-                    {
-                        "cid": "book.c0099.nr",
-                        "u": True,
-                        "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
-                        "s": [
-                            {
-                                "b": "Keep whisking.",
-                                "e": [{"i": 4, "q": "Keep whisking"}],
-                            }
-                        ],
-                    },
-                    {
-                        "cid": "book.c0100.nr",
-                        "u": False,
-                        "d": [{"i": 5, "c": "other", "rc": "other"}],
-                        "s": [],
-                    },
-                ],
-            }
-        )
+    assert payload["bid"] == "book.kp0001.nr"
+    assert payload["d"] == [{"i": 8, "c": "other", "rc": "other"}]
+    assert "g" not in payload
+    assert "v" not in payload
+    assert metadata["worker_output_contract"] == "canonical_packet_result_v3"
 
 
 def test_validate_knowledge_shard_output_accepts_semantic_packet_result() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0099.nr.task-001",
-            owned_ids=("book.c0099.nr",),
-            metadata={
-                "owned_block_indices": [4, 5],
-                "ordered_chunk_ids": ["book.c0099.nr"],
-                "chunk_block_indices_by_id": {"book.c0099.nr": [4, 5]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0099.nr.task-001",
-            chunk_id="book.c0099.nr",
-            block_indices=[4, 5],
-        ),
+        _shard(),
+        _semantic_packet_payload(),
     )
 
     assert valid is True
     assert errors == ()
-    assert metadata["worker_output_contract"] == "semantic_packet_result_v1"
-    assert metadata["bundle_id"] == "book.ks0099.nr.task-001"
-    assert metadata["result_chunk_count"] == 1
-    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
+    assert metadata["bundle_id"] == "book.kp0000.nr"
+    assert metadata["result_block_decision_count"] == 2
+    assert metadata["idea_group_count"] == 1
 
 
-def test_validate_knowledge_shard_output_rejects_removed_semantic_category_aliases() -> None:
+def test_validate_knowledge_shard_output_rejects_removed_chunk_result_contract() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0099.nr.task-002",
-            owned_ids=("book.c0100.nr",),
-            metadata={
-                "owned_block_indices": [8, 9],
-                "ordered_chunk_ids": ["book.c0100.nr"],
-                "chunk_block_indices_by_id": {"book.c0100.nr": [8, 9]},
-            },
-        ),
+        _shard(),
         {
-            "packet_id": "book.ks0099.nr.task-002",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0100.nr",
-                    "is_useful": True,
-                    "reason_code": "technique_or_mechanism",
-                    "block_decisions": [
-                        {"block_index": 8, "category": "content"},
-                        {"block_index": 9, "category": "content"},
-                    ],
-                    "snippets": [
-                        {
-                            "body": "Keep the broth at a lazy simmer.",
-                            "evidence": [
-                                {
-                                    "block_index": 8,
-                                    "quote": "Keep the broth at a lazy simmer.",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == ("schema_invalid",)
-    assert "semantic packet result v1 contract" in metadata["parse_error"]
-
-
-def test_classify_knowledge_validation_failure_marks_snippet_copy_only_near_miss() -> None:
-    classification = classify_knowledge_validation_failure(
-        validation_errors=("semantic_snippet_echoes_full_chunk",),
-        validation_metadata={"echoed_full_chunk_ids": ["book.c0003.nr"]},
-    )
-
-    assert classification == {
-        "classification": "snippet_copy_only",
-        "errors": ["semantic_snippet_echoes_full_chunk"],
-        "reason_code": "snippet_copy_only",
-        "reason_detail": (
-            "At least one snippet body copies the cited evidence or the full owned chunk "
-            "surface too closely."
-        ),
-        "snippet_copy_only": True,
-        "has_snippet_copy_error": True,
-        "has_schema_or_shape_error": False,
-        "has_coverage_error": False,
-        "repairable_near_miss": True,
-        "snippet_only_repair": True,
-    }
-
-
-def test_classify_knowledge_validation_failure_does_not_treat_mixed_shape_and_snippet_errors_as_narrow_near_miss() -> None:
-    classification = classify_knowledge_validation_failure(
-        validation_errors=(
-            "semantic_snippet_echoes_full_chunk",
-            "schema_invalid",
-        ),
-        validation_metadata={
-            "echoed_full_chunk_ids": ["book.c0003.nr"],
-            "parse_error": "schema mismatch",
-        },
-    )
-
-    assert classification["classification"] == "schema_or_shape_invalid"
-    assert classification["snippet_copy_only"] is False
-    assert classification["repairable_near_miss"] is False
-    assert classification["snippet_only_repair"] is False
-
-
-def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0000.nr",
-            owned_ids=("book.c0000.nr", "book.c0001.nr"),
-            metadata={"owned_block_indices": [4, 5]},
-        ),
-        {
-            "packet_id": "book.ks0000.nr",
+            "packet_id": "book.kp0000.nr",
             "chunk_results": [
                 {
                     "chunk_id": "book.c0000.nr",
@@ -294,7 +148,7 @@ def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> Non
                     "block_decisions": [{"block_index": 4, "category": "knowledge"}],
                     "snippets": [
                         {
-                            "body": "Keep whisking.",
+                            "body": "Keep whisking so the sauce stays smooth.",
                             "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
                         }
                     ],
@@ -305,831 +159,115 @@ def test_validate_knowledge_shard_output_requires_exact_owned_chunk_ids() -> Non
     )
 
     assert valid is False
-    assert errors == ("missing_owned_chunk_results",)
-    assert metadata["missing_owned_chunk_ids"] == ["book.c0001.nr"]
+    assert errors == ("schema_invalid",)
+    assert "parse_error" in metadata
 
 
-def test_validate_knowledge_shard_output_rejects_empty_result_array_for_owned_chunks() -> None:
+def test_validate_knowledge_shard_output_rejects_missing_owned_block_decision() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0003.nr",
-            owned_ids=("book.c0100.nr", "book.c0101.nr"),
-            metadata={"owned_block_indices": [40, 41]},
+        _shard(),
+        _semantic_packet_payload(
+            block_decisions=[{"block_index": 4, "category": "knowledge"}],
         ),
-        {
-            "packet_id": "book.ks0003.nr",
-            "chunk_results": [],
-        },
     )
 
     assert valid is False
-    assert errors == ("missing_owned_chunk_results",)
-    assert metadata["result_chunk_count"] == 0
-    assert metadata["missing_owned_chunk_ids"] == ["book.c0100.nr", "book.c0101.nr"]
+    assert errors == ("missing_owned_block_decisions",)
+    assert metadata["missing_owned_block_indices"] == [5]
 
 
-def test_validate_knowledge_shard_output_rejects_synthetic_processing_error_chunk() -> None:
+def test_validate_knowledge_shard_output_rejects_missing_idea_group_for_knowledge_block() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0001.nr",
-            owned_ids=("book.c0007.nr",),
-            metadata={"owned_block_indices": [4]},
-        ),
-        {
-            "packet_id": "book.ks0001.nr",
-            "chunk_results": [
+        _shard(),
+        _semantic_packet_payload(idea_groups=[]),
+    )
+
+    assert valid is False
+    assert errors == ("knowledge_block_missing_group",)
+    assert metadata["knowledge_blocks_missing_group"] == [4]
+
+
+def test_validate_knowledge_shard_output_rejects_group_that_contains_other_block() -> None:
+    valid, errors, metadata = validate_knowledge_shard_output(
+        _shard(),
+        _semantic_packet_payload(
+            idea_groups=[
                 {
-                    "chunk_id": "processing_error",
-                    "is_useful": True,
-                    "block_decisions": [{"block_index": 4, "category": "knowledge"}],
+                    "group_id": "idea-1",
+                    "topic_label": "Bad mixed group",
+                    "block_indices": [4, 5],
                     "snippets": [
                         {
-                            "body": "Could not process.",
-                            "evidence": [{"block_index": 0, "quote": "bad"}],
+                            "body": "Keep whisking so the sauce stays smooth.",
+                            "evidence": [{"block_index": 4, "quote": "Keep whisking"}],
                         }
                     ],
-                    "reason_code": "technique_or_mechanism",
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == (
-        "missing_owned_chunk_results",
-        "unexpected_chunk_results",
-        "snippet_evidence_out_of_surface",
-    )
-    assert metadata["missing_owned_chunk_ids"] == ["book.c0007.nr"]
-    assert metadata["unexpected_chunk_ids"] == ["processing_error"]
-    assert metadata["out_of_surface_evidence_block_indices"] == [0]
-
-
-def test_validate_knowledge_shard_output_requires_exact_block_decision_coverage() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0002.nr",
-            owned_ids=("book.c0002.nr",),
-            metadata={
-                "owned_block_indices": [8, 9],
-                "ordered_chunk_ids": ["book.c0002.nr"],
-                "chunk_block_indices_by_id": {"book.c0002.nr": [8, 9]},
-            },
-        ),
-        {
-            "packet_id": "book.ks0002.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0002.nr",
-                    "is_useful": False,
-                    "block_decisions": [{"block_index": 8, "category": "other"}],
-                    "snippets": [],
-                    "reason_code": "not_cooking_knowledge",
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == ("block_decision_coverage_mismatch",)
-    assert metadata["chunk_block_coverage_mismatches"] == {
-        "book.c0002.nr": {"expected": [8, 9], "observed": [8]}
-    }
-
-
-def test_validate_knowledge_shard_output_rejects_non_grounded_snippet_body() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0002.nr",
-            owned_ids=("book.c0002.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0002.nr",
-                "c": [
-                    {
-                        "cid": "book.c0002.nr",
-                        "b": [{"i": 8, "t": "Whisk the batter until smooth."}],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [8],
-                "ordered_chunk_ids": ["book.c0002.nr"],
-                "chunk_block_indices_by_id": {"book.c0002.nr": [8]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0002.nr",
-            chunk_id="book.c0002.nr",
-            block_indices=[8],
-            snippet_body="12345!!!",
-            evidence_quote="Whisk the batter",
-        ),
-    )
-
-    assert valid is False
-    assert errors == ("semantic_snippet_body_not_grounded_text",)
-    assert metadata["non_grounded_snippet_chunk_ids"] == ["book.c0002.nr"]
-
-
-def test_validate_knowledge_shard_output_rejects_full_chunk_echo_snippet() -> None:
-    source_text = (
-        "Whisk the batter slowly until it turns glossy and smooth, then scrape the bowl "
-        "well and keep mixing until no dry pockets remain anywhere in the mixture, "
-        "pausing only to fold down the sides and bottom so the texture stays even."
-    )
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0003.nr",
-            owned_ids=("book.c0003.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0003.nr",
-                "c": [
-                    {
-                        "cid": "book.c0003.nr",
-                        "b": [{"i": 9, "t": source_text}],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [9],
-                "ordered_chunk_ids": ["book.c0003.nr"],
-                "chunk_block_indices_by_id": {"book.c0003.nr": [9]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0003.nr",
-            chunk_id="book.c0003.nr",
-            block_indices=[9],
-            snippet_body=source_text,
-            evidence_quote="Whisk the batter slowly",
-        ),
-    )
-
-    assert valid is False
-    assert errors == ("semantic_snippet_echoes_full_chunk",)
-    assert metadata["echoed_full_chunk_ids"] == ["book.c0003.nr"]
-
-
-def test_validate_knowledge_shard_output_rejects_near_full_chunk_echo_snippet() -> None:
-    source_text = (
-        "Whisk the batter slowly until it turns glossy and smooth, then scrape the bowl "
-        "well and keep mixing until no dry pockets remain anywhere in the mixture, "
-        "pausing only to fold down the sides and bottom so the texture stays even."
-    )
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0003.nr",
-            owned_ids=("book.c0003.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0003.nr",
-                "c": [
-                    {
-                        "cid": "book.c0003.nr",
-                        "b": [{"i": 9, "t": source_text}],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [9],
-                "ordered_chunk_ids": ["book.c0003.nr"],
-                "chunk_block_indices_by_id": {"book.c0003.nr": [9]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0003.nr",
-            chunk_id="book.c0003.nr",
-            block_indices=[9],
-            snippet_body=source_text[18:],
-            evidence_quote="turns glossy and smooth",
-        ),
-    )
-
-    assert valid is False
-    assert errors == ("semantic_snippet_echoes_full_chunk",)
-    assert metadata["echoed_full_chunk_ids"] == ["book.c0003.nr"]
-
-
-def test_validate_knowledge_shard_output_rejects_verbatim_block_copy_snippet() -> None:
-    source_text = (
-        "Use a gentle simmer and stir constantly so the sauce stays glossy, "
-        "smooth, and evenly emulsified instead of breaking around the edges."
-    )
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0007.nr",
-            owned_ids=("book.c0007.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0007.nr",
-                "c": [
-                    {
-                        "cid": "book.c0007.nr",
-                        "b": [{"i": 14, "t": source_text}],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [14],
-                "ordered_chunk_ids": ["book.c0007.nr"],
-                "chunk_block_indices_by_id": {"book.c0007.nr": [14]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0007.nr",
-            chunk_id="book.c0007.nr",
-            block_indices=[14],
-            snippet_body=source_text,
-            evidence_quote=source_text,
-        ),
-    )
-
-    assert valid is False
-    assert errors == ("semantic_snippet_echoes_full_chunk",)
-    assert metadata["echoed_full_chunk_ids"] == ["book.c0007.nr"]
-    assert metadata["snippet_echo_reasons_by_chunk_id"] == {
-        "book.c0007.nr": ["evidence_surface"]
-    }
-
-
-def test_validate_knowledge_shard_output_rejects_multi_block_evidence_surface_echo() -> None:
-    block_a = (
-        "Water is an essential element of practically all foods, and it behaves "
-        "differently as temperatures rise through the kitchen."
-    )
-    block_b = (
-        "Heat moves by conduction, convection, and radiation, shaping evaporation, "
-        "browning, and the pace at which ingredients soften."
-    )
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0010.nr",
-            owned_ids=("book.c0010.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0010.nr",
-                "c": [
-                    {
-                        "cid": "book.c0010.nr",
-                        "b": [
-                            {"i": 741, "t": block_a},
-                            {"i": 742, "t": block_b},
-                        ],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [741, 742],
-                "ordered_chunk_ids": ["book.c0010.nr"],
-                "chunk_block_indices_by_id": {"book.c0010.nr": [741, 742]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0010.nr",
-            chunk_id="book.c0010.nr",
-            block_indices=[741, 742],
-            snippets=[
-                {
-                    "body": block_a,
-                    "evidence": [{"block_index": 741, "quote": block_a}],
                 }
             ],
         ),
     )
 
     assert valid is False
-    assert errors == ("semantic_snippet_echoes_full_chunk",)
-    assert metadata["echoed_full_chunk_ids"] == ["book.c0010.nr"]
-    assert metadata["snippet_echo_reasons_by_chunk_id"] == {
-        "book.c0010.nr": ["evidence_surface"]
-    }
-    assert metadata["evidence_surface_echoes_by_chunk_id"] == {
-        "book.c0010.nr": [
-            {
-                "snippet_index": 0,
-                "block_indices": [741],
-                "body_char_count": len(block_a.lower()),
-                "evidence_surface_char_count": len(block_a.lower()),
-            }
-        ]
-    }
+    assert errors == ("group_contains_other_block",)
+    assert metadata["group_contains_other_blocks"] == {"idea-1": [5]}
 
 
-def test_validate_knowledge_shard_output_rejects_aggregate_multi_snippet_copy() -> None:
-    block_a = (
-        "Water is an essential element of practically all foods, and it behaves "
-        "differently as temperatures rise through the kitchen."
-    )
-    block_b = (
-        "Heat moves by conduction, convection, and radiation, shaping evaporation, "
-        "browning, and the pace at which ingredients soften."
-    )
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0011.nr",
-            owned_ids=("book.c0011.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0011.nr",
-                "c": [
-                    {
-                        "cid": "book.c0011.nr",
-                        "b": [
-                            {"i": 741, "t": block_a},
-                            {"i": 742, "t": block_b},
-                        ],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [741, 742],
-                "ordered_chunk_ids": ["book.c0011.nr"],
-                "chunk_block_indices_by_id": {"book.c0011.nr": [741, 742]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0011.nr",
-            chunk_id="book.c0011.nr",
-            block_indices=[741, 742],
-            snippets=[
-                {
-                    "body": block_a,
-                    "evidence": [{"block_index": 741, "quote": block_a}],
-                },
-                {
-                    "body": block_b,
-                    "evidence": [{"block_index": 742, "quote": block_b}],
-                },
-            ],
-        ),
+def test_classify_knowledge_validation_failure_detects_snippet_copy_only_near_miss() -> None:
+    result = classify_knowledge_validation_failure(
+        validation_errors=["semantic_snippet_copies_evidence_quote"],
+        validation_metadata={"copied_quote_idea_group_ids": ["idea-1"]},
     )
 
-    assert valid is False
-    assert errors == ("semantic_snippet_echoes_full_chunk",)
-    assert metadata["echoed_full_chunk_ids"] == ["book.c0011.nr"]
-    assert metadata["snippet_echo_reasons_by_chunk_id"] == {
-        "book.c0011.nr": ["aggregate_copied_surface", "evidence_surface"]
-    }
-    assert metadata["aggregate_copied_surface_by_chunk_id"] == {
-        "book.c0011.nr": {
-            "copied_block_indices": [741, 742],
-            "copied_surface_char_count": len(f"{block_a} {block_b}".lower()),
-            "full_chunk_char_count": len(f"{block_a} {block_b}".lower()),
-            "copied_snippet_count": 2,
-        }
-    }
+    assert result["classification"] == "snippet_copy_only"
+    assert result["repairable_near_miss"] is True
+    assert result["snippet_only_repair"] is True
 
 
-def test_validate_knowledge_shard_output_allows_short_exact_heading_quote() -> None:
-    block_heading = "Water and Heat"
-    block_body = (
-        "Control the burner gradually so the pan and its contents warm evenly "
-        "instead of scorching before the center catches up."
-    )
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0012.nr",
-            owned_ids=("book.c0012.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0012.nr",
-                "c": [
-                    {
-                        "cid": "book.c0012.nr",
-                        "b": [
-                            {"i": 801, "t": block_heading},
-                            {"i": 802, "t": block_body},
-                        ],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [801, 802],
-                "ordered_chunk_ids": ["book.c0012.nr"],
-                "chunk_block_indices_by_id": {"book.c0012.nr": [801, 802]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0012.nr",
-            chunk_id="book.c0012.nr",
-            block_indices=[801, 802],
-            snippet_body=block_heading,
-            evidence_quote=block_heading,
-        ),
+def test_classify_knowledge_validation_failure_detects_coverage_mismatch() -> None:
+    result = classify_knowledge_validation_failure(
+        validation_errors=["knowledge_block_group_conflict"],
+        validation_metadata={"knowledge_blocks_with_multiple_groups": [4]},
     )
 
-    assert valid is True
-    assert errors == ()
-    assert "echoed_full_chunk_ids" not in metadata
+    assert result["classification"] == "repairable_near_miss"
+    assert result["repairable_near_miss"] is True
+    assert result["has_coverage_error"] is True
 
 
-def test_validate_knowledge_shard_output_rejects_cross_chunk_evidence() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0004.nr",
-            owned_ids=("book.c0004.nr",),
-            metadata={
-                "owned_block_indices": [12, 13],
-                "ordered_chunk_ids": ["book.c0004.nr"],
-                "chunk_block_indices_by_id": {"book.c0004.nr": [12, 13]},
-            },
-        ),
-        {
-            "packet_id": "book.ks0004.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0004.nr",
-                    "is_useful": True,
-                    "block_decisions": [
-                        {"block_index": 12, "category": "knowledge"},
-                        {"block_index": 13, "category": "knowledge"},
-                    ],
-                    "snippets": [
-                        {
-                            "body": "Use a low simmer.",
-                            "evidence": [{"block_index": 99, "quote": "bad pointer"}],
-                        }
-                    ],
-                    "reason_code": "technique_or_mechanism",
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == (
-        "snippet_evidence_out_of_surface",
-        "snippet_evidence_wrong_chunk_surface",
-    )
-    assert metadata["cross_chunk_evidence_by_chunk_id"] == {"book.c0004.nr": [99]}
-
-
-def test_validate_knowledge_shard_output_rejects_semantic_all_false_empty_shard() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0005.nr",
-            owned_ids=("book.c0005.nr",),
-            metadata={
-                "owned_block_indices": [20, 21],
-                "ordered_chunk_ids": ["book.c0005.nr"],
-                "chunk_block_indices_by_id": {"book.c0005.nr": [20, 21]},
-                "chunk_knowledge_cue_by_id": {"book.c0005.nr": True},
-            },
-        ),
-        {
-            "packet_id": "book.ks0005.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0005.nr",
-                    "is_useful": False,
-                    "block_decisions": [
-                        {"block_index": 20, "category": "other"},
-                        {"block_index": 21, "category": "other"},
-                    ],
-                    "snippets": [],
-                    "reason_code": "not_cooking_knowledge",
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == ("semantic_all_false_empty_shard",)
-    assert metadata["knowledge_cue_chunk_ids"] == ["book.c0005.nr"]
-    assert metadata["strong_cue_empty_chunk_ids"] == ["book.c0005.nr"]
-    assert metadata["knowledge_decision_count"] == 0
-    assert metadata["snippet_count"] == 0
-    assert metadata["useful_chunk_count"] == 0
-    assert metadata["semantic_rejection"] is True
-
-    classification = classify_knowledge_validation_failure(
-        validation_errors=errors,
-        validation_metadata=metadata,
-    )
-    assert classification["classification"] == "semantic_invalid"
-    assert classification["reason_code"] == "semantic_all_false_empty_shard"
-    assert "book.c0005.nr" in classification["reason_detail"]
-
-
-def test_validate_knowledge_shard_output_allows_true_all_other_front_matter() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0006.nr",
-            owned_ids=("book.c0006.nr",),
-            metadata={
-                "owned_block_indices": [30, 31],
-                "ordered_chunk_ids": ["book.c0006.nr"],
-                "chunk_block_indices_by_id": {"book.c0006.nr": [30, 31]},
-                "chunk_knowledge_cue_by_id": {"book.c0006.nr": False},
-            },
-        ),
-        {
-            "packet_id": "book.ks0006.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0006.nr",
-                    "is_useful": False,
-                    "block_decisions": [
-                        {"block_index": 30, "category": "other"},
-                        {"block_index": 31, "category": "other"},
-                    ],
-                    "snippets": [],
-                    "reason_code": "not_cooking_knowledge",
-                }
-            ],
-        },
-    )
-
-    assert valid is True
-    assert errors == ()
-    assert metadata["reviewed_all_other"] is True
-    assert metadata["semantic_rejection"] is False
-
-
-def test_validate_knowledge_shard_output_requires_useful_rows_to_include_snippet() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0007.nr",
-            owned_ids=("book.c0007.nr",),
-            metadata={"owned_block_indices": [40], "chunk_block_indices_by_id": {"book.c0007.nr": [40]}},
-        ),
-        {
-            "packet_id": "book.ks0007.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0007.nr",
-                    "is_useful": True,
-                    "block_decisions": [{"block_index": 40, "category": "knowledge"}],
-                    "snippets": [],
-                    "reason_code": "technique_or_mechanism",
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == ("schema_invalid",)
-    assert "useful chunk results must include at least one snippet" in metadata["parse_error"]
-
-
-def test_validate_knowledge_shard_output_rejects_unknown_semantic_category_alias() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0008.nr",
-            owned_ids=("book.c0008.nr",),
-            metadata={
-                "owned_block_indices": [41],
-                "ordered_chunk_ids": ["book.c0008.nr"],
-                "chunk_block_indices_by_id": {"book.c0008.nr": [41]},
-            },
-        ),
-        {
-            "packet_id": "book.ks0008.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0008.nr",
-                    "is_useful": False,
-                    "block_decisions": [{"block_index": 41, "category": "marketing"}],
-                    "snippets": [],
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == ("schema_invalid",)
-    assert "marketing" in metadata["parse_error"]
-
-
-def test_validate_knowledge_shard_output_rejects_unknown_reason_code() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0010.nr",
-            owned_ids=("book.c0010.nr",),
-            metadata={
-                "owned_block_indices": [50],
-                "ordered_chunk_ids": ["book.c0010.nr"],
-                "chunk_block_indices_by_id": {"book.c0010.nr": [50]},
-            },
-        ),
-        {
-            "packet_id": "book.ks0010.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0010.nr",
-                    "is_useful": False,
-                    "block_decisions": [{"block_index": 50, "category": "other"}],
-                    "snippets": [],
-                    "reason_code": "legacy_guess",
-                }
-            ],
-        },
-    )
-
-    assert valid is False
-    assert errors == ("schema_invalid",)
-    assert "reason_code must be one of" in metadata["parse_error"]
-
-
-def test_validate_knowledge_shard_output_normalizes_legacy_reason_codes() -> None:
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0011.nr",
-            owned_ids=("book.c0011.nr",),
-            metadata={
-                "owned_block_indices": [51],
-                "ordered_chunk_ids": ["book.c0011.nr"],
-                "chunk_block_indices_by_id": {"book.c0011.nr": [51]},
-            },
-        ),
-        {
-            "packet_id": "book.ks0011.nr",
-            "chunk_results": [
-                {
-                    "chunk_id": "book.c0011.nr",
-                    "is_useful": True,
-                    "block_decisions": [{"block_index": 51, "category": "knowledge"}],
-                    "snippets": [
-                        {
-                            "body": "Keep the pan hot enough to brown, not steam.",
-                            "evidence": [
-                                {
-                                    "block_index": 51,
-                                    "quote": "Keep the pan hot enough to brown, not steam.",
-                                }
-                            ],
-                        }
-                    ],
-                    "reason_code": "grounded_useful",
-                }
-            ],
-        },
-    )
-
-    assert valid is True
-    assert errors == ()
-    assert metadata["reason_code_counts"] == {"technique_or_mechanism": 1}
-
-
-def test_validate_knowledge_shard_output_rejects_saved_run_style_near_full_chunk_echo() -> None:
-    source_text = (
-        "Salt, Fat, Acid, Heat is a wildly informative culinary resource with clear science, "
-        "beautiful storytelling, and inspiration for cooks at every level. It meets you "
-        "wherever you are in the kitchen and turns confidence into habit through practice."
-    )
-    valid, errors, metadata = validate_knowledge_shard_output(
-        ShardManifestEntryV1(
-            shard_id="book.ks0009.nr",
-            owned_ids=("book.c0009.nr",),
-            input_payload={
-                "v": "2",
-                "bid": "book.ks0009.nr",
-                "c": [
-                    {
-                        "cid": "book.c0009.nr",
-                        "b": [{"i": 42, "t": source_text}],
-                    }
-                ],
-            },
-            metadata={
-                "owned_block_indices": [42],
-                "ordered_chunk_ids": ["book.c0009.nr"],
-                "chunk_block_indices_by_id": {"book.c0009.nr": [42]},
-            },
-        ),
-        _semantic_packet_payload(
-            packet_id="book.ks0009.nr",
-            chunk_id="book.c0009.nr",
-            block_indices=[42],
-            snippet_body=source_text[:-12],
-            evidence_quote="Salt, Fat, Acid, Heat is a wildly informative culinary resource",
-        ),
-    )
-
-    assert valid is False
-    assert errors == ("semantic_snippet_echoes_full_chunk",)
-    assert metadata["echoed_full_chunk_ids"] == ["book.c0009.nr"]
-
-
-def test_read_validated_knowledge_outputs_from_proposals_skips_invalid_rows(
+def test_read_validated_knowledge_outputs_from_proposals_promotes_only_valid_packets(
     tmp_path: Path,
 ) -> None:
-    proposals_dir = tmp_path / "proposals"
-    proposals_dir.mkdir(parents=True, exist_ok=True)
-    (proposals_dir / "valid.json").write_text(
-        json.dumps(
-            {
-                "shard_id": "book.ks0000.nr",
-                "worker_id": "worker-001",
-                "validation_errors": [],
-                "payload": {
-                    "bundle_version": "2",
-                    "bundle_id": "book.ks0000.nr",
-                    "chunk_results": [
-                        {
-                            "chunk_id": "book.c0000.nr",
-                            "is_useful": True,
-                            "block_decisions": [
-                                {"block_index": 4, "category": "knowledge"},
-                            ],
-                            "snippets": [
-                                {
-                                    "body": "Keep whisking.",
-                                    "evidence": [
-                                        {"block_index": 4, "quote": "Keep whisking"}
-                                    ],
-                                }
-                            ],
-                        }
-                    ],
-                },
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        tmp_path / "valid.json",
+        {
+            "payload": normalize_knowledge_worker_payload(_semantic_packet_payload())[0],
+            "validation_errors": [],
+        },
     )
-    (proposals_dir / "invalid.json").write_text(
-        json.dumps(
-            {
-                "shard_id": "book.ks0001.nr",
-                "worker_id": "worker-001",
-                "validation_errors": ["block_decision_out_of_surface"],
-                "payload": {
-                    "bundle_version": "2",
-                    "bundle_id": "book.ks0001.nr",
-                    "chunk_results": [],
-                },
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        tmp_path / "invalid.json",
+        {
+            "payload": normalize_knowledge_worker_payload(
+                _semantic_packet_payload(packet_id="book.kp0001.nr")
+            )[0],
+            "validation_errors": ["knowledge_block_missing_group"],
+        },
     )
 
-    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(
-        proposals_dir
-    )
+    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(tmp_path)
 
-    assert set(outputs) == {"book.c0000.nr"}
-    assert set(payloads_by_shard_id) == {"book.ks0000.nr"}
+    assert list(outputs) == ["book.kp0000.nr"]
+    assert outputs["book.kp0000.nr"].bundle_id == "book.kp0000.nr"
+    assert payloads_by_shard_id["book.kp0000.nr"]["g"][0]["gid"] == "idea-1"
+    assert "book.kp0001.nr" not in payloads_by_shard_id
 
 
-def test_read_validated_knowledge_outputs_from_proposals_promotes_accepted_task_subset_from_coverage_only_invalid_wrapper(
+def test_read_validated_knowledge_outputs_from_proposals_rejects_duplicate_packet_ids(
     tmp_path: Path,
 ) -> None:
-    proposals_dir = tmp_path / "proposals"
-    proposals_dir.mkdir(parents=True, exist_ok=True)
-    (proposals_dir / "partial.json").write_text(
-        json.dumps(
-            {
-                "shard_id": "book.ks0002.nr",
-                "worker_id": "worker-001",
-                "validation_errors": ["missing_owned_chunk_results"],
-                "validation_metadata": {
-                    "missing_owned_chunk_ids": ["book.c0003.nr"],
-                    "task_aggregation": {
-                        "accepted_task_ids": ["book.ks0002.nr.task-001"],
-                        "missing_chunk_ids": ["book.c0003.nr"],
-                        "task_id_by_chunk_id": {
-                            "book.c0002.nr": "book.ks0002.nr.task-001",
-                        },
-                        "task_validation_errors_by_task_id": {
-                            "book.ks0002.nr.task-002": [
-                                "semantic_snippet_echoes_full_chunk"
-                            ]
-                        },
-                    },
-                },
-                "payload": {
-                    "v": "2",
-                    "bid": "book.ks0002.nr",
-                    "r": [
-                        {
-                            "cid": "book.c0002.nr",
-                            "u": True,
-                            "d": [{"i": 7, "c": "knowledge", "rc": "knowledge"}],
-                            "s": [
-                                {
-                                    "b": "Keep whisking the butter into the sauce.",
-                                    "e": [
-                                        {
-                                            "i": 7,
-                                            "q": "Keep whisking the butter into the sauce.",
-                                        }
-                                    ],
-                                }
-                            ],
-                        }
-                    ],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    payload = normalize_knowledge_worker_payload(_semantic_packet_payload())[0]
+    _write_json(tmp_path / "a.json", {"payload": payload, "validation_errors": []})
+    _write_json(tmp_path / "b.json", {"payload": payload, "validation_errors": []})
 
-    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(
-        proposals_dir
-    )
-
-    assert set(outputs) == {"book.c0002.nr"}
-    assert set(payloads_by_shard_id) == {"book.ks0002.nr"}
-    assert payloads_by_shard_id["book.ks0002.nr"]["r"][0]["cid"] == "book.c0002.nr"
+    with pytest.raises(ValueError, match="Duplicate packet_id"):
+        read_validated_knowledge_outputs_from_proposals(tmp_path)

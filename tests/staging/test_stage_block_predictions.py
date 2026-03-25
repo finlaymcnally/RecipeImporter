@@ -137,7 +137,7 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
     assert "All review-eligible non-recipe blocks had final authority before scoring." in payload["notes"]
 
 
-def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> None:
+def test_build_stage_block_predictions_without_nonrecipe_authority_do_not_project_chunk_lanes() -> None:
     result = _build_result()
     result.non_recipe_blocks = [
         {"index": 8, "text": "Use clean tools for food safety.", "features": {}}
@@ -153,8 +153,12 @@ def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> N
 
     payload = build_stage_block_predictions(result, "simple")
 
-    assert payload["block_labels"]["8"] == "KNOWLEDGE"
-    assert 8 in payload["label_blocks"]["KNOWLEDGE"]
+    assert payload["block_labels"]["8"] == "OTHER"
+    assert 8 not in payload["label_blocks"]["KNOWLEDGE"]
+    assert (
+        "KNOWLEDGE labels require final non-recipe authority; no fallback chunk-lane projection ran."
+        in payload["notes"]
+    )
 
 
 def test_build_stage_block_predictions_ignores_stage7_other_blocks() -> None:

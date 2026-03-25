@@ -90,21 +90,6 @@ _INSTALL_CURRENT_SUCCESS_NOTICE = (
 )
 
 
-def _utility_cue_list(value: object) -> list[str]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        return []
-    return [
-        str(item).strip()
-        for item in value
-        if str(item).strip()
-    ]
-
-
-def _format_utility_cues(cues: Sequence[str], *, empty_text: str = "none") -> str:
-    cleaned = [str(cue).strip() for cue in cues if str(cue).strip()]
-    return ", ".join(f"`{cue}`" for cue in cleaned) if cleaned else empty_text
-
-
 @dataclass(frozen=True)
 class KnowledgeWorkspaceCheckResult:
     task_id: str
@@ -153,42 +138,8 @@ def build_workspace_inventory_task_row(
         for value in (row.get("owned_ids") or [])
         if str(value).strip()
     ]
-    chunk_knowledge_cue_by_id = _coerce_dict(metadata.get("chunk_knowledge_cue_by_id"))
-    chunk_positive_cues_by_id = _coerce_dict(metadata.get("chunk_utility_positive_cues_by_id"))
-    chunk_negative_cues_by_id = _coerce_dict(metadata.get("chunk_utility_negative_cues_by_id"))
-    chunk_borderline_by_id = _coerce_dict(metadata.get("chunk_utility_borderline_by_id"))
-    chunk_strong_negative_by_id = _coerce_dict(
-        metadata.get("chunk_strong_negative_utility_cue_by_id")
-    )
-    strong_knowledge_cue = any(
-        bool(chunk_knowledge_cue_by_id.get(chunk_id))
-        for chunk_id in owned_ids
-    )
-    positive_cues = sorted(
-        {
-            cue
-            for chunk_id in owned_ids
-            for cue in _utility_cue_list(chunk_positive_cues_by_id.get(chunk_id))
-        }
-    )
-    negative_cues = sorted(
-        {
-            cue
-            for chunk_id in owned_ids
-            for cue in _utility_cue_list(chunk_negative_cues_by_id.get(chunk_id))
-        }
-    )
     inventory_metadata = dict(metadata)
-    inventory_metadata["strong_knowledge_cue"] = strong_knowledge_cue
-    inventory_metadata["owned_chunk_count"] = len(owned_ids)
-    inventory_metadata["utility_positive_cues"] = positive_cues
-    inventory_metadata["utility_negative_cues"] = negative_cues
-    inventory_metadata["utility_borderline"] = any(
-        bool(chunk_borderline_by_id.get(chunk_id)) for chunk_id in owned_ids
-    )
-    inventory_metadata["strong_negative_utility_cue"] = any(
-        bool(chunk_strong_negative_by_id.get(chunk_id)) for chunk_id in owned_ids
-    )
+    inventory_metadata["owned_packet_count"] = len(owned_ids)
     return {
         "task_id": task_id,
         "task_kind": str(row.get("task_kind") or "").strip() or None,
@@ -237,17 +188,17 @@ def current_batch_task_draft_path(*, workspace_root: Path, task_id: str) -> Path
 
 def _task_block_spans(*, input_payload: Mapping[str, Any]) -> list[str]:
     block_spans: list[str] = []
-    for chunk in _chunk_rows(input_payload):
-        chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
+    for packet in _packet_rows(input_payload):
+        packet_id = str(packet.get("bid") or "").strip() or "[unknown packet]"
         block_indices = [
             int(block.get("i"))
-            for block in chunk.get("b") or []
+            for block in packet.get("b") or []
             if isinstance(block, Mapping) and block.get("i") is not None
         ]
         if not block_indices:
-            block_spans.append(f"{chunk_id}:[no blocks]")
+            block_spans.append(f"{packet_id}:[no blocks]")
             continue
-        block_spans.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
+        block_spans.append(f"{packet_id}:{block_indices[0]}..{block_indices[-1]}")
     return block_spans
 
 
@@ -316,20 +267,11 @@ def build_current_batch_payload(
                         ),
                     )
                 ),
-                "owned_chunk_ids": [
+                "owned_packet_ids": [
                     str(value).strip()
                     for value in (row.get("owned_ids") or [])
                     if str(value).strip()
                 ],
-                "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
-                "strong_negative_utility_cue": bool(metadata.get("strong_negative_utility_cue")),
-                "utility_borderline": bool(metadata.get("utility_borderline")),
-                "utility_positive_cues": _utility_cue_list(
-                    metadata.get("utility_positive_cues")
-                ),
-                "utility_negative_cues": _utility_cue_list(
-                    metadata.get("utility_negative_cues")
-                ),
             }
         )
     batch_start_position = int(_coerce_dict(batch_rows[0].get("metadata")).get("task_sequence") or current_index + 1)
@@ -363,18 +305,6 @@ def _first_batch_task(
     return None
 
 
-def _strong_cue_task_ids(batch_payload: Mapping[str, Any] | None) -> list[str]:
-    if not isinstance(batch_payload, Mapping):
-        return []
-    return [
-        str(task.get("task_id") or "").strip()
-        for task in (batch_payload.get("tasks") or [])
-        if isinstance(task, Mapping)
-        and bool(task.get("strong_knowledge_cue"))
-        and str(task.get("task_id") or "").strip()
-    ]
-
-
 def render_current_task_brief_text(
     *,
     workspace_root: Path,
@@ -397,22 +327,17 @@ def render_current_task_brief_text(
     ]
     input_payload = load_task_input_payload(workspace_root=workspace_root, task_row=row)
     block_spans: list[str] = []
-    for chunk in _chunk_rows(input_payload):
-        chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
+    for packet in _packet_rows(input_payload):
+        packet_id = str(packet.get("bid") or "").strip() or "[unknown packet]"
         block_indices = [
             int(block.get("i"))
-            for block in chunk.get("b") or []
+            for block in packet.get("b") or []
             if isinstance(block, Mapping) and block.get("i") is not None
         ]
         if not block_indices:
-            block_spans.append(f"{chunk_id}:[no blocks]")
+            block_spans.append(f"{packet_id}:[no blocks]")
             continue
-        block_spans.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
-    strong_knowledge_cue = bool(metadata.get("strong_knowledge_cue"))
-    strong_negative_utility_cue = bool(metadata.get("strong_negative_utility_cue"))
-    utility_borderline = bool(metadata.get("utility_borderline"))
-    utility_positive_cues = _utility_cue_list(metadata.get("utility_positive_cues"))
-    utility_negative_cues = _utility_cue_list(metadata.get("utility_negative_cues"))
+        block_spans.append(f"{packet_id}:{block_indices[0]}..{block_indices[-1]}")
     task_sequence = int(metadata.get("task_sequence") or 0)
     task_total = int(metadata.get("task_total") or 0)
     remaining_after_current = (
@@ -430,7 +355,7 @@ def render_current_task_brief_text(
             if task_sequence > 0 and task_total > 0
             else "Queue position: unknown"
         ),
-        f"Owned chunk ids: `{', '.join(owned_ids) or '[none]'}`",
+        f"Owned packet ids: `{', '.join(owned_ids) or '[none]'}`",
         f"Input file: `{metadata.get('input_path') or '?'}`",
         f"Hint file: `{metadata.get('hint_path') or '?'}`",
         f"Result file: `{metadata.get('result_path') or '?'}`",
@@ -440,29 +365,9 @@ def render_current_task_brief_text(
             if remaining_after_current is not None
             else "Remaining tasks after this one: unknown"
         ),
-        (
-            "Strong cue: yes. An all-`other` answer is high risk here unless the owned text is clearly not worth preserving as durable cooking leverage."
-            if strong_knowledge_cue
-            else "Strong cue: no. It is acceptable to keep everything `other` if the owned text is clearly not worth preserving."
-        ),
-        f"Utility-positive cues: {_format_utility_cues(utility_positive_cues)}.",
-        f"Utility-negative cues: {_format_utility_cues(utility_negative_cues)}.",
-        (
-            "Skepticism level: high. This task looks like framing, memoir, navigation, or low-utility filler unless the block text proves otherwise."
-            if strong_negative_utility_cue
-            else "Skepticism level: balanced."
-        ),
-        (
-            "Borderline task: yes. Ask whether saving this would materially improve future cooking decisions before keeping anything as `knowledge`."
-            if utility_borderline
-            else "Borderline task: no."
-        ),
-        (
-            "The prewritten scaffold is intentionally not install-ready here: it uses "
-            f"`reason_code: \"{_STRONG_CUE_SCAFFOLD_REASON_CODE}\"` until you make the real judgment."
-            if strong_knowledge_cue
-            else "The prewritten scaffold is only a starting point; replace `review_not_completed` before install."
-        ),
+        "Return top-level `block_decisions` plus `idea_groups`; the worker contract is packet-based.",
+        "Every kept `knowledge` block must appear in exactly one idea group.",
+        "Keep snippets short and grounded. Evidence quotes stay verbatim; snippet bodies should not copy them.",
         "",
         "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
         "This assignment stays active until the repo removes `current_task.json` and rewrites the current-task sidecars to say the queue is complete.",
@@ -503,19 +408,6 @@ def render_current_batch_brief_text(
         if str(task.get("task_id") or "").strip()
     ]
     first_task = _first_batch_task(batch_payload)
-    strong_cue_task_ids = _strong_cue_task_ids(batch_payload)
-    strong_negative_task_ids = [
-        str(task.get("task_id") or "").strip()
-        for task in batch_tasks
-        if bool(task.get("strong_negative_utility_cue"))
-        and str(task.get("task_id") or "").strip()
-    ]
-    borderline_task_ids = [
-        str(task.get("task_id") or "").strip()
-        for task in batch_tasks
-        if bool(task.get("utility_borderline"))
-        and str(task.get("task_id") or "").strip()
-    ]
     lines = [
         "# Current Knowledge Batch",
         "",
@@ -527,24 +419,6 @@ def render_current_batch_brief_text(
         f"Batch task count: `{batch_payload.get('batch_task_count') or 0}`",
         f"Batch draft dir: `{batch_payload.get('draft_dir') or 'scratch/current_batch'}`",
         f"Remaining tasks after this batch: `{batch_payload.get('batch_remaining_after_batch') or 0}`",
-        (
-            "Strong-cue tasks in this batch: "
-            + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
-            if strong_cue_task_ids
-            else "Strong-cue tasks in this batch: none."
-        ),
-        (
-            "High-skepticism tasks in this batch: "
-            + ", ".join(f"`{task_id}`" for task_id in strong_negative_task_ids)
-            if strong_negative_task_ids
-            else "High-skepticism tasks in this batch: none."
-        ),
-        (
-            "Borderline utility tasks in this batch: "
-            + ", ".join(f"`{task_id}`" for task_id in borderline_task_ids)
-            if borderline_task_ids
-            else "Borderline utility tasks in this batch: none."
-        ),
         "",
         "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
         "This assignment stays active until the repo removes `current_batch.json` and rewrites the batch sidecars to say the queue is complete.",
@@ -574,24 +448,9 @@ def render_current_batch_brief_text(
                 f"- Draft path: `{first_task.get('draft_path') or '?'}`",
                 f"- Result path: `{first_task.get('result_path') or '?'}`",
                 (
-                    f"- Owned chunk ids: `{', '.join(first_task.get('owned_chunk_ids') or []) or '[none]'}`"
+                    f"- Owned packet ids: `{', '.join(first_task.get('owned_packet_ids') or []) or '[none]'}`"
                 ),
-                (
-                    "- Strong cue: yes. Do not install the prewritten all-`other` scaffold as-is."
-                    if bool(first_task.get("strong_knowledge_cue"))
-                    else "- Strong cue: no."
-                ),
-                (
-                    "- Skepticism: high. This first task looks like framing, memoir, navigation, or low-utility filler unless the text proves otherwise."
-                    if bool(first_task.get("strong_negative_utility_cue"))
-                    else "- Skepticism: balanced."
-                ),
-                (
-                    f"- Utility-positive cues: {_format_utility_cues(first_task.get('utility_positive_cues') or [])}."
-                ),
-                (
-                    f"- Utility-negative cues: {_format_utility_cues(first_task.get('utility_negative_cues') or [])}."
-                ),
+                "- Return `block_decisions` plus `idea_groups`; do not fall back to chunk-era result shapes.",
             ]
         )
     return "\n".join(lines) + "\n"
@@ -747,7 +606,6 @@ def render_current_batch_feedback_text(
         )
         task_total = int(batch_payload.get("task_total") or len(batch_tasks))
         first_task = _first_batch_task(batch_payload)
-        strong_cue_task_ids = _strong_cue_task_ids(batch_payload)
         lines = [
             "# Current Batch Feedback",
             "",
@@ -759,12 +617,7 @@ def render_current_batch_feedback_text(
                 f"`{max(task_total - validated_before_batch, 0)}` remain."
             ),
             _ACTIVE_BATCH_ASSIGNMENT_TEXT,
-            (
-                "Strong-cue tasks still needing a real judgment: "
-                + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
-                if strong_cue_task_ids
-                else "Strong-cue tasks still needing a real judgment: none."
-            ),
+            "Every task still needs a packet-level judgment over `block_decisions` and `idea_groups` until the repo-owned checker accepts it.",
         ]
         if first_task is not None:
             lines.extend(
@@ -1181,6 +1034,13 @@ def render_task_text(*, workspace_root: Path, task_id: str) -> str:
     task_row = resolve_task_row(workspace_root=workspace_root, task_id=task_id)
     input_payload = load_task_input_payload(workspace_root=workspace_root, task_row=task_row)
     metadata = _coerce_dict(task_row.get("metadata"))
+    packet_id = str(input_payload.get("bid") or input_payload.get("packet_id") or "").strip()
+    block_rows = [
+        dict(block)
+        for block in (input_payload.get("b") or [])
+        if isinstance(block, Mapping) and block.get("i") is not None
+    ]
+    block_indices = [int(block.get("i")) for block in block_rows]
     lines = [
         f"task_id: {task_row['task_id']}",
         f"parent_shard_id: {task_row.get('parent_shard_id') or task_row['task_id']}",
@@ -1188,34 +1048,20 @@ def render_task_text(*, workspace_root: Path, task_id: str) -> str:
         f"input_path: {metadata.get('input_path') or '?'}",
         f"hint_path: {metadata.get('hint_path') or '?'}",
         f"result_path: {metadata.get('result_path') or '?'}",
-        f"owned_chunk_ids: {', '.join(_owned_chunk_ids(input_payload)) or '[none]'}",
+        f"owned_packet_id: {packet_id or '[none]'}",
     ]
-    block_summary = []
-    for chunk in _chunk_rows(input_payload):
-        chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
-        block_indices = [
-            int(block.get("i"))
-            for block in chunk.get("b") or []
-            if isinstance(block, Mapping) and block.get("i") is not None
-        ]
-        if block_indices:
-            block_summary.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
-        else:
-            block_summary.append(f"{chunk_id}:[no blocks]")
-    lines.append(f"chunk_blocks: {', '.join(block_summary) or '[none]'}")
+    if block_indices:
+        lines.append(f"packet_blocks: {block_indices[0]}..{block_indices[-1]}")
+    else:
+        lines.append("packet_blocks: [none]")
     return "\n".join(lines) + "\n"
 
 
 def scaffold_task_payload(*, task_row: Mapping[str, Any], input_payload: Mapping[str, Any]) -> dict[str, Any]:
     task_id = str(task_row.get("task_id") or "").strip()
-    strong_knowledge_cue = bool(_coerce_dict(task_row.get("metadata")).get("strong_knowledge_cue"))
-    chunk_results = []
-    for chunk in _chunk_rows(input_payload):
-        chunk_id = str(chunk.get("cid") or "").strip()
-        if not chunk_id:
-            continue
-        block_decisions = []
-        for block in chunk.get("b") or []:
+    block_decisions = []
+    for packet in _packet_rows(input_payload):
+        for block in packet.get("b") or []:
             if not isinstance(block, Mapping) or block.get("i") is None:
                 continue
             block_decisions.append(
@@ -1225,22 +1071,10 @@ def scaffold_task_payload(*, task_row: Mapping[str, Any], input_payload: Mapping
                     "reviewer_category": "other",
                 }
             )
-        chunk_results.append(
-            {
-                "chunk_id": chunk_id,
-                "is_useful": False,
-                "block_decisions": block_decisions,
-                "snippets": [],
-                "reason_code": (
-                    _STRONG_CUE_SCAFFOLD_REASON_CODE
-                    if strong_knowledge_cue
-                    else _DEFAULT_SCAFFOLD_REASON_CODE
-                ),
-            }
-        )
     return {
         "packet_id": task_id,
-        "chunk_results": chunk_results,
+        "block_decisions": block_decisions,
+        "idea_groups": [],
     }
 
 
@@ -1248,172 +1082,97 @@ def build_knowledge_workspace_contract_examples(
     *,
     tasks: Sequence[Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    sample_task_row, sample_input_payload, sample_chunk_id = _resolve_sample_task(tasks)
+    sample_task_row, sample_input_payload, sample_packet_id = _resolve_sample_task(tasks)
     valid_example = scaffold_task_payload(
         task_row=sample_task_row,
         input_payload=sample_input_payload,
     )
-    first_valid_chunk = next(
-        (
-            chunk_result
-            for chunk_result in (valid_example.get("chunk_results") or [])
-            if isinstance(chunk_result, dict)
-            and str(chunk_result.get("chunk_id") or "").strip() == sample_chunk_id
-        ),
-        None,
-    )
-    if isinstance(first_valid_chunk, dict):
-        chunk_row = next(
-            (
-                chunk
-                for chunk in _chunk_rows(sample_input_payload)
-                if str(chunk.get("cid") or "").strip() == sample_chunk_id
-            ),
-            None,
-        )
-        evidence_rows, source_text = _sample_evidence_rows(chunk_row)
-        evidence_block_indices = {
-            int(row.get("block_index"))
-            for row in evidence_rows
-            if row.get("block_index") is not None
-        }
-        if evidence_rows and evidence_block_indices:
-            valid_example_body = _short_grounded_snippet(source_text)
-            first_valid_chunk["is_useful"] = True
-            first_valid_chunk["block_decisions"] = [
-                {
-                    "block_index": int(block.get("i")),
-                    "category": (
-                        "knowledge"
-                        if int(block.get("i")) in evidence_block_indices
-                        else "other"
-                    ),
-                    "reviewer_category": (
-                        "knowledge"
-                        if int(block.get("i")) in evidence_block_indices
-                        else "other"
-                    ),
-                }
-                for block in (chunk_row or {}).get("b") or []
-                if isinstance(block, Mapping) and block.get("i") is not None
-            ]
-            first_valid_chunk["snippets"] = [
-                {
-                    "body": valid_example_body,
-                    "evidence": evidence_rows,
-                }
-            ]
-            first_valid_chunk["reason_code"] = "technique_or_mechanism"
-    invalid_example = json.loads(json.dumps(valid_example))
-    first_chunk = next(
-        (
-            chunk_result
-            for chunk_result in (invalid_example.get("chunk_results") or [])
-            if isinstance(chunk_result, dict)
-            and str(chunk_result.get("chunk_id") or "").strip() == sample_chunk_id
-        ),
-        None,
-    )
-    if isinstance(first_chunk, dict):
-        chunk_row = next(
-            (
-                chunk
-                for chunk in _chunk_rows(sample_input_payload)
-                if str(chunk.get("cid") or "").strip() == sample_chunk_id
-            ),
-            None,
-        )
-        evidence_rows, source_text = _sample_evidence_rows(chunk_row)
-        evidence_block_indices = {
-            int(row.get("block_index"))
-            for row in evidence_rows
-            if row.get("block_index") is not None
-        }
-        if evidence_rows and evidence_block_indices:
-            first_chunk["is_useful"] = True
-            first_chunk["block_decisions"] = [
-                {
-                    "block_index": int(block.get("i")),
-                    "category": (
-                        "knowledge"
-                        if int(block.get("i")) in evidence_block_indices
-                        else "other"
-                    ),
-                    "reviewer_category": (
-                        "knowledge"
-                        if int(block.get("i")) in evidence_block_indices
-                        else "other"
-                    ),
-                }
-                for block in (chunk_row or {}).get("b") or []
-                if isinstance(block, Mapping) and block.get("i") is not None
-            ]
-            first_chunk["snippets"] = [
-                {
-                    "body": source_text,
-                    "evidence": evidence_rows,
-                }
-            ]
-            first_chunk["reason_code"] = "technique_or_mechanism"
-    low_utility_example = {
-        "packet_id": "utility-contrast-low-value",
-        "chunk_results": [
+    evidence_rows, source_text = _sample_evidence_rows(sample_input_payload)
+    evidence_block_indices = {
+        int(row.get("block_index"))
+        for row in evidence_rows
+        if row.get("block_index") is not None
+    }
+    if evidence_rows and evidence_block_indices:
+        valid_example["block_decisions"] = [
             {
-                "chunk_id": "utility-low-value",
-                "is_useful": False,
-                "block_decisions": [
+                "block_index": int(block.get("i")),
+                "category": (
+                    "knowledge"
+                    if int(block.get("i")) in evidence_block_indices
+                    else "other"
+                ),
+                "reviewer_category": (
+                    "knowledge"
+                    if int(block.get("i")) in evidence_block_indices
+                    else "other"
+                ),
+            }
+            for block in (sample_input_payload.get("b") or [])
+            if isinstance(block, Mapping) and block.get("i") is not None
+        ]
+        valid_example["idea_groups"] = [
+            {
+                "group_id": "idea-1",
+                "topic_label": _short_grounded_snippet(source_text),
+                "block_indices": sorted(evidence_block_indices),
+                "snippets": [
                     {
-                        "block_index": 41,
-                        "category": "other",
-                        "reviewer_category": "other",
+                        "body": _short_grounded_snippet(source_text),
+                        "evidence": evidence_rows,
                     }
                 ],
-                "snippets": [],
-                "reason_code": "true_but_low_utility",
+            }
+        ]
+    invalid_example = json.loads(json.dumps(valid_example))
+    if invalid_example.get("idea_groups"):
+        invalid_example["idea_groups"][0]["snippets"][0]["body"] = source_text
+    low_utility_example = {
+        "packet_id": "utility-contrast-low-value",
+        "block_decisions": [
+            {
+                "block_index": 41,
+                "category": "other",
+                "reviewer_category": "other",
             }
         ],
+        "idea_groups": [],
     }
     framing_example = {
         "packet_id": "utility-contrast-framing",
-        "chunk_results": [
+        "block_decisions": [
             {
-                "chunk_id": "utility-framing",
-                "is_useful": False,
-                "block_decisions": [
-                    {
-                        "block_index": 51,
-                        "category": "other",
-                        "reviewer_category": "front_matter",
-                    },
-                    {
-                        "block_index": 52,
-                        "category": "other",
-                        "reviewer_category": "endorsement_or_marketing",
-                    },
-                ],
-                "snippets": [],
-                "reason_code": "book_framing_or_marketing",
-            }
+                "block_index": 51,
+                "category": "other",
+                "reviewer_category": "front_matter",
+            },
+            {
+                "block_index": 52,
+                "category": "other",
+                "reviewer_category": "endorsement_or_marketing",
+            },
         ],
+        "idea_groups": [],
     }
     heading_example = {
         "packet_id": "utility-contrast-heading-body",
-        "chunk_results": [
+        "block_decisions": [
             {
-                "chunk_id": "utility-heading-body",
-                "is_useful": True,
-                "block_decisions": [
-                    {
-                        "block_index": 71,
-                        "category": "knowledge",
-                        "reviewer_category": "knowledge",
-                    },
-                    {
-                        "block_index": 72,
-                        "category": "knowledge",
-                        "reviewer_category": "knowledge",
-                    },
-                ],
+                "block_index": 71,
+                "category": "knowledge",
+                "reviewer_category": "knowledge",
+            },
+            {
+                "block_index": 72,
+                "category": "knowledge",
+                "reviewer_category": "knowledge",
+            },
+        ],
+        "idea_groups": [
+            {
+                "group_id": "idea-1",
+                "topic_label": "Salt seasons earlier and more evenly",
+                "block_indices": [71, 72],
                 "snippets": [
                     {
                         "body": "Salt helps food taste more like itself and seasons it more evenly when applied early.",
@@ -1425,27 +1184,19 @@ def build_knowledge_workspace_contract_examples(
                         ],
                     }
                 ],
-                "reason_code": "technique_or_mechanism",
             }
         ],
     }
     navigation_example = {
         "packet_id": "utility-contrast-navigation",
-        "chunk_results": [
+        "block_decisions": [
             {
-                "chunk_id": "utility-navigation",
-                "is_useful": False,
-                "block_decisions": [
-                    {
-                        "block_index": 61,
-                        "category": "other",
-                        "reviewer_category": "chapter_taxonomy",
-                    }
-                ],
-                "snippets": [],
-                "reason_code": "navigation_or_chapter_taxonomy",
+                "block_index": 61,
+                "category": "other",
+                "reviewer_category": "chapter_taxonomy",
             }
         ],
+        "idea_groups": [],
     }
     return {
         "valid_semantic_packet.json": valid_example,
@@ -1500,30 +1251,27 @@ def build_knowledge_workspace_contract_markdown(
             "",
             "Required top-level keys:",
             "- `packet_id`: must equal the task row `task_id` exactly.",
-            "- Each task owns exactly one chunk, so `chunk_results` must contain exactly one row for that owned chunk and no extras.",
-            "",
-            "Per chunk-result row:",
-            "- `chunk_id`: the owned chunk id from `in/<task_id>.json`.",
-            "- `is_useful`: `true` only when the chunk keeps at least one `knowledge` block and at least one grounded snippet because the text offers durable cooking leverage.",
             "- `block_decisions`: cover every owned block index exactly once and in order.",
+            "- `idea_groups`: group only the kept `knowledge` blocks into one or more related ideas.",
+            "",
+            "Per idea group:",
+            "- `group_id`: a stable packet-local id such as `g01`.",
+            "- `topic_label`: a short human-readable label for the related idea.",
+            "- `block_indices`: packet-owned `knowledge` block indices only, kept in order.",
             "- `snippets`: grounded reusable claims only; each snippet needs evidence rows with `block_index` plus verbatim `quote`.",
-            "- `reason_code`: required. It must explain why the chunk is worth keeping or why it should stay `other`.",
             "",
             "Category rules:",
             f"- Final `category` values are only `{ALLOWED_KNOWLEDGE_FINAL_CATEGORIES[0]}` or `{ALLOWED_KNOWLEDGE_FINAL_CATEGORIES[1]}`.",
             "- Optional `reviewer_category` values are `knowledge`, `chapter_taxonomy`, `decorative_heading`, `front_matter`, `toc_navigation`, `endorsement_or_marketing`, `memoir_or_scene_setting`, `reference_back_matter`, or `other`.",
             "- If final `category` is `knowledge`, `reviewer_category` must also be `knowledge`.",
-            "- `reason_code` must be one of: "
-            + ", ".join(f"`{code}`" for code in ALLOWED_KNOWLEDGE_REASON_CODES)
-            + ".",
-            "- Useful `reason_code` values: `technique_or_mechanism`, `diagnostic_or_troubleshooting`, `reference_or_definition`, `substitution_storage_or_safety`.",
-            "- All-`other` `reason_code` values: `book_framing_or_marketing`, `memoir_or_scene_setting`, `navigation_or_chapter_taxonomy`, `decorative_heading_only`, `true_but_low_utility`, `not_cooking_knowledge`.",
+            "- Every `knowledge` block must belong to exactly one idea group.",
+            "- No `other` block may appear inside an idea group.",
             "",
             "Utility questions:",
             "- Would saving this materially improve a cook's future decisions, diagnosis, or technique?",
             "- Does it explain cause and effect, sensory judgment, troubleshooting, ingredient behavior, substitution, storage, safety, or durable technique?",
             "- If the text is technically true but generic or low-value, keep it `other`.",
-            "- If a short conceptual heading directly introduces useful explanatory blocks in the same chunk, keep that heading with the useful body rather than demoting it to decoration.",
+            "- If a short conceptual heading directly introduces useful explanatory blocks in the same packet, keep that heading with the useful body rather than demoting it to decoration.",
             "",
             "Snippet rules:",
             "- Good snippet: a short grounded claim such as `Use low heat to prevent curdling.` supported by one or two short evidence quotes.",
@@ -1782,42 +1530,6 @@ def _format_workspace_validation_failure(
     return "\n".join(lines)
 
 
-def _render_strong_cue_empty_shard_detail_lines(
-    *,
-    validation_metadata: Mapping[str, Any] | None,
-) -> list[str]:
-    metadata = _coerce_dict(validation_metadata)
-    cue_chunk_ids = [
-        str(chunk_id).strip()
-        for chunk_id in (
-            metadata.get("strong_cue_empty_chunk_ids")
-            or metadata.get("knowledge_cue_chunk_ids")
-            or []
-        )
-        if str(chunk_id).strip()
-    ]
-    knowledge_decision_count = int(metadata.get("knowledge_decision_count") or 0)
-    snippet_count = int(metadata.get("snippet_count") or 0)
-    useful_chunk_count = int(metadata.get("useful_chunk_count") or 0)
-    lines = [
-        "This task has strong knowledge cues, but the current draft still returns "
-        f"`{knowledge_decision_count}` `knowledge` decisions, `{snippet_count}` snippets, "
-        f"and `{useful_chunk_count}` useful chunks."
-    ]
-    if cue_chunk_ids:
-        lines.append(
-            "Cue-bearing chunk ids: "
-            + ", ".join(f"`{chunk_id}`" for chunk_id in cue_chunk_ids)
-            + "."
-        )
-    lines.append(
-        "Re-open the hint and owned input for those chunk ids. Keep at least one "
-        "`knowledge` block plus one short grounded snippet unless the source is clearly "
-        "not reusable cooking knowledge."
-    )
-    return lines
-
-
 def _render_validation_error_help(
     *,
     validation_errors: Sequence[str],
@@ -1833,7 +1545,10 @@ def _render_validation_error_help(
     metadata = _coerce_dict(validation_metadata)
     help_lines: list[str] = []
 
-    if "semantic_snippet_echoes_full_chunk" in error_set:
+    if (
+        "semantic_snippet_echoes_packet_surface" in error_set
+        or "semantic_snippet_copies_evidence_quote" in error_set
+    ):
         help_lines.append(
             "Keep each `evidence[].quote` verbatim, but rewrite `snippets[].body` into a shorter grounded claim in your own words."
         )
@@ -1845,32 +1560,40 @@ def _render_validation_error_help(
             )
         )
     if "semantic_snippet_body_not_grounded_text" in error_set:
-        non_grounded_chunk_ids = [
-            str(chunk_id).strip()
-            for chunk_id in (metadata.get("non_grounded_snippet_chunk_ids") or [])
-            if str(chunk_id).strip()
+        non_grounded_group_ids = [
+            str(group_id).strip()
+            for group_id in (metadata.get("non_grounded_idea_group_ids") or [])
+            if str(group_id).strip()
         ]
-        if non_grounded_chunk_ids:
+        if non_grounded_group_ids:
             help_lines.append(
-                "These chunks need real grounded prose in `snippets[].body`: "
-                + ", ".join(f"`{chunk_id}`" for chunk_id in non_grounded_chunk_ids)
+                "These idea groups need real grounded prose in `snippets[].body`: "
+                + ", ".join(f"`{group_id}`" for group_id in non_grounded_group_ids)
                 + "."
             )
         else:
             help_lines.append(
                 "Use plain-language snippet bodies that state a reusable claim supported by the evidence."
             )
-    if "missing_owned_chunk_results" in error_set or "unexpected_chunk_results" in error_set:
+    if "missing_owned_block_decisions" in error_set or "unexpected_block_decisions" in error_set:
         help_lines.append(
-            "Return exactly one `chunk_results` row for the single owned chunk in the input file, with no extras."
+            "Cover every owned block exactly once in top-level `block_decisions`, with no extras."
         )
-    if "chunk_result_order_mismatch" in error_set:
+    if "block_decision_order_mismatch" in error_set:
         help_lines.append(
-            "Keep the single `chunk_results` row aligned to the owned chunk in the input payload."
+            "Keep `block_decisions` in the same order as the owned packet blocks."
         )
-    if "block_decision_coverage_mismatch" in error_set:
+    if "knowledge_block_missing_group" in error_set:
         help_lines.append(
-            "Cover every owned block exactly once in `block_decisions`, using the input order."
+            "Every block marked `knowledge` must appear in exactly one `idea_groups[*].block_indices` list."
+        )
+    if "knowledge_block_group_conflict" in error_set:
+        help_lines.append(
+            "Do not place the same knowledge block into more than one idea group."
+        )
+    if "group_contains_other_block" in error_set:
+        help_lines.append(
+            "Only blocks marked `knowledge` may appear in `idea_groups[*].block_indices`."
         )
     if "snippet_evidence_wrong_chunk_surface" in error_set:
         help_lines.append(
@@ -1883,12 +1606,6 @@ def _render_validation_error_help(
     if "bundle_id_mismatch" in error_set:
         help_lines.append(
             "`packet_id` must exactly match the current task row's `task_id`."
-        )
-    if "semantic_all_false_empty_shard" in error_set:
-        help_lines.extend(
-            _render_strong_cue_empty_shard_detail_lines(
-                validation_metadata=metadata,
-            )
         )
     if not help_lines:
         help_lines.append(
@@ -1913,119 +1630,68 @@ def _render_snippet_copy_detail_lines(
         if isinstance(payload, Mapping)
         else {}
     )
-    chunk_results_by_id = {
-        str(chunk_result.get("cid") or "").strip(): chunk_result
-        for chunk_result in _canonical_chunk_results(canonical_payload)
-        if str(chunk_result.get("cid") or "").strip()
+    idea_groups_by_id = {
+        str(group.get("gid") or "").strip(): group
+        for group in (canonical_payload.get("g") or [])
+        if isinstance(group, Mapping) and str(group.get("gid") or "").strip()
     }
-    source_text_by_chunk_id = {
-        str(chunk.get("cid") or "").strip(): " ".join(
-            str(block.get("t") or "").strip()
-            for block in chunk.get("b") or []
-            if isinstance(block, Mapping) and str(block.get("t") or "").strip()
-        ).strip()
-        for chunk in _chunk_rows(input_payload or {})
-        if str(chunk.get("cid") or "").strip()
+    source_text_by_block_index = {
+        int(block.get("i")): str(block.get("t") or "").strip()
+        for block in ((input_payload or {}).get("b") or [])
+        if isinstance(block, Mapping)
+        and block.get("i") is not None
+        and str(block.get("t") or "").strip()
     }
 
     lines: list[str] = []
-    evidence_surface_rows = metadata.get("evidence_surface_echoes_by_chunk_id")
-    if isinstance(evidence_surface_rows, Mapping):
-        for chunk_id, details in evidence_surface_rows.items():
-            chunk_id_text = str(chunk_id).strip()
-            chunk_result = chunk_results_by_id.get(chunk_id_text) or {}
-            snippets = chunk_result.get("s") or []
-            for detail in details or []:
-                if not isinstance(detail, Mapping):
-                    continue
-                snippet_index = int(detail.get("snippet_index") or 0)
-                snippet_row = (
-                    snippets[snippet_index]
-                    if isinstance(snippets, list) and 0 <= snippet_index < len(snippets)
-                    else {}
-                )
-                evidence_rows = [
-                    evidence
-                    for evidence in (snippet_row.get("e") or [])
-                    if isinstance(evidence, Mapping)
-                ]
-                block_indices = [
-                    int(value)
-                    for value in (detail.get("block_indices") or [])
-                    if value is not None
-                ]
-                quote_preview = _trim_preview(
-                    " ".join(
-                        str(evidence.get("q") or "").strip()
-                        for evidence in evidence_rows
-                        if str(evidence.get("q") or "").strip()
-                    )
-                )
-                lines.append(
-                    "Chunk "
-                    f"`{chunk_id_text}` snippet `{snippet_index}` copied evidence"
-                    + (
-                        f" from block(s) `{', '.join(str(value) for value in block_indices)}`"
-                        if block_indices
-                        else ""
-                    )
-                    + (
-                        f": `{quote_preview}`. Keep that quote in `evidence`, but shorten the body."
-                        if quote_preview
-                        else ". Keep the evidence quote, but shorten the body."
-                    )
-                )
-    echoed_chunk_ids = [
-        str(chunk_id).strip()
-        for chunk_id in (metadata.get("echoed_full_chunk_ids") or [])
-        if str(chunk_id).strip()
+    copied_group_ids = [
+        str(group_id).strip()
+        for group_id in (metadata.get("copied_quote_idea_group_ids") or [])
+        if str(group_id).strip()
     ]
-    for chunk_id in echoed_chunk_ids:
-        source_preview = _trim_preview(source_text_by_chunk_id.get(chunk_id) or "")
-        line = (
-            f"Chunk `{chunk_id}` body is too close to the full owned chunk surface."
+    for group_id in copied_group_ids:
+        group_payload = idea_groups_by_id.get(group_id) or {}
+        snippet_rows = [
+            snippet
+            for snippet in (group_payload.get("s") or [])
+            if isinstance(snippet, Mapping)
+        ]
+        quote_preview = _trim_preview(
+            " ".join(
+                str(evidence.get("q") or "").strip()
+                for snippet in snippet_rows
+                for evidence in (snippet.get("e") or [])
+                if isinstance(evidence, Mapping) and str(evidence.get("q") or "").strip()
+            )
         )
-        if source_preview:
-            line += f" Source surface: `{source_preview}`."
+        lines.append(
+            f"Idea group `{group_id}` copied too much evidence text"
+            + (
+                f": `{quote_preview}`. Keep that quote in `evidence`, but shorten the body."
+                if quote_preview
+                else ". Keep the evidence quote, but shorten the body."
+            )
+        )
+    echoed_group_ids = [
+        str(group_id).strip()
+        for group_id in (metadata.get("echoed_idea_group_ids") or [])
+        if str(group_id).strip()
+    ]
+    for group_id in echoed_group_ids:
+        group_payload = idea_groups_by_id.get(group_id) or {}
+        group_surface = _trim_preview(
+            " ".join(
+                source_text_by_block_index.get(int(block_index), "")
+                for block_index in (group_payload.get("bi") or [])
+                if block_index is not None
+            )
+        )
+        line = f"Idea group `{group_id}` body is too close to the full owned packet surface."
+        if group_surface:
+            line += f" Source surface: `{group_surface}`."
         line += " Leave the longer wording in evidence quotes only and keep the body to one short claim."
         lines.append(line)
     return list(dict.fromkeys(line for line in lines if line.strip()))
-
-
-def _canonical_chunk_results(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    if not isinstance(payload, Mapping):
-        return []
-    raw_rows = payload.get("r")
-    if isinstance(raw_rows, list):
-        return [dict(row) for row in raw_rows if isinstance(row, Mapping)]
-    raw_semantic_rows = payload.get("chunk_results")
-    if not isinstance(raw_semantic_rows, list):
-        return []
-    canonical_rows: list[dict[str, Any]] = []
-    for row in raw_semantic_rows:
-        if not isinstance(row, Mapping):
-            continue
-        canonical_rows.append(
-            {
-                "cid": row.get("chunk_id"),
-                "s": [
-                    {
-                        "b": snippet.get("body"),
-                        "e": [
-                            {
-                                "i": evidence.get("block_index"),
-                                "q": evidence.get("quote"),
-                            }
-                            for evidence in (snippet.get("evidence") or [])
-                            if isinstance(evidence, Mapping)
-                        ],
-                    }
-                    for snippet in (row.get("snippets") or [])
-                    if isinstance(snippet, Mapping)
-                ],
-            }
-        )
-    return canonical_rows
 
 
 def _trim_preview(value: str, *, max_chars: int = 120) -> str:
@@ -2042,30 +1708,18 @@ def build_workspace_task_shard(
 ) -> ShardManifestEntryV1:
     task_id = str(task_row.get("task_id") or "").strip()
     metadata = dict(_coerce_dict(task_row.get("metadata")))
-    chunk_rows = _chunk_rows(input_payload)
-    ordered_chunk_ids = _owned_chunk_ids(input_payload)
-    if ordered_chunk_ids:
-        metadata.setdefault("ordered_chunk_ids", ordered_chunk_ids)
-    chunk_block_indices_by_id: dict[str, list[int]] = {}
-    owned_block_indices: list[int] = []
-    for chunk in chunk_rows:
-        chunk_id = str(chunk.get("cid") or "").strip()
-        if not chunk_id:
-            continue
-        block_indices = [
-            int(block.get("i"))
-            for block in chunk.get("b") or []
-            if isinstance(block, Mapping) and block.get("i") is not None
-        ]
-        chunk_block_indices_by_id[chunk_id] = block_indices
-        owned_block_indices.extend(block_indices)
-    if chunk_block_indices_by_id:
-        metadata.setdefault("chunk_block_indices_by_id", chunk_block_indices_by_id)
+    packet_id = str(input_payload.get("bid") or input_payload.get("packet_id") or task_id).strip()
+    owned_block_indices = [
+        int(block.get("i"))
+        for block in (input_payload.get("b") or [])
+        if isinstance(block, Mapping) and block.get("i") is not None
+    ]
+    metadata.setdefault("packet_id", packet_id)
     if owned_block_indices:
         metadata.setdefault("owned_block_indices", owned_block_indices)
     return ShardManifestEntryV1(
         shard_id=task_id,
-        owned_ids=tuple(ordered_chunk_ids),
+        owned_ids=(packet_id,),
         input_payload=dict(input_payload),
         metadata=metadata,
     )
@@ -2247,17 +1901,23 @@ def render_knowledge_worker_script() -> str:
                 raise ValueError("task input payload must be a JSON object")
             return dict(payload)
 
-        def _chunk_rows(input_payload):
-            chunks = input_payload.get("c")
-            if not isinstance(chunks, list):
+        def _packet_rows(input_payload):
+            blocks = input_payload.get("b")
+            if not isinstance(blocks, list):
                 return []
-            return [dict(chunk) for chunk in chunks if isinstance(chunk, dict)]
-
-        def _owned_chunk_ids(input_payload):
+            packet_id = str(input_payload.get("bid") or input_payload.get("packet_id") or "").strip()
             return [
-                str(chunk.get("cid") or "").strip()
-                for chunk in _chunk_rows(input_payload)
-                if str(chunk.get("cid") or "").strip()
+                {
+                    "bid": packet_id,
+                    "b": [dict(block) for block in blocks if isinstance(block, dict)],
+                }
+            ]
+
+        def _owned_packet_ids(input_payload):
+            return [
+                str(packet.get("bid") or "").strip()
+                for packet in _packet_rows(input_payload)
+                if str(packet.get("bid") or "").strip()
             ]
 
         def _resolve_result_path(task_row):
@@ -2290,17 +1950,17 @@ def render_knowledge_worker_script() -> str:
 
         def _task_block_spans(input_payload):
             block_spans = []
-            for chunk in _chunk_rows(input_payload):
-                chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
+            for packet in _packet_rows(input_payload):
+                packet_id = str(packet.get("bid") or "").strip() or "[unknown packet]"
                 block_indices = [
                     int(block.get("i"))
-                    for block in chunk.get("b") or []
+                    for block in packet.get("b") or []
                     if isinstance(block, dict) and block.get("i") is not None
                 ]
                 if not block_indices:
-                    block_spans.append(f"{chunk_id}:[no blocks]")
+                    block_spans.append(f"{packet_id}:[no blocks]")
                     continue
-                block_spans.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
+                block_spans.append(f"{packet_id}:{block_indices[0]}..{block_indices[-1]}")
             return block_spans
 
         def _build_current_batch_payload(start_index=0):
@@ -2337,22 +1997,9 @@ def render_knowledge_worker_script() -> str:
                         "hint_path": str(metadata.get("hint_path") or "").strip() or None,
                         "result_path": str(metadata.get("result_path") or "").strip() or None,
                         "draft_path": str(_workspace_display_path(_current_batch_task_draft_path(task_id))),
-                        "owned_chunk_ids": [
+                        "owned_packet_ids": [
                             str(value).strip()
                             for value in (row.get("owned_ids") or [])
-                            if str(value).strip()
-                        ],
-                        "strong_knowledge_cue": bool(metadata.get("strong_knowledge_cue")),
-                        "strong_negative_utility_cue": bool(metadata.get("strong_negative_utility_cue")),
-                        "utility_borderline": bool(metadata.get("utility_borderline")),
-                        "utility_positive_cues": [
-                            str(value).strip()
-                            for value in (metadata.get("utility_positive_cues") or [])
-                            if str(value).strip()
-                        ],
-                        "utility_negative_cues": [
-                            str(value).strip()
-                            for value in (metadata.get("utility_negative_cues") or [])
                             if str(value).strip()
                         ],
                     }
@@ -2404,27 +2051,6 @@ def render_knowledge_worker_script() -> str:
                 ),
                 None,
             )
-            strong_cue_task_ids = [
-                str(task.get("task_id") or "").strip()
-                for task in (batch_payload.get("tasks") or [])
-                if isinstance(task, dict)
-                and bool(task.get("strong_knowledge_cue"))
-                and str(task.get("task_id") or "").strip()
-            ]
-            strong_negative_task_ids = [
-                str(task.get("task_id") or "").strip()
-                for task in (batch_payload.get("tasks") or [])
-                if isinstance(task, dict)
-                and bool(task.get("strong_negative_utility_cue"))
-                and str(task.get("task_id") or "").strip()
-            ]
-            borderline_task_ids = [
-                str(task.get("task_id") or "").strip()
-                for task in (batch_payload.get("tasks") or [])
-                if isinstance(task, dict)
-                and bool(task.get("utility_borderline"))
-                and str(task.get("task_id") or "").strip()
-            ]
             brief_lines = [
                 "# Current Knowledge Batch",
                 "",
@@ -2433,28 +2059,9 @@ def render_knowledge_worker_script() -> str:
                 f"Batch task count: `{batch_payload.get('batch_task_count') or 0}`",
                 f"Batch draft dir: `{batch_payload.get('draft_dir') or 'scratch/current_batch'}`",
                 f"Remaining tasks after this batch: `{batch_payload.get('batch_remaining_after_batch') or 0}`",
-                (
-                    "Strong-cue tasks in this batch: "
-                    + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
-                    if strong_cue_task_ids
-                    else "Strong-cue tasks in this batch: none."
-                ),
-                (
-                    "High-skepticism tasks in this batch: "
-                    + ", ".join(f"`{task_id}`" for task_id in strong_negative_task_ids)
-                    if strong_negative_task_ids
-                    else "High-skepticism tasks in this batch: none."
-                ),
-                (
-                    "Borderline utility tasks in this batch: "
-                    + ", ".join(f"`{task_id}`" for task_id in borderline_task_ids)
-                    if borderline_task_ids
-                    else "Borderline utility tasks in this batch: none."
-                ),
                 "",
                 "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
-                    "Use `complete-batch`, edit the drafts under `scratch/current_batch/`, then `check-batch` and `install-batch`.",
-                    "Re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md` after each install; open `current_batch.json` only when you need machine-readable paths or task rows.",
+                "Use `complete-batch`, edit the drafts under `scratch/current_batch/`, then `check-batch` and `install-batch`.",
                 "Re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md` after each install; open `current_batch.json` only when you need machine-readable paths or task rows.",
                 "Single-task `CURRENT_TASK*` files remain available only for narrow recovery on the first active task.",
             ]
@@ -2466,23 +2073,8 @@ def render_knowledge_worker_script() -> str:
                         f"- Task id: `{first_task.get('task_id') or '[unknown task]'}`",
                         f"- Draft path: `{first_task.get('draft_path') or '?'}`",
                         f"- Result path: `{first_task.get('result_path') or '?'}`",
-                        f"- Owned chunk ids: `{', '.join(first_task.get('owned_chunk_ids') or []) or '[none]'}`",
-                        (
-                            "- Strong cue: yes. Do not install the prewritten all-`other` scaffold as-is."
-                            if bool(first_task.get('strong_knowledge_cue'))
-                            else "- Strong cue: no."
-                        ),
-                        (
-                            "- Skepticism: high. This first task looks like framing, memoir, navigation, or low-utility filler unless the text proves otherwise."
-                            if bool(first_task.get('strong_negative_utility_cue'))
-                            else "- Skepticism: balanced."
-                        ),
-                        "- Utility-positive cues: "
-                        + (", ".join(f"`{value}`" for value in (first_task.get("utility_positive_cues") or [])) or "none")
-                        + ".",
-                        "- Utility-negative cues: "
-                        + (", ".join(f"`{value}`" for value in (first_task.get("utility_negative_cues") or [])) or "none")
-                        + ".",
+                        f"- Owned packet ids: `{', '.join(first_task.get('owned_packet_ids') or []) or '[none]'}`",
+                        "- Return `block_decisions` plus `idea_groups`; do not fall back to chunk-era result shapes.",
                     ]
                 )
             brief_path.write_text("\\n".join(brief_lines) + "\\n", encoding="utf-8")
@@ -2494,18 +2086,7 @@ def render_knowledge_worker_script() -> str:
                     f"Batch task ids: `{', '.join(batch_ids) or '[none]'}`",
                     NO_REPO_WRITTEN_BATCH_FEEDBACK_TEXT,
                     ACTIVE_BATCH_ASSIGNMENT_TEXT,
-                    (
-                        "Strong-cue tasks still needing a real judgment: "
-                        + ", ".join(f"`{task_id}`" for task_id in strong_cue_task_ids)
-                        if strong_cue_task_ids
-                        else "Strong-cue tasks still needing a real judgment: none."
-                    ),
-                    (
-                        "High-skepticism tasks in this batch: "
-                        + ", ".join(f"`{task_id}`" for task_id in strong_negative_task_ids)
-                        if strong_negative_task_ids
-                        else "High-skepticism tasks in this batch: none."
-                    ),
+                    "Every task still needs a packet-level judgment over `block_decisions` and `idea_groups` until the checker accepts it.",
                     "Current first task:",
                     f"- `{first_task.get('task_id') or '[unknown task]'}`",
                     f"- Draft: `{first_task.get('draft_path') or '?'}`",
@@ -2560,71 +2141,39 @@ def render_knowledge_worker_script() -> str:
                 or normalized_surface in normalized_body
             )
 
-        def _copied_surface_covers_most_of_chunk(*, copied_surface_text, full_chunk_text):
-            if not copied_surface_text or not full_chunk_text:
-                return False
-            if len(full_chunk_text) < 160:
-                return False
-            return len(copied_surface_text) >= max(120, int(len(full_chunk_text) * 0.85))
-
-        def _chunk_block_texts_by_id(input_payload):
-            resolved = {}
-            for chunk in _chunk_rows(input_payload):
-                chunk_id = str(chunk.get("cid") or "").strip()
-                if not chunk_id:
-                    continue
-                block_texts = {}
-                for block in chunk.get("b") or []:
-                    if not isinstance(block, dict) or block.get("i") is None:
-                        continue
-                    text = str(block.get("t") or "").strip()
-                    if text:
-                        block_texts[int(block.get("i"))] = text
-                if block_texts:
-                    resolved[chunk_id] = block_texts
-            return resolved
-
         def _normalize_payload(payload):
-            if "packet_id" in payload:
+            if "packet_id" in payload or "block_decisions" in payload or "idea_groups" in payload:
                 working = json.loads(json.dumps(payload))
-                for chunk_result in working.get("chunk_results") or []:
-                    if not isinstance(chunk_result, dict):
-                        continue
-                    reason_code = str(chunk_result.get("reason_code") or "").strip()
-                    if reason_code == "grounded_useful":
-                        chunk_result["reason_code"] = "technique_or_mechanism"
-                    elif reason_code == "all_other":
-                        chunk_result["reason_code"] = "not_cooking_knowledge"
-                    for decision in chunk_result.get("block_decisions") or []:
-                        if not isinstance(decision, dict):
-                            continue
-                        category = str(decision.get("category") or "").strip()
-                        if category in SEMANTIC_CATEGORY_ALIAS_DEFAULTS:
-                            normalized_category, default_reviewer = SEMANTIC_CATEGORY_ALIAS_DEFAULTS[category]
-                            decision["category"] = normalized_category
-                            reviewer_category = str(decision.get("reviewer_category") or "").strip()
-                            if not reviewer_category:
-                                decision["reviewer_category"] = default_reviewer
-                return working
-            if str(payload.get("v") or "").strip() != "2":
-                raise ValueError("draft must use semantic keys or canonical bundle keys")
-            chunk_results = []
-            for chunk_result in payload.get("r") or []:
-                if not isinstance(chunk_result, dict):
-                    raise ValueError("canonical chunk results must be objects")
-                block_decisions = []
-                for decision in chunk_result.get("d") or []:
+                for decision in working.get("block_decisions") or []:
                     if not isinstance(decision, dict):
-                        raise ValueError("canonical block decisions must be objects")
-                    block_decisions.append(
-                        {
-                            "block_index": decision.get("i"),
-                            "category": decision.get("c"),
-                            "reviewer_category": decision.get("rc"),
-                        }
-                    )
+                        continue
+                    category = str(decision.get("category") or "").strip()
+                    if category in SEMANTIC_CATEGORY_ALIAS_DEFAULTS:
+                        normalized_category, default_reviewer = SEMANTIC_CATEGORY_ALIAS_DEFAULTS[category]
+                        decision["category"] = normalized_category
+                        reviewer_category = str(decision.get("reviewer_category") or "").strip()
+                        if not reviewer_category:
+                            decision["reviewer_category"] = default_reviewer
+                return working
+            if str(payload.get("v") or "").strip() != "3":
+                raise ValueError("draft must use semantic packet keys or canonical packet keys")
+            block_decisions = []
+            for decision in payload.get("d") or []:
+                if not isinstance(decision, dict):
+                    raise ValueError("canonical block decisions must be objects")
+                block_decisions.append(
+                    {
+                        "block_index": decision.get("i"),
+                        "category": decision.get("c"),
+                        "reviewer_category": decision.get("rc"),
+                    }
+                )
+            idea_groups = []
+            for group in payload.get("g") or []:
+                if not isinstance(group, dict):
+                    raise ValueError("canonical idea groups must be objects")
                 snippets = []
-                for snippet in chunk_result.get("s") or []:
+                for snippet in group.get("s") or []:
                     if not isinstance(snippet, dict):
                         raise ValueError("canonical snippets must be objects")
                     snippets.append(
@@ -2640,53 +2189,36 @@ def render_knowledge_worker_script() -> str:
                             ],
                         }
                     )
-                chunk_results.append(
+                idea_groups.append(
                     {
-                        "chunk_id": chunk_result.get("cid"),
-                        "is_useful": chunk_result.get("u"),
-                        "block_decisions": block_decisions,
+                        "group_id": group.get("gid"),
+                        "topic_label": group.get("l"),
+                        "block_indices": list(group.get("bi") or []),
                         "snippets": snippets,
                     }
                 )
             return {
                 "packet_id": payload.get("bid"),
-                "chunk_results": chunk_results,
+                "block_decisions": block_decisions,
+                "idea_groups": idea_groups,
             }
 
         def _scaffold(task_row, input_payload):
-            strong_knowledge_cue = bool(_coerce_dict(task_row.get("metadata")).get("strong_knowledge_cue"))
-            chunk_results = []
-            for chunk in _chunk_rows(input_payload):
-                chunk_id = str(chunk.get("cid") or "").strip()
-                if not chunk_id:
+            block_decisions = []
+            for block in input_payload.get("b") or []:
+                if not isinstance(block, dict) or block.get("i") is None:
                     continue
-                block_decisions = []
-                for block in chunk.get("b") or []:
-                    if not isinstance(block, dict) or block.get("i") is None:
-                        continue
-                    block_decisions.append(
-                        {
-                            "block_index": int(block.get("i")),
-                            "category": "other",
-                            "reviewer_category": "other",
-                        }
-                    )
-                chunk_results.append(
+                block_decisions.append(
                     {
-                        "chunk_id": chunk_id,
-                        "is_useful": False,
-                        "block_decisions": block_decisions,
-                        "snippets": [],
-                        "reason_code": (
-                            STRONG_CUE_SCAFFOLD_REASON_CODE
-                            if strong_knowledge_cue
-                            else DEFAULT_SCAFFOLD_REASON_CODE
-                        ),
+                        "block_index": int(block.get("i")),
+                        "category": "other",
+                        "reviewer_category": "other",
                     }
                 )
             return {
                 "packet_id": str(task_row.get("task_id") or "").strip(),
-                "chunk_results": chunk_results,
+                "block_decisions": block_decisions,
+                "idea_groups": [],
             }
 
         def _validate(task_row, input_payload, payload):
@@ -2697,107 +2229,103 @@ def render_knowledge_worker_script() -> str:
             packet_id = str(normalized.get("packet_id") or "").strip()
             if packet_id != task_id:
                 errors.append("bundle_id_mismatch")
-            chunk_rows = _chunk_rows(input_payload)
-            expected_chunk_ids = [
-                str(chunk.get("cid") or "").strip()
-                for chunk in chunk_rows
-                if str(chunk.get("cid") or "").strip()
+
+            expected_block_indices = [
+                int(block.get("i"))
+                for block in (input_payload.get("b") or [])
+                if isinstance(block, dict) and block.get("i") is not None
             ]
-            chunk_results = normalized.get("chunk_results")
-            if not isinstance(chunk_results, list):
-                raise ValueError("chunk_results must be a list")
-            observed_chunk_ids = []
-            chunk_results_by_id = {}
-            for row in chunk_results:
-                if not isinstance(row, dict):
-                    raise ValueError("chunk_results entries must be objects")
-                chunk_id = str(row.get("chunk_id") or "").strip()
-                if not chunk_id:
-                    raise ValueError("chunk_result.chunk_id is required")
-                if chunk_id in chunk_results_by_id:
-                    raise ValueError(f"chunk_results repeats chunk_id {chunk_id!r}")
-                observed_chunk_ids.append(chunk_id)
-                chunk_results_by_id[chunk_id] = row
-            missing_chunk_ids = [chunk_id for chunk_id in expected_chunk_ids if chunk_id not in chunk_results_by_id]
-            unexpected_chunk_ids = [chunk_id for chunk_id in observed_chunk_ids if chunk_id not in expected_chunk_ids]
-            if missing_chunk_ids:
-                errors.append("missing_owned_chunk_results")
-            if unexpected_chunk_ids:
-                errors.append("unexpected_chunk_results")
-            if not missing_chunk_ids and not unexpected_chunk_ids and observed_chunk_ids != expected_chunk_ids:
-                errors.append("chunk_result_order_mismatch")
-
-            chunk_block_texts = _chunk_block_texts_by_id(input_payload)
-            all_allowed_block_indices = {
-                int(block_index)
-                for block_texts in chunk_block_texts.values()
-                for block_index in block_texts
+            block_text_by_index = {
+                int(block.get("i")): str(block.get("t") or "").strip()
+                for block in (input_payload.get("b") or [])
+                if isinstance(block, dict)
+                and block.get("i") is not None
+                and str(block.get("t") or "").strip()
             }
-            non_grounded_chunk_ids = []
-            echoed_chunk_ids = []
-            evidence_surface_echoes_by_chunk_id = {}
+            all_allowed_block_indices = set(expected_block_indices)
 
-            for chunk in chunk_rows:
-                chunk_id = str(chunk.get("cid") or "").strip()
-                if not chunk_id or chunk_id not in chunk_results_by_id:
-                    continue
-                row = chunk_results_by_id[chunk_id]
-                block_decisions = row.get("block_decisions")
-                snippets = row.get("snippets")
-                reason_code = str(row.get("reason_code") or "").strip()
-                if not isinstance(block_decisions, list):
-                    raise ValueError("block_decisions must be a list")
-                if not isinstance(snippets, list):
-                    raise ValueError("snippets must be a list")
-                if reason_code not in ALLOWED_REASON_CODES:
-                    raise ValueError(
-                        "reason_code must be one of " + ", ".join(ALLOWED_REASON_CODES)
-                    )
-                expected_block_indices = [
-                    int(block.get("i"))
-                    for block in chunk.get("b") or []
-                    if isinstance(block, dict) and block.get("i") is not None
+            block_decisions = normalized.get("block_decisions")
+            if not isinstance(block_decisions, list):
+                raise ValueError("block_decisions must be a list")
+            observed_block_indices = []
+            seen_block_indices = set()
+            decision_category_by_block = {}
+            for decision in block_decisions:
+                if not isinstance(decision, dict):
+                    raise ValueError("block_decisions entries must be objects")
+                block_index = int(decision.get("block_index"))
+                category = str(decision.get("category") or "").strip()
+                reviewer_category = str(decision.get("reviewer_category") or "").strip() or None
+                if category not in ALLOWED_FINAL_CATEGORIES:
+                    raise ValueError(f"invalid final category: {category!r}")
+                if reviewer_category is not None and reviewer_category not in ALLOWED_REVIEWER_CATEGORIES:
+                    raise ValueError(f"invalid reviewer category: {reviewer_category!r}")
+                if category == "knowledge" and reviewer_category not in (None, "knowledge"):
+                    raise ValueError("reviewer_category must be 'knowledge' when category is 'knowledge'")
+                if category == "other" and reviewer_category == "knowledge":
+                    raise ValueError("reviewer_category 'knowledge' is invalid when category is 'other'")
+                if block_index in seen_block_indices:
+                    raise ValueError(f"block_decisions repeats block_index {block_index}")
+                seen_block_indices.add(block_index)
+                observed_block_indices.append(block_index)
+                decision_category_by_block[block_index] = category
+                if block_index not in all_allowed_block_indices:
+                    errors.append("unexpected_block_decisions")
+            missing_block_indices = [
+                block_index
+                for block_index in expected_block_indices
+                if block_index not in seen_block_indices
+            ]
+            if missing_block_indices:
+                errors.append("missing_owned_block_decisions")
+                metadata["missing_owned_block_indices"] = missing_block_indices
+            if observed_block_indices != expected_block_indices and not missing_block_indices:
+                errors.append("block_decision_order_mismatch")
+
+            idea_groups = normalized.get("idea_groups")
+            if not isinstance(idea_groups, list):
+                raise ValueError("idea_groups must be a list")
+            non_grounded_group_ids = []
+            copied_quote_group_ids = []
+            echoed_group_ids = []
+            knowledge_group_count_by_block = {}
+            group_contains_other_blocks = {}
+            for group in idea_groups:
+                if not isinstance(group, dict):
+                    raise ValueError("idea_groups entries must be objects")
+                group_id = str(group.get("group_id") or "").strip()
+                topic_label = str(group.get("topic_label") or "").strip()
+                block_indices = [int(value) for value in (group.get("block_indices") or [])]
+                snippets = group.get("snippets")
+                if not group_id:
+                    raise ValueError("idea_groups.group_id is required")
+                if not topic_label:
+                    raise ValueError("idea_groups.topic_label is required")
+                if not block_indices:
+                    raise ValueError("idea_groups.block_indices must be non-empty")
+                if len(set(block_indices)) != len(block_indices):
+                    raise ValueError("idea_groups must not repeat block indices")
+                if not isinstance(snippets, list) or not snippets:
+                    raise ValueError("idea_groups.snippets must be a non-empty list")
+                wrong_group_blocks = [
+                    block_index
+                    for block_index in block_indices
+                    if decision_category_by_block.get(block_index) != "knowledge"
                 ]
-                seen_block_indices = set()
-                observed_block_indices = []
-                knowledge_decision_count = 0
-                for decision in block_decisions:
-                    if not isinstance(decision, dict):
-                        raise ValueError("block_decisions entries must be objects")
-                    block_index = int(decision.get("block_index"))
-                    category = str(decision.get("category") or "").strip()
-                    reviewer_category = str(decision.get("reviewer_category") or "").strip() or None
-                    if category not in ALLOWED_FINAL_CATEGORIES:
-                        raise ValueError(f"invalid final category: {category!r}")
-                    if reviewer_category is not None and reviewer_category not in ALLOWED_REVIEWER_CATEGORIES:
-                        raise ValueError(f"invalid reviewer category: {reviewer_category!r}")
-                    if category == "knowledge" and reviewer_category not in (None, "knowledge"):
-                        raise ValueError("reviewer_category must be 'knowledge' when category is 'knowledge'")
-                    if category == "other" and reviewer_category == "knowledge":
-                        raise ValueError("reviewer_category 'knowledge' is invalid when category is 'other'")
-                    if block_index in seen_block_indices:
-                        raise ValueError(f"block_decisions repeats block_index {block_index}")
-                    seen_block_indices.add(block_index)
-                    observed_block_indices.append(block_index)
-                    if category == "knowledge":
-                        knowledge_decision_count += 1
-                if observed_block_indices != expected_block_indices:
-                    errors.append("block_decision_coverage_mismatch")
-                for block_index in observed_block_indices:
-                    if block_index not in all_allowed_block_indices:
-                        errors.append("block_decision_out_of_surface")
-                        break
-
-                snippet_count = 0
-                copied_block_indices = set()
-                copied_snippet_count = 0
-                source_text = " ".join(
-                    str(chunk_block_texts.get(chunk_id, {}).get(block_index) or "").strip()
-                    for block_index in expected_block_indices
-                    if str(chunk_block_texts.get(chunk_id, {}).get(block_index) or "").strip()
+                if wrong_group_blocks:
+                    errors.append("group_contains_other_block")
+                    group_contains_other_blocks[group_id] = sorted(set(wrong_group_blocks))
+                group_surface = " ".join(
+                    block_text_by_index.get(block_index, "")
+                    for block_index in block_indices
                 ).strip()
-                normalized_source_text = _normalize_text(source_text)
-                for snippet_index, snippet in enumerate(snippets):
+                normalized_group_surface = _normalize_text(group_surface)
+                for block_index in block_indices:
+                    if decision_category_by_block.get(block_index) == "knowledge":
+                        knowledge_group_count_by_block[block_index] = (
+                            knowledge_group_count_by_block.get(block_index, 0) + 1
+                        )
+                for snippet in snippets:
                     if not isinstance(snippet, dict):
                         raise ValueError("snippets entries must be objects")
                     body = str(snippet.get("body") or "").strip()
@@ -2805,9 +2333,9 @@ def render_knowledge_worker_script() -> str:
                     if not isinstance(evidence, list) or not evidence:
                         raise ValueError("snippet evidence must be non-empty")
                     if not _contains_grounded_text(body):
-                        non_grounded_chunk_ids.append(chunk_id)
+                        non_grounded_group_ids.append(group_id)
                     evidence_surface_parts = []
-                    snippet_block_indices = set()
+                    snippet_block_indices = []
                     for evidence_row in evidence:
                         if not isinstance(evidence_row, dict):
                             raise ValueError("evidence rows must be objects")
@@ -2817,78 +2345,57 @@ def render_knowledge_worker_script() -> str:
                             raise ValueError("evidence quote is required")
                         if block_index not in all_allowed_block_indices:
                             errors.append("snippet_evidence_out_of_surface")
-                        if block_index not in expected_block_indices:
-                            errors.append("snippet_evidence_wrong_chunk_surface")
                         evidence_surface_parts.append(quote)
-                        snippet_block_indices.add(block_index)
-                    snippet_count += 1
+                        snippet_block_indices.append(block_index)
                     normalized_body = _normalize_text(body)
                     normalized_evidence_surface = _normalize_text(" ".join(evidence_surface_parts))
-                    if (
-                        normalized_source_text
-                        and len(normalized_source_text) >= 160
-                        and len(normalized_body) >= max(120, int(len(normalized_source_text) * 0.85))
-                        and sorted(snippet_block_indices) == expected_block_indices
-                        and _looks_like_verbatim_surface_echo(
-                            normalized_body,
-                            normalized_source_text,
-                            min_surface_chars=160,
-                            min_body_chars=120,
-                        )
-                    ):
-                        echoed_chunk_ids.append(chunk_id)
                     if _looks_like_verbatim_surface_echo(
                         normalized_body,
                         normalized_evidence_surface,
                         min_surface_chars=80,
                         min_body_chars=80,
                     ):
-                        echoed_chunk_ids.append(chunk_id)
-                        copied_snippet_count += 1
-                        copied_block_indices.update(snippet_block_indices)
-                        evidence_surface_echoes_by_chunk_id.setdefault(chunk_id, []).append(
-                            {
-                                "snippet_index": snippet_index,
-                                "block_indices": sorted(snippet_block_indices),
-                                "quote_preview": _trim_preview(" ".join(evidence_surface_parts)),
-                            }
-                        )
-                copied_surface_text = " ".join(
-                    str(chunk_block_texts.get(chunk_id, {}).get(block_index) or "").strip()
-                    for block_index in expected_block_indices
-                    if block_index in copied_block_indices and str(chunk_block_texts.get(chunk_id, {}).get(block_index) or "").strip()
-                ).strip()
-                if (
-                    copied_snippet_count >= 2
-                    and _copied_surface_covers_most_of_chunk(
-                        copied_surface_text=_normalize_text(copied_surface_text),
-                        full_chunk_text=normalized_source_text,
-                    )
-                ):
-                    echoed_chunk_ids.append(chunk_id)
+                        copied_quote_group_ids.append(group_id)
+                    if _looks_like_verbatim_surface_echo(
+                        normalized_body,
+                        normalized_group_surface,
+                        min_surface_chars=160,
+                        min_body_chars=120,
+                    ):
+                        echoed_group_ids.append(group_id)
 
-                is_useful = bool(row.get("is_useful"))
-                if is_useful and knowledge_decision_count <= 0:
-                    raise ValueError("useful chunk results must include at least one knowledge block decision")
-                if is_useful and snippet_count <= 0:
-                    raise ValueError("useful chunk results must include at least one snippet")
-                if is_useful and reason_code not in USEFUL_REASON_CODES:
-                    raise ValueError("useful chunk reason_code must describe durable cooking leverage")
-                if not is_useful and knowledge_decision_count > 0:
-                    raise ValueError("non-useful chunk results must not include knowledge block decisions")
-                if not is_useful and snippet_count > 0:
-                    raise ValueError("non-useful chunk results must not include snippets")
-                if not is_useful and reason_code not in NON_USEFUL_REASON_CODES:
-                    raise ValueError("non-useful chunk reason_code must explain why the chunk stays other")
-
-            if non_grounded_chunk_ids:
+            knowledge_block_indices = [
+                block_index
+                for block_index in expected_block_indices
+                if decision_category_by_block.get(block_index) == "knowledge"
+            ]
+            missing_group_blocks = [
+                block_index
+                for block_index in knowledge_block_indices
+                if knowledge_group_count_by_block.get(block_index, 0) == 0
+            ]
+            duplicate_group_blocks = [
+                block_index
+                for block_index, count in sorted(knowledge_group_count_by_block.items())
+                if count > 1
+            ]
+            if missing_group_blocks:
+                errors.append("knowledge_block_missing_group")
+                metadata["knowledge_blocks_missing_group"] = missing_group_blocks
+            if duplicate_group_blocks:
+                errors.append("knowledge_block_group_conflict")
+                metadata["knowledge_blocks_with_multiple_groups"] = duplicate_group_blocks
+            if group_contains_other_blocks:
+                metadata["group_contains_other_blocks"] = group_contains_other_blocks
+            if non_grounded_group_ids:
                 errors.append("semantic_snippet_body_not_grounded_text")
-                metadata["non_grounded_chunk_ids"] = sorted(set(non_grounded_chunk_ids))
-            if echoed_chunk_ids:
-                errors.append("semantic_snippet_echoes_full_chunk")
-                metadata["echoed_full_chunk_ids"] = sorted(set(echoed_chunk_ids))
-            if evidence_surface_echoes_by_chunk_id:
-                metadata["evidence_surface_echoes_by_chunk_id"] = evidence_surface_echoes_by_chunk_id
+                metadata["non_grounded_idea_group_ids"] = sorted(set(non_grounded_group_ids))
+            if copied_quote_group_ids:
+                errors.append("semantic_snippet_copies_evidence_quote")
+                metadata["copied_quote_idea_group_ids"] = sorted(set(copied_quote_group_ids))
+            if echoed_group_ids:
+                errors.append("semantic_snippet_echoes_packet_surface")
+                metadata["echoed_idea_group_ids"] = sorted(set(echoed_group_ids))
             return tuple(dict.fromkeys(errors)), metadata
 
         def _write_payload(payload, dest_path):
@@ -2905,79 +2412,41 @@ def render_knowledge_worker_script() -> str:
             error_set = {str(error).strip() for error in errors if str(error).strip()}
             metadata = _coerce_dict(metadata)
             help_lines = []
-            if "semantic_snippet_echoes_full_chunk" in error_set:
+            if "semantic_snippet_echoes_packet_surface" in error_set or "semantic_snippet_copies_evidence_quote" in error_set:
                 help_lines.append(
                     "Keep each `evidence[].quote` verbatim, but rewrite `snippets[].body` into a shorter grounded claim in your own words."
                 )
-                for chunk_id, details in (_coerce_dict(metadata.get("evidence_surface_echoes_by_chunk_id"))).items():
-                    for detail in details or []:
-                        if not isinstance(detail, dict):
-                            continue
-                        snippet_index = int(detail.get("snippet_index") or 0)
-                        block_indices = [
-                            int(value)
-                            for value in (detail.get("block_indices") or [])
-                            if value is not None
-                        ]
-                        quote_preview = str(detail.get("quote_preview") or "").strip()
-                        help_lines.append(
-                            "Chunk "
-                            f"`{chunk_id}` snippet `{snippet_index}` copied evidence"
-                            + (
-                                f" from block(s) `{', '.join(str(value) for value in block_indices)}`"
-                                if block_indices
-                                else ""
-                            )
-                            + (
-                                f": `{quote_preview}`. Keep that quote in `evidence`, but shorten the body."
-                                if quote_preview
-                                else ". Keep the evidence quote, but shorten the body."
-                            )
-                        )
-                for chunk_id in metadata.get("echoed_full_chunk_ids") or []:
+                for group_id in metadata.get("copied_quote_idea_group_ids") or []:
                     help_lines.append(
-                        f"Chunk `{chunk_id}` body is too close to the full owned chunk surface. Leave the longer wording in evidence quotes only."
+                        f"Idea group `{group_id}` copied too much evidence text. Keep the quote in `evidence`, but shorten the body."
+                    )
+                for group_id in metadata.get("echoed_idea_group_ids") or []:
+                    help_lines.append(
+                        f"Idea group `{group_id}` body is too close to the full owned packet surface. Leave the longer wording in evidence quotes only."
                     )
             if "semantic_snippet_body_not_grounded_text" in error_set:
                 help_lines.append(
                     "Use plain-language snippet bodies that state a reusable claim supported by the evidence."
                 )
-            if "missing_owned_chunk_results" in error_set or "unexpected_chunk_results" in error_set:
+            if "missing_owned_block_decisions" in error_set or "unexpected_block_decisions" in error_set:
                 help_lines.append(
-                    "Return exactly one `chunk_results` row for each owned chunk in the input file, in order and with no extras."
+                    "Cover every owned block exactly once in top-level `block_decisions`, with no extras."
                 )
-            if "chunk_result_order_mismatch" in error_set:
+            if "block_decision_order_mismatch" in error_set:
                 help_lines.append(
-                    "Keep `chunk_results` in the same order as the owned chunks in the input payload."
+                    "Keep `block_decisions` in the same order as the owned packet blocks."
                 )
-            if "block_decision_coverage_mismatch" in error_set:
+            if "knowledge_block_missing_group" in error_set:
                 help_lines.append(
-                    "Cover every owned block exactly once in `block_decisions`, using the input order."
+                    "Every block marked `knowledge` must appear in exactly one `idea_groups[*].block_indices` list."
                 )
-            if "semantic_all_false_empty_shard" in error_set:
-                cue_chunk_ids = [
-                    str(chunk_id).strip()
-                    for chunk_id in (
-                        metadata.get("strong_cue_empty_chunk_ids")
-                        or metadata.get("knowledge_cue_chunk_ids")
-                        or []
-                    )
-                    if str(chunk_id).strip()
-                ]
-                knowledge_decision_count = int(metadata.get("knowledge_decision_count") or 0)
-                snippet_count = int(metadata.get("snippet_count") or 0)
+            if "knowledge_block_group_conflict" in error_set:
                 help_lines.append(
-                    "This task has strong knowledge cues but still returns "
-                    f"`{knowledge_decision_count}` `knowledge` decisions and `{snippet_count}` snippets."
+                    "Do not place the same knowledge block into more than one idea group."
                 )
-                if cue_chunk_ids:
-                    help_lines.append(
-                        "Cue-bearing chunk ids: "
-                        + ", ".join(f"`{chunk_id}`" for chunk_id in cue_chunk_ids)
-                        + "."
-                    )
+            if "group_contains_other_block" in error_set:
                 help_lines.append(
-                    "Re-read the hint and owned input for those chunks. Keep at least one `knowledge` block plus one short grounded snippet unless the source is clearly non-knowledge."
+                    "Only blocks marked `knowledge` may appear in `idea_groups[*].block_indices`."
                 )
             if not help_lines:
                 help_lines.append(
@@ -3098,18 +2567,18 @@ def render_knowledge_worker_script() -> str:
             row = _task_row(args.task_id)
             input_payload = _task_input_payload(row)
             metadata = _coerce_dict(row.get("metadata"))
-            chunk_summaries = []
-            for chunk in _chunk_rows(input_payload):
-                chunk_id = str(chunk.get("cid") or "").strip() or "[unknown chunk]"
+            packet_summaries = []
+            for packet in _packet_rows(input_payload):
+                packet_id = str(packet.get("bid") or "").strip() or "[unknown packet]"
                 block_indices = [
                     int(block.get("i"))
-                    for block in chunk.get("b") or []
+                    for block in packet.get("b") or []
                     if isinstance(block, dict) and block.get("i") is not None
                 ]
                 if block_indices:
-                    chunk_summaries.append(f"{chunk_id}:{block_indices[0]}..{block_indices[-1]}")
+                    packet_summaries.append(f"{packet_id}:{block_indices[0]}..{block_indices[-1]}")
                 else:
-                    chunk_summaries.append(f"{chunk_id}:[no blocks]")
+                    packet_summaries.append(f"{packet_id}:[no blocks]")
             sys.stdout.write(
                 "\\n".join(
                     [
@@ -3119,8 +2588,8 @@ def render_knowledge_worker_script() -> str:
                         f"input_path: {metadata.get('input_path') or '?'}",
                         f"hint_path: {metadata.get('hint_path') or '?'}",
                         f"result_path: {metadata.get('result_path') or '?'}",
-                        f"owned_chunk_ids: {', '.join(_owned_chunk_ids(input_payload)) or '[none]'}",
-                        f"chunk_blocks: {', '.join(chunk_summaries) or '[none]'}",
+                        f"owned_packet_ids: {', '.join(_owned_packet_ids(input_payload)) or '[none]'}",
+                        f"packet_blocks: {', '.join(packet_summaries) or '[none]'}",
                     ]
                 )
                 + "\\n"
@@ -3606,16 +3075,16 @@ def _resolve_sample_task(
                 resolved_input_payload = dict(payload)
         if resolved_input_payload is None:
             continue
-        sample_chunk_id, sample_score = _select_representative_sample_chunk_id(
+        sample_packet_id, sample_score = _select_representative_sample_packet_id(
             resolved_input_payload
         )
-        if not sample_chunk_id:
+        if not sample_packet_id:
             continue
         candidate = (
             sample_score,
             task_row,
             resolved_input_payload,
-            sample_chunk_id,
+            sample_packet_id,
         )
         if best_candidate is None or candidate[0] > best_candidate[0]:
             best_candidate = candidate
@@ -3628,77 +3097,63 @@ def _resolve_sample_task(
             "metadata": {},
         },
         fallback_payload,
-        str(((fallback_payload.get("c") or [{}])[0]).get("cid") or "knowledge-chunk-example"),
+        str(fallback_payload.get("bid") or "knowledge-packet-example"),
     )
 
 
 def _built_in_sample_input_payload() -> dict[str, Any]:
     return {
-        "v": "2",
+        "v": "1",
         "bid": "knowledge-task-example",
-        "c": [
+        "b": [
             {
-                "cid": "knowledge-chunk-example",
-                "b": [
-                    {
-                        "i": 1,
-                        "t": (
-                            "Keep the heat gentle and stir steadily so milk sauces stay smooth "
-                            "instead of tightening into curds."
-                        ),
-                    }
-                ],
+                "i": 1,
+                "t": (
+                    "Keep the heat gentle and stir steadily so milk sauces stay smooth "
+                    "instead of tightening into curds."
+                ),
             }
         ],
     }
 
 
-def _select_representative_sample_chunk_id(
+def _select_representative_sample_packet_id(
     input_payload: Mapping[str, Any],
 ) -> tuple[str, int]:
-    best_chunk_id = ""
-    best_score = -1
-    for chunk in _chunk_rows(input_payload):
-        chunk_id = str(chunk.get("cid") or "").strip()
-        if not chunk_id:
-            continue
-        evidence_rows, source_text = _sample_evidence_rows(chunk)
-        if not evidence_rows or len(source_text) < 80:
-            continue
-        block_rows = [
-            dict(block)
-            for block in (chunk.get("b") or [])
-            if isinstance(block, Mapping)
-        ]
-        non_heading_block_count = sum(
-            1 for block in block_rows if not _looks_like_heading_block(block)
-        )
-        total_word_count = sum(
-            len(str(block.get("t") or "").split())
-            for block in block_rows
-            if str(block.get("t") or "").strip()
-        )
-        has_sentence_punctuation = any(
-            any(marker in str(block.get("t") or "") for marker in (".", ";", ":"))
-            for block in block_rows
-        )
-        score = (
-            min(len(source_text), 220)
-            + non_heading_block_count * 80
-            + min(total_word_count, 40)
-            + (25 if has_sentence_punctuation else 0)
-        )
-        if best_chunk_id and score <= best_score:
-            continue
-        best_chunk_id = chunk_id
-        best_score = score
-    return best_chunk_id, best_score
-
-
-def _sample_evidence_rows(chunk_row: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], str]:
+    packet_id = str(input_payload.get("bid") or input_payload.get("packet_id") or "").strip()
+    evidence_rows, source_text = _sample_evidence_rows(input_payload)
+    if not packet_id or not evidence_rows or len(source_text) < 80:
+        return "", -1
     block_rows = [
         dict(block)
-        for block in (chunk_row or {}).get("b") or []
+        for block in (input_payload.get("b") or [])
+        if isinstance(block, Mapping)
+    ]
+    non_heading_block_count = sum(
+        1 for block in block_rows if not _looks_like_heading_block(block)
+    )
+    total_word_count = sum(
+        len(str(block.get("t") or "").split())
+        for block in block_rows
+        if str(block.get("t") or "").strip()
+    )
+    has_sentence_punctuation = any(
+        any(marker in str(block.get("t") or "") for marker in (".", ";", ":"))
+        for block in block_rows
+    )
+    score = (
+        min(len(source_text), 220)
+        + non_heading_block_count * 80
+        + min(total_word_count, 40)
+        + (25 if has_sentence_punctuation else 0)
+    )
+    return packet_id, score
+
+
+def _sample_evidence_rows(input_payload: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], str]:
+    block_rows = [
+        dict(block)
+        for block in (input_payload or {}).get("b") or []
         if isinstance(block, Mapping) and block.get("i") is not None
     ]
     preferred_rows = [
@@ -3773,18 +3228,19 @@ def _infer_task_id(payload: Mapping[str, Any]) -> str:
     return ""
 
 
-def _chunk_rows(input_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    chunks = input_payload.get("c")
-    if not isinstance(chunks, list):
+def _packet_rows(input_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    blocks = input_payload.get("b")
+    if not isinstance(blocks, list):
         return []
-    return [dict(chunk) for chunk in chunks if isinstance(chunk, Mapping)]
+    packet_id = str(input_payload.get("bid") or input_payload.get("packet_id") or "packet").strip()
+    return [{"bid": packet_id, "b": [dict(block) for block in blocks if isinstance(block, Mapping)]}]
 
 
-def _owned_chunk_ids(input_payload: Mapping[str, Any]) -> list[str]:
+def _owned_packet_ids(input_payload: Mapping[str, Any]) -> list[str]:
     return [
-        str(chunk.get("cid") or "").strip()
-        for chunk in _chunk_rows(input_payload)
-        if str(chunk.get("cid") or "").strip()
+        str(packet.get("bid") or "").strip()
+        for packet in _packet_rows(input_payload)
+        if str(packet.get("bid") or "").strip()
     ]
 
 
@@ -3802,7 +3258,10 @@ def _render_validation_error_help(
     }
     metadata = _coerce_dict(validation_metadata)
     help_lines: list[str] = []
-    if "semantic_snippet_echoes_full_chunk" in error_set:
+    if (
+        "semantic_snippet_echoes_packet_surface" in error_set
+        or "semantic_snippet_copies_evidence_quote" in error_set
+    ):
         help_lines.append(
             "Keep each `evidence[].quote` verbatim, but rewrite `snippets[].body` into a shorter grounded claim in your own words."
         )
@@ -3814,45 +3273,45 @@ def _render_validation_error_help(
             )
         )
     if "semantic_snippet_body_not_grounded_text" in error_set:
-        non_grounded_chunk_ids = [
-            str(chunk_id).strip()
-            for chunk_id in (metadata.get("non_grounded_snippet_chunk_ids") or [])
-            if str(chunk_id).strip()
+        non_grounded_group_ids = [
+            str(group_id).strip()
+            for group_id in (metadata.get("non_grounded_idea_group_ids") or [])
+            if str(group_id).strip()
         ]
-        if non_grounded_chunk_ids:
+        if non_grounded_group_ids:
             help_lines.append(
-                "These chunks need real grounded prose in `snippets[].body`: "
-                + ", ".join(f"`{chunk_id}`" for chunk_id in non_grounded_chunk_ids)
+                "These idea groups need real grounded prose in `snippets[].body`: "
+                + ", ".join(f"`{group_id}`" for group_id in non_grounded_group_ids)
                 + "."
             )
         else:
             help_lines.append(
                 "Use plain-language snippet bodies that make a reusable claim supported by the evidence rows."
             )
-    if "missing_owned_chunk_results" in error_set or "unexpected_chunk_results" in error_set:
+    if "missing_owned_block_decisions" in error_set or "unexpected_block_decisions" in error_set:
         help_lines.append(
-            "Return exactly one `chunk_results` row for the single owned chunk in `in/<task_id>.json`, with no extras."
+            "Cover every owned block exactly once in top-level `block_decisions`, with no extras."
         )
-    if "chunk_result_order_mismatch" in error_set:
+    if "block_decision_order_mismatch" in error_set:
         help_lines.append(
-            "Keep the single `chunk_results` row aligned to the owned chunk in the input payload."
+            "Keep `block_decisions` in the same order as the owned packet blocks."
         )
-    if "block_decision_coverage_mismatch" in error_set:
+    if "knowledge_block_missing_group" in error_set:
         help_lines.append(
-            "Cover every owned block exactly once in `block_decisions`, using the input order."
+            "Every block marked `knowledge` must appear in exactly one `idea_groups[*].block_indices` list."
         )
-    if "snippet_evidence_wrong_chunk_surface" in error_set:
+    if "knowledge_block_group_conflict" in error_set:
         help_lines.append(
-            "Each snippet may cite only block indices from its own chunk result."
+            "Do not place the same knowledge block into more than one idea group."
+        )
+    if "group_contains_other_block" in error_set:
+        help_lines.append(
+            "Only blocks marked `knowledge` may appear in `idea_groups[*].block_indices`."
         )
     if "snippet_evidence_out_of_surface" in error_set:
         help_lines.append("Do not cite block indices outside the task's owned surface.")
     if "bundle_id_mismatch" in error_set:
         help_lines.append("`packet_id` must exactly match the current task row's `task_id`.")
-    if "semantic_all_false_empty_shard" in error_set:
-        help_lines.append(
-            "This task has strong knowledge cues. Re-read the hint and owned blocks before keeping everything `other`."
-        )
     if not help_lines:
         help_lines.append(
             "Re-open `OUTPUT_CONTRACT.md`, compare against `examples/`, and fix only the fields named in the validator errors."

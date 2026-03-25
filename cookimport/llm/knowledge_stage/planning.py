@@ -23,19 +23,12 @@ def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _relative_path(base: Path, path: Path) -> str:
-    try:
-        return str(path.relative_to(base))
-    except ValueError:
-        return str(path)
-
-
 def _build_knowledge_task_manifest_entry(
     shard: ShardManifestEntryV1,
 ) -> TaskManifestEntryV1:
     return TaskManifestEntryV1(
         task_id=shard.shard_id,
-        task_kind="knowledge_review_chunk_task",
+        task_kind="knowledge_review_packet_task",
         parent_shard_id=shard.shard_id,
         owned_ids=tuple(shard.owned_ids),
         input_payload=shard.input_payload,
@@ -48,19 +41,13 @@ def _build_knowledge_task_plans(
     shard: ShardManifestEntryV1,
 ) -> tuple[_KnowledgeTaskPlan, ...]:
     payload = _coerce_dict(shard.input_payload)
-    chunks = [dict(row) for row in (payload.get("c") or []) if isinstance(row, Mapping)]
-    if not chunks:
+    blocks = [dict(row) for row in (payload.get("b") or []) if isinstance(row, Mapping)]
+    if not blocks:
         return ()
     task_id = str(shard.shard_id).strip()
-    ordered_chunk_ids = [
-        str(chunk.get("cid") or "").strip()
-        for chunk in chunks
-        if str(chunk.get("cid") or "").strip()
-    ]
     owned_block_indices = [
         int(block.get("i"))
-        for chunk in chunks
-        for block in (chunk.get("b") or [])
+        for block in blocks
         if isinstance(block, Mapping) and block.get("i") is not None
     ]
     task_payload = {
@@ -79,8 +66,7 @@ def _build_knowledge_task_plans(
             "task_id": task_id,
             "task_index": 1,
             "task_count": 1,
-            "ordered_chunk_ids": ordered_chunk_ids,
-            "chunk_count": len(ordered_chunk_ids),
+            "packet_count": 1,
             "owned_block_indices": owned_block_indices,
         },
     )
@@ -99,190 +85,13 @@ def _build_knowledge_task_runtime_manifest_entry(
     task_manifest = task_plan.manifest_entry
     return TaskManifestEntryV1(
         task_id=task_plan.task_id,
-        task_kind="knowledge_review_chunk_task",
+        task_kind="knowledge_review_packet_task",
         parent_shard_id=task_plan.parent_shard_id,
         owned_ids=tuple(task_manifest.owned_ids),
         input_payload=task_manifest.input_payload,
         input_text=task_manifest.input_text,
         metadata=dict(task_manifest.metadata or {}),
     )
-
-
-def _deterministic_bypass_reason_for_negative_cues(
-    negative_cues: Sequence[str],
-) -> tuple[str, str, str | None]:
-    normalized_cues = [
-        str(value).strip()
-        for value in negative_cues
-        if str(value).strip()
-    ]
-    cue_set = set(normalized_cues)
-    if "navigation_or_taxonomy" in cue_set:
-        return "navigation_or_chapter_taxonomy", "chapter_taxonomy", "navigation_or_taxonomy"
-    if "rhetorical_heading" in cue_set:
-        return "decorative_heading_only", "decorative_heading", "rhetorical_heading"
-    if "book_framing_or_marketing" in cue_set:
-        return (
-            "book_framing_or_marketing",
-            "endorsement_or_marketing",
-            "book_framing_or_marketing",
-        )
-    if "memoir_or_voice" in cue_set:
-        return "memoir_or_scene_setting", "memoir_or_scene_setting", "memoir_or_voice"
-    if "true_but_low_utility" in cue_set:
-        return "true_but_low_utility", "other", "true_but_low_utility"
-    return "not_cooking_knowledge", "other", None
-
-
-def _build_deterministic_knowledge_bypass_candidate(
-    shard: ShardManifestEntryV1,
-) -> tuple[dict[str, Any], dict[str, Any], str] | None:
-    task_row = build_workspace_inventory_task_row(
-        asdict(_build_knowledge_task_manifest_entry(shard))
-    )
-    metadata = _coerce_dict(task_row.get("metadata"))
-    owned_ids = [
-        str(value).strip()
-        for value in (task_row.get("owned_ids") or [])
-        if str(value).strip()
-    ]
-    if len(owned_ids) != 1:
-        return None
-    if bool(metadata.get("strong_knowledge_cue")) or bool(metadata.get("utility_borderline")):
-        return None
-    positive_cues = sorted(
-        {
-            str(value).strip()
-            for value in (metadata.get("utility_positive_cues") or [])
-            if str(value).strip()
-        }
-    )
-    if positive_cues or not bool(metadata.get("strong_negative_utility_cue")):
-        return None
-    negative_cues = sorted(
-        {
-            str(value).strip()
-            for value in (metadata.get("utility_negative_cues") or [])
-            if str(value).strip()
-        }
-    )
-    reason_code, reviewer_category, trigger_cue = _deterministic_bypass_reason_for_negative_cues(
-        negative_cues
-    )
-    input_payload = _coerce_dict(shard.input_payload)
-    semantic_payload = scaffold_task_payload(task_row=task_row, input_payload=input_payload)
-    chunk_results = semantic_payload.get("chunk_results")
-    if not isinstance(chunk_results, list) or len(chunk_results) != 1:
-        return None
-    chunk_result = chunk_results[0]
-    if not isinstance(chunk_result, Mapping):
-        return None
-    chunk_result_dict = dict(chunk_result)
-    chunk_result_dict["is_useful"] = False
-    chunk_result_dict["snippets"] = []
-    chunk_result_dict["reason_code"] = reason_code
-    block_decisions = []
-    for decision in chunk_result_dict.get("block_decisions") or []:
-        if not isinstance(decision, Mapping):
-            continue
-        block_decision = dict(decision)
-        block_decision["category"] = "other"
-        block_decision["reviewer_category"] = reviewer_category
-        block_decisions.append(block_decision)
-    chunk_result_dict["block_decisions"] = block_decisions
-    semantic_payload["chunk_results"] = [chunk_result_dict]
-    canonical_payload, normalization_metadata = normalize_knowledge_worker_payload(semantic_payload)
-    valid, validation_errors, validation_metadata = validate_knowledge_shard_output(
-        shard,
-        semantic_payload,
-    )
-    if not valid:
-        logger.warning(
-            "knowledge deterministic bypass candidate for %s failed local validation: %s",
-            shard.shard_id,
-            ", ".join(validation_errors) or "unknown_error",
-        )
-        return None
-    detail = (
-        "repo bypassed the LLM because this single-chunk task had a strong negative-utility "
-        "profile, no positive utility cues, no strong knowledge cue, and no borderline signal"
-    )
-    if trigger_cue:
-        detail = f"{detail}; trigger cue `{trigger_cue}`"
-    metadata_payload = {
-        **dict(validation_metadata or {}),
-        **dict(normalization_metadata or {}),
-        "deterministic_bypass": True,
-        "deterministic_bypass_reason_code": reason_code,
-        "deterministic_bypass_reviewer_category": reviewer_category,
-        "deterministic_bypass_negative_cues": list(negative_cues),
-        "deterministic_bypass_positive_cues": list(positive_cues),
-        "deterministic_bypass_trigger_cue": trigger_cue,
-        "deterministic_bypass_reason_detail": detail,
-        "execution_mode": "deterministic_bypass",
-    }
-    return canonical_payload, metadata_payload, detail
-
-
-def _apply_deterministic_knowledge_bypasses(
-    *,
-    run_root: Path,
-    artifacts: Mapping[str, str],
-    shards: Sequence[ShardManifestEntryV1],
-    task_status_tracker: _KnowledgeTaskStatusTracker,
-) -> tuple[set[str], list[ShardProposalV1], dict[str, int]]:
-    bypassed_shard_ids: set[str] = set()
-    proposals: list[ShardProposalV1] = []
-    reason_code_counts: dict[str, int] = {}
-    for shard in shards:
-        candidate = _build_deterministic_knowledge_bypass_candidate(shard)
-        if candidate is None:
-            continue
-        payload, metadata, detail = candidate
-        reason_code = str(metadata.get("deterministic_bypass_reason_code") or "").strip()
-        if reason_code:
-            reason_code_counts[reason_code] = reason_code_counts.get(reason_code, 0) + 1
-        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
-        _write_json(
-            {
-                "shard_id": shard.shard_id,
-                "worker_id": _KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID,
-                "payload": payload,
-                "validation_errors": [],
-                "validation_metadata": dict(metadata),
-                "watchdog_retry_attempted": False,
-                "watchdog_retry_status": "not_attempted",
-                "retry_attempted": False,
-                "retry_status": "not_attempted",
-                "repair_attempted": False,
-                "repair_status": "not_attempted",
-            },
-            proposal_path,
-        )
-        proposals.append(
-            ShardProposalV1(
-                shard_id=shard.shard_id,
-                worker_id=_KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID,
-                status="validated",
-                proposal_path=_relative_path(run_root, proposal_path),
-                payload=payload,
-                validation_errors=(),
-                metadata=dict(metadata),
-            )
-        )
-        task_status_tracker.mark_terminal(
-            task_id=shard.shard_id,
-            worker_id=_KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID,
-            terminal_state="validated",
-            attempt_type="deterministic_bypass",
-            proposal_status="validated",
-            validation_errors=(),
-            metadata=dict(metadata),
-            terminal_reason_code="deterministic_other_bypass",
-            terminal_reason_detail=detail,
-        )
-        bypassed_shard_ids.add(shard.shard_id)
-    return bypassed_shard_ids, proposals, dict(sorted(reason_code_counts.items()))
 
 
 def _decorate_knowledge_workspace_task_runtime_entry(
@@ -367,7 +176,7 @@ def _summarize_knowledge_task_packet_distribution(
         )
     counts = list(worker_task_packet_counts.values())
     return {
-        "bundle_policy": "shard_round_robin_chunk_bundle_tasks_v1",
+        "bundle_policy": "shard_round_robin_packet_bundle_tasks_v1",
         "task_total": sum(counts),
         "worker_task_counts": dict(sorted(worker_task_packet_counts.items())),
         "max_tasks_per_worker": max(counts) if counts else 0,
@@ -384,31 +193,14 @@ def _aggregate_knowledge_task_payloads(
     task_payloads_by_task_id: Mapping[str, dict[str, Any] | None],
     task_validation_errors_by_task_id: Mapping[str, Sequence[str]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    ordered_chunk_ids = [str(value).strip() for value in shard.owned_ids if str(value).strip()]
-    result_rows_by_chunk_id: dict[str, dict[str, Any]] = {}
-    task_id_by_chunk_id: dict[str, str] = {}
     accepted_task_ids: list[str] = []
+    accepted_payload: dict[str, Any] | None = None
     for task_id, payload in task_payloads_by_task_id.items():
-        rows = payload.get("chunk_results") if isinstance(payload, Mapping) else None
-        if not isinstance(rows, list):
+        if not isinstance(payload, Mapping):
             continue
         accepted_task_ids.append(task_id)
-        for row in rows:
-            if not isinstance(row, Mapping):
-                continue
-            chunk_id = str(row.get("chunk_id") or "").strip()
-            if not chunk_id:
-                continue
-            result_rows_by_chunk_id[chunk_id] = dict(row)
-            task_id_by_chunk_id[chunk_id] = str(task_id)
-    output_rows: list[dict[str, Any]] = []
-    missing_chunk_ids: list[str] = []
-    for chunk_id in ordered_chunk_ids:
-        row = result_rows_by_chunk_id.get(chunk_id)
-        if row is None:
-            missing_chunk_ids.append(chunk_id)
-            continue
-        output_rows.append(dict(row))
+        accepted_payload = dict(payload)
+        break
     all_task_ids = sorted(
         {
             str(task_id).strip()
@@ -429,22 +221,20 @@ def _aggregate_knowledge_task_payloads(
         "accepted_task_ids": sorted(accepted_task_ids),
         "fallback_task_count": len(fallback_task_ids),
         "fallback_task_ids": fallback_task_ids,
-        "missing_chunk_ids": missing_chunk_ids,
+        "missing_packet_ids": [] if accepted_payload is not None else [shard.shard_id],
         "task_ids": all_task_ids,
         "task_validation_errors_by_task_id": {
             task_id: list(errors)
             for task_id, errors in task_validation_errors_by_task_id.items()
             if errors
         },
-        "task_id_by_chunk_id": {
-            chunk_id: task_id
-            for chunk_id, task_id in sorted(task_id_by_chunk_id.items())
+        "task_id_by_packet_id": {
+            shard.shard_id: accepted_task_ids[0]
+            for _ in [0]
+            if accepted_task_ids
         },
     }
-    return {
-        "packet_id": shard.shard_id,
-        "chunk_results": output_rows,
-    }, metadata
+    return dict(accepted_payload or {"packet_id": shard.shard_id, "block_decisions": [], "idea_groups": []}), metadata
 
 
 def _effort_override_value(value: object | None) -> str | None:

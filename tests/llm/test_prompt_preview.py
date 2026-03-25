@@ -348,7 +348,7 @@ def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
     assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 1
     assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 1
     assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_knowledge_review"]["shards"]] == [
-        ["fixturebook.c0000.nr"],
+        ["fixturebook.kp0000.nr"],
     ]
     assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
@@ -423,7 +423,7 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
     assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 1
     assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 1
     assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_knowledge_review"]["shards"]] == [
-        ["fixturebook.c0000.nr"],
+        ["fixturebook.kp0000.nr"],
     ]
     assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
@@ -461,7 +461,7 @@ def test_prompt_preview_knowledge_prompt_target_count_controls_shard_count(
     assert knowledge_phase["shard_count"] == 1
     assert knowledge_phase["worker_count"] == 1
     assert knowledge_phase["shards"][0]["owned_ids"] == [
-        "fixturebook.c0000.nr",
+        "fixturebook.kp0000.nr",
     ]
     artifacts = manifest["artifacts"]
     assert artifacts["prompt_preview_budget_summary_json"] == "prompt_preview_budget_summary.json"
@@ -546,12 +546,10 @@ def test_prompt_preview_knowledge_uses_review_eligible_spans_not_seed_spans(
     ]
 
     assert knowledge_phase["shard_count"] == 1
-    assert knowledge_phase["shards"][0]["owned_ids"] == ["fixturebook.c0000.nr"]
+    assert knowledge_phase["shards"][0]["owned_ids"] == ["fixturebook.kp0000.nr"]
     assert len(knowledge_rows) == 1
-    assert [chunk["cid"] for chunk in knowledge_rows[0]["request_input_payload"]["c"]] == [
-        "fixturebook.c0000.nr"
-    ]
-    assert knowledge_rows[0]["request_input_payload"]["c"][0]["b"][0]["i"] == 2
+    assert knowledge_rows[0]["request_input_payload"]["bid"] == "fixturebook.kp0000.nr"
+    assert knowledge_rows[0]["request_input_payload"]["b"][0]["i"] == 2
 
 
 def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path) -> None:
@@ -603,11 +601,13 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
         "compact minified JSON on a single line" in row["rendered_prompt_text"]
         for row in knowledge_rows
     )
-    assert all(row["request_input_payload"]["v"] == "2" for row in knowledge_rows)
-    assert [chunk["cid"] for row in knowledge_rows for chunk in row["request_input_payload"]["c"]] == [
-        "fixturebook.c0000.nr",
+    assert all(row["request_input_payload"]["v"] == "1" for row in knowledge_rows)
+    assert [row["request_input_payload"]["bid"] for row in knowledge_rows] == [
+        "fixturebook.kp0000.nr",
     ]
-    assert knowledge_rows[0]["request_input_payload"]["c"][0]["b"][0]["i"] == 2
+    assert knowledge_rows[0]["recipe_id"] == "blocks:2..3"
+    assert knowledge_rows[0]["runtime_owned_ids"] == ["fixturebook.kp0000.nr"]
+    assert knowledge_rows[0]["request_input_payload"]["b"][0]["i"] == 2
 
     line_role_row = rows_by_stage["line_role"][0]
     assert "You are reviewing deterministic canonical line-role labels" in line_role_row["rendered_prompt_text"]
@@ -713,14 +713,9 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
 
     live_knowledge_input = run_dir / "raw" / "llm" / workbook_slug / "knowledge" / "in" / "live_knowledge.json"
     live_knowledge_payload = {
-        "v": "2",
-        "bid": "fixturebook.kb9999.nr",
-        "c": [
-            {
-                "cid": "fixturebook.c9999.nr",
-                "b": [{"i": 7, "t": "Live knowledge block."}],
-            }
-        ],
+        "v": "1",
+        "bid": "fixturebook.kp9999.nr",
+        "b": [{"i": 7, "t": "Live knowledge block."}],
     }
     _write_json(live_knowledge_input, live_knowledge_payload)
 
@@ -746,8 +741,8 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
         row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review"
     ]
     assert all("Live knowledge block." not in row["request_input_text"] for row in knowledge_rows)
-    assert [chunk["cid"] for row in knowledge_rows for chunk in row["request_input_payload"]["c"]] == [
-        "fixturebook.c0000.nr",
+    assert [row["request_input_payload"]["bid"] for row in knowledge_rows] == [
+        "fixturebook.kp0000.nr",
     ]
 
     budget_summary = json.loads(

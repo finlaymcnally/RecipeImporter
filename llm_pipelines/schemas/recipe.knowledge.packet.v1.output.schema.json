@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recipe.knowledge.packet.v1 output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "bid", "d", "g"],
+  "properties": {
+    "v": {
+      "type": "string",
+      "const": "3"
+    },
+    "bid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "d": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["i", "c", "rc"],
+        "properties": {
+          "i": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "c": {
+            "type": "string",
+            "enum": ["knowledge", "other"]
+          },
+          "rc": {
+            "type": "string",
+            "enum": [
+              "knowledge",
+              "chapter_taxonomy",
+              "decorative_heading",
+              "front_matter",
+              "toc_navigation",
+              "endorsement_or_marketing",
+              "memoir_or_scene_setting",
+              "reference_back_matter",
+              "other"
+            ]
+          }
+        }
+      }
+    },
+    "g": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gid", "l", "bi", "s"],
+        "properties": {
+          "gid": {
+            "type": "string",
+            "minLength": 1
+          },
+          "l": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bi": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "s": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["b", "e"],
+              "properties": {
+                "b": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "e": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["i", "q"],
+                    "properties": {
+                      "i": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "q": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

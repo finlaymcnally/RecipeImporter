@@ -176,18 +176,21 @@ def execute_stage_import_session_from_result(
             source_hash=extracted_book_bundle.source_hash,
         )
 
-    chunk_detail_lines = [f"non-recipe blocks: {len(nonrecipe_block_rows)}"]
-    _notify_stage_progress(
-        progress_callback,
-        message="Generating knowledge chunks...",
-        stage_label="knowledge chunk generation",
-        detail_lines=chunk_detail_lines,
-    )
-    if nonrecipe_block_rows:
-        result.chunks = runtime.chunks_from_non_recipe_blocks(
-            nonrecipe_block_rows,
-            overrides=parsing_overrides,
+    if run_settings.llm_knowledge_pipeline.value == "off":
+        chunk_detail_lines = [f"non-recipe blocks: {len(nonrecipe_block_rows)}"]
+        _notify_stage_progress(
+            progress_callback,
+            message="Generating deterministic non-recipe chunks...",
+            stage_label="knowledge chunk generation",
+            detail_lines=chunk_detail_lines,
         )
+        if nonrecipe_block_rows:
+            result.chunks = runtime.chunks_from_non_recipe_blocks(
+                nonrecipe_block_rows,
+                overrides=parsing_overrides,
+            )
+        else:
+            result.chunks = []
     else:
         result.chunks = []
 
@@ -286,6 +289,12 @@ def execute_stage_import_session_from_result(
                 run_root=run_root,
                 stage_result=nonrecipe_stage_result,
                 llm_report=llm_report.get("knowledge"),
+                knowledge_group_records=(
+                    knowledge_final_result.knowledge_write_report.group_records
+                    if knowledge_final_result is not None
+                    and knowledge_final_result.knowledge_write_report is not None
+                    else []
+                ),
                 snippet_records=(
                     knowledge_final_result.knowledge_write_report.snippet_records
                     if knowledge_final_result is not None

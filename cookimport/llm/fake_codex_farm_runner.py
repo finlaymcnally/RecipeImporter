@@ -12,8 +12,6 @@ from .codex_farm_knowledge_contracts import (
     knowledge_input_block_text,
     knowledge_input_blocks,
     knowledge_input_bundle_id,
-    knowledge_input_chunk_id,
-    knowledge_input_chunks,
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide, recipe_tagging_guide_categories
 
@@ -91,30 +89,35 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                 ],
             }
         return _default_recipe_correction_output(payload)
-    if pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1"}:
+    if pipeline_id in {
+        "recipe.knowledge.v1",
+        "recipe.knowledge.compact.v1",
+        "recipe.knowledge.packet.v1",
+    }:
         if not isinstance(payload, dict):
             raise ValueError("knowledge fake payload must be a JSON object")
-        chunks = knowledge_input_chunks(payload)
-        chunk_results = []
-        for chunk in chunks:
-            chunk_id = knowledge_input_chunk_id(chunk)
-            chunk_blocks = knowledge_input_blocks(chunk)
-            first_block = (
-                chunk_blocks[0] if isinstance(chunk_blocks, list) and chunk_blocks else {}
-            )
-            block_index = knowledge_input_block_index(first_block) or 0
-            block_text = knowledge_input_block_text(first_block).strip()
-            quote = block_text[:80].strip() or "evidence"
-            chunk_results.append(
+        blocks = knowledge_input_blocks(payload)
+        first_block = blocks[0] if isinstance(blocks, list) and blocks else {}
+        block_index = knowledge_input_block_index(first_block) or 0
+        block_text = knowledge_input_block_text(first_block).strip()
+        quote = block_text[:80].strip() or "evidence"
+        return {
+            "packet_id": knowledge_input_bundle_id(payload),
+            "block_decisions": [
                 {
-                    "chunk_id": chunk_id,
-                    "is_useful": True,
-                    "block_decisions": [
-                        {
-                            "block_index": int(knowledge_input_block_index(block) or 0),
-                            "category": "knowledge",
-                        }
-                        for block in chunk_blocks
+                    "block_index": int(knowledge_input_block_index(block) or 0),
+                    "category": "knowledge",
+                }
+                for block in blocks
+                if isinstance(block, dict)
+            ],
+            "idea_groups": [
+                {
+                    "group_id": "g01",
+                    "topic_label": "Fake knowledge group",
+                    "block_indices": [
+                        int(knowledge_input_block_index(block) or 0)
+                        for block in blocks
                         if isinstance(block, dict)
                     ],
                     "snippets": [
@@ -128,12 +131,8 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                             ],
                         }
                     ],
-                    "reason_code": "technique_or_mechanism",
                 }
-            )
-        return {
-            "packet_id": knowledge_input_bundle_id(payload),
-            "chunk_results": chunk_results,
+            ],
         }
     if pipeline_id == "line-role.canonical.v1":
         atomic_indices = _extract_atomic_indices(payload)

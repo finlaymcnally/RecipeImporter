@@ -26,6 +26,14 @@ EXPECTED_PIPELINES = {
         "prompt_contains": "Review non-recipe cookbook text",
         "required_keys": {"v", "bid", "r"},
     },
+    "recipe.knowledge.packet.v1": {
+        "pipeline_file": "recipe.knowledge.packet.v1.json",
+        "prompt_path": "prompts/recipe.knowledge.packet.v1.prompt.md",
+        "schema_path": "schemas/recipe.knowledge.packet.v1.output.schema.json",
+        "prompt_input_mode": "path",
+        "prompt_contains": "Review one ordered packet of review-eligible non-recipe cookbook text",
+        "required_keys": {"v", "bid", "d", "g"},
+    },
 }
 
 

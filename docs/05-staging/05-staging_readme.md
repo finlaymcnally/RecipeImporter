@@ -95,6 +95,7 @@ Per workbook (slugified file stem):
 - `08_nonrecipe_seed_routing.json`
 - `08_nonrecipe_review_exclusions.jsonl`
 - `09_nonrecipe_authority.json`
+- `09_nonrecipe_knowledge_groups.json`
 - `09_nonrecipe_review_status.json`
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
 - `label_det/<workbook_slug>/labeled_lines.jsonl`
@@ -108,8 +109,8 @@ Per workbook (slugified file stem):
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`
 - `sections/<workbook_slug>/sections.md` (default; skipped with `stage --no-write-markdown`)
-- `chunks/<workbook_slug>/c{index}.json` (if any)
-- `chunks/<workbook_slug>/chunks.md` (if any; skipped with `stage --no-write-markdown`)
+- `chunks/<workbook_slug>/c{index}.json` (if any; deterministic fallback when knowledge review is off)
+- `chunks/<workbook_slug>/chunks.md` (same condition as `c{index}.json`)
 - `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
 - `knowledge/<workbook_slug>/snippets.jsonl` (if optional knowledge extraction is enabled and wrote snippet outputs)
 - `knowledge/<workbook_slug>/knowledge.md` (same condition as `snippets.jsonl`)
@@ -171,9 +172,10 @@ Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
 - `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps review eligibility, exclusions, exclusion reasons, block ids, and previews, but it does not publish seed semantic category maps.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
+- `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.
 - `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.
 - `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
-- Optional knowledge snippets are reviewer-facing evidence; Codex `block_decisions` are what can refine final `KNOWLEDGE` versus `OTHER`.
+- Optional knowledge groups and snippets are reviewer-facing evidence; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
 - Review-eligible rows that remain unreviewed stay visible only in the seed-routing and review-status artifacts; they must not be treated as reviewed semantic authority by scoring or Label Studio projection.
 - `ConversionResult.non_recipe_blocks`, table extraction, and chunk generation now mirror final Stage 7 non-recipe authority only; runs with zero final non-recipe rows simply emit no chunks.
 

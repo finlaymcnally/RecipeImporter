@@ -217,7 +217,7 @@ def generate_pred_run_artifacts(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
-    codex_farm_pipeline_knowledge: str = "recipe.knowledge.compact.v1",
+    codex_farm_pipeline_knowledge: str = "recipe.knowledge.packet.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 2,
     codex_farm_recipe_mode: str = "extract",
@@ -934,7 +934,10 @@ def generate_pred_run_artifacts(
                 full_blocks=authoritative_label_result.archive_blocks,
                 stage_result=nonrecipe_stage_result,
             )
-        if result.non_recipe_blocks:
+        if (
+            run_settings.llm_knowledge_pipeline.value == "off"
+            and result.non_recipe_blocks
+        ):
             result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
         else:
             result.chunks = []
@@ -988,8 +991,13 @@ def generate_pred_run_artifacts(
             full_blocks=authoritative_label_result.archive_blocks,
             stage_result=nonrecipe_stage_result,
         )
-        if result.non_recipe_blocks:
+        if (
+            run_settings.llm_knowledge_pipeline.value == "off"
+            and result.non_recipe_blocks
+        ):
             result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+        else:
+            result.chunks = []
 
     if processed_output_root is not None:
         _notify("Writing processed cookbook outputs...")

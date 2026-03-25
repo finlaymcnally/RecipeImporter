@@ -25,9 +25,9 @@ from cookimport.llm.codex_farm_orchestrator import (
 )
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
 from cookimport.llm.codex_farm_knowledge_contracts import (
+    knowledge_input_blocks,
     knowledge_input_bundle_id,
-    knowledge_input_chunk_id,
-    knowledge_input_chunks,
+    knowledge_input_packet_ids,
 )
 from cookimport.llm.knowledge_prompt_builder import build_knowledge_direct_prompt
 from cookimport.llm.phase_worker_runtime import resolve_phase_worker_count
@@ -57,7 +57,7 @@ from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
 
 _DEFAULT_RECIPE_PIPELINE_ID = "recipe.correction.compact.v1"
 _DEFAULT_RECIPE_SURFACE = "codex-recipe-shard-v1"
-_DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
+_DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.packet.v1"
 _DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-shard-v1"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
@@ -656,14 +656,18 @@ def _knowledge_preview_row_id(
     input_payload: Mapping[str, Any],
     fallback: str,
 ) -> str:
-    chunks_payload = knowledge_input_chunks(input_payload)
-    if chunks_payload:
-        first_chunk_id = knowledge_input_chunk_id(chunks_payload[0])
-        last_chunk_id = knowledge_input_chunk_id(chunks_payload[-1])
-        if first_chunk_id and last_chunk_id and first_chunk_id != last_chunk_id:
-            return f"{first_chunk_id}..{last_chunk_id}"
-        if first_chunk_id:
-            return first_chunk_id
+    blocks_payload = knowledge_input_blocks(input_payload)
+    if blocks_payload:
+        block_indices = [
+            int(block.get("i"))
+            for block in blocks_payload
+            if isinstance(block, Mapping) and block.get("i") is not None
+        ]
+        if block_indices:
+            return f"blocks:{block_indices[0]}..{block_indices[-1]}"
+    packet_ids = knowledge_input_packet_ids(input_payload)
+    if packet_ids:
+        return packet_ids[0]
     return knowledge_input_bundle_id(input_payload) or fallback
 
 
@@ -1189,11 +1193,7 @@ def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> lis
         if isinstance(owned_recipe_ids, list):
             return [str(item).strip() for item in owned_recipe_ids if str(item).strip()]
     if stage_key == "nonrecipe_knowledge_review":
-        return [
-            knowledge_input_chunk_id(chunk)
-            for chunk in knowledge_input_chunks(payload)
-            if knowledge_input_chunk_id(chunk)
-        ]
+        return knowledge_input_packet_ids(payload)
     if stage_key == "line_role" or stage_key.startswith("line_role_"):
         rows = payload.get("rows")
         if isinstance(rows, list):

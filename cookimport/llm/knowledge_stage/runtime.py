@@ -289,7 +289,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
         outputs, _ = read_validated_knowledge_outputs_from_proposals(
             knowledge_stage_dir / "proposals"
         )
-        missing_chunk_ids = sorted(set(build_report.chunk_ids) - set(outputs))
+        missing_packet_ids = sorted(set(build_report.packet_ids) - set(outputs))
         (
             block_category_updates,
             reviewer_categories_by_block,
@@ -318,7 +318,6 @@ def run_codex_farm_nonrecipe_knowledge_review(
             workbook_slug=workbook_slug,
             outputs=outputs,
             full_blocks_by_index=full_blocks_by_index,
-            chunk_lane_by_id=build_report.chunk_lane_by_id,
         )
 
         elapsed_seconds = round(time.perf_counter() - started, 3)
@@ -339,24 +338,16 @@ def run_codex_farm_nonrecipe_knowledge_review(
             **dict(refined_stage_result.refinement_report),
             "authority_mode": authority_mode,
             "review_status": review_status,
-            "reviewed_shards_with_useful_chunks": review_rollup["reviewed_shards_with_useful_chunks"],
+            "reviewed_shards_with_useful_packets": review_rollup["reviewed_shards_with_useful_packets"],
             "reviewed_shards_all_other": review_rollup["reviewed_shards_all_other"],
             "partially_promoted_shard_count": review_rollup["partially_promoted_shard_count"],
             "wholly_unpromoted_invalid_shard_count": review_rollup[
                 "wholly_unpromoted_invalid_shard_count"
             ],
             "semantic_rejection_shard_count": review_rollup["semantic_rejection_shard_count"],
-            "all_false_empty_shard_count": review_rollup["all_false_empty_shard_count"],
             "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
-            "unreviewed_chunk_count": review_rollup["unreviewed_chunk_count"],
+            "unreviewed_packet_count": review_rollup["unreviewed_packet_count"],
             "unreviewed_block_count": review_rollup["unreviewed_block_count"],
-            "reason_code_counts": dict(promotion_report.get("reason_code_counts") or {}),
-            "useful_reason_code_counts": dict(
-                promotion_report.get("useful_reason_code_counts") or {}
-            ),
-            "other_reason_code_counts": dict(
-                promotion_report.get("other_reason_code_counts") or {}
-            ),
         }
         refined_stage_result = replace(
             refined_stage_result,
@@ -371,7 +362,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 else build_report.shards_written
             ),
             review_rollup=review_rollup,
-            promoted_useful_chunk_count=useful_chunk_count,
+            promoted_useful_packet_count=useful_chunk_count,
             promoted_snippet_count=write_report.snippets_written,
         )
         llm_report = {
@@ -395,8 +386,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "review_excluded_block_count": review_excluded_block_count,
                 "skipped_chunk_count": build_report.skipped_chunk_count,
                 "outputs_parsed": len(outputs),
-                "chunks_missing": len(missing_chunk_ids),
-                "useful_chunks_promoted": useful_chunk_count,
+                "packets_missing": len(missing_packet_ids),
+                "useful_packets_promoted": useful_chunk_count,
                 "snippets_written": write_report.snippets_written,
                 "decisions_applied": len(block_category_updates),
                 "changed_blocks": int(
@@ -414,21 +405,13 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "wholly_unpromoted_invalid_shards": review_rollup[
                     "wholly_unpromoted_invalid_shard_count"
                 ],
-                "promoted_chunk_count": int(promotion_report.get("promoted_chunk_count") or 0),
-                "reviewed_shards_with_useful_chunks": review_rollup["reviewed_shards_with_useful_chunks"],
+                "promoted_packet_count": int(promotion_report.get("promoted_packet_count") or 0),
+                "reviewed_shards_with_useful_packets": review_rollup["reviewed_shards_with_useful_packets"],
                 "reviewed_shards_all_other": review_rollup["reviewed_shards_all_other"],
                 "semantic_rejection_shard_count": review_rollup["semantic_rejection_shard_count"],
-                "all_false_empty_shard_count": review_rollup["all_false_empty_shard_count"],
                 "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
-                "unreviewed_chunk_count": review_rollup["unreviewed_chunk_count"],
+                "unreviewed_packet_count": review_rollup["unreviewed_packet_count"],
                 "unreviewed_block_count": review_rollup["unreviewed_block_count"],
-                "reason_code_counts": dict(promotion_report.get("reason_code_counts") or {}),
-                "useful_reason_code_counts": dict(
-                    promotion_report.get("useful_reason_code_counts") or {}
-                ),
-                "other_reason_code_counts": dict(
-                    promotion_report.get("other_reason_code_counts") or {}
-                ),
             },
             "timing": {"total_seconds": elapsed_seconds},
             "paths": {
@@ -443,12 +426,13 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 ),
                 "knowledge_in_dir": str(knowledge_in_dir),
                 "knowledge_phase_dir": str(knowledge_stage_dir),
+                "knowledge_groups_path": str(write_report.groups_path),
                 "snippets_path": str(write_report.snippets_path),
                 "preview_path": str(write_report.preview_path),
                 "manifest_path": str(manifest_path),
                 **_runtime_artifact_paths(knowledge_stage_dir),
             },
-            "missing_chunk_ids": missing_chunk_ids,
+            "missing_packet_ids": missing_packet_ids,
             "skipped_lane_counts": dict(build_report.skipped_lane_counts),
             "planning_warnings": list(build_report.planning_warnings),
             "review_summary": review_summary,
@@ -640,18 +624,8 @@ def _run_direct_knowledge_workers_v1(
     failures: list[dict[str, Any]] = []
     worker_reports: list[WorkerExecutionReportV1] = []
     stage_rows: list[dict[str, Any]] = []
-    bypassed_shard_ids, bypassed_proposals, bypass_reason_code_counts = (
-        _apply_deterministic_knowledge_bypasses(
-            run_root=run_root,
-            artifacts=artifacts,
-            shards=shards,
-            task_status_tracker=task_status_tracker,
-        )
-    )
-    all_proposals.extend(bypassed_proposals)
-    runnable_shards = [
-        shard for shard in shards if shard.shard_id not in bypassed_shard_ids
-    ]
+    bypassed_shard_ids: set[str] = set()
+    runnable_shards = list(shards)
     assignments = _assign_workers_v1(
         run_root=run_root,
         shards=runnable_shards,
@@ -714,9 +688,8 @@ def _run_direct_knowledge_workers_v1(
         **dict(runtime_metadata or {}),
         "task_total": total_task_packets,
         "task_packet_total": total_task_packets,
-        "deterministic_bypass_packet_total": len(bypassed_shard_ids),
-        "llm_review_packet_total": max(total_task_packets - len(bypassed_shard_ids), 0),
-        "deterministic_bypass_reason_code_counts": dict(bypass_reason_code_counts),
+        "deterministic_bypass_packet_total": 0,
+        "llm_review_packet_total": total_task_packets,
         **packet_distribution,
     }
     manifest = _write_knowledge_runtime_summary_artifacts(
@@ -1243,7 +1216,9 @@ def _run_knowledge_workspace_worker_assignment_v1(
                         **dict(validation_metadata or {}),
                         "watchdog_retry_skip_reason_code": watchdog_retry_skip_reason_code,
                         "watchdog_retry_skip_reason_detail": watchdog_retry_skip_reason_detail,
-                        "watchdog_retry_chunk_count": int(watchdog_retry_size.get("chunk_count") or 0),
+                        "watchdog_retry_packet_block_count": int(
+                            watchdog_retry_size.get("packet_block_count") or 0
+                        ),
                         "watchdog_retry_char_count": int(watchdog_retry_size.get("char_count") or 0),
                     }
                 else:

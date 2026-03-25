@@ -184,6 +184,7 @@ def test_fake_codex_farm_lists_repo_pipelines() -> None:
     pipeline_ids = {row["pipeline_id"] for row in payload}
     assert "recipe.correction.compact.v1" in pipeline_ids
     assert "recipe.knowledge.compact.v1" in pipeline_ids
+    assert "recipe.knowledge.packet.v1" in pipeline_ids
     assert "line-role.canonical.v1" in pipeline_ids
 
 
@@ -369,7 +370,7 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
             "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.packet.v1",
             "codex_farm_knowledge_context_blocks": 1,
         }
     )
@@ -465,7 +466,7 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
             "knowledge_worker_count": 1,
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
-            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.packet.v1",
             "codex_farm_knowledge_context_blocks": 1,
         }
     )

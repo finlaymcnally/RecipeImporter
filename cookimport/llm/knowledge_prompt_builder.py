@@ -8,7 +8,7 @@ _PROMPT_TEMPLATE_PATH = (
     Path(__file__).resolve().parents[2]
     / "llm_pipelines"
     / "prompts"
-    / "recipe.knowledge.compact.v1.prompt.md"
+    / "recipe.knowledge.packet.v1.prompt.md"
 )
 
 _INPUT_JSON_START = "<BEGIN_INPUT_JSON>"

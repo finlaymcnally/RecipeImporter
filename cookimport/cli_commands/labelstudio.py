@@ -1605,7 +1605,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--codex-farm-pipeline-knowledge",
             hidden=True,
             help="Stage-7 codex-farm pipeline id for non-recipe knowledge review.",
-        )] = "recipe.knowledge.compact.v1",
+        )] = "recipe.knowledge.packet.v1",
         codex_farm_context_blocks: Annotated[int, typer.Option(
             "--codex-farm-context-blocks",
             min=0,

@@ -60,6 +60,7 @@ _OUTPUT_CATEGORY_RECIPE_AUTHORITY = "recipeAuthority"
 NONRECIPE_SEED_ROUTING_FILE_NAME = "08_nonrecipe_seed_routing.json"
 NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME = "08_nonrecipe_review_exclusions.jsonl"
 NONRECIPE_AUTHORITY_FILE_NAME = "09_nonrecipe_authority.json"
+NONRECIPE_KNOWLEDGE_GROUPS_FILE_NAME = "09_nonrecipe_knowledge_groups.json"
 NONRECIPE_REVIEW_STATUS_FILE_NAME = "09_nonrecipe_review_status.json"
 
 _IO_PACE_EVERY_WRITES_ENV = "COOKIMPORT_IO_PACE_EVERY_WRITES"
@@ -1097,12 +1098,18 @@ def write_knowledge_outputs_artifact(
     run_root: Path,
     stage_result: NonRecipeStageResult,
     llm_report: Mapping[str, Any] | None,
+    knowledge_group_records: list[dict[str, Any]] | None,
     snippet_records: list[dict[str, Any]] | None,
     output_stats: OutputStats | None = None,
 ) -> Path:
     write_nonrecipe_authority_artifact(
         run_root=run_root,
         stage_result=stage_result,
+        output_stats=output_stats,
+    )
+    write_nonrecipe_knowledge_groups_artifact(
+        run_root=run_root,
+        knowledge_group_records=knowledge_group_records,
         output_stats=output_stats,
     )
     return write_nonrecipe_review_status_artifact(
@@ -1168,6 +1175,27 @@ def write_nonrecipe_authority_artifact(
     return path
 
 
+def write_nonrecipe_knowledge_groups_artifact(
+    *,
+    run_root: Path,
+    knowledge_group_records: list[dict[str, Any]] | None,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    path = run_root / NONRECIPE_KNOWLEDGE_GROUPS_FILE_NAME
+    payload = {
+        "schema_version": "nonrecipe_knowledge_groups.v1",
+        "count": len(knowledge_group_records or []),
+        "knowledge_groups": list(knowledge_group_records or []),
+    }
+    _write_json_payload(
+        payload,
+        path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_KNOWLEDGE,
+    )
+    return path
+
+
 def write_nonrecipe_review_status_artifact(
     *,
     run_root: Path,
@@ -1215,23 +1243,12 @@ def write_nonrecipe_review_status_artifact(
             ),
             "shards_written": int(counts.get("shards_written") or 0),
             "outputs_parsed": int(counts.get("outputs_parsed") or 0),
-            "chunks_missing": int(counts.get("chunks_missing") or 0),
+            "packets_missing": int(counts.get("packets_missing") or 0),
             "skipped_chunk_count": int(counts.get("skipped_chunk_count") or 0),
             "snippets_written": int(counts.get("snippets_written") or 0),
             "decisions_applied": int(counts.get("decisions_applied") or 0),
             "changed_blocks": int(counts.get("changed_blocks") or 0),
         },
-        "reason_code_counts": dict(
-            ((llm_report or {}).get("refinement_report") or {}).get("reason_code_counts") or {}
-        ),
-        "useful_reason_code_counts": dict(
-            ((llm_report or {}).get("refinement_report") or {}).get("useful_reason_code_counts")
-            or {}
-        ),
-        "other_reason_code_counts": dict(
-            ((llm_report or {}).get("refinement_report") or {}).get("other_reason_code_counts")
-            or {}
-        ),
         "pipeline": str((llm_report or {}).get("pipeline") or "off"),
         "enabled": bool((llm_report or {}).get("enabled")),
         "authority_mode": str(
@@ -1245,7 +1262,7 @@ def write_nonrecipe_review_status_artifact(
             or "seed_only"
         ),
         "artifact_paths": dict((llm_report or {}).get("paths") or {}),
-        "missing_chunk_ids": list((llm_report or {}).get("missing_chunk_ids") or []),
+        "missing_packet_ids": list((llm_report or {}).get("missing_packet_ids") or []),
         "review_summary": dict((llm_report or {}).get("review_summary") or {}),
         "review_routing_by_block": {
             str(index): route

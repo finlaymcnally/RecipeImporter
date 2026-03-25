@@ -127,7 +127,7 @@ def test_run_settings_accepts_only_current_line_role_and_knowledge_pipeline_ids(
 def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> None:
     settings = RunSettings()
 
-    assert settings.codex_farm_pipeline_knowledge == "recipe.knowledge.compact.v1"
+    assert settings.codex_farm_pipeline_knowledge == "recipe.knowledge.packet.v1"
     assert settings.codex_farm_knowledge_context_blocks == 0
     assert settings.recipe_prompt_target_count == 5
     assert settings.line_role_prompt_target_count == 5

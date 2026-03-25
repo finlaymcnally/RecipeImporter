@@ -53,13 +53,13 @@ def _build_review_summary(
     validated_output_count: int,
     planned_shard_count: int,
     review_rollup: Mapping[str, Any] | None,
-    promoted_useful_chunk_count: int,
+    promoted_useful_packet_count: int,
     promoted_snippet_count: int,
 ) -> dict[str, int]:
     skipped_lane_counts = dict(getattr(build_report, "skipped_lane_counts", {}) or {})
     counts = dict(review_rollup or {})
-    planned_chunk_count = int(getattr(build_report, "chunks_written", 0) or 0)
-    unreviewed_chunk_count = int(counts.get("unreviewed_chunk_count") or 0)
+    planned_packet_count = int(getattr(build_report, "packets_written", 0) or 0)
+    unreviewed_packet_count = int(counts.get("unreviewed_packet_count") or 0)
     return {
         "seed_nonrecipe_span_count": int(
             getattr(build_report, "seed_nonrecipe_span_count", 0) or 0
@@ -70,8 +70,8 @@ def _build_review_summary(
         "chunk_count_before_pruning": int(
             getattr(build_report, "chunk_count_before_pruning", 0) or 0
         ),
-        "planned_chunk_count": planned_chunk_count,
-        "reviewed_chunk_count": max(0, planned_chunk_count - unreviewed_chunk_count),
+        "planned_packet_count": planned_packet_count,
+        "reviewed_packet_count": max(0, planned_packet_count - unreviewed_packet_count),
         "review_eligible_block_count": int(
             getattr(build_report, "review_eligible_block_count", 0) or 0
         ),
@@ -83,7 +83,7 @@ def _build_review_summary(
         "skipped_low_signal_chunk_count": int(skipped_lane_counts.get("low_signal") or 0),
         "planned_shard_count": int(planned_shard_count),
         "reviewed_shard_count": int(counts.get("meaningfully_reviewed_shard_count") or 0),
-        "validated_output_chunk_count": int(validated_output_count),
+        "validated_output_packet_count": int(validated_output_count),
         "validated_shard_count": int(counts.get("validated_shard_count") or 0),
         "invalid_shard_count": int(counts.get("invalid_shard_count") or 0),
         "missing_output_shard_count": int(counts.get("missing_output_shard_count") or 0),
@@ -93,18 +93,17 @@ def _build_review_summary(
         "wholly_unpromoted_invalid_shard_count": int(
             counts.get("wholly_unpromoted_invalid_shard_count") or 0
         ),
-        "reviewed_shards_with_useful_chunks": int(
-            counts.get("reviewed_shards_with_useful_chunks") or 0
+        "reviewed_shards_with_useful_packets": int(
+            counts.get("reviewed_shards_with_useful_packets") or 0
         ),
         "reviewed_shards_all_other": int(counts.get("reviewed_shards_all_other") or 0),
         "semantic_rejection_shard_count": int(
             counts.get("semantic_rejection_shard_count") or 0
         ),
-        "all_false_empty_shard_count": int(counts.get("all_false_empty_shard_count") or 0),
         "unreviewed_shard_count": int(counts.get("unreviewed_shard_count") or 0),
-        "unreviewed_chunk_count": unreviewed_chunk_count,
+        "unreviewed_packet_count": unreviewed_packet_count,
         "unreviewed_block_count": int(counts.get("unreviewed_block_count") or 0),
-        "promoted_useful_chunk_count": int(promoted_useful_chunk_count),
+        "promoted_useful_packet_count": int(promoted_useful_packet_count),
         "promoted_snippet_count": int(promoted_snippet_count),
     }
 
@@ -118,8 +117,8 @@ def _build_knowledge_review_rollup(
     validated_shard_count = int(report.get("validated_shards") or 0)
     invalid_shard_count = int(report.get("invalid_shards") or 0)
     missing_output_shard_count = int(report.get("missing_output_shards") or 0)
-    reviewed_shards_with_useful_chunks = int(
-        report.get("reviewed_shards_with_useful_chunks") or 0
+    reviewed_shards_with_useful_packets = int(
+        report.get("reviewed_shards_with_useful_packets") or 0
     )
     reviewed_shards_all_other = int(report.get("reviewed_shards_all_other") or 0)
     partially_promoted_shard_count = int(report.get("partially_promoted_shards") or 0)
@@ -129,11 +128,10 @@ def _build_knowledge_review_rollup(
     semantic_rejection_shard_count = int(
         report.get("semantic_rejection_shard_count") or 0
     )
-    all_false_empty_shard_count = int(report.get("all_false_empty_shard_count") or 0)
-    unreviewed_chunk_count = int(
-        report.get("unreviewed_chunk_count")
+    unreviewed_packet_count = int(
+        report.get("unreviewed_packet_count")
         or (
-            int(getattr(build_report, "chunks_written", 0) or 0)
+            int(getattr(build_report, "packets_written", 0) or 0)
             if missing_output_shard_count > 0 and not report
             else 0
         )
@@ -143,19 +141,18 @@ def _build_knowledge_review_rollup(
         "validated_shard_count": validated_shard_count,
         "invalid_shard_count": invalid_shard_count,
         "missing_output_shard_count": missing_output_shard_count,
-        "reviewed_shards_with_useful_chunks": reviewed_shards_with_useful_chunks,
+        "reviewed_shards_with_useful_packets": reviewed_shards_with_useful_packets,
         "reviewed_shards_all_other": reviewed_shards_all_other,
         "partially_promoted_shard_count": partially_promoted_shard_count,
         "wholly_unpromoted_invalid_shard_count": wholly_unpromoted_invalid_shard_count,
         "semantic_rejection_shard_count": semantic_rejection_shard_count,
-        "all_false_empty_shard_count": all_false_empty_shard_count,
         "meaningfully_reviewed_shard_count": (
-            reviewed_shards_with_useful_chunks + reviewed_shards_all_other
+            reviewed_shards_with_useful_packets + reviewed_shards_all_other
         ),
         "unreviewed_shard_count": (
             wholly_unpromoted_invalid_shard_count + missing_output_shard_count
         ),
-        "unreviewed_chunk_count": unreviewed_chunk_count,
+        "unreviewed_packet_count": unreviewed_packet_count,
         "unreviewed_block_count": unreviewed_block_count,
     }
 
@@ -163,12 +160,12 @@ def _build_knowledge_review_rollup(
 def _derive_knowledge_review_status(review_rollup: Mapping[str, Any]) -> str:
     reviewed_shard_count = int(review_rollup.get("meaningfully_reviewed_shard_count") or 0)
     unreviewed_shard_count = int(review_rollup.get("unreviewed_shard_count") or 0)
-    unreviewed_chunk_count = int(review_rollup.get("unreviewed_chunk_count") or 0)
+    unreviewed_packet_count = int(review_rollup.get("unreviewed_packet_count") or 0)
     if reviewed_shard_count <= 0 and (
-        unreviewed_shard_count > 0 or unreviewed_chunk_count > 0
+        unreviewed_shard_count > 0 or unreviewed_packet_count > 0
     ):
         return "unreviewed"
-    if unreviewed_shard_count > 0 or unreviewed_chunk_count > 0:
+    if unreviewed_shard_count > 0 or unreviewed_packet_count > 0:
         return "partial"
     return "complete"
 
@@ -327,27 +324,29 @@ def _write_knowledge_runtime_summary_artifacts(
     failures: Sequence[Mapping[str, Any]],
     stage_rows: Sequence[Mapping[str, Any]],
 ) -> PhaseManifestV1:
-    def _proposal_has_validation_error(
+    def _proposal_has_validation_error_prefix(
         proposal: ShardProposalV1,
         *,
-        error_code: str,
+        prefix: str,
     ) -> bool:
-        target_error = str(error_code).strip()
-        if not target_error:
+        target_prefix = str(prefix).strip()
+        if not target_prefix:
             return False
         direct_errors = {
             str(error).strip()
             for error in (proposal.validation_errors or ())
             if str(error).strip()
         }
-        if target_error in direct_errors:
+        if any(error.startswith(target_prefix) for error in direct_errors):
             return True
         task_aggregation = _coerce_dict((proposal.metadata or {}).get("task_aggregation"))
         task_errors_by_task_id = task_aggregation.get("task_validation_errors_by_task_id")
         if not isinstance(task_errors_by_task_id, Mapping):
             return False
         for task_errors in task_errors_by_task_id.values():
-            if any(str(error).strip() == target_error for error in (task_errors or ())):
+            if any(
+                str(error).strip().startswith(target_prefix) for error in (task_errors or ())
+            ):
                 return True
         return False
 
@@ -361,40 +360,40 @@ def _write_knowledge_runtime_summary_artifacts(
         )
 
     def _promoted_rows_are_all_other(bundle: Any) -> bool:
-        chunk_results = tuple(getattr(bundle, "chunk_results", ()) or ())
-        if not chunk_results:
+        if bundle is None:
             return False
-        return all(
-            (not bool(result.is_useful))
-            and (not result.snippets)
-            and all(decision.category == "other" for decision in result.block_decisions)
-            for result in chunk_results
+        block_decisions = tuple(getattr(bundle, "block_decisions", ()) or ())
+        idea_groups = tuple(getattr(bundle, "idea_groups", ()) or ())
+        if not block_decisions:
+            return False
+        return (not idea_groups) and all(
+            decision.category == "other" for decision in block_decisions
         )
 
-    def _unreviewed_chunk_count_for_proposal(
+    def _unreviewed_packet_count_for_proposal(
         proposal: ShardProposalV1,
         promotion_info: Mapping[str, Any] | None,
     ) -> int:
         metadata = _coerce_dict(proposal.metadata)
-        owned_chunk_count = int(metadata.get("owned_chunk_count") or 0)
+        owned_packet_count = int(metadata.get("owned_packet_count") or 1)
         if proposal.status == "validated":
             return 0
         if proposal.status == "missing_output":
-            return owned_chunk_count
+            return owned_packet_count
         if not promotion_info or not bool(promotion_info.get("partial")):
-            return owned_chunk_count
-        missing_chunk_ids = [
-            str(chunk_id).strip()
-            for chunk_id in (
-                promotion_info.get("missing_chunk_ids")
-                or metadata.get("missing_owned_chunk_ids")
+            return owned_packet_count
+        missing_packet_ids = [
+            str(packet_id).strip()
+            for packet_id in (
+                promotion_info.get("missing_packet_ids")
+                or metadata.get("missing_packet_ids")
                 or []
             )
-            if str(chunk_id).strip()
+            if str(packet_id).strip()
         ]
-        if missing_chunk_ids:
-            return len(set(missing_chunk_ids))
-        return max(0, owned_chunk_count - int(promotion_info.get("promoted_chunk_count") or 0))
+        if missing_packet_ids:
+            return len(set(missing_packet_ids))
+        return max(0, owned_packet_count - int(promotion_info.get("promoted_packet_count") or 0))
 
     def _unreviewed_block_count_for_proposal(
         proposal: ShardProposalV1,
@@ -408,48 +407,31 @@ def _write_knowledge_runtime_summary_artifacts(
             return owned_block_count
         if not promotion_info or not bool(promotion_info.get("partial")):
             return owned_block_count
-        chunk_block_count_by_id = metadata.get("chunk_block_count_by_id")
-        if not isinstance(chunk_block_count_by_id, Mapping):
-            return owned_block_count
-        missing_chunk_ids = [
-            str(chunk_id).strip()
-            for chunk_id in (
-                promotion_info.get("missing_chunk_ids")
-                or metadata.get("missing_owned_chunk_ids")
+        missing_block_indices = [
+            int(value)
+            for value in (
+                promotion_info.get("missing_owned_block_indices")
+                or metadata.get("missing_owned_block_indices")
                 or []
             )
-            if str(chunk_id).strip()
+            if value is not None
         ]
-        if missing_chunk_ids:
-            return sum(
-                int(chunk_block_count_by_id.get(chunk_id) or 0)
-                for chunk_id in missing_chunk_ids
-            )
-        promoted_chunk_ids = {
-            str(chunk_id).strip()
-            for chunk_id in (promotion_info.get("promoted_chunk_ids") or [])
-            if str(chunk_id).strip()
-        }
-        promoted_block_count = sum(
-            int(block_count or 0)
-            for chunk_id, block_count in chunk_block_count_by_id.items()
-            if str(chunk_id).strip() in promoted_chunk_ids
-        )
-        return max(0, owned_block_count - promoted_block_count)
+        if missing_block_indices:
+            return len(set(missing_block_indices))
+        return owned_block_count
 
     proposal_promotion_rows: list[dict[str, Any]] = []
     for proposal in all_proposals:
         promoted_bundle = _promotable_bundle_for_proposal(proposal)
-        promoted_results = tuple(promoted_bundle[0].chunk_results) if promoted_bundle else ()
         promotion_info = dict(promoted_bundle[1]) if promoted_bundle else {}
         proposal_promotion_rows.append(
             {
                 "proposal": proposal,
-                "promoted_results": promoted_results,
+                "promoted_bundle": promoted_bundle[0] if promoted_bundle else None,
                 "promotion_info": promotion_info,
                 "partially_promoted": bool(promotion_info.get("partial")),
-                "reviewed_with_useful_chunks": any(
-                    bool(result.is_useful) for result in promoted_results
+                "reviewed_with_useful_packets": bool(
+                    promoted_bundle is not None and promoted_bundle[0].idea_groups
                 ),
                 "reviewed_all_other": _promoted_rows_are_all_other(
                     promoted_bundle[0] if promoted_bundle else None
@@ -458,55 +440,6 @@ def _write_knowledge_runtime_summary_artifacts(
                 else False,
             }
         )
-
-    reason_code_counts: dict[str, int] = {}
-    useful_reason_code_counts: dict[str, int] = {}
-    other_reason_code_counts: dict[str, int] = {}
-    for row in proposal_promotion_rows:
-        metadata = _coerce_dict(row["proposal"].metadata)
-        promoted_chunk_ids = {
-            str(chunk_id).strip()
-            for chunk_id in (row["promotion_info"].get("promoted_chunk_ids") or [])
-            if str(chunk_id).strip()
-        }
-        chunk_reason_code_by_id = _coerce_dict(metadata.get("reason_code_by_chunk_id"))
-        useful_reason_counts = _coerce_dict(metadata.get("useful_reason_code_counts"))
-        other_reason_counts = _coerce_dict(metadata.get("other_reason_code_counts"))
-        if promoted_chunk_ids and chunk_reason_code_by_id:
-            for chunk_id in promoted_chunk_ids:
-                reason_code = str(chunk_reason_code_by_id.get(chunk_id) or "").strip()
-                if reason_code:
-                    reason_code_counts[reason_code] = reason_code_counts.get(reason_code, 0) + 1
-        elif row["proposal"].status == "validated":
-            for source_counts, target_counts in (
-                (useful_reason_counts, useful_reason_code_counts),
-                (other_reason_counts, other_reason_code_counts),
-            ):
-                for reason_code, count in source_counts.items():
-                    cleaned_reason = str(reason_code).strip()
-                    if not cleaned_reason:
-                        continue
-                    numeric_count = int(count or 0)
-                    target_counts[cleaned_reason] = (
-                        target_counts.get(cleaned_reason, 0) + numeric_count
-                    )
-                    reason_code_counts[cleaned_reason] = (
-                        reason_code_counts.get(cleaned_reason, 0) + numeric_count
-                    )
-            continue
-        for source_counts, target_counts in (
-            (useful_reason_counts, useful_reason_code_counts),
-            (other_reason_counts, other_reason_code_counts),
-        ):
-            for reason_code, count in source_counts.items():
-                cleaned_reason = str(reason_code).strip()
-                if not cleaned_reason:
-                    continue
-                numeric_count = min(1, int(count or 0))
-                if numeric_count <= 0:
-                    continue
-                target_counts[cleaned_reason] = target_counts.get(cleaned_reason, 0) + numeric_count
-                reason_code_counts[cleaned_reason] = reason_code_counts.get(cleaned_reason, 0) + numeric_count
 
     promotion_report = {
         "schema_version": "phase_worker_runtime.promotion_report.v1",
@@ -524,14 +457,14 @@ def _write_knowledge_runtime_summary_artifacts(
             if proposal.status == "invalid"
             and not any(row["proposal"] is proposal and row["partially_promoted"] for row in proposal_promotion_rows)
         ),
-        "promoted_chunk_count": sum(
-            int(row["promotion_info"].get("promoted_chunk_count") or 0)
+        "promoted_packet_count": sum(
+            int(row["promotion_info"].get("promoted_packet_count") or 0)
             for row in proposal_promotion_rows
         ),
-        "reviewed_shards_with_useful_chunks": sum(
+        "reviewed_shards_with_useful_packets": sum(
             1
             for row in proposal_promotion_rows
-            if row["reviewed_with_useful_chunks"]
+            if row["reviewed_with_useful_packets"]
         ),
         "reviewed_shards_all_other": sum(
             1
@@ -543,32 +476,21 @@ def _write_knowledge_runtime_summary_artifacts(
             for proposal in all_proposals
             if proposal.status == "invalid"
             and (
-                _proposal_has_validation_error(
+                _proposal_has_validation_error_prefix(
                     proposal,
-                    error_code="semantic_all_false_empty_shard",
+                    prefix="semantic_",
                 )
                 or bool((proposal.metadata or {}).get("semantic_rejection"))
             )
         ),
-        "all_false_empty_shard_count": sum(
-            1
-            for proposal in all_proposals
-            if _proposal_has_validation_error(
-                proposal,
-                error_code="semantic_all_false_empty_shard",
-            )
-        ),
-        "unreviewed_chunk_count": sum(
-            _unreviewed_chunk_count_for_proposal(row["proposal"], row["promotion_info"])
+        "unreviewed_packet_count": sum(
+            _unreviewed_packet_count_for_proposal(row["proposal"], row["promotion_info"])
             for row in proposal_promotion_rows
         ),
         "unreviewed_block_count": sum(
             _unreviewed_block_count_for_proposal(row["proposal"], row["promotion_info"])
             for row in proposal_promotion_rows
         ),
-        "reason_code_counts": dict(sorted(reason_code_counts.items())),
-        "useful_reason_code_counts": dict(sorted(useful_reason_code_counts.items())),
-        "other_reason_code_counts": dict(sorted(other_reason_code_counts.items())),
     }
     telemetry_summary = _summarize_direct_rows(list(stage_rows))
     telemetry_summary.update(_summarize_knowledge_workspace_relaunches(worker_reports))

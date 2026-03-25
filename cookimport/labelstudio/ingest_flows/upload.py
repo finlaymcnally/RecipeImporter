@@ -105,7 +105,7 @@ def run_labelstudio_import(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
-    codex_farm_pipeline_knowledge: str = "recipe.knowledge.compact.v1",
+    codex_farm_pipeline_knowledge: str = "recipe.knowledge.packet.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 2,
     codex_farm_recipe_mode: str = "extract",

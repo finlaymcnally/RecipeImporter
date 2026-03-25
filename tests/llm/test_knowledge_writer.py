@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from cookimport.llm.codex_farm_knowledge_models import KnowledgeChunkResultV2
+from cookimport.llm.codex_farm_knowledge_models import KnowledgeBundleOutputV2
 from cookimport.llm.codex_farm_knowledge_writer import write_knowledge_artifacts
 
 
@@ -12,17 +12,23 @@ def test_write_knowledge_artifacts_writes_jsonl_and_md(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
     outputs = {
-        "book.c0000.nr": KnowledgeChunkResultV2.model_validate(
+        "book.kp0000.nr": KnowledgeBundleOutputV2.model_validate(
             {
-                "chunk_id": "book.c0000.nr",
-                "is_useful": True,
-                "block_decisions": [
-                    {"block_index": 4, "category": "knowledge"},
+                "bid": "book.kp0000.nr",
+                "d": [
+                    {"i": 4, "c": "knowledge"},
                 ],
-                "snippets": [
+                "g": [
                     {
-                        "body": "Whisk constantly and use low heat.",
-                        "evidence": [{"block_index": 4, "quote": "whisk constantly"}],
+                        "gid": "idea-1",
+                        "l": "Whisk gently over low heat",
+                        "bi": [4],
+                        "s": [
+                            {
+                                "b": "Whisk constantly and use low heat.",
+                                "e": [{"i": 4, "q": "whisk constantly"}],
+                            }
+                        ],
                     }
                 ],
             }
@@ -37,18 +43,17 @@ def test_write_knowledge_artifacts_writes_jsonl_and_md(tmp_path: Path) -> None:
         workbook_slug="book",
         outputs=outputs,
         full_blocks_by_index=blocks,
-        chunk_lane_by_id={"book.c0000.nr": "knowledge"},
     )
 
     assert report.snippets_written == 1
     assert report.snippets_path.exists()
     assert report.preview_path.exists()
-    assert report.snippet_records[0]["snippet_id"] == "book.c0000.nr.s00"
+    assert report.snippet_records[0]["snippet_id"] == "book.kp0000.nr.idea-1.s00"
 
     jsonl = report.snippets_path.read_text(encoding="utf-8")
-    assert "book.c0000.nr.s00" in jsonl
+    assert "book.kp0000.nr.idea-1.s00" in jsonl
     md = report.preview_path.read_text(encoding="utf-8")
-    assert "Snippet 1" in md
+    assert "Whisk gently over low heat" in md
     assert "block 4" in md
 
 
@@ -56,17 +61,23 @@ def test_write_knowledge_artifacts_fails_on_missing_block_index(tmp_path: Path) 
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
     outputs = {
-        "book.c0000.nr": KnowledgeChunkResultV2.model_validate(
+        "book.kp0000.nr": KnowledgeBundleOutputV2.model_validate(
             {
-                "chunk_id": "book.c0000.nr",
-                "is_useful": True,
-                "block_decisions": [
-                    {"block_index": 999, "category": "knowledge"},
+                "bid": "book.kp0000.nr",
+                "d": [
+                    {"i": 999, "c": "knowledge"},
                 ],
-                "snippets": [
+                "g": [
                     {
-                        "body": "Whisk constantly.",
-                        "evidence": [{"block_index": 999, "quote": "whisk"}],
+                        "gid": "idea-1",
+                        "l": "Whisk constantly",
+                        "bi": [999],
+                        "s": [
+                            {
+                                "b": "Whisk constantly.",
+                                "e": [{"i": 999, "q": "whisk"}],
+                            }
+                        ],
                     }
                 ],
             }

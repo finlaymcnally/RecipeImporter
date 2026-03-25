@@ -1362,7 +1362,7 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     )
     assert captured["path"] == selected_file
     assert captured["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
-    assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
+    assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.packet.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
 
 
@@ -1410,7 +1410,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_unstructured_skip_headers_footers"] is True
     assert captured["epub_unstructured_preprocess_mode"] == "br_split_v1"
     assert captured["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
-    assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
+    assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.packet.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 42
 
 

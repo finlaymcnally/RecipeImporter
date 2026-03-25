@@ -110,7 +110,7 @@ from .reporting import (
 
 logger = logging.getLogger(__name__)
 
-COMPACT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.compact.v1"
+COMPACT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.packet.v1"
 DEFAULT_KNOWLEDGE_PIPELINE_ID = COMPACT_KNOWLEDGE_PIPELINE_ID
 _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD = 1
 _KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD = 6000
@@ -135,15 +135,17 @@ _KNOWLEDGE_SCRATCH_DIR_NAME = "scratch"
 _KNOWLEDGE_POISONED_WORKER_MIN_FAILURES = 2
 _KNOWLEDGE_FOLLOWUP_CIRCUIT_BREAKER_MIN_ATTEMPTS = 3
 _KNOWLEDGE_FOLLOWUP_CIRCUIT_BREAKER_MIN_SUCCESS_RATE = 0.25
-_KNOWLEDGE_DETERMINISTIC_BYPASS_WORKER_ID = "deterministic-bypass"
 _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
     {
         "response_json_invalid",
         "response_not_json_object",
         "schema_invalid",
-        "missing_owned_chunk_results",
-        "unexpected_chunk_results",
-        "chunk_result_order_mismatch",
+        "missing_owned_block_decisions",
+        "unexpected_block_decisions",
+        "block_decision_order_mismatch",
+        "knowledge_block_missing_group",
+        "knowledge_block_group_conflict",
+        "group_contains_other_block",
     }
 )
 
@@ -156,4 +158,3 @@ for _module_name in ("planning", "promotion", "recovery", "runtime"):
             if not name.startswith("__")
         }
     )
-

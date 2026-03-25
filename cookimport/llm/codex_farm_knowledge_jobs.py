@@ -5,11 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cookimport.core.models import ChunkLane, KnowledgeChunk, ParsingOverrides
-from cookimport.parsing.chunks import (
-    chunks_from_non_recipe_blocks,
-    summarize_chunk_utility_profile,
-)
+from cookimport.core.models import ParsingOverrides
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
@@ -17,53 +13,69 @@ from cookimport.staging.nonrecipe_stage import (
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.llm.shard_prompt_targets import (
-    partition_contiguous_items,
     resolve_shard_count,
 )
 
 from .codex_farm_knowledge_contracts import (
-    KnowledgeCompactBundleChunkPayloadV2,
-    KnowledgeCompactBundleJobInputV2,
-    KnowledgeCompactChunkBlockV1,
-    KnowledgeCompactContextBlockV1,
-    KnowledgeCompactContextPayloadV1,
-    KnowledgeCompactGuardrailsPayloadV1,
-    KnowledgeCompactTableHintV1,
+    KnowledgePacketBlockV1,
+    KnowledgePacketContextBlockV1,
+    KnowledgePacketContextPayloadV1,
+    KnowledgePacketGuardrailsPayloadV1,
+    KnowledgePacketJobInputV1,
     KnowledgeTableHintV1,
     SpanV1,
 )
+
+_MAX_PACKET_BLOCKS = 10
+_MAX_PACKET_CHARS = 6_000
 
 
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
     seed_nonrecipe_span_count: int
     review_eligible_nonrecipe_span_count: int
-    chunk_count_before_pruning: int
+    packet_count_before_partition: int
     shards_written: int
-    chunks_written: int
+    packets_written: int
     review_eligible_block_count: int
-    chunk_ids: list[str]
-    chunk_lane_by_id: dict[str, str | None]
-    skipped_chunk_count: int
-    skipped_lane_counts: dict[str, int]
+    packet_ids: list[str]
     planning_warnings: list[str]
     shard_entries: list[ShardManifestEntryV1]
 
+    @property
+    def chunk_count_before_pruning(self) -> int:
+        return self.packet_count_before_partition
+
+    @property
+    def chunks_written(self) -> int:
+        return self.packets_written
+
+    @property
+    def chunk_ids(self) -> list[str]:
+        return list(self.packet_ids)
+
+    @property
+    def chunk_lane_by_id(self) -> dict[str, str | None]:
+        return {}
+
+    @property
+    def skipped_chunk_count(self) -> int:
+        return 0
+
+    @property
+    def skipped_lane_counts(self) -> dict[str, int]:
+        return {}
+
 
 @dataclass(frozen=True, slots=True)
-class _PreparedKnowledgeBundleChunk:
-    payload: KnowledgeCompactBundleChunkPayloadV2
+class _PreparedKnowledgePacket:
+    packet_id: str
+    blocks: list[KnowledgePacketBlockV1]
     absolute_indices: list[int]
     char_count: int
     has_table_content: bool
     has_heading: bool
-    suggested_lane: str | None
-    title: str | None
-    knowledge_cue: bool
-    utility_profile: dict[str, Any]
-    source_span_id: str
-
-
+    source_span_ids: tuple[str, ...]
 def build_knowledge_jobs(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
@@ -78,40 +90,25 @@ def build_knowledge_jobs(
     prompt_target_count: int | None = None,
     target_chunks_per_shard: int | None = None,
 ) -> KnowledgeJobBuildReport:
-    """Write knowledge-stage job bundles to out_dir and return a build report.
+    del overrides
+    del skip_suggested_lanes
+    del target_chunks_per_shard
 
-    Notes:
-    - Uses deterministic chunking over review-eligible Stage 7 non-recipe spans.
-    - Chunk blocks come only from review-eligible non-recipe spans; context may overlap recipes.
-    """
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale_path in sorted(out_dir.glob("*.json")):
         stale_path.unlink()
+
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
+
     recipe_spans_payload = [
-        SpanV1(
-            start=int(span.start_block_index),
-            end=int(span.end_block_index),
-        )
+        SpanV1(start=int(span.start_block_index), end=int(span.end_block_index))
         for span in recipe_spans
     ]
-    chunk_ids: list[str] = []
-    chunk_lane_by_id: dict[str, str | None] = {}
-    chunk_counter = 0
-    bundle_counter = 0
-    normalized_skip_lanes = {
-        str(value or "").strip().lower()
-        for value in skip_suggested_lanes
-        if str(value or "").strip()
-    }
-    chunk_count_before_pruning = 0
-    skipped_chunk_count = 0
-    skipped_lane_counts: dict[str, int] = {}
     planning_warnings: list[str] = []
-    all_prepared_chunks: list[_PreparedKnowledgeBundleChunk] = []
-    shard_entries: list[ShardManifestEntryV1] = []
+    prepared_packets: list[_PreparedKnowledgePacket] = []
+    packet_counter = 0
 
     for stage_span in candidate_spans:
         sequence = block_rows_for_nonrecipe_span(
@@ -121,74 +118,61 @@ def build_knowledge_jobs(
         if not sequence:
             continue
         table_hints_by_index = _table_hints_by_index(sequence)
-        chunks = chunks_from_non_recipe_blocks(sequence, overrides=overrides)
-        for chunk in chunks:
-            chunk_count_before_pruning += 1
-            chunk_id = f"{workbook_slug}.c{chunk_counter:04d}.nr"
-            suggested_lane: str | None
-            if isinstance(chunk.lane, ChunkLane):
-                suggested_lane = chunk.lane.value
-            else:
-                suggested_lane = str(chunk.lane) if chunk.lane is not None else None
-            normalized_lane = str(suggested_lane or "").strip().lower()
-            if normalized_lane and normalized_lane in normalized_skip_lanes:
-                skipped_chunk_count += 1
-                skipped_lane_counts[normalized_lane] = (
-                    int(skipped_lane_counts.get(normalized_lane) or 0) + 1
-                )
-                chunk_counter += 1
+        for packet_rows in _partition_span_rows(sequence):
+            absolute_indices = [
+                int(row["index"])
+                for row in packet_rows
+                if _coerce_int(row.get("index")) is not None
+            ]
+            if not absolute_indices:
                 continue
-            absolute_indices = _absolute_indices_for_chunk(chunk, sequence=sequence)
-            payload, absolute_indices = _build_chunk_payload(
-                chunk_id=chunk_id,
-                chunk=chunk,
-                absolute_indices=absolute_indices,
-                full_blocks_by_index=full_blocks_by_index,
-                table_hints_by_index=table_hints_by_index,
-            )
-            utility_profile = summarize_chunk_utility_profile(chunk)
-            all_prepared_chunks.append(
-                _PreparedKnowledgeBundleChunk(
-                    payload=payload,
+            blocks = [
+                _to_knowledge_packet_block(
+                    full_blocks_by_index.get(index) or {},
+                    fallback_index=index,
+                    table_hint=table_hints_by_index.get(index),
+                )
+                for index in absolute_indices
+            ]
+            packet_id = f"{workbook_slug}.kp{packet_counter:04d}.nr"
+            prepared_packets.append(
+                _PreparedKnowledgePacket(
+                    packet_id=packet_id,
+                    blocks=blocks,
                     absolute_indices=absolute_indices,
-                    char_count=sum(len(block.text) for block in payload.blocks),
-                    has_table_content=any(block.table_hint is not None for block in payload.blocks),
-                    has_heading=any(block.heading_level is not None for block in payload.blocks),
-                    suggested_lane=str(suggested_lane or "").strip() or None,
-                    title=str(chunk.title or "").strip() or None,
-                    knowledge_cue=_chunk_has_strong_knowledge_cue(
-                        chunk=chunk,
-                        payload=payload,
-                        utility_profile=utility_profile,
-                    ),
-                    utility_profile=utility_profile,
-                    source_span_id=stage_span.span_id,
+                    char_count=sum(len(str(block.text or "").strip()) for block in blocks),
+                    has_table_content=any(block.table_hint is not None for block in blocks),
+                    has_heading=any(block.heading_level is not None for block in blocks),
+                    source_span_ids=(str(stage_span.span_id).strip(),),
                 )
             )
-            chunk_ids.append(chunk_id)
-            chunk_lane_by_id[chunk_id] = (
-                str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else suggested_lane
-            )
-            chunk_counter += 1
-    planning_warnings: list[str] = []
-    sorted_prepared_chunks = sorted(
-        all_prepared_chunks,
-        key=lambda chunk: chunk.absolute_indices[0],
+            packet_counter += 1
+
+    sorted_packets = sorted(
+        prepared_packets,
+        key=lambda packet: packet.absolute_indices[0],
     )
-    planned_shard_count = resolve_shard_count(
-        total_items=len(sorted_prepared_chunks),
+    requested_shard_count = resolve_shard_count(
+        total_items=len(sorted_packets),
         prompt_target_count=prompt_target_count,
-        items_per_shard=target_chunks_per_shard,
+        items_per_shard=None,
         default_items_per_shard=1,
     )
-    for prepared_chunks in partition_contiguous_items(
-        sorted_prepared_chunks,
-        shard_count=planned_shard_count,
+    if (
+        sorted_packets
+        and requested_shard_count
+        and requested_shard_count < len(sorted_packets)
     ):
-        bundle_id = f"{workbook_slug}.ks{bundle_counter:04d}.nr"
-        bundle_payload = _build_bundle_job_payload(
-            bundle_id=bundle_id,
-            prepared_chunks=prepared_chunks,
+        planning_warnings.append(
+            "knowledge prompt target count requested fewer shards than the packet floor; "
+            "keeping one shard per packet so no review packet is dropped."
+        )
+    shard_entries: list[ShardManifestEntryV1] = []
+    bundle_counter = 0
+    written_packets: list[_PreparedKnowledgePacket] = []
+    for packet in sorted_packets:
+        bundle_payload = _build_packet_job_payload(
+            packet=packet,
             full_blocks_by_index=full_blocks_by_index,
             recipe_spans_payload=recipe_spans_payload,
             context_blocks=context_blocks,
@@ -199,134 +183,80 @@ def build_knowledge_jobs(
             exclude_none=True,
             exclude_defaults=True,
         )
-        bundle_payload_json.setdefault("v", "2")
+        bundle_payload_json.setdefault("v", "1")
         _write_json(
             bundle_payload_json,
-            out_dir / f"{bundle_id}.json",
+            out_dir / f"{packet.packet_id}.json",
         )
-        owned_chunk_ids = tuple(chunk.payload.chunk_id for chunk in prepared_chunks)
-        owned_block_indices = tuple(
-            sorted(
-                {
-                    int(index)
-                    for chunk in prepared_chunks
-                    for index in chunk.absolute_indices
-                }
-            )
-        )
-        source_span_ids = tuple(
-            sorted(
-                {
-                    source_span_id
-                    for chunk in prepared_chunks
-                    for source_span_id in [str(chunk.source_span_id).strip()]
-                    if source_span_id
-                }
-            )
-        )
-        char_count = sum(int(chunk.char_count) for chunk in prepared_chunks)
         shard_entries.append(
             ShardManifestEntryV1(
-                shard_id=bundle_id,
-                owned_ids=owned_chunk_ids,
-                evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
+                shard_id=packet.packet_id,
+                owned_ids=(packet.packet_id,),
+                evidence_refs=tuple(f"block:{index}" for index in packet.absolute_indices),
                 input_payload=bundle_payload_json,
                 metadata={
-                    "ordered_chunk_ids": list(owned_chunk_ids),
-                    "owned_block_indices": list(owned_block_indices),
-                    "source_span_ids": list(source_span_ids),
-                    "chunk_count": len(prepared_chunks),
-                    "char_count": char_count,
-                    "table_heavy": any(
-                        bool(chunk.has_table_content) for chunk in prepared_chunks
-                    ),
+                    "packet_id": packet.packet_id,
+                    "owned_block_indices": list(packet.absolute_indices),
+                    "source_span_ids": list(packet.source_span_ids),
+                    "packet_block_count": len(packet.absolute_indices),
+                    "packet_char_count": packet.char_count,
+                    "table_heavy": packet.has_table_content,
+                    "has_heading": packet.has_heading,
                     "context_blocks": max(0, int(context_blocks)),
-                    "chunk_block_indices_by_id": {
-                        chunk.payload.chunk_id: list(chunk.absolute_indices)
-                        for chunk in prepared_chunks
-                    },
-                    "chunk_lane_by_id": (
-                        {
-                            chunk.payload.chunk_id: chunk.suggested_lane
-                            for chunk in prepared_chunks
-                            if chunk.suggested_lane is not None
-                        }
-                        if any(
-                            chunk.suggested_lane is not None
-                            for chunk in prepared_chunks
-                        )
-                        else {}
-                    ),
-                    "chunk_title_by_id": (
-                        {
-                            chunk.payload.chunk_id: chunk.title
-                            for chunk in prepared_chunks
-                            if chunk.title is not None
-                        }
-                        if any(chunk.title is not None for chunk in prepared_chunks)
-                        else {}
-                    ),
-                    "chunk_has_heading_by_id": {
-                        chunk.payload.chunk_id: bool(chunk.has_heading)
-                        for chunk in prepared_chunks
-                    },
-                    "chunk_has_table_hint_by_id": {
-                        chunk.payload.chunk_id: bool(chunk.has_table_content)
-                        for chunk in prepared_chunks
-                    },
-                    "chunk_knowledge_cue_by_id": {
-                        chunk.payload.chunk_id: bool(chunk.knowledge_cue)
-                        for chunk in prepared_chunks
-                    },
-                    "chunk_utility_positive_cues_by_id": {
-                        chunk.payload.chunk_id: list(
-                            chunk.utility_profile.get("positive_cues") or []
-                        )
-                        for chunk in prepared_chunks
-                    },
-                    "chunk_utility_negative_cues_by_id": {
-                        chunk.payload.chunk_id: list(
-                            chunk.utility_profile.get("negative_cues") or []
-                        )
-                        for chunk in prepared_chunks
-                    },
-                    "chunk_utility_borderline_by_id": {
-                        chunk.payload.chunk_id: bool(
-                            chunk.utility_profile.get("borderline")
-                        )
-                        for chunk in prepared_chunks
-                    },
-                    "chunk_strong_negative_utility_cue_by_id": {
-                        chunk.payload.chunk_id: bool(
-                            chunk.utility_profile.get("strong_negative_cue")
-                        )
-                        for chunk in prepared_chunks
-                    },
+                    "task_count": 1,
+                    "task_index": 1,
                 },
             )
         )
+        written_packets.append(packet)
         bundle_counter += 1
 
     return KnowledgeJobBuildReport(
         seed_nonrecipe_span_count=len(candidate_spans),
         review_eligible_nonrecipe_span_count=len(candidate_spans),
-        chunk_count_before_pruning=chunk_count_before_pruning,
+        packet_count_before_partition=len(sorted_packets),
         shards_written=bundle_counter,
-        chunks_written=len(chunk_ids),
+        packets_written=len(written_packets),
         review_eligible_block_count=len(
             {
                 index
-                for chunk in all_prepared_chunks
-                for index in chunk.absolute_indices
+                for packet in written_packets
+                for index in packet.absolute_indices
             }
         ),
-        chunk_ids=chunk_ids,
-        chunk_lane_by_id=chunk_lane_by_id,
-        skipped_chunk_count=skipped_chunk_count,
-        skipped_lane_counts=skipped_lane_counts,
+        packet_ids=[packet.packet_id for packet in written_packets],
         planning_warnings=planning_warnings,
         shard_entries=shard_entries,
     )
+
+
+def _partition_span_rows(
+    sequence: Sequence[Mapping[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    packets: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_chars = 0
+    for raw_row in sequence:
+        row = dict(raw_row)
+        row_char_count = len(str(row.get("text") or "").strip())
+        has_table_hint = _normalize_table_hint(row) is not None
+        would_exceed_block_cap = len(current) >= _MAX_PACKET_BLOCKS
+        would_exceed_char_cap = current and current_chars + row_char_count > _MAX_PACKET_CHARS
+        if current and (would_exceed_block_cap or would_exceed_char_cap or has_table_hint):
+            packets.append(current)
+            current = []
+            current_chars = 0
+        current.append(row)
+        current_chars += row_char_count
+        if has_table_hint:
+            packets.append(current)
+            current = []
+            current_chars = 0
+    if current:
+        packets.append(current)
+    return packets
+
+
 def _prepare_full_blocks_by_index(
     blocks: Sequence[Mapping[str, Any]],
 ) -> dict[int, dict[str, Any]]:
@@ -347,62 +277,24 @@ def _prepare_full_blocks_by_index(
     return by_index
 
 
-def _build_chunk_payload(
+def _build_packet_job_payload(
     *,
-    chunk_id: str,
-    chunk: KnowledgeChunk,
-    absolute_indices: Sequence[int],
-    full_blocks_by_index: dict[int, dict[str, Any]],
-    table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
-) -> tuple[KnowledgeCompactBundleChunkPayloadV2, list[int]]:
-    if not chunk.block_ids:
-        raise ValueError(f"Chunk {chunk_id} has no block_ids; cannot build job bundle.")
-
-    suggested_lane: str | None
-    if isinstance(chunk.lane, ChunkLane):
-        suggested_lane = chunk.lane.value
-    else:
-        suggested_lane = str(chunk.lane) if chunk.lane is not None else None
-
-    chunk_blocks_payload = [
-        _to_knowledge_compact_chunk_block(
-            full_blocks_by_index.get(idx) or {},
-            fallback_index=idx,
-            table_hint=table_hints_by_index.get(idx),
-        )
-        for idx in absolute_indices
-    ]
-    return (
-        KnowledgeCompactBundleChunkPayloadV2(
-            chunk_id=chunk_id,
-            blocks=chunk_blocks_payload,
-        ),
-        absolute_indices,
-    )
-
-
-def _build_bundle_job_payload(
-    *,
-    bundle_id: str,
-    prepared_chunks: Sequence[_PreparedKnowledgeBundleChunk],
+    packet: _PreparedKnowledgePacket,
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     recipe_spans_payload: list[SpanV1],
     context_blocks: int,
-) -> KnowledgeCompactBundleJobInputV2:
-    if not prepared_chunks:
-        raise ValueError(f"Bundle {bundle_id} has no prepared chunks.")
-
-    bundle_start_index = min(chunk.absolute_indices[0] for chunk in prepared_chunks)
-    bundle_end_index = max(chunk.absolute_indices[-1] for chunk in prepared_chunks) + 1
-    before_indices = range(max(0, bundle_start_index - context_blocks), bundle_start_index)
-    after_indices = range(bundle_end_index, bundle_end_index + max(0, int(context_blocks)))
+) -> KnowledgePacketJobInputV1:
+    packet_start_index = min(packet.absolute_indices)
+    packet_end_index = max(packet.absolute_indices) + 1
+    before_indices = range(max(0, packet_start_index - context_blocks), packet_start_index)
+    after_indices = range(packet_end_index, packet_end_index + max(0, int(context_blocks)))
     context_recipe_block_indices = sorted(
         idx
         for idx in [*before_indices, *after_indices]
         if _index_in_recipe_spans(idx, recipe_spans_payload)
     )
     blocks_before = [
-        _to_knowledge_compact_context_block(
+        _to_knowledge_context_block(
             full_blocks_by_index[idx],
             fallback_index=idx,
         )
@@ -410,24 +302,23 @@ def _build_bundle_job_payload(
         if idx in full_blocks_by_index
     ]
     blocks_after = [
-        _to_knowledge_compact_context_block(
+        _to_knowledge_context_block(
             full_blocks_by_index[idx],
             fallback_index=idx,
         )
         for idx in after_indices
         if idx in full_blocks_by_index
     ]
-
-    context_payload = KnowledgeCompactContextPayloadV1(
+    context_payload = KnowledgePacketContextPayloadV1(
         blocks_before=blocks_before,
         blocks_after=blocks_after,
     )
-    guardrails_payload = KnowledgeCompactGuardrailsPayloadV1(
+    guardrails_payload = KnowledgePacketGuardrailsPayloadV1(
         context_recipe_block_indices=context_recipe_block_indices,
     )
-    return KnowledgeCompactBundleJobInputV2(
-        bundle_id=bundle_id,
-        chunks=[chunk.payload for chunk in prepared_chunks],
+    return KnowledgePacketJobInputV1(
+        packet_id=packet.packet_id,
+        blocks=packet.blocks,
         context=(
             context_payload
             if context_payload.blocks_before or context_payload.blocks_after
@@ -440,151 +331,47 @@ def _build_bundle_job_payload(
         ),
     )
 
-def _absolute_indices_for_chunk(
-    chunk: KnowledgeChunk,
-    *,
-    sequence: Sequence[dict[str, Any]],
-) -> list[int]:
-    indices: list[int] = []
-    for relative_id in chunk.block_ids:
-        try:
-            relative_index = int(relative_id)
-        except (TypeError, ValueError):
-            continue
-        if relative_index < 0 or relative_index >= len(sequence):
-            continue
-        absolute = _coerce_int(sequence[relative_index].get("index"))
-        if absolute is None:
-            continue
-        indices.append(absolute)
-    if not indices:
-        raise ValueError("Chunk had no valid absolute indices after mapping block_ids.")
-    indices.sort()
-    return indices
-
-
-def _chunk_has_strong_knowledge_cue(
-    *,
-    chunk: KnowledgeChunk,
-    payload: KnowledgeCompactBundleChunkPayloadV2,
-    utility_profile: Mapping[str, Any] | None,
-) -> bool:
-    block_char_count = sum(len(str(block.text or "").strip()) for block in payload.blocks)
-    profile = dict(utility_profile or {})
-    positive_cues = {
-        str(cue).strip()
-        for cue in (profile.get("positive_cues") or [])
-        if str(cue).strip()
-    }
-    strong_negative_cue = bool(profile.get("strong_negative_cue"))
-    borderline = bool(profile.get("borderline"))
-    high_precision_positive_cues = {
-        "reference_table_shape",
-        "diagnostic_or_sensory",
-        "storage_or_safety",
-        "failure_prevention",
-    }
-    if (
-        strong_negative_cue
-        and borderline
-        and positive_cues
-        and not high_precision_positive_cues.intersection(positive_cues)
-    ):
-        return False
-    if bool(profile.get("strong_positive_cue")):
-        return True
-    if any(block.table_hint is not None for block in payload.blocks):
-        return True
-    if {"storage_or_safety", "failure_prevention", "diagnostic_or_sensory"}.intersection(
-        positive_cues
-    ):
-        return True
-    title_candidates: list[str] = []
-    title = str(chunk.title or "").strip()
-    if title:
-        title_candidates.append(title)
-    title_candidates.extend(
-        str(block.text or "").strip()
-        for block in payload.blocks
-        if block.heading_level is not None and str(block.text or "").strip()
-    )
-    return bool(positive_cues) and any(
-        _looks_like_reference_heading(text) for text in title_candidates
-    )
-
-
-def _looks_like_reference_heading(text: str) -> bool:
-    normalized = " ".join(str(text or "").strip().lower().split())
-    if not normalized:
-        return False
-    keywords = (
-        "how ",
-        "how to ",
-        "how salt affects",
-        "how acid affects",
-        "how fat affects",
-        "how heat affects",
-        "how it works",
-        "why it works",
-        "storage",
-        "storing",
-        "substitution",
-        "substitutions",
-        "troubleshooting",
-        "smoke point",
-        "smoke points",
-        "temperature guide",
-        "temperature chart",
-        "conversion",
-        "conversions",
-        "reference",
-        "technique",
-        "techniques",
-        "safety",
-    )
-    return any(keyword in normalized for keyword in keywords)
-
 
 def _index_in_recipe_spans(index: int, recipe_spans_payload: Sequence[SpanV1]) -> bool:
     return any(int(span.start) <= index < int(span.end) for span in recipe_spans_payload)
 
 
-def _to_knowledge_compact_chunk_block(
+def _to_knowledge_packet_block(
     block: Mapping[str, Any],
     *,
     fallback_index: int,
     table_hint: KnowledgeTableHintV1 | None = None,
-) -> KnowledgeCompactChunkBlockV1:
+) -> KnowledgePacketBlockV1:
     index = _coerce_int(block.get("index"))
     if index is None:
         index = int(fallback_index)
-    compact_table_hint: KnowledgeCompactTableHintV1 | None = None
+    compact_table_hint = None
     if table_hint is not None:
-        compact_table_hint = KnowledgeCompactTableHintV1(
-            table_id=table_hint.table_id,
-            caption=table_hint.caption,
-            row_index_in_table=table_hint.row_index_in_table,
-        )
-    return KnowledgeCompactChunkBlockV1(
-        block_index=index,
-        text=str(block.get("text") or ""),
-        heading_level=_resolve_heading_level(block),
-        table_hint=compact_table_hint,
+        compact_table_hint = {
+            "id": table_hint.table_id,
+            "c": table_hint.caption,
+            "r": table_hint.row_index_in_table,
+        }
+    return KnowledgePacketBlockV1(
+        i=index,
+        t=str(block.get("text") or ""),
+        hl=_resolve_heading_level(block),
+        th=compact_table_hint,
     )
 
 
-def _to_knowledge_compact_context_block(
+def _to_knowledge_context_block(
     block: Mapping[str, Any],
     *,
     fallback_index: int,
-) -> KnowledgeCompactContextBlockV1:
+) -> KnowledgePacketContextBlockV1:
     index = _coerce_int(block.get("index"))
     if index is None:
         index = int(fallback_index)
-    return KnowledgeCompactContextBlockV1(
-        block_index=index,
-        text=str(block.get("text") or ""),
-        heading_level=_resolve_heading_level(block),
+    return KnowledgePacketContextBlockV1(
+        i=index,
+        t=str(block.get("text") or ""),
+        hl=_resolve_heading_level(block),
     )
 
 

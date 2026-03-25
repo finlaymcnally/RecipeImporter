@@ -130,11 +130,10 @@ def build_stage_block_predictions(
                 "All review-eligible non-recipe blocks had final authority before scoring."
             )
     else:
-        knowledge_indices = _load_chunk_lane_knowledge_indices(conversion_result)
-        if knowledge_indices:
-            notes.append(
-                "KNOWLEDGE labels were derived from deterministic chunk lanes."
-            )
+        knowledge_indices = set()
+        notes.append(
+            "KNOWLEDGE labels require final non-recipe authority; no fallback chunk-lane projection ran."
+        )
     if knowledge_indices and block_count == 0:
         notes.append("Knowledge blocks were present but no extracted archive blocks were available.")
     for block_index in sorted(knowledge_indices):
@@ -979,42 +978,3 @@ def _resolve_block_label(labels: list[str]) -> str:
             return label
     return "OTHER"
 
-
-def _load_chunk_lane_knowledge_indices(
-    conversion_result: ConversionResult,
-) -> set[int]:
-    non_recipe_blocks = conversion_result.non_recipe_blocks
-    if not non_recipe_blocks:
-        return set()
-    if not conversion_result.chunks:
-        return set()
-
-    source_indices_by_relative_index: list[int | None] = []
-    for payload in non_recipe_blocks:
-        if not isinstance(payload, dict):
-            source_indices_by_relative_index.append(None)
-            continue
-        source_indices_by_relative_index.append(_coerce_int(payload.get("index")))
-
-    indices: set[int] = set()
-    for chunk in conversion_result.chunks:
-        lane = getattr(chunk, "lane", None)
-        lane_value = getattr(lane, "value", lane)
-        if str(lane_value or "").strip().lower() != "knowledge":
-            continue
-
-        block_ids = getattr(chunk, "block_ids", None)
-        if not isinstance(block_ids, list):
-            continue
-        for value in block_ids:
-            relative_index = _coerce_int(value)
-            if relative_index is None:
-                continue
-            if relative_index < 0 or relative_index >= len(source_indices_by_relative_index):
-                continue
-            source_index = source_indices_by_relative_index[relative_index]
-            if source_index is None:
-                continue
-            indices.add(source_index)
-
-    return indices

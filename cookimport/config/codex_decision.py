@@ -25,7 +25,7 @@ SECTION_DETECTOR_SHARED_V1 = "shared_v1"
 INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
 INSTRUCTION_STEP_SEGMENTER_HEURISTIC_V1 = "heuristic_v1"
 BENCHMARK_SEQUENCE_MATCHER_DMP = "dmp"
-COMPACT_KNOWLEDGE_PIPELINE = "recipe.knowledge.compact.v1"
+COMPACT_KNOWLEDGE_PIPELINE = "recipe.knowledge.packet.v1"
 
 
 @dataclass(frozen=True)

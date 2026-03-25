@@ -457,7 +457,7 @@ def build_conversion_result_from_label_spans(
         recipes=recipes,
         source_blocks=list(original_result.source_blocks),
         source_support=list(original_result.source_support),
-        chunks=list(original_result.chunks),
+        chunks=[],
         non_recipe_blocks=non_recipe_blocks,
         raw_artifacts=list(original_result.raw_artifacts),
         report=report,

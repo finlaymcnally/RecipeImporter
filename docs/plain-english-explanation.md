@@ -209,13 +209,11 @@ If knowledge review is off, the program keeps the routed review queue artifact a
 
 If knowledge review is on, the public knowledge pipeline name is `codex-knowledge-shard-v1`.
 
-Before that reviewer sees anything, the program packages the surviving review-eligible outside-recipe text into the bounded local units that the knowledge runtime uses for review, rather than asking for one giant whole-book judgment at once.
+Before that reviewer sees anything, the program packages the surviving review-eligible outside-recipe text into bounded ordered packets rather than asking for one giant whole-book judgment at once.
 
-There is one important extra rule here. Not every review-eligible piece automatically gets sent to the LLM. Inside `knowledge-final`, the program can take a conservative deterministic fast path for a chunk that looks clearly non-useful: strong negative utility cues, no positive utility cues, no strong knowledge cue, and no borderline signal. When that happens, the program does not claim it found subtle knowledge deterministically. It does the opposite. It says this chunk looks obviously like final `other`, skips the LLM call, and records that as a repo-owned final decision. So this shortcut is a cheap obvious-not-knowledge filter, not a cheap way to declare real knowledge.
+That bounded packaging matters for business logic, not just token control. Repo code chooses packet size and ordering, but it does not decide which nearby blocks belong together as one final knowledge idea. The model now owns that grouping step.
 
-That bounded packaging matters for business logic, not just token control. The point is to give Codex grounded local material to review and eventually turn into better knowledge outputs. The knowledge side still looks unfinished compared with the recipe side, especially around topic grouping and tagging.
-
-The reviewer returns semantic decisions plus the supporting snippets and records used by the runtime. Those decisions are then validated and promoted back into the stage-owned authority model.
+The reviewer returns block-level semantic decisions plus one or more packet-local related-idea groups with grounded snippets. Those decisions are then validated and promoted back into the stage-owned authority model.
 
 Those worker decisions refine the routed review queue into the final outside-recipe authority.
 
@@ -227,9 +225,9 @@ This is the place where the system makes its final semantic claim about outside-
 - this passage is just other outside-recipe material
 - this passage was excluded earlier and never came back into play
 
-In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` view (legacy Stage 7 routing), `09_nonrecipe_authority.json` is the final machine-readable truth, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved. The routing artifact keeps queue and exclusion facts, not the final semantic answer.
+In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` view (legacy Stage 7 routing), `09_nonrecipe_authority.json` is the final machine-readable truth, `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved. The routing artifact keeps queue and exclusion facts, not the final semantic answer.
 
-If optional reviewer-facing knowledge snippets are written, they are evidence artifacts, not the authority surface themselves.
+If optional reviewer-facing knowledge snippets are written, they are evidence artifacts derived from those promoted idea groups, not the authority surface themselves.
 
 ## Tables, chunks, sections, and other late outputs
 
